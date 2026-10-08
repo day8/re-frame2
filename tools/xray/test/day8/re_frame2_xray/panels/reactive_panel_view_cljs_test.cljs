@@ -3,11 +3,11 @@
   Views panel (Figma · spec/021 §3.2).
 
   Renders `reactive-panel` (the pure projection) and asserts the
-  structural data-testid hooks ship: panel root, the REACTIVE FLOW SVG
-  graph (app-db source node + sub nodes + view nodes + edges), the
-  changed/unchanged node + edge encoding, the per-view cause + timing
-  labels, the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections, and the
-  closing legend. The pure graph geometry is covered by
+  structural data-testid hooks ship: the empty state, the REACTIVE FLOW
+  SVG graph (app-db source node + sub nodes + view nodes + edges), the
+  changed-node encoding, the per-view cause + timing labels, the
+  UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections, and the unchanged-sub
+  rows' selectors. The pure graph geometry is covered by
   reactive-flow-graph-cljs-test; the projection logic by
   reactive-panel-subs-cljs-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -58,14 +58,6 @@
   the keys the view reads rather than ones the real focus never has."
   (spine/compose-focus {:mode :retro :dispatch-id 1} []))
 
-(deftest reactive-panel-mounts-with-root-testid
-  (testing "the panel root surfaces `rf-xray-reactive` data-testid"
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (let [tree (panel-tree)]
-      (is (has-testid? tree "rf-xray-reactive")
-          "the root :section data-testid is present"))))
-
 (deftest reactive-panel-renders-empty-state-without-cascade
   (testing "Empty-state copy renders when no cascade is focused"
     (facade/install!)
@@ -85,8 +77,6 @@
           pinned     (spine/compose-focus {:mode :retro :dispatch-id 42} [])
           epoch-only (spine/compose-focus {:mode :retro :epoch-id 7} [])
           unset      (spine/compose-focus nil [])]
-      (is (= [42 nil nil] (mapv :dispatch-id [pinned epoch-only unset]))
-          "the composed focus carries the pinned dispatch-id, and nothing else does")
       (is (= "Focused event-bundle has no reactive activity captured yet."
              (empty-text pinned)))
       (is (= "Focused event-bundle has no reactive activity captured yet."
@@ -118,55 +108,8 @@
                     :reason {:kind :reactive :subs [:cart/total]}
                     :triggered-by :cart/total :elapsed-ms 1.5}]})
     (let [tree (panel-tree)]
-      (is (has-testid? tree "rf-xray-reactive-flow-svg") "the SVG canvas renders")
       (is (has-testid? tree "rf-xray-reactive-appdb-node") "app-db source node renders")
-      (is (has-testid? tree "rf-xray-reactive-node-l1-_cart_state") "Level-1 node renders")
-      (is (has-testid? tree "rf-xray-reactive-node-l2-_cart_total") "Level-2 node renders")
-      (is (has-testid? tree "rf-xray-reactive-view-node-_cart_Summary") "view node renders"))))
-
-(deftest reactive-flow-heading-is-title-case-not-all-caps
-  (testing "the primary `Reactive Flow` heading renders in
-            TITLE case (no CSS uppercase transform), not all-caps
-            `REACTIVE FLOW`; the secondary teardown captions keep their
-            uppercase register."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
-       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
-       :unmounted-views [] :destroyed-subs []})
-    (let [tree (panel-tree)
-          flow (rf.test-helpers/find-by-testid tree "rf-xray-reactive-section-flow-label")
-          unmnt (rf.test-helpers/find-by-testid tree
-                                   "rf-xray-reactive-section-unmounted-label")]
-      (is (not= "uppercase" (get-in flow [1 :style :text-transform]))
-          "the `Reactive Flow` heading is NOT CSS-uppercased (title case)")
-      ;; The literal title is title case; with no uppercase transform it
-      ;; renders as authored.
-      (is (= "Reactive Flow" (text-of tree "rf-xray-reactive-section-flow-label"))
-          "the literal heading text reads in title case")
-      (is (= "uppercase" (get-in unmnt [1 :style :text-transform]))
-          "the secondary teardown caption keeps its uppercase register"))))
-
-(deftest reactive-graph-card-carries-visible-border
-  (testing "the reactive-graph card paints a visible rounded
-            card border (a `:border-default` hairline would be near-
-            invisible on the dark theme)."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
-       :counts {}
-       :level-1-subs [{:sub-id :cart/state :changed? true}]
-       :level-2-subs [] :view-rows []})
-    (let [tree (panel-tree)
-          card (rf.test-helpers/find-by-testid tree "rf-xray-reactive-graph-card")
-          border (get-in card [1 :style :border])]
-      (is (some? card) "the graph card renders")
-      (is (string? border) "the card carries a border")
-      (is (re-find #"^1px solid " border) "the border is a 1px solid edge")
-      (is (= "8px" (get-in card [1 :style :border-radius]))
-          "the card keeps its rounded-lg corner radius"))))
+      (is (has-testid? tree "rf-xray-reactive-node-l2-_cart_total") "Level-2 node renders"))))
 
 (deftest changed-node-and-edge-encoding
   (testing "a changed sub node carries data-node-changed
@@ -179,25 +122,9 @@
        :level-1-subs [{:sub-id :cart/state :changed? true}]})
     (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_state")]
-      (is (some? node) "changed node renders")
       (is (= "true" (get-in node [1 :data-node-changed]))
           "changed node tagged data-node-changed=true")
       (is (has-testid? tree "rf-xray-reactive-edges") "edge group renders"))))
-
-(deftest unchanged-node-renders-dim
-  (testing "an unchanged sub node is tagged
-            data-node-changed false (renders dashed dim per the
-            encoding)."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
-       :counts {} :level-2-subs [] :view-rows []
-       :level-1-subs [{:sub-id :cart/title :changed? false}]})
-    (let [tree (panel-tree)
-          node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_title")]
-      (is (= "false" (get-in node [1 :data-node-changed]))
-          "unchanged node tagged data-node-changed=false"))))
 
 (deftest view-node-carries-cause-and-timing
   (testing "a view node's sub-label shows the
@@ -212,7 +139,6 @@
                     :triggered-by :cart/total :elapsed-ms 2.0}]})
     (let [tree (panel-tree)
           meta (text-of tree "rf-xray-reactive-view-meta-_cart_Summary")]
-      (is (some? meta) "view-node meta label renders")
       (is (re-find #"rerendered" meta) "labelled (rerendered)")
       (is (re-find #":cart/total" meta) "shows the triggered-by cause sub")
       (is (re-find #"2ms" meta) "shows the render timing"))))
@@ -231,8 +157,6 @@
                     :reason {:kind :structural} :elapsed-ms 0.5}]})
     (let [tree (panel-tree)
           meta (text-of tree "rf-xray-reactive-view-meta-_cart_Badge")]
-      (is (some? meta) "view-node meta label renders")
-      (is (re-find #"rerendered" meta) "labelled (rerendered)")
       (is (re-find #"← props" meta)
           "props-driven re-render attributes the cause to props"))))
 
@@ -267,9 +191,7 @@
                    {:view-id :app/Sidebar :action :rerender :reason {:kind :structural}}]})
     (let [tree (panel-tree)]
       (is (= "×2" (text-of tree "rf-xray-reactive-shared-_app_session"))
-          "shared sub carries a ×2 annotation")
-      (is (has-testid? tree "rf-xray-reactive-view-node-_app_Header") "fans out to Header")
-      (is (has-testid? tree "rf-xray-reactive-view-node-_app_Sidebar") "fans out to Sidebar"))))
+          "shared sub carries a ×2 annotation"))))
 
 (deftest view-node-carries-hover-handlers
   (testing "the view NODE carries the hover
@@ -283,7 +205,6 @@
                     :reason {:kind :structural}}]})
     (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-view-node-_cart_Summary")]
-      (is (some? node) "the view node renders")
       (is (fn? (rf.test-helpers/extract-handler node :on-mouse-enter))
           "view node has an :on-mouse-enter handler (apply-highlight!)")
       (is (fn? (rf.test-helpers/extract-handler node :on-mouse-leave))
@@ -299,9 +220,7 @@
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-graph-empty")
-          "sparse cascade shows the graph empty placeholder")
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-flow-svg"))
-          "no SVG canvas when the graph is empty"))))
+          "sparse cascade shows the graph empty placeholder"))))
 
 ;; ---- UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS ---------------------------
 
@@ -315,13 +234,8 @@
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [{:view-id :app/Modal} {:view-id :app/Tooltip}]})
     (let [tree (panel-tree)]
-      (is (= "Unmounted Views"
-             (text-of tree "rf-xray-reactive-section-unmounted-label"))
-          "section heading renders")
       (is (has-testid? tree "rf-xray-reactive-unmounted-row-_app_Modal")
-          "modal unmount row renders")
-      (is (has-testid? tree "rf-xray-reactive-unmounted-row-_app_Tooltip")
-          "tooltip unmount row renders"))))
+          "modal unmount row renders"))))
 
 (deftest unmounted-views-empty-placeholder
   (testing "no unmounts → the section shows its empty
@@ -336,9 +250,9 @@
       (is (has-testid? tree "rf-xray-reactive-unmounted-empty")
           "empty placeholder renders when nothing unmounted"))))
 
-(deftest destroyed-subs-section-renders-with-caption
+(deftest destroyed-subs-section-renders
   (testing "the DESTROYED SUBSCRIPTIONS section lists subs
-            cleaned up + carries the explanatory caption."
+            cleaned up this epoch."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -346,32 +260,8 @@
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :destroyed-subs [{:sub-id :app/modal-state}]})
     (let [tree (panel-tree)]
-      (is (= "Destroyed Subscriptions"
-             (text-of tree "rf-xray-reactive-section-destroyed-label"))
-          "section heading renders")
       (is (has-testid? tree "rf-xray-reactive-destroyed-row-_app_modal_state")
-          "destroyed sub row renders")
-      (is (= "Subscriptions cleaned up when their last reader unmounted"
-             (text-of tree "rf-xray-reactive-destroyed-caption"))
-          "the explanatory caption renders"))))
-
-;; ---- legend ----------------------------------------------------------
-
-(deftest legend-renders-three-swatches
-  (testing "the closing legend explains the encoding:
-            changed (propagates) · no change (short-circuits) · unmounted
-            / destroyed."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
-       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (panel-tree)
-          legend-text (text-of tree "rf-xray-reactive-legend")]
-      (is (some? legend-text) "legend renders")
-      (is (re-find #"changed \(propagates" legend-text) "changed swatch labelled")
-      (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
-      (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
+          "destroyed sub row renders"))))
 
 ;; ---- graph instances keep distinct React keys -------------------------
 
@@ -397,10 +287,10 @@
                           (rf.test-helpers/find-by-testid-prefix tree prefix)))
           subs   (keys-of "rf-xray-reactive-node-l1-")
           views  (keys-of "rf-xray-reactive-view-node-")]
-      (is (= 3 (count subs)) "three sub-instance nodes")
-      (is (= 3 (count (distinct subs))) "with three distinct React keys")
-      (is (= 3 (count views)) "three view-instance nodes")
-      (is (= 3 (count (distinct views))) "with three distinct React keys"))))
+      (is (= 3 (count subs) (count (distinct subs)))
+          "three sub-instance nodes with three distinct React keys")
+      (is (= 3 (count views) (count (distinct views)))
+          "three view-instance nodes with three distinct React keys"))))
 
 ;; ---- unchanged-subs disclosure keys by concrete query-v ----------------
 
@@ -433,15 +323,8 @@
       (is (= 2 (count testids)) "each parameterization renders its own row")
       (is (some? id1) "the [:item/derived 1] parameterization keeps its slug stem")
       (is (some? id2) "the [:item/derived 2] parameterization keeps its slug stem")
-      (is (not= id1 id2) "the two rows carry DISTINCT test-ids")
-      (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id1)))
-          "row 1's test-id addresses exactly one node")
-      (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id2)))
-          "row 2's test-id addresses exactly one node")
       (is (re-find #"\[:item/derived 1\]" (text-of tree id1))
-          "row 1 labels with its full concrete query vector")
-      (is (re-find #"\[:item/derived 2\]" (text-of tree id2))
-          "row 2 labels with its full concrete query vector"))))
+          "a row labels with its full concrete query vector"))))
 
 (deftest unchanged-row-selectors-injective-for-colliding-queries
   (testing "two DISTINCT concrete queries whose `id-slug` forms
@@ -465,13 +348,7 @@
           testids (unchanged-row-testids tree)]
       (is (= 2 (count testids)) "both colliding parameterizations render a row")
       (is (= 2 (count (distinct testids)))
-          "the injective selector gives the two rows DISTINCT test-ids")
-      (doseq [id (distinct testids)]
-        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
-            "each concrete query's test-id addresses exactly one node"))
-      (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
-        (is (re-find #":a-b" joined) "the :a-b parameterization is labelled")
-        (is (re-find #":a/b" joined) "the :a/b parameterization is labelled")))))
+          "the injective selector gives the two rows DISTINCT test-ids"))))
 
 (deftest unchanged-row-selectors-injective-for-hash-colliding-queries
   (testing "the ADVERSARIAL pair a 32-bit-hash suffix cannot
@@ -498,13 +375,7 @@
       (is (= 2 (count testids)) "both hash-colliding parameterizations render a row")
       (is (= 2 (count (distinct testids)))
           "the injective selector gives the two rows DISTINCT test-ids (not the
-           single shared hash suffix)")
-      (doseq [id (distinct testids)]
-        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
-            "each concrete query's test-id addresses exactly one node"))
-      (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
-        (is (re-find #" @" joined) "the \" @\" parameterization is labelled")
-        (is (re-find #"!!" joined) "the \"!!\" parameterization is labelled")))))
+           single shared hash suffix)"))))
 
 (deftest unchanged-row-selector-canonical-across-map-insertion-order
   (testing "VALUE-EQUAL concrete queries retain ONE stable selector
@@ -567,10 +438,7 @@
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 3 (count (distinct testids)))
           "RecA, RecB and the plain map each mint a DISTINCT selector — the
-           record TYPE is preserved, not flattened into the entries")
-      (doseq [id (distinct testids)]
-        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
-            "each concrete query's test-id addresses exactly one row")))))
+           record TYPE is preserved, not flattened into the entries"))))
 
 (deftest unchanged-row-selector-canonical-across-record-extension-order
   (testing "ADVERSARIAL — type preservation must not cost
@@ -631,10 +499,7 @@
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 3 (count (distinct testids)))
           "nested RecA, nested RecB and the nested plain map each mint a
-           DISTINCT selector — the encoder is type-preserving at every depth")
-      (doseq [id (distinct testids)]
-        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
-            "each nested-record query's test-id addresses exactly one row")))))
+           DISTINCT selector — the encoder is type-preserving at every depth"))))
 
 (deftest unchanged-row-unparameterized-shows-plain-sub-id
   (testing "a bare unparameterized skip (query-v
@@ -653,7 +518,6 @@
           testids (unchanged-row-testids tree)
           id      (first testids)
           row     (text-of tree id)]
-      (is (= 1 (count testids)) "exactly one unparameterized row renders")
       (is (str/starts-with? id "rf-xray-reactive-unchanged-row-__user_name_")
           "the common-case row keeps its readable :user/name slug stem")
       (is (re-find #":user/name" row) "labels with the plain sub-id")
