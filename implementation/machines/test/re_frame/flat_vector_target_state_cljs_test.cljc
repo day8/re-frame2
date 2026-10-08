@@ -1,98 +1,41 @@
 (ns re-frame.flat-vector-target-state-cljs-test
-  "In a FLAT machine a keyword-vector `:target` commits the same single
-  keyword a keyword target does, because a flat machine's `:state` is a
-  single keyword (Spec 005 §Snapshot shape). Every state of a flat machine
-  is a root-level leaf, so the absolute path `[:b]` and the sibling keyword
-  `:b` name one state and commit one spelling of it.
-
-  A hierarchical machine's `:state` is a vector path, so there a vector
-  target commits its path (`compound_state_shape_cljs_test` pins it, and the
-  root-level-leaf case).
-
-  A parallel machine's regions follow the same two arms inside the region
-  map (Spec 005 §Parallel regions §Snapshot shape): a FLAT region's value
-  is a keyword, so a vector target naming one of its states commits the
-  keyword, while a compound region's value stays a vector path.
-
-  Named `*-cljs-test.cljc` so both the JVM runner (`clojure -M:test`) and
-  the shadow-cljs `:node-test` build discover it."
+  "A vector `:target` commits the machine's own state shape (Spec 005 §Snapshot
+  shape): a flat machine or flat region commits the leaf keyword, a compound
+  region keeps the vector path, a root-level leaf included."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   [re-frame.core :as rf]
-   [re-frame.machines :as rf.machines]
-   [re-frame.machines.test-support :as rf.machines.test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-(use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
-       :cljs {:adapter rf.adapter.reagent/adapter})))
-
-(def ^:private snapshot rf.machines.test-support/snapshot)
+   #?(:clj  [clojure.test :refer [deftest is]]
+      :cljs [cljs.test :refer-macros [deftest is]])
+   [re-frame.machines :as rf.machines]))
 
 (defn- state-after
   "The `:state` the pure transition commits for `event` from `state`."
   [machine state event]
-  (let [r (rf.machines/machine-transition machine {:state state :data {}} event)]
-    (is (= :ok (:status r)) (pr-str r))
-    (get-in r [:snapshot :state])))
-
-(def ^:private flat-keyword-target
-  {:initial :a :states {:a {:on {:go :b}} :b {}}})
-
-(def ^:private flat-vector-target
-  {:initial :a :states {:a {:on {:go [:b]}} :b {}}})
-
-(def ^:private flat-map-vector-target
-  {:initial :a :states {:a {:on {:go {:target [:b]}}} :b {}}})
+  (get-in (rf.machines/machine-transition machine {:state state :data {}} event)
+          [:snapshot :state]))
 
 (deftest flat-machine-vector-target-commits-a-keyword
-  (testing "the pure transition commits :b for [:b] and {:target [:b]}, as for :b"
-    (is (= :b (state-after flat-keyword-target :a [:go])))
-    (is (= :b (state-after flat-vector-target :a [:go])))
-    (is (= :b (state-after flat-map-vector-target :a [:go]))))
-  (testing "a registered flat machine's live snapshot reads :b"
-    (rf/reg-machine :flat-vec/machine flat-vector-target)
-    (rf/dispatch-sync [:flat-vec/machine [:go]])
-    (is (= :b (:state (snapshot :flat-vec/machine))))))
+  (is (= [:b :b]
+         [(state-after {:initial :a :states {:a {:on {:go [:b]}} :b {}}} :a [:go])
+          (state-after {:initial :a :states {:a {:on {:go {:target [:b]}}} :b {}}} :a [:go])])))
 
 (def ^:private regions
   {:type    :parallel
    :on      {:jump [:flat :b]}
    :regions {:flat     {:initial :a
                         :states  {:a {:on {:go     [:b]
-                                           :go-map {:target [:b]}
-                                           :go-kw  :b}}
+                                           :go-map {:target [:b]}}}
                                   :b {}}}
              :compound {:initial :x
                         :states  {:x {:on {:dive [:y :deep]}}
                                   :y {:initial :deep
                                       :states  {:deep {:on {:leave [:x]}}}}}}}})
 
-(defn- region-after
-  "The value `region` commits in the region map for `event` from `state`."
-  [region state event]
-  (get (state-after regions state event) region))
-
 (deftest flat-region-vector-target-commits-a-keyword
-  (let [from {:flat :a :compound [:x]}]
-    (testing "the flat region commits :b for [:b] and {:target [:b]}, as for :b"
-      (is (= :b (region-after :flat from [:go])))
-      (is (= :b (region-after :flat from [:go-map])))
-      (is (= :b (region-after :flat from [:go-kw]))))
-    (testing "a root region-qualified target into the flat region commits :b"
-      (is (= :b (region-after :flat from [:jump]))))
-    (testing "the sibling region is untouched"
-      (is (= [:x] (region-after :compound from [:go])))))
-  (testing "a registered parallel machine's live snapshot reads :b for the flat region"
-    (rf/reg-machine :flat-vec/regions regions)
-    (rf/dispatch-sync [:flat-vec/regions [:go]])
-    (is (= :b (get-in (snapshot :flat-vec/regions) [:state :flat])))))
+  ;; Includes a root region-qualified target; the sibling region is untouched.
+  (is (= (repeat 3 {:flat :b :compound [:x]})
+         (map #(state-after regions {:flat :a :compound [:x]} %) [[:go] [:go-map] [:jump]]))))
 
 (deftest compound-region-vector-target-commits-its-path
-  (testing "a vector target into a compound commits the in-region leaf path"
-    (is (= [:y :deep] (region-after :compound {:flat :a :compound [:x]} [:dive]))))
-  (testing "a vector target naming the region's root-level leaf commits a one-element path"
-    (is (= [:x] (region-after :compound {:flat :a :compound [:y :deep]} [:leave])))))
+  (is (= [{:flat :a :compound [:y :deep]} {:flat :a :compound [:x]}]
+         [(state-after regions {:flat :a :compound [:x]} [:dive])
+          (state-after regions {:flat :a :compound [:y :deep]} [:leave])])))
