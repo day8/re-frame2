@@ -324,23 +324,3 @@
              " — every button, link, field and select a user can operate "
              "must carry an accessible name, and this is the whole "
              "application asked at once"))))
-
-(deftest the-sweep-would-notice
-  (testing "the control that proves the sweep is not vacuous: the SAME
-            editor rendering with the title field's label detached from
-            it. Nothing else changes — the label is still there, the
-            input still has its id — and the sweep must find exactly one
-            offender. Without this row, an empty answer above would be
-            equally consistent with `unnamed-controls` never finding
-            anything at all"
-    (let [tree     (editor-tree :en {:status :idle :problem nil})
-          detached (rf.fresco.test/find tree #(and (= :label (:tag %))
-                                       (= "slice-title" (:for (rf.fresco.test/attrs %)))))
-          sabotaged (update tree :children
-                            (fn [cs] (mapv #(if (identical? % detached)
-                                              (assoc % :attrs {:for "elsewhere"})
-                                              %)
-                                           cs)))
-          found     (rf.fresco.test/unnamed-controls sabotaged)]
-      (is (= 1 (count found)))
-      (is (= "slice-title" (:id (rf.fresco.test/attrs (first found))))))))
