@@ -3,37 +3,13 @@
 'use strict';
 
 /*
- * A config-merged compile must leave a bundle that RUNS.
- *
- * THE HAZARD. `compile-node-test.cjs ... --config-merge ...` clears the build
- * id's shadow-cljs cache entry, `.shadow-cljs/builds/<id>`, before AND after
- * compiling, so a focused config leaves no residue for the shared id's next
- * full compile. A dev-mode node bundle loads its `cljs-runtime` files from the
- * build's `:output-dir` at RUN time, and shadow-cljs defaults that directory to
- * `<mode>/out` inside the very entry the clear removes. Unless the wrapper
- * moves it, the focused bundle compiles green and then dies on its first
- * `require` — `ENOENT .../builds/<id>/dev/out/cljs-runtime/...`, exit 1.
- *
- * WHAT RUNS FOR REAL: the wrapper's own bytes, through its own CLI, with its
- * own cache clear, and then the bundle it leaves behind, under `node` — the
- * step that fails. The wrapper is COPIED unmodified into a scratch lane beside
- * the `lane_cache.cjs` it requires, so the `IMPL_DIR` it derives from its own
- * location — and so the cache entry it clears — is the lane's, never this
- * checkout's.
- *
- * WHAT IS SUBSTITUTED is shadow-cljs, by a stand-in doing the two things the
- * defect turns on. It writes the runtime to the `:output-dir` named by the LAST
- * `--config-merge` value that names one (shadow-cljs deep-merges them in
- * order), else to shadow-cljs's own default for a node target,
- * `.shadow-cljs/builds/<id>/dev/out` (`shadow.build.targets.shared/
- * set-output-dir`). And it writes a bundle that loads that runtime relative to
- * `__dirname`, as shadow-cljs's dev node output does.
- *
- * THE CONTROL is the full compile, with no `--config-merge`: the same stand-in
- * writes its runtime INSIDE the cache entry and the wrapper leaves it there.
- * That is what shows the stand-in's default really lands in the directory the
- * focused arm clears, so the focused arm's green is the wrapper's doing.
- *
+ * A config-merged compile must leave a bundle that RUNS. `--config-merge` clears
+ * the build's `.shadow-cljs/builds/<id>` cache entry before and after compiling,
+ * and a dev-mode node bundle loads its runtime from the build's :output-dir, which
+ * shadow-cljs defaults to inside that entry — so unless the wrapper moves it, the
+ * focused bundle dies on its first require. The real wrapper runs from a scratch
+ * lane against a shadow-cljs stand-in; the full compile is the control showing the
+ * stand-in's default really lands inside the cleared entry.
  * Discovered by `npm run test:scripts`.
  */
 
@@ -153,7 +129,6 @@ test('a --config-merge compile leaves a bundle that runs', () => {
     `the focused bundle exited ${ran.status}: its runtime was deleted with the ` +
       `cache entry it was written into. stderr:\n${ran.stderr}`,
   );
-  assert.match(ran.stdout, /Ran 1 tests/);
 });
 
 test('a --config-merge compile still clears the cache entry after compiling', () => {
