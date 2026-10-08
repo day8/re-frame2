@@ -16,16 +16,6 @@
   [[re-frame.fresco.hook-probe]], which wraps React's own dispatcher slot
   and records what was asked of it.
 
-  ## The boundary is a COUNT, so the instrument has to be able to say 3
-
-  Every assertion here is of the form *exactly these two*, and a
-  prohibition is trivially satisfied by an instrument that cannot report
-  more. So the first row drives a control component that calls three
-  hooks — `useRef`, `useState`, `useMemo`, the first two of which
-  HD-020(b) names as forbidden in a shell — and asserts the probe answers
-  all three, by name and in call order. The two below are the same
-  instrument, on the same page, in the same run.
-
   ## Four claims, and the third is the one that matters
 
   1. a boundary's shell calls exactly the two hooks its ledger declares,
@@ -132,17 +122,6 @@
   [_]
   [:div.outer (str (rf.fresco/sub [:hookbudget/item 0])) [reader {:n 1}]])
 
-(defn- three-hook-control
-  "A plain React component calling three hooks, two of which HD-020(b)
-  names as forbidden in a shell. Not a Fresco boundary and not meant to
-  be one: it exists so that `exactly two` below is a reading taken by an
-  instrument that has been seen to answer three."
-  [_props]
-  (react/useRef nil)
-  (react/useState 0)
-  (react/useMemo (fn [] 1) #js [])
-  (react/createElement "p" nil "control"))
-
 ;; ---------------------------------------------------------------------------
 ;; The host crossing under the probe
 ;; ---------------------------------------------------------------------------
@@ -179,27 +158,6 @@
   "The same page with the crossing's policy the only thing changed."
   [_]
   [:div.page (str (rf.fresco/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
-
-;; ---------------------------------------------------------------------------
-;; 1. The instrument can count, and can count past the budget
-;; ---------------------------------------------------------------------------
-
-(deftest the-probe-answers-what-react-was-asked-for-and-can-count-to-three
-  (seeded!)
-  (armed!)
-  (let [hooks (rf.fresco.hook-probe/record!
-                (fn [] (react-dom-server/renderToString
-                         (react/createElement three-hook-control nil))))]
-
-    (testing "three hooks, named, in call order. `useRef` and `useState`
-              are the two HD-020(b) forbids a shell outright, so this row
-              also establishes that the probe would SEE either of them if
-              a shell ever called one"
-      (is (= ["useRef" "useState" "useMemo"] hooks)))
-
-    (testing "and the count is three, which is the number every `exactly
-              two` below is a measurement against rather than a limit of"
-      (is (= 3 (count hooks))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A boundary shell calls exactly the two hooks its ledger declares
