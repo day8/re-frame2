@@ -1,773 +1,176 @@
 (ns re-frame.trace-cascade-captured-test
-  "Pins three substrate-level trace ops:
+  "The substrate's reactive trace ops: `:rf.sub/skip` on a memo hit, the
+  `:rf.sub/run` value-change / cascade / first-run / cause-event-id attribution
+  tags, and the `:rf.cascade/captured` aggregator (fires only under a focus
+  predicate; bounded at 50 subs / 100 views per Spec 009).
 
-    1. `:rf.sub/skip` emitted by the memo wrappers on a memo-hit.
-    2. `:rf.flow/skip` carries `:rf.sub/input-paths-unchanged` (additive tag).
-    3. `:rf.cascade/captured` aggregator fires end-of-epoch ONLY when
-       the focus predicate matches; bounded at 50 subs / 100 views.
-
-  Pure JVM coverage — the sub memo + flow trace emits + cascade
-  aggregation all run identically on JVM and CLJS (the production
-  elision gate is shared; bundle-isolation lives in its own gate).
-
-  ## Posture split
-
-  Every claim in this file about `:rf.sub/skip`, `:rf.flow/skip`,
-  `:rf.cascade/captured` and the `:rf.sub/run` attribution tags is read off
-  the DEV TRACE, and there is no production channel that carries any of them
-  — checked, not assumed. `:rf.sub/*` and `:rf.cascade/*` are not error
-  categories, so `error-emit/emit-error-both!` never lifts them, and nothing
-  in `re-frame.observability` promotes a sub-recompute onto the always-on
-  `:errors` stream. So the trace reads are guarded.
-
-  What keeps this file from being 100% dev instrumentation is that the
-  three `aggregate-cascade-*` deftests drive `rf.trace.cascade/aggregate-cascade` over
-  SYNTHETIC event maps — a pure function of its argument, always-on in both
-  postures — and that every trace-reading deftest here has an always-on
-  counterpart for the thing the trace was REPORTING ON. A `:rf.sub/skip` emit
-  reports a memo hit; the memo hit itself is production behaviour and is
-  witnessed by counting how many times the sub body actually ran. A
-  `:rf.sub/run` value-change tag reports a recompute; the recomputed value is
-  production state and is witnessed by dereferencing the reaction. A
-  `:rf.sub/cause-event-id` reports that a recompute happened INSIDE an
-  in-flight dispatch; that is witnessed by an fx-handler that derefs during
-  the drain and records what it saw. Those witnesses run under the gate too.
-
-  VACUITY UNDER THE GATE. Two shapes would pass for free with the trace
-  elided, so both sit inside the posture guard. A negative over an empty
-  ring: `cascade-captured-does-not-fire-when-no-focus`'s `(is (empty? caps))`
-  would certify \"the default focus predicate suppresses the aggregator\"
-  over a stream that carried no events of any kind. And the absence of a key
-  the gate elides wholesale — the `(nil? …)` / `(not (contains? …))`
-  negatives read off a NIL tag map in
-  `sub-run-value-changed-attribution`,
-  `sub-run-first-run-flag-true-on-cache-slot-creation` and
-  `sub-run-cause-event-id-absent-outside-dispatch`.
-
-  A precondition `when` is the other trap: in
-  `sub-run-cause-event-id-stamped-inside-dispatch` and
-  `sub-run-cause-event-id-layer-2-cascade`, a bare `(when (seq runs) …)` /
-  `(when (and n-run d-run) …)` would be false under the gate and run no
-  assertion at all. So the precondition and the claims it licenses sit
-  together inside the posture guard, and both deftests carry an always-on
-  witness that the in-cascade recompute they are about really happened."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Posture split: every trace read sits inside `(when rf.interop/debug-enabled? …)`,
+  and each deftest also asserts, always-on, the production fact the trace
+  reports (a body-run count, a recomputed value), so the production-gate lane
+  runs real assertions. Negatives (an absent tag, an empty capture list) stay
+  inside the guard because an elided trace passes them for free."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            ;; The cascade-captured aggregator hooks into `re-frame.epoch/
-            ;; settle!` via the late-bind seam — without an epoch
-            ;; producer on the classpath there is no settle-time emit
-            ;; site and `:rf.cascade/captured` never fires (per
-            ;; `core_epoch.cljc` the optional artefact's hooks are
-            ;; absent-degrading). The require is here for explicitness.
+            ;; Publishes the `:epoch/run-cause` hook and the settle seam that
+            ;; calls the cascade aggregator.
             [re-frame.epoch]
-            [re-frame.flows :as rf.flows]
-            [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.trace.cascade :as rf.trace.cascade]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-(defn reset-runtime [test-fn]
-  (rf.registrar/clear-all!)
-  (reset! rf.frame/frames {})
-  (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
-  (rf/init! rf.substrate.plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  (require 're-frame.machines :reload)
-  (rf.trace.cascade/clear-focus-predicate!)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
-  (rf/make-frame {:id :rf/default})
-  (try (rf/with-frame :rf/default (test-fn))
-       (finally
-         (rf.trace.cascade/clear-focus-predicate!))))
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(use-fixtures :each reset-runtime)
+(defn- run-traced
+  "Run `f` with a listener capturing every trace event; return `[(f) events]`."
+  [f]
+  (let [captured (atom [])]
+    (rf.trace.tooling/register-listener! ::collect #(swap! captured conj %))
+    (try [(f) @captured]
+         (finally (rf.trace.tooling/unregister-listener! ::collect)))))
 
-(defn- collect-trace
-  "Register a listener that captures every trace event into the
-  returned atom while `body-fn` runs. Returns the captured vector."
-  [body-fn]
-  (let [captured (atom [])
-        k        ::collect]
-    (rf.trace.tooling/register-listener!
-      k
-      (fn [ev] (swap! captured conj ev)))
-    (try (body-fn)
-         (finally
-           (rf.trace.tooling/unregister-listener! k)))
-    @captured))
+(defn- op-of
+  "The first `operation` event in `events` for sub `sub-id`."
+  [events operation sub-id]
+  (first (filter #(and (= operation (:operation %))
+                       (= sub-id (get-in % [:tags :rf.sub/id])))
+                 events)))
 
-;; ---- :rf.sub/skip ---------------------------------------------------------
+(defn- tagged
+  "`ev`'s `:tags` read at the keys of `want` (an absent key reads nil)."
+  [ev want]
+  (zipmap (keys want) (map #(get-in ev [:tags %]) (keys want))))
 
-(deftest layer-1-memo-hit-emits-sub-skip
-  (testing "a layer-1 sub deref against an unchanged db emits :rf.sub/skip"
-    ;; ALWAYS-ON: `body-runs` counts how many times the sub's own
-    ;; body executed. That is the memo hit itself — production behaviour the
-    ;; `:rf.sub/skip` emit was merely REPORTING — so it is asserted outside
-    ;; the posture guard.
-    (let [body-runs (atom 0)
-          seen      (atom [])]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-      (rf/reg-sub :n (fn [db _] (swap! body-runs inc) (:n db)))
-      (rf/dispatch-sync [:seed])
-      (let [events (collect-trace
-                     (fn []
-                       (let [r (rf/subscribe [:n])]
-                         ;; Two derefs against the unchanged db. The
-                         ;; first call (post-construction) is a memo hit
-                         ;; because the reaction's body fires on initial
-                         ;; deref but Reagent's reaction may invoke the
-                         ;; wrapper additional times on identical input.
-                         (swap! seen conj @r)
-                         (swap! seen conj @r))))
-            skips  (filter #(= :rf.sub/skip (:operation %)) events)]
-        (is (= [7 7] @seen)
-            "both derefs project the committed value in this posture")
-        (is (= 1 @body-runs)
-            "the memo the :rf.sub/skip emit reports actually held — two derefs,
-             one body run, in BOTH postures")
-        (when rf.interop/debug-enabled?
-          ;; At least one memo-hit emit must fire on the second deref.
-          (is (seq skips)
-              "expected at least one :rf.sub/skip emit on memo-hit")
-          (let [skip (first skips)]
-            (is (= :rf.sub (:op-type skip)))
-            (is (= :n (get-in skip [:tags :rf.sub/id])))
-            (is (= [:n] (get-in skip [:tags :rf.sub/query-v])))
-            (is (= :input-value-equal (get-in skip [:tags :rf.sub/reason])))
-            (is (= [] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
-                "layer-1 has no upstream subs so :rf.sub/input-paths-unchanged is empty")))))))
+;; ---- :rf.sub/run on slot creation, :rf.sub/skip on a memo hit -------------
 
-(deftest layer-2-memo-hit-emits-sub-skip-with-upstream
-  (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
-    ;; ALWAYS-ON: `(= [6 6] @seen)` alone would pass on a BROKEN memo —
-    ;; recomputing `:doubled` on the second deref returns 6 again. So, as in
-    ;; the layer-1 test above, COUNT the derived body: the memo hit the
-    ;; `:rf.sub/skip` emit reports is one body execution across two derefs,
-    ;; and that is production behaviour whatever the posture.
-    (let [body-runs (atom 0)]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
-      (rf/reg-sub :n (fn [db _] (:n db)))
-      (rf/reg-sub :doubled
-        {:inputs [[:n]]}
-        (fn [[n] _] (swap! body-runs inc) (* 2 n)))
-      (rf/dispatch-sync [:seed])
-      (let [seen   (atom [])
-            events (collect-trace
-                     (fn []
-                       (let [r (rf/subscribe [:doubled])]
-                         (swap! seen conj @r)
-                         (swap! seen conj @r))))
-            skips  (filter #(and (= :rf.sub/skip (:operation %))
-                                 (= :doubled (get-in % [:tags :rf.sub/id])))
-                           events)]
-        ;; ALWAYS-ON: the layer-2 projection the skip emit reports
-        ;; on is production state — both derefs see the same committed value.
-        (is (= [6 6] @seen)
-            "the layer-2 sub projects 2*3 on both derefs in this posture")
-        (is (= 1 @body-runs)
-            "the memo the :rf.sub/skip emit reports actually held — two derefs,
-             one derived body run, in BOTH postures")
-        (when rf.interop/debug-enabled?
-          (is (seq skips)
-              "expected at least one :rf.sub/skip emit for the layer-2 sub")
-          (let [skip (first skips)]
-            (is (= [[:n]] (get-in skip [:tags :rf.sub/input-paths-unchanged]))
-                "input-paths-unchanged names the upstream sub vector")))))))
-
-;; ---- :rf.flow/skip carries :rf.sub/input-paths-unchanged -------------------------
-
-(deftest flow-skip-emits-input-paths-unchanged
-  (testing ":rf.flow/skip carries :rf.sub/input-paths-unchanged naming the flow's input paths"
-    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:x 0 :y 0}}))
-    (rf/reg-event :bump-z (fn [{:keys [db]} _]     {:db (assoc db :z (inc (or (:z db) 0)))}))
-    ;; ALWAYS-ON: `flow-runs` counts the flow fn's own
-    ;; executions. "The inputs were stable so the flow did not recompute" is
-    ;; the production fact the `:rf.flow/skip` emit reports; count it.
-    (let [flow-runs (atom 0)]
-      (rf/reg-flow :sum {:inputs [[:x] [:y]] :output-path [:derived :sum]}
-                   (fn [x y] (swap! flow-runs inc) (+ x y)))
-      (rf/dispatch-sync [:seed])
-      ;; First non-seed dispatch — flow recomputes. Second — inputs stable,
-      ;; flow emits :rf.flow/skip.
-      (let [runs-after-seed @flow-runs
-            events (collect-trace
-                     (fn []
-                       (rf/dispatch-sync [:bump-z])
-                       (rf/dispatch-sync [:bump-z])))
-            skips  (filter #(= :rf.flow/skip (:operation %)) events)]
-        ;; The two always-on assertions
-        ;; below say what did NOT happen — the flow fn did not re-run, the
-        ;; durable output did not move. Both stay green if the DRIVER never
-        ;; ran: delete the two `:bump-z` dispatches and nothing here notices,
-        ;; because a flow that was never given the chance to skip also does
-        ;; not run and also leaves its output alone. Only the guarded dev
-        ;; trace sees the missing skips. So prove the driver landed first,
-        ;; exactly — two dispatches, `:z` = 2 — and the two negatives below
-        ;; become claims about a cascade that demonstrably happened.
-        (is (= 2 (:z (rf/app-db-value :rf/default)))
-            "both :bump-z dispatches landed — the epochs the flow skipped in
-             are real epochs")
-        (is (= runs-after-seed @flow-runs)
-            "neither :bump-z touched [:x] or [:y], so the flow fn did not run
-             again — the skip is real in BOTH postures")
-        (is (= 0 (get-in (rf/app-db-value :rf/default) [:derived :sum]))
-            "the flow's durable output survives the two skipped epochs")
-        (when rf.interop/debug-enabled?
-          (is (seq skips) "expected at least one :rf.flow/skip emit")
-          (let [skip (first skips)]
-            (is (= [[:x] [:y]] (get-in skip [:tags :input-paths-unchanged])))
-            (is (= :inputs-value-equal (get-in skip [:tags :reason])))))))))
-
-;; ---- :rf.cascade/captured -------------------------------------------------
-
-(deftest cascade-captured-does-not-fire-when-no-focus
-  (testing "default focus-predicate returns false → no :rf.cascade/captured emits"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
+(deftest sub-first-run-then-memo-hit-skip
+  ;; Outside any dispatch: the first deref of each sub allocates its cache slot
+  ;; (`:rf.sub/run`, first-run), the second is a memo hit (`:rf.sub/skip`).
+  (let [body-runs (atom {})
+        count!    #(swap! body-runs update % (fnil inc 0))]
+    (rf/reg-event :seed (fn [_ _] {:db {:n 3}}))
+    (rf/reg-sub :n (fn [db _] (count! :n) (:n db)))
+    (rf/reg-sub :doubled {:inputs [[:n]]} (fn [[n] _] (count! :doubled) (* 2 n)))
     (rf/dispatch-sync [:seed])
-    (let [seen   (atom [])
-          events (collect-trace
-                   (fn []
-                     (let [r (rf/subscribe [:n])]
-                       (swap! seen conj @r)
-                       (rf/dispatch-sync [:inc])
-                       (swap! seen conj @r))))
-          caps   (filter #(= :rf.cascade/captured (:operation %)) events)]
-      ;; ALWAYS-ON: the cascade whose absence-of-capture is the
-      ;; claim genuinely ran. The negative is GUARDED — under the gate
-      ;; `events` is empty for EVERY cascade, focused or not, so
-      ;; `(empty? caps)` would certify the focus predicate's suppression over
-      ;; a stream that never carried anything. It only discriminates against
-      ;; `cascade-captured-fires-when-focused` below, which needs the ring.
-      (is (= [0 1] @seen)
-          "the cascade really ran — the sub recomputed 0 -> 1 in this posture")
+    (let [[seen events] (run-traced #(let [r-n (rf/subscribe [:n])
+                                           r-d (rf/subscribe [:doubled])]
+                                       [@r-n @r-n @r-d @r-d]))
+          n-run         (op-of events :rf.sub/run :n)]
+      ;; ALWAYS-ON: the memo the skip reports — two derefs, one body run each.
+      (is (= [[3 3 6 6] {:n 1 :doubled 1}] [seen @body-runs]))
       (when rf.interop/debug-enabled?
-        (is (empty? caps)
-            "no :rf.cascade/captured when focus predicate returns false")))))
+        (doseq [[ev want]
+                [[n-run {:rf.sub/first-run? true :rf.sub/value-changed? true
+                         :rf.sub/prev-value nil}]
+                 [(op-of events :rf.sub/run :doubled) {:rf.sub/first-run? true :rf.sub/value 6}]
+                 [(op-of events :rf.sub/skip :n) {:rf.sub/query-v [:n]
+                                                  :rf.sub/reason :input-value-equal
+                                                  :rf.sub/input-paths-unchanged []}]
+                 [(op-of events :rf.sub/skip :doubled) {:rf.sub/input-paths-unchanged [[:n]]}]]]
+          (is (= want (tagged ev want))))
+        (is (= :rf.sub (:op-type (op-of events :rf.sub/skip :n))))
+        (is (not (contains? (:tags n-run) :rf.sub/cause-event-id))
+            "outside a dispatch the key is absent, not nil")))))
 
-(deftest cascade-captured-fires-when-focused
-  (testing "installed focus-predicate matching the cascade → :rf.cascade/captured emits"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf.trace.cascade/set-focus-predicate!
-      (fn [_frame _epoch _event] true))
-    (rf/dispatch-sync [:seed])
-    (let [seen   (atom [])
-          events (collect-trace
-                   (fn []
-                     (let [r (rf/subscribe [:n])]
-                       (swap! seen conj @r)
-                       (rf/dispatch-sync [:inc])
-                       (swap! seen conj @r))))
-          caps   (filter #(= :rf.cascade/captured (:operation %)) events)]
-      ;; ALWAYS-ON: installing a focus predicate is an
-      ;; instrumentation-only act, but it must not perturb the cascade it
-      ;; observes — the same 0 -> 1 recompute as the unfocused case above.
-      (is (= [0 1] @seen)
-          "the focus predicate does not perturb the cascade it observes")
-      (when rf.interop/debug-enabled?
-        (is (seq caps) "expected at least one :rf.cascade/captured emit under focus")
-        (let [cap (first caps)]
-          (is (= :rf.cascade (:op-type cap)))
-          (is (contains? (:tags cap) :frame))
-          (is (contains? (:tags cap) :rf.epoch/id))
-          (is (vector? (get-in cap [:tags :subs-recomputed])))
-          (is (vector? (get-in cap [:tags :subs-skipped])))
-          (is (vector? (get-in cap [:tags :flows-computed])))
-          (is (vector? (get-in cap [:tags :flows-skipped])))
-          (is (vector? (get-in cap [:tags :views-rendered])))
-          (is (boolean? (get-in cap [:tags :sub-cap-truncated?])))
-          (is (boolean? (get-in cap [:tags :view-cap-truncated?]))))))))
-
-;; ---- bounds ---------------------------------------------------------------
-
-(deftest aggregate-cascade-honours-bounds
-  (testing "aggregate-cascade caps subs at 50 and stamps :sub-cap-truncated?"
-    (let [events (for [i (range 60)]
-                   {:operation :rf.sub/run
-                    :op-type   :rf.sub/run
-                    :tags      {:rf.sub/id (keyword (str "s" i))
-                                :rf.sub/query-v [(keyword (str "s" i))]}})
-          dag    (rf.trace.cascade/aggregate-cascade events)]
-      (is (= 50 (count (:subs-recomputed dag))))
-      (is (true? (:sub-cap-truncated? dag)))
-      (is (false? (:view-cap-truncated? dag)))))
-
-  (testing "aggregate-cascade caps views at 100 and stamps :view-cap-truncated?"
-    (let [events (for [i (range 120)]
-                   {:operation :rf.view/render
-                    :op-type   :rf.view
-                    :tags      {:rf.view/render-key   [:v (str "k" i)]
-                                :triggered-by :db-change}})
-          dag    (rf.trace.cascade/aggregate-cascade events)]
-      (is (= 100 (count (:views-rendered dag))))
-      (is (true? (:view-cap-truncated? dag)))
-      (is (false? (:sub-cap-truncated? dag))))))
-
-(deftest aggregate-cascade-truncated-flag-only-when-exceeding-cap
-  (testing "the truncation flag fires ONLY when an entry is
-            genuinely elided. `conj-bounded` already caps growth, so a
-            `>=` post-conj check would over-flag at EXACTLY the cap (nothing
-            dropped). EXACTLY the cap retains all entries and is NOT truncated;
-            one MORE elides one and sets the flag."
-    (let [run (fn [i] {:operation :rf.sub/run
-                       :tags {:rf.sub/id      (keyword (str "s" i))
-                              :rf.sub/query-v [(keyword (str "s" i))]}})]
-      (testing "exactly sub-cap subs recomputed → not truncated (none elided)"
-        (let [dag (rf.trace.cascade/aggregate-cascade (map run (range rf.trace.cascade/sub-cap)))]
-          (is (= rf.trace.cascade/sub-cap (count (:subs-recomputed dag))))
-          (is (false? (:sub-cap-truncated? dag))
-              "a cascade with EXACTLY sub-cap subs elides nothing")))
-      (testing "one OVER sub-cap → truncated (the cap+1-th sub is dropped)"
-        (let [dag (rf.trace.cascade/aggregate-cascade (map run (range (inc rf.trace.cascade/sub-cap))))]
-          (is (= rf.trace.cascade/sub-cap (count (:subs-recomputed dag))))
-          (is (true? (:sub-cap-truncated? dag)))))))
-
-  (testing "the boundary holds for :rf.sub/skip too (shares :sub-cap-truncated?)"
-    (let [skip (fn [i] {:operation :rf.sub/skip
-                        :tags {:rf.sub/id                    (keyword (str "k" i))
-                               :rf.sub/query-v               [(keyword (str "k" i))]
-                               :rf.sub/reason                :input-value-equal
-                               :rf.sub/input-paths-unchanged []}})]
-      (is (false? (:sub-cap-truncated?
-                    (rf.trace.cascade/aggregate-cascade (map skip (range rf.trace.cascade/sub-cap))))))
-      (is (true? (:sub-cap-truncated?
-                   (rf.trace.cascade/aggregate-cascade (map skip (range (inc rf.trace.cascade/sub-cap)))))))))
-
-  (testing "the boundary holds for :rf.view/render (:view-cap-truncated?)"
-    (let [view (fn [i] {:operation :rf.view/render
-                        :tags {:rf.view/render-key [:v (str "v" i)]
-                               :triggered-by       :db-change}})
-          at   (rf.trace.cascade/aggregate-cascade (map view (range rf.trace.cascade/view-cap)))
-          over (rf.trace.cascade/aggregate-cascade (map view (range (inc rf.trace.cascade/view-cap))))]
-      (is (= rf.trace.cascade/view-cap (count (:views-rendered at))))
-      (is (false? (:view-cap-truncated? at))
-          "exactly view-cap views elides nothing")
-      (is (= rf.trace.cascade/view-cap (count (:views-rendered over))))
-      (is (true? (:view-cap-truncated? over))
-          "the view-cap+1-th view is dropped → truncated"))))
-
-;; ---- :rf.sub/run value-change + cascade attribution --------------------------
-;;
-;; The reactive recompute path (subs.memo/validate-and-trace) enriches the
-;; `:rf.sub/run` tag with value-change + cascade attribution so Xray's
-;; Reactive panel can populate "SUBS WHOSE VALUE CHANGED" / "SUBS THAT
-;; CASCADED". These tests pin the emitted tags directly off the trace
-;; stream (the structured projection threading is covered by the epoch +
-;; aggregate-cascade pins).
-
-(defn- sub-runs
-  "Filter a captured trace stream to `:rf.sub/run` events for `sub-id`."
-  [events sub-id]
-  (filter #(and (= :rf.sub/run (:operation %))
-                (= sub-id (get-in % [:tags :rf.sub/id])))
-          events))
-
-(deftest sub-run-value-changed-attribution
-  (testing "a layer-1 recompute whose value CHANGED, against an already-allocated
-            cache slot, stamps :rf.sub/value-changed? true + :prev/:value,
-            :rf.sub/cascade? false, :rf.sub/cause-sub nil and
-            :rf.sub/first-run? false, alongside the base :rf.sub/run tags"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:n])
-          before @r ;; force first recompute (value 1)
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc]) ;; n 1 -> 2, layer-1 recompute
-                     (reset! after @r)))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: the value change the trace tag REPORTS is
-      ;; production state — read it off the reaction. The
-      ;; `(nil? (:rf.sub/cause-sub t))` negative is GUARDED: under the gate
-      ;; `t` is nil and every keyword lookup returns nil, so it would pass
-      ;; for free.
-      (is (= 1 before) "the sub projected 1 before the dispatch")
-      (is (= 2 @after) "the sub projects 2 after the dispatch, in this posture")
-      (when rf.interop/debug-enabled?
-        (is (seq runs) "expected a :rf.sub/run for :n on the value-changing recompute")
-        (let [ev (first runs)
-              t  (:tags ev)]
-          (is (true? (:rf.sub/value-changed? t)) "value changed 1 -> 2")
-          (is (= 1 (:rf.sub/prev-value t)) ":rf.sub/prev-value is the prior computed value")
-          (is (= 2 (:rf.sub/value t)) ":value is the freshly computed value")
-          (is (false? (:rf.sub/cascade? t)) "layer-1 sub is app-db-driven, not a cascade")
-          (is (nil? (:rf.sub/cause-sub t)) "layer-1 has no upstream sub to attribute")
-          (is (false? (:rf.sub/first-run? t))
-              ":rf.sub/first-run? flips to false on a recompute against an existing slot")
-          (is (= :rf.sub (:op-type ev)) "the base :op-type rides alongside the attribution tags")
-          (is (= [:n] (:rf.sub/query-v t)))
-          (is (contains? t :frame)))))))
-
-(deftest sub-run-value-unchanged-attribution
-  (testing "a recompute whose value did NOT change stamps :rf.sub/value-changed? false"
-    ;; Prove the false case genuinely exists: a layer-1 sub that projects
-    ;; the SAME value out of a CHANGED db. The memo wrapper compares db
-    ;; identity (layer-1 reads app-db directly), so a db write to an
-    ;; unrelated key forces the body to re-run, but the body returns a
-    ;; `=`-equal value for this sub.
-    (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 5 :other 0}}))
-    (rf/reg-event :bump-other (fn [{:keys [db]} _] {:db (update db :other inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:n])
-          before @r ;; first recompute, value 5
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     ;; db changes (whole-map identity changes), :n body
-                     ;; re-runs, but :n's value stays 5.
-                     (rf/dispatch-sync [:bump-other])
-                     (reset! after @r)))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: the false case the tag reports has a
-      ;; production shape — the db DID change and :n's projection did NOT.
-      (is (= 5 before))
-      (is (= 5 @after) ":n's value is unchanged across the write, in this posture")
-      (is (= 1 (:other (rf/app-db-value :rf/default)))
-          "the db really did change — the unchanged-value case is not vacuous")
-      (when rf.interop/debug-enabled?
-        (is (seq runs) "expected a :rf.sub/run for :n on the re-run (db identity changed)")
-        (let [t (:tags (first runs))]
-          (is (false? (:rf.sub/value-changed? t)) ":n re-ran but its value stayed 5")
-          (is (= 5 (:rf.sub/prev-value t)))
-          (is (= 5 (:rf.sub/value t))))))))
-
-(deftest sub-run-cascade-attribution-layer-2
-  (testing "a layer-2 sub recomputed by an upstream sub change stamps :rf.sub/cascade? true + :rf.sub/cause-sub naming the upstream"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :doubled
-      {:inputs [[:n]]}
-      (fn [[n] _] (* 2 n)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:doubled])
-          before @r ;; first recompute, value 4
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc]) ;; :n 2->3, :doubled cascades 4->6
-                     (reset! after @r)))
-          runs   (sub-runs events :doubled)]
-      ;; ALWAYS-ON: the cascade itself — an upstream write
-      ;; propagating through a layer-2 projection — is production behaviour.
-      (is (= 4 before))
-      (is (= 6 @after) ":doubled cascaded 4 -> 6 in this posture")
-      (when rf.interop/debug-enabled?
-        (is (seq runs) "expected a :rf.sub/run for :doubled on the cascade")
-        (let [t (:tags (first runs))]
-          (is (true? (:rf.sub/value-changed? t)) ":doubled changed 4 -> 6")
-          (is (= 4 (:rf.sub/prev-value t)))
-          (is (= 6 (:rf.sub/value t)))
-          (is (true? (:rf.sub/cascade? t)) "layer-2 recompute is a cascade")
-          (is (= [:n] (:rf.sub/cause-sub t))
-              ":rf.sub/cause-sub names the upstream sub query-vector that changed"))))))
-
-(deftest sub-run-cascade-attribution-layer-2-multi-input
-  (testing "a multi-input layer-2 sub names the SPECIFIC upstream that changed"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:a 1 :b 10}}))
-    (rf/reg-event :inc-b (fn [{:keys [db]} _] {:db (update db :b inc)}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum
-      {:inputs [[:a] [:b]]}
-      (fn [[a b] _] (+ a b)))
-    (rf/dispatch-sync [:seed])
-    (let [r-a    (rf/subscribe [:a])
-          r      (rf/subscribe [:sum])
-          before @r ;; first recompute, value 11
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc-b]) ;; :b 10->11, :a stable
-                     (reset! after @r)))
-          runs   (sub-runs events :sum)]
-      ;; ALWAYS-ON: the asymmetry the `:rf.sub/cause-sub` tag
-      ;; ATTRIBUTES is production state — :b moved, :a did not, and :sum
-      ;; followed :b.
-      (is (= 11 before))
-      (is (= 12 @after) ":sum followed :b's change in this posture")
-      (is (= 1 @r-a) ":a is genuinely stable across the write")
-      (when rf.interop/debug-enabled?
-        (is (seq runs))
-        (let [t (:tags (first runs))]
-          (is (true? (:rf.sub/cascade? t)))
-          (is (= [:b] (:rf.sub/cause-sub t))
-              ":rf.sub/cause-sub names :b (the changed input), not :a (stable)"))))))
-
-;; ---- :rf.sub/first-run? -------------------------------------------------
-
-(deftest sub-run-first-run-flag-true-on-cache-slot-creation
-  (testing "the run that creates a sub's cache slot
-            stamps :rf.sub/first-run? true on :rf.sub/run. Disambiguates
-            a value-change row (`← was X`) from a fresh-cache-entry row
-            (`:added`) for the Xray SUBSCRIPTIONS leaf-scalar renderer."
-    ;; ALWAYS-ON: `body-runs` witnesses the slot allocation the
-    ;; flag reports — the FIRST deref runs the body, the second does not,
-    ;; which is exactly what "this run created the cache slot" means.
-    (let [body-runs (atom 0)]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
-      (rf/reg-sub :n (fn [db _] (swap! body-runs inc) (:n db)))
-      (rf/dispatch-sync [:seed])
-      ;; First subscribe + deref → this is the run that creates the
-      ;; cache slot. The memo wrapper's `prev-value` is the `::unset`
-      ;; sentinel here, so `:rf.sub/first-run?` must stamp true.
-      (let [first-value (atom nil)
-            events (collect-trace
-                     (fn []
-                       (let [r (rf/subscribe [:n])]
-                         (reset! first-value @r))))
-            runs   (sub-runs events :n)]
-        ;; The `(nil? (:rf.sub/prev-value t))` negative is GUARDED: under
-        ;; the gate `t` is nil, so it would pass for free.
-        (is (= 1 @first-value) "the cache-slot-creating run projects 1")
-        (is (= 1 @body-runs)
-            "exactly one body run allocated the slot, in BOTH postures")
-        (when rf.interop/debug-enabled?
-          (is (seq runs)
-              "expected a :rf.sub/run on the cache-slot-creating recompute")
-          (let [t (:tags (first runs))]
-            (is (true? (:rf.sub/first-run? t))
-                ":rf.sub/first-run? is true on the run that allocated the slot")
-            (is (true? (:rf.sub/value-changed? t))
-                "first-run is also a value-change (no prior value to compare,
-                 per Spec 009 §:rf.sub/run :value-changed? semantics)")
-            (is (nil? (:rf.sub/prev-value t))
-                ":rf.sub/prev-value is nil on the first recompute (the
-                 ::unset sentinel projects to nil per the emit-site cond)")))))))
-
-(deftest sub-run-first-run-flag-true-on-layer-2-cache-creation
-  (testing "layer-2 subs (cascade path) also stamp
-            :rf.sub/first-run? true on the run that allocated their
-            cache slot. The discriminator is universal across all
-            memo wrappers (layer-1, layer-n-1, layer-n)."
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :doubled
-      {:inputs [[:n]]}
-      (fn [[n] _] (* 2 n)))
-    (rf/dispatch-sync [:seed])
-    (let [first-value (atom nil)
-          events (collect-trace
-                   (fn []
-                     (let [r (rf/subscribe [:doubled])]
-                       (reset! first-value @r))))
-          runs   (sub-runs events :doubled)]
-      ;; ALWAYS-ON: the layer-2 slot-creating recompute produced
-      ;; a value — production state, not a trace tag.
-      (is (= 4 @first-value)
-          "the layer-2 cache-slot-creating run projects 2*2 in this posture")
-      (when rf.interop/debug-enabled?
-        (is (seq runs))
-        (let [t (:tags (first runs))]
-          (is (true? (:rf.sub/first-run? t))
-              "layer-2 sub: first-run? true on cache-slot creation")
-          (is (= 4 (:rf.sub/value t))))))))
-
-;; ---- :rf.sub/cause-event-id ----------------------------------------------
-;;
-;; The reactive recompute path also stamps `:rf.sub/cause-event-id` (when
-;; the optional `re-frame.epoch` artefact is on the classpath and the sub
-;; runs inside an in-flight event run): the head of the event vector that
-;; kicked off the dispatching drain. Mirrors `:rf.view/cause-event-id` —
-;; same `:epoch/run-cause` late-bind hook source.
-;;
-;; The posture is attribution-only: the reactive flush's behaviour is
-;; untouched. The tag carries which event invalidated
-;; this sub's input so consumers (Xray's Epoch panel) can credit each
-;; sub-run to the right epoch row — even when a chained event's drain
-;; would otherwise misattribute the run to itself.
-
-(deftest sub-run-cause-event-id-stamped-inside-dispatch
-  (testing "a sub-run that fires INSIDE an in-flight event run
-            carries :rf.sub/cause-event-id naming the dispatching event.
-            The plain-atom JVM path recomputes on deref (no cached
-            reaction); land the recompute inside the run window by
-            using an fx-handler that derefs — fx runs after :db-changed
-            commits, while the event's handler-scope is still bound and
-            the in-flight run buffer holds the :rf.event/run-start
-            the :epoch/run-cause lookup consumes. Mirrors the
-            views-side test at view_rendered_op_cljs_test/
-            rf-view-rendered-carries-cause-event-id-in-cascade."
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r     (rf/subscribe [:n])
-          _warm @r]
-      ;; The fx-handler signature is `(fn [ctx args])` per Spec 002
-      ;; §The binary fx-handler signature — ctx carries `:frame`,
-      ;; `:event`, `:envelope`; args is the value from the `:fx` vector.
-      ;; ALWAYS-ON: `in-cascade` records what the fx-handler saw
-      ;; when it dereferenced DURING the drain. That the sub recomputed
-      ;; inside the in-flight run is precisely what `:rf.sub/cause-event-id`
-      ;; attributes, and it is production behaviour — the fx observing the
-      ;; committed 99 rather than the pre-dispatch 0 IS the in-cascade
-      ;; recompute.
-      (let [in-cascade (atom ::not-run)]
-        (rf/reg-fx :deref-fx (fn [_ctx _args] (reset! in-cascade @r)))
-        (rf/reg-event :bump-and-deref
-          (fn [_ _]
-            ;; The event handler returns the canonical `:db` / `:fx` shape
-            ;; (re-frame2 rejects arbitrary top-level keys per
-            ;; `events.cljc/effect-map-defect`).
-            {:db {:n 99}
-             :fx [[:deref-fx true]]}))
-        (let [events (collect-trace
-                       (fn []
-                         (rf/dispatch-sync [:bump-and-deref])))
-              runs   (sub-runs events :n)]
-          (is (= 99 @in-cascade)
-              "the fx-handler dereferenced INSIDE the drain and saw the
-               committed value — the in-cascade recompute happened in this
-               posture")
-          ;; The precondition and the claim it licenses live together
-          ;; inside the posture guard. Under the gate `runs` is empty, so a
-          ;; bare `(when (seq runs) …)` would be false and NO assertion would
-          ;; run inside it — a pass having executed nothing but the failing
-          ;; precondition.
-          (when rf.interop/debug-enabled?
-            (is (seq runs)
-                "expected a :rf.sub/run for :n on the in-cascade fx-deref")
-            (let [t (:tags (first runs))]
-              (is (= :bump-and-deref (:rf.sub/cause-event-id t))
-                  ":rf.sub/cause-event-id names the dispatching event,
-                   not the sub-id and not the :seed event"))))))))
-
-(deftest sub-run-cause-event-id-absent-outside-dispatch
-  (testing "a sub-run that fires OUTSIDE any in-flight
-            dispatch omits :rf.sub/cause-event-id entirely. The slot is
-            absent (key not present), not nil, so consumers can read
-            `(contains? tags :rf.sub/cause-event-id)` to discriminate
-            in-cascade vs no-cascade recomputes."
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    ;; The seed dispatch has settled. The subscribe + deref below runs
-    ;; OUTSIDE any in-flight run — the in-flight buffer is empty so
-    ;; the `:epoch/run-cause` hook returns no `:cause-event-id`. The
-    ;; tag MUST be absent from the emitted `:rf.sub/run` tags.
-    (let [outside (atom nil)
-          events (collect-trace
-                   (fn []
-                     (let [r (rf/subscribe [:n])]
-                       (reset! outside @r))))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: the recompute really did happen with no
-      ;; dispatch in flight — the value is the settled one. The
-      ;; `(not (contains? t :rf.sub/cause-event-id))` negative is GUARDED:
-      ;; under the gate `t` is nil and `contains?` of nil is false for EVERY
-      ;; key, so it would pass for free.
-      (is (= 7 @outside)
-          "the out-of-cascade recompute projects the settled value")
-      (when rf.interop/debug-enabled?
-        (is (seq runs)
-            "expected a :rf.sub/run for :n on the cache-creating recompute")
-        (let [t (:tags (first runs))]
-          (is (not (contains? t :rf.sub/cause-event-id))
-              ":rf.sub/cause-event-id is OMITTED (key absent) outside a cascade"))))))
+;; ---- :rf.sub/run attribution inside a dispatch ---------------------------
 
 (deftest sub-run-cause-event-id-layer-2-cascade
-  (testing "layer-2 sub recomputed inside the cascade
-            also carries :rf.sub/cause-event-id. The cause-event-id is
-            the SAME for every sub in the cascade (the dispatching
-            event) — distinct from :rf.sub/cause-sub (the upstream sub
-            that propagated the change, which differs per sub in the
-            chain). Two-sub fixture proves the slots are complementary."
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :doubled
-      {:inputs [[:n]]}
-      (fn [[n] _] (* 2 n)))
-    (rf/dispatch-sync [:seed])
-    (let [r-n       (rf/subscribe [:n])
-          r-doubled (rf/subscribe [:doubled])
-          _         @r-n
-          _         @r-doubled]
-      ;; ALWAYS-ON: both subs were invalidated by the SAME write
-      ;; and both recomputed inside the SAME drain — that shared causation is
-      ;; what the two `:rf.sub/cause-event-id` tags record, and the fx-handler
-      ;; observing 3 and 6 together witnesses it without the trace.
-      (let [in-cascade (atom ::not-run)]
-        (rf/reg-fx :deref-both-fx (fn [_ctx _args] (reset! in-cascade [@r-n @r-doubled])))
-        (rf/reg-event :bump-and-deref-both
-          (fn [_ _]
-            {:db {:n 3}
-             :fx [[:deref-both-fx true]]}))
-        (let [events (collect-trace
-                       (fn []
-                         (rf/dispatch-sync [:bump-and-deref-both])))
-              n-run  (first (sub-runs events :n))
-              d-run  (first (sub-runs events :doubled))]
-          (is (= [3 6] @in-cascade)
-              "both layers recomputed inside the one drain — the shared
-               causation the two cause-event-id tags record")
-          ;; The claims below sit inside the posture guard: a bare
-          ;; `(when (and n-run d-run) …)` is false under the gate, and the
-          ;; deftest would run no assertion inside it at all.
-          (when rf.interop/debug-enabled?
-            (is (some? n-run))
-            (is (some? d-run))
-            (is (= :bump-and-deref-both
-                   (get-in n-run [:tags :rf.sub/cause-event-id]))
-                "layer-1 sub :n carries the dispatching event-id")
-            (is (= :bump-and-deref-both
-                   (get-in d-run [:tags :rf.sub/cause-event-id]))
-                "layer-2 sub :doubled carries the SAME cause-event-id,
-                 because both subs were invalidated by the same
-                 dispatching event")
-            (is (= [:n] (get-in d-run [:tags :rf.sub/cause-sub]))
-                ":rf.sub/cause-sub on :doubled still names the upstream
-                 sub — the two attribution slots are complementary,
-                 not redundant")))))))
+  ;; One write recomputes a layer-1, a single-input and a multi-input layer-2
+  ;; sub inside the drain (an fx derefs them while the run is in flight).
+  (rf/reg-event :seed (fn [_ _] {:db {:a 1 :b 10}}))
+  (rf/reg-sub :a (fn [db _] (:a db)))
+  (rf/reg-sub :b (fn [db _] (:b db)))
+  (rf/reg-sub :b2 {:inputs [[:b]]} (fn [[b] _] (* 2 b)))
+  (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
+  (rf/dispatch-sync [:seed])
+  (let [rs       (mapv #(rf/subscribe [%]) [:a :b2 :sum])
+        _        (mapv deref rs)
+        in-drain (atom nil)]
+    (rf/reg-fx :deref-fx (fn [_ctx _args] (reset! in-drain (mapv deref rs))))
+    (rf/reg-event :inc-b
+      (fn [{:keys [db]} _] {:db (update db :b inc) :fx [[:deref-fx true]]}))
+    (let [[_ events] (run-traced #(rf/dispatch-sync [:inc-b]))
+          run-of     #(op-of events :rf.sub/run %)]
+      ;; ALWAYS-ON: inside the drain the fx sees :a stable and both layer-2 subs
+      ;; following :b.
+      (is (= [1 22 12] @in-drain))
+      (when rf.interop/debug-enabled?
+        (doseq [[ev want]
+                [[(run-of :a)   {:rf.sub/value-changed? false :rf.sub/prev-value 1
+                                 :rf.sub/value 1}]
+                 [(run-of :b)   {:rf.sub/value-changed? true :rf.sub/prev-value 10
+                                 :rf.sub/value 11 :rf.sub/cascade? false
+                                 :rf.sub/cause-sub nil :rf.sub/first-run? false
+                                 :rf.sub/query-v [:b] :frame :rf/default
+                                 :rf.sub/cause-event-id :inc-b}]
+                 [(run-of :b2)  {:rf.sub/value-changed? true :rf.sub/prev-value 20
+                                 :rf.sub/value 22 :rf.sub/cascade? true
+                                 :rf.sub/cause-sub [:b] :rf.sub/cause-event-id :inc-b}]
+                 ;; Multi-input: names the input that changed, not the stable :a.
+                 [(run-of :sum) {:rf.sub/cascade? true :rf.sub/cause-sub [:b]
+                                 :rf.sub/cause-event-id :inc-b}]]]
+          (is (= want (tagged ev want))))
+        (is (= :rf.sub (:op-type (run-of :b))))))))
+
+;; ---- :rf.cascade/captured --------------------------------------------------
+
+(deftest cascade-captured-fires-only-under-focus
+  (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [captures  #(filterv (comp #{:rf.cascade/captured} :operation)
+                            (second (run-traced (fn [] (rf/dispatch-sync [:inc])))))
+        unfocused (captures)
+        focused   (try (rf.trace.cascade/set-focus-predicate! (fn [_ _ _] true))
+                       (captures)
+                       (finally (rf.trace.cascade/clear-focus-predicate!)))
+        cap       (first focused)]
+    ;; ALWAYS-ON: both cascades ran; installing a predicate does not perturb them.
+    (is (= 2 (:n (rf/app-db-value :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (empty? unfocused) "the default focus predicate suppresses the aggregator")
+      (is (= :rf.cascade (:op-type cap)))
+      (is (contains? (:tags cap) :rf.epoch/id))
+      (let [want {:frame :rf/default :subs-recomputed [] :subs-skipped []
+                  :flows-computed [] :flows-skipped [] :views-rendered []
+                  :sub-cap-truncated? false :view-cap-truncated? false}]
+        (is (= want (tagged cap want)))))))
+
+(deftest aggregate-cascade-honours-bounds
+  ;; Spec 009 caps a capture at 50 subs and 100 views; only an entry past the
+  ;; cap sets the truncation flag. `:rf.sub/run` and `:rf.sub/skip` share it.
+  (doseq [[op n k kept sub-truncated? view-truncated?]
+          [[:rf.sub/run     50  :subs-recomputed 50  false false]
+           [:rf.sub/run     51  :subs-recomputed 50  true  false]
+           [:rf.sub/skip    50  :subs-skipped    50  false false]
+           [:rf.sub/skip    51  :subs-skipped    50  true  false]
+           [:rf.view/render 100 :views-rendered  100 false false]
+           [:rf.view/render 101 :views-rendered  100 false true]]]
+    (let [dag (rf.trace.cascade/aggregate-cascade (repeat n {:operation op}))]
+      (is (= [kept sub-truncated? view-truncated?]
+             [(count (get dag k)) (:sub-cap-truncated? dag) (:view-cap-truncated? dag)])
+          (str n " x " op)))))
 
 (deftest aggregate-cascade-shape-pin
-  (testing "aggregate-cascade splits subs by :rf.sub/run vs :rf.sub/skip"
-    (let [events [{:operation :rf.sub/run :tags {:rf.sub/id :a :rf.sub/query-v [:a]}}
-                  {:operation :rf.sub/skip
-                   :tags {:rf.sub/id :b :rf.sub/query-v [:b]
-                          :rf.sub/reason :input-value-equal
-                          :rf.sub/input-paths-unchanged [[:a]]}}
-                  {:operation :rf.flow/computed
-                   :tags {:flow-id :f :path [:p]}}
-                  {:operation :rf.flow/skip
-                   :tags {:flow-id :g :input-paths-unchanged [[:x]]}}
-                  {:operation :rf.view/render
-                   :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}]
-          dag    (rf.trace.cascade/aggregate-cascade events)]
-      ;; The `:subs-recomputed` projection threads value-change + cascade
-      ;; attribution; this fixture event carries no attribution tags so the
-      ;; slots are nil. The projection RECORD keys stay bare (nested
-      ;; record-map carve-out — Spec 009 §`:tags`). `:cause-event-id` is in
-      ;; the projection too (the dispatching cascade's event-id, threaded
-      ;; from `:rf.sub/cause-event-id` on the trace tag).
-      ;; Assert only the load-bearing identity keys — pinning the whole
-      ;; nil-padded record by `=` is brittle (an additive projection key
-      ;; would break this with no behaviour change to catch).
-      (is (= [{:sub-id :a :query-v [:a]}]
-             (mapv #(select-keys % [:sub-id :query-v]) (:subs-recomputed dag))))
-      (is (= [{:sub-id :b :query-v [:b]
-               :reason :input-value-equal
-               :input-paths-unchanged [[:a]]}]
-             (:subs-skipped dag)))
-      (is (= [{:flow-id :f :path [:p]}] (:flows-computed dag)))
-      (is (= [{:flow-id :g :input-paths-unchanged [[:x]]}]
-             (:flows-skipped dag)))
-      (is (= [{:render-key [:v :k] :triggered-by :db-change}]
-             (:views-rendered dag)))
-      (is (false? (:sub-cap-truncated? dag)))
-      (is (false? (:view-cap-truncated? dag))))))
+  ;; `:subs-recomputed` records also carry nil-padded attribution slots; only
+  ;; the identity keys are pinned so an additive slot is not a break.
+  (is (= {:subs-recomputed     [{:sub-id :a :query-v [:a]}]
+          :subs-skipped        [{:sub-id :b :query-v [:b]
+                                 :reason :input-value-equal
+                                 :input-paths-unchanged [[:a]]}]
+          :flows-computed      [{:flow-id :f :path [:p]}]
+          :flows-skipped       [{:flow-id :g :input-paths-unchanged [[:x]]}]
+          :views-rendered      [{:render-key [:v :k] :triggered-by :db-change}]
+          :sub-cap-truncated?  false
+          :view-cap-truncated? false}
+         (-> (rf.trace.cascade/aggregate-cascade
+               [{:operation :rf.sub/run :tags {:rf.sub/id :a :rf.sub/query-v [:a]}}
+                {:operation :rf.sub/skip
+                 :tags {:rf.sub/id :b :rf.sub/query-v [:b]
+                        :rf.sub/reason :input-value-equal
+                        :rf.sub/input-paths-unchanged [[:a]]}}
+                {:operation :rf.flow/computed :tags {:flow-id :f :path [:p]}}
+                {:operation :rf.flow/skip :tags {:flow-id :g :input-paths-unchanged [[:x]]}}
+                {:operation :rf.view/render
+                 :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}])
+             (update :subs-recomputed (partial mapv #(select-keys % [:sub-id :query-v])))))))
