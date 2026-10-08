@@ -1,20 +1,8 @@
 (ns re-frame2-pair-mcp.replay-epoch-test
-  "Unit tests for the replay-epoch tool.
-
-  Strict replay of a retained epoch in ONE call — the tool sends only the
-  id; the preload runtime's `replay-epoch` primitive resolves the raw
-  record in-process and re-drives it under `:rf.cofx/mint-policy :strict`
-  with the recorded cofx + override maps. Pins:
-
-    - NO `--allow-writes` gate: like `dispatch`, the tool drives the
-      app's own handlers and reaches the runtime with the gate OFF (the
-      corpus fixture `:replay-epoch/happy` runs with writes off);
-    - the EDN parse of the `epoch-id` arg, including INTEGER ids;
-    - the frame arg rides as the SECOND runtime arg;
-    - the success envelope passes through verbatim; every
-      `{:ok? false …}` refusal (and the strict missing-cofx failure the
-      runtime translates) rides as `isError: true`;
-    - the raw-state posture is signalled BEFORE the replay eval."
+  "Unit tests for the replay-epoch tool: the tool sends only the id, and the
+  preload runtime's `replay-epoch` resolves the record and replays it under
+  `:rf.cofx/mint-policy :strict`. Not behind `--allow-writes`; the corpus
+  fixture `:replay-epoch/happy` runs with writes off."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
             [clojure.string :as str]
@@ -28,26 +16,9 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; Two evals on the happy path: the `configure-raw-state!` signal and the
-;; `replay-epoch` form. `captured*` records the LAST non-configure form.
-(defn- with-captured-eval!
-  [captured* canned-value body-fn]
-  (let [orig nrepl/cljs-eval-value
-        run  (fn [form-str]
-               (if (str/includes? form-str "configure-raw-state!")
-                 (js/Promise.resolve nil)
-                 (do (reset! captured* form-str)
-                     (js/Promise.resolve canned-value))))
-        stub (fn
-               ([_conn _build-id form-str] (run form-str))
-               ([_conn _build-id form-str _opts] (run form-str)))]
-    (set! nrepl/cljs-eval-value stub)
-    (raw-state/reset-runtime-signal-cache!)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (tu/restore-eval! stub orig))))))
-
 (defn- with-captured-all!
+  "Record every eval form into `forms*`; answer `configure-raw-state!` with
+  nil and everything else with `canned`."
   [forms* canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
         run  (fn [form-str]
@@ -65,6 +36,12 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
+(defn- replay!
+  "Run replay-epoch on `args` against a runtime answering `canned`."
+  [args canned]
+  (with-captured-all! (atom []) canned
+    #(replay-epoch/replay-epoch-tool (fresh-conn) (tu/args->js args))))
+
 (def ^:private read-result-text tu/extract-edn)
 (def ^:private err? tu/error?)
 
@@ -78,38 +55,23 @@
                      :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []}
                      :fx-fired [:http] :subs-recomputed 2 :renders 1}})
 
-;; ---------------------------------------------------------------------------
-;; epoch-id parsing — :any, including integers; frame is the 2nd arg.
-;; ---------------------------------------------------------------------------
-
-(deftest accepts-integer-epoch-id-as-data
+(deftest replay-form-carries-the-quoted-id-and-the-optional-frame
+  ;; The id is parsed as EDN (the runtime's ids are integers) and rides
+  ;; quoted as caller data; the frame is the runtime fn's second arg.
   (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured success-envelope
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
-          (.then (fn [_]
-                   ;; The envelope it returns is pinned whole by
-                   ;; consequence-envelope-passes-through-on-success.
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= 're-frame2-pair.runtime/replay-epoch (first parsed)))
-                     ;; Caller EDN rides quoted.
-                     (is (= '(quote 7) (second parsed))
-                         "epoch-id rides as the quoted integer 7, not the string")
-                     (is (= 2 (count parsed)) "no frame arg when none was given"))
-                   (done)))))))
-
-(deftest passes-frame-as-second-arg
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured success-envelope
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn)
-                                              #js {:epoch-id "12" :frame ":stories"})))
-          (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= '(quote 12) (second parsed)))
-                     (is (= :stories (nth parsed 2)) "frame is the 2nd runtime arg"))
+    (let [replay-form (fn [args]
+                        (let [forms (atom [])]
+                          (-> (with-captured-all! forms success-envelope
+                                #(replay-epoch/replay-epoch-tool (fresh-conn) (tu/args->js args)))
+                              (.then (fn [_]
+                                       (cljs.reader/read-string
+                                         (some #(when (str/includes? % "replay-epoch") %) @forms)))))))]
+      (-> (replay-form {:epoch-id "7"})
+          (.then (fn [form]
+                   (is (= '(re-frame2-pair.runtime/replay-epoch (quote 7)) form))
+                   (replay-form {:epoch-id "12" :frame ":stories"})))
+          (.then (fn [form]
+                   (is (= '(re-frame2-pair.runtime/replay-epoch (quote 12) :stories) form))
                    (done)))))))
 
 (deftest rejects-unreadable-epoch-id
@@ -120,71 +82,48 @@
                  (is (= :invalid-epoch-id (:reason (read-result-text r))))
                  (done))))))
 
-;; ---------------------------------------------------------------------------
-;; Refusals ride as isError, verbatim.
-;; ---------------------------------------------------------------------------
-
 (deftest pre-dispatch-refusal-rides-as-isError
   (async done
     (let [refusal {:ok? false :reason :rf.epoch/replay-unknown-epoch
                    :frame :rf/default :epoch-id 999 :history-size 50}]
-      (-> (with-captured-eval! (atom nil) refusal
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "999"})))
+      (-> (replay! {:epoch-id "999"} refusal)
           (.then (fn [r]
-                   (is (err? r) "a refusal is not a landed replay — isError")
-                   (let [edn (read-result-text r)]
-                     (is (= refusal edn) "the framework's refusal envelope rides verbatim")
-                     (is (= 50 (:history-size edn))))
+                   (is (err? r) "a refusal is not a landed replay")
+                   (is (= refusal (read-result-text r)) "the framework's refusal rides verbatim")
                    (done)))))))
 
 (deftest non-envelope-runtime-value-is-not-a-success
-  ;; An out-of-date preload (no `replay-epoch` fn) can only yield a
-  ;; non-map; the tool must not read that as a landed replay.
+  ;; Only an out-of-date preload (no `replay-epoch` fn) yields a non-map.
   (async done
-    (-> (with-captured-eval! (atom nil) false
-          (fn []
-            (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
+    (-> (replay! {:epoch-id "7"} false)
         (.then (fn [r]
                  (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= false (:ok? edn)))
-                   (is (= :replay-unavailable (:reason edn)))
-                   (is (= 7 (:epoch-id edn))))
+                 (is (= {:ok? false :reason :replay-unavailable :epoch-id 7 :frame nil}
+                        (dissoc (read-result-text r) :hint)))
                  (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Success envelope passes through; raw-state posture precedes the eval.
-;; ---------------------------------------------------------------------------
 
 (deftest consequence-envelope-passes-through-on-success
   (async done
-    (-> (with-captured-eval! (atom nil) success-envelope
-          (fn []
-            (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
+    (-> (replay! {:epoch-id "7"} success-envelope)
         (.then (fn [r]
                  (is (not (err? r)))
-                 (let [edn (read-result-text r)]
-                   (is (= success-envelope edn)
-                       "the runtime consequence rides verbatim, the redacted :event-vector marker included"))
+                 (is (= success-envelope (read-result-text r))
+                     "the runtime consequence rides verbatim, the redacted :event-vector included")
                  (done))))))
 
 (deftest signals-raw-state-posture-before-the-replay-eval
+  ;; The new epoch's cascade-summary copies its raw :trigger-event, so the
+  ;; gate-OFF posture must reach the runtime before the replay runs.
   (async done
     (let [forms (atom [])
           prev  (raw-state/allow-raw-state-enabled?)]
       (raw-state/set-allow-raw-state! false)
       (-> (with-captured-all! forms success-envelope
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
+            #(replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"}))
           (.then (fn [_]
-                   (let [all     @forms
-                         cfg-idx (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
-                         rpl-idx (first (keep-indexed (fn [i f] (when (str/includes? f "replay-epoch") i)) all))]
-                     (is (some? cfg-idx) "configure-raw-state! is signalled")
-                     (is (some? rpl-idx) "the replay-epoch form is evaluated")
-                     (is (< cfg-idx rpl-idx)
-                         "raw-state posture is signalled BEFORE the replay eval")
-                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
-                         "the gate-OFF posture is pushed to the runtime"))))
+                   (let [index-of (fn [s] (first (keep-indexed #(when (str/includes? %2 s) %1) @forms)))
+                         cfg-idx  (index-of ":allow-raw-state? false")
+                         rpl-idx  (index-of "re-frame2-pair.runtime/replay-epoch")]
+                     (is (and (some? cfg-idx) (some? rpl-idx) (< cfg-idx rpl-idx))
+                         "the gate-OFF configure-raw-state! lands BEFORE the replay eval"))))
           (.finally (fn [] (raw-state/set-allow-raw-state! prev) (done)))))))
