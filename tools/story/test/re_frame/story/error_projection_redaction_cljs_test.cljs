@@ -1,24 +1,9 @@
 (ns re-frame.story.error-projection-redaction-cljs-test
-  "Error-projection-with-redaction scenario.
-
-  Per `tools/story/spec/015-Test-Coverage.md` §Assertion vocabulary
-  scenarios, row 'Handler exception with sensitive ex-data: redaction
-  propagates', and `tools/story/spec/002-Runtime.md` §Error projection
-  §Privacy + `tools/story/spec/API.md` §Error-projection records:
-
-  - the `:rf.error/exception` record's `:error :data` slot passes the
-    captured `ex-data` through `re-frame.elision/elide-wire-value` keyed
-    on the variant frame, so author-keyed slots sourced from path-marked
-    app-db paths record `:rf/redacted` rather than the raw value;
-  - the `:error :message` string is NOT auto-walked (author
-    responsibility per spec/Security.md §Author guidance).
-
-  `re-frame.story.error/throwable->error-map` threads the variant
-  frame into the `:data` projection (the frame-scoped wire-elision
-  walker). The tests below mark a path sensitive on the variant frame,
-  then throw an `ex-info` whose `ex-data` carries a value at that path
-  from a phase-4 play event, and assert the recorded `:error :data`
-  redacts it while the message survives verbatim."
+  "Handler exception with sensitive ex-data (`tools/story/spec/015-Test-Coverage.md`
+  §Assertion vocabulary scenarios; `tools/story/spec/002-Runtime.md` §Error
+  projection §Privacy): the `:rf.error/exception` record's `:error :data`
+  projects `ex-data` through the variant frame's wire-elision, while
+  `:error :message` is not walked."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -30,8 +15,6 @@
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.story.ui.state   :as rf.story.ui.state]
             [re-frame.subs             :as rf.subs]))
-
-;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
   (rf.story/clear-all!)
@@ -50,20 +33,9 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ===========================================================================
-;; Handler-exception ex-data redaction propagates
-;;
-;;   The variant declares its sensitive ex-data path at registration via the
-;;   EP-0015 frame-owned `:sensitive` slot — applied to the variant frame's
-;;   elision registry right after `make-frame`, so a single `run-variant`
-;;   captures the throw under the classification. No public `add-marks`
-;;   mutation.
-;; ===========================================================================
-
 (deftest exception-ex-data-redacts-sensitive-slot
-  (testing "a handler that throws ex-info with a value at a
-            frame-owned sensitive key records :rf/redacted in :error :data,
-            NOT the raw secret; the :error :message survives verbatim"
+  (testing "a handler throwing ex-info with a value at a sensitive key records
+            :rf/redacted in :error :data; other slots and the message survive"
     (rf/reg-event :auth/boom
       (fn [_ _]
         (throw (ex-info "Invalid credentials"
@@ -77,18 +49,10 @@
       (-> (rf.story/run-variant :story.err-redaction/probe)
           (rf.story.async/then
             (fn [result]
-              (let [ex   (last (filter #(= :rf.error/exception (:assertion %))
-                                       (:assertions result)))
-                    data (get-in ex [:error :data])]
-                (is (some? ex)
-                    "the throwing handler was captured as an
-                     :rf.error/exception record")
-                (is (= :rf/redacted (:token data))
-                    "the sensitive ex-data slot is redacted, NOT the
-                     raw bearer token")
-                (is (= :bad-password (:reason data))
-                    "a non-sensitive ex-data slot passes through")
-                (is (= "Invalid credentials" (get-in ex [:error :message]))
-                    "the message string survives verbatim (NOT auto-walked)"))
+              (let [ex (last (filter #(= :rf.error/exception (:assertion %))
+                                     (:assertions result)))]
+                (is (= [{:token :rf/redacted :reason :bad-password} "Invalid credentials"]
+                       [(select-keys (get-in ex [:error :data]) [:token :reason])
+                        (get-in ex [:error :message])])))
               (rf.story/destroy-variant! :story.err-redaction/probe)
               (done)))))))
