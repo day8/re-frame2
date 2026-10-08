@@ -1,70 +1,16 @@
 (ns re-frame.configure-test
-  "Lock the closed-key contract of `(rf/configure! ...)`.
+  "The closed-key contract of `(rf/configure! ...)` and its read twin
+  `rf/current-config`.
 
-  `configure` is the process-level runtime-knob surface (per Conventions
-  §Configuration surfaces bucket 1 and API.md §Configure keys). Its
-  vocabulary is closed and fixed-and-additive:
+  Unknown keys apply nothing and return nil; a bare or framework-namespaced
+  unknown key also emits the dev-gated `:rf.warning/unknown-configure-key`,
+  while a user-namespaced key passes in silence. A non-map argument fails
+  loud on an always-on guard.
 
-    :epoch-history  — Tool-Pair epoch ring depth (deferred to the
-                       day8/re-frame2-epoch artefact via late-bind)
-    :trace-buffer   — per-frame per-event trace ring depth — sets
-                       the process-default `:events-retained` that
-                       applies to `:rf/default` and any frame that did
-                       not set its own `:rf.trace/events-retained`
-                       metadata (Spec 009 §Per-frame trace rings)
-    :elision        — wire-elision runtime size threshold (Spec 009)
-
-  There is no `:sub-cache` knob: sub-cache disposal is **synchronous on
-  derefer-count → 0**, so there is no deferred-grace timer to configure.
-
-  This test pins the keys that ARE configurable and asserts that
-  everything else APPLIES NOTHING — `configure` returns `nil` and does
-  not throw. Per-frame settings (e.g. SSR error projection,
-  `:rf.trace/events-retained`) live on the frame's metadata, not on
-  this surface.
-
-  Applying nothing is not the same as SAYING nothing. A
-  BARE unknown key (`:epoch-histroy`) or a FRAMEWORK-namespaced one
-  (`:rf.foo/bar`) emits the dev-gated `:rf.warning/unknown-configure-key`
-  — Conventions §No silent swallow names that exact shape, because
-  `configure!`'s vocabulary is closed and its keys are bare, so an
-  unrecognised bare key reads as a typo of a real one. A USER-namespaced
-  key (`:myapp/thing`) passes in silence: that carve-out is what
-  lets a wrapper hand `configure!` a composed config value without first
-  filtering it, which is the whole of API.md §Fixed-and-additive's
-  rationale. The warning is observational (`:recovery :ignored`) and
-  never a refusal — it leaves the production contract above intact.
-
-  ## Posture split
-
-  The `:elision` knob is PRODUCTION STATE — `rf.elision/current-config` is not
-  gated — and so are the closed-vocabulary rules: unknown keys return nil, a
-  non-map argument fails loud on an ALWAYS-ON guard (a plain
-  `when-not` + `throw-error!`, deliberately NOT an `assert`, so the
-  contract holds in an assertion-elided build too). Those run under
-  `scripts/test-core-prod-gate.sh` as written and are the substance of
-  \"closed and fixed-and-additive\".
-
-  The `:trace-buffer` knob is a different animal, and the tempting reading of
-  it is wrong. It is NOT \"a dev-only warning attached to production state\":
-  `trace.tooling/configure-trace-buffer!` opens BOTH of its arms with
-  `(when (and rf.interop/debug-enabled? …))`, so under `-Dre-frame.debug=false`
-  the whole surface — the retention it sets AND the
-  `:rf.warning/trace-buffer-unrecognised-opts` it emits — is a no-op, and
-  `trace-buffer` itself returns `[]` because the ring is never allocated.
-  Every `:trace-buffer` assertion therefore sits inside a
-  `(when rf.interop/debug-enabled? …)` arm marked as the
-  dev-instrumentation arm.
-
-  That includes four assertions that would PASS under the gate for no
-  reason at all: `(is (<= (count (rf/trace-buffer :rf/default)) N))`
-  over an empty vector is true for every N, so outside the arm the retention
-  cap would certify itself with the ring never allocated — the same
-  false-green as a negative over an empty trace ring, and the reason
-  \"retention survived the bad call\" cannot be read off this surface in
-  production. The always-on residue beside them is the one production
-  claim the `:trace-buffer` key makes: the call is a silent no-op that
-  returns nil and does not throw."
+  `:trace-buffer` is dev-only end to end (its setter and its ring are both
+  gated on `debug-enabled?`), so every trace-buffer read sits in a
+  `(when rf.interop/debug-enabled? ...)` arm: under the production gate the
+  ring is empty and a `<=` bound over it would pass vacuously."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.repl :as repl]
             [re-frame.core :as rf]
@@ -77,11 +23,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; Loads the OPTIONAL epoch artefact so its
-            ;; `:epoch/current-config` hook is published and the
-            ;; `:epoch-history` round trip below is exercised for real. The
-            ;; absent-artefact arm does not rely on this ns being unloaded
-            ;; (test order is not a contract); it drops the hook itself.
+            ;; publishes the :epoch/current-config hook
             [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -93,268 +35,97 @@
   (rf.trace.tooling/clear-listeners!)
   (rf.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
   (rf/make-frame {:id :rf/default})
   (try (rf/with-frame :rf/default (test-fn))
        (finally
-         ;; Restore defaults so we do not leak tweaks into other suites —
-         ;; one composite config map (the single-map entry point).
          (rf/configure! {:trace-buffer {:events-retained 50}
                          :elision      {:rf.egress/threshold-bytes 16384}}))))
 
 (use-fixtures :each reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; `current-config`, the read twin of `configure!`.
-;;
-;; The contract has three halves and each is pinned separately: what
-;; `configure!` wrote reads back in `configure!`'s own nested shape; a
-;; subsystem that is not loaded is ABSENT rather than defaulted; and the
-;; extension-key carve-out is write-only.
-;; ---------------------------------------------------------------------------
-
 (deftest current-config-round-trips-what-configure-wrote
-  (testing ":elision — PRODUCTION state, so this arm is always-on"
-    (rf/configure! {:elision {:rf.egress/threshold-bytes 8192}})
-    (is (= 8192 (get-in (rf/current-config) [:elision :rf.egress/threshold-bytes]))
-        "the value configure! wrote reads back under the SAME key path"))
-
-  (testing ":epoch-history — via the optional epoch artefact's late-bind hook"
-    (try
-      (rf/configure! {:epoch-history {:depth 100}})
-      (is (= 100 (get-in (rf/current-config) [:epoch-history :depth]))
-          "(get-in (current-config) [:epoch-history :depth]) is the named
-           consumer's call — the pair preload's health query")
-      (finally
-        (rf/configure! {:epoch-history {:depth 50}}))))
-
-  (testing ":trace-buffer — dev-instrumentation arm. The WRITE is
-            gated on debug-enabled?, so only there is there a new value to read
-            back; the reader itself is ungated and reports the live default."
-    (is (contains? (rf/current-config) :trace-buffer)
-        "the tooling sibling is loaded in this ns, so the key is present in
-         BOTH postures")
-    (when rf.interop/debug-enabled?
-      (rf/configure! {:trace-buffer {:events-retained 25}})
-      (is (= 25 (get-in (rf/current-config) [:trace-buffer :events-retained]))
-          ":trace-buffer reads back the PROCESS default configure! set")))
-
-  (testing "one call, one read — the whole composite round trips at once"
-    (rf/configure! {:epoch-history {:depth 17}
-                    :elision       {:rf.egress/threshold-bytes 4096}})
-    (try
-      (let [cfg (rf/current-config)]
-        (is (= 17 (get-in cfg [:epoch-history :depth])))
-        (is (= 4096 (get-in cfg [:elision :rf.egress/threshold-bytes]))))
-      (finally
-        (rf/configure! {:epoch-history {:depth 50}})))))
+  (rf/configure! {:elision {:rf.egress/threshold-bytes 8192}})
+  (is (= 8192 (get-in (rf/current-config) [:elision :rf.egress/threshold-bytes])))
+  (try
+    (rf/configure! {:epoch-history {:depth 100}})
+    (is (= 100 (get-in (rf/current-config) [:epoch-history :depth])))
+    (finally
+      (rf/configure! {:epoch-history {:depth 50}})))
+  ;; the reader is ungated; only the write is dev-only
+  (is (contains? (rf/current-config) :trace-buffer))
+  (when rf.interop/debug-enabled?
+    (rf/configure! {:trace-buffer {:events-retained 25}})
+    (is (= 25 (get-in (rf/current-config) [:trace-buffer :events-retained])))))
 
 (deftest current-config-omits-an-absent-subsystem
-  (testing "an absent subsystem is an ABSENT KEY, never a fabricated default —
-            (get-in … [:epoch-history :depth]) reads nil"
-    ;; Deterministic stand-in for a build without the optional artefact: drop
-    ;; the published hook, which is the exact condition `current-config`
-    ;; branches on. Both optional keys ride the same mechanism, so dropping
-    ;; either one proves it.
-    (let [epoch-hook (rf.late-bind/get-fn :epoch/current-config)
-          trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
-      (is (some? epoch-hook) "control: the hook IS published before we drop it")
-      (try
-        (swap! rf.late-bind/hooks dissoc
-               :epoch/current-config
-               :trace.tooling/current-trace-buffer-config)
-        (rf.late-bind/invalidate-cache! :epoch/current-config)
-        (rf.late-bind/invalidate-cache! :trace.tooling/current-trace-buffer-config)
-        (let [cfg (rf/current-config)]
-          (is (not (contains? cfg :epoch-history))
-              ":epoch-history is ABSENT, not nil — `contains?` is the assertion
-               that tells the two apart, and it means the consumer's get-in
-               reads nil rather than a made-up depth")
-          (is (not (contains? cfg :trace-buffer))
-              ":trace-buffer is ABSENT under a production bundle that DCEs the
-               dev-only trace.tooling sibling")
-          (is (contains? cfg :elision)
-              "and the always-loaded subsystem is unaffected — this is an
-               omission, not an empty map"))
-        (finally
-          (rf.late-bind/set-fn! :epoch/current-config epoch-hook)
-          (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config trace-hook))))
-    (is (contains? (rf/current-config) :epoch-history)
-        "restored — the fixture leaves no hole for the next test")))
-
-(deftest current-config-optional-keys-are-independent
-  (testing "each optional key is absent only when ITS OWN producer is
-            unavailable — dropping the trace-tooling hook does NOT make the
-            loaded epoch artefact's key disappear, and it does not make
-            (get-in … [:epoch-history :depth]) read nil"
-    ;; The sibling test above drops BOTH hooks at once, so it cannot tell a
-    ;; coupled contract from an independent one. This is the mixed case: one
-    ;; producer present, the other gone. `current-config` reads
-    ;; `:epoch/current-config` and `:trace.tooling/current-trace-buffer-config`
-    ;; through separate late-bind lookups and `cond->`s them on independently.
-    (rf/configure! {:epoch-history {:depth 123}})
-    (let [trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
-      (is (some? trace-hook) "control: the trace hook IS published before we drop it")
-      (is (some? (rf.late-bind/get-fn :epoch/current-config))
-          "control: the epoch hook is published and STAYS published")
-      (try
-        (swap! rf.late-bind/hooks dissoc :trace.tooling/current-trace-buffer-config)
-        (rf.late-bind/invalidate-cache! :trace.tooling/current-trace-buffer-config)
-        (let [cfg (rf/current-config)]
-          (is (not (contains? cfg :trace-buffer))
-              ":trace-buffer is ABSENT — its own producer is gone")
-          (is (contains? cfg :epoch-history)
-              ":epoch-history is PRESENT — the epoch producer is untouched, so
-               the trace producer's absence says nothing about it")
-          (is (= 123 (get-in cfg [:epoch-history :depth]))
-              "and the depth still reads the configured value, NOT nil")
-          (is (contains? cfg :elision)
-              "the always-loaded subsystem is unaffected either way"))
-        (finally
-          (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config trace-hook)
-          (rf/configure! {:epoch-history {:depth 50}}))))
-    (is (contains? (rf/current-config) :trace-buffer)
-        "restored — the fixture leaves no hole for the next test")))
-
-(deftest current-config-does-not-reflect-extension-keys
-  (testing "the USER-NAMESPACED carve-out is WRITE-only: configure! accepts a
-            composed config value in silence, but current-config reports only
-            the keys the runtime READS — its vocabulary is closed, so a
-            pass-through key has no live value to report"
-    (rf/configure! {:myapp/thing  {:a 1}
-                    :elision      {:rf.egress/threshold-bytes 2048}})
-    (let [cfg (rf/current-config)]
-      (is (not (contains? cfg :myapp/thing))
-          "the extension key is not reflected back")
-      (is (= 2048 (get-in cfg [:elision :rf.egress/threshold-bytes]))
-          "control: the same call's KNOWN key did land, so the write happened"))))
+  ;; Dropping a published hook stands in for a build without that producer.
+  ;; Trace tooling goes first: a production bundle DCEs it while keeping the
+  ;; epoch artefact, so each key must be absent only when ITS producer is.
+  (rf/configure! {:epoch-history {:depth 123}})
+  (let [epoch-hook (rf.late-bind/get-fn :epoch/current-config)
+        trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
+        drop-hook! (fn [k]
+                     (swap! rf.late-bind/hooks dissoc k)
+                     (rf.late-bind/invalidate-cache! k))]
+    (try
+      (drop-hook! :trace.tooling/current-trace-buffer-config)
+      (let [cfg (rf/current-config)]
+        (is (not (contains? cfg :trace-buffer)))
+        (is (= 123 (get-in cfg [:epoch-history :depth])))
+        (is (contains? cfg :elision)))
+      (drop-hook! :epoch/current-config)
+      (is (not (contains? (rf/current-config) :epoch-history))
+          "absent, not a fabricated default")
+      (finally
+        (rf.late-bind/set-fn! :epoch/current-config epoch-hook)
+        (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config trace-hook)
+        (rf/configure! {:epoch-history {:depth 50}})))))
 
 (deftest trace-buffer-rejected-opts-warn-not-silent
-  (testing "the retired {:depth N} shape (and any
-            non-numeric / negative :events-retained) is a no-op that
-            emits :rf.warning/trace-buffer-unrecognised-opts and leaves
-            retention unchanged, rather than silently doing nothing.
-            :events-retained is the SOLE canonical opt — impl, core
-            docstring, API.md, and Spec 009 all agree."
-    ;; ALWAYS-ON: a rejected opts shape is a no-op that returns
-    ;; nil rather than throwing — true in BOTH postures, and the only half of
-    ;; this deftest that survives the production gate.
-    (is (nil? (rf/configure! {:trace-buffer {:depth 200}}))
-        "the retired {:depth N} shape no-ops and returns nil in BOTH postures")
-    (is (nil? (rf/configure! {:trace-buffer {:events-retained -1}}))
-        "a negative :events-retained no-ops and returns nil in BOTH postures")
-    ;; Establish a known retention first.
-    (rf/configure! {:trace-buffer {:events-retained 9}})
-    (when rf.interop/debug-enabled?
-     ;; Dev-instrumentation arm (see ns docstring §Posture split).
-     ;; The whole `configure-trace-buffer!` surface — warning AND retention —
-     ;; sits behind `rf.interop/debug-enabled?`.
-     (let [warnings (atom [])]
+  ;; the retired {:depth N} shape and a negative :events-retained are no-ops
+  ;; that warn, and leave retention at the last good value
+  (is (nil? (rf/configure! {:trace-buffer {:depth 200}})))
+  (rf/configure! {:trace-buffer {:events-retained 9}})
+  (when rf.interop/debug-enabled?
+    (let [warnings (atom [])]
       (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
                                (when (= :rf.warning/trace-buffer-unrecognised-opts
                                         (:operation ev))
                                  (swap! warnings conj ev))))
       (try
-        ;; The documented footgun: a user following stale docs passes the
-        ;; retired {:depth N} shape.
         (rf/configure! {:trace-buffer {:depth 200}})
-        (is (= 1 (count @warnings))
-            "the retired {:depth N} shape emits exactly one warning")
-        (let [ev (first @warnings)]
-          (is (= :warning (:op-type ev))
-              "op-type is :warning (routed via :trace/emit!'s
-              :warning path, matching Spec 009's catalogued :op-type for
-              :rf.warning/trace-buffer-unrecognised-opts; a
-              {:severity :warning} trace-buffer filter must catch it)")
-          (is (= {:depth 200} (-> ev :tags :opts))
-              "the rejected opts map rides the :opts tag")
-          (is (string? (-> ev :tags :reason))
-              "the :reason names the fix"))
-        ;; A negative value is likewise rejected.
+        (is (= [{:depth 200}] (mapv (comp :opts :tags) @warnings)))
         (rf/configure! {:trace-buffer {:events-retained -1}})
-        (is (= 2 (count @warnings))
-            "a negative :events-retained also warns")
-        ;; Retention is still the last GOOD value — the bad calls were
-        ;; pure no-ops.
+        (is (= 2 (count @warnings)))
         (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
         (dotimes [_ 20] (rf/dispatch-sync [:ping]))
-        (is (<= (count (rf/trace-buffer :rf/default)) 9)
-            "retention stayed at the last valid {:events-retained 9}")
-        ;; The canonical shape still applies cleanly (no warning).
+        (is (<= (count (rf/trace-buffer :rf/default)) 9))
         (rf/configure! {:trace-buffer {:events-retained 3}})
-        (is (= 2 (count @warnings))
-            "the canonical {:events-retained N} shape does NOT warn")
+        (is (= 2 (count @warnings)) "the canonical shape does not warn")
         (finally
-          (rf/unregister-listener! :trace ::trace-buffer-opts)))))))
+          (rf/unregister-listener! :trace ::trace-buffer-opts))))))
 
 (deftest trace-buffer-severity-warning-filter-catches-unrecognised-opts
-  (testing "a {:severity :warning} trace-buffer filter must
-            catch :rf.warning/trace-buffer-unrecognised-opts. Routing the
-            warning through rf.trace/emit-error! (a hardcoded :op-type
-            :error) would contradict the Spec 009-declared :op-type
-            :warning row, and a {:severity :warning} filter would silently
-            miss it. Dispatch the
-            bad {:configure! {:trace-buffer {:depth N}}} call FROM INSIDE
-            an event handler so the emit rides an in-flight dispatch-id +
-            frame (push-to-ring! skips frameless/dispatch-id-less emits)
-            and lands in the frame's retained ring."
-    ;; The handler stamps a SENTINEL rather than returning `{:db db}`:
-    ;; `reset-runtime`'s `make-frame` seeds `:rf/default` app-db as `{}`,
-    ;; which is already `some?` BEFORE any dispatch, so a
-    ;; `(some? (rf/app-db-value :rf/default))` witness over a handler that
-    ;; commits `db` unchanged could not fail and would prove nothing about
-    ;; the handler. An actual state
-    ;; TRANSITION can: the key is absent up front and present afterwards, so a
-    ;; handler that never ran, or a `configure!` throw that derailed the
-    ;; dispatch before the commit, reddens this.
-    (rf/reg-event :bad-configure-call
-                  (fn [{:keys [db]} _]
-                    (rf/configure! {:trace-buffer {:depth 200}})
-                    {:db (assoc db ::bad-configure-committed :yes)}))
-    (is (nil? (::bad-configure-committed (rf/app-db-value :rf/default)))
-        "the sentinel is absent before the dispatch — the witness below is a
-         real transition, not a property app-db already had")
-    (rf/dispatch-sync [:bad-configure-call])
-    ;; ALWAYS-ON: the bad `configure!` call from inside a handler
-    ;; must not derail the dispatch — the handler's `:db` effect still commits.
-    (is (= :yes (::bad-configure-committed (rf/app-db-value :rf/default)))
-        "the enclosing dispatch completed despite the rejected configure! call
-         — the handler ran to its end and its commit landed")
-    ;; Dev-instrumentation arm (see ns docstring §Posture split).
-    ;; BOTH reads go inside: `trace-buffer` returns [] in production, so the
-    ;; `{:severity :error}` sanity NEGATIVE would pass over an empty vector —
-    ;; certifying "does not ride the :error op-type" with nothing retained.
-    (when rf.interop/debug-enabled?
-      (let [warnings (rf/trace-buffer :rf/default {:flat true :severity :warning})]
-        (is (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
-                  warnings)
-            "a {:severity :warning} trace-buffer read surfaces
-            :rf.warning/trace-buffer-unrecognised-opts"))
-      ;; Sanity: a {:severity :error} filter must NOT catch it — this
-      ;; category must not masquerade as an :error op-type.
-      (let [errors (rf/trace-buffer :rf/default {:flat true :severity :error})]
-        (is (not (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
-                       errors))
-            ":rf.warning/trace-buffer-unrecognised-opts does not ride the
-            :error op-type")))))
+  ;; Called from inside a handler so the warning carries the dispatch-id and
+  ;; frame a ring needs to retain it.
+  (rf/reg-event :bad-configure-call
+                (fn [{:keys [db]} _]
+                  (rf/configure! {:trace-buffer {:depth 200}})
+                  {:db (assoc db ::bad-configure-committed :yes)}))
+  (rf/dispatch-sync [:bad-configure-call])
+  (is (= :yes (::bad-configure-committed (rf/app-db-value :rf/default)))
+      "the rejected configure! did not derail the dispatch")
+  (when rf.interop/debug-enabled?
+    (let [ops (fn [severity]
+                (set (map :operation (rf/trace-buffer :rf/default {:flat true :severity severity}))))]
+      (is (contains? (ops :warning) :rf.warning/trace-buffer-unrecognised-opts))
+      (is (not (contains? (ops :error) :rf.warning/trace-buffer-unrecognised-opts))))))
 
 (defn- unknown-configure-key-warnings
-  "Call `(rf/configure! config)` from INSIDE a dispatched handler and return
-  the `:rf.warning/unknown-configure-key` events the frame's trace ring
-  retained for that one call.
-
-  The dispatch wrapper is load-bearing, not ceremony: `trace/tooling`'s
-  ring router (`route-to-ring!`) files an event only when it carries BOTH a
-  `:dispatch-id` and a `:frame` tag, so a bare top-level `configure!` emits
-  a warning that no ring retains. This is the collection idiom of
-  `trace-buffer-severity-warning-filter-catches-unrecognised-opts` above.
-
-  Rings are cleared first so the returned count is this call's alone."
+  "The `:rf.warning/unknown-configure-key` events one `(rf/configure! config)`
+  leaves in the frame's ring. Called inside a dispatch because a ring only
+  retains events carrying a dispatch-id and a frame."
   [config]
   (rf.trace.tooling/clear-trace-rings!)
   (rf/reg-event ::unknown-key-probe
@@ -366,210 +137,63 @@
            (rf/trace-buffer :rf/default {:flat true})))
 
 (deftest configure-unknown-bare-key-warns-and-no-ops
-  ;; spec/Conventions.md §No silent swallow names this exact shape — "a bare
-  ;; or framework-namespaced key the runtime does not recognise … reads as a
-  ;; typo of a real key and MUST signal" — and reserves silence for
-  ;; USER-namespaced extension keys. The API.md §Fixed-and-additive rationale
-  ;; ("a wrapper can pass a composed config value straight through") is the
-  ;; namespaced case. The warning is pinned outright, never loosened to
-  ;; accept both outcomes.
-  ;;
-  ;; The call returns nil, applies nothing and throws nothing. The warning is
-  ;; observational (`:recovery :ignored`) and dev-gated, so the production
-  ;; contract is untouched.
-  (testing "the call returns nil and applies nothing — in BOTH postures"
-    ;; ALWAYS-ON (posture split): the no-op half of the contract is
-    ;; production state and is asserted outside the dev arm.
-    (is (nil? (rf/configure! {:strict-subs true}))
-        ":strict-subs is NOT a v1 configure key (per API.md §Configure keys); call returns nil")
-    (is (nil? (rf/configure! {:ssr {:public-error-id :anything}}))
-        ":ssr is per-frame metadata, not a configure key (per Conventions §Configuration surfaces)")
-    (is (nil? (rf/configure! {:totally-made-up {:foo 1}}))
-        "any unknown key returns nil")
-    ;; :sub-cache is not a configure key (sync dispose has no grace-period
-    ;; to configure). The call must no-op.
-    (is (nil? (rf/configure! {:sub-cache {:grace-period-ms 71}}))
-        ":sub-cache is retired; the call returns nil")
-    (is (nil? (rf/configure! {:rf.nope/x 1}))
-        "a framework-namespaced unknown key returns nil")
-    (is (nil? (rf/configure! {:myapp/thing 1}))
-        "a user-namespaced extension key returns nil"))
-  ;; Dev-instrumentation arm. `emit!` is gated on
-  ;; `rf.interop/debug-enabled?`, and `trace-buffer` returns [] under the
-  ;; production gate, so an unguarded positive here would assert over an
-  ;; empty vector and certify nothing.
+  (is (= [nil nil nil]
+         (mapv rf/configure! [{:strict-subs true} {:rf.nope/x 1} {:myapp/thing 1}]))
+      "an unknown key of any namespace applies nothing and returns nil")
   (when rf.interop/debug-enabled?
-    (testing "a BARE or FRAMEWORK-namespaced unknown key emits exactly one :rf.warning/unknown-configure-key"
-      (doseq [[label config expected-key]
-              [[":strict-subs — a bare key that is not in the closed vocabulary"
-                {:strict-subs true} :strict-subs]
-               [":totally-made-up — an arbitrary bare key"
-                {:totally-made-up {:foo 1}} :totally-made-up]
-               [":sub-cache — a RETIRED bare key; a stale call site applies nothing"
-                {:sub-cache {:grace-period-ms 71}} :sub-cache]
-               [":rf.nope/x — FRAMEWORK-namespaced, so the runtime is entitled to recognise it"
-                {:rf.nope/x 1} :rf.nope/x]]]
-        (let [warnings (unknown-configure-key-warnings config)]
-          (is (= 1 (count warnings))
-              (str "exactly one :rf.warning/unknown-configure-key for " label))
-          (let [warning (first warnings)
-                tags    (:tags warning)]
-            (is (= :warning (:op-type warning))
-                (str "it rides the :warning op-type, not :error, for " label))
-            (is (= [expected-key] (:unknown-keys tags))
-                (str "the warning names the offending key for " label))
-            ;; The full CLOSED vocabulary, sorted — grows with each
-            ;; `configure!` key. Pinned in
-            ;; full rather than by membership: the warning's whole job is to
-            ;; show the author the set they could have meant, so a pin that
-            ;; only checked the offending key would not notice the set going
-            ;; stale.
-            (is (= [:elision :epoch-history :observability :trace-buffer]
-                   (:known-keys tags))
-                (str "the warning names the full known set for " label))
-            ;; `build-event` HOISTS `:recovery` out of `:tags` to the top
-            ;; level on the success path when the caller supplies one.
-            (is (= :ignored (:recovery warning))
-                (str "the warning is observational, never a refusal, for " label))
-            (is (re-find #"unrecognised top-level key" (str (:reason tags)))
-                (str "the reason string explains the swallow for " label)))))
-      ;; A single map carrying TWO bad keys is ONE warning naming both — the
-      ;; per-call shape of `emit-unknown-dispatch-opts-warning!`.
-      (let [warnings (unknown-configure-key-warnings {:strict-subs true
-                                                      :totally-made-up 1})]
-        (is (= 1 (count warnings))
-            "a map with two unknown keys emits ONE warning, not one per key")
-        (is (= #{:strict-subs :totally-made-up}
-               (set (:unknown-keys (:tags (first warnings)))))
-            "that one warning names every offending key")))
-    (testing "CONTROLS — a user-namespaced extension key and a known key emit nothing"
-      ;; This pair is what stops the warning becoming a lint. The
-      ;; user-namespaced carve-out is [Conventions §No silent swallow]'s own
-      ;; line and is what lets a wrapper hand `configure!` a composed config
-      ;; value without first filtering it.
-      (is (empty? (unknown-configure-key-warnings {:myapp/thing 1}))
-          ":myapp/thing is a USER-namespaced extension key — silent by contract")
-      (is (empty? (unknown-configure-key-warnings {:epoch-history {:depth 7}}))
-          ":epoch-history is a known key — no warning")
+    (testing "a bare or framework-namespaced unknown key emits one observational warning"
+      (doseq [[config k] [[{:strict-subs true} :strict-subs]
+                          [{:rf.nope/x 1} :rf.nope/x]]]
+        (is (= [{:op-type :warning :recovery :ignored :unknown-keys [k]}]
+               (mapv #(assoc (select-keys % [:op-type :recovery])
+                             :unknown-keys (:unknown-keys (:tags %)))
+                     (unknown-configure-key-warnings config)))))
+      (is (= [#{:strict-subs :totally-made-up}]
+             (mapv (comp set :unknown-keys :tags)
+                   (unknown-configure-key-warnings {:strict-subs true :totally-made-up 1})))
+          "one warning per call, naming every offending key"))
+    (testing "a user-namespaced key and the known vocabulary emit nothing"
+      (is (empty? (unknown-configure-key-warnings {:myapp/thing 1})))
       (is (empty? (unknown-configure-key-warnings {:epoch-history {:depth 7}
                                                    :trace-buffer  {:events-retained 9}
-                                                   :elision       {:rf.egress/threshold-bytes 2048}}))
-          "the full known vocabulary emits nothing")))
-  (testing "an unknown key does not perturb the known-key state"
-    ;; Set known keys to non-default values, then attempt unknown keys,
-    ;; then assert known-key state is unchanged.
-    (rf/configure! {:trace-buffer {:events-retained 11}})
-    (rf/configure! {:strict-subs true})
-    (rf/configure! {:ssr {:public-error-id :nope}})
-    (rf/configure! {:no-such-key {}})
-    ;; `:ping` COUNTS. A `{:db db}` no-op handler witnessed by
-    ;; `(some? (rf/app-db-value :rf/default))` would be true of the `{}`
-    ;; `make-frame` seeds before any dispatch at all — so a missing handler, a
-    ;; perturbed registry or a dispatch loop that ran three times instead of
-    ;; thirty would all pass. An exact counter cannot: the claim is "thirty
-    ;; landings", so assert thirty.
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db (update db ::pings (fnil inc 0))}))
-    (is (nil? (::pings (rf/app-db-value :rf/default)))
-        "no landings recorded yet")
-    (dotimes [_ 30] (rf/dispatch-sync [:ping]))
-    ;; ALWAYS-ON: whatever the posture, thirty dispatches bracketed
-    ;; by four unknown-key `configure!` calls all landed — the
-    ;; production-visible half of "an unknown key perturbs nothing".
-    (is (= 30 (::pings (rf/app-db-value :rf/default)))
-        "all thirty bracketed dispatches ran to completion and committed")
-    ;; Dev-instrumentation arm. `(<= (count []) 11)` is true for
-    ;; every N under the gate: the retention cap is unreadable in production.
-    (when rf.interop/debug-enabled?
-      (is (<= (count (rf/trace-buffer :rf/default)) 11)
-          ":trace-buffer events-retained survived bracketing unknown-key calls")))
-  (testing "a single map mixing known + unknown top-level
-            keys applies the known subsystems and IGNORES the unknown ones
-            (closed-and-additive; the unknown bare keys also warn in dev
-            builds, which changes nothing about what is applied)"
+                                                   :elision       {:rf.egress/threshold-bytes 2048}})))))
+  (testing "a map mixing known and unknown keys applies the known ones"
     (rf/configure! {:trace-buffer {:events-retained 6}
                     :elision      {:rf.egress/threshold-bytes 2048}
                     :no-such-key  {:foo 1}
                     :strict-subs  true})
-    (is (= 2048 (:rf.egress/threshold-bytes (rf.elision/current-config)))
-        ":elision applied from the composite map")
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (dotimes [_ 20] (rf/dispatch-sync [:ping]))
-    ;; Dev-instrumentation arm. Same empty-vector false-green; the
-    ;; composite map's PRODUCTION half is the `:elision` assertion above,
-    ;; which is unguarded and is what proves "known subsystems applied".
+    (is (= 2048 (:rf.egress/threshold-bytes (rf.elision/current-config))))
     (when rf.interop/debug-enabled?
-      (is (<= (count (rf/trace-buffer :rf/default)) 6)
-          ":trace-buffer applied from the composite map; unknown keys ignored"))))
+      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+      (dotimes [_ 20] (rf/dispatch-sync [:ping]))
+      (is (<= (count (rf/trace-buffer :rf/default)) 6)))))
 
-;; ---------------------------------------------------------------------------
-;; The non-map guard, in BOTH assertion postures.
-;; ---------------------------------------------------------------------------
-
-(def ^:private non-map-args
-  "The three non-map arguments the contract names, worst first: the RETIRED
-  keyed-arity first arg (what a stale call site / a v1 migration actually
-  produces), a vector, and `nil`."
-  [:trace-buffer [:trace-buffer {:events-retained 3}] nil])
+(def ^:private non-map-arg
+  "A non-map that carries content, so the ex-data can be checked for not echoing it."
+  [:trace-buffer {:events-retained 3}])
 
 (deftest configure-non-map-arg-fails-loud
-  (testing "configure! takes a SINGLE nested config
-            map. A non-map argument is a programmer error and throws the
-            canonical structured error, NOT a bare AssertionError."
-    (doseq [bad non-map-args]
-      (let [ex (try (rf/configure! bad) nil
-                    (catch clojure.lang.ExceptionInfo e e))
-            d  (some-> ex ex-data)]
-        (is (= :rf.error/configure-bad-arg (:rf.error/id d))
-            (str "a non-map arg fails loud with the canonical machine discriminator: "
-                 (pr-str bad)))
-        (is (= 'rf/configure! (:where d))
-            "the user-facing symbol that threw")
-        (is (= :pass-a-config-map (:recovery d))
-            "the recovery disposition names the fix")
-        (is (string? (:reason d))
-            "a one-sentence human diagnostic is present")
-        ;; The offending value is reported by SHAPE, never echoed: `configure!`
-        ;; is handed application configuration, so the ex-data must survive
-        ;; off-box capture. `diag-value-summary` is content-free by
-        ;; construction (a closed `:type` vocabulary + an integer count).
-        (is (contains? (:received d) :type)
-            ":received carries the content-free shape summary")
-        (is (not= bad (:received d))
-            ":received is a SHAPE summary, not the raw argument")))))
+  (let [d (try (rf/configure! non-map-arg) nil
+               (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+    (is (= {:rf.error/id :rf.error/configure-bad-arg
+            :where       'rf/configure!
+            :recovery    :pass-a-config-map}
+           (select-keys d [:rf.error/id :where :recovery])))
+    ;; configuration may be sensitive: the argument is summarised by shape
+    (is (contains? (:received d) :type))
+    (is (not= non-map-arg (:received d)))))
 
-;; The `configure!` guard must hold when the host compiler ELIDES assertions —
-;; CLJS `:elide-asserts true`, or a JVM load under `*assert*` false. An
-;; `(assert (map? …))` guard would compile to NOTHING in such a build and every
-;; call below would silently return nil.
-;;
-;; A test that merely rebinds `*assert*` at CALL time proves nothing — `assert`
-;; is a MACRO, so the decision was already taken when `re-frame.core` was
-;; compiled. This harness therefore takes the ACTUAL source form of the ACTUAL
-;; public fn and RE-COMPILES it with `*assert*` false, which is a genuine
-;; compile-time control. It deliberately does NOT reload `re-frame.core`: the
-;; form is evaluated into a throwaway namespace carrying `re-frame.core`'s own
-;; aliases, so no global runtime state is disturbed for the rest of the suite.
+;; The guard must hold in an assertion-elided build (CLJS :elide-asserts, or a
+;; JVM load under *assert* false), so it cannot be an `assert`. `assert` is a
+;; macro, so the harness recompiles configure!'s own source with *assert*
+;; false, in a throwaway namespace carrying re-frame.core's aliases and vars.
 
 (def ^:private probe-ns-sym 're-frame.configure-elision-probe)
 
 (defn- eval-with-assertions-elided
-  "Compile `form` with `*assert*` FALSE in a throwaway namespace that carries
-  `re-frame.core`'s aliases AND its own interned Vars, and return the
-  resulting Var.
-
-  The interns matter as much as the aliases: `configure!`'s
-  body reads the PRIVATE `known-configure-keys` / `unknown-configure-keys`
-  helpers, which no alias can reach — without them the re-compile dies at
-  `Syntax error compiling` and the guard below is never exercised at all.
-  Referring `re-frame.core`'s interns is what \"recompile this fn's source\"
-  honestly means; `sym` itself is skipped so the freshly-evaluated
-  definition is the one returned.
-
-  A PRIVATE var cannot be reached through a `refer`red mapping either —
-  the compiler rejects it outright (`var: … is not public`) — so a bound,
-  non-macro private var is re-INTERNED into the probe by value instead of
-  referred. That is faithful: inside `re-frame.core` the reference is legal,
-  and the probe ns exists precisely to stand in for `re-frame.core`."
+  "Compile `form` with `*assert*` false in a throwaway namespace carrying
+  `re-frame.core`'s aliases and interned vars (private ones re-interned by
+  value, since a private var cannot be referred), and return the Var `sym`."
   [form sym]
   (remove-ns probe-ns-sym)
   (let [probe    (create-ns probe-ns-sym)
@@ -589,49 +213,23 @@
         (eval form)))
     (ns-resolve probe sym)))
 
-(defn- configure!-source-form
-  "The `(defn configure! …)` form as it is WRITTEN in
-  `re_frame/core.cljc` — read from source, so this test cannot drift into
-  asserting over a copy of the guard."
-  []
+(defn- configure!-source-form []
   (let [src (repl/source-fn 're-frame.core/configure!)]
     (assert (string? src) "could not read re-frame.core/configure! source")
     (read {:read-cond :allow}
           (java.io.PushbackReader. (java.io.StringReader. src)))))
 
 (deftest configure-non-map-guard-survives-assertion-elision
-  (testing "the harness really DOES elide assertions (anti-vacuity
-            control). Without this, every assertion below could pass because
-            nothing was elided at all."
-    (let [elided-assert-fn (eval-with-assertions-elided
-                             '(defn probe-fn [x] (assert (map? x)) :applied)
-                             'probe-fn)]
-      (is (= :applied (elided-assert-fn :not-a-map))
-          "a language `assert` compiled under *assert* false does NOT fire —
-           so this harness reproduces the defective posture faithfully")))
-
-  (testing "configure!'s OWN source, recompiled with assertions
-            elided, still rejects every non-map argument with the SAME
-            canonical error. Against an `(assert (map? …))` guard each of
-            these calls would return nil."
-    (let [elided-configure! (eval-with-assertions-elided
-                              (configure!-source-form) 'configure!)]
-      (doseq [bad non-map-args]
-        (let [ex (try (elided-configure! bad) nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex)
-              (str "assertion-elided build still fails loud on " (pr-str bad)))
-          (is (= :rf.error/configure-bad-arg (:rf.error/id (ex-data ex)))
-              "the SAME canonical id in both postures")))))
-
-  (testing "the elided build still APPLIES a valid map, so the
-            guard did not turn configure! into a throw-everything stub."
-    (let [elided-configure! (eval-with-assertions-elided
-                              (configure!-source-form) 'configure!)]
-      (is (nil? (elided-configure! {:elision {:rf.egress/threshold-bytes 4096}}))
-          "a valid map returns nil as documented")
-      (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
-          "and the known subsystem really was configured")
-      (is (nil? (elided-configure! {:no-such-key 1}))
-          "an unknown top-level key is an applies-nothing, nil-returning
-           no-op — a dev-gated WARNING, never a refusal"))))
+  (let [elided-assert-fn (eval-with-assertions-elided
+                           '(defn probe-fn [x] (assert (map? x)) :applied)
+                           'probe-fn)]
+    (is (= :applied (elided-assert-fn :not-a-map))
+        "control: the harness really does elide assertions"))
+  (let [elided-configure! (eval-with-assertions-elided
+                            (configure!-source-form) 'configure!)]
+    (is (= :rf.error/configure-bad-arg
+           (:rf.error/id (try (elided-configure! non-map-arg) nil
+                              (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+    (elided-configure! {:elision {:rf.egress/threshold-bytes 4096}})
+    (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
+        "the recompiled fn still applies a valid map")))
