@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 /*
- * Workflow-policy guard for `.github/workflows/docs.yml`.
- *
- * docs.yml carries TWO concurrency concerns on one workflow: the main-push
- * Pages DEPLOY path, and an unfiltered pull_request build-only regression
- * check. A single shared `pages` group would let a routine PR docs check
- * cancel a queued main-push deployment before any job started (GitHub keeps
- * one running + one pending run per group and drops the older pending one even
- * with cancel-in-progress: false). This guard pins the event-scoped split, and
- * — critically — pins the invariant that makes the split safe: `deploy` runs
- * on `push` only, so per-PR groups can never yield two concurrent Pages
- * deployments.
- *
- * TEXT/policy assertions over the committed workflow — no Actions runtime
- * needed — mirroring `_lint-workflow-policy.test.cjs`. Discovered by `npm run test:scripts`.
+ * Policy guard for `.github/workflows/docs.yml`: PR docs checks and main-push
+ * Pages deploys must not share one concurrency group, or a PR run cancels a
+ * queued deploy. Text assertions over the committed workflow. Discovered by
+ * `npm run test:scripts`.
  */
 
 'use strict';
@@ -43,72 +33,20 @@ const concurrencyBlock = (() => {
   return m[1];
 })();
 
-test('concurrency group is event-scoped, not a bare shared `pages` (rf2-k8l1m)', () => {
-  const group = /^\s*group:\s*(.+?)\s*$/m.exec(concurrencyBlock);
-  assert.notEqual(group, null, 'concurrency block must declare a group');
-  assert.notEqual(
-    group[1],
-    'pages',
-    'a bare `group: pages` puts unfiltered PR docs checks in the Pages deploy ' +
-      'group, where they cancel queued main-push deployments',
-  );
-  assert.match(
-    group[1],
-    /github\.event_name\s*==\s*'pull_request'/,
-    'the group key must branch on github.event_name so PR runs and deploy runs ' +
-      'land in different groups',
-  );
+test('concurrency is event-scoped: per-PR groups, push serialises on `pages`, only PRs cancel (rf2-k8l1m)', () => {
+  const group = /^\s*group:\s*(.+?)\s*$/m.exec(concurrencyBlock)[1];
+  assert.match(group, /github\.event_name\s*==\s*'pull_request'/, 'the group must branch on the event');
+  assert.match(concurrencyBlock, /github\.event\.pull_request\.number/, 'PR runs need a per-PR group');
+  assert.match(concurrencyBlock, /\|\|\s*'pages'/, 'non-PR runs must serialise in `pages`');
+  const cancel = /^\s*cancel-in-progress:\s*(.+?)\s*$/m.exec(concurrencyBlock)[1];
+  assert.match(cancel, /github\.event_name\s*==\s*'pull_request'/, 'cancel-in-progress must be PR-only');
 });
 
-test('pull_request runs get a per-PR group (rf2-k8l1m)', () => {
-  assert.match(
-    concurrencyBlock,
-    /github\.event\.pull_request\.number/,
-    'the PR arm of the group key must include the PR number so one PR cannot ' +
-      'cancel another PR (or a main deploy)',
-  );
-});
-
-test('non-PR (push / dispatch) runs still serialize in the `pages` group (rf2-k8l1m)', () => {
-  assert.match(
-    concurrencyBlock,
-    /\|\|\s*'pages'/,
-    'the non-PR arm must remain the single `pages` group so Pages publishes ' +
-      'one artifact at a time',
-  );
-});
-
-test('cancel-in-progress is PR-only — a running deploy is never cancelled (rf2-k8l1m)', () => {
-  const cancel = /^\s*cancel-in-progress:\s*(.+?)\s*$/m.exec(concurrencyBlock);
-  assert.notEqual(cancel, null, 'concurrency block must declare cancel-in-progress');
-  assert.notEqual(
-    cancel[1],
-    'true',
-    'an unconditional cancel-in-progress would let a new run kill an ' +
-      'in-flight Pages deployment mid-publish',
-  );
-  assert.match(
-    cancel[1],
-    /github\.event_name\s*==\s*'pull_request'/,
-    'cancel-in-progress must be scoped to pull_request so only PR runs supersede',
-  );
-});
-
-// The safety interlock for the split above. Per-PR concurrency groups are only
-// safe because a PR run cannot deploy. If `deploy` ever loses its push-only
-// gate, two PR runs in two different groups could publish Pages concurrently.
+// Per-PR groups are safe only because a PR run can never deploy Pages.
 test('deploy job stays gated to push events — the interlock the split relies on (rf2-k8l1m)', () => {
-  const deployHeader = /\n {2}deploy:\r?\n/.exec(workflow);
-  assert.notEqual(deployHeader, null, 'docs.yml must declare a `deploy` job');
-  const rest = workflow.slice(deployHeader.index + 1);
+  const rest = workflow.slice(/\n {2}deploy:\r?\n/.exec(workflow).index + 1);
   const next = rest.search(/\n {2}[A-Za-z0-9_-]+:\r?\n/);
-  const deployBlock = next === -1 ? rest : rest.slice(0, next);
-  assert.match(
-    deployBlock,
-    /if:\s*github\.event_name\s*==\s*'push'/,
-    'the deploy job must run only on push; per-PR concurrency groups are safe ' +
-      'ONLY because a PR run never publishes Pages',
-  );
+  assert.match(next === -1 ? rest : rest.slice(0, next), /if:\s*github\.event_name\s*==\s*'push'/);
 });
 
 let failed = 0;
