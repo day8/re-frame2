@@ -157,22 +157,43 @@
 (deftest async-dispatch-resolves-after-current-drain
   ;; Spec 002 §Run-to-completion: `:fx [[:dispatch …]]` children drain in the
   ;; same cycle, so the whole cascade is visible when dispatch-sync returns.
-  (let [order (atom [])]
-    (rf/reg-event :seed
-      (fn [_ _]
-        (swap! order conj :seed)
-        {:db {:n 0}
-         :fx [[:dispatch [:bump]]
-              [:dispatch [:bump]]]}))
-    (rf/reg-event :bump
-      (fn [{:keys [db]} _]
-        (swap! order conj :bump)
-        {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed])
-    (is (= [:seed :bump :bump] @order)
-        "both :fx dispatches ran inside the same dispatch-sync cycle")
-    (is (= 2 (:n (rf/app-db-value :rf/default)))
-        "their effects are visible the moment dispatch-sync returns")))
+  (testing ":fx [[:dispatch …]] children drain in the same dispatch-sync cycle"
+    (let [order (atom [])]
+      (rf/reg-event :seed
+        (fn [_ _]
+          (swap! order conj :seed)
+          {:db {:n 0}
+           :fx [[:dispatch [:bump]]
+                [:dispatch [:bump]]]}))
+      (rf/reg-event :bump
+        (fn [{:keys [db]} _]
+          (swap! order conj :bump)
+          {:db (update db :n inc)}))
+      (rf/dispatch-sync [:seed])
+      (is (= [:seed :bump :bump] @order)
+          "both :fx dispatches ran inside the same dispatch-sync cycle")
+      (is (= 2 (:n (rf/app-db-value :rf/default)))
+          "their effects are visible the moment dispatch-sync returns")))
+  (testing "an async rf/dispatch queued before a dispatch-sync is not dropped by the sync drain"
+    ;; next-tick is captured so the executor thread never races the sync
+    ;; drain; the captured drain thunks run once the sync drain has settled.
+    (let [order          (atom [])
+          done           (promise)
+          captured-ticks (atom [])]
+      (rf/reg-event :outside-async
+        (fn [{:keys [db]} _]
+          (swap! order conj :outside-async)
+          (deliver done :ok)
+          {:db (assoc db :outside? true)}))
+      (rf/reg-event :sync-only
+        (fn [{:keys [db]} _] (swap! order conj :sync-only) {:db db}))
+      (with-redefs [rf.interop/next-tick (fn [f] (swap! captured-ticks conj f) nil)]
+        (rf/dispatch [:outside-async])
+        (rf/dispatch-sync [:sync-only]))
+      (doseq [f @captured-ticks] (f))
+      (is (= :ok (deref done 2000 :timeout)))
+      (is (= #{:sync-only :outside-async} (set @order)))
+      (is (true? (:outside? (rf/app-db-value :rf/default)))))))
 
 (deftest per-frame-drain-isolation
   ;; Spec 002 §Run-to-completion rule 1: there is no cross-frame drain. A
