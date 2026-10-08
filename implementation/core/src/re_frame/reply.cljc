@@ -98,8 +98,8 @@
 ;; EPHEMERAL vs DURABLE. `::post` is the one ephemeral, host-bearing slot a
 ;; normalized target may carry while in-flight. A target that could become
 ;; DURABLE (persisted to a ledger row, a stored continuation, a replay log)
-;; MUST be data-only: see `durable-target` (strips ephemerals + asserts
-;; data-only) and `data-only-target?` (the predicate conformance pins).
+;; MUST be data-only: see `durable-target`, which strips ephemerals and
+;; asserts data-only.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private post-key ::post)
@@ -215,8 +215,8 @@
   `:rf.reply/invalid-target` rather than letting a bogus `{}` / `{:event nil}` /
   `{:event :x}` travel on to `complete` (whose append would turn it into a
   garbage dispatch shape). Validating here means EVERY downstream consumer
-  (`complete`, `map-completed-event`, `durable-target`, `target->short-form`) inherits
-  the guarantee — the target is either nil or a well-formed descriptor."
+  (`complete`, `map-completed-event`, `durable-target`) inherits the
+  guarantee — the target is either nil or a well-formed descriptor."
   [target]
   (cond
     (nil? target) nil
@@ -246,21 +246,6 @@
              :rf.reply/invalid-target
              "Invalid :rf/reply-to target — expected an event-vector prefix or a descriptor map."
              {:target target}))))
-
-(defn target->short-form
-  "Project a normalized target back to its public short form when it has no
-  non-default descriptor fields (no `:suppress`, no accumulated `::post`,
-  `:delivery :append`). Otherwise returns the descriptor unchanged. Lets a
-  family expose the bare vector publicly while using the descriptor internally
-  (Managed-Effects: \"A family MAY expose only the short vector form publicly
-  while using the descriptor form internally\")."
-  [target]
-  (let [{:keys [event delivery suppress] :as d} (normalize-target target)]
-    (if (and (= delivery :append)
-             (nil? suppress)
-             (nil? (get d post-key)))
-      event
-      d)))
 
 ;; ---------------------------------------------------------------------------
 ;; Completion — append the reply map to the target's event, then apply the
@@ -443,20 +428,9 @@
 ;; the reply-target-as-data contract). A normalized target may carry the
 ;; ephemeral, non-data slot `::post` (a fn) WHILE IN-FLIGHT, but a target that
 ;; can become DURABLE (a stored continuation, a ledger row, a replay log) MUST
-;; be data-only. These helpers make that boundary explicit and fail LOUD rather
-;; than letting a non-serializable function leak into durable reply data.
+;; be data-only. `durable-target` makes that boundary explicit and fails LOUD
+;; rather than letting a non-serializable function leak into durable reply data.
 ;; ---------------------------------------------------------------------------
-
-(defn data-only-target?
-  "True when `target` is DATA-ONLY — safe to persist into a durable reply
-  target. False when the `::post` slot (an arbitrary fn) is present: the check
-  is KEY PRESENCE, and that slot is stripped by `durable-target` so it never
-  rides durable data. The public data fields `:event` / `:delivery` /
-  `:suppress` are all data and pass. A nil target is data-only (nothing to
-  persist)."
-  [target]
-  (let [d (normalize-target target)]
-    (not (some #(contains? d %) ephemeral-target-keys))))
 
 (defn durable-target
   "Project `target` to a DURABLE, data-only normalized descriptor — stripping
