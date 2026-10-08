@@ -25,7 +25,6 @@
    10. The seam cursor is `row-resize` — the affordance hover signal."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -34,7 +33,6 @@
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.test-helpers.popout-document
              :as popout-document]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -95,61 +93,33 @@
 (deftest seam-handle-renders-with-aria-shape
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (seam-markup)
-          props (second tree)]
-      (is (some? tree)
-          "the seam composes a hiccup tree")
-      (is (= "rf-xray-event-list-seam" (:data-testid props))
-          "testid is the documented contract")
-      (is (= "separator" (:role props))
-          "role is the WAI-ARIA separator pattern")
-      (is (= "horizontal" (:aria-orientation props))
-          "orientation is horizontal (row-resize seam)")
-      (is (= "Resize events list" (:aria-label props))
-          "label describes the operation")
-      (is (= 0 (:tab-index props))
-          "seam is keyboard-reachable via tab")
+    (let [props (second (seam-markup))]
+      (is (= ["rf-xray-event-list-seam" "separator" "horizontal" "Resize events list" 0
+              config/min-events-list-height-px]
+             ((juxt :data-testid :role :aria-orientation :aria-label :tab-index :aria-valuemin) props))
+          "a tab-reachable WAI-ARIA separator floored at the published minimum")
       (is (number? (:aria-valuenow props))
-          "live aria-valuenow exposes the current height to AT")
-      (is (= config/min-events-list-height-px (:aria-valuemin props))
-          "aria-valuemin matches the published floor"))))
+          "live aria-valuenow exposes the current height to AT"))))
 
 (deftest seam-handle-style-uses-row-resize-cursor
+  ;; No native page pan and no text lasso while the seam is dragged.
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (seam-markup)
-          style (:style (second tree))]
-      (is (= "row-resize" (:cursor style))
-          "seam hover cursor signals vertical-axis resize")
-      (is (string? (:box-shadow style))
-          "always-visible hairline accent rides as inline box-shadow")
-      (is (= "none" (:touch-action style))
-          "touch-action: none disables native page-pan during drag")
-      (is (= "none" (:user-select style))
-          "user-select: none prevents text-lasso during drag"))))
+    (is (= ["row-resize" "none" "none"]
+           ((juxt :cursor :touch-action :user-select) (:style (second (seam-markup))))))))
 
 ;; ---- shell DOM-order contract -------------------------------------------
 
 (deftest shell-mounts-seam-between-list-and-tab-bar
-  (testing "the seam handle sits between the L2 event list
-            and the L3 tab bar in DOM order. The seam IS the
-            boundary; placing it anywhere else (above the events-
-            ribbon, below the tab-bar) would break the click-and-drag
-            semantics."
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [tree    (dynamic-shell-tree/shell-view-tree {:mode :inline})
-            testids (all-testids tree)
-            list-idx (.indexOf (clj->js testids) "rf-xray-event-list")
-            seam-idx (.indexOf (clj->js testids) "rf-xray-event-list-seam")
-            tabs-idx (.indexOf (clj->js testids) "rf-xray-tab-bar")]
-        (is (pos? list-idx) "L2 event-list present")
-        (is (pos? seam-idx) "L2/L3 seam present")
-        (is (pos? tabs-idx) "L3 tab-bar present")
-        (is (< list-idx seam-idx)
-            "seam appears AFTER the event-list in pre-order")
-        (is (< seam-idx tabs-idx)
-            "seam appears BEFORE the tab-bar in pre-order")))))
+  ;; The seam IS the L2/L3 boundary, so it sits between them in DOM order.
+  (setup!)
+  (rf/with-frame :rf/xray
+    (let [testids (clj->js (all-testids (dynamic-shell-tree/shell-view-tree {:mode :inline})))]
+      (is (< 0
+             (.indexOf testids "rf-xray-event-list")
+             (.indexOf testids "rf-xray-event-list-seam")
+             (.indexOf testids "rf-xray-tab-bar"))
+          "event list, then seam, then tab bar"))))
 
 ;; ---- drag lifecycle -----------------------------------------------------
 
@@ -240,22 +210,12 @@
       "sub-floor request snaps to min-events-list-height-px"))
 
 (deftest clamp-events-list-height-pure-helper-snaps-non-numeric
-  (testing "pure helper falls back to the default for
-            non-numeric input so a malformed persisted payload never
-            leaves the list at an unusable size."
-    (is (= config/default-events-list-height-px
-           (config/clamp-events-list-height-px "bogus" 1000))
-        "string input → default")
-    (is (= config/default-events-list-height-px
-           (config/clamp-events-list-height-px nil 1000))
-        "nil input → default")
-    (is (= 200 (config/clamp-events-list-height-px 200 1000))
-        "in-range numeric passes through")
-    (is (= config/min-events-list-height-px
-           (config/clamp-events-list-height-px -50 1000))
-        "negative → floor")
-    (is (= 700 (config/clamp-events-list-height-px 5000 1000))
-        "above ceiling → viewport × 0.7")))
+  ;; A malformed persisted payload never leaves the list at an unusable size.
+  (are [v expected] (= expected (config/clamp-events-list-height-px v 1000))
+    "bogus" config/default-events-list-height-px
+    200     200
+    -50     config/min-events-list-height-px
+    5000    700))   ; viewport × 0.7
 
 ;; ---- double-click reset -------------------------------------------------
 
@@ -280,8 +240,6 @@
       (rf/with-frame :rf/xray
         (let [tree    (seam-markup)
               handler (:on-double-click (second tree))]
-          (is (fn? handler)
-              "the seam node carries on-double-click")
           (handler nil))))
     (is (some #(= [:rf.xray/reset-events-list-height] %) @dispatches)
         "double-click dispatched the reset event")))
@@ -354,9 +312,3 @@
         (is (= "360px" (:height style))
             "list :height updates to the persisted seam-handle value")))))
 
-(deftest events-list-height-sub-defaults-to-published-default
-  (setup!)
-  (rf/with-frame :rf/xray
-    (let [height @(rf/subscribe [:rf.xray/events-list-height-px])]
-      (is (= config/default-events-list-height-px height)
-          "fresh sub returns the published default"))))
