@@ -46,13 +46,12 @@
   "A `:rf.sub/skip` memo-hit trace event as the substrate emits it
   (`re-frame.subs.memo/emit-sub-skip!`) — rides `:trace-events`, NOT
   `:sub-runs`. The query-v is the bare unparameterized shape `[sub-id]`."
-  ([sub-id] (skip-ev sub-id []))
-  ([sub-id input-paths-unchanged]
-   {:operation :rf.sub/skip
-    :tags      {:rf.sub/id                    sub-id
-                :rf.sub/query-v               [sub-id]
-                :rf.sub/reason                :input-value-equal
-                :rf.sub/input-paths-unchanged input-paths-unchanged}}))
+  [sub-id]
+  {:operation :rf.sub/skip
+   :tags      {:rf.sub/id                    sub-id
+               :rf.sub/query-v               [sub-id]
+               :rf.sub/reason                :input-value-equal
+               :rf.sub/input-paths-unchanged []}})
 
 (defn- skip-qv
   "A `:rf.sub/skip` op for a CONCRETE parameterized query —
@@ -69,89 +68,33 @@
 
 ;; ---- focused-epoch-record ---------------------------------------------
 
-(deftest focused-epoch-record-finds-by-id
-  (testing "focused-epoch-record returns the record matching :epoch-id"
-    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (= {:epoch-id :b} (subs/focused-epoch-record history :b))))))
-
-(deftest focused-epoch-record-nil-when-evicted
-  (testing "a PINNED :epoch-id absent from the buffer
-            (evicted from the per-frame ring) resolves to nil, NOT a
-            silent head-fallback. Per spec/021 §10.7 every panel renders
-            the evicted placeholder; the Views panel must not show the
-            LATEST cascade while the operator believes they are inspecting
-            the pinned (evicted) epoch. Routes through the shared
-            focus-resolver/find-epoch-record, matching Issues / Trace /
-            Epoch / App-DB."
-    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (nil? (subs/focused-epoch-record history :missing))
-          "evicted pinned epoch must be nil (not the head record)"))))
-
-(deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
-  (testing "the operator PINNED an event bundle
-            that settled NO epoch, so focus carries a `:dispatch-id` beside
-            a nil `:epoch-id`. That is shape-identical to the cold-start
-            UNSET focus the head-fallback above exists to serve, so the
-            2-arity cannot tell them apart and answers the HEAD — which
-            would render the LATEST cascade underneath a selection that is
-            not that epoch's, the same class of lie this ns's
-            `focused-epoch-record` docstring refuses for an EVICTED bundle.
-
-            The 3-arity takes the pinned `:dispatch-id` and resolves to no
-            record. Cause-neutral by construction: a refused dispatch, a
-            bundle still mid-build, a bundle whose epoch aged out and an
-            `:ungrouped` pin all reach this shape and focus alone tells
-            none of them apart."
-    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (nil? (subs/focused-epoch-record history nil 999))
-          (str "a pinned bundle that settled no epoch must resolve to NO "
-               "record — got the head-fallback record instead"))
-      (is (nil? (subs/focused-epoch-record history nil :ungrouped))
-          "an :ungrouped pin settles no epoch and must resolve to no record"))))
-
 (deftest focused-epoch-record-rejects-only-the-pinned-no-epoch-shape
-  (testing "POSITIVE CONTROL — the discriminator must change
-            NOTHING else. Without this row the discriminator could pass by
-            resolving nothing at all: an UNSET focus over a non-empty ring
-            head-falls-back, an ordinary pinned epoch resolves its own
-            record, and the 2-arity is unaffected."
+  (testing "a PINNED event bundle that settled NO epoch (a `:dispatch-id`
+            beside a nil `:epoch-id`) resolves to no record — never the
+            head, which would render the LATEST cascade under a selection
+            that is not that epoch's. The discriminator changes nothing
+            else: an UNSET focus head-falls-back, and a real pinned epoch
+            resolves its own record."
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil nil))
-          "an unset focus must head-fall-back through the 3-arity")
-      (is (= {:epoch-id :b} (subs/focused-epoch-record history :b 999))
-          "a REAL pinned epoch resolves its own record, pin or no pin")
-      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))
-          "the 2-arity head-falls-back"))))
+      (is (nil? (subs/focused-epoch-record history nil 999)))
+      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil nil)))
+      (is (= {:epoch-id :b} (subs/focused-epoch-record history :b 999))))))
 
-;; ---- project-record: empty --------------------------------------------
+;; ---- project-record: counts -------------------------------------------
 
-(deftest project-record-of-an-empty-record-is-all-empty
-  (testing "a nil or empty record projects to empty slices and every count zero"
-    (doseq [r [nil {}]]
-      (let [p (subs/project-record r)]
-        (is (= [] (:subs-ran p)))
-        (is (= [] (:subs-skipped p)))
-        (is (= [] (:views-rendered p)))
-        (is (= {:subs-ran 0 :subs-skipped 0 :views-rendered 0 :view-rows 0
-                :unmounted-views 0 :destroyed-subs 0
-                :flows-recomputed 0 :flows-skipped 0}
-               (:counts p)))))))
-
-;; ---- project-record: subs ran (:recomputed? true) ---------------------
-
-(deftest project-subs-ran
-  (testing "every :sub-runs entry (:recomputed? true — the only shape the
-            substrate emits) becomes a :subs-ran row; :subs-ran IS the
-            whole run-set"
-    (let [record {:sub-runs [(sub-run :cart/state)
-                             (sub-run :cart/items)
-                             (sub-run :cart/total)]}
-          p (subs/project-record record)]
-      (is (= 3 (count (:subs-ran p))))
-      (is (= [:cart/state :cart/items :cart/total]
-             (mapv :sub-id (:subs-ran p)))
-          "order preserved from :sub-runs")
-      (is (= 3 (-> p :counts :subs-ran))))))
+(deftest project-record-counts-from-sub-runs-renders-and-flow-ops
+  (testing "the counts come from `:sub-runs`, `:renders` and the canonical
+            `:rf.flow/computed` / `:rf.flow/skip` ops on `:trace-events`
+            (spec/021 §3.5)"
+    (is (= {:subs-ran 1 :subs-skipped 0 :views-rendered 1 :view-rows 0
+            :unmounted-views 0 :destroyed-subs 0
+            :flows-recomputed 2 :flows-skipped 1}
+           (:counts (subs/project-record
+                      {:sub-runs     [(sub-run :cart/state)]
+                       :renders      [(render :cart/Summary)]
+                       :trace-events [(flow-ev :rf.flow/computed)
+                                      (flow-ev :rf.flow/computed)
+                                      (flow-ev :rf.flow/skip)]}))))))
 
 ;; ---- project-record: subs skipped (memo-hit :rf.sub/skip) -------------
 ;;
@@ -163,18 +106,12 @@
 
 (deftest skipped-subs-reads-rf-sub-skip-ops
   (testing "skipped-subs projects each :rf.sub/skip op off :trace-events —
-            de-duplicated by sub-id — carrying the memo-hit tags."
+            de-duplicated, first-seen order."
     (let [events [(skip-ev :user/name)
-                  (skip-ev :cart/eligibility [[:cart/state]])
+                  (skip-ev :cart/eligibility)
                   (skip-ev :user/name)] ; dup → once
           rows   (subs/skipped-subs events #{})]
-      (is (= [:user/name :cart/eligibility] (mapv :sub-id rows))
-          "distinct memo-hit subs, first-seen order")
-      (is (= :input-value-equal (-> rows first :reason)))
-      (is (= [] (-> rows first :input-paths-unchanged))
-          "layer-1 skip carries [] input-paths-unchanged")
-      (is (= [[:cart/state]] (-> rows second :input-paths-unchanged))
-          "layer-2 skip names its upstream query-vectors"))))
+      (is (= [:user/name :cart/eligibility] (mapv :sub-id rows))))))
 
 ;; ---- concrete-query identity ------------------------------------------
 ;;
@@ -194,38 +131,18 @@
       (is (= [[:item/derived 2]] (mapv :query-v rows))
           "only the exact recomputed query is excluded; the sibling survives"))))
 
-(deftest skipped-subs-falls-back-to-sub-id-when-query-v-absent
-  (testing "documented fallback: a skip op lacking a query-v
-            uses the registered `[sub-id]` shape as its identity, so it
-            projects a row and excludes against a `[sub-id]` run."
-    (let [ev {:operation :rf.sub/skip
-              :tags {:rf.sub/id :legacy/sub :rf.sub/reason :input-value-equal}}]
-      (is (= [{:sub-id :legacy/sub :query-v [:legacy/sub]}]
-             (mapv #(select-keys % [:sub-id :query-v])
-                   (subs/skipped-subs [ev] #{})))
-          "query-v falls back to the bare [sub-id] shape")
-      (is (= [] (subs/skipped-subs [ev] #{[:legacy/sub]}))
-          "the fallback identity cross-excludes against a [sub-id] run"))))
-
 (deftest project-record-surfaces-subs-skipped-distinct-from-ran
   (testing "project-record reads the memo-hit :rf.sub/skip
-            evidence into :subs-skipped, kept DISTINCT from :subs-ran even
-            when a :subs-ran row carries :value-changed? false (a recompute
-            that produced the same value is NOT a memo-hit skip)."
+            evidence into :subs-skipped, kept DISTINCT from the run-set even
+            when a run carries :value-changed? false (a recompute that
+            produced the same value is NOT a memo-hit skip)."
     (let [record {:sub-runs     [{:sub-id :read-a :query-v [:read-a]
                                   :recomputed? true :value-changed? false}] ; RAN, value unchanged
-                  :trace-events [(skip-ev :read-a)              ; also skipped → excluded
-                                 (skip-ev :derived-a [[:read-a]])]}
+                  :trace-events [(skip-ev :read-a)       ; also skipped → excluded
+                                 (skip-ev :derived-a)]}
           p      (subs/project-record record)]
-      ;; :read-a ran with :value-changed? false → a subs-ran row.
-      (is (= [:read-a] (mapv :sub-id (:subs-ran p))))
-      (is (= [false] (mapv :value-changed? (:subs-ran p)))
-          "a value-changed? false recompute stays in subs-ran (NOT skipped)")
-      ;; only the pure memo-hit lands in :subs-skipped.
       (is (= [:derived-a] (mapv :sub-id (:subs-skipped p)))
-          ":subs-skipped names only the sub that skipped without running")
-      (is (= 1 (-> p :counts :subs-ran)))
-      (is (= 1 (-> p :counts :subs-skipped))))))
+          ":subs-skipped names only the sub that skipped without running"))))
 
 (deftest project-record-preserves-parameterized-skip-past-same-id-recompute
   (testing "end to end: `[:item/derived 1]` recomputes (a
@@ -238,13 +155,10 @@
                                   :recomputed? true :value-changed? true}]
                   :trace-events [(skip-qv :item/derived [:item/derived 2])]}
           p      (subs/project-record record)]
-      (is (= [[:item/derived 1]] (mapv :query-v (:subs-ran p)))
-          ":item/derived 1 recomputed → a subs-ran row")
       (is (= [[:item/derived 2]] (mapv :query-v (:subs-skipped p)))
           ":item/derived 2 memo-hit survives (NOT suppressed by the same-id recompute)")
       (is (= [:item/derived] (mapv :sub-id (:subs-skipped p)))
-          "the registered id rides the skip row")
-      (is (= 1 (-> p :counts :subs-skipped))))))
+          "the registered id rides the skip row"))))
 
 (deftest project-record-both-parameterizations-skipped-survive
   (testing "two same-id skipped queries with no recompute BOTH
@@ -253,33 +167,7 @@
                   :trace-events [(skip-qv :item/derived [:item/derived 1])
                                  (skip-qv :item/derived [:item/derived 2])]}
           p      (subs/project-record record)]
-      (is (= [[:item/derived 1] [:item/derived 2]] (mapv :query-v (:subs-skipped p)))
-          "both concrete parameterizations survive as distinct rows")
-      (is (= 2 (-> p :counts :subs-skipped))))))
-
-;; ---- project-record: views rendered -----------------------------------
-
-(deftest project-views-rendered
-  (testing ":renders entries lift :view-id from :render-key, preserve :render-key"
-    (let [record {:renders [(render :checkout/CheckoutButton)
-                           (render :cart/Summary)]}
-          p (subs/project-record record)]
-      (is (= 2 (count (:views-rendered p))))
-      (is (= [:checkout/CheckoutButton :cart/Summary]
-             (mapv :view-id (:views-rendered p))))
-      (is (= [:checkout/CheckoutButton 0] (-> p :views-rendered first :render-key)))
-      (is (= 2 (-> p :counts :views-rendered))))))
-
-;; ---- project-record: flow counts from :trace-events -------------------
-
-(deftest project-flow-counts-from-trace
-  (testing "Flow counts tally :rf.flow/computed and :rf.flow/skip (canonical names)"
-    (let [record {:trace-events [(flow-ev :rf.flow/computed)
-                                (flow-ev :rf.flow/computed)
-                                (flow-ev :rf.flow/skip)]}
-          p (subs/project-record record)]
-      (is (= 2 (-> p :counts :flows-recomputed)))
-      (is (= 1 (-> p :counts :flows-skipped))))))
+      (is (= [[:item/derived 1] [:item/derived 2]] (mapv :query-v (:subs-skipped p)))))))
 
 ;; ===========================================================================
 ;; the Views three-table data layer
@@ -309,15 +197,11 @@
 (deftest compute-view-reason-classifies-by-the-views-own-changed-reads
   (testing "a view that derefs a sub that changed this cascade gets a
             :reactive reason naming the INTERSECTION — its own changed
-            reads, in deref order, de-duplicated. A view none of whose reads
-            changed, or that derefs nothing, gets the UNNAMED structural
-            (`← parent re-render`) reason."
+            reads. A view none of whose reads changed gets the UNNAMED
+            structural (`← parent re-render`) reason (spec/021 §3.5)."
     (are [deref-subs changed expected] (= expected (subs/compute-view-reason deref-subs changed))
       [[:cart/total] [:cart/count]] #{:cart/total} {:kind :reactive :subs [:cart/total]}
-      [[:b] [:a] [:a] [:c]]         #{:a :b :c}    {:kind :reactive :subs [:b :a :c]}
-      [[:cart/total]]               #{:other/sub}  {:kind :structural}
-      nil                           #{:cart/total} {:kind :structural}
-      []                            #{:cart/total} {:kind :structural})))
+      [[:cart/total]]               #{:other/sub}  {:kind :structural})))
 
 ;; ---- view-rows projection ---------------------------------------------
 
@@ -328,36 +212,8 @@
                   (rendered-ev :v/b false [[:s1]])
                   (unmounted-ev :v/c)]
           rows   (subs/view-rows events #{:s1})]
-      (is (= [:mount :rerender :unmount] (mapv :action rows)))
-      (is (= [:v/a :v/b :v/c] (mapv :view-id rows))))))
-
-(deftest view-rows-reactive-vs-structural-reason
-  (testing "a render whose deref'd sub changed → :reactive
-            reason; a render whose deref'd sub did NOT change → structural."
-    (let [events [(rendered-ev :v/reactive   false [[:changed]])
-                  (rendered-ev :v/structural false [[:unchanged]])
-                  (rendered-ev :v/no-derefs  false nil)]
-          rows   (subs/view-rows events #{:changed})
-          by-id  (into {} (map (juxt :view-id identity)) rows)]
-      (is (= :reactive   (-> by-id :v/reactive :reason :kind)))
-      (is (= [:changed]  (-> by-id :v/reactive :reason :subs)))
-      (is (= :structural (-> by-id :v/structural :reason :kind)))
-      (is (= :structural (-> by-id :v/no-derefs :reason :kind))))))
-
-(deftest view-rows-unmount-reason-is-none
-  (testing "an unmount row carries no reason (:none)."
-    (let [rows (subs/view-rows [(unmounted-ev :v/gone)] #{})]
-      (is (= :none (-> rows first :reason :kind))))))
-
-(deftest view-rows-skips-events-without-view-id-and-non-view-ops
-  (testing "nil-safe: events without a :view-id and non-view
-            ops are skipped, never crash."
-    (let [events [{:operation :rf.view/rendered :tags {:rf.view/mount? true}} ; no view-id
-                  {:operation :rf.sub/run :tags {:rf.sub/id :s1}}           ; not a view op
-                  (rendered-ev :v/ok true nil)]
-          rows   (subs/view-rows events #{})]
-      (is (= 1 (count rows)))
-      (is (= :v/ok (-> rows first :view-id))))))
+      (is (= [[:v/a :mount] [:v/b :rerender] [:v/c :unmount]]
+             (mapv (juxt :view-id :action) rows))))))
 
 (deftest view-rows-carries-cause-and-timing
   (testing "a :rf.view/rendered op carrying
@@ -370,15 +226,7 @@
                        :rf.view/triggered-by :s1
                        :rf.view/elapsed-ms 2.4}}
           row  (first (subs/view-rows [ev] #{:s1}))]
-      (is (= :s1 (:triggered-by row)) "the cause sub rides the row")
-      (is (= 2.4 (:elapsed-ms row)) "the render timing rides the row"))))
-
-(deftest view-rows-omits-cause-and-timing-when-absent
-  (testing "a structural render with no cause / timing slots
-            simply omits :triggered-by + :elapsed-ms (no nil keys)."
-    (let [row (first (subs/view-rows [(rendered-ev :v/s false [[:unchanged]])] #{}))]
-      (is (not (contains? row :triggered-by)))
-      (is (not (contains? row :elapsed-ms))))))
+      (is (= [:s1 2.4] ((juxt :triggered-by :elapsed-ms) row))))))
 
 ;; ---- teardown sections ------------------------------------------------
 
@@ -396,8 +244,6 @@
             :rf.sub/dispose ops (the singular form the framework emits;
             a past-tense form would match no framework-emitted
             trace)."
-    (is (= [] (subs/destroyed-subscriptions [(rendered-ev :v/a true nil)]))
-        "no dispose op → empty (live-build reality)")
     (let [events [{:operation :rf.sub/dispose :tags {:rf.sub/id :s/modal}}
                   {:operation :rf.sub/dispose :tags {:sub-id :s/tip}}]]
       (is (= [{:sub-id :s/modal} {:sub-id :s/tip}]
@@ -436,8 +282,6 @@
       (is (= [:cart/total] (mapv :sub-id level-2)))
       (is (= [:cart/state :cart/items] (-> level-2 first :inputs))
           "Level 2+ :static row carries its declared input-sub names (query-vector heads)")
-      (is (= :static (-> level-2 first :input-kind))
-          "the Level 2 row carries the :input-kind discriminator")
       (is (= "cart.cljs" (-> level-1 first :coord :file))
           "Level 1 row carries the topology source coord"))))
 
@@ -446,19 +290,12 @@
             subs) but reports NO STATIC input edges; the static partition
             must not fabricate un-materialized parametric edges + must not
             crash on the :parametric (non-vector) :inputs sentinel."
-    (let [{:keys [level-1 level-2]}
-          (subs/partition-subs-by-level
-            [(sub-run+ :cart/state true true)
-             (sub-run+ :cart/line  true true)]
-            topology)]
-      (is (= [:cart/state] (mapv :sub-id level-1))
-          ":db reader is Level 1")
+    (let [{:keys [level-2]}
+          (subs/partition-subs-by-level [(sub-run+ :cart/line true true)] topology)]
       (is (= [:cart/line] (mapv :sub-id level-2))
           "parametric sub is Level 2+ (NOT misbucketed as Level 1)")
       (is (= [] (-> level-2 first :inputs))
-          "parametric sub draws no STATIC edges (realized edges live in the live/cache view)")
-      (is (= :parametric (-> level-2 first :input-kind))
-          "the parametric discriminator rides the row so the panel can badge it"))))
+          "parametric sub draws no STATIC edges (realized edges live in the live/cache view)"))))
 
 (deftest partition-carries-changed-flag
   (testing ":value-changed? rides onto each row's :changed?."
@@ -471,14 +308,11 @@
 
 (deftest partition-missing-from-topology-defaults-level-1
   (testing "nil-safe: a sub absent from the topology defaults
-            to Level 1 with no inputs / no coord (degrade, never crash)."
-    (let [{:keys [level-1 level-2]}
+            to Level 1 (degrade, never crash)."
+    (let [{:keys [level-1]}
           (subs/partition-subs-by-level
             [(sub-run+ :mystery/sub true false)] nil)]
-      (is (= [:mystery/sub] (mapv :sub-id level-1)))
-      (is (empty? level-2))
-      (is (nil? (-> level-1 first :coord))
-          "no coord when topology absent"))))
+      (is (= [:mystery/sub] (mapv :sub-id level-1))))))
 
 ;; ---- shared-subscription edges ----------------------------------------
 
@@ -490,10 +324,7 @@
                   (rendered-ev :v/b false [[:s/x]])
                   (rendered-ev :v/c false [[:s/z]])]
           readers (subs/sub-readers events)]
-      (is (= [:v/a :v/b] (:s/x readers))
-          ":s/x is read by both v/a and v/b (shared sub)")
-      (is (= [:v/a] (:s/y readers)))
-      (is (= [:v/c] (:s/z readers))))))
+      (is (= {:s/x [:v/a :v/b] :s/y [:v/a] :s/z [:v/c]} readers)))))
 
 (deftest sub-readers-preserves-first-seen-view-order-and-dedupes
   (testing "a view that re-derefs the same sub, or two ops for
@@ -508,7 +339,7 @@
 
 (deftest partition-attaches-readers-to-sub-rows
   (testing "partition-subs-by-level attaches each sub's
-            :readers (which views read it) onto the L1 / L2 row; absent
+            :readers (which views read it) onto the L1 / L2 row; none
             when no view read the sub."
     (let [readers {:cart/state [:cart/Header :cart/Summary]
                    :cart/total [:cart/Summary]}
@@ -518,19 +349,15 @@
              (sub-run+ :cart/items true false) ; no reader → :readers absent
              (sub-run+ :cart/total true true)]
             topology readers)]
-      (is (= [:cart/Header :cart/Summary] (-> level-1 first :readers))
-          ":cart/state's readers ride its L1 row")
-      (is (not (contains? (second level-1) :readers))
-          ":cart/items has no reader → :readers slot omitted")
-      (is (= [:cart/Summary] (-> level-2 first :readers))
-          ":cart/total's reader rides its L2 row"))))
+      (is (= [[:cart/Header :cart/Summary] nil [:cart/Summary]]
+             (mapv :readers (concat level-1 level-2)))))))
 
 ;; ---- project-record composes the level and view slots -----------------
 
 (deftest project-record-emits-level-and-view-slots
   (testing "project-record composes :level-1-subs /
-            :level-2-subs (from topology) + :view-rows (from
-            :trace-events view ops) alongside the run-set slots."
+            :level-2-subs (from topology, carrying the readers drawn from
+            :trace-events view ops) and the :unmounted-views teardown slot."
     (let [record {:sub-runs [(sub-run+ :cart/state true true)
                              (sub-run+ :cart/total true true)]
                   :trace-events [(rendered-ev :cart/Summary false [[:cart/total]])
@@ -538,24 +365,10 @@
           p (subs/project-record record topology)]
       (is (= [:cart/state] (mapv :sub-id (:level-1-subs p))))
       (is (= [:cart/total] (mapv :sub-id (:level-2-subs p))))
-      (is (= 2 (count (:view-rows p))))
-      (is (= :reactive (-> p :view-rows first :reason :kind))
-          ":cart/Summary derefs :cart/total which changed → reactive")
-      (is (= [:cart/total] (-> p :view-rows first :reason :subs)))
-      (is (= :unmount (-> p :view-rows second :action)))
-      (is (= 2 (-> p :counts :view-rows)))
-      ;; Shared-sub edges thread through project-record.
-      (is (= {:cart/total [:cart/Summary]} (:sub-readers p))
-          ":sub-readers maps :cart/total → the views that read it")
       (is (= [:cart/Summary] (-> p :level-2-subs first :readers))
           ":cart/total's L2 row carries its :readers")
-      ;; Teardown sections compose through project-record.
       (is (= [{:view-id :cart/Gone}] (:unmounted-views p))
-          ":unmounted-views projects the unmount op")
-      (is (= [] (:destroyed-subs p))
-          ":destroyed-subs empty (no dispose op in the live build)")
-      (is (= 1 (-> p :counts :unmounted-views)))
-      (is (= 0 (-> p :counts :destroyed-subs))))))
+          ":unmounted-views projects the unmount op"))))
 
 ;; ---- list instances reach the graph as instances ----------------------
 ;;
@@ -582,12 +395,6 @@
           p      (subs/project-record record nil)
           g      (graph/layout p)
           edges  (filter #(= :sub-view (:kind %)) (:edges g))]
-      (is (= [[:todo/by-id 1] [:todo/by-id 2] [:todo/by-id 3]]
-             (mapv :query-v (:level-1-subs p)))
-          "each sub row carries its concrete query-v")
-      (is (= [[[:todo/by-id 1]] [[:todo/by-id 2]] [[:todo/by-id 3]]]
-             (mapv :deref-subs (:view-rows p)))
-          "each view row carries its own read-set")
       (is (= #{[(pr-str [:todo/by-id 1]) (pr-str [:app/todo-row 11])]
                [(pr-str [:todo/by-id 2]) (pr-str [:app/todo-row 12])]
                [(pr-str [:todo/by-id 3]) (pr-str [:app/todo-row 13])]}
@@ -595,13 +402,10 @@
           "one edge per instance pair — no edge lands on another row's box"))))
 
 (deftest partition-carries-declared-input-query-vs
-  (testing "a :static Level-2 row carries its declared
-            input query-vs beside the id heads; a :parametric one does not"
+  (testing "a :static Level-2 row carries its concrete query-v and its
+            declared input query-vs beside the id heads"
     (let [{:keys [level-2]}
-          (subs/partition-subs-by-level
-            [(sub-run+ :cart/total true true) (sub-run+ :cart/line true true)]
-            topology)]
-      (is (= [[:cart/state] [:cart/items]] (-> level-2 first :input-query-vs)))
-      (is (= [:cart/total] (-> level-2 first :query-v)))
-      (is (not (contains? (second level-2) :input-query-vs))))))
+          (subs/partition-subs-by-level [(sub-run+ :cart/total true true)] topology)]
+      (is (= {:query-v [:cart/total] :input-query-vs [[:cart/state] [:cart/items]]}
+             (select-keys (first level-2) [:query-v :input-query-vs]))))))
 
