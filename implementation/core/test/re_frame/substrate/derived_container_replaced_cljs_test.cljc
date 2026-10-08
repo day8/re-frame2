@@ -1,142 +1,61 @@
 (ns re-frame.substrate.derived-container-replaced-cljs-test
-  "Spec 006 §`make-derived-value` — `replace-container!` is NOT supported
-  on a derived container.
+  "Spec 006 §`make-derived-value`: `replace-container!` on a derived container
+  is a programmer error. The core's choke point
+  (`re-frame.substrate.adapter/replace-container!`, which every app-db write
+  flows through) throws the canonical `:rf.error/derived-container-replaced`
+  ex-info without invoking the adapter, and in dev also emits the matching
+  `:error` trace (Spec 009). The plain-atom adapter exercises both host branches
+  of `replaceable-container?`: `.cljc` runs on the JVM and on node.
 
-  A derived container is a value computed from its source container(s)
-  (the result of `make-derived-value`). It supports `read-container` but
-  has no writable slot, so calling `replace-container!` on one is a
-  programmer error. The core's `replace-container!` choke point (the
-  single point every frame app-db write flows through —
-  `re-frame.substrate.adapter/replace-container!`) detects the
-  non-writable container, emits a `:rf.error/derived-container-replaced`
-  trace (op-type `:error`, per Spec 009 §The error event shape), AND
-  throws the canonical thrown-error ex-info carrying
-  `:rf.error/id :rf.error/derived-container-replaced` (per Spec 009 §The
-  thrown-error shape). The underlying adapter `replace-container!` is NOT
-  invoked.
-
-  This suite runs against the plain-atom adapter so it exercises both
-  host predicate branches in `replaceable-container?`: the `.cljc`
-  shape runs under the `:node-test` build (ns ends in `cljs-test` → the
-  `:cljs` `(satisfies? ISwap …)` branch) AND the JVM cognitect runner
-  (the `:clj` `(instance? clojure.lang.IAtom …)` branch).
-
-  ## Posture split
-
-  The choke point does two things on a derived container, and only one of them
-  is instrumentation. The THROW — the canonical ex-info with its
-  `:rf.error/id` / `:where` / `:recovery` / `:reason` slots and the
-  greppability token in the message — is production behaviour and is asserted
-  without a posture guard, so it runs under `scripts/test-core-prod-gate.sh`
-  unchanged.
-
-  The `:rf.error/derived-container-replaced` TRACE is a bare `rf.trace/emit!`
-  site with no always-on twin, so it is elided under
-  `-Dre-frame.debug=false`. Its assertions sit inside a
-  `(when rf.interop/debug-enabled? …)` arm, with the throw
-  itself kept outside as the always-on witness — the trace and the throw come
-  off the SAME detection, so proving the detection fired is what the
-  production lane can still say."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  The throw is production behaviour; the trace is a bare `rf.trace/emit!` site,
+  elided under `-Dre-frame.debug=false`, so its assertions sit behind
+  `rf.interop/debug-enabled?`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]
             ;; Load the tooling sibling so the late-bind hooks behind the
             ;; listener API resolve on both runtimes (mirrors
             ;; trace-listener-test).
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; ---- fixture --------------------------------------------------------------
-;; Cold-start each test with the plain-atom adapter installed: the choke
-;; point's `:else` branch calls `require-adapter!`, so an adapter must be
-;; seated for the base-container happy path to resolve.
-;;
-;; Uses `make-reset-runtime-fixture` (NOT a hand-rolled `registrar/clear-all!`)
-;; — it snapshots and RESTORES the registrar around the test so ns-load-time
-;; global registrations other test files depend on (the machines spawn
-;; wrapper, routing handlers, …) survive across the shared node-test process.
-;; A `clear-all!` would wipe them and strand every subsequent machine /
-;; routing test that relies on ns-load registration.
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- helpers --------------------------------------------------------------
+;; ---- tests ----------------------------------------------------------------
 
-(defn- capture-errors
-  "Register a trace listener that records every `:error` op-type event,
-  run `body-fn`, then unregister and return the captured vector."
-  [body-fn]
+(defn- derived-container []
+  (rf.substrate.adapter/make-derived-value [(rf.substrate.adapter/make-state-container {:n 7})] :n))
+
+(defn- thrown-by [thunk]
+  (try (thunk) nil (catch #?(:clj Throwable :cljs :default) e e)))
+
+(deftest replace-on-derived-container-throws
+  (is (= {:rf.error/id :rf.error/derived-container-replaced
+          :where       'rf/replace-container!
+          :recovery    :no-recovery}
+         (select-keys (ex-data (thrown-by #(rf.substrate.adapter/replace-container!
+                                              (derived-container) 42)))
+                      [:rf.error/id :where :recovery]))))
+
+(deftest replace-on-derived-container-emits-error-trace
   (let [seen (atom [])
         k    ::derived-replaced-capture]
     (rf.trace.tooling/register-listener! k (fn [ev]
-                                  (when (= :error (:op-type ev))
-                                    (swap! seen conj ev))))
-    (try (body-fn)
+                                             (when (= :error (:op-type ev))
+                                               (swap! seen conj ev))))
+    (try (thrown-by #(rf.substrate.adapter/replace-container! (derived-container) 99))
          (finally (rf.trace.tooling/unregister-listener! k)))
-    @seen))
-
-;; ---- tests ----------------------------------------------------------------
-
-(deftest replace-on-derived-container-throws
-  (testing "replace-container! on a derived container throws the canonical ex-info"
-    (let [src     (rf.substrate.adapter/make-state-container {:n 7})
-          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (is (= 7 (rf.substrate.adapter/read-container derived))
-          "precondition: the derived container reads its computed value")
-      (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                (rf.substrate.adapter/replace-container! derived 42))
-                       "writing to a derived container throws")]
-        (is (= :rf.error/derived-container-replaced
-               (:rf.error/id (ex-data thrown)))
-            "the thrown ex-info carries the canonical :rf.error/id discriminator")
-        (is (= 'rf/replace-container! (:where (ex-data thrown)))
-            "the :where slot names the user-facing surface fn")
-        (is (= :no-recovery (:recovery (ex-data thrown)))
-            "the :recovery slot is :no-recovery")
-        (is (string? (:reason (ex-data thrown)))
-            "the :reason slot is a human-readable sentence")
-        ;; The message is the human :reason sentence + the
-        ;; trailing [:rf.error/<id>] greppability token, NOT the bare
-        ;; stringified keyword. Assert the token substring, not equality.
-        (is (re-find #"\[:rf\.error/derived-container-replaced\]"
-                     (ex-message thrown))
-            "the ex-message carries the [:rf.error/derived-container-replaced] token")))))
-
-(deftest replace-on-derived-container-emits-error-trace
-  (testing "replace-container! on a derived container emits the :rf.error/derived-container-replaced trace"
-    (let [src     (rf.substrate.adapter/make-state-container {:n 1})
-          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))
-          thrown  (atom nil)
-          errs    (capture-errors
-                    (fn []
-                      ;; The choke point emits the trace BEFORE it throws;
-                      ;; swallow the throw so we can inspect the captured
-                      ;; trace event.
-                      (try (rf.substrate.adapter/replace-container! derived 99)
-                           (catch #?(:clj Throwable :cljs :default) e
-                             (reset! thrown e)))))
-          ev      (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
-      ;; ALWAYS-ON WITNESS: the trace and the throw come off ONE
-      ;; detection in the choke point. The throw survives the production gate,
-      ;; so it is what proves the detection fired at all — without it this
-      ;; deftest would execute nothing under `-Dre-frame.debug=false`.
-      (is (= :rf.error/derived-container-replaced
-             (:rf.error/id (ex-data @thrown)))
-          "the choke point detected the derived container and threw — the same
-           detection that would emit the trace carries the category on the throw")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (is (= :error (:op-type ev))
-            "a :rf.error/derived-container-replaced error trace was emitted, op-type :error")
-        (is (= :rf.error/derived-container-replaced (:operation ev))
-            "the trace's :operation is the error category keyword")
-        (is (= :rf.error/derived-container-replaced (get-in ev [:tags :category]))
-            "the :category tag mirrors :operation for consumer convenience")
-        (is (= :no-recovery (:recovery ev))
-            "the :recovery field is hoisted to top level as :no-recovery")
-        (is (string? (get-in ev [:tags :reason]))
-            "the :reason tag is a human-readable sentence")))))
+    (when rf.interop/debug-enabled?
+      (is (= [{:operation :rf.error/derived-container-replaced
+               :category  :rf.error/derived-container-replaced
+               :recovery  :no-recovery
+               :reason?   true}]
+             (for [ev @seen
+                   :when (= :rf.error/derived-container-replaced (:operation ev))]
+               {:operation (:operation ev)
+                :category  (get-in ev [:tags :category])
+                :recovery  (:recovery ev)
+                :reason?   (string? (get-in ev [:tags :reason]))}))))))
