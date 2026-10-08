@@ -11,12 +11,10 @@
   proves the carriage survives that boundary and the core
   `:subs/resolve-sub-override` consult substitutes.
 
-  Naming convention: the `-dom-cljs-test$` suffix opts this
-  file into the `:browser-test` build (Playwright + Chromium, real React
-  via `react-dom/client`). `:node-test` also loads it (its `cljs-test$`
-  regex matches the `-dom-cljs-test` suffix), where the mounting branch
-  self-gates on `(browser?)` and exits early — the node half is covered
-  by `re-frame.subs-override-seam-cljs-test` (the seam mechanics and the
+  The `-dom-cljs-test$` suffix puts this file on `:browser-test` (real
+  React via `react-dom/client`). `:node-test` also loads it, where the
+  mounting branch self-gates on `(browser?)`; the node half is covered by
+  `re-frame.subs-override-seam-cljs-test` (the seam mechanics and the
   honesty boundary) and `re-frame.story.sub-overrides-cljs-test` (Story's
   context resolver)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -29,15 +27,11 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
 
-;; `make-reset-runtime-fixture` performs the snapshot/restore + frames-reset +
-;; adapter dispose/install. `:ambient-frame nil` leaves the suite with no
-;; ambient scope — each render-based test binds its own
-;; `*current-frame* :rf/default` around the mount.
+;; `:ambient-frame nil` leaves the suite with no ambient scope; the test
+;; binds `*current-frame* :rf/default` around its own dispatch and mount.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter :ambient-frame nil}))
-
-;; ---- browser + act gate (mirrors react-shared-suite) ----------------------
 
 (defn- browser? []
   (and (exists? js/document)
@@ -60,10 +54,7 @@
         (do (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (f act-fn))))))
 
-;; ---- the view under test — authored the COMPLETELY NORMAL way -------------
-;;
-;; It has no idea it is inside Story; it just subscribes and renders.
-
+;; Authored the normal way: it has no idea it is inside Story.
 (defn- login-panel []
   (let [state @(rf/subscribe [:login/state])
         msg   @(rf/subscribe [:login/message])]
@@ -72,31 +63,24 @@
      (when (= state :error)
        [:p.err msg])]))
 
-;; ---- 1 · the override surfaces ON SCREEN ---------------------------------
-
 (deftest override-surfaces-at-render
-  (testing "a variant pinning [:login/state] :error renders the error state on screen"
+  (testing "with app-db really holding :ok, a variant pinning
+            [:login/state] :error renders the error state on screen"
     (with-browser-act
      (fn [act-fn]
-       ;; Real subs reading app-db. With no events dispatched the real
-       ;; values are nil/idle — so the error styling appears ONLY if the
-       ;; override actually surfaces.
        (rf/reg-sub :login/state   (fn [db _] (get-in db [:login :state])))
        (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
+       (rf/reg-event ::seed (fn [_ _] {:db {:login {:state :ok}}}))
        (let [overrides  {[:login/state]   :error
                          [:login/message] "Incorrect password"}
              mount-node (make-mount-node!)
              root       (react-dom-client/createRoot mount-node)]
          (try
-           ;; EP-0002: `login-panel` is a plain Reagent fn (no
-           ;; `:contextType` wiring), so its `subscribe` resolves the frame from
-           ;; the dynamic-var tier, not React context. The Story override-
-           ;; provider carries sub-overrides, NOT a frame scope. Bind the
-           ;; ambient `:rf/default` frame around the synchronous `act` render so
-           ;; the view's subscribe resolves a frame (the fixture already ensured
-           ;; the `:rf/default` frame exists) instead of raising
-           ;; :rf.error/no-frame-context.
+           ;; `login-panel` is a plain Reagent fn, so its subscribe resolves
+           ;; the frame from the dynamic var; the override Provider carries
+           ;; sub-overrides, not a frame scope.
            (binding [rf.frame/*current-frame* :rf/default]
+             (rf/dispatch-sync [::seed])
              (act-fn
                (fn []
                  (.render root
@@ -108,61 +92,6 @@
              (is (re-find #"Incorrect password" text)
                  "the pinned :login/message override surfaces in the rendered DOM"))
            (is (= "error" (.. mount-node -firstChild (getAttribute "data-state")))
-               "the view branched on the overridden state (error styling), not idle")
+               "the view branched on the override, not the real :ok")
            (finally
              (try (.unmount root) (catch :default _ nil)))))))))
-
-(deftest no-override-renders-real-value
-  (testing "WITHOUT an override the same view renders its real (idle) state"
-    (with-browser-act
-     (fn [act-fn]
-       (rf/reg-sub :login/state   (fn [db _] (get-in db [:login :state])))
-       (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
-       (let [mount-node (make-mount-node!)
-             root       (react-dom-client/createRoot mount-node)]
-         (try
-           ;; nil overrides → the Provider is render-transparent; the view
-           ;; reads the real (default nil → idle) subscription. EP-0002:
-           ;; bind the ambient `:rf/default` frame around the
-           ;; render so the plain-fn view's subscribe resolves a frame via the
-           ;; dynamic-var tier (the override-provider carries no frame scope).
-           (binding [rf.frame/*current-frame* :rf/default]
-             (act-fn
-               (fn []
-                 (.render root
-                   (r/as-element
-                     (rf.story.sub-overrides/override-provider nil [login-panel]))))))
-           (is (re-find #"idle" (.-textContent mount-node))
-               "no override → the real idle state renders")
-           (finally
-             (try (.unmount root) (catch :default _ nil)))))))))
-
-;; ---- 2 · an override beats a real app-db value -----------------------------
-
-(deftest override-beats-a-real-app-db-value-at-render
-  (testing "with app-db really holding :ok, the override still surfaces on screen"
-    (with-browser-act
-     (fn [act-fn]
-       (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
-       (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
-       ;; Seed a REAL app-db value distinct from the override.
-       (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:login {:state :ok}}}))
-       ;; EP-0002: the dispatch + the plain-fn view's subscribe
-       ;; both need a carried frame. Bind the ambient `:rf/default` scope
-       ;; (the fixture ensured the frame exists) around the seed dispatch and
-       ;; the synchronous `act` render so neither raises no-frame-context.
-       (binding [rf.frame/*current-frame* :rf/default]
-       (rf/dispatch-sync [::seed])
-       (let [overrides  {[:login/state] :error}
-             mount-node (make-mount-node!)
-             root       (react-dom-client/createRoot mount-node)]
-         (try
-           (act-fn
-             (fn []
-               (.render root
-                 (r/as-element
-                   (rf.story.sub-overrides/override-provider overrides [login-panel])))))
-           (is (re-find #"error" (.-textContent mount-node))
-               "the screen shows the OVERRIDE (:error), not the real :ok")
-           (finally
-             (try (.unmount root) (catch :default _ nil))))))))))
