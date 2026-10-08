@@ -87,14 +87,16 @@
 
 ;; ---- (3) collect-trace! and the retroactive scrub ---------------------------
 
-(defn- non-sensitive-event []
-  {:op-type :rf.event :operation :rf.event/dispatched
-   :tags {:rf.trace/event-id :user/click}})
+#?(:cljs
+   (defn- non-sensitive-event []
+     {:op-type :rf.event :operation :rf.event/dispatched
+      :tags {:rf.trace/event-id :user/click}}))
 
-(defn- sensitive-event []
-  {:op-type :rf.event :operation :rf.event/dispatched
-   :sensitive? true
-   :tags {:rf.trace/event-id :user/login}})
+#?(:cljs
+   (defn- sensitive-event []
+     {:op-type :rf.event :operation :rf.event/dispatched
+      :sensitive? true
+      :tags {:rf.trace/event-id :user/login}}))
 
 #?(:cljs
    (deftest collect-trace-suppresses-sensitive-by-default
