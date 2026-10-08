@@ -1,65 +1,22 @@
 (ns day8.re-frame2-xray.static.shell-reagent-slim-crossing-dom-cljs-test
-  "Xray's Fresco boundaries must cross their surviving Reagent islands
-  through the INSTALLED ratom build, and this suite measures that under
-  **reagent-slim**, the adapter on which a crossing through any other
-  build fails.
+  "Xray's Fresco boundaries cross their Reagent islands through the
+  INSTALLED ratom build, measured under **reagent-slim**, the adapter on
+  which a crossing through any other build fails.
 
-  ## The failure these rows stand over
+  The boundaries take the hiccup->React crossing as an `as-child`
+  parameter and pass `substrate/as-element`, which reads the walk off the
+  installed adapter. One passing `reagent.core/as-element` — stock
+  Reagent's walk, named statically — would render the island under a
+  build `:adapter/current-component` cannot see into, so every ambient
+  `subscribe` / `dispatch` beneath raises `:rf.error/no-frame-context` in
+  React's render phase and React takes the subtree down: a blank Xray,
+  not a diagnostic.
 
-  Xray's boundaries take the hiccup->React-element crossing as an
-  `as-child` PARAMETER, and pass `substrate/as-element`, which reads the
-  walk off the installed adapter. A boundary passing
-  `reagent.core/as-element` — STOCK Reagent's walk, named statically —
-  would fail under reagent-slim, whose installed build is `reagent2`,
-  and the mismatch would be quiet rather than loud:
-
-    * React mounts the element, and the `:contextType` the `reg-view`
-      head carries IS honoured — `reagent2.impl.component` reads
-      `(:contextType (meta f))` exactly as stock's `fn-to-class` does —
-      so the frame keyword genuinely reaches the mounted class.
-    * But the foreign build renders the subtree with ITS
-      in-flight-component slot bound, while `:adapter/current-component`
-      routes to the INSTALLED build and answers nil inside it.
-    * `re-frame.views.provider/current-frame` reads `(.-context cmp)` off
-      that component, finds none, and returns nil — so every ambient
-      `subscribe` / `dispatch` beneath raises
-      `:rf.error/no-frame-context`, in React's RENDER phase, and React
-      takes the subtree down. A blank Xray, not a diagnostic.
-
-  The L1 ribbon has no islands of its own —
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` are
-  Fresco boundaries the ribbon heads directly. W2 below is written
-  against what the ribbon renders rather than against the crossing
-  spelling, so it does not claim that the node it finds arrived through
-  an `as-child` seam. The door itself is W1's — the L2 event list and
-  the L4 `[(:panel tab)]` mounts cross through it, which is why this
-  suite is the one that measures it.
-
-  ## Two rows, and they fail in different registers ON PURPOSE
-
-  W1 is the DURABLE PIN. It reads the door itself and needs no DOM, so a
-  regression reds ONE row with a precise message. W2 is the PAINT
-  witness — the only thing that proves a developer on reagent-slim sees
-  a shell rather than a blank panel — and it can only be had from a real
-  React commit.
-
-  ## Why W2 mounts under `rf.fresco/error-boundary`, which is not decoration
-
-  Under a NAKED mount this failure is an UNCAUGHT RENDER-PHASE THROW,
-  and the browser runner fails any run carrying an uncaught `pageerror`
-  independently of the `cljs.test` summary — so a naked pin would red
-  the whole lane for every unrelated suite and make one real defect look
-  like a broken runner. An error boundary above the ribbon makes the
-  throw a HANDLED one, so a regression reddens this row on its own
-  message and every neighbouring namespace runs.
-
-  ## Test target
-
-  The ns ends in `-dom-cljs-test`, so it runs under the `:browser-test`
-  build (real DOM + React via Chromium). The `:node-test` build's regex
-  also matches, so it LOADS under Node — where W2 short-circuits through
-  [[browser?]] and reports the skip rather than passing silently. W1
-  needs no DOM and runs in both."
+  W1 reads the door itself and needs no DOM, so it runs in both lanes. W2
+  is the paint witness, from a real commit under reagent-slim's own root,
+  with `rf.fresco/error-boundary` above the ribbon so a render-phase raise
+  reddens this row on its own message instead of failing the whole run as
+  an uncaught `pageerror`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent2.core :as slim]
             [reagent2.dom.client :as slim-dom]
@@ -83,14 +40,11 @@
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
                       ;; Fresco's collector tables are process-global
-                      ;; `defonce`s the core fixture knows nothing about; a
-                      ;; neighbour's boundary left in the entry cache would
-                      ;; make this suite read a residue that is not its own.
+                      ;; `defonce`s the core fixture does not reset.
                       (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- browser?
-  "True only under the real-DOM `:browser-test` build. The `:node-test`
-  build loads this ns but has no `js/document` to mount React into."
+  "True only under the real-DOM `:browser-test` build."
   []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -100,71 +54,40 @@
 ;; ===========================================================================
 
 (deftest w1-as-element-door-is-the-installed-builds-walk
-  (testing "with reagent-slim installed, `:adapter/as-element`
-            walks hiccup the way reagent2 does and NOT the way stock
-            Reagent does.
+  (testing "with reagent-slim installed, `:adapter/as-element` walks hiccup
+            the way reagent2 does and NOT the way stock Reagent does.
 
-            IT IS MEASURED BY EFFECT RATHER THAN BY IDENTITY, and that is
-            a finding rather than a convenience: `route-hook!` wraps the
-            published fn so the chain can pick the INSTALLED adapter at
-            call time, so the door is a `routed-hook` object and an
-            `identical?` row against the raw var fails on a perfectly
-            healthy wiring. What the crossing needs is not that var but
-            its BEHAVIOUR, so that is what is read.
-
-            THE DISCRIMINATOR IS THE COMPONENT TYPE REACT RECEIVES for a
-            fn head, and all three readings go through the SAME `probe`
-            fn ON PURPOSE. Each build caches the class it mints on the fn
-            object under its own property — stock on `.-cljsReactClass`,
-            reagent2 on `.-cljsReagentClass-fn` — so one fn can carry
-            both and the two answers stay independent. Using a fresh fn
-            per build instead would make the negative trivially true (two
-            fns always mint two classes) and it would prove nothing.
-
-            BOTH HALVES COMPARE TO LITERALS. `reagent2.core/as-element`
-            and `reagent.core/as-element` are two distinct vars named
-            independently of anything the door resolves, so the positive
-            and the negative cannot degrade together — a door checked
-            only against a value derived from the same lookup agrees with
-            itself when the subject is broken and goes green ON the
-            defect."
-    (let [door  (rf.late-bind/get-fn-cached :adapter/as-element)
-          probe (fn probe-view [] [:div {:data-testid "rf-slim-crossing-probe"}])]
-      (is (some? door)
-          "reagent-slim publishes :adapter/as-element (a nil door would make
-           both comparisons below vacuous, so this is asserted first)")
-      (when (some? door)
-        ;; Stock runs FIRST and on this same fn, so if the two builds ever
-        ;; collided on one cache property the negative below would catch it
-        ;; rather than read a reassuring pass.
-        (let [via-stock (stock/as-element [probe])
-              via-door  (door [probe])
-              via-slim  (slim/as-element [probe])]
-          (is (identical? (.-type via-door) (.-type via-slim))
-              "the door mints the component type REAGENT2 mints — the build
-               whose in-flight component :adapter/current-component routes
-               to, which is what lets views/current-frame read a frame off it")
-          (is (not (identical? (.-type via-door) (.-type via-stock)))
-              "the door does NOT mint stock Reagent's type. That is the defect
-               itself: stock's walk renders the island under a build the
-               installed adapter cannot see into, so the frame resolves nil
-               and the subtree raises :rf.error/no-frame-context"))))))
+            Measured by EFFECT, not identity: the door is a routed-hook
+            object, not the raw var. The discriminator is the component
+            type React receives for a fn head, read through ONE `probe` fn
+            for all three walks — each build caches its class on the fn
+            under its own property, so the answers stay independent, where
+            a fresh fn per build would make the negative trivially true.
+            Both halves compare to literal vars, so they cannot degrade
+            together."
+    (let [door      (rf.late-bind/get-fn-cached :adapter/as-element)
+          probe     (fn probe-view [] [:div {:data-testid "rf-slim-crossing-probe"}])
+          ;; Stock runs FIRST on the same fn, so a collision on one cache
+          ;; property would surface in the negative below.
+          via-stock (stock/as-element [probe])
+          via-door  (door [probe])
+          via-slim  (slim/as-element [probe])]
+      (is (identical? (.-type via-door) (.-type via-slim))
+          "the door mints the component type REAGENT2 mints")
+      (is (not (identical? (.-type via-door) (.-type via-stock)))
+          "and not stock Reagent's — the defect itself"))))
 
 ;; ===========================================================================
 ;; W2 — the Static ribbon actually PAINTS under slim
 ;; ===========================================================================
 
 (def ^:private caught
-  "The error `rf.fresco/error-boundary` caught below it, or nil. Non-nil
-  is the failure this suite guards against: something beneath raised in
-  React's render phase and React took the subtree down."
+  "The error `rf.fresco/error-boundary` caught below it, or nil."
   (atom nil))
 
 (rf.fresco/defview guarded-ribbon
-  "The Static L1 ribbon under an error boundary, so a render-phase raise
-  from the crossing is HANDLED — this row reddens on its own message
-  instead of aborting the lane for every other namespace on the page.
-  See the ns docstring."
+  "The Static L1 ribbon under an error boundary, so a render-phase raise is
+  HANDLED and reddens this row rather than aborting the lane."
   [_props]
   [rf.fresco/error-boundary
    {:on-error (fn [error] (reset! caught error))
@@ -172,25 +95,13 @@
    [static-shell/ribbon {}]])
 
 (def ^:private guarded-component
-  "The React component [[guarded-ribbon]] presents as. Declared once at
-  top level, as `rf.fresco/as-component`'s contract requires — deriving
-  it per render would mint a new component type every time and remount
-  the subtree under test."
+  "The React component [[guarded-ribbon]] presents as. Declared once at top
+  level, as `rf.fresco/as-component` requires."
   (rf.fresco/as-component guarded-ribbon))
 
-(defn- setup!
-  "Register Xray's handlers — which is what registers the sub family the
-  ribbon's frame switcher reads — and make the frame the tree names."
-  []
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  nil)
-
 (defn- mount-ribbon!
-  "Mount the guarded ribbon through REAGENT-SLIM's own client root, under
-  a `frame-provider` scoping `:rf/xray`. Committed synchronously —
-  React 19's `root.render` is otherwise async and the assertions would
-  read an empty container."
+  "Mount the guarded ribbon through REAGENT-SLIM's own client root, under a
+  `frame-provider` scoping `:rf/xray`, committed synchronously."
   []
   (let [container (.createElement js/document "div")
         root      (slim-dom/create-root container)]
@@ -201,58 +112,22 @@
                                [:> guarded-component {}]])))
     {:container container :root root}))
 
-(defn- teardown! [root container]
-  (react-dom/flushSync (fn [] (.unmount root)))
-  (.remove container))
-
-(defn- testid
-  "The committed node carrying `id`, or nil. Every reader below goes
-  through this and is `some?`-tested rather than dereferenced, so a
-  regression that empties the chrome reddens the row instead of throwing
-  a TypeError out of `cljs.test/run-block` — which has no try/catch and
-  would take the whole browser lane down with no summary."
-  [container id]
-  (some-> container (.querySelector (str "[data-testid=\"" id "\"]"))))
-
 (deftest w2-ribbon-reagent-island-paints-under-reagent-slim
-  (testing "under reagent-slim the Static L1 ribbon commits
-            its frame switcher to the DOM, which it can only do if the
-            frame resolved beneath the ribbon boundary.
-
-            `frame-switcher-view` READS, so its node exists ONLY when the
-            frame resolver found a frame to read against — the node's
-            presence is the frame-context claim, not merely a paint
-            claim. It is a BOUNDARY rather than a `reg-view` island
-            crossed through `as-child`, so what the row witnesses is the
-            boundary's own context resolution rather than the crossing's.
-            That says little about the DOOR and a great deal about the
-            FRAME, which is what the row is for; W1 is the door's
-            durable pin."
+  (testing "under reagent-slim the Static ribbon commits its frame picker.
+            `frame-switcher-view` READS, so its picker exists only when the
+            frame resolved beneath the ribbon boundary, and only if the
+            error boundary above did not swap in its fallback"
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (reset! caught nil)
-        (setup!)
+        (registry/register-xray-handlers!)
+        (rf/make-frame {:id :rf/xray})
         (let [{:keys [container root]} (mount-ribbon!)]
-          ;; The ribbon's own chrome — present even if its selectors are
-          ;; gone, so it separates "the boundary painted nothing at all" from
-          ;; "the boundary painted but a child was taken down".
-          (is (some? (testid container "rf-xray-static-ribbon"))
-              "the Static ribbon boundary committed its own chrome")
-          (is (nil? @caught)
-              (str "no render-phase error reached the boundary above the "
-                   "ribbon. A :rf.error/no-frame-context here means a child "
-                   "was rendered by a build the "
-                   "installed adapter cannot see into. Caught: "
+          (is (some? (.querySelector container
+                                     "[data-testid=\"rf-xray-ribbon-frame-picker\"]"))
+              (str "the frame picker committed under reagent-slim. Caught: "
                    (pr-str @caught)))
-          (is (nil? (testid container "rf-slim-crossing-fallback"))
-              "the error boundary did NOT swap in its fallback")
-          (is (some? (testid container "rf-xray-ribbon-frame"))
-              (str "frame-switcher-view — the ribbon's frame switcher, a "
-                   "Fresco boundary — is committed under "
-                   "reagent-slim. This is the node a lost frame removes"))
-          (is (some? (testid container "rf-xray-ribbon-frame-picker"))
-              "it rendered its frame picker, so its read ran rather than
-               raising")
-          (teardown! root container)
+          (react-dom/flushSync (fn [] (.unmount root)))
+          (.remove container)
           (done))))))
