@@ -1,45 +1,19 @@
 (ns re-frame.readiness-projector-conformance-cljs-test
-  "The drift guard between the TWO route-readiness projectors. Spec 012
-  §Route readiness is a resource projection.
+  "The drift guard between the TWO route-readiness projectors (Spec 012 §Route
+  readiness is a resource projection): `re-frame.routing.readiness/project-at-commit`,
+  the commit-time half seeding the slice from a freshly built plan in routing
+  vocabulary, and `re-frame.resources.route/reconcile-readiness`, the
+  reply-driven half re-projecting from live resource facts in Spec 016
+  vocabulary. The duplication is deliberate: resources holds routing as a
+  test-only dep and cannot `:require` it, so this pins that the halves AGREE
+  rather than unifying them, and it lives here because only this test tree
+  can reach both.
 
-  Route readiness has ONE table and TWO implementations:
-
-    - `re-frame.routing.readiness/project-at-commit` — the COMMIT-TIME half,
-      seeding the stored slice from a freshly built plan, in ROUTING
-      vocabulary (`{:plan-error … :blocking {<key-id> <scoped-key>}}`);
-    - `re-frame.resources.route/reconcile-readiness` — the REPLY-DRIVEN half,
-      re-projecting from live resource facts on every settle / adoption /
-      fresh-skip / hydration / restore, in SPEC 016 vocabulary (requirements
-      reading `:failed` / `:pending` / `:ready` / `:inert`).
-
-  THE DUPLICATION IS DELIBERATE. `implementation/resources/deps.edn`
-  holds routing as a TEST-ONLY dep and the routing integration is late-bound,
-  so resources cannot `:require` routing; publishing a late-bind hook for a
-  three-line `cond` would cost more than the duplication removes.
-  This namespace does NOT unify them and must not be read as a step toward
-  unifying them — it pins that they AGREE, so a divergence fails a test rather
-  than surfacing later.
-
-  WHY IT LIVES HERE. The assertion has to require BOTH namespaces. Routing's
-  own test tree cannot reach resources; `implementation/resources/test/` can
-  reach routing (test-only dep), so this is the only tree where the two halves
-  meet.
-
-  HOW A ROW WORKS. Each row of `readiness-conformance-table` names an INPUT
-  CLASS from the Spec 012 table and carries TWO encodings of that same class —
-  one per projector, each in its own vocabulary — plus the single
-  `:transition` / error-ness pair both must produce. The encodings are not the
-  same data and cannot be: the halves answer the same question about different
-  facts, which is precisely the drift this guards. What is shared is the
-  ANSWER, and the precedence that produces it: error beats loading beats idle.
-
-  Error VALUES are deliberately not compared — routing carries the planning
-  error, resources builds a `:rf.error/resource-route-blocking` envelope. Only
-  error-NESS is a shared claim.
-
-  Named `*_cljs_test.cljc` so both the JVM runner and the shadow-cljs
-  `:node-test` build discover it. Both projectors are pure, so there is no
-  fixture: no frame, no adapter, no registrar."
+  Each row names an input class and carries one encoding per projector, plus
+  the `:transition` and error-ness both must produce (error beats loading beats
+  idle). Error VALUES are not compared: routing carries the planning error,
+  resources builds a `:rf.error/resource-route-blocking` envelope. Both
+  projectors are pure, so there is no fixture."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -64,10 +38,8 @@
   {:rf.error/id :rf.error/resource-route-plan
    :reason      "params failed their schema"})
 
-;; Durable cache entries, one per `requirement-state` outcome. The classifier
-;; (`rf.resources.route/requirement-state`) is the authority for what each shape means;
-;; `requirement-states-are-what-this-table-thinks-they-are` below re-derives
-;; that rather than trusting these names.
+;; Durable cache entries, one per `requirement-state` outcome; the last test
+;; re-derives each from the classifier rather than trusting these names.
 (def ^:private entry-ready   {:resource/id :article/by-slug :status :loaded  :data {:x 1} :attempt 1})
 (def ^:private entry-pending {:resource/id :article/by-slug :status :loading :data nil    :attempt 1})
 (def ^:private entry-failed  {:resource/id :article/by-slug :status :error   :data nil    :attempt 1
@@ -188,23 +160,15 @@
 ;; ---- the assertion --------------------------------------------------------
 
 (deftest both-readiness-projectors-agree-on-the-spec-012-table
-  ;; THE drift guard. Two implementations, one table: every input class must
-  ;; fall out of BOTH halves as the same transition with the same error-ness.
   ;; A precedence change made on one side and not the other reds here.
   (doseq [{:keys [class transition error?] :as row} readiness-conformance-table]
     (testing class
-      (is (= [transition error?] (routing-projection row))
-          "re-frame.routing.readiness/project-at-commit (commit-time half)")
-      (is (= [transition error?] (resources-projection row))
-          "re-frame.resources.route/reconcile-readiness (reply-driven half)"))))
+      (is (= [[transition error?] [transition error?]]
+             [(routing-projection row) (resources-projection row)])
+          "the commit-time half, then the reply-driven half"))))
 
 (deftest requirement-states-are-what-this-table-thinks-they-are
-  ;; The rows above are written in terms of `:failed` / `:pending` / `:ready`
-  ;; / `:inert`, but they carry raw cache entries. Re-derive the classification
-  ;; from the classifier so a change to `requirement-state` cannot quietly turn
-  ;; a row into a test of something else — the guard above would stay green
-  ;; while pinning the wrong classes.
-  (is (= :ready   (rf.resources.route/requirement-state entry-ready)))
-  (is (= :pending (rf.resources.route/requirement-state entry-pending)))
-  (is (= :failed  (rf.resources.route/requirement-state entry-failed)))
-  (is (= :inert   (rf.resources.route/requirement-state entry-inert))))
+  ;; so a change to `requirement-state` cannot quietly turn a row into a test
+  ;; of something else while the guard above stays green
+  (is (= [:ready :pending :failed :inert]
+         (map rf.resources.route/requirement-state [entry-ready entry-pending entry-failed entry-inert]))))
