@@ -1,50 +1,11 @@
 (ns re-frame.ssr.test-fixture
-  "Shared `:each` reset fixture for ssr-artefact JVM tests.
-
-  Per-file copies of a reset body drift (one resets an atom another
-  doesn't; one declares the fn `^:private`, another doesn't), inviting
-  the kind of cross-test-bleed that the side-channel atoms exist to
-  prevent.
-
-  The canonical reset is here. Test namespaces call
-  `(use-fixtures :each tf/reset-runtime)` and inherit a uniform reset
-  semantics that mirror what the runtime's per-request frame teardown
-  hook (`re-frame.ssr/on-frame-destroyed!`) does at end-of-request:
-  every per-frame side-channel slot is cleared.
-
-  ## What gets reset
-
-  Registrar + frame state — `(registrar/clear-all!)`,
-  `(reset! frame/frames {})`, `(flows/reset-flows!)`,
-  `(schemas/clear-schemas-by-frame!)`.
-
-  SSR side-channel atoms (Spec 011 §Per-request frame teardown). All
-  are keyed by frame-id; stale entries from prior tests
-  would otherwise bleed process-wide:
-    - `re-frame.ssr.request/request-slots`        — the active HTTP request
-    - `re-frame.ssr.response/response-slots`      — the HTTP response accumulator
-    - `re-frame.ssr.error-listener/pending-error-traces`
-                                                  — per-frame buffer of error trace events
-    - `re-frame.ssr.install`'s install ledger     — hydration-payload claims
-                                                    (payload ids are frame ids)
-
-  Adapter — `(rf/init! ssr/adapter)` installs the SSR-aware adapter map.
-
-  Namespace-load-time registrations — clear-all! wipes the
-  registrations re-frame.routing / re-frame.ssr / re-frame.ssr.head /
-  re-frame.machines installed at ns-load. `:reload` re-evaluates the
-  ns-body so `:rf/hydrate`, `:rf.route/navigate`, `:rf.server/*` fxs,
-  the `:rf.server/request` cofx, the head late-bind hooks, and the
-  machine fxs all resurrect.
-
-  ## Why expose this rather than duplicate
-
-  - One source of truth for the reset shape — drift between test files
-    is impossible by construction.
-  - Adding a new side-channel atom touches exactly one file.
-  - The reset matches the production teardown shape closely; any
-    divergence is an immediate signal that either the tests are
-    cheating or the teardown is incomplete."
+  "The shared `:each` reset for the ssr JVM tests, one copy so the files
+  cannot drift. It mirrors the per-request teardown
+  (`re-frame.ssr/on-frame-destroyed!`): registrar, frame, flow and schema
+  state, every per-frame SSR side-channel slot (request, response, pending
+  error traces) and the install ledger are cleared; the SSR adapter is
+  installed; and the namespaces whose ns-load registrations `clear-all!`
+  wipes are reloaded so they come back."
   (:require [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -57,52 +18,29 @@
             [re-frame.ssr.response :as rf.ssr.response]))
 
 (defn reset-runtime
-  "The canonical `:each` fixture for ssr-artefact JVM tests. Wipes the
-  registrar, every per-frame side-channel atom, and re-installs the
-  ns-load-time registrations that `clear-all!` removed.
-
-  Call shape — `(use-fixtures :each reset-runtime)`."
+  "`(use-fixtures :each reset-runtime)`."
   [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; SSR side-channel atoms — direct refs into the producing sub-ns
-  ;; rather than the (private) façade aliases. Same atoms either way;
-  ;; this avoids a `(resolve ...)` reflective dance to reach the
-  ;; ^:private façade vars.
+  ;; The producing sub-namespaces' atoms; the facade's aliases are private.
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})
   (reset! rf.ssr.error-listener/pending-error-traces {})
-  ;; S5 — the hydration-payload install ledger. Keyed by payload id (a
-  ;; frame id), so a claim left by a prior test would make the next test's
-  ;; first hydrate look like a sibling root's second one.
+  ;; Keyed by payload id (a frame id): a claim left by a prior test would make
+  ;; the next test's first hydrate look like a sibling root's second one.
   (rf.ssr.install/reset-installed-payloads!)
-  ;; The flows artefact's per-frame `last-inputs` memo
-  ;; table is reset through the public `flows/reset-last-inputs!` seam
-  ;; (the atom itself is private to the flows artefact). Spec 013
-  ;; §Flow re-evaluation trigger.
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.ssr/adapter)
-  ;; Namespace-load-time registrations get wiped by clear-all!; reload
-  ;; so :rf/hydrate, :rf.route/navigate, :rf.server/* fxs, the
-  ;; :rf.server/request cofx, the head late-bind hooks, AND the
-  ;; machine fxs all resurrect between tests.
+  ;; clear-all! wiped these namespaces' ns-load registrations.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.ssr.head :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`, and
-  ;; framework operation + registration surfaces (dispatch / reg-flow /
-  ;; reg-app-schema / current-frame-id / …) require a carried frame
-  ;; stamp. Register `:rf/default` explicitly and pin it as the body's
-  ;; ambient scope — the carried-invariant equivalent of wrapping every
-  ;; test in `(with-frame :rf/default …)`. SSR tests that drive their own
-  ;; per-request server frames re-bind via an inner `with-frame` / pass an
-  ;; explicit `{:frame …}`; both win over this ambient scope. A top-level
-  ;; `make-frame …:initial-events` still drain synchronously — the lifecycle
-  ;; async/sync split keys off `*handler-scope*` (a real cascade), not
-  ;; this ambient scope.
+  ;; `init!` makes no `:rf/default`, and dispatch and registration need a
+  ;; frame; tests driving their own server frames re-bind with `with-frame`
+  ;; or an explicit `{:frame …}`.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
