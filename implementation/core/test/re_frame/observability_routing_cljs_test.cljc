@@ -120,6 +120,15 @@
       (rf/dispatch-sync [:evt/noop] {:frame :obs/none})
       (is (empty? @seen)))))
 
+(deftest unresolved-frame-routes-nothing-no-default-synthesis
+  ;; Cited by the data-classification fail-closed-no-frame conformance fixture.
+  (let [seen (atom [])]
+    (rf/register-observability-sink! :test.sinks/datadog #(swap! seen conj %))
+    (rf.observability/route-handled-event! [:evt/x] :evt/x :obs/ghost :ok 1 [:db] nil)
+    (rf.observability/route-error!
+      :rf.error/handler-exception [:evt/x] :evt/x :obs/ghost (ex-info "x" {}) 1 0 nil)
+    (is (empty? @seen) "an unresolved frame routes nothing")))
+
 (deftest buggy-sink-is-isolated-from-siblings
   (testing "a throwing sink cannot block a sibling sink on the same stream"
     (let [seen (atom [])]
