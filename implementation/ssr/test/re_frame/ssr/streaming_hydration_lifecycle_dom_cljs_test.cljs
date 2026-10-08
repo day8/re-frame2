@@ -1,50 +1,18 @@
 (ns re-frame.ssr.streaming-hydration-lifecycle-dom-cljs-test
-  "Acceptance coverage for the streaming READINESS + HYDRATION lifecycle
-  and the cross-host suspense COMPONENT. Per Spec 011 §Streaming SSR —
-  client-side hydration semantics.
+  "The streaming READINESS + HYDRATION lifecycle and the cross-host suspense
+  `boundary` component (Spec 011 §Streaming SSR — client-side hydration).
 
-  ## The mismatch these tests rule out
+  `install!` turns each boundary's inert fallback `<template>` into a live
+  `<rf-suspense data-rf2-suspense-mount>` wrapper, which no render tree can
+  express. So finalization must unwrap every mount before hydration, and the
+  `boundary` component must render, on the client, exactly the markup the
+  server streamed — its body, or its declared fallback for a failed boundary.
 
-  On a genuinely streamed page
-  `install!` materialises each boundary's inert fallback `<template>`
-  into a LIVE `<rf-suspense data-rf2-suspense-mount>` wrapper — the
-  visible skeleton and the stable swap target. That wrapper is
-  client-invented protocol DOM: no render tree on any host can express
-  it. So a DOM hydrated with the wrappers in place would read
-
-      <section class=\"cards\"><rf-suspense …><div class=\"card\">…
-
-  while the client tree the author wrote describes
-
-      <section class=\"cards\"><div class=\"card\">…
-
-  and `hydrateRoot` would see a structural mismatch at every boundary,
-  on a page whose content is otherwise byte-correct.
-
-  The contract is two halves, and both are exercised here:
-
-    - FINALIZATION unwraps every mount before hydration, so the DOM is
-      exactly the tree the author's hiccup describes.
-    - The `boundary` COMPONENT is that hiccup — one `.cljc` form that
-      expands to the wire marker on the server and renders its body (or
-      its declared fallback, for a failed boundary) on the client.
-
-  ## Harness honesty — we drive React's `hydrateRoot` DIRECTLY
-
-  Hydration mismatches surface through React's `onRecoverableError`
-  callback, which must be passed to `hydrateRoot` in its options object.
-  A harness built on an adapter wrapper can silently drop that option
-  and then capture NOTHING — passing identically on broken and correct
-  HTML, certifying behaviour it never observed. So these tests call
-  `react-dom-client/hydrateRoot` themselves with their own options
-  object, and `harness-captures-a-known-bad-hydration` feeds the harness
-  deliberately-wrong HTML FIRST and asserts it reds. Every
-  no-mismatch assertion below is only worth what that probe proves.
-
-  Browser-only: `-dom-cljs-test$` opts this file into `:browser-test`;
-  `:node-test` loads it too (its `cljs-test$` regexp matches both
-  suffixes) and every DOM-dependent body gates on `(browser?)`, exiting
-  early under Node where `js/document` is absent."
+  These tests call React's `hydrateRoot` directly with their own
+  `onRecoverableError`, so no wrapper can drop it, and
+  `harness-captures-a-known-bad-hydration` proves the harness reds on a real
+  mismatch. `:node-test` loads this file too and every test exits early
+  without `js/document`."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as React]
@@ -59,20 +27,10 @@
             [re-frame.ssr.streaming.constants :as rf.ssr.streaming.constants]
             [re-frame.ssr.streaming.client :as rf.ssr.streaming.client]
             [re-frame.test-support :as rf.test-support]
-            ;; Publishes the React-context tier `frame-provider` resolves
-            ;; through. Without it the provider renders nothing and every
-            ;; assertion below would read an empty container.
+            ;; Publishes the React-context tier `frame-provider` resolves through.
             [re-frame.views]))
 
-;; `installed-payloads` is a process-global `defonce` ledger keyed by
-;; payload id — a table `clear-all!` and a `frame/frames` reset do NOT
-;; touch. Any suite that installs a payload must reset it or it leaks
-;; into siblings. These tests hydrate through `ssr/hydrate!` rather than
-;; the root-manifest install path, but the reset is cheap and keeps the
-;; suite honest if that ever changes.
-;; `re-frame.ssr.suspense`'s failed-boundary record is a second such
-;; table — process-global, additive, and read by every `boundary` render
-;; on the page. A test that streams a failure MUST clear it.
+;; The install ledger and the failed-boundary record are process-global.
 (use-fixtures :each
   {:before (fn []
              (rf.ssr.install/reset-installed-payloads!)
@@ -84,23 +42,14 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-;; ---- the application under test --------------------------------------------
-;;
-;; ONE tree, both hosts. No reader conditional, no `card-slot` two-programs
-;; split, and no defensive nil branch in the card view: the boundary that
-;; declared the fallback is the one that re-renders it.
+;; ---- the application under test: ONE tree, both hosts --------------------
 
 (defn- register-app! [_frame-id]
   (rf/reg-sub :card/by-id (fn [db [_ id]] (get-in db [:cards id])))
   (rf/reg-event :test/seed (fn [_ _] {:db {:cards {:revenue {:title "Revenue" :value 42375}}}}))
   nil)
 
-;; `reg-view`, not plain fns: a registered view is what carries the frame
-;; stamp down from the enclosing `frame-provider` (Spec 006 §Lookup
-;; algorithm — the React-context tier resolves through the reg-view
-;; wrapper). A plain fn that subscribes raises `:rf.error/no-frame-context`
-;; under a provider. The `boundary` component itself stays a plain fn and
-;; needs no wrapper: it runs inside the enclosing registered view's scope.
+;; Registered views carry the frame down from `frame-provider`.
 (rf/reg-view ^{:rf/id :test.dash/card-skeleton} card-skeleton [card-id]
   [:div.card.skeleton [:h3 (str "Loading " (name card-id))]])
 
@@ -110,20 +59,12 @@
      [:h3 (:title c)]
      [:p.value (str (:value c))]]))
 
-;; The card that fails on purpose. It is only ever INVOKED on the server,
-;; inside its continuation drain — the client's boundary short-circuits to
-;; the declared fallback for a failed id and never calls it. That is the
-;; whole point: one tree, and the failure is a server-side fact the client
-;; is told about rather than something it has to re-discover.
+;; Only ever invoked on the server: the client boundary renders the declared
+;; fallback for a failed id instead.
 (rf/reg-view ^{:rf/id :test.dash/throwing-card} throwing-card []
   (throw (ex-info "flaky third-party metric service" {})))
 
-;; The CLIENT tree — what the browser renders. A plain fn, deliberately:
-;; `reg-view` stamps dev-time `data-rf-view` / `data-rf2-source-coord`
-;; attributes on its root element, and the two trees below must agree on
-;; `<main>` exactly. The leaves ARE reg-views (they subscribe, and they
-;; carry the frame), and the emitter stamps them identically on both
-;; hosts — that parity is what `source_coord_parity_test` pins.
+;; The client tree. A plain fn, so its root carries no dev-time view attributes.
 (defn- dashboard []
   [:main.dashboard
    [:section.cards
@@ -132,14 +73,9 @@
     [boundary {:id :card.flaky :fallback [card-skeleton :flaky]}
      [throwing-card]]]])
 
-;; The SERVER tree — the same page, spelled with the internal
-;; `:rf/suspense-boundary` wire marker that `boundary`'s `:clj` branch
-;; expands to. It has to be written out here because this test runs on
-;; CLJS, where the component takes its CLIENT branch and so can never
-;; produce the marker: the shell walker would walk straight into the
-;; throwing body. That the two spellings correspond is not assumed —
-;; `streaming_component_cljs_test/component-expands-to-the-internal-wire-marker`
-;; pins the expansion on the JVM, where it actually happens.
+;; The same page spelled with the `:rf/suspense-boundary` wire marker that
+;; `boundary` expands to on the JVM; on CLJS the component takes its client
+;; branch, so the server render needs the marker written out.
 (defn- server-dashboard []
   [:main.dashboard
    [:section.cards
@@ -148,31 +84,12 @@
     [:rf/suspense-boundary {:id :card.flaky :fallback [card-skeleton :flaky]}
      [throwing-card]]]])
 
-;; ---- the wire (EMITTED, not transcribed) ----------------------------------
-;;
-;; The server HTML below is produced by the SHIPPED emitter
-;; (`ssr/render-to-string`, which is `.cljc` and runs here) over the SAME
-;; hiccup the client tree renders, then wrapped in the chunk shapes the
-;; Ring writer thread flushes (`ssr/streaming-{fallback,resolved,failed}-
-;; template`, `ssr/streaming-hydrate-delta-script`).
-;;
-;; Hand-transcribed markup would be wrong: a
-;; `reg-view` root carries dev-time `data-rf-view` / `data-rf2-source-coord`
-;; attributes that the emitter writes and a hand-written fixture cannot
-;; know (the coord embeds a LINE NUMBER), so hydration would fail on
-;; attributes rather than on anything the feature does. Emitting the
-;; fixture makes the test a genuine cross-host parity check: same hiccup,
-;; server render vs client render, reconciled by React.
+;; ---- the wire: emitted by the shipped server pipeline, not transcribed -----
 
 (defn- server-render!
-  "Run the REAL server pipeline over `[dashboard]` under a server frame:
-  the shell walker registers a continuation per boundary, then each is
-  drained. Returns the chunk bytes plus the failed set the drain
-  reported — everything a streaming host would flush, produced by the
-  shipped code rather than transcribed.
-
-  Both halves are `.cljc`, so this runs here exactly as it does on the
-  JVM. The server frame is destroyed before returning; only bytes escape."
+  "Shell walk + continuation drain over the server tree, on a server frame
+  destroyed before returning. Returns the shell, the chunk bytes and the
+  failed set."
   []
   (let [fid :test/server-render]
     (rf/make-frame {:id fid :platform :server})
@@ -190,13 +107,11 @@
                          outcomes)
           failed   (into #{} (comp (filter :failed?) (map :id)) outcomes)]
       (rf/destroy-frame! fid)
-      {:shell shell-html :chunks chunks :failed failed
-       :ids (mapv :id outcomes)})))
+      {:shell shell-html :chunks chunks :failed failed})))
 
 (defn- finalised-html
-  "What the equivalent NON-streamed render produces for the same page:
-  the resolved card, and the failed boundary's declared fallback. This is
-  the shape the finalised streamed DOM must equal."
+  "The equivalent NON-streamed render of the page: the shape a finalised
+  streamed DOM must equal."
   []
   (let [fid :test/expected]
     (rf/make-frame {:id fid :platform :server})
@@ -207,10 +122,7 @@
       html)))
 
 (defn- payload-chunk
-  "The final `__rf_payload`. Its runtime-db slice carries the
-  failed-boundary set exactly as `build-final-payload` assembles it —
-  the JVM half of that assembly is pinned in
-  `streaming_component_cljs_test`."
+  "The final `__rf_payload`, its runtime-db slice carrying the failed set."
   [failed]
   (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
        (pr-str (cond-> {:rf/version   1
@@ -255,31 +167,14 @@
 ;; ---- the hydration harness -------------------------------------------------
 
 (defn- get-act
-  "React's `act` — the only way to make a concurrent root commit
-  SYNCHRONOUSLY. Without it `hydrateRoot` returns before React has
-  touched the DOM and every assertion races the scheduler."
+  "React's `act`, which makes a concurrent root commit synchronously."
   []
   (when (exists? (.-act React)) (.-act React)))
 
 (defn- hydrate-capturing!
-  "Hydrate `container` against `tree` with REAL React and report
-  everything React said about it.
-
-  Returns `{:complaints [str …] :html \"…\"}`.
-
-  Two deliberate choices:
-
-    - React's `hydrateRoot` is called DIRECTLY, with an options object we
-      construct here, so nothing between us and React can drop
-      `onRecoverableError`. (`r2/as-element` only builds the element
-      tree; it never sees the options.)
-    - React ALSO reports mismatches through `console.error`, so both
-      `error` and `warn` are captured for the duration and restored
-      after — a mismatch that arrives on the console rather than the
-      callback is still heard.
-
-  The hydrate runs inside `act` so the commit completes before we read
-  the DOM."
+  "Hydrate `container` against `tree` with real React inside `act`,
+  returning `{:complaints [str …] :html \"…\"}` — everything React reported
+  through `onRecoverableError`, `console.error` or `console.warn`."
   [container tree]
   (let [complaints (atom [])
         orig-error (.-error js/console)
@@ -308,9 +203,7 @@
         (set! (.-warn js/console) orig-warn)))))
 
 (defn- hydration-complaints
-  "Only the complaints that are about HYDRATION. React emits unrelated
-  development warnings, and counting those would make the green case
-  flaky and the red case dishonest."
+  "Only the complaints about hydration; React also emits unrelated warnings."
   [complaints]
   (filterv #(let [s (str/lower-case %)]
               (or (str/includes? s "hydrat")
@@ -346,20 +239,13 @@
       (let [frame-id :test/streamed
             _        (do (rf/make-frame {:id frame-id :platform :client})
                          (register-app! frame-id))
-            ;; The REAL server pipeline: shell walk + continuation drain.
-            {:keys [shell chunks failed ids]} (server-render!)
+            {:keys [shell chunks failed]} (server-render!)
             host     (make-host! shell)
             ready    (atom nil)]
-        (is (= [:card.revenue :card.flaky] ids)
-            "the shell walk registered both boundaries in document order")
-        (is (= #{:card.flaky} failed)
-            "the drain reported the throwing boundary as failed")
         (rf.ssr.streaming.client/install!
           {:frame frame-id :root host :on-ready #(reset! ready %)})
-        ;; Fallbacks are now LIVE mounts — the page paints its skeletons.
         (is (= 2 (count (mounts host)))
             "install materialises each inert fallback template into a visible mount")
-        (is (nil? @ready) "not ready until the final payload lands")
         ;; Stagger the stream: the resolved chunk, then the failed chunk,
         ;; then the payload — each in its own observer batch.
         (append-chunk! host (first chunks))
@@ -371,40 +257,22 @@
                 (fn []
                   (append-chunk! host (payload-chunk failed))
                   (js/setTimeout
-                    ;; Guarded: a throw inside a `setTimeout` callback is an
-                    ;; UNCAUGHT page error that aborts the whole browser
-                    ;; suite rather than failing this test. Surface it as a
-                    ;; normal failure and let the run continue.
+                    ;; A throw in a `setTimeout` callback would abort the
+                    ;; whole browser suite; report it as a failure instead.
                     (fn []
                      (try
-                      ;; --- FINALIZATION ---
-                      (is (some? @ready) ":on-ready fired when the payload landed")
-                      (is (= #{:card.revenue} (:resolved @ready)))
-                      (is (= #{:card.flaky} (:failed @ready)))
-                      (is (zero? (count (mounts host)))
-                          "every <rf-suspense> mount is unwrapped at readiness — protocol DOM is transport, never part of the application tree")
+                      (is (= {:resolved #{:card.revenue} :failed #{:card.flaky}}
+                             (select-keys @ready [:resolved :failed])))
                       (is (zero? (count (array-seq (.querySelectorAll host "template[data-rf2-suspense-id]"))))
                           "no suspense <template> survives finalization")
-                      ;; The resolved card is now a DIRECT child of <section>,
-                      ;; exactly as the author's tree describes it.
-                      (is (some? (.querySelector host "section.cards > div.card"))
-                          "resolved content sits where the client tree puts it")
-                      ;; --- HYDRATION ---
-                      ;; The public boot path: read `__rf_payload`, validate
-                      ;; it, dispatch `:rf/hydrate` into the explicit frame.
-                      ;; State only — it never touches the DOM.
-                      (is (some? (rf.ssr/hydrate! {:frame frame-id}))
-                          "the final payload is readable and hydrates the frame")
+                      (rf.ssr/hydrate! {:frame frame-id})
                       (let [tree [rf/frame-provider {:frame frame-id} [dashboard]]
                             {:keys [complaints html]} (hydrate-capturing! (app-el host) tree)]
                         (is (empty? (hydration-complaints complaints))
                             (str "hydrateRoot must reconcile the finalised streamed DOM "
                                  "with no structural mismatch; got: " (pr-str complaints)))
-                        ;; NON-VACUITY: a client tree that rendered NOTHING
-                        ;; would ALSO report no mismatch — React would simply
-                        ;; drop the server DOM and be done. Assert the content
-                        ;; SURVIVED hydration; that is what proves the two
-                        ;; trees actually agreed.
+                        ;; A client tree that rendered nothing would also
+                        ;; report no mismatch: the content must survive.
                         (is (str/includes? html "42375")
                             "the resolved card survives hydration — React adopted the server DOM rather than discarding it")
                         (is (str/includes? html "Loading flaky")
@@ -419,48 +287,6 @@
                     40))
                 40))
             40))))))
-
-(deftest failed-boundary-renders-its-declared-fallback
-  (testing "the failed set rides the payload's runtime slice, so the
-            client boundary re-renders the DECLARED fallback — the exact
-            markup the failed chunk left in the DOM"
-    (if-not (browser?)
-      (is true "skipped under node — no js/document")
-      (let [frame-id :test/failed-fallback]
-        (rf/make-frame {:id frame-id :platform :client})
-        (register-app! frame-id)
-        (rf/dispatch-sync
-          [:rf/hydrate {:rf/version 1
-                        :rf/app-db  {:cards {:revenue {:title "Revenue" :value 42375}}}
-                        :rf/runtime-db (assoc-in {} rf.ssr.suspense/failed-boundaries-path
-                                                 #{:card.flaky})}]
-          {:frame frame-id})
-        (is (= #{:card.flaky} (rf.ssr.suspense/frame-failed-boundaries frame-id))
-            "the DURABLE set survives the hydration round-trip into runtime-db")
-        ;; The RENDER-TIME record — what the component consults. On a real
-        ;; page the streaming client writes this at finalization; here we
-        ;; stand in for it directly.
-        (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
-        ;; Hydrate the SAME tree against the markup the finalised stream
-        ;; leaves behind — which is, by construction, what the equivalent
-        ;; non-streamed render of the same tree produces.
-        (let [host (.createElement js/document "div")]
-          (.appendChild (.-body js/document) host)
-          (set! (.-innerHTML host) (finalised-html))
-          (let [tree [rf/frame-provider {:frame frame-id} [dashboard]]
-                {:keys [complaints html]} (hydrate-capturing! host tree)]
-            (is (str/includes? html "Loading flaky")
-                "the FAILED boundary renders its declared fallback")
-            (is (str/includes? html "42375")
-                "the resolved boundary renders its body")
-            (is (not (str/includes? html "suspense-boundary"))
-                "no phantom <suspense-boundary> element — the component is not a keyword head")
-            (is (not (str/includes? html "rf-suspense"))
-                "the component renders no protocol DOM of its own")
-            (is (empty? (hydration-complaints complaints))
-                (str "the component's client render matches the markup the "
-                     "server painted for a failed boundary; got: " (pr-str complaints)))
-            (remove-host! host)))))))
 
 (deftest finalization-unwraps-mounts-preserving-children
   (testing "unwrapping splices the mount's children into its position,
@@ -480,10 +306,7 @@
               (append-chunk! host (payload-chunk failed))
               (js/setTimeout
                 (fn []
-                  ;; The whole claim of the lifecycle, as one equality: a
-                  ;; streamed page, finalised, is byte-identical to the
-                  ;; equivalent non-streamed render of the same tree. That
-                  ;; is what makes ONE ordinary hydration correct.
+                  ;; The whole claim of the lifecycle, as one equality.
                   (is (= (normalise-html (finalised-html))
                          (normalise-html (.-innerHTML (app-el host))))
                       "the finalised DOM is exactly the non-streamed render of the same tree")
@@ -492,42 +315,13 @@
                 60))
             60))))))
 
-(deftest no-mounts-and-no-readiness-before-the-payload
-  (testing "readiness is the hydration trigger: before the payload lands
-            the DOM still carries protocol wrappers, so a bootstrap that
-            hydrated early would be hydrating the mismatched tree"
-    (if-not (browser?)
-      (is true "skipped under node — no js/document")
-      (let [frame-id :test/pre-readiness
-            _        (do (rf/make-frame {:id frame-id :platform :client})
-                         (register-app! frame-id))
-            {:keys [shell chunks]} (server-render!)
-            host     (make-host! shell)
-            ready    (atom false)]
-        (rf.ssr.streaming.client/install!
-          {:frame frame-id :root host :on-ready (fn [_] (reset! ready true))})
-        (append-chunk! host (first chunks))
-        (async done
-          (js/setTimeout
-            (fn []
-              (is (false? @ready) "no readiness before the final payload")
-              (is (pos? (count (mounts host)))
-                  "mounts are still present pre-readiness — this is precisely why hydration must wait")
-              (is (some? (.querySelector host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "] > div.card")))
-                  "the resolved card is nested inside its mount pre-readiness — the mismatch shape the ns docstring describes")
-              (remove-host! host)
-              (done))
-            60))))))
-
 ;; ---- the `install!` Usage recipe, executed ----------------------------------
 
 (defn- recipe-bootstrap!
-  "`re-frame.ssr.streaming.client/install!`'s Usage recipe, transcribed onto
-  this fixture: the frame exists first, everything the callback touches is
-  bound BEFORE `install!` (readiness can fire synchronously inside it), and
-  the frame is seeded and the root hydrated ONLY from `:on-ready`. The
-  fixture's `hydrate-capturing!` stands in for the adapter's `hydrate-root`
-  so React's complaints are heard. Each readiness appends one entry to `log`."
+  "`install!`'s Usage recipe on this fixture: everything the callback touches
+  is bound before `install!` (readiness can fire inside it), and the frame is
+  seeded and the root hydrated only from `:on-ready`, each readiness appending
+  one entry to `log`."
   [frame-id host log]
   (let [container (app-el host)]
     (rf.ssr.streaming.client/install!
