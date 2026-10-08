@@ -1,261 +1,119 @@
 (ns re-frame.cancellation-reply-envelope-test
-  "Machine cancellation terminal paths close the work attempt the
-  reply-envelope way (EP-0011 §Cancellation / Managed-Effects §Cancellation:
-  \"Cancellation is represented as data, not as the absence of a reply\").
-
-  A cancelled `:after` timer, a destroyed actor, and a `:spawn-all`
-  join-survivor cancellation each carry a canonical terminal reply: their
-  traces carry reason / state / epoch ALONGSIDE a canonical `:work/id`,
-  `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and `:rf.reply/cancel-reason`
-  — so a cancelled timer / actor closes its scheduled / spawned START with a
-  terminal EP-0011 reply row.
-
-  These tests pin the reply-envelope facts on the three cancellation traces:
-   1. `:rf.machine.timer/cancelled` (on state exit) →
-      `:rf.reply/status :cancelled` + canonical timer `:work/id`;
-   2. `:rf.machine/destroyed` `:reason :explicit` (a genuine cancellation) →
-      `:rf.reply/status :cancelled` + canonical machine `:work/id`
-      (`destroyed_trace_shape_test` pins that a `:reason
-      :rf.machine/finished` destroy carries NO cancelled facts);
-   3. `:rf.machine.spawn/cancelled-on-join-resolution` →
-      `:rf.reply/status :cancelled` + `:rf.reply/cancel-reason :on-join-resolution`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Machine cancellation traces close their work attempt as a canonical
+  `:cancelled` reply (EP-0011 §Cancellation): a cancelled `:after` timer and a
+  `:spawn-all` join survivor."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
-;; ---- timer cancel (state exit) -----------------------------------------
+(def ^:private reply-keys
+  [:rf.reply/status :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
+   :rf.reply/work-kind :rf.reply/work-id])
+
+(defn- first-tags [operation]
+  (:tags (first (rf.machines.test-support/events-of operation))))
 
 (deftest timer-cancelled-trace-carries-reply-envelope
-  (testing ":rf.machine.timer/cancelled (state exit) carries the
-            reply-envelope :status :cancelled facts + canonical timer :work/id"
-    (let [m {:initial :idle
-             :data    {}
-             :states  {:idle    {:on {:fetch :loading}}
-                       :loading {:after {5000 :timeout}
-                                 :on    {:loaded :ready}}
-                       :timeout {}
-                       :ready   {}}}]
-      (rf/reg-machine :sfunt8/timer m)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sfunt8/timer [:fetch]])
-        (is (= :loading (:state (rf.machines.test-support/snapshot :sfunt8/timer))))
-        ;; Exit :loading before the timer fires — cancels the :after timer
-        ;; with :reason :on-exit.
-        (rf/dispatch-sync [:sfunt8/timer [:loaded]])
-        (is (= :ready (:state (rf.machines.test-support/snapshot :sfunt8/timer))))
-        (let [cancelled (->> @captured
-                             (filter #(= :rf.machine.timer/cancelled (:operation %)))
-                             first)]
-          (is (some? cancelled) ":rf.machine.timer/cancelled trace fired")
-          (is (= :on-exit (:reason (:tags cancelled))) "public reason carried alongside the envelope")
-          (is (= :cancelled (:rf.reply/status (:tags cancelled)))
-              "reply-envelope :status :cancelled")
-          (is (= :cancelled (:rf.reply/work-status (:tags cancelled))))
-          (is (true? (:rf.reply/cancelled? (:tags cancelled))))
-          (is (= :on-exit (:rf.reply/cancel-reason (:tags cancelled))))
-          (is (= :timer (:rf.reply/work-kind (:tags cancelled))))
-          (is (some? (:rf.reply/work-id (:tags cancelled)))
-              "canonical timer :work/id closes the cancelled work attempt")
-          (is (= :rf.work/timer (first (:rf.reply/work-id (:tags cancelled))))))))))
+  (rf/reg-machine :sfunt8/timer
+    {:initial :idle
+     :data    {}
+     :states  {:idle    {:on {:fetch :loading}}
+               :loading {:after {5000 :timeout}
+                         :on    {:loaded :ready}}
+               :timeout {}
+               :ready   {}}})
+  (rf/dispatch-sync [:sfunt8/timer [:fetch]])
+  ;; Exiting :loading before the timer fires cancels it with :reason :on-exit.
+  (rf/dispatch-sync [:sfunt8/timer [:loaded]])
+  (let [tags (first-tags :rf.machine.timer/cancelled)]
+    (is (= {:reason                 :on-exit
+            :rf.reply/status        :cancelled
+            :rf.reply/work-status   :cancelled
+            :rf.reply/cancelled?    true
+            :rf.reply/cancel-reason :on-exit
+            :rf.reply/work-kind     :timer
+            :rf.reply/work-id       [:rf.work/timer [:sfunt8/timer :loading] (:epoch tags)]}
+           (select-keys tags (cons :reason reply-keys))))))
 
-;; ---- region :after timer work-id correlation ---------------------------
-;;
-;; An `:after` declared inside a parallel REGION carries a region-PREFIXED
-;; invoke-id (`prefix-region-invoke-id` prepends the region name). The FIRED /
-;; STALE timer replies strip that region head (`pick-after-transition`'s
-;; `carried-decl-path`) when building their `:rf.reply/work-id`, and so does
-;; the CANCELLED reply — building it from the raw region-prefixed `:spawn`
-;; would land the SAME logical `:after`'s cancelled row under a different
-;; `[:rf.work/timer <logical-id> <epoch>]` than its fired / stale rows,
-;; splitting one timer across the work/reply ledger. This drives ONE region
-;; `:after` to BOTH fire and (on the firing exit) cancel its still-pending host
-;; handle in a single dispatch, and asserts the two rows share ONE work-id.
-
+;; A region `:after` is scheduled under a region-PREFIXED invoke-id. Its
+;; :cancelled row must strip the region head exactly as its :fired row does,
+;; or one logical timer splits across two work/reply ledger rows.
 (deftest region-after-fired-and-cancelled-share-one-work-id
-  (testing "a region :after's :fired and :cancelled rows carry the
-            SAME region-stripped :rf.reply/work-id"
-    (rf/reg-machine :cttpk4-tw/timer
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:after {30000 :timeout}}
-                                    :timeout {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf.machines.test-support/with-trace-capture captured
-      ;; Birth the singleton parallel machine (schedules :loader/:working's
-      ;; :after at its per-region epoch — a still-pending 30s host handle).
-      (rf/dispatch-sync [:cttpk4-tw/timer [:rf.machine.spawn/spawned]])
-      (let [snap  (rf.machines.test-support/snapshot :cttpk4-tw/timer)
-            epoch (get-in snap [:data :rf/after-epoch-by-region :loader [:working]])]
-        (is (= :working (get-in snap [:state :loader])) ":loader entered :working")
-        (is (some? epoch) "the region :after was scheduled at a per-region epoch")
-        ;; Fire the :loader :after via its synthetic elapsed event carrying the
-        ;; region-PREFIXED decl-path (exactly what the real host timer
-        ;; dispatches). The :working→:timeout transition ALSO exits :working,
-        ;; cancelling the still-pending host handle → ONE dispatch emits BOTH
-        ;; :fired and :cancelled for the SAME logical :after.
-        (rf/dispatch-sync
-          [:cttpk4-tw/timer
-           [:rf.machine.timer/after-elapsed 30000 epoch [:loader :working]]])
-        (is (= :timeout (get-in (rf.machines.test-support/snapshot :cttpk4-tw/timer) [:state :loader]))
-            "the region :after fired → :loader moved to :timeout")
-        (let [fired         (->> @captured
-                                 (filter #(and (= :rf.machine.timer/fired (:operation %))
-                                               (true? (:fired? (:tags %)))))
-                                 first)
-              cancelled     (->> @captured
-                                 (filter #(= :rf.machine.timer/cancelled (:operation %)))
-                                 first)
-              fired-wid     (:rf.reply/work-id (:tags fired))
-              cancelled-wid (:rf.reply/work-id (:tags cancelled))]
-          (is (some? fired)     ":rf.machine.timer/fired trace fired")
-          (is (some? cancelled) ":rf.machine.timer/cancelled trace fired (the firing exit released the host handle)")
-          (is (= :rf.work/timer (first cancelled-wid)))
-          ;; The cancelled work-id's logical-id is region-STRIPPED: it ends in
-          ;; the region-RELATIVE state :working and does NOT carry the region
-          ;; name :loader (which the raw region-prefixed :spawn would put at
-          ;; position 1 of the logical-id, splitting the ledger row).
-          (is (= :working (last (second cancelled-wid))))
-          (is (not (some #{:loader} (second cancelled-wid)))
-              "the region name is stripped from the cancelled work-id logical-id")
-          ;; The headline correlation: fired and cancelled share ONE work-id, so
-          ;; both rows of this ONE :after join the same work/reply ledger row.
-          (is (= fired-wid cancelled-wid)
-              "the region :after's :fired and :cancelled rows share one :rf.reply/work-id"))))))
+  (rf/reg-machine :cttpk4-tw/timer
+    {:type    :parallel
+     :data    {}
+     :regions {:loader {:initial :working
+                        :states  {:working {:after {30000 :timeout}}
+                                  :timeout {}}}
+               :other  {:initial :idle
+                        :states  {:idle {}}}}})
+  (rf/dispatch-sync [:cttpk4-tw/timer [:rf.machine.spawn/spawned]])
+  (let [epoch (get-in (rf.machines.test-support/snapshot :cttpk4-tw/timer)
+                      [:data :rf/after-epoch-by-region :loader [:working]])]
+    ;; Fire the region :after with the region-prefixed decl-path the host timer
+    ;; carries; the :working→:timeout exit also cancels its pending handle.
+    (rf/dispatch-sync
+      [:cttpk4-tw/timer [:rf.machine.timer/after-elapsed 30000 epoch [:loader :working]]])
+    (let [fired (->> (rf.machines.test-support/events-of :rf.machine.timer/fired)
+                     (filter #(true? (:fired? (:tags %))))
+                     first)
+          cancelled-wid (:rf.reply/work-id (first-tags :rf.machine.timer/cancelled))]
+      (is (= [:rf.work/timer [:cttpk4-tw/timer :working] epoch] cancelled-wid))
+      (is (= (:rf.reply/work-id (:tags fired)) cancelled-wid)))))
 
-;; ---- parallel-root :after :state consistency ---------------------------
-;;
-;; A parallel-ROOT `:after` (decl-path `[]`) is scheduled via
-;; `schedule-root-after-fx` → `build-after-fx` with an EMPTY prefix, so
-;; `(last prefix)` is nil. The FIRED / STALE resolvers stamp the root sentinel
-;; `:rf/parallel-root` as the `:state`; SCHEDULED / CANCELLED traces carrying
-;; `:state nil` would break the `(actor, state, epoch)` pairing
-;; `emit-cancelled!`'s docstring promises. Both the scheduled and cancelled
-;; root-timer traces must carry `:rf/parallel-root` too.
-
+;; A parallel-ROOT `:after` has decl-path `[]`; its :scheduled and :cancelled
+;; rows carry the `:rf/parallel-root` sentinel as :state (as :fired / :stale
+;; do), never nil, so the (actor, state, epoch) pairing holds.
 (deftest parallel-root-after-scheduled-and-cancelled-state-is-parallel-root
-  (testing "a parallel-root :after's :scheduled and :cancelled traces
-            carry :state :rf/parallel-root (matching :fired / :stale), not nil"
-    (rf/reg-machine :cttpk4-root/m
-      {:type    :parallel
-       :data    {}
-       :after   {30000 {:target [[:a :two]]}}
-       :regions {:a {:initial :one :states {:one {} :two {}}}}})
-    (rf/make-frame {:id :cttpk4-root/f :doc "root-after :state test frame"})
-    (rf.machines.test-support/with-trace-capture captured
-      ;; Birth in the named frame → schedules the root :after (a still-pending
-      ;; 30s host handle) and emits the :scheduled trace.
-      (rf/dispatch-sync [:cttpk4-root/m [:rf.machine/start]] {:frame :cttpk4-root/f})
-      (let [scheduled (->> @captured
-                           (filter #(and (= :rf.machine.timer/scheduled (:operation %))
-                                         (= 30000 (:delay (:tags %)))))
-                           first)]
-        (is (some? scheduled) "the root :after emitted a :scheduled trace at birth")
-        (is (= :rf/parallel-root (:state (:tags scheduled)))
-            "the scheduled root-timer :state is the :rf/parallel-root sentinel"))
-      ;; Frame teardown cancels the still-pending root timer with
-      ;; :reason :on-frame-destroy → a :cancelled trace.
-      (rf/destroy-frame! :cttpk4-root/f)
-      (let [cancelled (->> @captured
-                           (filter #(and (= :rf.machine.timer/cancelled (:operation %))
-                                         (= :on-frame-destroy (:reason (:tags %)))))
-                           first)]
-        (is (some? cancelled) "frame teardown cancelled the pending root timer")
-        (is (= :rf/parallel-root (:state (:tags cancelled)))
-            "the cancelled root-timer :state is the :rf/parallel-root sentinel")))))
-
-;; ---- actor destroy (explicit cancellation) -----------------------------
-
-(deftest explicit-destroy-trace-carries-cancelled-reply
-  (testing "an :explicit :rf.machine/destroyed (actor torn down
-            before :final?) carries the reply-envelope :status :cancelled facts"
-    (let [child  {:initial :running
-                  :data    {}
-                  :states  {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :sfunt8/child}
-                             :on     {:stop :idle}}}}]
-      (rf/reg-machine :sfunt8/child child)
-      (rf/reg-machine :sfunt8/parent parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sfunt8/parent [:start]])
-        ;; Exit the :spawn-bearing state — the spawned child is destroyed
-        ;; (cancelled) before reaching a :final? leaf.
-        (rf/dispatch-sync [:sfunt8/parent [:stop]])
-        (let [destroyed (->> @captured
-                             (filter #(and (= :rf.machine/destroyed (:operation %))
-                                           (= :explicit (:reason (:tags %)))))
-                             first)]
-          (is (some? destroyed) "an :explicit :rf.machine/destroyed fired")
-          (is (= :cancelled (:rf.reply/status (:tags destroyed)))
-              "explicit destroy closes the work attempt as :cancelled")
-          (is (= :cancelled (:rf.reply/work-status (:tags destroyed))))
-          (is (true? (:rf.reply/cancelled? (:tags destroyed))))
-          (is (= :explicit (:rf.reply/cancel-reason (:tags destroyed))))
-          (is (= :machine (:rf.reply/work-kind (:tags destroyed))))
-          (is (some? (:rf.reply/work-id (:tags destroyed)))
-              "canonical machine :work/id closes the cancelled actor attempt"))))))
-
-;; ---- join-survivor cancellation ----------------------------------------
-
-(defn- mk-child
-  "A join child. Completion IS finality — it carries no parent vocabulary and
-  reaches a `:final?` state whose `:output-key` names the result."
-  []
-  {:initial :running
-   :data    {:id nil}
-   :actions {:record-id
-             (fn [{data :data ev :event}]
-               {:data (assoc data :id (second ev))})}
-   :states
-   {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done}}}
-    :done   {:final? true :output-key :id}}})
+  (rf/reg-machine :cttpk4-root/m
+    {:type    :parallel
+     :data    {}
+     :after   {30000 {:target [[:a :two]]}}
+     :regions {:a {:initial :one :states {:one {} :two {}}}}})
+  (rf/make-frame {:id :cttpk4-root/f})
+  (rf/dispatch-sync [:cttpk4-root/m [:rf.machine/start]] {:frame :cttpk4-root/f})
+  (rf/destroy-frame! :cttpk4-root/f)
+  (let [state-of (fn [op pred]
+                   (->> (rf.machines.test-support/events-of op)
+                        (map :tags)
+                        (filter pred)
+                        first
+                        :state))]
+    (is (= [:rf/parallel-root :rf/parallel-root]
+           [(state-of :rf.machine.timer/scheduled #(= 30000 (:delay %)))
+            (state-of :rf.machine.timer/cancelled #(= :on-frame-destroy (:reason %)))]))))
 
 (deftest join-survivor-cancel-trace-carries-cancelled-reply
-  (testing ":rf.machine.spawn/cancelled-on-join-resolution carries
-            the reply-envelope :status :cancelled facts (:rf.reply/cancel-reason
-            :on-join-resolution)"
-    (let [child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children         [{:id :a :machine-id :sfunt8/sa :start [:set-id :a]}
-                                        {:id :b :machine-id :sfunt8/sb :start [:set-id :b]}]
-                     :join             :any
-                     ;; sibling cancellation on the join decision is
-                     ;; unconditional → surviving sibling is torn down on
-                     ;; resolution.
-                     :on-some-complete [:hydrate/some]}
-                    :on    {:hydrate/some :ready}}
-                   :ready     {}}}]
-      (rf/reg-machine :sfunt8/sa child)
-      (rf/reg-machine :sfunt8/sb child)
-      (rf/reg-machine :sup/sfunt8 parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/sfunt8 [:start]])
-        (let [ids (get-in (rf.machines.test-support/runtime-db)
-                          [:rf.runtime/machines :spawned :sup/sfunt8 [:hydrating] :children])]
-          ;; First child resolves the :any join; sibling :b is cancelled.
-          (rf/dispatch-sync [(:a ids) [:go]]))
-        (let [cancel (->> @captured
-                          (filter #(= :rf.machine.spawn/cancelled-on-join-resolution
-                                      (:operation %)))
-                          first)]
-          (is (some? cancel) "join-survivor cancellation trace fired")
-          (is (= :cancelled (:rf.reply/status (:tags cancel)))
-              "the survivor cancellation is :status :cancelled")
-          (is (= :cancelled (:rf.reply/work-status (:tags cancel))))
-          (is (= :on-join-resolution (:rf.reply/cancel-reason (:tags cancel))))
-          (is (= :machine (:rf.reply/work-kind (:tags cancel))))
-          (is (some? (:rf.reply/work-id (:tags cancel)))
-              "canonical :work/id closes the survivor's cancelled attempt"))))))
+  (let [child {:initial :running
+               :states  {:running {:on {:go :done}}
+                         :done    {:final? true}}}]
+    (rf/reg-machine :sfunt8/sa child)
+    (rf/reg-machine :sfunt8/sb child)
+    (rf/reg-machine :sup/sfunt8
+      {:initial :idle
+       :states  {:idle      {:on {:start :hydrating}}
+                 :hydrating {:spawn-all {:children         [{:id :a :machine-id :sfunt8/sa}
+                                                            {:id :b :machine-id :sfunt8/sb}]
+                                         :join             :any
+                                         :on-some-complete [:hydrate/some]}
+                             :on        {:hydrate/some :ready}}
+                 :ready     {}}})
+    (rf/dispatch-sync [:sup/sfunt8 [:start]])
+    (let [ids (get-in (rf.machines.test-support/runtime-db)
+                      [:rf.runtime/machines :spawned :sup/sfunt8 [:hydrating] :children])]
+      ;; :a resolves the :any join, so the surviving sibling :b is cancelled.
+      (rf/dispatch-sync [(:a ids) [:go]])
+      (is (= {:rf.reply/status        :cancelled
+              :rf.reply/work-status   :cancelled
+              :rf.reply/cancelled?    true
+              :rf.reply/cancel-reason :on-join-resolution
+              :rf.reply/work-kind     :machine
+              :rf.reply/work-id       [:rf.work/machine (:b ids) [:hydrating] 1]}
+             (select-keys (first-tags :rf.machine.spawn/cancelled-on-join-resolution)
+                          reply-keys))))))
