@@ -1,57 +1,18 @@
 (ns re-frame.http-abort-cancels-exchange-test
-  "On the JVM a lifecycle abort DOES cancel the exchange, and no code of
-  ours makes that happen: the JDK does.
+  "On the JVM a lifecycle abort cancels the exchange, and the JDK does it:
+  `jvm-fetch` returns a dependent `thenApply` stage, the abort closure cancels
+  that stage, and `java.net.http` propagates a CANCEL back to the exchange (an
+  exceptional completion such as `orTimeout`'s is not propagated, which is why
+  the timeout path cancels upstream explicitly). Without that propagation a
+  superseded request would keep downloading, one live connection per keystroke
+  in a debounce search. This is a property of the JDK, so it is characterised
+  here, where a runtime upgrade that changes it goes red.
 
-  ## Why cancelling the derived stage is enough
-
-  `jvm-fetch` returns `future-resp.thenApply(…)`, `run-attempt!` publishes that
-  dependent stage to the abort closure, and the JDK does not generally
-  propagate a dependent's cancellation to its source — which would leave a
-  superseded request keeping its connection open and downloading, one live
-  connection per keystroke in a debounce search.
-
-  Measured on JDK 21.0.10, that does not happen. The
-  JDK's `java.net.http` stack propagates a CANCEL from the dependent stage back
-  to the exchange on its own. The tell is visible in the stage itself: it is a
-  `jdk.internal.net.http.common.MinimalFuture`, and cancelling one stores a
-  `CompletionException` WRAPPING the `CancellationException` rather than the
-  bare exception a plain `CompletableFuture` stores — so `.isCancelled` reads
-  FALSE on a stage `.cancel` just returned true for.
-
-  ## cancel vs completeExceptionally
-
-  `jvm-fetch`'s timeout docstring is right that \"timing out the result alone
-  would leave the download running\", and its explicit
-  `.cancel future-resp true` on the timeout path IS load-bearing — because
-  `orTimeout` completes the stage EXCEPTIONALLY, which the JDK does not
-  propagate. A lifecycle abort calls `cancel()`, which it does. Measured, on a
-  replica of `jvm-fetch`'s shape carrying no `whenComplete` at all:
-
-      orTimeout ONLY (no upstream cancel):   [:wrote-all]
-      orTimeout + explicit upstream cancel:  [:write-failed]
-
-  So the two paths genuinely differ: the timeout path needs its explicit
-  upstream cancel, and the abort path needs none.
-
-  ## Why this file exists at all
-
-  The behaviour the transport relies on is a property of the JDK rather than of
-  this repository, which is exactly the kind of thing that breaks silently
-  under a runtime upgrade or a refactor of how the abort closure gets its
-  handle. These tests characterise it so that break is caught here, with a
-  message saying what changed, rather than as a connection leak in production.
-
-  ## The harness, and why BOTH arms are in the test
-
-  Headers and one body byte go out at once; the rest of the body waits on a
-  latch the test opens only after it has its verdict. A write that FAILS after
-  release is the server-side proof that the client tore the exchange down —
-  and a write that SUCCEEDS is the proof that the harness can observe a
-  survivor. Running only the cancelling arm would pass against a harness that
-  reports `:write-failed` for some unrelated reason (a closed server, a stopped
-  executor), so the non-cancelling arm runs first as the control, inside the
-  same test."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The server sends headers and one body byte, then stalls the rest on a latch
+  the test opens after it has acted. A failed write after release proves the
+  client tore the exchange down; the un-cancelled control arm proves the
+  harness can observe a survivor."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
@@ -157,98 +118,50 @@
 ;; ===========================================================================
 
 (deftest cancelling-the-returned-stage-tears-down-the-exchange
-  (testing "cancelling the stage `jvm-fetch` returns (the one the
-            lifecycle publishes to the abort closure) tears the UPSTREAM
-            exchange down, for a request that opted out of `:timeout-ms` and
-            one whose configured deadline has not fired. The JDK does this
-            itself: no re-frame code arms it"
-    (doseq [timeout-ms [nil 5000]]
-      ;; ---- CONTROL ARM, first ------------------------------------------
-      ;; Without a cancel the download must run to completion. This is what
-      ;; makes the verdict arm meaningful: it proves the harness can observe a
-      ;; SURVIVING exchange, so `:write-failed` below is caused by the cancel
-      ;; and not by an incidental teardown. Run the control before the verdict
-      ;; so a harness that can only ever report `:write-failed` reds HERE.
-      (let [{:keys [outcome entries done-before-act?]} (fetch-outcome timeout-ms false)]
-        (is (= 1 entries)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — PRECONDITION (control): the exchange reached the wire and stalled mid-body"))
-        (is (not done-before-act?)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — PRECONDITION (control): the request was still in flight"))
-        (is (= :wrote-all outcome)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — CONTROL: an un-cancelled exchange drains in full, so the"
-                 " harness can tell a survivor from a teardown")))
-
-      ;; ---- VERDICT ARM --------------------------------------------------
-      (let [{:keys [outcome entries done-before-act?]} (fetch-outcome timeout-ms true)]
-        (is (= 1 entries)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — PRECONDITION: the exchange reached the wire and stalled mid-body"))
-        (is (not done-before-act?)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — PRECONDITION: the request was still in flight when the cancel fired"
-                 " (cancelling a completed request proves nothing about the exchange)"))
-        (is (= :write-failed outcome)
-            (str ":timeout-ms " (pr-str timeout-ms)
-                 " — the cancel reached the EXCHANGE and closed the connection."
-                 " `:wrote-all` here would mean the JDK stopped propagating"
-                 " cancellation from a dependent stage, and the abort path"
-                 " really would leak a live download per abort"))))))
+  ;; Each arm first proves the exchange stalled mid-body and was still in
+  ;; flight when it acted; the control runs first, so a harness that can only
+  ;; report :write-failed goes red there.
+  (doseq [timeout-ms [nil 5000]]
+    (is (= [1 false :wrote-all]
+           ((juxt :entries :done-before-act? :outcome) (fetch-outcome timeout-ms false)))
+        (str ":timeout-ms " (pr-str timeout-ms) " control: an un-cancelled exchange drains in full"))
+    (is (= [1 false :write-failed]
+           ((juxt :entries :done-before-act? :outcome) (fetch-outcome timeout-ms true)))
+        (str ":timeout-ms " (pr-str timeout-ms) ": the cancel reached the exchange and closed it"))))
 
 (deftest superseded-request-stops-downloading
-  (testing "end to end: a `:request-id`
-            supersede (the debounce-search shape) tears the superseded
-            request's exchange down, so a keystroke does not leave a live
-            connection behind"
-    (let [release  (CountDownLatch. 1)
-          outcomes (atom [])
-          entries  (atom 0)
-          srv      (start-stalled-body-server! release outcomes entries)]
-      (try
-        (rf/reg-event :debounce/reply (fn [_ _] {}))
-        (rf/reg-event :debounce/search
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (:url srv)}
-                    :decode     :text
-                    ;; One logical request-id — the second dispatch supersedes
-                    ;; the first, which is what a debounce search does on every
-                    ;; keystroke.
-                    :request-id :debounce/query
-                    ;; Opt out of the deadline so the timeout path cannot be
-                    ;; what closes the connection; the supersede must do it.
-                    :timeout-ms nil
-                    :reply-to   [:debounce/reply]}]]}))
-
-        ;; Keystroke 1 — issue, and wait until its exchange is LIVE.
-        (rf/dispatch-sync [:debounce/search])
-        (rf.test-support/poll-until #(= 1 @entries)
-                                    {:timeout-ms 5000 :interval-ms 10
-                                     :label "first exchange stalled mid-body"})
-        ;; ---- PRECONDITIONS ---------------------------------------------
-        (is (empty? @outcomes)
-            "PRECONDITION: the first request was still downloading when it was superseded")
-
-        ;; Keystroke 2 — supersedes the first.
-        (rf/dispatch-sync [:debounce/search])
-        (rf.test-support/poll-until #(= 2 @entries)
-                                    {:timeout-ms 5000 :interval-ms 10
-                                     :label "second exchange stalled mid-body"})
-
-        ;; ---- VERDICT ----------------------------------------------------
-        ;; The surviving second request is its own control here: exactly one of
-        ;; the two exchanges must fail its write. Asserting the PAIR rather than
-        ;; `(some #{:write-failed})` is what stops this passing if the harness
-        ;; tore BOTH down for an unrelated reason.
+  ;; The debounce-search shape: each keystroke supersedes the last request.
+  ;; :timeout-ms nil, so the supersede and not a deadline closes the connection.
+  (let [release  (CountDownLatch. 1)
+        outcomes (atom [])
+        entries  (atom 0)
+        srv      (start-stalled-body-server! release outcomes entries)]
+    (try
+      (rf/reg-event :debounce/reply (fn [_ _] {}))
+      (rf/reg-event :debounce/search
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url (:url srv)}
+                  :decode     :text
+                  :request-id :debounce/query
+                  :timeout-ms nil
+                  :reply-to   [:debounce/reply]}]]}))
+      (rf/dispatch-sync [:debounce/search])
+      (rf.test-support/poll-until #(= 1 @entries)
+                                  {:timeout-ms 5000 :interval-ms 10
+                                   :label "first exchange stalled mid-body"})
+      (is (empty? @outcomes)
+          "PRECONDITION: the first request was still downloading when it was superseded")
+      (rf/dispatch-sync [:debounce/search])
+      (rf.test-support/poll-until #(= 2 @entries)
+                                  {:timeout-ms 5000 :interval-ms 10
+                                   :label "second exchange stalled mid-body"})
+      (.countDown release)
+      (rf.test-support/poll-until #(= 2 (count @outcomes))
+                                  {:timeout-ms 5000 :interval-ms 10
+                                   :label "server-side outcomes"})
+      ;; The live successor is the control: exactly one of the pair fails.
+      (is (= {:write-failed 1 :wrote-all 1} (frequencies @outcomes)))
+      (finally
         (.countDown release)
-        (rf.test-support/poll-until #(= 2 (count @outcomes))
-                                    {:timeout-ms 5000 :interval-ms 10
-                                     :label "server-side outcomes"})
-        (is (= {:write-failed 1 :wrote-all 1} (frequencies @outcomes))
-            "exactly one exchange was torn down — the SUPERSEDED one — while the
-             live successor drained in full")
-        (finally
-          (.countDown release)
-          (stop-server! srv))))))
+        (stop-server! srv)))))
