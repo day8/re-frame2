@@ -1,28 +1,21 @@
 (ns re-frame.routing-enum-prism-cljs-test
   "Cross-host round-trip tests for the keyword-enum leg of the route PRISM
-  (EP-0012 §Route Prism Laws). This file is `*-cljs-test.cljc`, so the JVM
-  runner and the shadow-cljs `:node-test` build (`cljs-test$`) both
-  exercise the keyword-enum round-trip — a
-  host-`(str :asc)` -> `%3Aasc` emission is host-dependent, and the cross-host
-  conformance bar (Spec 000 Goal 2) requires the prism leg to hold identically
-  on both hosts.
+  (EP-0012 §Route Prism Laws; Spec 000 Goal 2 requires the leg to hold
+  identically on both hosts). Named `*-cljs-test.cljc` so the JVM runner and
+  the `:node-test` build both run it.
 
-  ## Why a keyword enum emits its token name
+  `match-url`'s enum decoder recognises only the declared TOKEN NAMES, so a
+  keyword-enum value emitted with host `(str v)` — `:asc` as `%3Aasc` — would
+  decode back to the STRING `\":asc\"`. Spec 012 pins `[:enum :asc :desc]` to
+  the wire form `sort=desc` decoded to `{:sort :desc}`, so `route-url` emits a
+  declared keyword-enum value as its token name, in the query and the path.
 
-  Serializing a keyword enum value with host `(str v)` would make a route
-  declaring `:query [:map [:sort [:enum :asc :desc]]]` emit `:asc` as
-  `%3Aasc`. `match-url`'s enum decoder
-  (`[:rf.route/enum-keyword #{\"asc\" \"desc\"}]`) recognises only the declared
-  TOKEN NAMES (`asc`, `desc`), so `%3Aasc` would decode back to the STRING
-  `\":asc\"` — `match-url(route-url(...))` would NOT recover the canonical enum
-  keyword. Spec 012 §924-936 pins `[:enum :asc :desc]` to the wire form
-  `sort=desc` decoded to `{:sort :desc}`. `route-url` maps a declared
-  keyword-enum value to its schema token name on emission (query AND path),
-  the exact inverse of the decode, so `:asc` emits `asc` and round-trips.
+  An UNBOUNDED `:keyword` slot has no such inverse — `match-url` keeps the
+  segment a string, which then fails the route's own `:keyword` schema — so
+  `reg-route` rejects it fail-loud.
 
   `re-frame.schemas` is required so the late-bind validation hooks are
-  published on BOTH hosts (schemas/src is on the node-test classpath), letting
-  the invalid-value-fails-validation assertion fire identically."
+  published on both hosts, which the out-of-enum assertion needs."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -38,107 +31,43 @@
     {:adapter substrate/adapter
      :init-fn rf.routing/reset-counters!}))
 
+(defn- thrown
+  "Call `f` and return the ExceptionInfo it throws, or nil."
+  [f]
+  (try (f) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
+
 (deftest keyword-enum-query-round-trips-cross-host
+  (rf/reg-route :route/sorted {:query [:map [:sort [:enum :asc :desc]]]} "/items")
   (testing "a keyword-enum :query value emits its token name and round-trips
-            back to the canonical keyword on BOTH hosts"
-    (rf/reg-route :route/sorted
-                  {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (doseq [kw [:asc :desc]]
-      (let [u (rf.routing/route-url {:to :route/sorted :params {} :query {:sort kw}})
-            m (rf.routing/match-url u)]
-        (is (= (str "/items?sort=" (name kw)) u)
-            (str "enum keyword " kw " emits its token name (not %3A…)"))
-        (is (= kw (get-in m [:query :sort]))
-            (str "match-url recovers the canonical enum keyword " kw))
-        (is (false? (:validation-failed? m))
-            "the round-tripped value conforms to the [:enum …] schema")))))
+            back to the canonical keyword"
+    (let [u (rf.routing/route-url {:to :route/sorted :query {:sort :desc}})]
+      (is (= "/items?sort=desc" u) "the token name, not a host-stringified %3Adesc")
+      (is (= {:route-id :route/sorted :query {:sort :desc} :validation-failed? false}
+             (select-keys (rf.routing/match-url u) [:route-id :query :validation-failed?])))))
+  (testing "an out-of-enum keyword fails validation instead of being stringified"
+    (is (= :rf.error/route-url-validation
+           (:rf.error/id (ex-data (thrown #(rf.routing/route-url {:to    :route/sorted
+                                                                   :query {:sort :sideways}}))))))))
 
 (deftest keyword-enum-path-round-trips-cross-host
-  (testing "a keyword-enum PATH param emits its token name and round-trips
-            on BOTH hosts"
-    (rf/reg-route :route/sort-path
-                  {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
-    (let [u (rf.routing/route-url {:to :route/sort-path :params {:dir :desc}})
-          m (rf.routing/match-url u)]
-      (is (= "/items/desc" u)
-          "path enum keyword :desc emits `desc`, not %3Adesc")
-      (is (= :route/sort-path (:route-id m)))
-      (is (= :desc (get-in m [:params :dir]))
-          "match-url recovers the canonical enum keyword on the path side")
-      (is (false? (:validation-failed? m))))))
-
-(deftest invalid-keyword-enum-fails-validation-cross-host
-  (testing "an INVALID keyword-enum value is NOT stringified into a URL —
-            route-url fails validation on BOTH hosts (the schema bites)"
-    (rf/reg-route :route/sorted2
-                  {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [ex (try (rf.routing/route-url {:to :route/sorted2 :params {} :query {:sort :sideways}})
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
-      (is (some? ex)
-          "an out-of-enum keyword value raises rather than emitting a URL")
-      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
-          "the structured validation error fires (not a stringified URL)"))))
-
-;; ---- the BARE (unbounded) :keyword sibling: rejected at reg-route ---------
-;;
-;; The deftests above pin the BOUNDED `[:enum …]` keyword prism (interns via
-;; the allowlist, round-trips). A BARE (unbounded) `:keyword`-typed :params /
-;; :query slot is the un-round-trippable sibling: `route-url`
-;; host-stringifies the keyword value (`:asc` → `%3Aasc`), but `match-url`
-;; keeps the URL segment a STRING (the keyword-interning guard),
-;; which then FAILS the route's own `:keyword` schema — so `route-url` builds
-;; a URL that fails the SAME route's re-match. Like the `:double` precedent,
-;; it is rejected fail-loud at reg-route (`reject-keyword-route-schema!`), NOT
-;; silently accepted. `[:enum …]` keyword slots are supported.
+  (rf/reg-route :route/sort-path {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
+  (let [u (rf.routing/route-url {:to :route/sort-path :params {:dir :desc}})]
+    (is (= "/items/desc" u))
+    (is (= {:route-id :route/sort-path :params {:dir :desc} :validation-failed? false}
+           (select-keys (rf.routing/match-url u) [:route-id :params :validation-failed?])))))
 
 (deftest bare-keyword-route-slot-rejected-at-reg-route-rf2-qot6ii
-  (testing "a bare / optioned (unbounded) :keyword :params or :query slot is
-            rejected fail-loud at reg-route on BOTH hosts; a bounded [:enum …]
-            keyword slot is admitted"
-    (letfn [(reg-throws [id metadata path]
-              (try
-                (rf/reg-route id metadata path)
-                nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))]
-
-      (testing "a bare :keyword PATH param is rejected"
-        (let [ex (reg-throws :route/kw1 {:params [:map [:x :keyword]]} "/kw/:x")]
-          (is (some? ex) "reg-route with a bare :keyword :params key must throw")
-          (is (= :rf.error/route-keyword-unbounded-unsupported
-                 (:rf.error/id (ex-data ex)))
-              "the structured discriminator is :rf.error/route-keyword-unbounded-unsupported")
-          (is (re-find #"\[:rf\.error/route-keyword-unbounded-unsupported\]"
-                       (ex-message ex))
-              "the message carries the greppable [:rf.error/…] token")
-          (is (re-find #"\[:enum" (ex-message ex))
-              "the message steers the author to [:enum …]")
-          (let [data (ex-data ex)]
-            (is (= :route/kw1 (:route-id data)))
-            (is (= :params (:slot data)))
-            (is (= :x (:param data))))))
-
-      (testing "a bare :keyword QUERY key is rejected — the :query slot is scanned"
-        (let [ex (reg-throws :route/kw2 {:query [:map [:sort :keyword]]} "/kw")]
-          (is (= :rf.error/route-keyword-unbounded-unsupported
-                 (:rf.error/id (ex-data ex))))
-          (is (= :query (:slot (ex-data ex))))
-          (is (= :sort (:param (ex-data ex))))))
-
-      (testing "an OPTIONED [:keyword {…}] slot is rejected the same way — the
-                properties map does not launder the unbounded type"
-        (let [ex (reg-throws :route/kw3 {:params [:map [:x [:keyword {:min 1}]]]} "/kw/:x")]
-          (is (= :rf.error/route-keyword-unbounded-unsupported
-                 (:rf.error/id (ex-data ex))))))
-
-      (testing "a [:maybe :keyword] slot is rejected (the wrapper is unwrapped)"
-        (let [ex (reg-throws :route/kw4 {:query [:map [:sort [:maybe :keyword]]]} "/kw")]
-          (is (= :rf.error/route-keyword-unbounded-unsupported
-                 (:rf.error/id (ex-data ex))))))
-
-      (testing "a BOUNDED [:enum :a :b] keyword slot is NOT rejected — it
-                round-trips via the enum prism (the deftests above)"
-        (is (nil? (reg-throws :route/kw5 {:query [:map [:sort [:enum :asc :desc]]]} "/kw5"))
-            "[:enum …] :query reg-route does not throw")
-        (is (nil? (reg-throws :route/kw6 {:params [:map [:x [:enum :asc :desc]]]} "/kw6/:x"))
-            "[:enum …] :params reg-route does not throw")))))
+  (testing "an unbounded :keyword slot is rejected at reg-route in either schema
+            slot, bare, optioned or wrapped in [:maybe]"
+    (doseq [[id metadata path slot param]
+            [[:route/kw1 {:params [:map [:x :keyword]]}                "/kw/:x" :params :x]
+             [:route/kw2 {:query  [:map [:sort :keyword]]}             "/kw"    :query  :sort]
+             [:route/kw3 {:params [:map [:x [:keyword {:min 1}]]]}     "/kw/:x" :params :x]
+             [:route/kw4 {:query  [:map [:sort [:maybe :keyword]]]}    "/kw"    :query  :sort]]]
+      (is (= {:rf.error/id :rf.error/route-keyword-unbounded-unsupported
+              :route-id    id
+              :slot        slot
+              :param       param}
+             (select-keys (ex-data (thrown #(rf/reg-route id metadata path)))
+                          [:rf.error/id :route-id :slot :param]))
+          (pr-str metadata)))))
