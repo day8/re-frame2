@@ -1,31 +1,12 @@
 (ns re-frame.adapter.reagent-slim-source-coord-dom-cljs-test
-  "reagent-slim parity for the source-coord stamping contract (mirrors
-  `re-frame.source-coord-dom-cljs-test` for the Reagent bridge).
-
-  Per Spec 006 §Source-coord annotation: when `interop/debug-enabled?`
-  is true, a registered view's rendered root DOM element MUST carry
-  `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"`. The stamping is
-  driven through `re-frame.views` under the *installed* adapter — so this
-  file installs the slim adapter via the reset-runtime fixture and proves
-  slim participates in the same stamping contract the bridge does. slim
-  is positioned as a drop-in Reagent replacement, so the cross-substrate
-  matrix needs stamping coverage under slim as well.
-
-  Coverage mirrors the bridge's shape where it applies to slim:
-
-    - User-supplied data-rf2-source-coord wins (don't overwrite).
-    - React Fragment root (`:<>`): root is exempt; no attribute injected.
-    - Programmatic reg-view* without source-coords: degrades to
-      `<ns>:<sym>:?:?`.
-
-  A DOM-keyword root with or without an attrs map, and the inner render of
-  a Form-2 render-fn, get both attributes from the same splice;
-  `re-frame.adapter.reagent-slim-view-id-attr-cljs-test` pins those cases
-  for both of them. The `<ns>:<sym>:<line>:<col>` value comes from the
-  `reg-view` macro and the shared formatter, which the Reagent bridge's
-  `annotates-dom-root-without-attrs` pins.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Under the slim adapter, a registered view's DOM root carries
+  `data-rf2-source-coord` in debug builds (Spec 006 §Source-coord
+  annotation): never over a user-supplied value, never on a Fragment root,
+  and as `<ns>:<sym>:?:?` for a programmatic `reg-view*`. The Reagent twin is
+  `re-frame.source-coord-dom-cljs-test`; the splice onto DOM-keyword and
+  Form-2 roots is pinned in
+  `re-frame.adapter.reagent-slim-view-id-attr-cljs-test`, and the formatted
+  value by the Reagent bridge's `annotates-dom-root-without-attrs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -67,10 +48,10 @@
       [:<> [:p "a"] [:p "b"]])
     (let [render (rf/view :rf.slim-src-coord/fragment)
           out    (render)]
-      (is (= :<> (first out)) "fragment marker preserved")
-      (is (not (and (map? (second out))
-                    (contains? (second out) :data-rf2-source-coord)))
-          "no :data-rf2-source-coord on fragment root"))))
+      (is (= [:<> false]
+             [(first out) (boolean (and (map? (second out))
+                                        (contains? (second out) :data-rf2-source-coord)))])
+          "the fragment root is kept, with no :data-rf2-source-coord"))))
 
 ;; ---- programmatic registration without macro source-coords ---------------
 
@@ -82,6 +63,5 @@
     (let [render (rf/view :rf.slim-src-coord/programmatic)
           out    (render)
           attr   (root-attr out)]
-      (is (string? attr))
       (is (= "rf.slim-src-coord:programmatic:?:?" attr)
           "format degrades to <ns>:<sym>:?:? when coords are absent"))))
