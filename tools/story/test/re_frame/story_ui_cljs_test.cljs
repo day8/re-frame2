@@ -1,19 +1,8 @@
 (ns re-frame.story-ui-cljs-test
-  "CLJS smoke tests for the re-frame2-story shell.
-
-  The UI shell is Reagent-rendered, so the bulk of coverage is shape
-  rather than visual — we exercise:
-
-  - The shell-state transitions and the pure grouping / tag-collection
-    helpers.
-  - Argtype resolution + the controls widget tree.
-  - The workspace layout renderers (`:tabs`, `:grid`, `:variants-grid`)
-    and their cell keys.
-  - The public mount/unmount surface on `re-frame.story`.
-
-  The visual / interaction shape (clicking a variant row triggers a
-  re-render) lives in the browser-test target; this ns is the smoke
-  layer."
+  "CLJS tests for the re-frame2-story shell's render shape: the command
+  palette, argtype resolution and the controls widget tree, the workspace
+  layout renderers and their React keys, the trace-buffer privacy scrub, and
+  the test-mode pane. Interaction lives in the browser-test target."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
@@ -108,45 +97,29 @@
       (is (= :boolean (:widget (get t :flag)))))))
 
 (deftest argtype-control-to-widget-translation
-  (testing "rf.story.ui.controls/normalize-argtype-spec translates :control → :widget"
-    (is (= {:widget :text}     (rf.story.ui.controls/normalize-argtype-spec {:control :text})))
-    (is (= {:widget :textarea} (rf.story.ui.controls/normalize-argtype-spec {:control :textarea})))
-    (is (= {:widget :select :options [:a :b]}
-           (rf.story.ui.controls/normalize-argtype-spec {:control :select :options [:a :b]}))))
-  (testing "normalize-argtype-spec is idempotent on :widget-keyed specs"
-    (is (= {:widget :date} (rf.story.ui.controls/normalize-argtype-spec {:widget :date}))))
-  (testing "non-map specs round-trip"
-    (is (= "doc" (rf.story.ui.controls/normalize-argtype-spec "doc")))
-    (is (nil?    (rf.story.ui.controls/normalize-argtype-spec nil))))
-  (testing "resolve-argtypes honours the spec-canonical :control key"
-    ;; Per /spec/007-Stories.md §argtypes — author writes :control;
-    ;; renderer dispatches on :widget. Without the translation this
-    ;; would fall through to the 'unsupported widget' span.
+  (testing "normalize-argtype-spec translates the spec-canonical :control to
+            the renderer's :widget, is idempotent on :widget specs, and passes
+            non-map specs through"
+    (is (= [{:widget :text} {:widget :textarea} {:widget :select :options [:a :b]}
+            {:widget :date} "doc" nil]
+           (map rf.story.ui.controls/normalize-argtype-spec
+                [{:control :text} {:control :textarea} {:control :select :options [:a :b]}
+                 {:widget :date} "doc" nil]))))
+  (testing "resolve-argtypes honours :control (spec/007 §argtypes), stripping it
+            after translation"
     (rf.story/reg-variant :story.argtypes/ctrl
       {:args     {:placeholder "ok" :flavor :primary}
        :argtypes {:placeholder {:control :textarea}
                   :flavor      {:control :select :options [:primary :secondary]}}
        :setup   []})
     (let [t (rf.story.ui.controls/resolve-argtypes :story.argtypes/ctrl)]
-      (is (= :textarea (:widget (get t :placeholder))))
-      (is (= :select   (:widget (get t :flavor))))
-      (is (= [:primary :secondary] (:options (get t :flavor))))
-      (is (not (contains? (get t :placeholder) :control))
-          ":control key is stripped after translation"))))
+      (is (= [:textarea :select [:primary :secondary] false]
+             [(:widget (get t :placeholder)) (:widget (get t :flavor))
+              (:options (get t :flavor)) (contains? (get t :placeholder) :control)])))))
 
-;; ---- workspace: variant cell renders the variant view -------------------
-;;
-;; A workspace `variant-cell` must invoke the registered view in the
-;; variant's allocated frame. A cell that emitted only a label and a
-;; placeholder div would render every card of a workspace such as
-;; `:Workspace.counter/auto-grid` as an empty frame — title + stub, no
-;; counter UI inside. This test pins it: the
-;; workspace renderer for a `:grid` layout with one variant must emit
-;; hiccup that references the variant id, and the cell's body must wrap
-;; the registered `:component` in a `frame-provider` scoped to that
-;; variant id (so the rendered view's subscribe / dispatch scope to the
-;; per-variant frame, not `:rf/default`).
-
+;; A workspace cell invokes the registered view inside a frame-provider
+;; scoped to the variant id, so its subscribes and dispatches reach the
+;; variant's frame rather than :rf/default.
 (deftest workspace-view-emits-variant-cells-with-frame-providers
   (testing "workspace-view renders each variant cell with a
             frame-provider wrap scoped to the variant id"
@@ -186,31 +159,15 @@
                                (re-find #"not registered" %))
                          (tree-seq coll? seq tree)))))))
 
-;; ---- workspace cell keys are variant-id-derived -------------------------
-;;
-;; Position-only React keys (`(str "v-" i)`) would let React reconcile the
-;; prior workspace's `variant-cell` components in place when the user
-;; switches to a different `:variants-grid` workspace — same layout / same
-;; cell positions / same component type. The cell's `r/with-let`
-;; initialiser only runs once per mount, so the NEW variant's frame would
-;; never be allocated by `run-variant-with-shell-opts!`; subscribes
-;; against the un-allocated frame would return nil and `@nil` would throw
-;; `No protocol method IDeref.-deref defined for type null`.
-;;
-;; So cell keys derive from variant-id, and the workspace root carries
-;; a workspace-id key. Two distinct workspaces with overlapping cell
-;; positions therefore produce disjoint React keys and React unmounts
-;; the old cells / mounts fresh ones — `r/with-let` re-fires against
-;; the correct variant id.
+;; Cell React keys derive from the variant id, and the workspace root from the
+;; workspace id: with positional keys, switching between two workspaces of the
+;; same layout would reconcile the old cells in place, `r/with-let` would not
+;; re-fire, and the new variant's frame would never be allocated.
 
 (defn- collect-cell-keys
-  "Walk the rendered workspace tree and return the set of React keys
-  carried by variant-cell child vectors `[variant-cell-fn variant-id]`.
-  Reagent stores `^{:key ...}` metadata directly on the hiccup vector.
-
-  We match the shape `[fn namespaced-keyword]` — variant-cell is a
-  private fn-value (no Var in CLJS), so we match structurally rather
-  than by symbol. Variant ids are always namespaced keywords."
+  "The React keys on every `[variant-cell variant-id]` vector in `tree` —
+  matched structurally as `[fn namespaced-keyword]`, since variant-cell is a
+  private fn value."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -223,16 +180,12 @@
        (remove nil?)
        set))
 
-;; `find-tabs-renderer-call` (defined with the tabs helpers
-;; below) ALSO extracts the capped-grid renderer's `[fn cells]` call; the
-;; grid-key tests just below it use it, so forward-declare to avoid an
-;; undeclared-var warning (the helper body lives with its siblings).
+;; Defined with the tabs helpers below; the grid-key tests use it first.
 (declare find-tabs-renderer-call)
 
 (deftest workspace-grid-cells-key-on-variant-id-rf2-kgn0c
-  (testing ":grid layout cells use variant-id-derived React keys so
-            React mounts fresh cells when a workspace swap changes the
-            variant set"
+  (testing ":grid cells use variant-id-derived React keys, so two workspaces
+            with disjoint variant sets have disjoint cell keys"
     (rf.story/reg-variant :story.rf2-kgn0c.a/x {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c.a/y {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c.b/p {:setup []})
@@ -243,72 +196,40 @@
     (rf.story/reg-workspace :Workspace.rf2-kgn0c.b/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.b/p :story.rf2-kgn0c.b/q]})
-    ;; The `:grid` branch mounts the capped-grid
-    ;; renderer (`[capped-grid-renderer cells]`); extract + invoke its
-    ;; inner fn (same `[fn cells]` shape as tabs) to get the rendered
-    ;; cell tree, then walk for variant-id keys.
+    ;; `:grid` mounts `[capped-grid-renderer cells columns]`; invoke it to
+    ;; get the rendered cell tree.
     (let [render  (fn [ws-id]
                     (let [{renderer :fn cells :cells args :args}
                           (find-tabs-renderer-call (rf.story.ui.workspace/workspace-view ws-id))]
                       (apply renderer cells args)))
           keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c.a/grid))
           keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c.b/grid))]
-      (is (= 2 (count keys-a)) "workspace-a yields one key per cell")
-      (is (= 2 (count keys-b)) "workspace-b yields one key per cell")
+      (is (= [2 2] [(count keys-a) (count keys-b)]) "one key per cell")
       (is (empty? (set/intersection keys-a keys-b))
-          (str "two workspaces with disjoint variant sets MUST have "
-               "disjoint cell-key sets — overlap means React would "
-               "reconcile cells in place on workspace switch and the "
-               "new variant's frame would never be allocated. "
-               "keys-a=" (pr-str keys-a) " keys-b=" (pr-str keys-b)))
+          (str "keys-a=" (pr-str keys-a) " keys-b=" (pr-str keys-b)))
       (is (every? #(re-find #"rf2-kgn0c" %) keys-a)
-          (str "cell keys MUST embed the variant id so distinct "
-               "variants produce distinct keys; got " (pr-str keys-a))))))
+          (str "cell keys embed the variant id; got " (pr-str keys-a))))))
 
 (deftest workspace-root-section-keys-on-workspace-id-rf2-kgn0c
-  (testing "the workspace's root <section> carries a workspace-id-derived
-            React key so any swap unmounts the whole subtree as a
-            belt-and-braces guard alongside per-cell keys"
+  (testing "the workspace's root <section> carries a workspace-id-derived key,
+            so any swap unmounts the whole subtree"
     (rf.story/reg-variant :story.rf2-kgn0c-root/v {:setup []})
     (rf.story/reg-workspace :Workspace.rf2-kgn0c-root/g
       {:layout   :grid
        :variants [:story.rf2-kgn0c-root/v]})
-    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-kgn0c-root/g)
-          k    (:key (meta tree))]
-      (is (string? k))
-      (is (re-find #"rf2-kgn0c-root" k)
-          (str "workspace-root key MUST embed the workspace id; got "
-               (pr-str k))))))
+    (let [k (:key (meta (rf.story.ui.workspace/workspace-view :Workspace.rf2-kgn0c-root/g)))]
+      (is (and (string? k) (re-find #"rf2-kgn0c-root" k))
+          (str "workspace-root key embeds the workspace id; got " (pr-str k))))))
 
-;; ---- :tabs serialises rendering -----------------------------------------
-;;
-;; Rendering every `:tabs` variant cell simultaneously, as the grid does,
-;; would collapse the interior state of views that internally hardcode a
-;; frame-provider (a gallery-chrome view is the canonical example) — the
-;; last-seeded variant's app-db would bleed into every other cell.
-;;
-;; So a dedicated `tabs-renderer` mounts ONE cell at a time. A
-;; tab strip switches the active tab; only the active variant's
-;; `variant-cell` appears in the rendered tree. Per-variant state
-;; isolation is therefore intrinsic — distinct mounts share nothing.
-;;
-;; These tests pin the render shape without depending on Reagent
-;; lifecycle. The workspace-view returns a hiccup tree containing the
-;; tabs-renderer as a child component vector `[tabs-renderer cells]`;
-;; we extract the renderer fn from that vector and invoke it directly
-;; so we can walk the rendered output.
+;; `:tabs` mounts one cell at a time: rendering every cell at once, as the grid
+;; does, would let views that hardcode a frame-provider bleed the last-seeded
+;; app-db into every cell. The workspace-view tree holds the renderer as
+;; `[tabs-renderer cells]`; the tests invoke it directly and walk the output.
 
 (defn- find-tabs-renderer-call
-  "Walk `tree` for a hiccup vector of the shape `[fn cells-vec & args]`
-  where cells-vec is a non-empty vector of cell maps. Returns
-  `{:fn renderer :cells cells :args trailing-args}` or nil. The
-  workspace-view mounts `:tabs` as `[tabs-renderer cells]` AND `:grid` /
-  isolated `:variants-grid` as `[capped-grid-renderer cells columns]`
-  (with a trailing `:columns` arg) — both
-  share the `[fn cells …]` shape, so this helper extracts either
-  renderer's inner call regardless of trailing args. Callers invoke
-  `(apply renderer cells args)` (or `(renderer cells)` for the
-  no-trailing-arg tabs case) to get the rendered hiccup tree they walk."
+  "The first `[fn cells & args]` vector in `tree` whose cells are a non-empty
+  vector of cell maps, as `{:fn :cells :args}`. Both `[tabs-renderer cells]`
+  and `[capped-grid-renderer cells columns]` take this shape."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -325,8 +246,7 @@
                   :args  (vec (drop 2 %))}))))
 
 (defn- count-variant-cells-in
-  "Count `[variant-cell vid]` invocations in a hiccup tree —
-  `[fn namespaced-keyword]` vectors. Mirrors `collect-cell-keys`."
+  "How many `[variant-cell vid]` vectors `tree` holds."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -338,8 +258,7 @@
        count))
 
 (defn- tab-buttons-in
-  "Collect every tab-strip `:button` element from a hiccup tree.
-  Tab buttons carry `:role \"tab\"` on their props map."
+  "Every tab-strip `:button` (`:role \"tab\"`) in `tree`."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -350,9 +269,7 @@
        vec))
 
 (deftest tabs-renderer-mounts-only-the-selected-cell-rf2-ktnl8
-  (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
-            simultaneous-render bleed cannot occur because
-            non-active cells are not present in the rendered tree"
+  (testing "tabs-renderer mounts only the active tab's variant-cell"
     (rf.story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.only/c {:setup []})
@@ -363,14 +280,8 @@
                   :story.rf2-ktnl8.only/c]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
                                (rf.story.ui.workspace/workspace-view
-                                 :Workspace.rf2-ktnl8.only/t))
-          rendered            (fn cells)
-          n                   (count-variant-cells-in rendered)]
-      (is (= 1 n)
-          (str "exactly ONE variant-cell MUST appear in the tabs-"
-               "renderer's output (got " n "). Multiple cells means "
-               "the renderer is rendering all variants simultaneously, "
-               "so their state can bleed across cells.")))))
+                                 :Workspace.rf2-ktnl8.only/t))]
+      (is (= 1 (count-variant-cells-in (fn cells)))))))
 
 (deftest tabs-renderer-strip-has-one-switchable-tab-per-variant-rf2-ktnl8
   (testing "tabs-renderer renders a tab strip with one button per variant:
@@ -409,12 +320,8 @@
           "tab 1's on-click runs without error and selects its own index"))))
 
 (deftest tabs-renderer-isolates-non-active-variants-rf2-ktnl8
-  (testing "non-active variants MUST NOT appear in the rendered tree —
-            bleed-free isolation requires that non-selected variants
-            are absent, not merely hidden via CSS. (This is the load-
-            bearing assertion: the bleed happens when simultaneous
-            cells mount the SAME view in the SAME render tree; if only
-            ONE cell mounts at a time, the bleed cannot occur.)"
+  (testing "a non-active variant is absent from the rendered tree, not merely
+            hidden: only one cell mounts, so nothing can bleed"
     (rf.story/reg-variant :story.rf2-ktnl8.iso/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.iso/b {:setup []})
     (rf.story/reg-workspace :Workspace.rf2-ktnl8.iso/t
@@ -424,21 +331,9 @@
     (let [{:keys [fn cells]} (find-tabs-renderer-call
                                (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.iso/t))
-          rendered  (fn cells)
-          ;; Use a hash-set of namespaced keywords found anywhere in
-          ;; the tree. The active variant-cell is mounted as
-          ;; `[variant-cell :story.rf2-ktnl8.iso/a]`; its keyword
-          ;; therefore appears in the flattened tree. The non-active
-          ;; variant's keyword must NOT appear (no cell mounted).
-          kws       (->> (tree-seq coll? seq rendered)
-                         (filter keyword?)
-                         set)]
-      (is (contains? kws :story.rf2-ktnl8.iso/a)
-          "the default-active variant's id MUST appear in the tree")
-      (is (not (contains? kws :story.rf2-ktnl8.iso/b))
-          (str "the non-active variant's id MUST NOT appear — its "
-               "cell is not mounted. Found keywords: "
-               (pr-str (filter #(re-find #"rf2-ktnl8" (str %)) kws)))))))
+          kws (set (filter keyword? (tree-seq coll? seq (fn cells))))]
+      (is (= [true false]
+             [(contains? kws :story.rf2-ktnl8.iso/a) (contains? kws :story.rf2-ktnl8.iso/b)])))))
 
 ;; ---- :variants-grid :isolation :shared ----------------------------------
 
@@ -465,19 +360,12 @@
       (is (= ["1/3"] positions)
           "the navigator shows the first of three cells"))))
 
-;; ---- workspace :columns grid template -----------------------------------
-;;
-;; The workspace body's `:columns` slot pins the CSS grid's column count:
-;; the capped-grid renderer emits `repeat(N, minmax(0, 1fr))` when
-;; `:columns` is present and keeps the
-;; `repeat(auto-fit, minmax(280px, 1fr))` default when absent.
-;;
-;; These tests walk the rendered grid div's inline `grid-template-columns`
-;; style — the load-bearing render output an author observes.
+;; A workspace's `:columns` pins the grid to `repeat(N, minmax(0, 1fr))`;
+;; without it the grid keeps `repeat(auto-fit, minmax(280px, 1fr))`. The tests
+;; read the rendered grid div's inline style.
 
 (defn- grid-div-style
-  "Find the workspace grid container div in `tree` and return its inline
-  style map. The grid div carries `:data-test-grid-columns`."
+  "The inline style of the grid container div (`:data-test-grid-columns`) in `tree`."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -498,114 +386,63 @@
     (apply renderer cells args)))
 
 (deftest workspace-grid-without-columns-keeps-auto-fit-rf2-ugmrg
-  (testing ":grid without :columns keeps the responsive auto-fit default
-            (:columns is opt-in)"
-    (rf.story/reg-variant :story.ugmrg-auto/a {:setup []})
-    (rf.story/reg-variant :story.ugmrg-auto/b {:setup []})
-    (rf.story/reg-workspace :Workspace.ugmrg-auto/grid
-      {:layout   :grid
-       :variants [:story.ugmrg-auto/a
-                  :story.ugmrg-auto/b]})
-    (let [style (grid-div-style
-                  (render-grid-tree :Workspace.ugmrg-auto/grid))]
-      (is (= "repeat(auto-fit, minmax(280px, 1fr))"
-             (:grid-template-columns style))
-          (str "absent :columns MUST keep the auto-fit default; got "
-               (pr-str (:grid-template-columns style)))))))
+  (rf.story/reg-variant :story.ugmrg-auto/a {:setup []})
+  (rf.story/reg-variant :story.ugmrg-auto/b {:setup []})
+  (rf.story/reg-workspace :Workspace.ugmrg-auto/grid
+    {:layout   :grid
+     :variants [:story.ugmrg-auto/a
+                :story.ugmrg-auto/b]})
+  (is (= "repeat(auto-fit, minmax(280px, 1fr))"
+         (:grid-template-columns (grid-div-style (render-grid-tree :Workspace.ugmrg-auto/grid))))
+      ":columns is opt-in"))
 
 (deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
-  (testing "isolated :variants-grid honours :columns — the same capped-grid
-            branch `:grid` takes, so this row pins both layouts"
+  (testing "isolated :variants-grid honours :columns — the capped-grid branch
+            :grid takes too — and its :for anchor enumerates both variants"
     (rf.story/reg-variant :story.ugmrg-vg/a {:setup []})
     (rf.story/reg-variant :story.ugmrg-vg/b {:setup []})
     (rf.story/reg-workspace :Workspace.ugmrg-vg/all
       {:layout  :variants-grid
        :for     :story.ugmrg-vg
        :columns 2})
-    (let [tree  (render-grid-tree :Workspace.ugmrg-vg/all)
-          style (grid-div-style tree)]
-      (is (= "repeat(2, minmax(0, 1fr))"
-             (:grid-template-columns style))
-          ":columns 2 MUST pin a 2-column variants-grid template")
-      ;; also pins that :for drove the enumeration (2 variants rendered)
-      (is (= 2 (count-variant-cells-in tree))
-          ":for anchor MUST enumerate both variants"))))
+    (let [tree (render-grid-tree :Workspace.ugmrg-vg/all)]
+      (is (= ["repeat(2, minmax(0, 1fr))" 2]
+             [(:grid-template-columns (grid-div-style tree)) (count-variant-cells-in tree)])))))
 
-;; ---- workspace cells re-run on full run-key -----------------------------
-;;
-;; The workspace `variant-cell` keys its re-run trigger on the canvas's
-;; shared public `run-key` — the FULL tuple
-;; `{:variant-id :hot-reload-tick :active-modes :cell-overrides
-;;   :substrate}`, the same shape canvas's `run-if-needed!` uses. A cell
-;; that re-ran `run-variant-with-shell-opts!` ONLY when `:hot-reload-tick`
-;; advanced would, in `:variants-grid` / `:grid` workspaces, let a control
-;; edit write through to `:cell-overrides` without re-seeding the cell's
-;; frame, so the cell would keep rendering against its original
-;; `:setup`-seeded app-db; chrome-level `:active-modes` toggles and
-;; substrate flips would hit the same hazard. The test below pins both
-;; halves with one whole-value check: the key carries every watched slot,
-;; so each of those transitions flips it, AND it carries nothing else, so
-;; ordinary intra-cell renders (app-db updates that DON'T touch the
-;; run-key slice) skip the re-run and user interactions are not clobbered.
-
+;; A workspace cell re-runs its variant when the canvas's shared `run-key`
+;; changes. A key watching only :hot-reload-tick would let a control edit,
+;; mode toggle or substrate flip leave the cell rendering its original
+;; app-db; a key watching more would clobber ordinary intra-cell renders.
 (deftest run-key-is-exactly-the-five-re-run-slots-rf2-c56hr
-  (testing "rf.story.ui.canvas/run-key projects the variant id plus the
-            four shell slots a re-run watches, and nothing else: a change
-            to :cell-overrides, :active-modes, :substrate or
-            :hot-reload-tick flips the key (a :hot-reload-tick-only key
-            would miss the first three), while an unrelated slot leaves
-            it equal"
-    (let [vid   :story.rf2-c56hr/v
-          shell {:hot-reload-tick      1
-                 :active-modes         [:Mode.x/dark]
-                 :cell-overrides       {vid {:label "edited"}}
-                 :substrate            :uix
-                 :other-unrelated-slot "anything"}]
-      (is (= {:variant-id      vid
-              :hot-reload-tick 1
-              :active-modes    [:Mode.x/dark]
-              :cell-overrides  {:label "edited"}
-              :substrate       :uix}
-             (rf.story.ui.canvas/run-key shell vid))))))
+  (let [vid :story.rf2-c56hr/v]
+    (is (= {:variant-id      vid
+            :hot-reload-tick 1
+            :active-modes    [:Mode.x/dark]
+            :cell-overrides  {:label "edited"}
+            :substrate       :uix}
+           (rf.story.ui.canvas/run-key {:hot-reload-tick      1
+                                        :active-modes         [:Mode.x/dark]
+                                        :cell-overrides       {vid {:label "edited"}}
+                                        :substrate            :uix
+                                        :other-unrelated-slot "anything"}
+                                       vid)))))
 
-;; ---- controls repeater stable React keys --------------------------------
-;;
-;; `rf.story.ui.controls/repeater-widget` keys each row on a stable id,
-;; not positionally. With positional keys (`^{:key i}`) deleting a
-;; middle entry would shift every surviving row's key up by one — React
-;; would reuse the original DOM node at each position with the next
-;; entry's value, so an input that had focus / cursor at index i+1 would
-;; display index i's value with the SAME focus. For `:set`-kind
-;; repeaters `vector-coerce` re-sorts on every render, so that would
-;; fire on every keystroke.
-;;
-;; The shell-state carries a parallel
-;; `[id0 id1 ...]` vector at `[:rf.story/repeater-row-ids
-;; [variant-id path]]` synced in lockstep with the entries vector.
-;; `repeater-widget` keys each row on `(str "r:" id)`; add appends a
-;; fresh id, delete drops the id at position i. Surviving rows retain
-;; their original id → React reconciles them in place across a
-;; mid-list delete → focus + cursor are preserved.
-;;
-;; The namespacing-prefix discipline (`r:` for repeater, `t:` for tuple,
-;; `v:` for variant cells) is consistent across the Story UI's React
-;; keys.
+;; The controls repeater keys each row on a stable id from the shell state's
+;; `[:rf.story/repeater-row-ids [variant-id path]]` (`r:<id>`), not its
+;; position: with positional keys a mid-list delete would hand a surviving
+;; row's DOM node, focus and cursor to its neighbour, and a :set repeater
+;; re-sorts on every keystroke. Tuple rows key `t:<i>`, since their arity is
+;; fixed.
 
 (defn- expand-hiccup
-  "Materialize a Reagent hiccup form by invoking any vector whose head
-  is a fn — Reagent does this at render-time. The controls' top-level
-  `arg-widget` dispatches to a private fn (`repeater-widget`,
-  `tuple-widget`, etc.) by returning `[<fn> & args]`; tests need the
-  materialized hiccup to inspect the per-row `^{:key ...}` metadata
-  and the `:data-controls-row-key` slot we stamp alongside it."
+  "Materialize a hiccup form by invoking every vector whose head is a fn, as
+  Reagent does at render time, keeping each vector's `^{:key ...}` meta."
   [tree]
   (cond
     (vector? tree)
     (if (fn? (first tree))
       (let [expanded (apply (first tree) (rest tree))
             meta'    (meta tree)]
-        ;; Preserve the outer ^{:key ...} meta (Reagent threads it onto
-        ;; the materialized child).
         (with-meta (expand-hiccup expanded) (or (meta expanded) meta')))
       (with-meta (mapv expand-hiccup tree) (meta tree)))
 
@@ -616,11 +453,8 @@
     tree))
 
 (defn- collect-repeater-row-keys
-  "Materialize the controls hiccup tree and return the React-key vector
-  for every `:div` child marked `:data-controls-row-key`. Keys live in
-  `^{:key ...}` metadata on each row vector AND in the
-  `:data-controls-row-key` slot — we read the meta so we mirror what
-  React would actually observe."
+  "The React keys (from `^{:key ...}` meta, as React sees them) of every
+  `:data-controls-row-key` row div in the materialized `tree`."
   [tree]
   (->> (expand-hiccup tree)
        (tree-seq coll? seq)
@@ -652,134 +486,69 @@
           "row keys MUST be distinct across the row set"))))
 
 (deftest controls-repeater-mid-list-delete-preserves-surviving-keys-rf2-c8kfy
-  (testing "The regression pinned: after deleting the
-            middle row of a 4-row repeater, the surviving rows MUST
-            carry the SAME React keys they had pre-delete. Position
-            shifts by one — identity does not. React then reconciles
-            the surviving inputs in place and focus / cursor are
-            preserved (rather than leaking from row [i+1] onto row [i]
-            with the old DOM node)."
-    ;; Initial render against a 4-entry repeater.
+  (testing "after deleting the middle row of a 4-row repeater the survivors
+            keep their pre-delete React keys, so React reconciles them in place"
     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy/v [:items] ["a" "b" "c" "d"])
-    (let [tree-before (rf.story.ui.controls/arg-widget
-                        :story.c8kfy/v [:items]
-                        ["a" "b" "c" "d"]
-                        {:widget :repeater :kind :vector
-                         :element {:widget :text}})
-          keys-before (collect-repeater-row-keys tree-before)]
-      (is (= 4 (count keys-before)))
-      ;; Simulate the user clicking [-] on row index 1 (the second
-      ;; entry). The widget calls `remove-repeater-row-id` then
-      ;; updates the entries vector via `on-change-at-path`.
+    (let [render      #(collect-repeater-row-keys
+                         (rf.story.ui.controls/arg-widget
+                           :story.c8kfy/v [:items] %
+                           {:widget :repeater :kind :vector :element {:widget :text}}))
+          keys-before (render ["a" "b" "c" "d"])]
+      ;; The [-] on row 1: drop its id, then update the entries.
       (rf.story.ui.state/swap-state! rf.story.ui.state/remove-repeater-row-id
                          :story.c8kfy/v [:items] 1)
       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                          :story.c8kfy/v [:items] ["a" "c" "d"])
-      (let [tree-after (rf.story.ui.controls/arg-widget
-                        :story.c8kfy/v [:items]
-                        ["a" "c" "d"]
-                        {:widget :repeater :kind :vector
-                         :element {:widget :text}})
-            keys-after (collect-repeater-row-keys tree-after)]
-        (is (= 3 (count keys-after)))
-        ;; The CRITICAL invariant. Surviving rows keep their ids.
-        (is (= [(nth keys-before 0)
-                (nth keys-before 2)
-                (nth keys-before 3)]
-               keys-after)
-            (str "post-delete surviving row keys MUST match the "
-                 "pre-delete keys at positions 0, 2, 3 (the survivors). "
-                 "before=" (pr-str keys-before)
-                 " after="  (pr-str keys-after)))))))
+      (is (= 4 (count keys-before)))
+      (is (= [(nth keys-before 0) (nth keys-before 2) (nth keys-before 3)]
+             (render ["a" "c" "d"]))
+          (str "before=" (pr-str keys-before))))))
 
 (deftest controls-repeater-add-allocates-fresh-id-rf2-c8kfy
-  (testing "after appending an entry the new row carries a FRESH id
-            not seen on any pre-existing row — React mounts a fresh
-            DOM node rather than reusing a stale one"
+  (testing "an appended row carries a fresh key, so React mounts a fresh DOM node"
     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy.add/v [:items] ["a" "b"])
-    (let [tree-before (rf.story.ui.controls/arg-widget
-                        :story.c8kfy.add/v [:items]
-                        ["a" "b"]
-                        {:widget :repeater :kind :vector
-                         :element {:widget :text}})
-          keys-before (collect-repeater-row-keys tree-before)]
-      (is (= 2 (count keys-before)))
-      ;; Simulate [+]: append id + extend entries vector.
+    (let [render      #(collect-repeater-row-keys
+                         (rf.story.ui.controls/arg-widget
+                           :story.c8kfy.add/v [:items] %
+                           {:widget :repeater :kind :vector :element {:widget :text}}))
+          keys-before (render ["a" "b"])]
+      ;; The [+]: append an id, then extend the entries.
       (rf.story.ui.state/swap-state! rf.story.ui.state/append-repeater-row-id
                          :story.c8kfy.add/v [:items])
       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                          :story.c8kfy.add/v [:items] ["a" "b" ""])
-      (let [tree-after (rf.story.ui.controls/arg-widget
-                        :story.c8kfy.add/v [:items]
-                        ["a" "b" ""]
-                        {:widget :repeater :kind :vector
-                         :element {:widget :text}})
-            keys-after (collect-repeater-row-keys tree-after)]
-        (is (= 3 (count keys-after)))
-        (is (= (subvec keys-after 0 2) keys-before)
-            "the surviving prefix's keys are unchanged after append")
-        (is (not (contains? (set keys-before) (nth keys-after 2)))
-            (str "the new row's key MUST be fresh; before="
-                 (pr-str keys-before) " after=" (pr-str keys-after)))))))
+      (let [keys-after (render ["a" "b" ""])]
+        (is (= [2 3] [(count keys-before) (count keys-after)]))
+        (is (= keys-before (subvec keys-after 0 2)))
+        (is (not (contains? (set keys-before) (nth keys-after 2))))))))
 
 (deftest controls-repeater-set-edit-preserves-keys-rf2-c8kfy
-  (testing ":set-kind repeaters re-sort entries on every render via
-            `vector-coerce`, which would shuffle positional keys against
-            values on every keystroke. The row keys are
-            tied to the stored id vector — NOT to the visible sort
-            order — so the keys are stable across edits regardless of
-            re-sort."
-    ;; First render syncs 3 ids for a 3-element set.
-    (let [tree-1 (rf.story.ui.controls/arg-widget
-                   :story.c8kfy.set/v [:tags]
-                   #{"alpha" "beta" "gamma"}
-                   {:widget :repeater :kind :set
-                    :element {:widget :text}})
-          keys-1 (collect-repeater-row-keys tree-1)
-          ;; Second render against the same set — keys MUST match
-          ;; exactly (same count, same ids).
-          tree-2 (rf.story.ui.controls/arg-widget
-                   :story.c8kfy.set/v [:tags]
-                   #{"alpha" "beta" "gamma"}
-                   {:widget :repeater :kind :set
-                    :element {:widget :text}})
-          keys-2 (collect-repeater-row-keys tree-2)]
+  (testing "a :set repeater's keys follow the stored id vector, not the visible
+            sort order, so they are stable across re-renders"
+    (let [render #(collect-repeater-row-keys
+                    (rf.story.ui.controls/arg-widget
+                      :story.c8kfy.set/v [:tags]
+                      #{"alpha" "beta" "gamma"}
+                      {:widget :repeater :kind :set :element {:widget :text}}))
+          keys-1 (render)]
       (is (= 3 (count keys-1)))
-      (is (= keys-1 keys-2)
-          "set repeater keys MUST be stable across re-renders"))))
+      (is (= keys-1 (render))))))
 
 (deftest controls-tuple-rows-key-on-positional-prefix-rf2-c8kfy
-  (testing "tuple-widget rows key on `t:<i>` — tuple arity is fixed so
-            position IS stable identity; the namespacing-prefix is for
-            discipline-consistency with the repeater's and the other
-            Story UI React keys.
-            (Tuple positions don't reshuffle — the focus-leak class
-            doesn't fire — but uniform key shape across the file pins
-            the convention.)"
-    (let [tree (rf.story.ui.controls/arg-widget
-                 :story.c8kfy.tup/v [:pair]
-                 ["x" 42]
-                 {:widget :tuple :kind :tuple
-                  :positions [{:widget :text} {:widget :number}]})
-          keys (collect-repeater-row-keys tree)]
-      (is (= 2 (count keys)))
-      (is (= ["t:0" "t:1"] keys)
-          (str "tuple row keys MUST be `t:<i>`; got " (pr-str keys))))))
+  (is (= ["t:0" "t:1"]
+         (collect-repeater-row-keys
+           (rf.story.ui.controls/arg-widget
+             :story.c8kfy.tup/v [:pair]
+             ["x" 42]
+             {:widget :tuple :kind :tuple
+              :positions [{:widget :text} {:widget :number}]})))))
 
-;; ---- privacy: retroactive scrub on egress-profile narrowing
-;;
-;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015): narrowing
-;; the local-render egress profile from a sensitive-revealing boundary
-;; (`:rf.egress/local-raw`) back to the redacting default MUST clear every
-;; per-variant trace buffer. The Story trace listener only gates at
-;; ingest time, so without this scrub a sensitive cascade buffered
-;; while the raw profile was active would remain visible in every variant's
-;; downstream consumer of the per-variant buffer after the user expected privacy to be
-;; restored. The trade-off (non-sensitive history also lost) is the
-;; simplest correct semantic — see Spec 009 for the rationale.
-
+;; Spec 009 §Privacy §Retroactive-scrub: the trace listener gates only at
+;; ingest, so narrowing the egress profile from :rf.egress/local-raw back to
+;; redacting clears every per-variant trace buffer — or a sensitive cascade
+;; buffered under the raw profile would stay visible.
 (deftest narrowing-profile-clears-every-variant-buffer-rf2-lqmje
   (testing "reveal → redact narrowing clears every per-variant Story trace buffer"
     (let [v-a       :story.priv-scrub/a
@@ -797,26 +566,16 @@
                                            :rf.event/v           [:foo]}}
                         sensitive? (assoc :sensitive? true)))]
       (try
-        ;; Engineer opts into the trusted-local raw boundary to investigate.
+        ;; Under the raw profile the listener appends every event.
         (rf.story.config/set-egress-profile! :rf.egress/local-raw)
-        ;; Simulate the per-variant listener body: under the raw profile the
-        ;; listener appends every event (no suppression).
         (reset! buf-a [(mk-ev v-a true) (mk-ev v-a false)])
         (reset! buf-b [(mk-ev v-b true)])
-        (rf.story.config/note-suppressed! v-a) ; previously bumped before opt-in
-        (is (= 2 (count @buf-a)))
-        (is (= 1 (count @buf-b)))
-        (is (pos? (rf.story.config/suppressed-count v-a)))
-
-        ;; Engineer narrows the profile back expecting privacy restored.
+        (rf.story.config/note-suppressed! v-a)
+        (is (= [2 1 true] [(count @buf-a) (count @buf-b) (pos? (rf.story.config/suppressed-count v-a))])
+            "precondition")
         (rf.story.config/set-egress-profile! :rf.egress/local-redacted)
-
-        (is (= 0 (count @buf-a))
-            "variant A's buffer must be empty — sensitive payloads cannot survive the narrowing")
-        (is (= 0 (count @buf-b))
-            "variant B's buffer must be empty too — the clear is global")
-        (is (zero? (rf.story.config/suppressed-count v-a))
-            "per-variant suppressed counter drops in lockstep with the buffer")
+        (is (= [0 0 0] [(count @buf-a) (count @buf-b) (rf.story.config/suppressed-count v-a)])
+            "both buffers and the suppressed counter clear — the clear is global")
         (finally
           (rf.story.ui.trace-buffer/drop-buffer! v-a)
           (rf.story.ui.trace-buffer/drop-buffer! v-b)
@@ -843,9 +602,9 @@
 ;; ---- :test mode ---------------------------------------------------------
 
 (deftest test-view-empty-state-without-play
-  (testing "test-view renders the empty-state placeholder when the
-            variant body has no :script slot — the variant is registered
-            but declares zero assertions, so no run is fired."
+  (testing "test-view shows the empty-state placeholder for a variant with no
+            tests, the result sections for one with assertions, and nothing
+            without a variant"
     (rf.story/reg-variant :story.tv/no-play {:setup []})
     (rf.story/reg-variant :story.tv/with-assertions
       {:setup      []
@@ -854,12 +613,8 @@
           shows-empty-state? (fn [variant-id]
                                (boolean (some #(= [empty-state variant-id] %)
                                               (rf.story.ui.test-mode.view/test-view variant-id))))]
-      (is (shows-empty-state? :story.tv/no-play)
-          "the pane carries the empty-state placeholder")
-      (is (not (shows-empty-state? :story.tv/with-assertions))
-          "a variant with assertions gets the result sections instead"))
-    (is (nil? (rf.story.ui.test-mode.view/test-view nil))
-        "no variant-id = no pane")))
+      (is (= [true false] (map shows-empty-state? [:story.tv/no-play :story.tv/with-assertions]))))
+    (is (nil? (rf.story.ui.test-mode.view/test-view nil)))))
 
 (deftest format-helpers-take-their-cljs-arms
   (testing "format-elapsed-ms' one-second-plus branch and
@@ -871,10 +626,8 @@
                     (rf.story.ui.test-mode.pure/format-timestamp-ms (.getTime (js/Date.)))))))
 
 (deftest registry-snapshot-shape
-  (testing "registry-snapshot returns every Story kind"
-    (rf.story/reg-variant :story.r/v {:setup []})
-    (let [snap (rf.story.ui.state/registry-snapshot)]
-      (is (= #{:stories :variants :workspaces :modes :decorators
-               :story-panels :tags}
-             (set (keys snap))))
-      (is (contains? (:variants snap) :story.r/v)))))
+  (rf.story/reg-variant :story.r/v {:setup []})
+  (let [snap (rf.story.ui.state/registry-snapshot)]
+    (is (= #{:stories :variants :workspaces :modes :decorators :story-panels :tags}
+           (set (keys snap))))
+    (is (contains? (:variants snap) :story.r/v))))
