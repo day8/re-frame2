@@ -1,72 +1,31 @@
 (ns re-frame.late-bind-missing-test
-  "Assert the documented missing-artefact error contract for
-  the http artefact's `re-frame.core` re-exports.
+  "The documented missing-artefact error contract for the http artefact's
+  `re-frame.core` re-export (Spec 002 §The late-bind seam).
 
-  Each per-feature split (schemas / machines / routing / flows / http /
-  ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
-  ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. This test pins that runtime behaviour,
-  not just the prose.
-
-  Strategy: the http artefact IS on the classpath here (the test ns
-  requires `re-frame.http.managed`, which fires the late-bind hook
-  registrations at ns-load). To simulate the absent-artefact state we
-  flip the relevant late-bind hook to nil for the duration of the
-  assertion, then restore it in `finally`. Identical mechanism as the
-  test would use on CLJS.
-
-  Per Spec 002 §The late-bind seam and the
-  prose at the call sites in `re-frame.core`.
-
-  The stub family — `with-request-stubs` and the raw install/uninstall
-  pair — is NOT a `re-frame.core` façade export
-  and carries no hook / throw contract, so it is not exercised here.
-  `reg-http-interceptor` is the http artefact's re-export that does."
+  The http artefact IS on the classpath here (requiring `re-frame.http.managed`
+  publishes its late-bind hooks), so the absent state is simulated by setting
+  the hook to nil for the assertion and restoring it after. The stub family
+  (`with-request-stubs` and the install/uninstall pair) is not a
+  `re-frame.core` export and has no hook, so `reg-http-interceptor` is the
+  re-export that carries the contract."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Loading http-managed registers its production late-bind
-            ;; hooks (middleware, registry). The `with-hook-as-nil`
-            ;; helper below re-establishes the absent state by flipping
-            ;; the hook value at runtime; restoration in `finally` keeps
-            ;; cross-test isolation intact.
             [re-frame.http.managed]))
-
-(defn- with-hook-as-nil
-  "Run `f` with the named late-bind hook set to nil. Restores the
-  original value after `f` returns or throws."
-  [hook-key f]
-  (let [original (rf.late-bind/get-fn hook-key)]
-    (try
-      (rf.late-bind/set-fn! hook-key nil)
-      (f)
-      (finally
-        (rf.late-bind/set-fn! hook-key original)))))
-
-;; The stub family (`with-request-stubs` plus the raw install/uninstall pair)
-;; is not a `re-frame.core` façade export — it
-;; carries no late-bind hook and no missing-artefact throw contract; tests
-;; call all three directly on `re-frame.http.test-support`. The per-frame
-;; interceptor re-exports are what carry the contract.
 
 (deftest reg-http-interceptor-raises-when-http-artefact-missing
   (testing "rf/reg-http-interceptor raises :rf.error/http-artefact-missing when the :http/reg-http-interceptor hook is nil"
-    (with-hook-as-nil :http/reg-http-interceptor
-      (fn []
-        (let [thrown (try (rf/reg-http-interceptor ::probe {:before identity})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "reg-http-interceptor throws when the http artefact is absent")
-          ;; The message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/http-artefact-missing] token")
-          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/reg-http-interceptor (:where data))
-                "ex-data carries :where = 'rf/reg-http-interceptor")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
+    (let [original (rf.late-bind/get-fn :http/reg-http-interceptor)
+          thrown   (try
+                     (rf.late-bind/set-fn! :http/reg-http-interceptor nil)
+                     (rf/reg-http-interceptor ::probe {:before identity})
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e)
+                     (finally
+                       (rf.late-bind/set-fn! :http/reg-http-interceptor original)))]
+      (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
+          "the message carries the [:rf.error/http-artefact-missing] token")
+      (is (= {:rf.error/id :rf.error/http-artefact-missing
+              :where       'rf/reg-http-interceptor
+              :recovery    :no-recovery}
+             (select-keys (ex-data thrown) [:rf.error/id :where :recovery]))))))
