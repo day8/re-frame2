@@ -1,63 +1,17 @@
 (ns re-frame.resources-populate-exact-target-cljs-test
-  "Populate-as-authoritative-load + map-form exact targets (EP-0016 Riders
-  1 + 2 — Spec 016 §Populate is an authoritative load + §Map-form exact
-  resource targets).
-
-  The two riders:
-
-    R2 — the MAP-FORM exact target `{:resource :params :scope}` is the ONLY
-         public input form for `:populates` / `:patches` (the tuple is the
-         internal STORAGE key). The map's `:scope` may
-         be concrete, `:rf.scope/same` (the default), or a `{:from-db …}` named
-         resolver reference resolved against the settle-time app-db; a
-         nil-resolving reference is FAIL-CLOSED (the target is dropped, never
-         written under an implicit global).
-
-    R1 — a `:populates` is an AUTHORITATIVE load: the populated key becomes
-         `:loaded`/fresh with the resource's stored shape, and is EXEMPT from
-         the SAME mutation's invalidation refetch (even when an `:invalidates`
-         tag matches it) UNLESS a descriptor opts in with
-         `:refetch-populated? true`.
-
-  These JVM+CLJS unit tests pin their semantics:
-
-    1. a map-form populate writes the EXACT canonical scoped key
-       authoritatively (loaded/fresh, the resource's stored shape, its tags) —
-       pinned by the mutation suite's `success-populates-resource-entry`;
-    2. a map-form `:scope {:from-db …}` populate or patch target resolves
-       against the SETTLE-time app-db, so a session switch between execute and
-       settle writes under the new session's key (the session feed case);
-    3. a populated key is EXEMPT from the same mutation's invalidation refetch
-       by default — even when the invalidation tag matches it;
-    4. `:refetch-populated? true` re-enables the same-mutation refetch of the
-       populated key (the partial-reply case);
-    5. the populate-exempt composes with the invalidation descriptors AND the
-       `:reply-to` continuation (the continuation still fires);
-    6. a STALE / superseded settle does NOT populate (the mandatory
-       stale-suppression boundary);
-    7. a map-form `:patches` updates the exact key only;
-    8. a `{:from-db …}` populate target that resolves NIL is FAIL-CLOSED
-       (dropped, recorded in the settlement trace — never an implicit global);
-    9. when ONE success plan targets the SAME exact key through BOTH `:patches`
-       AND `:populates`, POPULATE wins — the fixed `patches → populates → removes
-       → invalidates` order applies the populate last (the RED-if-reversed
-       contract tooth);
-   10. a populate / patch landing while a read of the same key is IN FLIGHT
-       supersedes that read, so its late pre-write reply cannot revert the
-       write.
-
-  The transport is exercised end-to-end by overriding `:rf.http/managed` with a
-  capturing stub that synthesises the transport's reply-event-append shape."
+  "Populate is an authoritative load, and `:populates` / `:patches` take
+  map-form exact targets (Spec 016 §Populate is an authoritative load,
+  §Map-form exact resource targets). A `{:from-db …}` target scope resolves at
+  settle time and fails closed on nil; a populated key is exempt from the same
+  mutation's invalidation refetch unless a descriptor sets
+  `:refetch-populated? true`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* +
-   ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
-   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
@@ -67,13 +21,10 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport ---------------------------------------------------
-
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
   (rf.registrar/clear-kind! :resource-scope)
-  ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -92,12 +43,8 @@
        :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
-;; ---- helpers ---------------------------------------------------------------
-
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
-;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
 (defn- instance [instance-id]
   (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 
@@ -124,17 +71,21 @@
      :tags (fn [_p _] #{[:feed] [:article-list]})}
     (fn [_p _] {:request {:method :get :url "/feed"}})))
 
+(defn- populates-article [{:keys [slug]} result]
+  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
+
 (defn- own-loaded!
-  "Ensure + load an entry so it has an ACTIVE owner (so a subsequent
-  invalidation would REFETCH it). Resets `last-managed-args` after."
+  "Ensure and load an entry with an active owner, so an invalidation would refetch it."
   [payload]
   (rf/dispatch-sync [:rf.resource/ensure payload])
   (reply-success! @last-managed-args {:seed true})
   (reset! last-managed-args nil))
 
+(defn- own-loaded-article! []
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]}))
+
 (defn- succeeded-trace
-  "Run `body-fn`; return the LAST `:rf.mutation/succeeded` trace event's
-  top-level data map (its facets ride under `:tags`)."
+  "Run `body-fn`; return the last `:rf.mutation/succeeded` trace's `:tags`."
   [body-fn]
   (let [seen (atom [])
         k    ::succeeded-recorder]
@@ -143,22 +94,18 @@
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     (:tags (last @seen))))
 
-;; ===========================================================================
-;; 2. A {:from-db …} target :scope resolves against the settle-time app-db
-;; ===========================================================================
+(defn- execute-and-settle! [mutation-id instance-id result]
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:slug "w"} :instance instance-id}])
+  (reply-success! @last-managed-args result))
 
 (deftest map-form-from-db-targets-resolve-at-settle
-  ;; Validation 7/9: a map-form target whose :scope is a {:from-db …} resolver
-  ;; reference resolves the EXACT scoped key against db AT SETTLE TIME (Spec 016
-  ;; §Map-form exact resource targets — the single use-time rule). The mutation
-  ;; executes while "zed" is logged in and the session switches to "yan" before
-  ;; the captured reply settles, so both writes land under yan's session.
+  ;; The session switches between execute (zed) and settle (yan), so both
+  ;; writes land under yan's session.
   (reg-feed-resource!)
   (rf/reg-resource :r/profile
     {:scope {:from-db :t/session}
      :params-schema [:map]}
     (fn [_p _] {:request {:method :get :url "/profile"}}))
-  ;; a patch transforms existing data, so both sessions' profiles are loaded
   (doseq [u ["zed" "yan"]]
     (own-loaded! {:resource :r/profile :scope [:rf.scope/session {:username u}]
                   :params {} :owner [:v :profile u]}))
@@ -178,31 +125,17 @@
     (reply-success! reply-args {:articles [:x]}))
   (let [profile-key (fn [u] (rf.resources.state/scoped-resource-key
                               [:rf.scope/session {:username u}] :r/profile {}))]
-    (testing "the populate seeded the settle-time session's feed key (yan),
-              not the execute-time one (zed)"
-      (let [e (entry (session-feed-key "yan"))]
-        (is (= :loaded (:status e)))
-        (is (= {:articles [:x]} (:data e))))
-      (is (nil? (entry (session-feed-key "zed")))))
-    (testing "the patch updated yan's profile and left zed's untouched"
-      (is (= {:seed true :saved true} (:data (entry (profile-key "yan")))))
-      (is (= {:seed true} (:data (entry (profile-key "zed"))))))))
-
-;; ===========================================================================
-;; 3. A populated key is EXEMPT from the same mutation's invalidation refetch
-;; ===========================================================================
+    (is (= {:status :loaded :data {:articles [:x]}}
+           (select-keys (entry (session-feed-key "yan")) [:status :data])))
+    (is (nil? (entry (session-feed-key "zed"))))
+    (is (= [{:seed true :saved true} {:seed true}]
+           [(:data (entry (profile-key "yan"))) (:data (entry (profile-key "zed")))]))))
 
 (deftest populated-key-exempt-from-same-mutation-refetch
-  ;; Validation 11 (the core populate rule): a mutation that POPULATES an
-  ;; article-detail key and then INVALIDATES a tag that matches that same key
-  ;; must NOT immediately refetch the key it just learned from the reply (a
-  ;; populate is an authoritative load). The detail entry stays fresh; only the
-  ;; OTHER tagged entry (a list) refetches.
+  ;; The mutation populates the detail key, then invalidates a tag that matches
+  ;; it: the detail stays fresh, the other tagged entry refetches.
   (reg-article-resource!)
-  ;; the detail key has an ACTIVE owner — WITHOUT the exemption it would refetch
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]})
-  ;; a SEPARATE list entry (also :article-list tagged, but a different key) is
-  ;; owned too — it MUST refetch (the populate did not seed it).
+  (own-loaded-article!)
   (rf/reg-resource :r/article-list
     {:scope :rf.scope/global
      :params-schema [:map]
@@ -212,185 +145,68 @@
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; populate the detail key authoritatively from the reply…
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
-     ;; …then invalidate the broad article-list tag (which ALSO matches the
-     ;; just-populated detail key, since the article resource carries it).
+     :populates populates-article
      :invalidates (fn [_p _r] #{[:article-list]})}
     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-  (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})
-        trace    (succeeded-trace
-                   #(do (rf/dispatch-sync [:rf.mutation/execute
-                                           {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-                        (reply-success! @last-managed-args {:slug "w" :title "fav'd" :favorited true})))]
-    (testing "the POPULATED detail key stayed FRESH (loaded, the populated
-              value, NOT re-staled or refetched) — populate is authoritative"
-      (let [e (entry global-article-key)]
-        (is (= :loaded (:status e)))
-        (is (= {:slug "w" :title "fav'd" :favorited true} (:data e)))
-        (is (nil? (:invalidated-at e)) "the populated key was exempt — not re-staled")))
-    (testing "the OTHER :article-list-tagged key (NOT populated) DID refetch"
-      (let [e (entry list-key)]
-        (is (contains? #{:loading :fetching} (:status e)))))
-    (testing "the settlement trace records the populate-exempt key"
-      (is (= [global-article-key] (:populate-exempt (:invalidation trace)))
-          "the populated key is named as exempt from same-mutation refetch"))))
-
-;; ===========================================================================
-;; 4. :refetch-populated? true re-enables the same-mutation refetch
-;; ===========================================================================
+  (let [trace (succeeded-trace
+                #(execute-and-settle! :m/favorite :f1 {:slug "w" :title "fav'd" :favorited true}))
+        e     (entry global-article-key)]
+    (is (= {:status :loaded :data {:slug "w" :title "fav'd" :favorited true}}
+           (select-keys e [:status :data])))
+    (is (nil? (:invalidated-at e)))
+    (is (contains? #{:loading :fetching}
+                   (:status (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})))))
+    (is (= [global-article-key] (:populate-exempt (:invalidation trace))))))
 
 (deftest refetch-populated-opts-back-into-same-mutation-refetch
-  ;; Validation 11 (the opt-in half): when the reply is PARTIAL relative to the
-  ;; full GET, a descriptor sets :refetch-populated? true so the just-populated
-  ;; key IS refetched by this same mutation's invalidation pass.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]})
+  (own-loaded-article!)
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
-     ;; the descriptor opts the populated key BACK into the same-mutation refetch
+     :populates populates-article
      :invalidates (fn [{:keys [slug]} _r]
                     [{:scope :rf.scope/global :tags #{[:article slug]} :refetch-populated? true}])}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (let [trace (succeeded-trace
-                #(do (rf/dispatch-sync [:rf.mutation/execute
-                                        {:mutation :m/save :params {:slug "w"} :instance :rp1}])
-                     (reply-success! @last-managed-args {:slug "w" :title "partial"})))]
-    (testing ":refetch-populated? true — the populated key WAS refetched by this
-              same mutation's invalidation pass (a fresh GET lowered)"
-      (let [e (entry global-article-key)]
-        (is (contains? #{:loading :fetching} (:status e)))
-        (is (= {:method :get :url "/a/w"} (:request @last-managed-args)))))
-    (testing "the trace records an EMPTY populate-exempt set (the opt-in cleared it)"
-      (is (= [] (:populate-exempt (:invalidation trace)))))))
-
-;; ===========================================================================
-;; 4b. MIXED-descriptor populate-exempt evidence
-;; ===========================================================================
+  (execute-and-settle! :m/save :rp1 {:slug "w" :title "partial"})
+  (is (contains? #{:loading :fetching} (:status (entry global-article-key))))
+  (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))
 
 (deftest mixed-descriptor-populate-exempt-not-collapsed-by-one-opt-in
-  ;; A mixed plan where ONE descriptor opts into
-  ;; :refetch-populated? true and ANOTHER default descriptor matches the same
-  ;; populated key. The runtime exempts per descriptor (plan->fx), so the
-  ;; default descriptor's pass SPARES the populated key — the settlement
-  ;; evidence MUST reflect that, NOT collapse to [] just because one descriptor
-  ;; opted in. Both the per-descriptor :exempt-keys AND the top-level
-  ;; :populate-exempt union are pinned.
+  ;; Exemption is per descriptor: the default descriptor still spares the
+  ;; populated key, so the evidence must not collapse to [] because another
+  ;; descriptor opted in.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]})
+  (own-loaded-article!)
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
-     ;; descriptor 0 (opt-in, refetches the populated key) on [:article-list];
-     ;; descriptor 1 (DEFAULT, spares the populated key) on [:article w] — both
-     ;; tags match the populated detail key (the article resource carries both).
+     :populates populates-article
      :invalidates (fn [{:keys [slug]} _r]
                     [{:scope :rf.scope/global :tags #{[:article-list]} :refetch-populated? true}
                      {:scope :rf.scope/global :tags #{[:article slug]}}])}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (let [trace (succeeded-trace
-                #(do (rf/dispatch-sync [:rf.mutation/execute
-                                        {:mutation :m/save :params {:slug "w"} :instance :mx1}])
-                     (reply-success! @last-managed-args {:slug "w" :title "fresh"})))
-        inv   (:invalidation trace)
-        dispatched (:dispatched inv)]
-    (testing "two descriptors dispatched"
-      (is (= 2 (:descriptor-count inv)))
-      (is (= 2 (count dispatched))))
-    (testing "the OPT-IN descriptor spared NO key (its own :exempt-keys is empty)"
-      (let [opt-in (first (filter :refetch-populated? dispatched))]
-        (is (= [] (:exempt-keys opt-in)))))
-    (testing "the DEFAULT descriptor SPARED the populated key (its own :exempt-keys)"
-      (let [default (first (remove :refetch-populated? dispatched))]
-        (is (= [global-article-key] (:exempt-keys default)))))
-    (testing "the top-level :populate-exempt is the UNION — NOT collapsed to []
-              by the one opt-in descriptor"
-      (is (= [global-article-key] (:populate-exempt inv))))))
-
-;; ===========================================================================
-;; 5. Composes with invalidation descriptors AND the :reply-to continuation
-;; ===========================================================================
-
-(deftest populate-exempt-composes-with-descriptors-and-reply-to
-  ;; The populate-exempt pass composes with a per-descriptor scoped invalidation
-  ;; (the favorite/feed case) AND the :reply-to completion continuation: the
-  ;; populated detail stays fresh, the session feed is invalidated by a
-  ;; {:from-db} descriptor, and the continuation still fires after.
-  (let [replied (atom [])]
-    (reg-article-resource!)
-    (reg-feed-resource!)
-    (rf/reg-event :test/saved (fn [_ ev] (swap! replied conj ev) {}))
-    (rf/dispatch-sync [:t/login "jake"])
-    ;; jake's feed is ownerless (so a {:from-db} descriptor leaves it stale)
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
-                                            :params {} :owner [:v :feed]}])
-    (reply-success! @last-managed-args {:seed true})
-    (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope {:from-db :t/session}
-                                                   :params {} :owner [:v :feed]}])
-    ;; the detail key has an active owner (so WITHOUT the exemption it'd refetch)
-    (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]})
-    (rf/reg-mutation :m/favorite
-      {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :populates (fn [{:keys [slug]} result]
-                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
-       :invalidates (fn [{:keys [slug]} _r]
-                      [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
-                       {:scope {:from-db :t/session} :tags #{[:feed]}}])}
-      (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :c1
-                                             :reply-to [:test/saved]}])
-    (reply-success! @last-managed-args {:slug "w" :favorited true})
-    (testing "the populated detail key stayed fresh (exempt from the global
-              [:article …] descriptor that matches it)"
-      (let [e (entry global-article-key)]
-        (is (= :loaded (:status e)))
-        (is (nil? (:invalidated-at e)))))
-    (testing "the {:from-db} descriptor still invalidated jake's session feed"
-      (is (some? (:invalidated-at (entry (session-feed-key "jake"))))))
-    (testing "the :reply-to continuation fired exactly once, after the consequences"
-      (is (= 1 (count @replied)))
-      (is (= :ok (:status (second (first @replied))))))))
-
-;; ===========================================================================
-;; 6. A stale / superseded settle does NOT populate
-;; ===========================================================================
+  (let [inv (:invalidation (succeeded-trace #(execute-and-settle! :m/save :mx1 {:slug "w" :title "fresh"})))]
+    (is (= {true [] false [global-article-key]}
+           (into {} (map (juxt (comp boolean :refetch-populated?) :exempt-keys)) (:dispatched inv))))
+    (is (= [global-article-key] (:populate-exempt inv)))))
 
 (deftest stale-settle-does-not-populate
-  ;; The populate path is gated behind the live-instance acceptance — a
-  ;; superseded reply applies NO cache consequence, so it never seeds a key.
   (reg-article-resource!)
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+     :populates populates-article}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; execute, capture its reply args, then SUPERSEDE by re-executing under the
-  ;; same instance id (new generation / work-id) — the first reply is now stale.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
   (let [stale-args @last-managed-args]
-    (reset! last-managed-args nil)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
-    ;; deliver the STALE first reply — it must be suppressed, no populate
     (reply-success! stale-args {:slug "w" :title "stale"})
-    (testing "the superseded reply did NOT populate the key"
-      (is (nil? (entry global-article-key))))))
-
-;; ===========================================================================
-;; 8. A {:from-db …} populate target that resolves NIL is FAIL-CLOSED
-;; ===========================================================================
+    (is (nil? (entry global-article-key)))))
 
 (deftest from-db-populate-target-nil-fails-closed
-  ;; A map-form populate whose {:from-db …} :scope resolves NIL (no logged-in
-  ;; user) is DROPPED — no key is seeded under an implicit global, and the
-  ;; settlement trace names the unresolved resolver id.
+  ;; Not logged in, so {:from-db :t/session} resolves nil: the target is
+  ;; dropped, never seeded under an implicit global.
   (reg-feed-resource!)
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
@@ -398,94 +214,44 @@
      :populates (fn [_p result]
                   {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
     (fn [_p _] {:request {:method :put :url "/feed"}}))
-  ;; NOT logged in — the resolver's :inputs are absent, so {:from-db :t/session}
-  ;; resolves nil.
   (let [trace (succeeded-trace
                 #(do (rf/dispatch-sync [:rf.mutation/execute
                                         {:mutation :m/save-feed :params {} :instance :n1}])
                      (reply-success! @last-managed-args {:articles [:x]})))]
-    (testing "FAIL-CLOSED — NO session feed key was seeded under any scope"
-      (is (nil? (entry (session-feed-key "jake"))))
-      (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})))
-          "and never under an implicit global"))
-    (testing "the dropped target's resolver id is recorded as :target-unresolved"
-      (is (= [:t/session] (:target-unresolved (:patch-summary trace)))))))
-
-;; ===========================================================================
-;; 9. Same-key patch/populate OVERLAP — POPULATE wins
-;; ===========================================================================
+    (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {}))))
+    (is (= [:t/session] (:target-unresolved (:patch-summary trace))))))
 
 (deftest same-key-patch-populate-overlap-populate-wins
-  ;; The executable contract tooth for the fixed success-plan arm order
-  ;; (`mutation-events/success-handler`: apply-patches → apply-populates →
-  ;; apply-removes → invalidate). When ONE success plan targets the SAME exact
-  ;; canonical key through BOTH `:patches` AND `:populates`, the populate is
-  ;; applied LAST and therefore WINS — its authoritative seed OVERWRITES the
-  ;; patched value on the shared observable field. The source comment pins it:
-  ;; "populate wins on a key written by both (it ran last)".
-  ;;
-  ;; RED-IF-REVERSED: this test FAILS if apply-patches / apply-populates are
-  ;; swapped — with populate first, the patch would then transform the seeded
-  ;; populate value and PATCH would win (:winner would read "patch"). Tests #7
-  ;; and #1 exercise patch and populate INDEPENDENTLY; this one drives both arms
-  ;; against the same key in one plan.
+  ;; The success plan applies patches, then populates: a key written by both
+  ;; ends with the populate's seed, not a patch-transformed one.
   (reg-article-resource!)
   (rf/reg-mutation :m/patch-and-populate
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; PATCH the shared key's observable :winner field to "patch" (reads the
-     ;; existing :data — so a reversed order would let it transform the seeded
-     ;; populate value).
      :patches (fn [{:keys [slug]} _result]
                 {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                  (fn [old _r] (assoc old :winner "patch"))})
-     ;; POPULATE the SAME exact key authoritatively — a seed that REPLACES the
-     ;; entry's :data wholesale with {:slug … :winner "populate"}.
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                    (assoc result :winner "populate")})}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; seed real :data on the owned entry so the PATCH arm actually applies (a
-  ;; patch on a key with no data is a no-op — populate seeds, patch transforms).
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
   (reply-success! @last-managed-args {:slug "w" :title "seeded" :winner "seed"})
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/patch-and-populate :params {:slug "w"} :instance :ov1}])
-  (reply-success! @last-managed-args {:slug "w"})
-  (testing "POPULATE won the shared :winner field — the authoritative seed
-            replaced the patched value wholesale (populate ran last)"
-    (let [e (entry global-article-key)]
-      (is (= "populate" (:winner (:data e)))
-          "populate applied after patch, so it wins the overlapping field")
-      (is (= {:slug "w" :winner "populate"} (:data e))
-          "populate SEEDS authoritatively — its value is the whole :data, not a
-           patch-transformed one")
-      (is (= :loaded (:status e)))))
-  (testing "BOTH arms genuinely engaged the SAME key (proving a real overlap,
-            not a vacuous no-op patch)"
-    (let [ps (:patch-summary (instance :ov1))]
-      (is (= [global-article-key] (:patched ps))
-          "the patch arm applied to the shared key")
-      (is (= [global-article-key] (:populated ps))
-          "the populate arm applied to the SAME shared key"))))
+  (execute-and-settle! :m/patch-and-populate :ov1 {:slug "w"})
+  (is (= {:status :loaded :data {:slug "w" :winner "populate"}}
+         (select-keys (entry global-article-key) [:status :data])))
+  (is (= {:patched [global-article-key] :populated [global-article-key]}
+         (select-keys (:patch-summary (instance :ov1)) [:patched :populated]))
+      "both arms engaged the same key"))
 
-;; ===========================================================================
-;; 10. An authoritative write SUPERSEDES a read in flight
-;; ===========================================================================
-;;
-;; A `:populates` / `:patches` write that lands while a read of the same key is
-;; in flight settles the entry `:loaded` — so it must not leave that read owning
-;; the entry. Otherwise the read's reply (answered BEFORE the server committed
-;; the write) would still pass the work-id + generation gate and overwrite the
-;; written value, stamped fresh, and the user's write would appear to revert.
+;; ---- an authoritative write supersedes a read in flight ---------------------
+;; Otherwise the read's reply, answered before the server committed the write,
+;; would pass the generation gate and revert the written value.
 
 (defn- write-over-read-in-flight!
-  "Load the owned article as `v1`, force a refetch so a read is IN FLIGHT, then
-  execute `mutation-id` and settle its write (`v2`) while that read is pending.
-  Returns the read's transport args (to replay its late reply), its work id,
-  the entry status it left, and an atom of the aborts the settle requested."
+  "Load the article as v1, refetch so a read is in flight, then settle
+  `mutation-id`'s write (v2) while that read is pending."
   [mutation-id]
   (let [aborts (atom [])]
     (rf.fx/reg-fx :rf.http/managed-abort
@@ -495,45 +261,27 @@
     (reply-success! @last-managed-args {:slug "w" :title "v1"})
     (rf/dispatch-sync [:rf.resource/refetch {:resource :r/article :scope :rf.scope/global
                                              :params {:slug "w"}}])
-    (let [read-args (deref last-managed-args)
-          in-flight (entry global-article-key)]
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:slug "w"}
-                                               :instance :race1}])
-      (reply-success! @last-managed-args {:slug "w" :title "v2"})
-      {:read-args read-args
-       :read-work (:current-work in-flight)
-       :in-flight-status (:status in-flight)
-       :aborts aborts})))
+    (let [read-args @last-managed-args
+          in-flight (:status (entry global-article-key))]
+      (execute-and-settle! mutation-id :race1 {:slug "w" :title "v2"})
+      {:read-args read-args :in-flight-status in-flight :aborts aborts})))
 
-(defn- read-superseded-by-write?
-  [{:keys [read-args read-work in-flight-status aborts]}]
-  (testing "FIXTURE — a read was genuinely in flight when the write settled"
-    (is (= :fetching in-flight-status))
-    (is (some? read-work)))
-  (testing "the write leaves the entry coherent — :loaded with no read owning it"
-    (let [e (entry global-article-key)]
-      (is (= "v2" (:title (:data e))))
-      (is (= :loaded (:status e)))
-      (is (nil? (:current-work e)))))
-  (testing "the superseded read's row settles terminal and its request is aborted"
-    (let [row (rf.resources.work-ledger/get-record (runtime-db) read-work)]
-      (is (= :suppressed (:status row)))
-      (is (= :superseded (:reason (:outcome row)))))
-    (is (= 1 (count @aborts)) "one best-effort abort, for the superseded read"))
+(defn- read-superseded-by-write? [{:keys [read-args in-flight-status aborts]}]
+  (is (= :fetching in-flight-status) "precondition: a read was in flight")
+  (is (= ["v2" :loaded nil]
+         ((juxt (comp :title :data) :status :current-work) (entry global-article-key)))
+      "coherent: :loaded with no read owning the entry")
+  (is (= 1 (count @aborts)) "one best-effort abort, for the superseded read")
   (reply-success! read-args {:slug "w" :title "v1"})
-  (testing "the read's late pre-write reply is suppressed — the write does not revert"
-    (let [e (entry global-article-key)]
-      (is (= "v2" (:title (:data e))))
-      (is (= :loaded (:status e)))
-      (is (nil? (:invalidated-at e))))))
+  (let [e (entry global-article-key)]
+    (is (= ["v2" :loaded nil] [(:title (:data e)) (:status e) (:invalidated-at e)]))))
 
 (deftest populate-supersedes-a-read-in-flight
   (reg-article-resource!)
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+     :populates populates-article}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (read-superseded-by-write? (write-over-read-in-flight! :m/save)))
 
