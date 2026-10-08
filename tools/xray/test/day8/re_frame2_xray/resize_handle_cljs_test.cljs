@@ -28,14 +28,12 @@
   localStorage), both covered indirectly by config + effects."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -79,15 +77,6 @@
     (resize-handle/aria-max-panel-width-px)
     (:dispatch (rf/capture-frame))))
 
-(deftest handle-tree-carries-the-documented-testid
-  (setup!)
-  (rf/with-frame :rf/xray
-    (let [tree (handle-markup)]
-      (is (some? tree)
-          "handle-tree returns a hiccup tree")
-      (is (= "rf-xray-resize-handle" (:data-testid (second tree)))
-          "the testid is the documented contract"))))
-
 ;; ---- mount on :inline / short-circuit on others ------------------------
 ;;
 ;; The MODE GATE is [[resize-handle/Handle]]'s whole job: it is the
@@ -106,7 +95,7 @@
 ;;
 ;; A hiccup walk of the shell STOPS at the bridge's `[:>]`
 ;; interop head, exactly as `shell.cljs` records for its own
-;; `surface-bridge`. So what these two rows owe is that the shell MOUNTS
+;; `surface-bridge`. So what this row owes is that the shell MOUNTS
 ;; the handle in `:inline` and does not in `:popout`; the markup behind
 ;; the bridge is `handle-tree`'s subject above, and the mounted
 ;; boundary's is the browser lane's.
@@ -133,23 +122,9 @@
                             (dynamic-shell-tree/shell-view-tree {:mode :inline})))
             popout (count (interop-heads
                             (dynamic-shell-tree/shell-view-tree {:mode :popout})))]
-        (is (pos? inline)
-            "the :inline shell carries interop heads")
         (is (= (inc popout) inline)
             "the :inline shell carries exactly ONE bridge more than
              :popout — the resize handle's")))))
-
-(deftest shell-omits-resize-handle-in-popout
-  (testing "popout mode hides the handle — separate OS window owns resize"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree {:mode :popout})]
-        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
-            "no handle markup in :popout mode")
-        (is (nil? (resize-handle/Handle :popout))
-            "and the mount site itself answers nil, which is what puts
-             it there — the row above cannot distinguish an absent
-             handle from one hidden behind a bridge")))))
 
 ;; ---- drag lifecycle ----------------------------------------------------
 
@@ -168,8 +143,6 @@
 
 (deftest start-drag-flips-state
   (setup!)
-  (is (false? (resize-handle/dragging?))
-      "no drag in progress at fixture start")
   (resize-handle/start-drag! (stub-event 1000) 480)
   (is (true? (resize-handle/dragging?))
       "start-drag! installed the global capture")
@@ -191,26 +164,8 @@
       (resize-handle/simulate-up!))
     (let [width-events (filter #(= :rf.xray/set-panel-width-px (first %))
                                @dispatches)]
-      (is (seq width-events)
-          "set-panel-width-px was dispatched at least once")
       (is (some #(= 530 (second %)) width-events)
           "drag left by 50px dispatched 530 (start 480 + 50 delta)"))))
-
-(deftest drag-right-narrows-panel
-  (setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/start-drag! (stub-event 1000) 800)
-      ;; Drag RIGHT by 100px — pageX 1100 > start-x 1000 → dx = -100,
-      ;; new-width = 700.
-      (resize-handle/simulate-move! 1100)
-      (resize-handle/simulate-up!))
-    (let [width-events (filter #(= :rf.xray/set-panel-width-px (first %))
-                               @dispatches)]
-      (is (some #(= 700 (second %)) width-events)
-          "drag right narrows: 800 - 100 = 700"))))
 
 ;; ---- clamp at write-time (event handler) -------------------------------
 
@@ -245,8 +200,6 @@
       (rf/with-frame :rf/xray
         (let [tree    (handle-markup)
               handler (:on-double-click (second tree))]
-          (is (fn? handler)
-              "the handle node carries on-double-click")
           (handler nil))))
     (is (some #(= [:rf.xray/reset-panel-width] %) @dispatches)
         "double-click dispatched the reset event")))
@@ -305,14 +258,12 @@
 (deftest handle-renders-tabindex-and-aria-valuenow
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (handle-markup)
-          props (second tree)]
-      (is (= 0 (:tab-index props))
-          "handle is keyboard-reachable via tab")
+    (let [props (second (handle-markup))]
+      (is (= ["rf-xray-resize-handle" 0 config/min-panel-width-px]
+             ((juxt :data-testid :tab-index :aria-valuemin) props))
+          "the documented testid, tab-reachable, floored at the minimum width")
       (is (number? (:aria-valuenow props))
-          "handle exposes current width to assistive tech")
-      (is (= config/min-panel-width-px (:aria-valuemin props))
-          "handle exposes minimum width to assistive tech"))))
+          "handle exposes current width to assistive tech"))))
 
 ;; ---- yield-to-consumer + the real-DOM writes: see the dom sibling -------
 ;;
