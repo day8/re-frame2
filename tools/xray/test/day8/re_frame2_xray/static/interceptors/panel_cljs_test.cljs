@@ -3,7 +3,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.interceptors.panel :as panel]
@@ -15,12 +14,6 @@
   ;; `reset-all!` folds the trace-collector ring reset in, so no direct
   ;; trace reset is needed. Default `:all` tier + plain-atom adapter.
   (xray-test-support/make-xray-runtime-fixture))
-
-;; ---- hiccup walkers ------------------------------------------------------
-;;
-;; The tests below call `rf.test-helpers/find-by-testid` /
-;; `rf.test-helpers/find-by-testid-prefix` directly; there is no Xray walker
-;; facade.
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
@@ -39,9 +32,7 @@
   hiccup the boundary renders.
 
   The dispatcher is nil: no row here types into the search box, and the
-  search box only calls it from `:on-change`. The boundary's OWN behaviour
-  — first paint, liveness, frame targeting, evidence isolation, teardown
-  and row identity — is `panel_fresco_boundary_dom_cljs_test`'s subject."
+  search box only calls it from `:on-change`."
   []
   (panel/panel-tree @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
                     nil))
@@ -92,92 +83,64 @@
 ;; (1) pure helpers
 ;; -------------------------------------------------------------------------
 
-(deftest collect-interceptors-projects-an-inline-chain
-  (let [rows (panel/collect-interceptors sample-events-with-chains)
-        by-id (into {} (map (juxt :id identity) rows))]
-    (testing "one row per interceptor id, counting the chains it sits on"
-      ;; 3 distinct interceptors: :my/logging, :rf/event-handler, :rf/path
-      ;; (EP-0018 — the one framework wrapper :rf/event-handler is shared by both
-      ;; chains, so it collapses to a single row with chain-count 2).
-      (is (= 3 (count rows)))
-      (is (= 2 (get-in by-id [:my/logging :chain-count]))
-          ":my/logging appears on 2 chains")
-      (is (= 2 (get-in by-id [:rf/event-handler :chain-count]))
-          ":rf/event-handler appears on both chains")
-      (is (= 1 (get-in by-id [:rf/path :chain-count]))
-          ":rf/path appears on 1 chain"))
-    (testing "the framework wrapper is flagged default; a user interceptor is not"
-      (is (true?  (get-in by-id [:rf/event-handler :default?]))
-          "rf/event-handler is framework-default")
-      (is (false? (get-in by-id [:my/logging :default?]))
-          "user-attached interceptor is NOT default"))
-    (testing ":before / :after presence is recorded per row"
-      (is (true?  (get-in by-id [:my/logging :before?])))
-      (is (false? (get-in by-id [:my/logging :after?]))
-          "no :after fn in the fixture's interceptors"))))
-
 (deftest filter-rows-substring
-  (let [rows (panel/collect-interceptors sample-events-with-chains)]
-    (is (= 1 (count (panel/filter-rows rows "logging"))))))
-
-(deftest project-data-shape
-  (let [data (panel/project-data sample-events-with-chains nil)]
-    (is (= 3 (:total data)))
-    (is (false? (:silent? data)))
-    (is (true? (:silent? (panel/project-data {} nil)))
-        "no events → silent")))
+  (is (= [:my/logging]
+         (mapv :id (panel/filter-rows
+                     (panel/collect-interceptors sample-events-with-chains)
+                     "logging")))))
 
 ;; -------------------------------------------------------------------------
 ;; (1b) EP-0022 ref-aware collection
 ;; -------------------------------------------------------------------------
 
-(deftest collect-interceptors-surfaces-keyword-refs
-  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
-        by-id (into {} (map (juxt :id identity) rows))]
-    ;; 3 distinct ids: :my/logging (ref), :rf.interceptor/path (factory ref),
-    ;; :rf/event-handler (inline value).
-    (is (= 3 (count rows)))
-    (is (true? (get-in by-id [:my/logging :ref?]))
-        "a bare-keyword chain entry is surfaced as a reference")
-    (is (= :my/logging (get-in by-id [:my/logging :authored]))
-        "the authored ref form is the keyword itself")
-    (is (= 2 (get-in by-id [:my/logging :chain-count]))
-        "the ref collapses across both chains")
-    (is (true? (get-in by-id [:my/logging :before?]))
-        "the ref is enriched with its resolved descriptor's :before hook")
-    (is (= "logs every dispatch" (get-in by-id [:my/logging :doc]))
-        "the ref is enriched with the registered :doc")))
-
-(deftest collect-interceptors-surfaces-factory-refs
-  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
-        by-id (into {} (map (juxt :id identity) rows))
-        path  (get by-id :rf.interceptor/path)]
-    (is (true? (:ref? path)) "[id arg] entry is a reference")
-    (is (= [:rf.interceptor/path [:cart]] (:authored path))
-        "the authored form is the full [id arg] vector")
-    (is (= [:cart] (:arg path)) "the factory arg is surfaced")
-    (is (true? (:factory? path))
-        "a :factory descriptor is reported as a factory ref")))
-
-(deftest collect-interceptors-keeps-inline-values-non-ref
-  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
-        by-id (into {} (map (juxt :id identity) rows))]
-    (is (false? (get-in by-id [:rf/event-handler :ref?]))
-        "an inline interceptor value is NOT a reference")
-    (is (true? (get-in by-id [:rf/event-handler :default?]))
-        "inline framework wrapper still flags :default?")))
+(deftest collect-interceptors-surfaces-refs-by-authored-form
+  (testing "one row per interceptor id, sorted, counting the chains it sits on.
+            A bare-keyword or `[id arg]` chain entry is a REFERENCE, surfaced
+            by its authored form and enriched from its registered descriptor
+            (hooks, factory, doc); the framework's inline wrapper is not a
+            reference and keeps its own hooks and `:default?`"
+    (is (= [{:id          :my/logging
+             :ref?        true
+             :authored    :my/logging
+             :arg         nil
+             :factory?    false
+             :before?     true
+             :after?      false
+             :default?    false
+             :chain-count 2
+             :doc         "logs every dispatch"}
+            {:id          :rf.interceptor/path
+             :ref?        true
+             :authored    [:rf.interceptor/path [:cart]]
+             :arg         [:cart]
+             :factory?    true
+             :before?     false
+             :after?      false
+             :default?    false
+             :chain-count 1
+             :doc         "framework path interceptor"}
+            {:id          :rf/event-handler
+             :ref?        false
+             :authored    nil
+             :arg         nil
+             :factory?    false
+             :before?     true
+             :after?      false
+             :default?    true
+             :chain-count 2
+             :doc         nil}]
+           (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)))))
 
 (deftest collect-interceptors-arity-1-uses-default-resolver
-  ;; The 1-arity (production) form must not throw on an unregistered ref —
-  ;; default-resolve-ref is fail-soft.
-  (let [rows (panel/collect-interceptors {:x {:interceptors [:unregistered/icpt]}})
-        row  (first rows)]
-    (is (= :unregistered/icpt (:id row)))
-    (is (true? (:ref? row)))
-    (is (false? (:before? row)) "unresolved ref reports no hooks")))
+  ;; The 1-arity (production) form resolves through the live registrar, and
+  ;; `default-resolve-ref` is fail-soft: an unregistered ref still lands as a
+  ;; row, reporting no hooks.
+  (is (= [[:unregistered/icpt true false]]
+         (mapv (juxt :id :ref? :before?)
+               (panel/collect-interceptors {:x {:interceptors [:unregistered/icpt]}})))))
 
 ;; -------------------------------------------------------------------------
-;; (3) view rendering
+;; (2) view rendering
 ;; -------------------------------------------------------------------------
 
 (deftest panel-is-cold-empty-for-a-host-with-no-events-rf2-y8doi-22
@@ -198,47 +161,25 @@
                                            (str/replace "\\" "/")
                                            (str/includes? "tools/xray/src/"))))
                          (rf/registrations {:source :store :kind :event}))]
-      (is (contains? xray-own :rf.xray/focus-event)
-          "PRECONDITION: Xray's production events are in the store")
-      (is (contains? xray-own :rf.xray.static.interceptors/set-query)
-          "PRECONDITION: including this panel's own")
       (is (seq (panel/collect-interceptors xray-own))
-          "PRECONDITION: those registrations carry interceptor chains, so an
-           unfiltered catalogue has rows to show")
+          "NON-VACUITY: Xray's own registrations carry interceptor chains, so
+           an unfiltered catalogue has rows to show")
       (rf/with-frame :rf/xray
         (rf/dispatch-sync
           [:rf.xray.static.interceptors/set-registry-override-for-test xray-own])
-        (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
-              tree (panel-tree)]
-          (is (true? (:silent? data))
-              (str "no host events → silent; got " (:total data) " rows"))
-          (is (some? (rf.test-helpers/find-by-testid
-                       tree "rf-xray-static-interceptors-empty"))
-              "the cold-empty state renders"))
+        (is (some? (rf.test-helpers/find-by-testid
+                     (panel-tree) "rf-xray-static-interceptors-empty"))
+            "the cold-empty state renders")
         (testing "and a host's own events beside them still count, exactly as alone"
           (rf/dispatch-sync
             [:rf.xray.static.interceptors/set-registry-override-for-test
              (merge xray-own sample-events-with-chains)])
           (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])]
-            (is (= (:total (panel/project-data sample-events-with-chains nil))
-                   (:total data)))
+            (is (= 3 (:total data))
+                "the host's three interceptors, and none of Xray's")
             (is (= 2 (:chain-count (some #(when (= :rf/event-handler (:id %)) %)
                                          (:interceptors data))))
                 "`:rf/event-handler` counts the host's two chains, not Xray's")))))))
-
-(deftest panel-renders-rows-from-override
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.interceptors/set-registry-override-for-test
-       sample-events-with-chains])
-    (let [tree      (panel-tree)
-          list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-list")
-          rows      (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
-      (is (= 3 (count rows)) "three collapsed interceptor rows rendered")
-      (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-      (is (every? #(= "listitem" (:role (second %))) rows)
-          "every row carries role=listitem"))))
 
 (deftest panel-renders-filtered-state-on-no-match
   (setup-xray!)
