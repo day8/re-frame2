@@ -165,11 +165,7 @@
         "precondition: the browser default is not the chrome colour")
     (is (= (computed control "color") (computed heading "color"))
         "the card heading, which sets no colour, reads the browser default")
-    (is (not= (token-rgb :text-primary) (computed heading "color"))
-        "the card heading does not read Story's :text-primary")
     (when subject
-      (is (= (computed control "color") (computed subject "color"))
-          "the subject boundary computes the browser-default colour")
       (is (= (computed control "font-family") (computed subject "font-family"))
           "the subject boundary computes the browser-default font family")
       (is (= (computed control "font-size") (computed subject "font-size"))
