@@ -1,13 +1,8 @@
 (ns re-frame.story-assertions-cljs-test
-  "CLJS smoke tests for re-frame2-story's `:rf.assert/*` vocabulary +
-  play sequence + assertions-passing?.
-
-  The bulk of assertion coverage lives in the JVM test ns
-  (`re-frame.story-assertions-test`); this namespace covers the
-  CLJS-specific surface: that `run-variant` resolves under CLJS to a
-  result map with the `:assertions` slot populated, that
-  `assertions-passing?` works from CLJS callers, and the evaluator
-  branches no end-to-end case reaches."
+  "CLJS tests for Story's `:rf.assert/*` vocabulary: `run-variant` resolves
+  under CLJS with its `:assertions` recorded, `assertions-passing?` works
+  from CLJS callers, and the evaluator branches no end-to-end case reaches.
+  The bulk lives in the JVM `re-frame.story-assertions-test`."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -26,13 +21,9 @@
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
-  ;; Re-register the machines artefact's framework-shipped `:rf/machine`
-  ;; sub after the registrar clear. Machine snapshots are durable
-  ;; RUNTIME-DB state (EP-0001) at
-  ;; [:rf.runtime/machines :snapshots <id>], so the framework sub is a
-  ;; runtime-db sub (the db-position arg is the runtime-db value) — mirror
-  ;; `re-frame.machines` exactly. CLJS has no `require :reload` to re-fire
-  ;; the ns-load registration dropped by `rf.registrar/clear-all!`.
+  ;; CLJS has no `require :reload` to re-fire the machines artefact's
+  ;; registration of its runtime-db `:rf/machine` sub, which the registrar
+  ;; clear dropped, so mirror it here.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -43,28 +34,9 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- :rf.assert/path-equals --------------------------------------------
-
-(deftest cljs-path-equals-pass
-  (testing ":rf.assert/path-equals against an event-mutated app-db"
-    (rf/reg-event :test/set
-      (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "alice")}))
-    (rf.story/reg-variant :story.cljs.assert/pe
-      {:setup [[:test/set]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:user :name] "alice"]]]})
-    (async done
-      (-> (rf.story/run-variant :story.cljs.assert/pe)
-          (rf.story.async/then
-            (fn [r]
-              (is (= 1 (count (:assertions r))))
-              (is (true? (-> r :assertions first :passed?)))
-              (rf.story/destroy-variant! :story.cljs.assert/pe)
-              (done)))))))
-
-;; ---- assertions-passing? predicate --------------------------------------
-
 (deftest cljs-assertions-passing?-roundtrip
-  (testing "assertions-passing? returns true on all-pass, false on any-fail"
+  (testing "run-variant resolves with a passing path-equals record, and
+            assertions-passing? is true on all-pass and false on any-fail"
     (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf.story/reg-variant :story.cljs.passing/ok
       {:setup [[:test/n2]]
@@ -76,7 +48,8 @@
       (-> (rf.story/run-variant :story.cljs.passing/ok)
           (rf.story.async/then
             (fn [ok-r]
-              (is (true? (rf.story/assertions-passing? ok-r)))
+              (is (= [[true] true]
+                     [(mapv :passed? (:assertions ok-r)) (rf.story/assertions-passing? ok-r)]))
               (-> (rf.story/run-variant :story.cljs.passing/bad)
                   (rf.story.async/then
                     (fn [bad-r]
@@ -85,10 +58,8 @@
                       (rf.story/destroy-variant! :story.cljs.passing/bad)
                       (done))))))))))
 
-;; ---- record-don't-throw contract on CLJS --------------------------------
-
 (deftest cljs-record-not-throw
-  (testing "failing assertions never throw on CLJS; sequence runs to completion"
+  (testing "failing assertions never throw on CLJS; the sequence runs to completion"
     (rf.story/reg-variant :story.cljs.contract/v
       {:setup []
        :script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
@@ -97,26 +68,14 @@
       (-> (rf.story/run-variant :story.cljs.contract/v)
           (rf.story.async/then
             (fn [r]
-              (is (= 2 (count (:assertions r))))
-              (is (every? #(false? (:passed? %)) (:assertions r)))
-              (is (false? (rf.story/assertions-passing? r)))
+              (is (= [[false false] false]
+                     [(mapv :passed? (:assertions r)) (rf.story/assertions-passing? r)]))
               (rf.story/destroy-variant! :story.cljs.contract/v)
               (done)))))))
 
-;; ===========================================================================
-;; Internal assertion-helper branches
-;;
-;; The seven evaluators are exercised end-to-end via run-variant above +
-;; the JVM ns. No end-to-end case reaches the branches below, so they are
-;; reached directly via var-quote (the Story-test seam pattern).
-;; ===========================================================================
-
-;; ---- event-matches? — one row per needle branch --------------------------
-;;
-;; A `:rf.assert/dispatched?` needle (/spec/007-Stories.md's
-;; `[event-or-pred]`) is a predicate fn, a bare keyword or a literal event
-;; vector. The table walks each branch of the private matcher directly,
-;; including the :else fall-through.
+;; The evaluator branches below are reached directly through their vars.
+;; A `:rf.assert/dispatched?` needle (spec/007 `[event-or-pred]`) is a
+;; predicate fn, a bare keyword or a literal event vector.
 
 (def ^:private event-matches? @#'rf.story.assertions/event-matches?)
 
@@ -135,82 +94,41 @@
       [:user/click]        "not-a-needle"               false
       [:user/click]        42                           false)))
 
-;; ---- evaluate-sub-equals — the sub-throws (::compute-error) arm ----------
-;;
-;; The evaluator wraps `rf.subs/compute-sub` in its OWN try/catch and, when
-;; that throws, records :passed? false with :actual :rf.assert/sub-threw
-;; rather than propagating. Note `compute-sub` normally swallows a
-;; throwing sub-body internally (it recovers to nil), so the evaluator's
-;; catch is reachable only when compute-sub ITSELF throws — we force that
-;; here with `with-redefs` so the ::compute-error arm is exercised
-;; directly (the realistic case being a failure inside compute-sub's
-;; input-resolution / registrar-lookup before its own try).
-
+;; `compute-sub` recovers a throwing sub body to nil itself, so the
+;; evaluator's own catch is reached only when `compute-sub` throws (a failure
+;; before its own try); `with-redefs` forces that.
 (def ^:private evaluate-sub-equals @#'rf.story.assertions/evaluate-sub-equals)
 
 (deftest cljs-evaluate-sub-equals-sub-throws
-  (testing "when compute-sub throws, the evaluator records a fail with
-            :actual :rf.assert/sub-threw — never propagates"
+  (testing "when compute-sub throws, the evaluator records a fail with the
+            :rf.assert/sub-threw sentinel as :actual — never propagates"
     (with-redefs [rf.subs/compute-sub (fn [_query-v _db]
-                                      (throw (ex-info "kaboom" {})))]
+                                        (throw (ex-info "kaboom" {})))]
       (let [out (evaluate-sub-equals :rf/default {} [[:boom] :anything])]
-        (is (false? (:passed? out)))
-        (is (= :rf.assert/sub-threw (:actual out))
-            ":actual is the sentinel, not the raw exception")
-        (is (= :anything (:expected out)))
-        (is (re-find #"threw" (:reason out))
-            ":reason explains the sub threw")))))
-
-;; ---- evaluate-sub-equals — runtime-db-projection sub ---------------------
-;;
-;; A `:runtime-db` sub (the idiomatic machine-snapshot shape) projects state
-;; from the runtime-db partition. The evaluator must resolve it against the
-;; FULL frame-state value `{:rf.db/app … :rf.db/runtime …}` so `compute-sub`
-;; reads the runtime partition the sub belongs to; handed bare app-db, the
-;; runtime-db sub would read nil. Here we register a
-;; runtime-db sub, hand the evaluator a frame-state value, and assert it
-;; resolves the live runtime-db value — and that bare app-db reads nil.
+        (is (= [false :rf.assert/sub-threw :anything] ((juxt :passed? :actual :expected) out)))
+        (is (re-find #"threw" (:reason out)))))))
 
 (deftest cljs-evaluate-sub-equals-runtime-db-projection
-  (testing "evaluate-sub-equals resolves a runtime-db-projection sub against
-            the frame-state value, not nil"
+  (testing "a runtime-db projection sub resolves against the full frame-state
+            value the play-runner hands over; bare app-db would read nil"
     (rf.subs/reg-runtime-sub :pecaxy/light
       (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
-    (let [runtime    {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
-          frame-state {:rf.db/app {} :rf.db/runtime runtime}
-          ;; The faithful read: the play-runner hands the full
-          ;; frame-state value (app + runtime).
-          ok         (evaluate-sub-equals :rf/default frame-state [[:pecaxy/light] :red])
-          ;; Bare app-db → the runtime-db sub reads nil.
-          bug        (evaluate-sub-equals :rf/default {:rf.db/app {}} [[:pecaxy/light] :red])]
-      (is (true? (:passed? ok))
-          "runtime-db sub resolves :red through the frame-state value")
-      (is (= :red (:actual ok)))
-      (is (false? (:passed? bug))
-          "bare app-db (no runtime partition) makes the runtime-db sub read nil")
-      (is (nil? (:actual bug))))))
+    (let [runtime {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
+          lookup  #((juxt :passed? :actual)
+                    (evaluate-sub-equals :rf/default % [[:pecaxy/light] :red]))]
+      (is (= [true :red] (lookup {:rf.db/app {} :rf.db/runtime runtime})))
+      (is (= [false nil] (lookup {:rf.db/app {}}))))))
 
-;; ---- evaluate-effect-emitted — the pred-rejects-but-present arm ----------
-;;
-;; When the fx-id WAS emitted but the
-;; optional predicate rejects it, the evaluator must record :passed?
-;; false with the pred-reject reason (and a thrown predicate is treated
-;; as a rejection, never propagated).
-;;
-;; The evaluator is a pure fn: its first arg is the
-;; tape-projected emitted-fx SET (`rf.story.assertions/emitted-fx`), not a frame-id.
-;; We pass the set directly (the realistic shape: the fx WAS emitted).
-
+;; The evaluator is pure over the tape-projected emitted-fx SET: when the fx
+;; was emitted but the optional predicate rejects it — or throws — the record
+;; fails with the reason, and nothing propagates.
 (def ^:private evaluate-effect-emitted @#'rf.story.assertions/evaluate-effect-emitted)
 
 (deftest cljs-evaluate-effect-emitted-pred-rejects-present-fx
-  (testing "fx present but optional predicate returns false → fail with
-            the pred-reject reason"
-    (let [out (evaluate-effect-emitted #{:http} [:http (constantly false)])]
-      (is (false? (:passed? out)))
-      (is (contains? (:actual out) :http)
-          ":actual still reports the emitted-fx set (the fx WAS present)")
-      (is (re-find #"predicate rejected" (:reason out))))))
+  (let [out (evaluate-effect-emitted #{:http} [:http (constantly false)])]
+    (is (= [false true] [(:passed? out) (contains? (:actual out) :http)])
+        ":actual still reports the emitted set")
+    (is (re-find #"predicate rejected" (:reason out)))))
 
 (deftest cljs-evaluate-effect-emitted-pred-accepts-present-fx
   (testing "fx present and predicate accepts → pass (the positive arm of
@@ -220,9 +138,5 @@
       (is (re-find #"emitted during play" (:reason out))))))
 
 (deftest cljs-evaluate-effect-emitted-pred-throws-is-rejection
-  (testing "a predicate that throws is swallowed and treated as a
-            rejection — never propagates"
-    (let [out (evaluate-effect-emitted #{:http}
-                                       [:http (fn [_] (throw (ex-info "x" {})))])]
-      (is (false? (:passed? out))
-          "thrown predicate → not passed, no exception escapes"))))
+  (is (false? (:passed? (evaluate-effect-emitted #{:http}
+                                                 [:http (fn [_] (throw (ex-info "x" {})))])))))
