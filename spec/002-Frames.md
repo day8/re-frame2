@@ -2749,7 +2749,7 @@ See [MIGRATION.md](../migration/from-re-frame-v1/README.md) for the migration ru
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
-> **Status: post-v1.** v1 ships the drain loop; the Spec-level design of a transducer-shaped router lives at [Design-TransducerRouter.md](Design-TransducerRouter.md), with a Phase-1 reference scaffold at `implementation/core/src/re_frame/router_transducer.cljc`. The design is non-normative for v1 — the runtime does **not** consume the scaffold.
+> **Status: post-v1.** v1 ships the drain loop; the Spec-level design of a transducer-shaped router lives at [Design-TransducerRouter.md](Design-TransducerRouter.md). The design is non-normative for v1 and nothing implements it.
 
 pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed. The full v1.1 design — primitive contract, reducing-function presets (`sync-rf` / `queued-rf` / `batch-rf`), driver model, two-stage compatibility plan with the v1 drain loop, and interactions with Specs 005 / 009 / 011 / 012 — lives at [Design-TransducerRouter.md](Design-TransducerRouter.md).
 
