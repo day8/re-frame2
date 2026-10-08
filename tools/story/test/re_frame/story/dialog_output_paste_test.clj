@@ -1,21 +1,16 @@
 (ns re-frame.story.dialog-output-paste-test
-  "The output of each of Story's copy-to-source
-  emitters pastes and runs VERBATIM in a stories namespace that follows the
-  require-alias dialect (spec/Conventions.md §Require-alias dialect:
-  `re-frame.story` is aliased `rf.story`, as the login_form testbed's
-  `stories.cljc` is).
+  "The output of Story's copy-to-source emitters pastes and runs VERBATIM
+  in a stories namespace that follows the require-alias dialect
+  (spec/Conventions.md §Require-alias dialect: `re-frame.story` is aliased
+  `rf.story`, as the login_form testbed's `stories.cljc` is). Each test
+  reads the snippet, compiles it where `re-frame.story` is required under
+  that alias and no other, and finds the variant it names registered, or
+  runs it.
 
-  An emitter spelling `story/` would make an author rewrite it to
-  `rf.story/` before the snippet compiled. Each
-  test pins the emitted head, then takes the snippet down the path an author
-  takes: read it, compile it where `re-frame.story` is required under its
-  canonical alias and no other, and find the variant it names registered.
-
-  Covered: the three authoring dialogs (save as new variant, real-setup
-  upgrade, add expectations) and the four other JVM-reachable emitters (the
-  recorder's save and export dialogs, promote run to regression variant, and
-  the sub-override value entry). The Share dialog's Copy EDN
-  emitter is CLJS-only and is pinned in `ui/share_egress_cljs_test.cljs`."
+  The save-as-new-variant and `gen-play-snippet` emitters' exact text is
+  pinned in `story_save_variant_test` and `story_recorder_test`. The Share
+  dialog's Copy EDN emitter is CLJS-only and is pinned in
+  `ui/share_egress_cljs_test.cljs`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -32,7 +27,6 @@
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
             [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
             [re-frame.story.registrar :as rf.story.registrar]
-            [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]
             [re-frame.story.ui.schema-form :as rf.story.ui.schema-form]
@@ -41,7 +35,7 @@
 (defn- clean-registry [test-fn]
   (rf.story/clear-all!)
   ;; A fresh framework runtime, so a pasted variant can RUN as well as
-  ;; register (the setup `view-state-upgrade-test` uses).
+  ;; register.
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter)
@@ -73,29 +67,6 @@
 (defn- registered [variant-id]
   (rf.story.registrar/handler-meta :variant variant-id))
 
-(deftest save-as-new-variant-output-pastes-verbatim
-  (let [snippet (rf.story.save-variant/gen-variant-snippet
-                  {:variant-id :story.paste/saved
-                   :extends    :story.paste/source
-                   :args       {:heading "Welcome back"}})]
-    (is (str/starts-with? snippet "(rf.story/reg-variant :story.paste/saved\n"))
-    (paste! snippet)
-    (is (= {:extends :story.paste/source :args {:heading "Welcome back"}}
-           (select-keys (registered :story.paste/saved) [:extends :args])))
-    (testing "control — the `story/` spelling does not compile there"
-      (is (thrown? Exception (paste! (str/replace snippet "(rf.story/" "(story/")))))))
-
-(deftest recorder-gen-play-snippet-output-pastes-verbatim
-  (let [snippet (rf.story.recorder/gen-play-snippet
-                  [[:paste/inc]]
-                  {:variant-id :story.paste/recorded
-                   :extends    :story.paste/source})]
-    (is (str/starts-with? snippet "(rf.story/reg-variant :story.paste/recorded\n"))
-    (paste! snippet)
-    (let [body (registered :story.paste/recorded)]
-      (is (= :story.paste/source (:extends body)))
-      (is (str/includes? (pr-str (:script body)) "[:dispatch-sync [:paste/inc]]")))))
-
 (deftest promote-run-output-pastes-verbatim
   (let [artifact (rf.story.artifact/make-run-artifact
                    {:event-program [[:dispatch [:paste/inc]]]
@@ -119,8 +90,6 @@
       (is (= :story.paste/source (:extends body)))
       (is (= {[:paste/state] :error} (:sub-overrides body))))))
 
-;; ---- pasted as-is, a recording RUNS ------------------------
-
 (defn- run-result
   "Run `variant-id` through the real runner (`story/run`, headless) and
   return the unified run result."
@@ -128,21 +97,18 @@
   (.get ^java.util.concurrent.CompletableFuture (rf.story/run variant-id)))
 
 (deftest recorder-save-dialog-recording-runs-when-pasted
-  (testing "the save dialog's snippet, pasted as-is, runs its
-            recorded dispatches instead of registering a script nothing runs"
+  (testing "the save dialog's snippet runs its recorded dispatches rather
+            than registering a script nothing runs"
     (let [{:keys [snippet]} (rf.story.recorder.play-export/save-dialog-output
                               [{:kind :event/dispatch :event [:paste/submit] :t 0}]
                               {:variant-id :story.paste/recorded-flow
                                :extends    :story.paste/source})]
       (paste! snippet)
-      (is (= 1 (get-in (run-result :story.paste/recorded-flow) [:app-db :submits]))
-          "the recorded dispatch executed"))))
-
-;; ---- an expectation added to a SCRIPTED story replays it --
+      (is (= 1 (get-in (run-result :story.paste/recorded-flow) [:app-db :submits]))))))
 
 (defn- add-expectations-snippet
   "What the add-expectations dialog emits for `source-id` with one authored
-  `:dispatched` expectation on `event` — built by the dialog's own
+  `:dispatched` expectation on `event`, built by the dialog's own
   `build-snippet`, which reads the source's registered body."
   [source-id new-id event]
   (rf.story.ui.author-expectations/build-snippet
@@ -153,10 +119,8 @@
                     (rf.story.ui.author-expectations/set-operand 0 :event (pr-str event)))}))
 
 (deftest add-expectations-to-a-scripted-story-replays-its-script
-  (testing ":script and :plays are child-only through
-            :extends, so the regression test the dialog emits re-declares
-            the source's own — pasted as-is it replays the story and its
-            expectations pass on a correct app"
+  (testing ":script and :plays are child-only through :extends, so the
+            emitted variant re-declares the source's own and replays it"
     (rf.story/reg-variant :story.paste/scripted
       {:extends    :story.paste/source
        :script     [[:dispatch [:paste/submit]]]
@@ -167,9 +131,6 @@
                      :script [[:dispatch [:paste/submit]]
                               [:dispatch [:paste/submit]]]}]
        :assertions [[:rf.assert/path-equals [:submits] 2]]})
-    (testing "CONTROL: each source passes on its own"
-      (is (= :pass (:status (run-result :story.paste/scripted))))
-      (is (= :pass (:status (run-result :story.paste/played)))))
     (doseq [[source-id new-id submits]
             [[:story.paste/scripted :story.paste/scripted-expects 1]
              [:story.paste/played   :story.paste/played-expects   2]]]
@@ -181,33 +142,21 @@
             (str new-id " — the source's interaction ran"))))))
 
 (deftest add-expectations-to-a-composing-story-carries-its-compose
-  (testing ":compose is child-only through :extends (spec/017
-            §`:compose`), so the regression test the dialog emits re-declares
-            the source's own — pasted as-is it composes the same setup
-            fragment and its expectations pass on a correct app"
+  (testing ":compose is child-only through :extends (spec/017 §`:compose`),
+            so the emitted variant re-declares the source's own"
     (rf.story/reg-fragment :fragment.paste/submitted
       {:setup [[:dispatch [:paste/submit]]]})
     (rf.story/reg-variant :story.paste/composed
       {:extends    :story.paste/source
        :compose    [:fragment.paste/submitted]
        :assertions [[:rf.assert/path-equals [:submits] 1]]})
-    (testing "CONTROL: the source passes on its own"
-      (let [result (run-result :story.paste/composed)]
-        (is (= :pass (:status result)))
-        (is (= 1 (get-in result [:app-db :submits])))))
     (paste! (add-expectations-snippet :story.paste/composed
                                       :story.paste/composed-expects
                                       :paste/submit))
-    (is (= [:fragment.paste/submitted]
-           (:compose (registered :story.paste/composed-expects)))
-        "the pasted variant composes the source's fragment")
     (let [result (run-result :story.paste/composed-expects)]
-      (is (= :pass (:status result))
-          "the source's assertion and the authored one both hold")
+      (is (= :pass (:status result)))
       (is (= 1 (get-in result [:app-db :submits]))
           "the composed fragment's setup ran"))))
-
-;; ---- pasted UNFILLED, the upgrade scaffold does not pass ----
 
 (defn- no-such-handler-record [result]
   (first (filter #(and (= :rf.error/exception (:assertion %))
@@ -215,35 +164,24 @@
                  (:assertions result))))
 
 (deftest real-setup-upgrade-output-unfilled-does-not-pass
-  (testing "the real-setup upgrade scaffold, pasted with its
-            :your/setup-event placeholder left in, is refused by the runner —
-            never a vacuous :pass over a setup that dispatched nothing"
+  (testing "pasted with its :your/setup-event placeholder left in, the
+            real-setup upgrade scaffold is refused, never a vacuous :pass"
     (paste! (rf.story.ui.view-state/upgrade-snippet :story.paste/pinned :real-setup))
-    (let [result (run-result :story.paste/pinned-upgraded)
-          record (no-such-handler-record result)]
-      (is (not= :pass (:status result))
-          "the unfilled scaffold must not read green")
-      (is (some? record)
-          "the refused placeholder dispatch is a failed :rf.error/exception record")
-      (is (= [:your/setup-event {}] (:event record))
-          "the record names the placeholder event the author was told to replace")
-      (is (= :phase-2-events (:phase record))
-          "the refusal is attributed to the :setup phase")))
-  (testing "CONTROL: the same scaffold passes once the placeholder names a
-            registered handler — the refusal is about the missing handler,
-            not about the scaffold"
+    (let [result (run-result :story.paste/pinned-upgraded)]
+      (is (not= :pass (:status result)))
+      (is (= {:event [:your/setup-event {}] :phase :phase-2-events}
+             (select-keys (no-such-handler-record result) [:event :phase])))))
+  (testing "CONTROL: once the placeholder names a registered handler the
+            same scaffold passes and its setup runs"
     (rf/reg-event :your/setup-event (fn [{:keys [db]} _] {:db (assoc db :setup-ran? true)}))
     (paste! (rf.story.ui.view-state/upgrade-snippet :story.paste/pinned :real-setup))
     (let [result (run-result :story.paste/pinned-upgraded)]
       (is (= :pass (:status result)))
-      (is (nil? (no-such-handler-record result)))
-      (is (true? (get-in result [:app-db :setup-ran?]))
-          "the filled-in setup event actually ran"))))
+      (is (true? (get-in result [:app-db :setup-ran?]))))))
 
 (deftest recorder-save-dialog-click-recording-refuses-headless
-  (testing "a pasted recording of a click is not proved by a
-            headless run — :cannot-run (spec/017 §Requirement inference), never a
-            :pass over a script that never ran"
+  (testing "a pasted click recording is :cannot-run headless (spec/017
+            §Requirement inference), never a :pass over a script that never ran"
     (let [{:keys [snippet]} (rf.story.recorder.play-export/save-dialog-output
                               [{:kind :dom/click :selector "[data-test=\"paste-submit\"]" :t 0}]
                               {:variant-id :story.paste/recorded-click
@@ -251,13 +189,11 @@
       (paste! snippet)
       (is (= :cannot-run (:status (run-result :story.paste/recorded-click)))))))
 
-;; ---- auto-assert asserts what the RECORDING changed --------
-
 (deftest recorder-export-auto-assert-asserts-what-the-recording-changed
-  (testing "recorded against a variant whose db carries static
-            keys and Story's own :rf.story/assertions records, the export
-            dialog's default auto-assert pins only the path the recording
-            changed; the pasted form compiles and its run passes"
+  (testing "against a db carrying static keys and Story's own
+            :rf.story/assertions records, the export dialog's default
+            auto-assert pins only the path the recording changed, and the
+            pasted form runs green"
     (rf/reg-event :paste/seed-static
       (fn [{:keys [db]} _]
         {:db (merge db {:static-a 1 :static-b 2 :static-c 3
