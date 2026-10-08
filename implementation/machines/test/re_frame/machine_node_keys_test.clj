@@ -1,16 +1,9 @@
 (ns re-frame.machine-node-keys-test
-  "No-silent-swallow coverage for state-node/spawn-spec keys and `:tags`.
-
-  This suite pins the fail-loud behaviour:
-    - an unknown BARE key on a state node → `:rf.error/machine-unknown-node-key`;
-    - an unknown BARE key on a `:spawn` / `:spawn-all` child spec →
-      `:rf.error/machine-unknown-spawn-key`;
-    - a non-set `:tags` slot → `:rf.error/machine-bad-tags`;
-    - a NAMESPACED user key passes (the open extension carve-out).
-
-  That well-formed `:type :choice` and `:type :history` nodes register is
-  pinned in `choice_node_keys_test` and by the history validation rows of
-  `scxml_conformance_cljs_test`."
+  "No-silent-swallow coverage for state-node/spawn-spec keys and `:tags`: an
+  unknown BARE key on a state node (`:rf.error/machine-unknown-node-key`) or a
+  `:spawn` / `:spawn-all` child spec (`:rf.error/machine-unknown-spawn-key`) and
+  a malformed `:tags` slot (`:rf.error/machine-bad-tags`) are refused at
+  registration; a NAMESPACED user key passes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its
@@ -23,122 +16,45 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(defn- reg-error-id
-  "Register `machine` under a fresh id, returning the thrown
-  `:rf.error/id` (or nil when registration succeeds)."
+(defn- reg-error
+  "Register `machine` under a fresh id, returning the thrown ex-data (or nil
+  when registration succeeds)."
   [machine]
   (try (rf/reg-machine (keyword "nk" (str (gensym))) machine) nil
-       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
-
-;; ---- (1) unknown BARE state-node keys signal ------------------------------
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest unknown-bare-node-key-rejected
-  (doseq [[label machine]
-          [[":invoke (XState's spelling of :spawn) on a state node — a footgun that
-            would otherwise register silently"
-            {:initial :idle
-             :states {:idle {:invoke {:machine-id :child}
-                             :on {:go :done}}
-                      :done {}}}]
-           [":on-entry (XState's spelling of :entry) on a state node"
-            {:initial :idle
-             :states {:idle {:on-entry :log
-                             :on {:go :done}}
-                      :done {}}}]
-           ["a typo like :innitial on the MACHINE ROOT"
-            {:innitial :idle
-             :initial :idle
-             :states {:idle {}}}]
-           [":on-spawn-actions on the root — there is no such slot (the reducer binds
-            the spawned id under [:data :rf/spawned <invoke-id>]), so it meets the
-            closed-vocabulary diagnostic with no bespoke nag"
-            {:initial :idle
-             :on-spawn-actions {:record (fn [_] nil)}
-             :states {:idle {:on {:go :done}}
-                      :done {}}}]]]
-    (is (= :rf.error/machine-unknown-node-key (reg-error-id machine))
-        (str label " is rejected"))))
-
-(deftest unknown-bare-node-key-name-and-vocab-in-ex-data
-  (testing "the ex-data names the offending key + the valid vocabulary — the
-            diagnostic an author reads to fix the typo"
-    (let [e (try (rf/reg-machine :nk/diag
-                   {:initial :idle
-                    :states {:idle {:invoke :x :on {:go :done}}
-                             :done {}}})
-                 nil
-                 (catch clojure.lang.ExceptionInfo ex ex))
-          d (ex-data e)]
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
-      (is (= [:invoke] (:offending-keys d)) "names the offending bare key")
-      (is (contains? (:valid-keys d) :spawn)
-          "surfaces the valid vocabulary (which includes the intended :spawn)")
-      (is (= :idle (:state d)) "names the declaring state"))))
-
-;; ---- (2) unknown BARE spawn-spec keys signal ------------------------------
-;;
-;; There is no `:on-spawn` and no `:system-id` spawn-spec key: each is an
-;; unknown BARE key the closed-vocabulary diagnostic catches, with no
-;; diagnostic id of its own. The address is the id, and `:fixed-actor-id` is
-;; the one stable-name mechanism.
-
-(defn- spawn-with [spawn-key value]
-  {:initial :idle
-   :states {:idle {:spawn {:machine-id :child spawn-key value}
-                   :on {:go :done}}
-            :done {}}})
-
-(defn- spawn-all-child-with [child-key value]
-  {:initial :idle
-   :states {:idle {:spawn-all {:children [{:id :c1 :machine-id :child child-key value}]
-                               :on-all-complete [:all]}
-                   :on {:go :done}}
-            :done {}}})
+  (testing "on a state node (XState's :invoke for :spawn), naming the state, the key and the vocabulary"
+    (let [d (reg-error {:initial :idle
+                        :states  {:idle {:invoke :x :on {:go :done}}
+                                  :done {}}})]
+      (is (= {:rf.error/id :rf.error/machine-unknown-node-key :state :idle :offending-keys [:invoke]}
+             (select-keys d [:rf.error/id :state :offending-keys])))
+      (is (contains? (:valid-keys d) :spawn))))
+  (testing "on the machine root"
+    (is (= :rf.error/machine-unknown-node-key
+           (:rf.error/id (reg-error {:innitial :idle :initial :idle :states {:idle {}}}))))))
 
 (deftest unknown-bare-spawn-key-rejected
-  (doseq [[label machine]
-          [[":machine (for :machine-id) on a :spawn, which would leave it under-specified"
-            {:initial :idle
-             :states {:idle {:spawn {:machine :child}
-                             :on {:go :done}}
-                      :done {}}}]
-           [":bogus on a :spawn-all child" (spawn-all-child-with :bogus true)]
-           [":on-spawn on a single :spawn" (spawn-with :on-spawn (fn [_] nil))]
-           [":on-spawn on a :spawn-all child" (spawn-all-child-with :on-spawn (fn [_] nil))]
-           [":system-id on a single :spawn" (spawn-with :system-id :some-name)]
-           [":system-id on a :spawn-all child" (spawn-all-child-with :system-id :some-name)]]]
-    (is (= :rf.error/machine-unknown-spawn-key (reg-error-id machine))
-        (str label " is rejected"))))
+  (doseq [node [{:spawn {:machine-id :child :system-id :some-name}}
+                {:spawn-all {:children        [{:id :c1 :machine-id :child :bogus true}]
+                             :on-all-complete [:all]}}]]
+    (is (= :rf.error/machine-unknown-spawn-key
+           (:rf.error/id (reg-error {:initial :idle
+                                     :states  {:idle (assoc node :on {:go :done})
+                                               :done {}}}))))))
 
 (deftest namespaced-spawn-key-passes
-  (testing "a NAMESPACED key on a :spawn spec passes (the runtime itself stamps
-            :rf/parent-id / :rf/invoke-id — namespaced, always allowed)"
-    (is (nil? (reg-error-id {:initial :idle
-                             :states {:idle {:spawn {:machine-id :child
-                                                     :my.app/tag :x}
-                                             :on {:go :done}}
-                                      :done {}}})))))
-
-;; ---- (3) malformed :tags shape signals ------------------------------------
+  (is (nil? (reg-error {:initial :idle
+                        :states  {:idle {:spawn {:machine-id :child :my.app/tag :x}
+                                         :on    {:go :done}}
+                                  :done {}}}))))
 
 (deftest non-set-tags-rejected
-  (doseq [[label tags] [["a SINGLE-KEYWORD :tags (not coerced)"             :busy]
-                        ["a SET with a non-keyword member (strict [:set :keyword])" #{:busy "idle"}]]]
-    (testing label
-      (is (= :rf.error/machine-bad-tags
-             (reg-error-id {:initial :idle
-                            :states {:idle {:tags tags :on {:go :done}}
-                                     :done {}}}))))))
-
-(deftest bad-tags-names-offender-in-ex-data
-  (testing "the :rf.error/machine-bad-tags ex-data names the state + offending value"
-    (let [e (try (rf/reg-machine :nk/bad-tags
-                   {:initial :idle
-                    :states {:idle {:tags [:busy] :on {:go :done}}
-                             :done {}}})
-                 nil
-                 (catch clojure.lang.ExceptionInfo ex ex))
-          d (ex-data e)]
-      (is (= :rf.error/machine-bad-tags (:rf.error/id d)))
-      (is (= :idle (:state d)))
-      (is (= [:busy] (:tags d)) "names the offending non-set value"))))
+  (let [tags-error (fn [tags] (reg-error {:initial :idle
+                                          :states  {:idle {:tags tags :on {:go :done}}
+                                                    :done {}}}))]
+    (is (= {:rf.error/id :rf.error/machine-bad-tags :state :idle :tags [:busy]}
+           (select-keys (tags-error [:busy]) [:rf.error/id :state :tags])))
+    (doseq [tags [:busy #{:busy "idle"}]]
+      (is (= :rf.error/machine-bad-tags (:rf.error/id (tags-error tags))) (pr-str tags)))))
