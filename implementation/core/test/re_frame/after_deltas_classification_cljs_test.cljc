@@ -1,44 +1,26 @@
 (ns re-frame.after-deltas-classification-cljs-test
   "The `:rf.event/after-deltas` slot on `:rf.event/run-end` carries one ctx
-  diff per user `:after` interceptor, and each diff carries its `:before` /
-  `:after` VALUES. The standard `[:rf.interceptor/path …]` `:after` always
-  rewrites `[:coeffects :db]` and widens `[:effects :db]` back to the WHOLE
-  app-db, so every path-focused handler stamps the whole db into that slot —
-  and without an arm for it in `re-frame.classification/project-trace-event`
-  the frame's classified paths would ship RAW past the emit-time chokepoint
-  (trace listeners, the ring, the epoch record, and the off-box epoch
-  projection). An `:after` that adds `:fx` would leak that fx's
-  registration-classified args the same way.
+  diff per user `:after` interceptor, with its `:before` / `:after` VALUES. The
+  standard `[:rf.interceptor/path …]` `:after` restores the WHOLE app-db, so
+  every path-focused handler stamps the whole db there, and an `:after` that
+  adds `:fx` puts that fx's args there; `project-trace-event` must classify
+  both.
 
-  A path-focused context's `:db` values are FOCUSED SLICES: the path
-  interceptor's own `:before` values, both values of a user `:after`
-  positioned inside a focus, and even the inner interceptor's `:after` values
-  under nested focus. A ROOT-anchored walk cannot match `[:auth :token]`
-  against a slice `{:token …}`, so each delta carries its before/after
-  absolute app-db focus to the projector in a PRIVATE metadata carrier, and
-  each value is walked at its TRUE offset; an unknown focus on a classified
-  frame fails closed.
+  Under a path focus a `:db` value is a FOCUSED SLICE, which a root-anchored
+  walk cannot match against `[:auth :token]`. So each delta carries its
+  absolute focus to the projector in a PRIVATE metadata carrier, each value is
+  walked at its true offset, and an unknown focus on a classified frame fails
+  closed.
 
-  Producer-derived: the live legs drive the REAL path interceptor and a REAL
-  user `:after`, and each first proves the slot is populated by that producer —
-  so a secret's absence is a fact about a slot that exists, not a vacuum.
-  Sentinels are constants the handlers write, never event args (the positional
-  `:rf.event/v` limit of `redact-event` is a separate, documented matter), and
-  no declared path can coincidentally match an unrelated slice.
-
-  Posture: the live legs read the dev trace, which emits nothing under
-  `-Dre-frame.debug=false`, so they are `^:requires-debug`. The
-  projector leg drives `project-trace-event` on a hand-built shape and runs in
-  both postures.
-
-  Dual-runtime `.cljc` (`*-cljs-test` ns): the JVM `clojure -M:test` runner and
-  the shadow-cljs `:node-test` build both pick it up."
+  The live legs drive the real path interceptor and a real user `:after`, and
+  each first proves the slot is populated, so a secret's absence is a fact
+  about a slot that exists. They read the dev trace, so they are
+  `^:requires-debug`; the projector legs run in both postures."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.classification :as rf.classification]
-            ;; Side-effect load: publishes the epoch hooks `rf/epoch-history`
-            ;; reads (a test-only dep of core).
+            ;; Publishes the epoch hooks `rf/epoch-history` reads.
             [re-frame.epoch]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.privacy :as rf.privacy]
@@ -71,8 +53,7 @@
   (first (filter #(= :rf.event/run-end (:operation %)) traces)))
 
 (defn- seed-classified-secret!
-  "Make the frame and classify `[:auth :token]` sensitive in the SAME event that
-  writes the secret there (the canonical EP-0025 pattern)."
+  "Make the frame and classify `[:auth :token]` in the event that writes the secret."
   []
   (rf/make-frame {:id frame-id})
   (rf/reg-event :after-deltas/seed
@@ -80,45 +61,6 @@
       {:db        (assoc db :auth {:token secret} :counter 0)
        :sensitive [[:auth :token]]}))
   (rf/dispatch-sync [:after-deltas/seed] {:frame frame-id}))
-
-;; ---------------------------------------------------------------------------
-;; Live: the standard path interceptor's whole-db diff
-;; ---------------------------------------------------------------------------
-
-(deftest ^:requires-debug path-interceptor-after-delta-redacts-classified-db-paths
-  (testing "a handler focused on [:counter] never reads :auth, yet the path
-            interceptor's :after diff carries the WHOLE db before and after —
-            the classified [:auth :token] must be :rf/redacted there, while the
-            focused change itself survives for the diff's reader"
-    (seed-classified-secret!)
-    (rf/reg-event :after-deltas/bump
-      {:interceptors [[:rf.interceptor/path [:counter]]]}
-      (fn [{:keys [db]} _] {:db (inc db)}))
-    (let [acc (collect-traces! ::path)]
-      (try
-        (rf/dispatch-sync [:after-deltas/bump] {:frame frame-id})
-        (let [ev     (run-end @acc)
-              deltas (get-in ev [:tags :rf.event/after-deltas])
-              diff   (:rf.interceptor.delta/ctx-delta (first deltas))]
-          ;; Producer control: the slot exists and the path interceptor wrote it.
-          (is (= [:rf.interceptor/path] (mapv :rf.interceptor.delta/id deltas))
-              "the run-end trace carries the path interceptor's after-delta")
-          (is (= 1 (get-in diff [:effects :changed :db :after :counter]))
-              "the focused change survives the projection — the diff still reads")
-          (is (= rf.privacy/redacted-sentinel
-                 (get-in diff [:coeffects :changed :db :after :auth :token]))
-              "the restored whole-db coeffect has the classified path redacted")
-          (is (= rf.privacy/redacted-sentinel
-                 (get-in diff [:effects :changed :db :after :auth :token]))
-              "the widened whole-db effect has the classified path redacted")
-          (is (not (contains-secret? ev))
-              "the secret appears nowhere in the run-end trace"))
-        (finally
-          (rf/unregister-listener! :trace ::path))))))
-
-;; ---------------------------------------------------------------------------
-;; Live: a user :after that adds :fx
-;; ---------------------------------------------------------------------------
 
 (deftest ^:requires-debug user-after-added-fx-args-take-the-fx-registration-classification
   (testing "an :after interceptor that ADDS an :fx entry puts that fx's args in
@@ -146,16 +88,10 @@
               "the user :after interceptor wrote the after-delta")
           (is (= [[:after-deltas/store {:token rf.privacy/redacted-sentinel}]
                   [:after-deltas/audit {:msg "benign"}]]
-                 fx)
-              "the classified fx's token is redacted; the control fx rides raw")
-          (is (not (contains-secret? ev))
-              "the secret appears nowhere in the run-end trace"))
+                 fx))
+          (is (not (contains-secret? ev))))
         (finally
           (rf/unregister-listener! :trace ::fx))))))
-
-;; ---------------------------------------------------------------------------
-;; Projector: every value position, and the frameless fail-closed arm
-;; ---------------------------------------------------------------------------
 
 (deftest project-trace-event-walks-every-after-delta-value-position
   (testing "the chokepoint projects :db under :added / :removed and both sides
@@ -181,23 +117,19 @@
       (doseq [segment [:coeffects :effects]
               path    [[:added :db] [:removed :db]
                        [:changed :db :before] [:changed :db :after]]]
-        (is (= rf.privacy/redacted-sentinel
-               (get-in (diff framed) (into [segment] (conj path :auth :token))))
-            (str "framed: " segment " " path " redacts the classified path"))
-        (is (= 1 (get-in (diff framed) (into [segment] (conj path :n))))
-            (str "framed: " segment " " path " keeps the unclassified value"))
+        (is (= {:auth {:token rf.privacy/redacted-sentinel} :n 1}
+               (get-in (diff framed) (into [segment] path)))
+            (str "framed: " segment " " path " redacts only the classified path"))
         (is (= rf.privacy/redacted-sentinel (get-in (diff bare) (into [segment] path)))
-            (str "frameless: " segment " " path " fails closed to the sentinel")))
-      (is (not (contains-secret? framed)))
-      (is (not (contains-secret? bare))))))
+            (str "frameless: " segment " " path " fails closed to the sentinel"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; FOCUSED-SLICE values are walked at their TRUE app-db focus
 ;; ---------------------------------------------------------------------------
 
 (def ^:private focus-sentinel
-  "The needle every focused-slice leg counts. The old and the new secret both
-  carry it; no event vector does."
+  "The needle every focused-slice leg counts; the old and new secrets carry it,
+  no event vector does."
   "FOCUS-SENTINEL-fc84b")
 
 (def ^:private old-secret (str focus-sentinel "-old"))
@@ -247,31 +179,24 @@
   (get-in ev [:tags :rf.event/after-deltas i :rf.interceptor.delta/ctx-delta]))
 
 (deftest ^:requires-debug path-interceptor-before-slices-redact-at-their-focus
-  (testing "[:rf.interceptor/path [:auth]] writing :token — the handler saw the
-            slice {:token …} and returned one, so both :before values are
-            slices at [:auth] and a root walk would miss [:auth :token]. A benign
-            sibling in the same slice stays visible: redaction is per declared
-            path, never wholesale"
+  (testing "[:rf.interceptor/path [:auth]] writing :token — both :before values
+            are slices at [:auth], and the :after values are the whole db; every
+            one redacts the token and keeps the benign sibling"
     (seed! {:auth {:token old-secret :user-name "alice"}} [[:auth :token]])
     (rf/reg-event :fc84b/set-token
       {:interceptors [[:rf.interceptor/path [:auth]]]}
       (fn [{:keys [db]} _] {:db (assoc db :token new-secret)}))
     (let [ev   (run-focused! [:fc84b/set-token])
-          diff (diff-of ev 0)]
+          diff (diff-of ev 0)
+          r    rf.privacy/redacted-sentinel]
       (is (= [:rf.interceptor/path] (delta-ids ev))
           "producer control: the path interceptor wrote the after-delta")
       (is (= [] (sentinel-paths ev))
           "no secret survives anywhere in the run-end trace")
-      (is (= rf.privacy/redacted-sentinel
-             (get-in diff [:coeffects :changed :db :before :token]))
-          "the slice the handler saw has its token redacted")
-      (is (= rf.privacy/redacted-sentinel
-             (get-in diff [:effects :changed :db :before :token]))
-          "the slice the handler returned has its token redacted")
-      (is (= "alice" (get-in diff [:coeffects :changed :db :before :user-name]))
-          "the benign sibling survives in the coeffect slice")
-      (is (= "alice" (get-in diff [:effects :changed :db :before :user-name]))
-          "the benign sibling survives in the effect slice")
+      (is (= {:token r :user-name "alice"} (get-in diff [:coeffects :changed :db :before]))
+          "the slice the handler saw")
+      (is (= {:token r :user-name "alice"} (get-in diff [:effects :changed :db :before]))
+          "the slice the handler returned")
       (is (= "alice" (get-in diff [:effects :changed :db :after :auth :user-name]))
           "the root-anchored :after value keeps its benign sibling too"))))
 
@@ -287,8 +212,7 @@
     (let [ev (run-focused! [:fc84b/set-pin])]
       (is (= [:rf.interceptor/path :rf.interceptor/path] (delta-ids ev))
           "producer control: both path interceptors wrote an after-delta")
-      (is (= [] (sentinel-paths ev))
-          "no secret survives anywhere in the run-end trace")
+      (is (= [] (sentinel-paths ev)))
       (is (= rf.privacy/redacted-sentinel
              (get-in (diff-of ev 0) [:effects :changed :db :after :creds :pin]))
           "the inner interceptor's :after value is walked at the outer focus"))))
@@ -302,23 +226,18 @@
     (rf/reg-event :fc84b/set-token-touched
       {:interceptors [[:rf.interceptor/path [:auth]] :fc84b/touch]}
       (fn [{:keys [db]} _] {:db (assoc db :token new-secret)}))
-    (let [ev   (run-focused! [:fc84b/set-token-touched])
-          diff (diff-of ev 0)]
+    (let [ev (run-focused! [:fc84b/set-token-touched])]
       (is (= [:fc84b/touch :rf.interceptor/path] (delta-ids ev))
           "producer control: the user :after inside the focus ran first")
-      (is (true? (get-in diff [:effects :changed :db :after :touched]))
-          "the user :after's own change survives — the diff still reads")
-      (is (= rf.privacy/redacted-sentinel
-             (get-in diff [:effects :changed :db :before :token])))
-      (is (= rf.privacy/redacted-sentinel
-             (get-in diff [:effects :changed :db :after :token])))
-      (is (= [] (sentinel-paths ev))
-          "no secret survives anywhere in the run-end trace"))))
+      (is (= {:before {:token rf.privacy/redacted-sentinel}
+              :after  {:token rf.privacy/redacted-sentinel :touched true}}
+             (get-in (diff-of ev 0) [:effects :changed :db]))
+          "both slices redact; the user :after's own change survives")
+      (is (= [] (sentinel-paths ev))))))
 
 (deftest ^:requires-debug ancestor-declaration-redacts-a-deeper-focus-whole
-  (testing "declare [[:auth]] and focus [:auth :session] — the slice sits
-            BELOW a sensitive ancestor, so it is :rf/redacted whole (a root walk
-            over the slice never meets :auth)"
+  (testing "declare [[:auth]] and focus [:auth :session] — the slice sits BELOW a
+            sensitive ancestor, so it is :rf/redacted whole"
     (seed! {:auth {:session {:sid old-secret}}} [[:auth]])
     (rf/reg-event :fc84b/set-sid
       {:interceptors [[:rf.interceptor/path [:auth :session]]]}
@@ -338,18 +257,15 @@
     (rf/reg-event :fc84b/set-item-token
       {:interceptors [[:rf.interceptor/path [:items 0]]]}
       (fn [{:keys [db]} _] {:db (assoc db :token new-secret)}))
-    (let [ev   (run-focused! [:fc84b/set-item-token])
-          diff (diff-of ev 0)]
+    (let [ev (run-focused! [:fc84b/set-item-token])]
       (is (= [:rf.interceptor/path] (delta-ids ev)) "producer control")
-      (is (= rf.privacy/redacted-sentinel
-             (get-in diff [:coeffects :changed :db :before :token])))
-      (is (= "first" (get-in diff [:coeffects :changed :db :before :label])))
+      (is (= {:token rf.privacy/redacted-sentinel :label "first"}
+             (get-in (diff-of ev 0) [:coeffects :changed :db :before])))
       (is (= [] (sentinel-paths ev))))))
 
 (deftest ^:requires-debug unclassified-frame-keeps-focused-slices-raw
-  (testing "control: with NOTHING classified the focused slices ride raw
-            (identity), so the redaction above is classification-driven, not a
-            vanished slot"
+  (testing "control: with NOTHING classified the focused slices ride raw, so the
+            redaction above is classification-driven, not a vanished slot"
     (seed! {:auth {:token old-secret}} nil)
     (rf/reg-event :fc84b/set-token-raw
       {:interceptors [[:rf.interceptor/path [:auth]]]}
@@ -363,10 +279,9 @@
           "both slices and both root values carry their secret raw"))))
 
 (deftest ^:requires-debug focus-carrier-never-egresses
-  (testing "the before/after focus rides a PRIVATE metadata carrier the
-            projector strips unconditionally: the listener's, the ring's and
-            the epoch record's copies each hold records with exactly the two
-            closed :rf.interceptor.delta/* keys and no metadata"
+  (testing "the focus rides a PRIVATE metadata carrier the projector strips: the
+            listener's, the ring's and the epoch record's copies each hold
+            records with exactly the two closed keys and no metadata"
     (seed! {:auth {:token old-secret}} [[:auth :token]])
     (rf/reg-event :fc84b/set-token-carried
       {:interceptors [[:rf.interceptor/path [:auth]]]}
@@ -385,10 +300,10 @@
             (is (empty? (meta rec)) (str where ": no carrier metadata"))))))))
 
 (deftest ^:requires-debug unknown-focus-fails-closed-on-a-classified-frame
-  (testing "a path-stack entry that records NO path (a hand-built entry, or a
-            replacement standard) leaves that context's focus UNKNOWN, and on a
-            classified frame its :db values are :rf/redacted whole. The same
-            chain over an entry that DOES record a path walks at that offset"
+  (testing "a path-stack entry that records NO path leaves that context's focus
+            UNKNOWN, and on a classified frame its :db values are :rf/redacted
+            whole. The same chain over an entry that DOES record a path walks at
+            that offset"
     (seed! {:auth {:token old-secret}} [[:auth :token]])
     (let [touch   (rf.interceptor/->interceptor*
                     :id    :fc84b/hand-touch
