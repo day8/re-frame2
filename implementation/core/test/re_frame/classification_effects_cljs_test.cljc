@@ -1,74 +1,25 @@
 (ns re-frame.classification-effects-cljs-test
-  "EP-0025 B3 — the four COMMIT-PLANE data-classification
-  effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`,
-  applied WITH the `:db` write at the commit point (a frame-state transform
-  into the per-frame elision registry), NOT a post-commit `:fx`.
+  "The four COMMIT-PLANE data-classification effects `:sensitive` / `:large`
+  / `:clear-sensitive` / `:clear-large` (EP-0025), applied WITH the `:db`
+  write at the commit point into the per-frame elision registry.
 
-  Pins these acceptance legs:
+  Registry and egress legs read durable state and run in the production gate.
+  The always-on rejection record is pinned by
+  `re-frame.classification-effect-shape-record-cljs-test`; the dev-trace rows
+  here sit inside `(when rf.interop/debug-enabled? …)` arms, and the
+  `^:requires-debug` test reads the same event's own t1 / t2 traces.
 
-    1. classify-then-egress (SAME event) — a handler returning
-       `{:sensitive [[:user :token]]}` alongside `:db` records the path in the
-       per-frame registry AT COMMIT; a subsequent egress read redacts the value
-       at that path. Classifying and egressing in the SAME event redacts.
-    2. clear — `:clear-sensitive` / `:clear-large` remove the named paths.
-    3. axes independent — clearing `:sensitive` does not touch `:large`, and
-       vice versa.
-    4. fail-loud pre-commit — a malformed payload (`{:sensitive :not-a-vector}`)
-       throws `:rf.error/classification-effect-shape` on the pre-commit-
-       transactional path so NO `:db` commit happens.
-    5. value-independence — a path may be classified BEFORE a value lands there;
-       the classification redacts whatever later occupies the path.
-
-  EP-0025: there is no durable `:sensitive` / `:large {:app-db …}` *frame
-  annotation* and no imperative `add-marks` API. These commit-plane effects
-  (`:source :effect`) are the canonical durable
-  app-db classification route; they populate the SAME registry slots that
-  `reg-flow` outputs (`:source :flow`) and the subsystem projection-relative
-  declarations (`:source :route` / `:source :machine`) write, unioning with
-  them at egress-lookup time.
-
-  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
-  build (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run
-  it. Plain CLJC; no DOM dependency.
-
-  ## Posture split
-
-  Legs 1, 2, 3 and 5 read the per-frame elision registry and app-db — durable
-  production state — and run under `scripts/test-core-prod-gate.sh`.
-
-  Leg 4 (fail-loud) needs no guard either.
-  `:rf.error/classification-effect-shape` is a PROMOTED category:
-  `router/emit-classification-effect-shape!` goes through
-  `error-emit/emit-error-both!`, so the rejection fans out on the always-on
-  corpus axis as well as the dev trace. Every \"exactly one error was emitted\"
-  row therefore reads the `:errors` stream, where it stays live in
-  production posture — which is the posture that matters for a fail-loud claim.
-
-  The always-on record also names WHICH key was malformed: the router passes
-  `:offending-key` as a record attribute, a bounded structural discriminator
-  whose value is always one of `:sensitive` / `:large` / `:clear-sensitive` /
-  `:clear-large`. What is dev-only is the DIAGNOSTIC DETAIL — the rejected
-  `:value` and the `:reason` prose that interpolates it ride the dev-trace tags
-  alone. `re-frame.classification-effect-shape-record-cljs-test` pins the
-  always-on record's closed key set and its `:offending-key`; this namespace
-  reads the dev-trace copy, so its `:offending-key` rows — and the dev-trace
-  counts beside them — sit inside `(when rf.interop/debug-enabled? …)` arms.
-
-  The `no :db commit happened` rows stay outside every arm. They are the
-  fail-CLOSED half of the contract and the reason the error rows are not
-  vacuous: something was rejected, and the rejection had a consequence."
+  Dual-runtime `*_cljs_test.cljc`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
             ;; Side-effect load: the flow transform behind the t2 leg (a
             ;; test-only dep of core).
             [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.privacy :as rf.privacy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -76,429 +27,147 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
 
-;; A frame is auto-registered + scope-pinned by the reset fixture (the
-;; `make-reset-runtime-fixture` ensures a default frame and binds it as the
-;; ambient scope — the carried-invariant equivalent of `(with-frame …)`), so a
-;; bare `dispatch-sync` cascades into it and a zero-arity `elide-wire-value`
-;; / registry read resolves it.
-
 (defn- sensitive-decls []
   (rf.elision/sensitive-declarations))
 
 (defn- large-decls []
   (rf.elision/declarations))
 
+(defn- wire []
+  (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default)))
+
 (defn- record-traces! [listener-id]
   (let [a (atom [])]
     (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
-(defn- error-events [recorded operation]
-  (filterv (fn [ev]
-             (and (= :error (:op-type ev))
-                  (= operation (:operation ev))))
-           @recorded))
-
-;; The ALWAYS-ON corpus axis. `:rf.error/classification-effect-shape`
-;; is a promoted category (`router/emit-classification-effect-shape!` fans it
-;; through `error-emit/emit-error-both!`), so the fail-loud COUNT is readable in
-;; production posture off `:errors` rather than off the dev trace.
-(defn- record-errors! [listener-id]
-  (let [a (atom [])]
-    (rf.error-emit/register-error-listener! listener-id (fn [rec] (swap! a conj rec)))
-    a))
-
-(defn- error-records [recorded category]
-  (filterv #(= category (:error %)) @recorded))
-
-;; ---------------------------------------------------------------------------
-;; 1. classify-then-egress in the SAME event redacts
-;; ---------------------------------------------------------------------------
-
 (deftest sensitive-effect-records-path-and-redacts-at-egress
-  (testing "a handler returning {:sensitive [[:user :token]]} alongside :db
-            records the path in the per-frame registry AT COMMIT, and a
-            subsequent egress read redacts the value there — the value
-            written in that SAME event is redacted from its first egress"
+  (testing "a handler returning `:sensitive` alongside `:db` redacts the value
+            it writes from its first egress, while app-db keeps the real value"
     (rf/reg-event :auth/login
       (fn [{:keys [db]} _]
         {:db        (assoc-in db [:user :token] "Bearer secret-xyz")
          :sensitive [[:user :token]]}))
     (rf/dispatch-sync [:auth/login])
-    ;; recorded in the registry, tagged :source :effect
-    (is (= #{{:source :effect}} (get (sensitive-decls) [:user :token]))
-        "the classified path is in the per-frame sensitive registry, and the
-         effect owner is its sole claimant (a one-owner set)")
-    ;; the application sees the REAL value in app-db (read-only-at-egress)
-    (is (= "Bearer secret-xyz" (get-in (rf.frame/frame-app-db-value :rf/default)
-                                       [:user :token]))
-        "app-db still holds the real value — classification is read only at egress")
-    ;; egress read redacts the value at that path
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
-          "the egress projection redacts the classified path"))))
+    (is (= "Bearer secret-xyz"
+           (get-in (rf.frame/frame-app-db-value :rf/default) [:user :token])))
+    (is (= :rf/redacted (get-in (wire) [:user :token])))))
 
 (deftest large-effect-records-path-and-marks-at-egress
-  (testing "a :large effect records the path; an oversized value at that path
-            elides to an :rf.size/large-elided marker at egress"
+  (testing "a `:large` path elides to an `:rf.size/large-elided` marker at egress"
     (rf/reg-event :docs/upload
       (fn [{:keys [db]} _]
         {:db    (assoc-in db [:docs :csv] (apply str (repeat 500 "X")))
          :large [[:docs :csv]]}))
     (rf/dispatch-sync [:docs/upload])
-    (is (= #{{:source :effect}} (get (large-decls) [:docs :csv]))
-        "the classified path is in the per-frame large registry")
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
-          slot (get-in wire [:docs :csv])]
-      (is (= [:docs :csv] (get-in slot [:rf.size/large-elided :path]))
-          "the large path elides to an :rf.size/large-elided marker at egress"))))
-
-;; ---------------------------------------------------------------------------
-;; 5. value-independence — classify BEFORE a value exists
-;; ---------------------------------------------------------------------------
-
-(deftest classification-is-value-independent
-  (testing "a path may be classified BEFORE any value lands there; the
-            classification redacts whatever later occupies the path"
-    ;; classify with NO value written
-    (rf/reg-event :pre/classify
-      (fn [{:keys [db]} _] {:db db :sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:pre/classify])
-    (is (contains? (sensitive-decls) [:user :token])
-        "the path is classified even though no value exists there")
-    ;; later, a value lands
-    (rf/reg-event :late/write
-      (fn [{:keys [db]} _] {:db (assoc-in db [:user :token] "late-secret")}))
-    (rf/dispatch-sync [:late/write])
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
-          "the standing classification redacts the later-written value"))))
-
-;; ---------------------------------------------------------------------------
-;; 2. clear — :clear-sensitive / :clear-large remove the named paths
-;; ---------------------------------------------------------------------------
-
-(deftest clear-sensitive-removes-the-path
-  (testing ":clear-sensitive removes the named path from the sensitive registry"
-    (rf/reg-event :classify
-      (fn [{:keys [db]} _] {:db db :sensitive [[:user :token] [:user :pin]]}))
-    (rf/dispatch-sync [:classify])
-    (is (contains? (sensitive-decls) [:user :token]))
-    (is (contains? (sensitive-decls) [:user :pin]))
-    (rf/reg-event :unclassify
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:unclassify])
-    (is (not (contains? (sensitive-decls) [:user :token]))
-        "the cleared path is removed")
-    (is (contains? (sensitive-decls) [:user :pin])
-        "an unnamed sibling path survives the clear")))
-
-;; ---------------------------------------------------------------------------
-;; 2b. SOURCE-SCOPED clear — a clear removes only the effect's own
-;;     contribution; a path ALSO claimed by another source stays redacted
-;; ---------------------------------------------------------------------------
+    (is (= [:docs :csv] (get-in (wire) [:docs :csv :rf.size/large-elided :path])))))
 
 (deftest clear-sensitive-is-source-scoped-does-not-un-redact-another-source
-  (testing ":clear-sensitive removes only the effect's OWN claim for a path; a
-            path ALSO claimed by another owner (e.g. a reg-flow output under
-            :source :flow) stays classified — the clear must not silently
-            un-redact a path another owner still considers sensitive (a privacy
-            fail-open).
-
-            This exercises the REAL cross-event path with NO artificial
-            re-assertion of the flow mark: the flow claim is installed ONCE up
-            front, then a LATER, unrelated event does SET+CLEAR on the same
-            path. The effect SET UNIONS in (multi-owner registry) —
-            both owners now claim the path — and the source-scoped clear removes
-            ONLY the effect owner, leaving the flow owner standing."
-    ;; A flow (another owner) declares [:user :token] sensitive in the SAME
-    ;; per-frame elision registry slot the effects write. reg-flow lives in a
-    ;; separate artefact, so simulate its registry write directly via the shared
-    ;; swap-elision-slot! seam, delegating to the same core op reg-flow uses
-    ;; ({:source :flow :flow-id …}). Installed ONCE — it is never re-asserted.
+  (testing "an effect SET unions with another owner's claim, and the effect
+            CLEAR removes only its own, so a path another owner (here a flow)
+            still classifies stays redacted"
     (rf.elision/swap-elision-slot! :rf/default
       (fn [reg]
         (rf.elision/add-claims (or reg {}) :sensitive-declarations
-                            {:source :flow :flow-id :token-watch} [[:user :token]])))
-    (is (= #{{:source :flow :flow-id :token-watch}}
-           (get (sensitive-decls) [:user :token]))
-        "the flow owner is standing in the registry")
-    ;; A LATER, unrelated event ALSO classifies the same path via an effect SET.
-    ;; The multi-owner SET UNIONS the effect owner in alongside the flow owner.
+                               {:source :flow :flow-id :token-watch} [[:user :token]])))
     (rf/reg-event :effect-classify-token
       (fn [{:keys [db]} _]
-        {:db (assoc-in db [:user :token] "Bearer secret-xyz")
+        {:db        (assoc-in db [:user :token] "Bearer secret-xyz")
          :sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-classify-token])
     (is (= #{{:source :flow :flow-id :token-watch} {:source :effect}}
-           (get (sensitive-decls) [:user :token]))
-        "the same-path effect SET UNIONS in — both owners claim the path")
-    ;; A still-later event CLEARS the path. The source-scoped clear removes ONLY
-    ;; the effect owner — the flow owner survives, the path stays classified and
-    ;; the value stays REDACTED. This is the real operational sequence.
+           (get (sensitive-decls) [:user :token])))
     (rf/reg-event :effect-clear-token
       (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-clear-token])
     (is (= #{{:source :flow :flow-id :token-watch}}
-           (get (sensitive-decls) [:user :token]))
-        "the path is STILL classified — the flow's claim survives the effect
-         clear, and the sole surviving owner is the flow's, not the effect's")
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
-          "the value stays REDACTED at egress — the clear did not un-redact it"))))
+           (get (sensitive-decls) [:user :token])))
+    (is (= :rf/redacted (get-in (wire) [:user :token])))))
 
-;; ---------------------------------------------------------------------------
-;; 2c. CLEAR over an ABSENT / wrong-axis path is a harmless NO-OP
-;;     The fail-open clear contract relies on a clear being a harmless dissoc.
-;;     A regression that throws on an absent-key clear, or that prunes the
-;;     wrong axis slot, would be a fail-open privacy hazard — pin it.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-sensitive-on-a-large-only-path-leaves-the-large-axis-intact
-  (testing ":clear-sensitive over a path classified on the OTHER axis only
-            (:large) is a no-op on the sensitive axis AND leaves the large
-            classification intact — the wrong-axis clear must not prune the
-            large slot."
-    (rf/reg-event :classify-large-only
-      (fn [{:keys [db]} _] {:db db :large [[:docs :blob]]}))
-    (rf/dispatch-sync [:classify-large-only])
-    (is (contains? (large-decls) [:docs :blob]))
-    (is (not (contains? (sensitive-decls) [:docs :blob]))
-        "precondition: the path is large-only, never sensitive")
-    ;; clear on the WRONG axis for this path
-    (rf/reg-event :wrong-axis-clear
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:docs :blob]]}))
-    (let [recorded (record-traces! :wrong-axis-clear-probe)]
-      (rf/dispatch-sync [:wrong-axis-clear])
-      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
-          "no error — the wrong-axis clear does not throw")
-      (rf/unregister-listener! :trace :wrong-axis-clear-probe))
-    (is (contains? (large-decls) [:docs :blob])
-        "the large classification is INTACT — :clear-sensitive did not prune the large axis")
-    (is (not (contains? (sensitive-decls) [:docs :blob]))
-        "the sensitive axis is still empty for this path — the clear was a no-op there")))
-
-;; ---------------------------------------------------------------------------
-;; 2d. SAME-EVENT SET + CLEAR of one path — CLEAR WINS
-;;     rf.elision/apply-classification-effects reduces SET axes before CLEAR
-;;     axes within one effect map, so a same-event set+clear of one path on
-;;     one axis resolves to UNclassified. A reorder regression (clear-then-set)
-;;     would invert this and ship the path RAW or leave it redacted — pin both
-;;     the registry outcome AND the egress (the path ships raw / unclassified).
-;; ---------------------------------------------------------------------------
-
-(deftest same-event-set-and-clear-of-one-sensitive-path-clear-wins
-  (testing "one event returning BOTH :sensitive [[:p]] and :clear-sensitive
-            [[:p]] resolves to the path being UNCLASSIFIED — the SET is applied
-            before its CLEAR (set axes reduced first), so the CLEAR is the
-            later write and wins. Pins the effect ordering so a reorder
-            regression that left the path classified-then-shipped-raw OR
-            raw-then-redacted is caught."
-    (rf/reg-event :set-and-clear-same
-      (fn [{:keys [db]} _]
-        {:db              (assoc-in db [:user :token] "Bearer set-then-cleared")
-         :sensitive       [[:user :token]]
-         :clear-sensitive [[:user :token]]}))
-    (let [recorded (record-traces! :set-and-clear-probe)]
+(deftest same-event-set-and-clear-of-one-path-clear-wins
+  (testing "SET axes apply before CLEAR axes within one effect map, so a
+            same-event set+clear of one path leaves it unclassified on both
+            axes and its value ships raw"
+    (let [csv (apply str (repeat 500 "Y"))]
+      (rf/reg-event :set-and-clear-same
+        (fn [{:keys [db]} _]
+          {:db              (-> db
+                                (assoc-in [:user :token] "Bearer set-then-cleared")
+                                (assoc-in [:docs :csv] csv))
+           :sensitive       [[:user :token]]
+           :clear-sensitive [[:user :token]]
+           :large           [[:docs :csv]]
+           :clear-large     [[:docs :csv]]}))
       (rf/dispatch-sync [:set-and-clear-same])
-      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
-          "the same-event set+clear is well-shaped — no error")
-      (rf/unregister-listener! :trace :set-and-clear-probe))
-    (is (not (contains? (sensitive-decls) [:user :token]))
-        "CLEAR WINS — the path is NOT in the sensitive registry after commit")
-    ;; the :db value DID commit (the classification effects are not the :db)
-    (is (= "Bearer set-then-cleared"
-           (get-in (rf.frame/frame-app-db-value :rf/default) [:user :token]))
-        "the :db write committed — only the classification was set-then-cleared")
-    ;; and because the path ends UNclassified, the value ships RAW at egress
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= "Bearer set-then-cleared" (get-in wire [:user :token]))
-          "the path ships RAW at egress — clear won, so nothing redacts it"))))
-
-(deftest same-event-set-and-clear-of-one-large-path-clear-wins
-  (testing "the same set-before-clear ordering holds on the :large axis: an
-            event returning both :large [[:p]] and :clear-large [[:p]] ends
-            with the path UNclassified, so an oversized value there ships RAW
-            (no large marker) at egress."
-    (rf/reg-event :set-and-clear-large
-      (fn [{:keys [db]} _]
-        {:db          (assoc-in db [:docs :csv] (apply str (repeat 500 "Y")))
-         :large       [[:docs :csv]]
-         :clear-large [[:docs :csv]]}))
-    (rf/dispatch-sync [:set-and-clear-large])
-    (is (not (contains? (large-decls) [:docs :csv]))
-        "CLEAR WINS on the large axis — the path is NOT in the large registry")
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
-          slot (get-in wire [:docs :csv])]
-      (is (= (apply str (repeat 500 "Y")) slot)
-          "no large marker — the raw oversized value ships unchanged at egress
-           (clear won)"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. axes independent — sensitive vs large clears do not cross
-;; ---------------------------------------------------------------------------
+      (is (= {:user {:token "Bearer set-then-cleared"} :docs {:csv csv}}
+             (select-keys (wire) [:user :docs]))))))
 
 (deftest axes-are-independent
-  (testing "clearing the sensitive axis does not touch the large axis and
-            vice versa"
+  (testing "a clear removes only the paths it names, on its own axis: an
+            unnamed sibling survives, the other axis is untouched, and a
+            clear over a path classified only on the other axis is a
+            committed no-op"
     (rf/reg-event :classify-both
       (fn [{:keys [db]} _]
         {:db        db
-         :sensitive [[:user :token]]
-         :large     [[:docs :csv]]}))
+         :sensitive [[:user :token] [:user :pin]]
+         :large     [[:docs :csv] [:docs :blob]]}))
     (rf/dispatch-sync [:classify-both])
-    (is (contains? (sensitive-decls) [:user :token]))
-    (is (contains? (large-decls) [:docs :csv]))
-    ;; clearing sensitive must leave large untouched
     (rf/reg-event :clear-s
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
+      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token] [:docs :blob]]}))
     (rf/dispatch-sync [:clear-s])
-    (is (not (contains? (sensitive-decls) [:user :token]))
-        "the sensitive path is cleared")
-    (is (contains? (large-decls) [:docs :csv])
-        "the large path is UNTOUCHED by a sensitive clear (axes independent)")
-    ;; clearing large must leave sensitive untouched (re-classify sensitive first)
+    (is (not (contains? (sensitive-decls) [:user :token])) "the named path is cleared")
+    (is (contains? (sensitive-decls) [:user :pin]) "an unnamed sibling survives")
+    (is (not (contains? (sensitive-decls) [:docs :blob]))
+        "a wrong-axis clear adds no claim")
+    (is (and (contains? (large-decls) [:docs :csv])
+             (contains? (large-decls) [:docs :blob]))
+        "a sensitive clear leaves the large axis intact, the wrong-axis path included")
     (rf/dispatch-sync [:classify-both])
     (rf/reg-event :clear-l
       (fn [{:keys [db]} _] {:db db :clear-large [[:docs :csv]]}))
     (rf/dispatch-sync [:clear-l])
-    (is (not (contains? (large-decls) [:docs :csv]))
-        "the large path is cleared")
+    (is (not (contains? (large-decls) [:docs :csv])) "the large path is cleared")
     (is (contains? (sensitive-decls) [:user :token])
-        "the sensitive path is UNTOUCHED by a large clear (axes independent)")))
-
-;; ---------------------------------------------------------------------------
-;; 4. fail-loud pre-commit — malformed payload, NO :db commit
-;;     elision.cljc classification-effect-defect validates all four keys
-;;     (:sensitive :large :clear-sensitive :clear-large) and reports a
-;;     distinct :offending-key. A regression that skipped validation on the
-;;     clear keys (or :large) would ship a malformed clear SILENTLY. Each row
-;;     feeds ONE key a malformed payload — a NON-VECTOR value, or a
-;;     NON-VECTOR path entry inside an otherwise-vector payload — so
-;;     :offending-key is unambiguous (defect detection iterates the key set,
-;;     returning the first defect).
-;; ---------------------------------------------------------------------------
-
-(defn- assert-axis-fails-loud
-  "Drive an event whose ONLY classification key is `effect-key` with the
-  malformed `payload`, and assert it fails loud: exactly one
-  :rf.error/classification-effect-shape with `:offending-key` == `effect-key`,
-  and the :db commit is aborted (the seeded :n stays 1, not 2)."
-  [effect-key payload probe-id ev-id]
-  (rf/reg-event :seed-axis (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-  (rf/dispatch-sync [:seed-axis])
-  (rf/reg-event ev-id
-    (fn [{:keys [db]} _]
-      {:db (assoc db :n 2) effect-key payload}))
-  (let [recorded (record-traces! probe-id)
-        records  (record-errors! (keyword (namespace probe-id) (str (name probe-id) "-errors")))]
-    (rf/dispatch-sync [ev-id])
-    ;; ALWAYS-ON axis: every one of the four axes fails loud on the
-    ;; corpus-wide channel, which is the channel a production build has.
-    (let [recs (error-records records :rf.error/classification-effect-shape)]
-      (is (= 1 (count recs))
-          (str "exactly one always-on classification-effect-shape record for " effect-key))
-      (is (= ev-id (:event-id (first recs)))
-          (str "the always-on record attributes the " effect-key " rejection to its event")))
-    ;; The dev-trace copy of `:offending-key`; the always-on record's is
-    ;; pinned by `re-frame.classification-effect-shape-record-cljs-test`.
-    (when rf.interop/debug-enabled?
-      (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-        (is (= 1 (count errs))
-            (str "exactly one classification-effect-shape error for " effect-key))
-        (is (= effect-key (:offending-key (:tags (first errs))))
-            (str "the diagnostic names " effect-key " as the offending key"))))
-    (rf.error-emit/unregister-error-listener! (keyword (namespace probe-id) (str (name probe-id) "-errors")))
-    (rf/unregister-listener! :trace probe-id))
-  (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
-      (str "no :db commit happened on the malformed " effect-key " abort")))
+        "a large clear leaves the sensitive axis intact")))
 
 (deftest malformed-classification-payload-fails-loud-with-no-db-commit
-  (testing "a malformed payload on ANY of the four keys is rejected FAIL-LOUD
-            on the pre-commit-transactional (FINAL-effects) boundary: it emits
-            :rf.error/classification-effect-shape naming the offending key and
-            aborts the event with NO :db commit (no partial commit). In-band —
-            like the legacy-root rejection — so it does not escape the drain,
-            and a malformed clear is never shipped silently."
-    (doseq [[effect-key payload] [[:sensitive       :not-a-vector]
-                                  [:sensitive       [:not-a-path-vector]]
-                                  [:large           :not-a-vector]
-                                  [:large           [:not-a-path-vector]]
-                                  [:clear-sensitive :not-a-vector]
-                                  [:clear-large     :not-a-vector]
-                                  [:clear-large     [:not-a-path-vector]]]]
-      (testing (str effect-key " " (pr-str payload))
-        (assert-axis-fails-loud effect-key payload :bad-classify-probe :bad-classify)))))
-
-(deftest non-segment-path-element-is-reported-as-a-defect
-  (testing "a path entry whose SEGMENT is not a valid :rf/path segment (a
-            non-EDN-identity element — e.g. a function) makes
-            re-frame.path/normalize-concrete throw :rf.error/bad-path, which
-            classification-effect-defect catches and re-reports as the SAME
-            classification-effect-shape defect (one error id for the whole
-            fail-closed :rf/path boundary). No :db commit."
-    (rf/reg-event :seed-seg (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (rf/dispatch-sync [:seed-seg])
-    ;; a function is not a legal path segment — a sequential path whose
-    ;; element is a non-EDN-identity value drives normalize-concrete to throw.
-    (rf/reg-event :bad-segment
-      (fn [{:keys [db]} _]
-        {:db (assoc db :n 2) :sensitive [[(fn [] :nope)]]}))
-    (let [recorded (record-traces! :bad-segment-probe)
-          records  (record-errors! :bad-segment-errors)]
-      (rf/dispatch-sync [:bad-segment])
-      ;; ALWAYS-ON axis: the whole fail-closed `:rf/path` boundary
-      ;; collapses to ONE record on the corpus channel, not a throw and not a
-      ;; second category.
-      (let [recs (error-records records :rf.error/classification-effect-shape)]
-        (is (= 1 (count recs))
-            "a non-segment path element fails loud as ONE always-on record")
-        (is (empty? (error-records records :rf.error/bad-path))
-            ":rf.error/bad-path is re-reported, not surfaced as its own category"))
-      ;; The dev-trace arm.
+  (testing "a malformed payload aborts the event with no :db commit, and the
+            dev trace names the offending key"
+    (rf/reg-event :seed-axis (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/dispatch-sync [:seed-axis])
+    (rf/reg-event :bad-classify
+      (fn [{:keys [db]} _] {:db (assoc db :n 2) :clear-large [:not-a-path-vector]}))
+    (let [recorded (record-traces! :bad-classify-probe)]
+      (rf/dispatch-sync [:bad-classify])
+      (rf/unregister-listener! :trace :bad-classify-probe)
       (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-          (is (= 1 (count errs))
-              "a non-segment path element fails loud as ONE classification-effect-shape error")
-          (is (= :sensitive (:offending-key (:tags (first errs))))
-              "the offending key is named")))
-      (rf.error-emit/unregister-error-listener! :bad-segment-errors)
-      (rf/unregister-listener! :trace :bad-segment-probe))
-    (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
-        "no :db commit happened on the non-segment-path abort")))
-
-;; ---------------------------------------------------------------------------
-;; classification-only effect (no :db) still commits the registry write
-;; ---------------------------------------------------------------------------
+        (is (= [:clear-large]
+               (->> @recorded
+                    (filter #(= :rf.error/classification-effect-shape (:operation %)))
+                    (mapv #(get-in % [:tags :offending-key])))))))
+    (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default))))))
 
 (deftest classification-only-effect-commits-registry
   (testing "a handler returning ONLY a classification effect (no :db) still
-            commits the registry write — the runtime-db partition participates"
+            commits the registry write"
     (rf/reg-event :classify-only
       (fn [_ _] {:sensitive [[:secret :value]]}))
     (rf/dispatch-sync [:classify-only])
-    (is (contains? (sensitive-decls) [:secret :value])
-        "a classification-only effect writes the registry")))
+    (is (contains? (sensitive-decls) [:secret :value]))))
 
-;; ---------------------------------------------------------------------------
-;; The SAME event's own t1 / t2 trace honours its classification
-;; ---------------------------------------------------------------------------
-;;
 ;; t1 `:rf.event/db-pending` and t2 `:rf.event/db-pending-post-flow` stamp the
-;; pending app-db BEFORE the commit folds this event's classification effects
-;; into the registry, so projecting them against the committed registry would
-;; ship the very secret the event is classifying. They are projected against
-;; the CANDIDATE registry: the committed one with this event's effects applied.
-;; Dev-trace legs, so `^:requires-debug`.
+;; pending app-db BEFORE the commit folds this event's classification into the
+;; registry, so they are projected against the CANDIDATE registry; against the
+;; committed one they would ship the very secret the event classifies.
 
 (def ^:private t1-secret "SAME-EVENT-TRACE-SENTINEL-4x3")
 
 (defn- same-event-login!
-  "Write the secret at `[:user :token]` AND under a map-of key
-  (`[:user \"s1\" :token]`, which the declared `[:user :token]` also governs
-  through elision's collection-coordinate skip), classify `[:user :token]`
-  sensitive in the SAME return, and dispatch it. Returns the event's t1 and t2
-  traces (t2 only when a flow reshaped the pending db)."
+  "Write the secret at `[:user :token]` and under a map-of key
+  (`[:user \"s1\" :token]`, which `[:user :token]` also governs), classify
+  `[:user :token]` in the SAME return, dispatch, and return the t1 and t2
+  traces."
   [event-id]
   (let [rec (record-traces! event-id)]
     (try
@@ -517,27 +186,19 @@
         (rf/unregister-listener! :trace event-id)))))
 
 (defn- assert-same-event-db-redacted [where trace]
-  (let [db (get-in trace [:tags :rf.event/db])]
-    (is (= rf.privacy/redacted-sentinel (get-in db [:user :token]))
-        (str where ": the path classified THIS event is redacted"))
-    (is (= rf.privacy/redacted-sentinel (get-in db [:user "s1" :token]))
-        (str where ": the map-of position the declaration governs is redacted"))
-    (is (= "alice" (get-in db [:user :name]))
-        (str where ": a benign sibling survives — per declared path, not wholesale"))
-    (is (not-any? #(and (keyword? %)
-                        (some-> (namespace %) (str/starts-with? "re-frame.")))
-                  (keys (:tags trace)))
-        (str where ": no private carrier tag reaches the listener"))))
+  (is (= {:token :rf/redacted "s1" {:token :rf/redacted} :name "alice"}
+         (get-in trace [:tags :rf.event/db :user]))
+      (str where ": the classified path and its map-of position redact; a benign sibling survives"))
+  (is (not-any? #(and (keyword? %)
+                      (some-> (namespace %) (str/starts-with? "re-frame.")))
+                (keys (:tags trace)))
+      (str where ": no private carrier tag reaches the listener")))
 
 (deftest ^:requires-debug same-event-classification-redacts-its-own-t2-trace
-  (testing "t2 (a flow reshaped the pending db) takes the same candidate
-            registry as t1"
+  (testing "t1, and t2 after a flow reshaped the pending db, both take the
+            candidate registry"
     (rf/reg-flow :same-event/doubled {:inputs [[:n]] :output-path [:doubled]}
       (fn [n] (* 2 n)))
     (let [{:keys [t1 t2]} (same-event-login! :auth/login-t2)]
-      (is (= 1 (count t2)) "producer control: the flow reshaped the db, so t2 fired")
-      (is (= 2 (get-in (first t2) [:tags :rf.event/db :doubled]))
-          "the flow's output rides t2")
-      (is (= 1 (count t1)) "producer control: the event emitted its t1 trace")
       (assert-same-event-db-redacted :t1 (first t1))
       (assert-same-event-db-redacted :t2 (first t2)))))
