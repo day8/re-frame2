@@ -85,9 +85,8 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cursor paths through the REAL tool. cursor_pagination_test checks the
-;; slice and mint logic against a hand-reimplemented copy; these keep the
-;; real envelope from diverging from it.
+;; Cursor paths through the real tool: a cursor the codec cannot use comes
+;; back as cursor-stale, never as an empty page.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-cursor-returns-cursor-stale
