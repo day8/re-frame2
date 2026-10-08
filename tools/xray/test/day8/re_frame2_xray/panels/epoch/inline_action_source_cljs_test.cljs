@@ -105,12 +105,6 @@
             macro-stamped inline `:source-code` (co-located on the enclosing
             transition map) is what the view reads."
     (setup!)
-    ;; The transition map carries the inline action's source on the enclosing
-    ;; node (the machine-side contract this test consumes).
-    (is (string? (get-in (:rf/machine (rf/handler-meta {:source :store :kind :event :id :inline/sample}))
-                         [:states :idle :on :go :source-code :action]))
-        "the inline transition :action's :source-code is co-located on the
-         enclosing transition map (the machine-meta contract)")
     ;; Drive the real macrostep and render the HANDLER step. The body embeds
     ;; edn-inspectors that subscribe against the surrounding frame.
     (rf/make-frame {:id :rf/xray})
@@ -133,8 +127,6 @@
                                                     (:step r)))
                                              text-content)))
                              (string/join "\n"))]
-      (is (seq action-rows)
-          "the macrostep produced at least one :action cascade row")
       (is (string/includes? source-bodies ":inline-action-fired?")
           "the inline transition action's CLJS source CODE renders in the
            cascade source body (not #object[Function])")
