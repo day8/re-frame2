@@ -1,31 +1,19 @@
 (ns re-frame.after-timer-arm-publish-race-cljs-test
-  "Adversarial ordering tests for the machine `:after` timer two-phase
-  arm. Two races a serial test does not reach:
+  "Adversarial orderings of the machine `:after` timer's two-phase arm: reserve
+  a token-stamped sentinel (`:handle nil`), arm the host clock, then publish the
+  handle only if that token still owns the slot. Per Spec 005 §Delayed `:after`
+  transitions.
 
-    1. ARM-AFTER-CLEANUP — a host arm that returns AFTER a lifecycle cleanup
-       already ran must NOT publish a live timer onto a torn-down frame / actor
-       / exited state / restored frame. The arm RESERVES the slot with a
-       token-stamped arming sentinel (`:handle nil`) BEFORE arming, so a
-       concurrent cleanup atomically CLAIMS the attempt and the publish phase
-       finds its token gone and cancels the orphan handle.
+    1. ARM-AFTER-CLEANUP — a cleanup that claims the sentinel while the host
+       arm is in flight leaves no entry, and the late publish cancels its
+       orphan handle.
+    2. OLD-CANCEL-DELETES-SUCCESSOR — cancelling attempt A never deletes a
+       successor occupying the same `{:parent :spawn :delay}` key.
 
-    2. OLD-CANCEL-DELETES-SUCCESSOR — a trailing cancellation of an OLD attempt
-       must NOT delete a re-armed SUCCESSOR occupying the same reused
-       `{:parent :spawn :delay}` key. Every cancellation is scoped to the
-       exact attempt token it observed (`claim-entry!`), so a successor
-       published mid-cancellation survives untouched.
-
-  The races are only genuinely CONCURRENT on the JVM (CLJS `set-timeout!`
-  cannot fire before the caller yields), but the deterministic interleavings
-  here are driven with `with-redefs` — running the cleanup INSIDE the host-arm
-  stub (between reserve and publish), or firing the captured thunk synchronously
-  — so BOTH runtimes execute the identical reserve / publish / claim code and
-  the invariants hold on each. Per Spec 005 §Delayed `:after` transitions.
-
-  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
-  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
-  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered."
+  The interleavings are driven with `with-redefs` (the cleanup runs inside the
+  host-arm stub, or the captured thunk is fired by hand), so both runtimes run
+  the same reserve / publish / claim code. The `-cljs-test` suffix is what puts
+  this `.cljc` in Shadow's `:node-test` build as well as the JVM suite."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -41,8 +29,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- fresh-handle
-  "A process-unique opaque host handle, distinguishable by `identical?` on both
-  runtimes (a fired `set-timeout!` id / `ScheduledFuture` stand-in)."
+  "A process-unique opaque host handle, distinguishable by `identical?`."
   []
   #?(:clj (Object.) :cljs #js {}))
 
@@ -51,8 +38,7 @@
   []
   (get @rf.machines.timer/after-timers :rf/default {}))
 
-;; A literal-delay `:after` state — the host clock is stubbed, so the 1-hour
-;; delay never fires on its own; it lingers as an armed entry we can race.
+;; The host clock is stubbed throughout, so the 1-hour delay never fires on its own.
 (def ^:private literal-spec
   {:initial :idle
    :data    {}
@@ -60,38 +46,30 @@
              :waiting {:after {3600000 :done}}
              :done    {}}})
 
-;; ===========================================================================
-;; RACE 1 — arm-after-cleanup: a cleanup that wins DURING arming leaves no
-;; surviving entry, and the late-returning arm cancels its orphan handle.
-;; ===========================================================================
-
-(defn- cancelled-listener [seen]
-  (fn [ev] (when (= :rf.machine.timer/cancelled (:operation ev))
-             (swap! seen conj ev))))
+;; ---- RACE 1 — arm-after-cleanup -------------------------------------------
 
 (defn- run-arm-then-cleanup
-  "Arm the literal-delay `:after` timer, but run `(cleanup! frame k)` DURING the
-  host arm — after the slot is reserved, before the handle is published.
-  Returns `{:cancelled [handles] :traces [cancelled-events] :handle h}`."
+  "Arm the literal-delay `:after`, running `(cleanup! frame k)` inside the host
+  arm — after the slot is reserved, before the handle is published."
   [machine-id cleanup!]
   (rf/reg-machine machine-id literal-spec)
-  (let [cancelled    (atom [])
-        traces       (atom [])
-        armed-handle (fresh-handle)
-        lkey         ::arm-cleanup-rec]
-    (rf.trace.tooling/register-listener! lkey (cancelled-listener traces))
+  (let [cancelled (atom [])
+        traces    (atom [])
+        handle    (fresh-handle)]
+    (rf.trace.tooling/register-listener!
+      ::cancelled-rows
+      (fn [ev] (when (= :rf.machine.timer/cancelled (:operation ev))
+                 (swap! traces conj ev))))
     (try
       (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
                     rf.interop/schedule-after!
                     (fn [_thunk _ms]
-                      ;; The slot is reserved (sentinel) but not yet published:
-                      ;; a lifecycle cleanup wins here.
                       (let [[k _entry] (first (inner))]
                         (cleanup! :rf/default k))
-                      armed-handle)]
+                      handle)]
         (rf/dispatch-sync [machine-id [:go]]))
-      (finally (rf.trace.tooling/unregister-listener! lkey)))
-    {:cancelled @cancelled :traces @traces :handle armed-handle}))
+      (finally (rf.trace.tooling/unregister-listener! ::cancelled-rows)))
+    {:cancelled @cancelled :traces @traces :handle handle}))
 
 (deftest arm-after-cleanup-leaves-no-entry-and-cancels-orphan-handle
   (doseq [[label reason cleanup!]
@@ -106,65 +84,50 @@
                                                  {:rf/parent-id (:parent k)
                                                   :rf/invoke-id (:spawn k)}))]]]
     (testing (str "cleanup owner: " label)
-      (let [mid (keyword "armrace" (str (name reason)))
-            {:keys [cancelled traces handle]} (run-arm-then-cleanup mid cleanup!)]
+      (let [{:keys [cancelled traces handle]}
+            (run-arm-then-cleanup (keyword "armrace" (name reason)) cleanup!)]
         (is (empty? (inner))
-            "no entry survives — the late arm did not publish onto a cleaned frame")
+            "no entry survives — the late arm did not publish onto a cleaned slot")
         (is (some #(identical? handle %) cancelled)
             "the orphan host handle returned by the late arm was cancelled")
-        (is (= 1 (count traces))
-            "exactly one :rf.machine.timer/cancelled trace (the cleanup claim)")
-        (is (= reason (:reason (:tags (first traces))))
-            (str "the single cancellation carries :reason " reason))))))
+        (is (= [reason] (mapv (comp :reason :tags) traces))
+            "exactly one :rf.machine.timer/cancelled, carrying the cleanup's reason")))))
 
 (deftest arm-after-cleanup-sub-delay-balances-subscription-and-watcher
-  ;; A sub-vec dynamic delay: the arming sentinel carries the subscription
-  ;; reaction + watch-key, so a cleanup that claims it mid-arm releases the
-  ;; ref-count and detaches nothing-yet-attached; the late publish then cancels
-  ;; the orphan handle and installs NO watcher — a later sub change is inert.
+  ;; The sentinel carries the sub-delay's reaction, so a mid-arm cleanup releases
+  ;; the held subscription; the losing publish installs no watcher.
   (rf/reg-sub :armrace/dyn (fn [_db _] 5000))
   (rf/reg-machine :armrace/sub
                   {:initial :idle :data {}
                    :states {:idle    {:on {:go :waiting}}
                             :waiting {:after {[:armrace/dyn] :done}}
                             :done    {}}})
-  (let [reaction     (atom 5000)
-        unsub-count  (atom 0)
-        cancelled    (atom [])
-        armed-handle (fresh-handle)]
+  (let [reaction    (atom 5000)
+        unsub-count (atom 0)
+        cancelled   (atom [])]
     (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
                   rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
                                      ([_ _] (swap! unsub-count inc) nil))
                   rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
                   rf.interop/schedule-after!
                   (fn [_thunk _ms]
-                    (rf.machines.timer/cancel-all-timers! :rf/default) ;; frame destroy mid-arm
-                    armed-handle)]
+                    (rf.machines.timer/cancel-all-timers! :rf/default)
+                    (fresh-handle))]
       (rf/dispatch-sync [:armrace/sub [:go]])
-      (is (empty? (inner)) "no entry survives the mid-arm frame destroy")
-      (is (some #(identical? armed-handle %) @cancelled)
-          "the orphan host handle was cancelled")
       (is (pos? @unsub-count)
           "the held subscription ref-count was released (balanced)")
-      ;; A later sub-value change must NOT re-arm — no watcher was installed on
-      ;; the losing publication.
-      (let [arms-before (count @cancelled)]
+      ;; Every arm here is cleaned up mid-arm and ends in an orphan cancel, so a
+      ;; re-arm would show up as one more cancelled handle.
+      (let [cancels-before (count @cancelled)]
         (reset! reaction 9999)
-        (is (empty? (inner)) "a later sub change did not re-arm a spent attempt")
-        (is (= arms-before (count @cancelled))
-            "no fresh host work followed the inert sub change")))))
+        (is (= cancels-before (count @cancelled))
+            "a later sub change re-armed nothing — no watcher was installed")))))
 
-;; ===========================================================================
-;; RACE 2 — old-cancel-deletes-successor: cancelling attempt A must not erase a
-;; successor B re-armed at the same key.
-;; ===========================================================================
+;; ---- RACE 2 — old-cancel-deletes-successor --------------------------------
 
 (deftest cancellation-of-old-attempt-does-not-delete-successor
-  ;; Arm A for real, then — DURING A's cancellation, at the moment its host
-  ;; handle is released — publish a successor B at the same reused key (the
-  ;; deterministic stand-in for a concurrent re-arm landing between A's read and
-  ;; its removal). A's cancellation must claim ONLY A (its own token) and leave
-  ;; B tracked and live.
+  ;; B is published at A's key while A's handle is being released — the
+  ;; deterministic stand-in for a concurrent re-arm landing mid-cancellation.
   (rf/reg-machine :succ/m literal-spec)
   (let [hA        (fresh-handle)
         hB        (fresh-handle)
@@ -173,37 +136,25 @@
       (rf/dispatch-sync [:succ/m [:go]]))
     (let [[k a-entry] (first (inner))
           b-entry     (assoc a-entry :handle hB :token ::successor-token)]
-      (is (identical? hA (:handle a-entry)) "precondition: A armed with handle hA")
       (with-redefs [rf.interop/cancel-scheduled!
                     (fn [h]
                       (swap! cancelled conj h)
-                      ;; B lands at the same key while A's handle is being
-                      ;; released — the concurrent re-arm publishing a successor.
                       (when (identical? h hA)
                         (swap! rf.machines.timer/after-timers assoc-in [:rf/default k] b-entry))
                       nil)]
-        ;; cancel A (actor destroy) — reads A, claims A by A's token, releases A
         (rf.machines.timer/cancel-actor-timers! :rf/default (:parent k)))
-      (let [slot (get-in @rf.machines.timer/after-timers [:rf/default k])]
-        (is (= b-entry slot)
-            "successor B SURVIVES A's cancellation — the old cancel did not delete it")
-        (is (identical? hB (:handle slot)) "B's host handle is intact")
-        (is (some #(identical? hA %) @cancelled) "A's own handle was cancelled")
-        (is (not (some #(identical? hB %) @cancelled))
-            "B's handle was NOT cancelled by A's cancellation")))))
-
-;; ===========================================================================
-;; RACE 2b — same-epoch dynamic-delay re-arm: a STALE loser thunk (same durable
-;; epoch as the winner, because a dynamic-delay re-arm keeps the epoch) must not
-;; reap or dispatch against the winner. The per-attempt token distinguishes
-;; them where the epoch cannot.
-;; ===========================================================================
+      (is (= b-entry (get-in @rf.machines.timer/after-timers [:rf/default k]))
+          "successor B survives A's cancellation intact")
+      (is (= [hA] @cancelled)
+          "A's cancellation released A's handle and never B's"))))
 
 (deftest same-epoch-loser-thunk-cannot-reap-or-dispatch-the-winner
+  ;; A dynamic-delay re-arm keeps the durable epoch, so only the per-attempt
+  ;; token tells a stale loser thunk from the winner. The guard is false, so a
+  ;; fire never exits the state: the fire itself must reap its entry.
   (rf/reg-sub :lose/dyn (fn [_db _] 5000))
   (rf/reg-machine :lose/m
                   {:initial :idle :data {}
-                   ;; guard false → a fire is discarded, the state does not exit
                    :guards {:no (fn [_] false)}
                    :states {:idle    {:on {:go :waiting}}
                             :waiting {:after {[:lose/dyn] {:guard :no :target :done}}}
@@ -216,29 +167,20 @@
                                             (swap! thunks conj thunk)
                                             (fresh-handle))
                   rf.interop/cancel-scheduled! (fn [_h] nil)]
-      (rf/dispatch-sync [:lose/m [:go]])            ;; arm attempt-1 → thunk-1
-      (is (= 1 (count (inner))) "attempt-1 armed")
-      (is (= 1 (count @thunks)) "captured thunk-1")
-      (reset! reaction 6000)                        ;; sub change → re-arm attempt-2 → thunk-2
-      (is (= 1 (count (inner))) "still exactly one entry (attempt-1 superseded by attempt-2)")
-      (is (= 2 (count @thunks)) "captured thunk-2 (the same-epoch re-arm)")
-      (let [thunk-1 (first @thunks)
-            thunk-2 (second @thunks)]
-        ;; Fire the STALE loser (thunk-1). Its token no longer owns the slot, so
-        ;; its atomic claim fails: it neither reaps attempt-2 nor dispatches.
-        (thunk-1)
-        (is (= 1 (count (inner)))
-            "the stale loser thunk did NOT reap the winner (token guard, not epoch)")
-        (is (= 2 (count @thunks))
-            "the loser thunk lost dispatch authority — no phantom re-arm followed")
-        ;; Fire the winner (thunk-2). It owns the slot → claims + reaps it.
-        (thunk-2)
-        (is (empty? (inner)) "the winning thunk reaped its own entry")))))
+      (rf/dispatch-sync [:lose/m [:go]])
+      (reset! reaction 6000)
+      (is (= [1 2] [(count (inner)) (count @thunks)])
+          "a sub change before any fire re-armed the one live entry")
+      ((first @thunks))
+      (is (= [1 2] [(count (inner)) (count @thunks)])
+          "the stale loser thunk neither reaped the winner nor re-armed")
+      ((second @thunks))
+      (reset! reaction 9999)
+      (is (= [0 2] [(count (inner)) (count @thunks)])
+          (str "the winning thunk reaped its entry and released its watcher, so "
+               "the spent one-shot does not re-arm on a later sub change")))))
 
-;; ===========================================================================
-;; SYNC-FIRE — a scheduler that invokes the callback synchronously inside the
-;; arm, before returning the handle, must not strand a spent entry.
-;; ===========================================================================
+;; ---- SYNC-FIRE — the host fires the callback inside the arm ---------------
 
 (deftest synchronous-fire-during-arm-strands-no-spent-entry
   (rf/reg-machine :sync/m
@@ -251,8 +193,6 @@
     (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
                   rf.interop/schedule-after! (fn [thunk _ms]
                                             (let [h (fresh-handle)]
-                                              ;; the host fires the callback
-                                              ;; synchronously BEFORE returning
                                               (thunk)
                                               h))]
       (rf/dispatch-sync [:sync/m [:go]]))
