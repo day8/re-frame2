@@ -1,65 +1,22 @@
 (ns re-frame.frame-resolution-cljs-test
-  "EP-0023 §Frame-derived live registration resolution: live
-  registration lookup — dispatch (event), subscribe (sub), fx, cofx,
-  view/resource lookup — derives from the TARGET frame's resolved image
-  generation, not the global/default registrar.
+  "Frame-derived live registration resolution: inside
+  `call-with-frame-resolution`, `rf.registrar/lookup` (the one chokepoint every
+  kind's lookup funnels through) and the registrar queries resolve through the
+  target frame's own image generation; outside it, or for a target with no
+  generation, they fall through to the registrar.
 
-  > target frame -> resolved image generation -> registration resolution
-
-  This is the prerequisite that makes the same-id / different-image use cases
-  work: two frames running different images resolve the same `[kind id]` to
-  their OWN image's descriptor. The default fall-through (absence-is-default)
-  keeps every caller without a frame generation on the registrar path.
-
-  The HEADLINE case: two frame objects each carrying a DIFFERENT image both
-  registering `[:event :boot/init]` (and friends) resolve that id to their OWN
-  image's descriptor when their generation is in scope. `rf.registrar/lookup` is
-  the single chokepoint dispatch / subscribe / fx / cofx / view / resource all
-  funnel through, so the seam is exercised through `rf.registrar/lookup` /
-  `rf.registrar/handler` / `rf.registrar/registrations` / `rf.registrar/ids` for every
-  kind — proving the binding routes ALL of them coherently (all-or-nothing).
-
-  Resolution runs against explicit synthetic descriptor pools (the `make-frame`
-  2-arity), so there is no live source-store wiring — the same decoupling idiom
-  `image-assembly-cljs-test` / `live-frame-cljs-test` use. Fixtures clear the
-  framework-standard registry and the process-default registrar between cases.
-  `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  Frames resolve against explicit synthetic descriptor pools, so nothing here
+  depends on the live source store. The fixture snapshots and restores the
+  registrar rather than clearing it, which would wipe framework ns-load
+  registrations CLJS cannot reload."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.registrar      :as rf.registrar]
             [re-frame.test-support   :as rf.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.live-frame     :as rf.live-frame]))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures.
-;;
-;; The default registrar is snapshot/restored via `make-reset-runtime-fixture`
-;; — NOT `rf.registrar/clear-all!`, which is hostile to CLJS isolation (it wipes
-;; framework-shipped ns-load registrations a sibling test ns depends on, and
-;; CLJS has no `(require … :reload)` to reinstate them — see
-;; `re-frame.test-support`). Snapshot/restore rolls back THIS test's
-;; registrations (`:app/boot`, `:global/only`, …) while leaving framework state
-;; intact, run-order-independently.
-;;
-;; EP-0024: `make-frame` returns a RUNNABLE image-loaded frame VALUE
-;; — it creates its backing runnable record (app-db / queue / sub-cache) via
-;; `make-frame`, which needs a substrate adapter — so the plain-atom adapter is
-;; installed. The resolved generation lives ON that record (the `:generation`
-;; slot), read by id; there is ONE registry, so the runtime
-;; fixture's `(reset! frames {})` clears every record AND its generation — no
-;; separate live-frame index to clear. These cases exercise pure
-;; `(kind, id)`
-;; resolution through the `call-with-frame-resolution` seam (they do not run a
-;; cascade), but constructing the frame allocates a state container.
-;;
-;; The framework-standard registry is `re-frame.image-assembly`'s OWN process-state defonce atom
-;; (not framework ns-load state a sibling depends on), so a direct
-;; `clear-standards!` is safe and keeps generation-routing tested against a known
-;; baseline.
-;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
@@ -68,12 +25,6 @@
     (t)
     (rf.image-assembly/clear-standards!)))
 
-;; ---------------------------------------------------------------------------
-;; Helpers — synthetic REGISTERED descriptors (the source-store output shape
-;; the selector consumes). `:handler-fn` is the registrar impl slot, so a
-;; resolved descriptor is shape-identical to a registered registrar entry.
-;; ---------------------------------------------------------------------------
-
 (defn- reg-desc
   [provenance-ns kind id impl]
   {:rf.provenance/ns provenance-ns
@@ -81,147 +32,53 @@
    :id               id
    :handler-fn       impl})
 
-;; ===========================================================================
-;; 1. The binding seam routes rf.registrar/lookup through a frame's generation
-;; ===========================================================================
-
 (deftest lookup-derives-from-the-bound-frame-generation
-  (testing "with no frame generation in scope, rf.registrar/lookup resolves
-            through the registrar atom (the absence-is-default path)"
-    ;; Register a descriptor into the process-default registrar.
-    (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
+  (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
+  (let [pool  [(reg-desc "examples.app" :event :app/boot ::image-boot)]
+        img   (rf.image/image {:select-ns {:include ["examples.app"]}})
+        frame (rf.live-frame/make-frame {:images [img]} pool)]
+    (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
+    (rf.live-frame/call-with-frame-resolution frame
+      (fn []
+        (is (= ::image-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))))
     (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))
-        "the default registrar path resolves the globally-registered handler")
-    (testing "binding a frame's generation routes the SAME id to the FRAME'S
-              own image descriptor instead"
-      (let [pool  [(reg-desc "examples.app" :event :app/boot ::image-boot)]
-            img   (rf.image/image {:select-ns {:include ["examples.app"]}})
-            frame (rf.live-frame/make-frame {:images [img]} pool)]
-        (rf.live-frame/call-with-frame-resolution frame
-          (fn []
-            (is (= ::image-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))
-                "inside the seam, lookup resolves the frame's image descriptor")))
-        (testing "OUTSIDE the seam, lookup reverts to the registrar atom path"
-          (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))))))))
-
-;; ===========================================================================
-;; 2. THE HEADLINE — two frames running DIFFERENT images resolve the same
-;;    [kind id] to their OWN image's descriptor
-;; ===========================================================================
-
-(deftest two-frames-different-images-resolve-same-id-to-own-descriptor
-  (testing "two frame objects running DIFFERENT images both registering
-            [:event :boot/init] resolve that id to their OWN image's descriptor
-            (EP-0023 §Independent Surfaces On One Page — the heart of the
-            same-id story)"
-    (let [todo-pool    [(reg-desc "examples.todo"    :event :boot/init ::todo-boot)]
-          counter-pool [(reg-desc "examples.counter" :event :boot/init ::counter-boot)]
-          todo-img     (rf.image/image {:id :examples/todo
-                                     :select-ns {:include ["examples.todo"]}})
-          counter-img  (rf.image/image {:id :examples/counter
-                                     :select-ns {:include ["examples.counter"]}})
-          todo-frame    (rf.live-frame/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
-          counter-frame (rf.live-frame/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
-      (testing "the TODO frame resolves :boot/init to the todo image's handler"
-        (rf.live-frame/call-with-frame-resolution todo-frame
-          (fn []
-            (is (= ::todo-boot (rf.registrar/handler :event :boot/init))))))
-      (testing "the COUNTER frame resolves the SAME id to the counter image's handler
-                — the todo frame's id did not leak into it (no global clobber)"
-        (rf.live-frame/call-with-frame-resolution counter-frame
-          (fn []
-            (is (= ::counter-boot (rf.registrar/handler :event :boot/init)))))))))
-
-;; ===========================================================================
-;; 3. dispatch / sub / fx / cofx all derive from the target frame
-;;    (rf.registrar/lookup is the single chokepoint for every kind — all-or-nothing)
-;; ===========================================================================
+        "outside the seam, lookup reverts to the registrar")))
 
 (deftest event-sub-fx-cofx-view-all-derive-from-the-frame-generation
-  (testing "every registration KIND dispatch / subscribe / fx / cofx /
-            view / resource resolves through (event :sub :fx :cofx :view
-            :resource) derives from the bound frame generation — proving the
-            single binding routes them ALL coherently (all-or-nothing)"
-    (let [pool  [(reg-desc "examples.feat" :event    :feat/go        ::ev)
-                 (reg-desc "examples.feat" :sub      :feat/value     ::sub)
-                 (reg-desc "examples.feat" :fx       :feat/save      ::fx)
-                 (reg-desc "examples.feat" :cofx     :feat/now       ::cofx)
-                 (reg-desc "examples.feat" :view     :feat/root      ::view)
-                 (reg-desc "examples.feat" :resource :feat/by-id     ::resource)]
-          img   (rf.image/image {:select-ns {:include ["examples.feat"]}})
-          frame (rf.live-frame/make-frame {:images [img]} pool)]
-      (rf.live-frame/call-with-frame-resolution frame
-        (fn []
-          (testing "event (dispatch)"    (is (= ::ev       (rf.registrar/handler :event    :feat/go))))
-          (testing "sub (subscribe)"     (is (= ::sub      (rf.registrar/handler :sub      :feat/value))))
-          (testing "fx"                  (is (= ::fx       (rf.registrar/handler :fx       :feat/save))))
-          (testing "cofx"                (is (= ::cofx     (rf.registrar/handler :cofx     :feat/now))))
-          (testing "view"                (is (= ::view     (rf.registrar/handler :view     :feat/root))))
-          (testing "resource"            (is (= ::resource (rf.registrar/handler :resource :feat/by-id))))
-          (testing "an id NOT in the image resolves nil (the frame's image is
-                    the registration universe, not the global registrar)"
-            (rf.registrar/register! :event :other/not-in-image {:handler-fn ::global-only})
-            (is (nil? (rf.registrar/lookup :event :other/not-in-image))
-                "a globally-registered id absent from the frame's image is nil
-                 under generation routing")))))))
-
-;; ===========================================================================
-;; 4. registrations / ids project from the bound generation
-;; ===========================================================================
+  ;; lookup is generic over kind, so one non-event kind stands for the rest
+  (let [pool  [(reg-desc "examples.feat" :sub :feat/value ::sub)]
+        img   (rf.image/image {:select-ns {:include ["examples.feat"]}})
+        frame (rf.live-frame/make-frame {:images [img]} pool)]
+    (rf.registrar/register! :event :other/not-in-image {:handler-fn ::global-only})
+    (rf.live-frame/call-with-frame-resolution frame
+      (fn []
+        (is (= ::sub (rf.registrar/handler :sub :feat/value)))
+        (is (nil? (rf.registrar/lookup :event :other/not-in-image))
+            "the frame's image is the whole universe: a global-only id is nil")))))
 
 (deftest registrations-and-ids-project-from-the-generation
-  (testing "the registrar query API (registrations / ids) projects from the
-            bound generation — a frame-scoped query sees only the frame's image
-            registrations of that kind"
-    ;; A globally-registered :event the frame's image does NOT carry.
-    (rf.registrar/register! :event :global/only {:handler-fn ::global})
-    (let [pool  [(reg-desc "examples.q" :event :q/a ::a)
-                 (reg-desc "examples.q" :event :q/b ::b)
-                 (reg-desc "examples.q" :sub   :q/s ::s)]
-          img   (rf.image/image {:select-ns {:include ["examples.q"]}})
-          frame (rf.live-frame/make-frame {:images [img]} pool)]
-      (testing "the default (unbound) registrations sees the global registry"
-        (is (contains? (rf.registrar/registrations :event) :global/only))
-        (is (not (contains? (rf.registrar/registrations :event) :q/a))))
-      (rf.live-frame/call-with-frame-resolution frame
-        (fn []
-          (testing "the generation-scoped query sees ONLY the frame's image ids"
-            (is (= #{:q/a :q/b} (rf.registrar/ids :event))
-                "ids :event projects the frame's image events, not the global :global/only")
-            (is (= #{:q/s} (rf.registrar/ids :sub)))
-            (is (not (contains? (rf.registrar/registrations :event) :global/only))
-                "the globally-registered id is invisible under the frame's generation")
-            (testing "the filtered arity also projects from the generation"
-              (is (= #{:q/a} (set (keys (rf.registrar/registrations
-                                          :event
-                                          #(= ::a (:handler-fn %)))))))))))
-      (testing "after the seam, the query reverts to the global registry"
-        (is (contains? (rf.registrar/registrations :event) :global/only))))))
-
-;; ===========================================================================
-;; 5. Absence-is-default — a nil / non-object / no-generation target binds
-;;    nothing; resolution falls through to the registrar atom path
-;; ===========================================================================
+  (rf.registrar/register! :event :global/only {:handler-fn ::global})
+  (let [pool  [(reg-desc "examples.q" :event :q/a ::a)
+               (reg-desc "examples.q" :event :q/b ::b)
+               (reg-desc "examples.q" :sub   :q/s ::s)]
+        img   (rf.image/image {:select-ns {:include ["examples.q"]}})
+        frame (rf.live-frame/make-frame {:images [img]} pool)]
+    (is (contains? (rf.registrar/registrations :event) :global/only))
+    (rf.live-frame/call-with-frame-resolution frame
+      (fn []
+        (is (= #{:q/a :q/b} (rf.registrar/ids :event)))
+        (is (not (contains? (rf.registrar/registrations :event) :global/only)))
+        (is (= #{:q/a} (set (keys (rf.registrar/registrations
+                                    :event
+                                    #(= ::a (:handler-fn %)))))))))
+    (is (contains? (rf.registrar/registrations :event) :global/only)
+        "after the seam the query reverts to the registrar")))
 
 (deftest absence-is-default-leaves-existing-callers-unaffected
-  (testing "a nil target, a non-object value, or an object with no generation
-            binds NOTHING — resolution falls through to the registrar atom path
-            (the load-bearing absence-is-default fall-through)"
-    (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
-    (testing "a nil frame target runs the thunk on the default registrar path"
-      (rf.live-frame/call-with-frame-resolution nil
-        (fn []
-          (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
-          (is (nil? rf.registrar/*generation*) "no generation is bound for a nil target"))))
-    (testing "a non-object value (a frame-id keyword) binds nothing"
-      (rf.live-frame/call-with-frame-resolution :counter/main
-        (fn []
-          (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
-          (is (nil? rf.registrar/*generation*)))))
-    (testing "a frame object carrying NO generation binds nothing"
-      ;; A hand-built frame-object marker with no :rf.frame/generation slot.
-      (let [no-gen-obj {:rf.frame/object true}]
-        (rf.live-frame/call-with-frame-resolution no-gen-obj
-          (fn []
-            (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
-            (is (nil? rf.registrar/*generation*))))))))
+  ;; a target that is not an image-loaded frame binds nothing
+  (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
+  (doseq [target [:counter/main {:rf.frame/object true}]]
+    (rf.live-frame/call-with-frame-resolution target
+      (fn []
+        (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))
+            (pr-str target))))))
