@@ -1,45 +1,11 @@
 (ns re-frame.adapter-after-render-cljs-test
-  "Behavioural coverage for the Reagent adapter's `:adapter/after-render`
-  hook.
-
-  The Reagent adapter injects stock `reagent.core/after-render` under the
-  `:adapter/after-render` hook (see `re-frame.adapter.reagent` `:hook-ops`).
-  `re-frame.interop/after-render` reads through that hook, so the public
-  schedule-a-callback-after-render seam resolves to Reagent's render
-  queue when the Reagent adapter is installed.
-
-  Coverage elsewhere, and what this file adds:
-
-    - `re-frame.late-bind-hooks-cljs-test` pins that the
-      `:adapter/after-render` key is PUBLISHED in the late-bind table and
-      listed in the directory with this adapter as a producer. That is a
-      wiring/publication pin — it never CALLS the hook.
-
-    - The React-hook adapters (UIx) get the BEHAVIOURAL contract
-      from the shared react-suite
-      (`react-shared-suite/assert-after-render-runs-after-commit`), but
-      that assertion is React-hook-spine specific: it relies on the
-      spine's `useLayoutEffect` sentinel injected by the React `make-render`
-      and is gated on a real DOM (`with-browser-act`). It does NOT — and
-      cannot — exercise Reagent's mechanism (`r/after-render` drives
-      Reagent's own batching queue, not a React `useLayoutEffect`
-      sentinel). So neither pins the Reagent-side behaviour: that a
-      callback handed to `interop/after-render` under the Reagent adapter
-      actually FIRES.
-
-  This file is the Reagent-specific behavioural pin. Stock Reagent's
-  `r/after-render` enqueues onto `reagent.impl.batching`'s render queue and
-  arms a deferred drain (`next-tick`, which is `fake-raf` ⇒ a 16ms
-  setTimeout under :node-test since there is no `js/window`); the queue
-  drains in `flush-queues` AFTER the component / ratom flush. `(r/flush)`
-  forces that drain synchronously (it calls `batch/flush` ⇒ `flush-queues`
-  ⇒ `flush-after-render`), so we can pin the behaviour deterministically
-  with NO DOM, NO component, and NO timing dependence. We assert through
-  the real `interop/after-render` seam (not `r/after-render` directly) so
-  the test exercises the adapter's injected `:adapter/after-render` op
-  end-to-end via the late-bind routing.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "A callback handed to `re-frame.interop/after-render` under the Reagent
+  adapter FIRES when Reagent's render queue drains — the adapter routes the
+  hook to stock `reagent.core/after-render`. `late-bind-hooks-cljs-test` only
+  pins the hook's publication, and the shared React suite's pin rides the
+  React-hook spine's layout-effect sentinel, which Reagent does not use.
+  `(r/flush)` forces the drain synchronously, so this needs no DOM and no
+  timing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.interop :as rf.interop]
@@ -47,18 +13,8 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.test-support :as rf.test-support]))
 
-;; The `:adapter/after-render` hook is routed: `interop/after-render`
-;; runs Reagent's `r/after-render` ONLY when the Reagent adapter is the
-;; currently-installed adapter (per `substrate-adapter/route-hook!`).
-;; Other adapter ns'es loaded in the same test bundle publish the same
-;; key, so we MUST install the Reagent adapter to make the routed closure
-;; dispatch to Reagent's reader rather than chain to a sibling —
-;; `make-reset-runtime-fixture {:adapter reagent-adapter/adapter}` does the
-;; snapshot/restore + frames-reset + dispose/install. `:ambient-frame nil`
-;; preserves the suite's no-ambient-scope behaviour (no frame-scoped ops in
-;; the bodies). A composed teardown fixture drains Reagent's after-render
-;; queue / pending fake-raf (`r/flush`) so an enqueued callback can't leak
-;; into a later test ns sharing the bundle.
+;; The hook is routed, so the Reagent adapter must be the installed one; the
+;; trailing `r/flush` stops an enqueued callback leaking into a later ns.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter :ambient-frame nil})
@@ -79,13 +35,9 @@
 
 ;; ---- (2) copied / wrapped adapter map routes to the live hook --
 ;;
-;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
-;; not object identity — so a copied / wrapped stock-Reagent adapter map STILL
-;; drives its live `:adapter/after-render` hook. Routed by identity, an
-;; `assoc`'d copy would fail the routed closure's identity guard and the hook
-;; would fall through to the `(constantly nil)` chain bottom:
-;; `interop/after-render` would be a silent no-op (the callback would never
-;; fire on r/flush).
+;; `route-hook!` routes by the adapter's `:kind` token, not object identity;
+;; by identity an `assoc`'d copy would make `interop/after-render` a silent
+;; no-op.
 
 (deftest copied-adapter-map-routes-to-live-after-render-hook
   (testing "a copied stock-Reagent adapter map still drives the live
@@ -96,10 +48,10 @@
       (rf.substrate.adapter/dispose-adapter!)
       (rf.substrate.adapter/install-adapter! copied)
       (try
-        (is (false? (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter)))
-            "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
-            "precondition: the copy preserves the canonical :kind token")
+        (is (= [false :rf.adapter/reagent]
+               [(identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter))
+                (:kind (rf.substrate.adapter/current-adapter))])
+            "precondition: the installed copy is a distinct map with the canonical :kind")
         (rf.interop/after-render (fn [] (swap! fired inc)))
         (is (zero? @fired) "after-render still DEFERS under the copied map")
         (r/flush)
