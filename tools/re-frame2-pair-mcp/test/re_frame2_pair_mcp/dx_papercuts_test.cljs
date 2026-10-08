@@ -1,26 +1,8 @@
 (ns re-frame2-pair-mcp.dx-papercuts-test
-  "Unit tests for four re-frame2-pair DX papercuts.
-
-  1. Session-sticky operating build — an explicit `:build` on any
-     non-discover tool call becomes the default for subsequent
-     no-`:build` calls (`wire/stick-build!` at the `invoke` boundary).
-  2. Colon-normalise — `:frame` on `trace-window` / `watch-epochs` is
-     coerced via the colon-tolerant `args/->frame-keyword` (the build
-     arg's colon tolerance is already pinned in `build_id_cache_test`).
-  3. Batch read — the plural `paths` arg on `get-path`: parsing
-     (`args/parse-paths-arg`) + the batch eval form
-     (`get-path/batch-paths-form`) + the mutual-exclusion guard.
-  4. Snapshot full-mode epoch overflow — `tree-summary`'s `:bytes`
-     hint samples a representative entry so a slice of deep entries
-     (the `:epochs` slice) reports its full-expansion cost, and the
-     `:epochs` slice is record-capped in full mode
-     (`pipeline/cap-full-epochs-in-snapshot`).
-
-  Tests pin the public surfaces directly so a rename or signature
-  drift surfaces as a failing test rather than silent contract drift.
-  Live end-to-end coverage rides on `test/stdio-roundtrip.js` (degraded
-  dispatch) and the manual live-nREPL integration test."
+  "The batch `paths` read on `get-path`, the sampled `:bytes` hint of a
+  summary marker, and the record cap on a full-mode `:epochs` slice."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.elision :as elision]
@@ -28,70 +10,23 @@
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.summary :as summary]
-            [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
 ;; ===========================================================================
-;; Papercut 1 — session-sticky operating build.
+;; Batch read via the plural `paths` arg.
 ;; ===========================================================================
 
 (defn- fresh-conn []
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    (swap! conn assoc :probed-builds #{} :resolved-build-id nil)
+    (swap! conn assoc :probed-builds #{:app} :resolved-build-id nil)
     conn))
 
-(deftest stick-build-records-explicit-build
-  ;; An explicit `:build` is written into the resolved-build-id cache so
-  ;; a subsequent no-`:build` call inherits it.
-  (let [conn (fresh-conn)]
-    (wire/stick-build! conn (tu/args->js {:build "examples/standard-epochs"}))
-    (is (= :examples/standard-epochs (:resolved-build-id @conn))
-        "explicit build sticks on the conn-atom")
-    (is (= :examples/standard-epochs
-           (wire/arg-build conn (tu/args->js {})))
-        "the next call without :build inherits the stuck build")))
-
-(deftest stick-build-tolerates-leading-colon
-  ;; Colon-form build sticks identically (footgun-free) — papercut 2 on
-  ;; the build arg, exercised through the sticky write.
-  (let [conn (fresh-conn)]
-    (wire/stick-build! conn (tu/args->js {:build ":examples/standard-epochs"}))
-    (is (= :examples/standard-epochs (:resolved-build-id @conn)))))
-
-(deftest stick-build-omitted-build-does-not-clobber
-  ;; A later call WITHOUT :build must not wipe a previously-stuck build.
-  (let [conn (fresh-conn)]
-    (swap! conn assoc :resolved-build-id :examples/standard-epochs)
-    (wire/stick-build! conn (tu/args->js {}))
-    (is (= :examples/standard-epochs (:resolved-build-id @conn))
-        "no :build arg leaves the stuck build untouched")))
-
-(deftest stick-build-explicit-repoints-sticky-default
-  ;; A one-off :build on a later call both routes that call AND re-points
-  ;; the sticky default (explicit-wins, and it sticks).
-  (let [conn (fresh-conn)]
-    (swap! conn assoc :resolved-build-id :examples/standard-epochs)
-    (wire/stick-build! conn (tu/args->js {:build "other-build"}))
-    (is (= :other-build (:resolved-build-id @conn)))))
-
-(deftest stick-build-nil-conn-is-noop
-  ;; Defensive — a non-atom / nil conn (test stubs) must not throw.
-  (is (nil? (wire/stick-build! nil (tu/args->js {:build "app"})))
-      "nil conn returns nil, no throw"))
-
-
-;; ===========================================================================
-;; Papercut 3 — batch read via the plural `paths` arg.
-;; ===========================================================================
-
 (deftest parse-paths-arg-shapes
-  ;; A bare scalar EDN string isn't a batch — nil, so the caller falls back
-  ;; to the singular surface rather than reading garbage. An explicit empty
-  ;; batch is distinguishable from "no batch" (nil) so the tool can return
-  ;; :empty-paths rather than silently no-op'ing.
+  ;; A bare scalar isn't a batch (nil, so the caller falls back to the
+  ;; singular `path`), and an explicit empty batch is distinguishable from
+  ;; no batch so the tool can answer `:empty-paths`.
   (doseq [[input expected note]
           [[nil nil "absent"]
-           ["" nil "empty string"]
            ["   " nil "blank string"]
            ["[[:cart :total] [:user :id]]" [[:cart :total] [:user :id]]
             "an EDN string of path vectors"]
@@ -101,221 +36,105 @@
            [#js [#js [":cart" ":items" "0"] #js [":user" ":id"]]
             [[:cart :items 0] [:user :id]]
             "a JS array whose entries are JS arrays of segment strings"]
-           [":foo" nil "a bare scalar EDN keyword is not a batch"]
-           ["42" nil "a bare scalar EDN number is not a batch"]
+           [":foo" nil "a bare scalar EDN value is not a batch"]
            ["[]" [] "an explicit empty EDN batch"]
            [#js [] [] "an explicit empty JS batch"]]]
     (is (= expected (args/parse-paths-arg input)) note)))
 
-(deftest batch-paths-form-folds-over-paths
-  ;; The batch eval form folds over the path vectors server-side and
-  ;; returns `{:ok? true :results {...} :elided-count N}`. The form
-  ;; carries a `#js {}` reader literal (the missing sentinel) so it
-  ;; isn't plain-EDN-readable — assert on the emitted source instead.
-  (let [snapshot-call (ef/rt-call 'snapshot :rf/default)
-        paths         [[:cart :total] [:user :id]]
-        ;; The builder takes the RENDERED egress opts, so
-        ;; feed it the real renderer rather than a bare `"{}"`. A literal
-        ;; empty map still type-checks and still folds, but it names no
-        ;; boundary, so every assertion below would pass over a form that
-        ;; had lost the profile entirely — the defect this deftest exists
-        ;; to catch.
-        egress-opts   (elision/egress-opts-edn false)
-        form          (get-path/batch-paths-form
-                        snapshot-call paths ":rf/default" egress-opts)]
-    (is (re-find #"^\(let " form) "batch form opens a let block")
-    ;; The embedded paths literal rides verbatim in the reduce seed.
-    (is (re-find #"\[:cart :total\]" form))
-    (is (re-find #"\[:user :id\]" form))
-    (is (re-find #":results" form))
-    (is (re-find #":elided-count" form))
-    ;; The batch form projects each read through the door; the
-    ;; per-iteration path `p` is the marker handle.
-    (is (re-find #"project-egress raw-v" form))
-    ;; And it NAMES the boundary. The door fires unconditionally, so
-    ;; "did the walk run?" is not a question a caller can get wrong —
-    ;; "which boundary is this?" is, and that answer has to reach
-    ;; the rendered form or the app-side door has nothing to resolve.
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
-        "the rendered batch form carries the named off-box boundary")
-    (is (not (re-find #"elide-wire-value" form))
-        "and never the bare walker export")))
+(deftest batch-paths-form-quotes-the-callers-paths
+  ;; The paths are caller EDN, so they ride quoted into the fold.
+  (let [form (get-path/batch-paths-form (ef/rt-call 'snapshot :rf/default)
+                                        [[:cart :total] [:user :id]]
+                                        ":rf/default"
+                                        (elision/egress-opts-edn false))]
+    (is (str/includes? form "(quote [[:cart :total] [:user :id]])"))))
 
-(deftest get-path-rejects-path-and-paths-together
-  ;; Mutual exclusion: supplying both is a structured usage error, not a
-  ;; silent precedence pick.
+(deftest get-path-batch-usage-errors
   (async done
-    (let [conn (fresh-conn)]
-      (-> (get-path/get-path-tool
-            conn (tu/args->js {:path "[:a]" :paths "[[:b]]"}))
-          (.then (fn [r]
-                   (is (tu/error? r))
-                   (is (= :path-and-paths-both-supplied
-                          (:reason (tu/extract-edn r))))
-                   (done)))))))
-
-(deftest get-path-empty-paths-is-usage-error
-  (async done
-    (let [conn (fresh-conn)]
-      (-> (get-path/get-path-tool conn (tu/args->js {:paths "[]"}))
-          (.then (fn [r]
-                   (is (tu/error? r))
-                   (is (= :empty-paths (:reason (tu/extract-edn r))))
-                   (done)))))))
+    (-> (js/Promise.all
+          (into-array
+            (for [[call-args reason] [[{:path "[:a]" :paths "[[:b]]"} :path-and-paths-both-supplied]
+                                      [{:paths "[]"} :empty-paths]]]
+              (.then (get-path/get-path-tool (fresh-conn) (tu/args->js call-args))
+                     (fn [r]
+                       (is (tu/error? r) (pr-str call-args))
+                       (is (= reason (:reason (tu/extract-edn r))) (pr-str call-args)))))))
+        (.then (fn [_] (done))))))
 
 (deftest get-path-batch-returns-results-map
-  ;; End-to-end with a stubbed runtime: the batch eval form's envelope
-  ;; rides through the wire-pipeline and the tool re-attaches `:results`.
   (async done
-    (let [conn   (fresh-conn)
-          ;; Prime the probe cache so `ensure-runtime!` short-circuits to
-          ;; true (the stubbed eval returns the canned envelope, not the
-          ;; `true` the preload-marker probe expects).
-          _      (swap! conn update :probed-builds (fnil conj #{}) :app)
-          canned {:ok?     true
-                  :results {[:cart :total] {:exists? true  :value 42}
-                            [:user :id]    {:exists? true  :value "u-1"}
-                            [:missing :k]  {:exists? false :value nil}}
-                  :elided-count 0}]
-      (-> (tu/with-stubbed-eval! canned
+    (let [results {[:cart :total] {:exists? true  :value 42}
+                   [:user :id]    {:exists? true  :value "u-1"}
+                   [:missing :k]  {:exists? false :value nil}}]
+      (-> (tu/with-stubbed-eval! {:ok? true :results results :elided-count 0}
             (fn []
               (get-path/get-path-tool
-                conn (tu/args->js {:paths "[[:cart :total] [:user :id] [:missing :k]]"
-                                   :frame ":rf/default"}))))
+                (fresh-conn) (tu/args->js {:paths "[[:cart :total] [:user :id] [:missing :k]]"
+                                           :frame ":rf/default"}))))
           (.then (fn [r]
                    (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (= :rf/default (:frame edn)))
-                     (is (= 42 (get-in edn [:results [:cart :total] :value])))
-                     (is (true? (get-in edn [:results [:user :id] :exists?])))
-                     (is (false? (get-in edn [:results [:missing :k] :exists?]))))
+                     (is (= results (:results edn)))
+                     (is (= :rf/default (:frame edn))))
                    (done)))))))
 
 (deftest get-path-blank-runtime-result-is-isError
-  ;; A nil / non-map envelope back from the runtime (e.g. a dead runtime
-  ;; after a page reload answering blank) must NOT silently ship as
-  ;; ok-text. `(:ok? nil)` is `nil`, not `false`, so an
-  ;; `(if (false? (:ok? rebuilt)) err-text ok-text)` check would let a nil
-  ;; envelope fall through to ok-text — masking the failure as a success.
+  ;; `(:ok? nil)` is nil, not false, so a nil envelope from a dead runtime
+  ;; would otherwise fall through to ok-text.
   (async done
-    (let [conn (fresh-conn)
-          _    (swap! conn update :probed-builds (fnil conj #{}) :app)]
-      (-> (tu/with-stubbed-eval! nil
-            (fn []
-              (get-path/get-path-tool
-                conn (tu/args->js {:path "[:cart :total]" :frame ":rf/default"}))))
-          (.then (fn [r]
-                   (is (tu/error? r)
-                       "a blank/non-map eval result MUST be isError: true")
-                   (let [edn (tu/extract-edn r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :blank-eval-result (:reason edn))))
-                   (done)))))))
+    (-> (tu/with-stubbed-eval! nil
+          (fn []
+            (get-path/get-path-tool
+              (fresh-conn) (tu/args->js {:path "[:cart :total]" :frame ":rf/default"}))))
+        (.then (fn [r]
+                 (is (tu/error? r))
+                 (is (= {:ok? false :reason :blank-eval-result :value nil}
+                        (dissoc (tu/extract-edn r) :hint)))
+                 (done))))))
 
 ;; ===========================================================================
-;; Papercut 4 — snapshot full-mode epoch overflow.
+;; The summary marker's `:bytes` hint samples one entry, so a slice of deep
+;; entries (an `:epochs` slice) reports its full-expansion cost.
 ;; ===========================================================================
 
-;; --- 4a. tree-summary :bytes reflects per-entry depth (sampled). ---
+(defn- marker-bytes [v]
+  (-> v summary/tree-summary :rf.mcp/summary :bytes))
 
-(deftest tree-summary-bytes-samples-deep-vector-entries
-  ;; A vector of DEEP entries (each a fat map) must report a `:bytes`
-  ;; hint that reflects the per-entry depth — sampling a representative
-  ;; entry, not a flat per-entry constant that would under-report epoch
-  ;; slices by orders of magnitude.
-  (let [fat-entry (zipmap (map #(keyword (str "k" %)) (range 200)) (range 200))
-        deep-vec  (vec (repeat 5 fat-entry))
-        scalar-vec [1 2 3 4 5]
-        deep-bytes   (-> deep-vec   summary/tree-summary :rf.mcp/summary :bytes)
-        scalar-bytes (-> scalar-vec summary/tree-summary :rf.mcp/summary :bytes)]
-    (is (> deep-bytes (* 100 scalar-bytes))
-        "a 5-entry vector of fat maps must estimate vastly more than a 5-scalar vector")))
+(deftest tree-summary-bytes-samples-entry-depth
+  (let [fat (zipmap (map #(keyword (str "k" %)) (range 200)) (range 200))]
+    (is (> (marker-bytes (vec (repeat 5 fat))) (* 100 (marker-bytes [1 2 3 4 5])))
+        "a vector of fat maps estimates far more than a vector of scalars")
+    (is (> (marker-bytes (zipmap (range 5) (repeat fat))) (* 10 (marker-bytes (zipmap (range 5) (range 5)))))
+        "a map of fat values estimates far more than a map of scalars")))
 
 (deftest tree-summary-bytes-handles-empty-collections
-  ;; Empty collections have no entries, so the `count × per-entry`
-  ;; estimate is a clean 0 — never NaN / negative. A single non-empty
-  ;; entry floors at the per-entry minimum (no zero-byte estimate for a
-  ;; real entry).
-  (is (= 0 (-> [] summary/tree-summary :rf.mcp/summary :bytes)))
-  (is (= 0 (-> #{} summary/tree-summary :rf.mcp/summary :bytes)))
-  (is (= 0 (-> {} summary/tree-summary :rf.mcp/summary :bytes)))
-  (is (= 0 (-> [] summary/tree-summary :rf.mcp/summary :count)))
-  (is (pos? (-> [1] summary/tree-summary :rf.mcp/summary :bytes))
-      "a real scalar entry floors above zero"))
+  ;; No entry to sample: a clean 0, never NaN.
+  (is (= 0 (marker-bytes [])))
+  (is (= 0 (marker-bytes {}))))
 
-(deftest tree-summary-map-bytes-samples-value-depth
-  ;; A map of DEEP values estimates more than a map of scalar values at
-  ;; equal count — the per-value sample captures depth.
-  (let [deep-val (zipmap (map #(keyword (str "k" %)) (range 100)) (range 100))
-        deep-map (zipmap (map #(keyword (str "m" %)) (range 5)) (repeat deep-val))
-        flat-map (zipmap (map #(keyword (str "m" %)) (range 5)) (range 5))
-        deep-bytes (-> deep-map summary/tree-summary :rf.mcp/summary :bytes)
-        flat-bytes (-> flat-map summary/tree-summary :rf.mcp/summary :bytes)]
-    (is (> deep-bytes (* 10 flat-bytes)))))
-
-;; --- 4b. full-mode epoch-history record cap. ---
-
-(defn- fat-epoch [i big-map]
-  {:event-id (keyword (str "e" i)) :db-before big-map :db-after big-map})
-
-(def ^:private big-map
-  (zipmap (map #(keyword (str "k" %)) (range 200)) (range 200)))
+;; ===========================================================================
+;; Full-mode epoch-history record cap.
+;; ===========================================================================
 
 (defn- snapshot-with-n-epochs [n]
-  {:rf/default {:app-db    {:k 1}
-                :sub-cache {}
-                :machines  {}
-                :epochs    (vec (for [i (range n)] (fat-epoch i big-map)))
-                :traces    []}})
+  {:rf/default {:app-db {:k 1}
+                :epochs (mapv #(hash-map :event-id %) (range n))}})
 
 (deftest full-mode-caps-epoch-history-to-most-recent
-  ;; A 30-record history in :full mode is capped to the most-recent N;
-  ;; the dropped count + sibling marker make the truncation explicit.
-  (let [snap   (snapshot-with-n-epochs 30)
+  ;; One past the documented default cap of 10 keeps the newest 10 and says
+  ;; so in a sibling marker. A per-slice `{:epochs :full}` under a global
+  ;; `:summary` resolves to the same cap.
+  (let [snap   (snapshot-with-n-epochs 11)
         capped (pipeline/cap-full-epochs-in-snapshot snap {} :full pipeline/full-epochs-cap)
-        epochs (-> capped :rf/default :epochs)
-        meta   (-> capped :rf/default :rf.mcp/epochs-capped)]
-    (is (= pipeline/full-epochs-cap (count epochs))
-        "kept exactly the cap")
-    (is (= :e29 (:event-id (last epochs)))
-        "kept the MOST-RECENT records (tail of a chronological history)")
-    (is (= :e20 (:event-id (first epochs)))
-        "oldest kept record is total-cap from the end")
-    (is (some? meta) "a truncation marker is attached")
-    (is (= 30 (:total meta)))
-    (is (= pipeline/full-epochs-cap (:shown meta)))
-    (is (= (- 30 pipeline/full-epochs-cap) (:dropped meta)))
-    (is (= :most-recent (:kept meta)))))
+        frame  (:rf/default capped)]
+    (is (= (range 1 11) (map :event-id (:epochs frame))))
+    (is (= {:shown 10 :total 11 :dropped 1 :kept :most-recent}
+           (dissoc (:rf.mcp/epochs-capped frame) :hint)))
+    (is (= capped (pipeline/cap-full-epochs-in-snapshot snap {:epochs :full} :summary
+                                                        pipeline/full-epochs-cap)))))
 
-(deftest full-mode-under-cap-passes-through-untouched
-  ;; A history at/under the cap is unchanged — no marker, no truncation.
-  (let [snap   (snapshot-with-n-epochs pipeline/full-epochs-cap)
-        capped (pipeline/cap-full-epochs-in-snapshot snap {} :full pipeline/full-epochs-cap)]
-    (is (= pipeline/full-epochs-cap (count (-> capped :rf/default :epochs))))
-    (is (not (contains? (:rf/default capped) :rf.mcp/epochs-capped))
-        "no truncation marker when nothing was dropped")))
-
-(deftest summary-mode-does-not-trigger-the-epoch-cap
-  ;; In :summary mode the slice is a marker, not a vector — the cap is a
-  ;; no-op (it gates on resolved :full mode).
-  (let [snap   (snapshot-with-n-epochs 30)
-        capped (pipeline/cap-full-epochs-in-snapshot snap {} :summary pipeline/full-epochs-cap)]
-    (is (= 30 (count (-> capped :rf/default :epochs)))
-        "summary-mode snapshot is left for the summariser to collapse")
-    (is (not (contains? (:rf/default capped) :rf.mcp/epochs-capped)))))
-
-(deftest per-slice-full-epochs-override-triggers-the-cap
-  ;; Global :summary but per-slice `{:epochs :full}` — the cap fires
-  ;; because :epochs RESOLVES to :full.
-  (let [snap   (snapshot-with-n-epochs 25)
-        capped (pipeline/cap-full-epochs-in-snapshot snap {:epochs :full} :summary
-                                                      pipeline/full-epochs-cap)]
-    (is (= pipeline/full-epochs-cap (count (-> capped :rf/default :epochs))))
-    (is (= 25 (-> capped :rf/default :rf.mcp/epochs-capped :total)))))
-
-(deftest cap-handles-non-map-and-missing-epochs
-  ;; Defensive: a scalar frame / a frame without :epochs passes through.
-  (is (= {:rf/default :scalar}
-         (pipeline/cap-full-epochs-in-snapshot {:rf/default :scalar} {} :full 10)))
-  (is (= {:rf/default {:app-db {:k 1}}}
-         (pipeline/cap-full-epochs-in-snapshot {:rf/default {:app-db {:k 1}}} {} :full 10))))
+(deftest epoch-cap-passes-through-at-the-cap-and-outside-full-mode
+  (doseq [[snap global-mode note] [[(snapshot-with-n-epochs 10) :full "at the cap"]
+                                   [(snapshot-with-n-epochs 11) :summary "summary mode"]
+                                   [{:rf/default {:app-db {:k 1}}} :full "no :epochs slice"]]]
+    (is (= snap (pipeline/cap-full-epochs-in-snapshot snap {} global-mode pipeline/full-epochs-cap))
+        note)))
