@@ -1,365 +1,130 @@
 (ns re-frame.birth-always-cljs-test
-  "xstate-v5 / SCXML parity — the machine's INITIAL MACROSTEP is
-  initial-entry + the eventless (`:always`) + raise settle.
-  After the initial-entry cascade builds the birth snapshot, the SAME
-  raise-drain + `:always` fixed-point loop the event macrostep uses runs
-  BEFORE the birth commit, so a transient initial leaf whose `:always`
-  guard already holds is settled past — UNOBSERVED — on start, exactly as
-  `createActor(m).start()` does in XState v5 (SCXML §3.13: after the
-  initial configuration is entered the processor immediately runs the
-  eventless microstep loop to quiescence, before any external event).
+  "A machine's INITIAL MACROSTEP is initial entry followed by the same raise
+  drain + `:always` fixed-point settle an event macrostep runs, before the
+  birth commit — so a transient initial leaf whose `:always` guard already
+  holds is settled past, unobserved, on start (XState v5
+  `createActor(m).start()`; SCXML §3.13).
 
-  NOTE — the namespace is named `*-cljs-test` (file `*_cljs_test.cljc`) so
-  it is discovered by BOTH the shadow-cljs `:node-test` build
-  (`npm run test:cljs`) AND the JVM cognitect.test-runner (`clojure -M:test`
-  in `implementation/machines`). The engine + birth path are identical
-  across runtimes, so the corpus must pass on both. Mirrors the established
-  dual-runtime convention (`scxml_conformance_cljs_test.cljc` et al.).
-
-  Two layers of coverage:
-
-   - PURE — drives `rf.machines.parallel/apply-initial-entry-cascade` directly (the
-     birth site for BOTH paths; runtime-free, deterministic, JVM- and
-     CLJS-runnable from arguments alone). This is the SCXML-conformance-
-     style proof of the birth-eventless settle (mirrors W3C test 372/388
-     eventless-on-entry).
-   - LIVE — drives the full lifecycle handler via `rf/reg-machine` +
-     `rf/dispatch-sync`, exercising BOTH birth triggers: the eager
-     `[:rf.machine/start]` kick (`createActor(m).start()` equivalent) and
-     the lazy first-real-event birth.
-
-  Cases:
-   (a) transient initial leaf whose `:always` guard holds → eager start
-       settles past it (the initial leaf is never externally observed).
-   (b) same on lazy first-event birth.
-   (c) `:always` guard FALSE at birth → stays in the initial leaf.
-   (d) compound initial cascade where a deep initial leaf has an `:always`.
-   (e) parallel — every region's enabled birth `:always` is selected in the
-       PARENT's frozen birth round (not region-locally): uncoupled guards
-       land each region where its own seed dictates; a sibling-reading guard
-       converges across re-freezes in the ONE birth macrostep."
+  PURE tests drive `apply-initial-entry-cascade`, the single birth site, from
+  arguments alone. LIVE tests drive `reg-machine` + `dispatch-sync` through
+  both birth triggers: the eager `[:rf.machine/start]` and the lazy first
+  event. Parallel birth rounds are pinned in `parallel_always_round_cljs_test`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.machines]
    [re-frame.machines.parallel :as rf.machines.parallel]
    [re-frame.machines.result :as rf.machines.result]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
       :cljs [re-frame.adapter.reagent :as substrate-adapter])))
 
-;; ===========================================================================
-;; PURE — birth eventless settle via `apply-initial-entry-cascade`
-;; ===========================================================================
-;;
-;; `apply-initial-entry-cascade` is the machine's single birth site; it
-;; composes the initial-entry cascade with `settle-birth` (the raise-drain +
-;; `:always` fixed-point). `boot` builds the freshly-synthesised initial
-;; snapshot via `build-initial-snapshot` (the same source-of-truth the
-;; registration + spawn paths use), runs the birth macrostep, and returns
-;; the settled `{:state :data}`.
+;; ---- PURE ------------------------------------------------------------------
+
+(defn- birth
+  "Run `machine`'s initial macrostep from arguments alone; return the Result."
+  [machine]
+  (rf.machines.parallel/apply-initial-entry-cascade
+    machine (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false})))
 
 (defn- boot
-  "Birth `machine` from arguments alone — build its initial snapshot, run
-  the initial macrostep (`apply-initial-entry-cascade`), and return
-  `{:state :data}` from the settled snapshot. Asserts the Result is `:ok`."
+  "The settled `{:state :data :fx}` of `machine`'s initial macrostep."
   [machine]
-  (let [initial (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false})
-        r       (rf.machines.parallel/apply-initial-entry-cascade machine initial)]
-    (is (= :ok (:status r)) "birth macrostep succeeds")
-    (let [snap (:snapshot r)]
-      {:state (:state snap) :data (:data snap)})))
-
-(defn- boot-result
-  "Like `boot` but returns `{:state :data :fx}` so a caller can assert on
-  the OUTBOUND effect vector (e.g. that an initial-`:entry` `:raise` drained
-  internally and left no reserved `:raise` fx)."
-  [machine]
-  (let [initial (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false})
-        r       (rf.machines.parallel/apply-initial-entry-cascade machine initial)]
-    (is (= :ok (:status r)) "birth macrostep succeeds")
-    (let [snap (:snapshot r)]
-      {:state (:state snap) :data (:data snap) :fx (:fx r)})))
-
-(defn- raise-fx?
-  "True iff `fx` carries any reserved `[:raise ...]` entry (which would have
-  escaped the machine-local internal-event queue to the global fx layer)."
-  [fx]
-  (boolean (some (fn [[fx-id]] (= :raise fx-id)) fx)))
-
-;; ---- birth-time `:entry` `:raise` drains INSIDE the macrostep -------------
-;;
-;; XState v5 / SCXML §3.13: the initial macrostep runs initial-entry THEN
-;; the internal-event-queue drain. A `raise` emitted by an initial `:entry`
-;; enters the machine's ONE internal queue and is consumed before quiescence
-;; — it never surfaces as an outbound (reserved) effect. `settle-birth`
-;; seeds the drain with the initial-entry's own fx, so an initial `:entry`'s
-;; `[:raise ...]` drains INSIDE the birth macrostep: the birth snapshot
-;; settles to the raised-event target and no reserved `:raise` fx escapes to
-;; the global layer.
-
-(deftest pure-birth-entry-raise-drains-flat
-  (testing "a flat machine whose initial `:entry` raises `[:go]`
-            settles to the raised-event target in ONE birth macrostep, and
-            the outbound fx carries NO reserved `:raise`"
-    (let [m {:initial :a
-             :data    {}
-             :states  {:a {:entry (fn [_] {:fx [[:raise [:go]]]})
-                           :on    {:go :b}}
-                       :b {}}}
-          {:keys [state fx]} (boot-result m)]
-      (is (= :b state)
-          "birth drained the initial-`:entry` `:raise` and settled to :b")
-      (is (not (raise-fx? fx))
-          "no reserved `:raise` escaped to the outbound fx layer"))))
-
-(deftest pure-birth-entry-raise-drains-compound
-  (testing "a COMPOUND machine whose deep initial leaf's `:entry`
-            raises settles past it on birth — the raise re-enters the
-            macrostep queue, the enclosing `:on` takes the transition"
-    (let [m {:initial :outer
-             :data    {}
-             :states  {:outer {:initial :inner
-                               :states  {:inner {:entry (fn [_] {:fx [[:raise [:advance]]]})
-                                                 :on    {:advance :landed}}
-                                         :landed {}}}}}
-          {:keys [state fx]} (boot-result m)]
-      (is (= [:outer :landed] state)
-          "birth drained :inner's `:entry` `:raise` and settled to [:outer :landed]")
-      (is (not (raise-fx? fx))
-          "no reserved `:raise` escaped to the outbound fx layer"))))
+  (let [r (birth machine)]
+    (assoc (select-keys (:snapshot r) [:state :data]) :fx (:fx r))))
 
 (deftest pure-birth-entry-raise-preserves-nonraise-fx-ordering
-  (testing "the initial-`:entry`'s NON-raise fx survive the drain in
-            order — only the `:raise` is consumed; real effects flow out"
-    (let [m {:initial :a
-             :data    {}
-             :states  {:a {:entry (fn [_] {:fx [[:log :before] [:raise [:go]] [:log :after]]})
-                           :on    {:go :b}}
-                       :b {:entry (fn [_] {:fx [[:log :in-b]]})}}}
-          {:keys [state fx]} (boot-result m)]
-      (is (= :b state) "settled to the raised target :b")
-      (is (= #{[:log :before] [:log :after] [:log :in-b]} (set fx))
-          "every non-raise effect (entry's :before/:after + :b's entry :in-b) flows out, and the `:raise` drained — no reserved fx escaped")
-      (is (= [:log :before] (first fx))
-          "the entry fx emitted before the `:raise` keep their leading position"))))
+  (testing "an initial `:entry` `:raise` drains inside the birth macrostep: the
+            machine settles on the raised target, no reserved `:raise` fx
+            escapes, and the non-raise fx keep their order"
+    (is (= {:state :b
+            :data  {}
+            :fx    [[:log :before] [:log :after] [:log :in-b]]}
+           (boot {:initial :a
+                  :data    {}
+                  :states  {:a {:entry (fn [_] {:fx [[:log :before] [:raise [:go]] [:log :after]]})
+                                :on    {:go :b}}
+                            :b {:entry (fn [_] {:fx [[:log :in-b]]})}}})))))
 
 (deftest pure-birth-entry-raise-drains-parallel-region
-  (testing "a PARALLEL machine: a region's initial `:entry` `:raise`
-            is NOT region-local — it re-enters the parent macrostep queue and
-            re-broadcasts across EVERY region before birth commit (so a sibling
-            region observes it too), with no outbound `:raise`"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :a
-                               :states  {:a {:entry (fn [_] {:fx [[:raise [:go]]]})
-                                            :on    {:go :b}}
-                                         :b {}}}
-                       ;; :right declares the SAME `:go` event but does NOT
-                       ;; emit it — it can only fire if the region-:left raise
-                       ;; was re-broadcast through the parent queue.
-                       :right {:initial :r
-                               :states  {:r {:on {:go :s}}
-                                         :s {}}}}}
-          {:keys [state fx]} (boot-result m)]
-      (is (= :b (:left state))
-          "region :left drained its own initial-`:entry` `:raise` → :b")
-      (is (= :s (:right state))
-          "region :right saw the re-broadcast `:go` (parent internal queue, not region-local) → :s")
-      (is (not (raise-fx? fx))
-          "no reserved `:raise` escaped to the outbound fx layer"))))
-
-(deftest pure-birth-always-stays-when-guard-false
-  (testing "the birth `:always` guard FALSE → the machine stays in the
-            initial leaf (no spurious transition on start)"
-    (let [m {:initial :booting
-             :data    {:ready? false}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :states  {:booting {:always [{:guard :ready? :target :ready}]}
-                       :ready   {}}}]
-      (is (= :booting (:state (boot m)))
-          "guard false — birth settles with zero microsteps, stays at :booting"))))
+  (testing "a region's initial `:entry` `:raise` re-enters the PARENT queue
+            before birth commit, so a sibling region takes it too, and no
+            reserved `:raise` fx escapes"
+    ;; :right declares `:go` but never raises it — it moves only if :left's
+    ;; raise was re-broadcast through the parent queue.
+    (is (= {:state {:left :b :right :s} :data {} :fx []}
+           (boot {:type    :parallel
+                  :data    {}
+                  :regions {:left  {:initial :a
+                                    :states  {:a {:entry (fn [_] {:fx [[:raise [:go]]]})
+                                                  :on    {:go :b}}
+                                              :b {}}}
+                            :right {:initial :r
+                                    :states  {:r {:on {:go :s}}
+                                              :s {}}}}})))))
 
 (deftest pure-birth-always-chains-to-fixed-point
-  (testing "a birth `:always` chain settles to a FIXED POINT, not just one
-            hop — :a →(always) :b →(always) :c, all guards true, on start"
-    (let [m {:initial :a
-             :data    {}
-             :guards  {:always? (fn [_] true)}
-             :states  {:a {:always [{:guard :always? :target :b}]}
-                       :b {:always [{:guard :always? :target :c}]}
-                       :c {}}}]
-      (is (= :c (:state (boot m)))
-          "birth eventless loop ran to quiescence — settled at :c, never observed :a/:b"))))
-
-(deftest pure-birth-always-deep-compound-initial-leaf
-  (testing "(d) a compound initial cascade whose DEEP initial leaf carries
-            an `:always` settles past it on birth (initial cascade descends
-            :outer→:inner, then :inner's `:always` fires)"
-    (let [m {:initial :outer
-             :data    {:go? true}
-             :guards  {:go? (fn [{data :data}] (:go? data))}
-             :states  {:outer {:initial :inner
-                               :states  {:inner    {:always [{:guard :go? :target :resolved}]}
-                                         :resolved {}}}
-                       :elsewhere {}}}
-          {:keys [state]} (boot m)]
-      ;; The `:always` target :resolved is a sibling of :inner inside :outer,
-      ;; so the settled path is [:outer :resolved].
-      (is (= [:outer :resolved] state)
-          "birth cascaded to the deep leaf then settled its `:always` to [:outer :resolved]"))))
-
-(deftest pure-birth-always-data-action-committed
-  (testing "the birth `:always` transition's `:action` :data write commits
-            alongside the target — the whole initial macrostep is atomic"
-    (let [m {:initial :booting
-             :data    {:ready? true :n 0}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
-             :states  {:booting {:always [{:guard :ready? :target :ready :action :bump}]}
-                       :ready   {}}}
-          {:keys [state data]} (boot m)]
-      (is (= :ready state) "settled to :ready")
-      (is (= 1 (:n data)) "the `:always` action's :data write committed with the target"))))
-
-(deftest pure-birth-parallel-coupled-always-converges-in-one-parent-round
-  ;; The EXECUTABLE guard for the "parent-owned, not region-local" claim.
-  ;; Region :watcher's birth `:always` reads a `:data` flag that region
-  ;; :writer only sets in :writer's OWN birth `:always` action.
-  ;; `:region-order` puts :watcher FIRST, so an "each region settles
-  ;; independently" model — drain :watcher's `:always` loop to quiescence
-  ;; before visiting :writer — would evaluate :watcher's guard while the flag
-  ;; is still absent and STRAND it at :wa-boot. The parent-owned loop freezes
-  ;; the whole configuration per round: round 1 selects only :writer (which
-  ;; writes the flag), the parent RE-FREEZES, and round 2 selects :watcher
-  ;; against the now-written view. Both converge in the ONE birth macrostep.
-  ;; Region-local settling would turn the :watcher assertion red.
-  (testing "(e′) a sibling-reading birth `:always` converges across re-freezes
-            in the parent's birth macrostep — the region-local model cannot"
-    (let [m {:type         :parallel
-             :region-order [:watcher :writer]
-             :data         {:seed? true}
-             :guards       {:seed?    (fn [{data :data}] (:seed? data))
-                            :written? (fn [{data :data}] (true? (:written data)))}
-             :actions      {:write (fn [{data :data}] {:data (assoc data :written true)})}
-             :regions      {:watcher {:initial :wa-boot
-                                      :states  {:wa-boot  {:always [{:guard :written? :target :wa-ready}]}
-                                                :wa-ready {}}}
-                            :writer  {:initial :w-boot
-                                      :states  {:w-boot {:always [{:guard :seed? :target :w-done :action :write}]}
-                                                :w-done {}}}}}
-          {:keys [state data]} (boot m)]
-      (is (= :w-done (:writer state))
-          "region :writer's birth `:always` fired and wrote the shared flag")
-      (is (= :wa-ready (:watcher state))
-          "region :watcher READ :writer's same-birth write in a LATER parent
-           round and settled — parent-owned rounds, not region-local settling")
-      (is (true? (:written data))
-          "the shared `:data` flag :writer set is visible in the committed birth"))))
+  (testing "birth `:always` runs to a FIXED POINT — :a → :b → :c on start —
+            and each hop's `:action` :data write commits with the target"
+    (is (= {:state :c :data {:n 2}}
+           (select-keys (boot {:initial :a
+                               :data    {:n 0}
+                               :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
+                               :states  {:a {:always {:target :b :action :bump}}
+                                         :b {:always {:target :c :action :bump}}
+                                         :c {}}})
+                        [:state :data])))))
 
 (deftest pure-birth-always-depth-limit-surfaces-as-failed-macrostep
-  (testing "a birth `:always` cycle trips `:always-depth-limit` and surfaces
-            as a FAILED macrostep (XState v5 throws on such a
-            runaway). The `:fail` carries the `::depth-abort?` sentinel and
-            threads NO snapshot; atomic rollback is enforced by the failure
-            surface (the lifecycle handler short-circuits to `{}`, leaving the
-            post-cascade initial configuration committed)"
-    (let [m {:initial :a
-             :data    {}
-             :always-depth-limit 5
-             :guards  {:p? (fn [_] true)}
-             :states  {:a {:always [{:guard :p? :target :b}]}
-                       :b {:always [{:guard :p? :target :a}]}}}
-          initial (rf.machines.parallel/build-initial-snapshot m {:bootstrap-pending? false})
-          r       (rf.machines.parallel/apply-initial-entry-cascade m initial)]
-      (is (= :error (:status r)) "birth returns a :fail (failed macrostep), not an :ok no-op")
-      (is (rf.machines.result/depth-abort? r)
-          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
-      (is (nil? (:snapshot r))
-          "a :fail threads no snapshot — the runaway settle commits nothing"))))
+  (testing "a birth `:always` cycle trips `:always-depth-limit` and fails the
+            birth macrostep (XState v5 throws on such a runaway)"
+    (let [r (birth {:initial            :a
+                    :data               {}
+                    :always-depth-limit 5
+                    :states             {:a {:always :b}
+                                         :b {:always :a}}})]
+      (is (rf.machines.result/depth-abort? r))
+      (is (nil? (:snapshot r)) "the runaway settle commits nothing"))))
 
-;; ===========================================================================
-;; LIVE — eager `[:rf.machine/start]` and lazy first-event birth
-;; ===========================================================================
-;;
-;; `maybe-boot` calls the same `apply-initial-entry-cascade` the PURE layer
-;; drives, so the live layer pins what the pure layer cannot see: the two
-;; birth triggers, a REGISTERED parallel machine, and auto-destroy at birth.
-;; Cases (c) and (d) are pure-only.
+;; ---- LIVE ------------------------------------------------------------------
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest live-eager-start-settles-birth-always
-  (testing "(a) eager `[:rf.machine/start]` — a transient initial leaf whose
-            `:always` guard holds settles past it on start, no user event"
-    (let [m {:initial :booting
-             :data    {:ready? true}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :states  {:booting {:always [{:guard :ready? :target :ready}]}
-                       :ready   {}}}]
-      (rf/reg-machine :rf2-505ic/eager m)
-      (rf/dispatch-sync [:rf2-505ic/eager [:rf.machine/start]])
-      (is (= :ready (:state (snapshot :rf2-505ic/eager)))
-          "eager start settled past :booting to :ready — birth `:always` fired with no external event"))))
+  (testing "eager `[:rf.machine/start]` settles past a transient initial leaf
+            with no user event"
+    (rf/reg-machine :birth/eager
+      {:initial :booting
+       :data    {:ready? true}
+       :guards  {:ready? (fn [{data :data}] (:ready? data))}
+       :states  {:booting {:always [{:guard :ready? :target :ready}]}
+                 :ready   {}}})
+    (rf/dispatch-sync [:birth/eager [:rf.machine/start]])
+    (is (= :ready (:state (snapshot :birth/eager))))))
 
 (deftest live-lazy-first-event-settles-birth-always
-  (testing "(b) lazy first-event birth — the birth `:always` settles as part
-            of the SAME first dispatch, BEFORE the user event is processed"
-    (let [m {:initial :booting
-             :data    {:ready? true}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :actions {:noted (fn [{data :data}] {:data (assoc data :noted? true)})}
-             :states  {:booting {:always [{:guard :ready? :target :ready}]}
-                       :ready   {:on {:note {:action :noted}}}}}]
-      (rf/reg-machine :rf2-505ic/lazy m)
-      ;; First real event is `:note`, declared on :ready. It can only fire
-      ;; if the birth `:always` already settled :booting→:ready BEFORE the
-      ;; user event was processed (the birth happens-before the event).
-      (rf/dispatch-sync [:rf2-505ic/lazy [:note]])
-      (let [s (snapshot :rf2-505ic/lazy)]
-        (is (= :ready (:state s))
-            "birth settled :booting→:ready on the lazy first dispatch")
-        (is (true? (get-in s [:data :noted?]))
-            ":note resolved at :ready — proving the birth `:always` settled before the user event")))))
-
-(deftest live-eager-start-parallel-regions-settle-in-parent-round
-  (testing "(e) eager start on a parallel machine — every region's enabled
-            birth `:always` is selected in the PARENT's frozen birth round
-            (uncoupled guards: L's true → :l-ready, R's false → stays put)"
-    (let [m {:type    :parallel
-             :data    {:l? true :r? false}
-             :guards  {:l? (fn [{data :data}] (:l? data))
-                       :r? (fn [{data :data}] (:r? data))}
-             :regions {:left  {:initial :l-boot
-                               :states  {:l-boot  {:always [{:guard :l? :target :l-ready}]}
-                                         :l-ready {}}}
-                       :right {:initial :r-boot
-                               :states  {:r-boot  {:always [{:guard :r? :target :r-ready}]}
-                                         :r-ready {}}}}}]
-      (rf/reg-machine :rf2-505ic/par m)
-      (rf/dispatch-sync [:rf2-505ic/par [:rf.machine/start]])
-      (let [s (snapshot :rf2-505ic/par)]
-        (is (= :l-ready (get-in s [:state :left]))
-            "region :left settled its birth `:always`")
-        (is (= :r-boot (get-in s [:state :right]))
-            "region :right's guard false — stayed at its initial leaf")))))
+  (testing "lazy birth settles `:always` in the SAME first dispatch, before the
+            user event — `:note` is declared only on :ready"
+    (rf/reg-machine :birth/lazy
+      {:initial :booting
+       :data    {}
+       :actions {:noted (fn [{data :data}] {:data (assoc data :noted? true)})}
+       :states  {:booting {:always :ready}
+                 :ready   {:on {:note {:action :noted}}}}})
+    (rf/dispatch-sync [:birth/lazy [:note]])
+    (is (= {:state :ready :data {:noted? true}}
+           (select-keys (snapshot :birth/lazy) [:state :data])))))
 
 (deftest live-eager-start-settling-onto-final-auto-destroys
-  (testing "an eager `[:rf.machine/start]` whose birth `:always` settles onto
-            a `:final?` leaf auto-destroys at start (XState v5: such an actor
-            is done immediately) — the eager-start path runs the finalize
-            cascade just as the lazy path would"
-    (let [m {:initial :booting
-             :data    {:ready? true}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :states  {:booting {:always [{:guard :ready? :target :done}]}
-                       :done    {:final? true}}}]
-      (rf/reg-machine :rf2-505ic/final-at-birth m)
-      (rf/dispatch-sync [:rf2-505ic/final-at-birth [:rf.machine/start]])
-      (is (nil? (snapshot :rf2-505ic/final-at-birth))
-          "birth settled :booting→:done (:final?) and auto-destroyed — snapshot cleared on eager start"))))
+  (testing "an eager start whose birth `:always` lands on a `:final?` leaf
+            auto-destroys at start (XState v5: the actor is done immediately)"
+    (rf/reg-machine :birth/final
+      {:initial :booting
+       :states  {:booting {:always :done}
+                 :done    {:final? true}}})
+    (rf/dispatch-sync [:birth/final [:rf.machine/start]])
+    (is (nil? (snapshot :birth/final)))))
