@@ -1,79 +1,26 @@
 (ns re-frame.transition-frame-tag-test
-  "`:rf.machine/transition` MUST carry the `:frame` tag so
-  `re-frame.epoch.capture/capture-event!` admits it into the cascade's
-  trace buffer.
-
-  The epoch capture gate (`(when (and frame-id ...) (state/buffer-event!
-  ...))`) admits a trace event only when its tags carry `:frame`; an event
-  whose tags lack `:frame` is dropped from the epoch-history
-  `:trace-events` slot the Xray Machine Inspector reads from (though it
-  still fans out to direct trace listeners). So a `:rf.machine/transition`
-  must tag `:frame` for the Machine Inspector to see real cascades.
-
-  This test lives in the machines artefact (which does not depend on
-  epoch) so the site contract is exercised even when the epoch artefact
-  isn't on the test classpath. The end-to-end harvested-record
-  assertion lives upstack in the epoch / Xray gates — they read the
-  same `:tags :frame` slot we lock here, so a regression that
-  drops the tag fails at this site test first (clear cause)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`:rf.machine/transition` MUST carry the dispatching frame's id as its
+  `:frame` tag: `re-frame.epoch.capture/capture-event!` admits a trace event
+  into the epoch history the Xray Machine Inspector reads only when its tags
+  carry `:frame`. The machine's other trace sites are swept by
+  `machine_trace_frame_tag_sweep_test`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- shared spec ----------------------------------------------------------
-
-(def ^:private traffic-light
-  {:initial :red
-   :states  {:red    {:on {:tick {:target :green}}}
-             :green  {:on {:tick {:target :yellow}}}
-             :yellow {:on {:tick {:target :red}}}}})
-
-;; Intentional RAW manual-stop listener (not rf.machines.test-support/with-trace-capture): this
-;; helper hands the caller a [capture-atom unregister-thunk] pair so the test
-;; controls exactly WHEN it stops listening — a behaviour the scope-macro form
-;; (which unregisters at body exit) cannot express.
-(defn- record-traces!
-  []
-  (let [seen (atom [])]
-    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-    [seen #(rf/unregister-listener! :trace ::rec)]))
-
-(defn- transitions-of [evs]
-  (filterv #(= :rf.machine/transition (:operation %)) evs))
-
-;; ---- :rf.machine/transition tags carry :frame -----------------------------
-
-(deftest transition-tags-carry-frame
-  (testing ":rf.machine/transition tags carry `:frame` so the epoch-capture
-   gate admits the event into the cascade buffer (the gate
-   silently drops trace events whose tags lack `:frame`)"
-    (rf/reg-machine :rf2-hwuki/tl traffic-light)
-    (let [[seen unreg] (record-traces!)]
-      (try
-        (rf/dispatch-sync [:rf2-hwuki/tl [:tick]])
-        (let [[t] (transitions-of @seen)]
-          (is (some? t) "one :rf.machine/transition fired")
-          (is (contains? (:tags t) :frame)
-              ":frame tag is present on the trace's tags map")
-          (is (= :rf/default (-> t :tags :frame))
-              ":frame tag value is the dispatching frame's id (:rf/default for the bare dispatch)"))
-        (finally (unreg))))))
-
 (deftest transition-frame-matches-explicit-dispatch-frame
-  (testing "explicit `{:frame <id>}` on dispatch flows through to the tag —
-   verifies the tag tracks the live dispatching frame, not a hard-coded
-   default"
-    (rf/make-frame {:id :rf2-hwuki/frame-A :doc "explicit dispatch frame"})
-    (rf/reg-machine :rf2-hwuki/tl traffic-light)
-    (let [[seen unreg] (record-traces!)]
-      (try
-        (rf/dispatch-sync [:rf2-hwuki/tl [:tick]] {:frame :rf2-hwuki/frame-A})
-        (let [[t] (transitions-of @seen)]
-          (is (some? t))
-          (is (= :rf2-hwuki/frame-A (-> t :tags :frame))
-              ":frame tag tracks the dispatching frame id, not :rf/default"))
-        (finally (unreg))))))
+  (rf/make-frame {:id :rf2-hwuki/frame-A})
+  (rf/reg-machine :rf2-hwuki/tl
+    {:initial :red
+     :states  {:red {:on {:tick :green}} :green {}}})
+  (let [seen (atom [])]
+    (rf/register-listener! :trace ::rec #(swap! seen conj %))
+    (try (rf/dispatch-sync [:rf2-hwuki/tl [:tick]] {:frame :rf2-hwuki/frame-A})
+         (finally (rf/unregister-listener! :trace ::rec)))
+    (is (= :rf2-hwuki/frame-A
+           (->> @seen (filter #(= :rf.machine/transition (:operation %))) first :tags :frame)))))
