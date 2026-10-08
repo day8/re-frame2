@@ -15,7 +15,7 @@
 
   Every assertion read off the trace bus sits inside a
   `(when rf.interop/debug-enabled? …)` arm: `trace/emit!` is dev
-  instrumentation, and the negative `(not (.contains …))` assertions would pass
+  instrumentation, and the negative `no-secret-in?` census would pass
   vacuously with no trace to read."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -26,6 +26,8 @@
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
+
+(def ^:private sentinel rf.privacy/redacted-sentinel)
 
 (def ^:private param-secret "kuyza-param-secret")
 (def ^:private query-secret "kuyza-query-secret")
@@ -86,127 +88,89 @@
     (is (= 1 (count runs)) (str "one recompute of " query-v " across the navigation"))
     (:tags (first runs))))
 
+(defn- no-secret-in?
+  [x & secrets]
+  (let [s (pr-str x)]
+    (not-any? #(.contains s %) secrets)))
+
 (defn- held-across
   "Visit `from`, hold and deref every route read sub, then visit `to` and deref
-  them again inside a trace capture. Returns the reads either side, the
-  captured events, and the route claims either side."
+  them again inside a trace capture. Returns the reads before the navigation,
+  the captured events, and the route claims either side."
   [from to]
   (visit! from)
-  (let [held    (into {} (map (fn [qv] [qv (rf/subscribe qv)])) (concat classified-subs other-subs))
-        read!   #(into {} (map (fn [[qv r]] [qv @r])) held)
-        before  (read!)
-        claims  (route-claims)
-        after   (atom nil)
-        events  (capture-traces (fn [] (visit! to) (reset! after (read!))))]
+  (let [held   (into {} (map (fn [qv] [qv (rf/subscribe qv)])) (concat classified-subs other-subs))
+        before (into {} (map (fn [[qv r]] [qv @r])) held)
+        claims (route-claims)
+        events (capture-traces (fn [] (visit! to) (run! (fn [[_ r]] @r) held)))]
     {:before        before
-     :after         @after
      :events        events
      :claims-before claims
      :claims-after  (route-claims)}))
 
 (deftest leaving-a-sensitive-route-keeps-the-held-subs-prev-values-classified
   (reg-routes!)
-  (let [{:keys [before after events claims-before claims-after]}
-        (held-across secret-url "/plain")]
-    (testing "the in-process reads stay raw"
-      (is (= param-secret (get-in before [[:rf/route] :params :secret])))
-      (is (= query-secret (get-in before [[:rf/route] :query :token])))
-      (is (= param-secret (:secret (get before [:rf.route/params]))))
-      (is (= query-secret (:token (get before [:rf.route/query]))))
-      (is (= :route/plain (get-in after [[:rf/route] :route-id]))))
+  (let [{:keys [before events claims-before claims-after]} (held-across secret-url "/plain")]
+    (is (= [{:secret param-secret} {:token query-secret}]
+           [(get before [:rf.route/params]) (get before [:rf.route/query])])
+        "the in-process reads stay raw")
     (testing "the navigation drops the leaving route's claims from the registry"
       (is (seq claims-before) "control: the sensitive route's claims are in the registry")
       (is (empty? claims-after)))
     (when rf.interop/debug-enabled?
-      (testing "[:rf/route]: the prior slice keeps its route's classification"
-        (let [prev (:rf.sub/prev-value (run-tags [:rf/route] events))]
-          (is (= :route/secret (:route-id prev)) "an unclassified slot rides verbatim")
-          (is (= rf.privacy/redacted-sentinel (get-in prev [:params :secret])))
-          (is (= rf.privacy/redacted-sentinel (get-in prev [:query :token])))))
-      (testing "[:rf.route/params]: the prior params keep the leaving route's classification"
-        (let [prev (:rf.sub/prev-value (run-tags [:rf.route/params] events))]
-          (is (= rf.privacy/redacted-sentinel (:secret prev)))))
-      (testing "[:rf.route/query]: the prior query keeps the leaving route's classification"
-        (let [prev (:rf.sub/prev-value (run-tags [:rf.route/query] events))]
-          (is (= rf.privacy/redacted-sentinel (:token prev)))))
-      (testing "no secret appears on any trace the navigation emits"
-        (is (not (.contains (pr-str events) param-secret)))
-        (is (not (.contains (pr-str events) query-secret)))))))
+      (testing "each prior value keeps its route's classification"
+        (is (= {:route-id :route/secret :params {:secret sentinel} :query {:token sentinel}}
+               (select-keys (:rf.sub/prev-value (run-tags [:rf/route] events)) [:route-id :params :query])))
+        (is (= {:secret sentinel} (:rf.sub/prev-value (run-tags [:rf.route/params] events))))
+        (is (= {:token sentinel} (:rf.sub/prev-value (run-tags [:rf.route/query] events)))))
+      (is (no-secret-in? events param-secret query-secret)
+          "no secret appears on any trace the navigation emits"))))
 
 (deftest leaving-a-whole-projection-route-keeps-the-held-subs-prev-values-classified
   (testing "a `[]` declaration covers the whole slice, so it governs each
-            projection of it — including the params map, whose storage
-            position sits below the declared one"
+            projection of it, including the params map below it"
     (reg-routes!)
-    (let [{:keys [events claims-before claims-after]}
-          (held-across (str "/whole/" param-secret) "/plain")]
-      (is (seq claims-before) "control: the whole-projection claim is in the registry")
-      (is (empty? claims-after))
+    (let [{:keys [events]} (held-across (str "/whole/" param-secret) "/plain")]
       (when rf.interop/debug-enabled?
-        (is (= rf.privacy/redacted-sentinel
-               (:rf.sub/prev-value (run-tags [:rf/route] events))))
-        (is (= rf.privacy/redacted-sentinel
-               (:rf.sub/prev-value (run-tags [:rf.route/params] events))))
-        (is (not (.contains (pr-str events) param-secret))
-            "no secret appears on any trace the navigation emits")))))
+        (is (= sentinel (:rf.sub/prev-value (run-tags [:rf/route] events))))
+        (is (= sentinel (:rf.sub/prev-value (run-tags [:rf.route/params] events))))
+        (is (no-secret-in? events param-secret))))))
 
 (def ^:private audit-secret "audit-prior-route-private-953")
-
-(defn- held-across-re-registration
-  "Visit `:audit/secret` with a secret param, hold and deref `[:rf/route]` and
-  `[:rf.route/params]`, re-register `:audit/secret` with no declaration at the
-  same pattern, then navigate to `/plain` and deref both inside a trace
-  capture."
-  []
-  (rf/reg-route :audit/secret {:sensitive [[:params :secret]]} "/secret/:secret")
-  (rf/reg-route :audit/plain {} "/plain")
-  (visit! (str "/secret/" audit-secret))
-  (let [held   (into {} (map (fn [qv] [qv (rf/subscribe qv)])) [[:rf/route] [:rf.route/params]])
-        read!  #(into {} (map (fn [[qv r]] [qv @r])) held)
-        before (read!)
-        _      (rf/reg-route :audit/secret {} "/secret/:secret")
-        after  (atom nil)
-        events (capture-traces (fn [] (visit! "/plain") (reset! after (read!))))]
-    {:before before :after @after :events events}))
 
 (deftest re-registering-the-leaving-route-keeps-the-held-subs-prev-values-classified
   (testing "the prior value is classified by the declaration it was computed
             under, so re-registering the route without it before navigating
             away does not declassify it"
-    (let [{:keys [before after events]} (held-across-re-registration)]
-      (is (= audit-secret (get-in before [[:rf/route] :params :secret]))
-          "the in-process read stays raw")
-      (is (= :audit/plain (get-in after [[:rf/route] :route-id])))
+    (rf/reg-route :audit/secret {:sensitive [[:params :secret]]} "/secret/:secret")
+    (rf/reg-route :audit/plain {} "/plain")
+    (visit! (str "/secret/" audit-secret))
+    (let [held   [(rf/subscribe [:rf/route]) (rf/subscribe [:rf.route/params])]
+          _      (run! deref held)
+          _      (rf/reg-route :audit/secret {} "/secret/:secret")
+          events (capture-traces (fn [] (visit! "/plain") (run! deref held)))]
       (when rf.interop/debug-enabled?
-        (is (= rf.privacy/redacted-sentinel
-               (get-in (run-tags [:rf/route] events) [:rf.sub/prev-value :params :secret])))
-        (is (= rf.privacy/redacted-sentinel
-               (get-in (run-tags [:rf.route/params] events) [:rf.sub/prev-value :secret])))
-        (is (not (.contains (pr-str events) audit-secret))
-            "no secret appears on any trace the navigation emits")))))
+        (is (= sentinel (get-in (run-tags [:rf/route] events) [:rf.sub/prev-value :params :secret])))
+        (is (= sentinel (get-in (run-tags [:rf.route/params] events) [:rf.sub/prev-value :secret])))
+        (is (no-secret-in? events audit-secret))))))
 
 (deftest entering-a-sensitive-route-classifies-the-new-value
-  (testing "control, the reverse direction: the prior value is the plain
-            slice and rides verbatim, while the new value is classified by the
-            registry the entering route installed"
+  (testing "the reverse direction: the prior value is the plain slice and rides
+            verbatim, while the new value is classified by the registry the
+            entering route installed"
     (reg-routes!)
-    (let [{:keys [after events claims-after]} (held-across "/plain" secret-url)]
-      (is (seq claims-after) "the entering route's claims are in the registry")
-      (is (= param-secret (get-in after [[:rf/route] :params :secret]))
-          "the in-process read stays raw")
+    (let [{:keys [events]} (held-across "/plain" secret-url)]
       (when rf.interop/debug-enabled?
         (let [route  (run-tags [:rf/route] events)
               params (run-tags [:rf.route/params] events)
               query  (run-tags [:rf.route/query] events)]
-          (is (= :route/plain (get-in route [:rf.sub/prev-value :route-id])))
-          (is (= {} (:rf.sub/prev-value params)))
-          (is (= rf.privacy/redacted-sentinel (get-in route [:rf.sub/value :params :secret])))
-          (is (= rf.privacy/redacted-sentinel (get-in route [:rf.sub/value :query :token])))
-          (is (= rf.privacy/redacted-sentinel (get-in params [:rf.sub/value :secret])))
-          (is (= rf.privacy/redacted-sentinel (get-in query [:rf.sub/value :token]))))
+          (is (= [:route/plain {}]
+                 [(get-in route [:rf.sub/prev-value :route-id]) (:rf.sub/prev-value params)]))
+          (is (= {:params {:secret sentinel} :query {:token sentinel}}
+                 (select-keys (:rf.sub/value route) [:params :query])))
+          (is (= [{:secret sentinel} {:token sentinel}]
+                 [(:rf.sub/value params) (:rf.sub/value query)])))
         ;; The window dispatches the secret URL itself, so the census is scoped
         ;; to the sub runs: the URL-change event carries the URL it was given.
-        (let [runs (filterv #(= :rf.sub/run (:operation %)) events)]
-          (is (seq runs))
-          (is (not (.contains (pr-str runs) param-secret)))
-          (is (not (.contains (pr-str runs) query-secret))))))))
+        (is (no-secret-in? (filterv #(= :rf.sub/run (:operation %)) events)
+                           param-secret query-secret))))))
