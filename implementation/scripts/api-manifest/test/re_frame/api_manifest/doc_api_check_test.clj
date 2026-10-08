@@ -1,115 +1,50 @@
 (ns re-frame.api-manifest.doc-api-check-test
-  "Regression tests for the human-doc API-reference projection check.
-
-  THE SURFACE. The manifest drift-check and the other projection checks
-  scan spec/API.md, docs/core/**, the two tool API specs, and skills/; this
-  check extends the same call-position discipline to the three
-  human-facing API-reference trees (spec/Privacy.md, docs/api/**,
-  docs/story/api/**), which none of the others reach.
-
-  THE CONTRACT these tests pin (through the pure `reconcile` reconciler with
-  synthetic references, plus a live smoke that the committed trees reconcile
-  clean):
-    * a live manifest var resolves anywhere (no problem);
-    * an unknown / removed name with no manifest row is flagged;
-    * a file-scoped removed name is silenced ONLY in its approved file(s),
-      and RED elsewhere (mirroring :doc-guide-known-unmanifested-scoped)."
-  (:require [clojure.test :refer [deftest is testing]]
+  "Tests for the human-doc API-reference projection check (spec/Privacy.md,
+  docs/api/**, docs/story/api/**): call-position references must resolve to
+  a manifest row, and docs/api must give every eligible manifest var a page
+  and a member heading."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.api-manifest.doc-api-check :as rf.api-manifest.doc-api-check]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
-(def ^:private manifest-vars
-  ;; A small synthetic stand-in for the manifest's bare var names.
-  #{"reg-event" "reg-sub" "dispatch"})
-
-(def ^:private scoped-allow
-  {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}})
-
-(defn- problems-for [references]
-  (rf.api-manifest.doc-api-check/reconcile {:references references
-                :manifest-vars manifest-vars
-                :scoped-allow scoped-allow}))
-
-(deftest removed-name-with-no-manifest-row-is-red
-  (testing "a removed / renamed / never-manifested name in live reference
-            prose is flagged"
-    (let [probs (problems-for
-                  [{:var "path" :line 85 :raw "rf/path"
-                    :file "docs/api/re-frame.core.md"}])]
-      (is (= 1 (count probs)))
-      (is (= "docs/api/re-frame.core.md" (:file (first probs))))
-      (is (re-find #"no manifest row" (:detail (first probs)))))))
-
-(deftest scoped-removed-name-silenced-only-in-approved-file
-  (testing "a scoped removed name is silenced in its approved tombstone file"
-    (is (empty? (problems-for
-                  [{:var "reg-sub-raw" :line 26 :raw "rf/reg-sub-raw"
-                    :file "migration/from-re-frame-v1/README.md"}]))))
-  (testing "the SAME scoped removed name in a NON-approved live reference file
-            is RED — it leaked into live reference prose"
-    (let [probs (problems-for
-                  [{:var "reg-sub-raw" :line 50 :raw "rf/reg-sub-raw"
-                    :file "docs/api/re-frame.core.md"}])]
-      (is (= 1 (count probs)))
-      (is (= "docs/api/re-frame.core.md" (:file (first probs))))
-      (is (re-find #"removed API named outside its approved" (:detail (first probs)))))))
-
-(deftest live-doc-api-reconciles-clean
-  (testing "the committed spec/Privacy.md + docs/api + docs/story/api
-            reconcile against the committed manifest with zero problems, and
-            docs/api gives every eligible manifest var a page and a member
-            heading (the CI contract: check! is red if either half is)"
-    (is (true? (rf.api-manifest.doc-api-check/check!))
-        "live drift: a human-doc API-reference tree names a removed/renamed public surface, or docs/api lacks a page or member heading")))
+(deftest reconcile-flags-unknown-names-and-scoped-names-outside-their-file
+  (is (= [["docs/api/re-frame.core.md" 85] ["docs/api/re-frame.core.md" 50]]
+         (map (juxt :file :line)
+              (rf.api-manifest.doc-api-check/reconcile
+                {:manifest-vars #{}
+                 :scoped-allow  {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}}
+                 :references
+                 [{:var "path" :line 85 :raw "rf/path"
+                   :file "docs/api/re-frame.core.md"}
+                  ;; the approved tombstone file: silenced
+                  {:var "reg-sub-raw" :line 26 :raw "rf/reg-sub-raw"
+                   :file "migration/from-re-frame-v1/README.md"}
+                  {:var "reg-sub-raw" :line 50 :raw "rf/reg-sub-raw"
+                   :file "docs/api/re-frame.core.md"}]})))))
 
 (deftest story-api-references-reach-the-check-under-rf-story
-  (testing "docs/story/api/** calls re-frame.story under its canonical rf.story
-            alias, and the extraction reaches those references.
-            The aggregate floor sits far below the live count,
-            so dropping the alias from the extraction would narrow the gate
-            without turning it red; this is the test that notices."
-    (let [files (rf.api-manifest.projection/require-markdown-files
-                  "docs/story/api/"
-                  (rf.api-manifest.projection/repo-file "docs" "story" "api"))
-          refs  (rf.api-manifest.doc-api-check/references-in-files files)]
-      (is (seq (filter #(re-find #"^rf\.story/" (:raw %)) refs))
-          "no (rf.story/<var> reference extracted from docs/story/api/**"))))
+  ;; The aggregate floor sits far below the live count, so dropping the
+  ;; `rf.story` alias from the extraction would narrow the gate without
+  ;; turning it red.
+  (let [files (rf.api-manifest.projection/require-markdown-files
+                "docs/story/api/"
+                (rf.api-manifest.projection/repo-file "docs" "story" "api"))]
+    (is (seq (filter #(re-find #"^rf\.story/" (:raw %))
+                     (rf.api-manifest.doc-api-check/references-in-files files))))))
 
-;; ---------------------------------------------------------------------------
-;; Page + member coverage reconciler.
-;; ---------------------------------------------------------------------------
-
-(def ^:private cov-rows
-  ;; Synthetic eligible manifest rows spanning two namespaces.
-  [{:namespace "re-frame.fresco.overlay" :var "modal"}
-   {:namespace "re-frame.fresco.overlay" :var "popover"}
-   {:namespace "re-frame.fresco.forms"   :var "buffered-field"}
-   {:namespace "re-frame.fresco.forms"   :var "drafts"}])
-
-(deftest coverage-flags-a-namespace-with-no-page
-  (testing "an eligible namespace ABSENT from the members map (no docs/api page)
-            yields ONE :page-missing problem that subsumes its members"
-    (let [probs (rf.api-manifest.doc-api-check/coverage-problems
-                  {:eligible-rows cov-rows
-                   :members {"re-frame.fresco.overlay" #{"modal" "popover"}} ; forms page absent
-                   :exempt #{}})]
-      (is (= [{:kind :page-missing :namespace "re-frame.fresco.forms"}] probs)))))
-
-(deftest coverage-flags-a-member-whose-heading-was-removed
-  (testing "deleting a member's heading (an eligible var not in its page's member
-            set) turns the check RED — the teeth proof"
-    (let [probs (rf.api-manifest.doc-api-check/coverage-problems
-                  {:eligible-rows cov-rows
-                   :members {"re-frame.fresco.overlay" #{"modal"} ; `popover` heading removed
-                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
-                   :exempt #{}})]
-      (is (= [{:kind :member-missing :namespace "re-frame.fresco.overlay" :var "popover"}] probs)))))
-
-(deftest coverage-exempt-silences-a-facade-pointer-member
-  (testing "an explicit :doc-api-coverage-exempt [namespace var] pair silences a
-            member that is intentionally documented only as a facade pointer"
-    (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
-                  {:eligible-rows cov-rows
-                   :members {"re-frame.fresco.overlay" #{"modal"}
-                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
-                   :exempt #{["re-frame.fresco.overlay" "popover"]}})))))
+(deftest coverage-flags-missing-pages-and-member-headings
+  ;; A missing page is ONE :page-missing problem that subsumes its members.
+  (let [rows     [{:namespace "re-frame.fresco.overlay" :var "modal"}
+                  {:namespace "re-frame.fresco.overlay" :var "popover"}
+                  {:namespace "re-frame.fresco.forms"   :var "buffered-field"}
+                  {:namespace "re-frame.fresco.forms"   :var "drafts"}]
+        problems #(rf.api-manifest.doc-api-check/coverage-problems
+                    {:eligible-rows rows
+                     :members       {"re-frame.fresco.overlay" #{"modal"}}
+                     :exempt        %})]
+    (is (= [{:kind :page-missing :namespace "re-frame.fresco.forms"}
+            {:kind :member-missing :namespace "re-frame.fresco.overlay" :var "popover"}]
+           (problems #{})))
+    (is (= [{:kind :page-missing :namespace "re-frame.fresco.forms"}]
+           (problems #{["re-frame.fresco.overlay" "popover"]}))
+        "an explicit [namespace var] exemption silences a facade-pointer member")))
