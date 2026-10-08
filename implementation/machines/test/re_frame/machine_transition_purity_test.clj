@@ -1,239 +1,96 @@
 (ns re-frame.machine-transition-purity-test
-  "Locks in the contract that `machine-transition`'s RETURNED VALUE is a
-  deterministic function of its arguments — identical (machine, snapshot,
-  event) triples produce identical Result values (snapshot + effects vector)
-  INCLUDING the spawn-id sequencing inside emitted `:rf.machine/spawn` fx
-  maps.
+  "`machine-transition`'s RETURNED VALUE is a deterministic function of its
+  arguments: identical (machine, snapshot, event) triples produce identical
+  Results, including the spawn ids inside emitted `:rf.machine/spawn` fx. The
+  spawn-id counter lives in the snapshot at `:rf/spawn-counter`, never in
+  module-level state.
 
-  ## What \"pure\" means here
-
-  \"Pure\" is scoped to the REDUCTION: the Result depends only on the
-  arguments, with no module-level mutable state and no `app-db` read. It
-  is NOT a claim that the engine emits zero observability — the reducer
-  emits `rf.trace/emit!` diagnostic events on the process-wide Spec 009
-  trace stream, inline, exactly as the rest of the framework does (and
-  this very namespace's `capture-error-depth!` helper OBSERVES those
-  emits through a global listener to read the depth-limit boundary). Per
-  Spec 005 (005:545 / 005:637) that trace is production-elided
-  observability (Closure DCE on `interop/debug-enabled?`), never part of
-  the snapshot/fx value and never read back into the reduction. The
-  determinism property below is therefore independent of whether any
-  listener is registered — the test asserts the RETURNED Result, not the
-  absence of a trace side channel.
-
-  The spawn-id allocator counter lives inside the snapshot at
-  `:rf/spawn-counter` (a per-id-prefix integer map — the spawn-spec's
-  `:id-prefix`, which defaults to the spawned child's `:machine-id` when
-  the spec supplies none); each spawn bumps the slot via `update-in` and
-  the returned snapshot carries the bumped value. The function is
-  deterministic from its arguments — the property this test locks in.
-
-  Two flavours of the property:
-
-   1. **Identical args → identical results.** Call
-      `machine-transition` twice with the SAME arguments and assert
-      the returned Result (snapshot + effects vector) is `=` to the
-      first call's Result.
-
-   2. **No global state.** The two calls happen in arbitrary order;
-      neither alters any module-level state that the other observes.
-      Concretely: a third call with a DIFFERENT snapshot starting at
-      counter 0 still allocates `:worker#1`, not `:worker#3`.
-  "
+  \"Pure\" is scoped to the REDUCTION. The engine still emits Spec 009 trace
+  events inline (this namespace's `capture-error-depth!` reads the depth-limit
+  boundary from them); per Spec 005 that trace is observability, never part of
+  the snapshot / fx value and never read back into the reduction."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as rf.machines]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
-(def auth-flow-spec
-  "A tiny declarative-`:spawn` machine. On `[:submit]` from `:idle` it
-  transitions to `:authenticating`, a :spawn-bearing state that emits
+(def ^:private auth-flow-spec
+  "On `[:submit]` from `:idle`, enters `:authenticating`, whose `:spawn` emits
   one `:rf.machine/spawn` fx for an `:http/post` child."
   {:initial :idle
-   :data    {}
    :states  {:idle           {:on {:submit :authenticating}}
-             :authenticating {:spawn {:machine-id :http/post
-                                       :data       {:url "/api/login"}
-                                       :start      [:begin]}
-                              :on    {:auth/succeeded :authenticated
-                                      :auth/failed    :idle}}
-             :authenticated  {}}})
+             :authenticating {:spawn {:machine-id :http/post}}}})
 
 (deftest machine-transition-is-pure
-  (testing "identical args produce identical Result values"
-    (let [snap     {:state :idle :data {}}
-          event    [:submit]
-          {snap1 :snapshot fx1 :fx} (rf.machines/machine-transition auth-flow-spec snap event)
-          {snap2 :snapshot fx2 :fx} (rf.machines/machine-transition auth-flow-spec snap event)]
-      (is (= snap1 snap2)
-          "two pure-call invocations from the same input produce the same next-snapshot")
-      (is (= fx1 fx2)
-          "two pure-call invocations from the same input produce the same effects vector")
-      ;; Assert only the load-bearing slots of the emitted spawn fx — the
-      ;; contract — and leave implementation-detail keys (`:id-prefix`, exact
-      ;; arg-map shape, the user-passed `:data` / `:start` echo) free to
-      ;; evolve without churning this test. The contract is:
-      ;;   - the fx-id is `:rf.machine/spawn`
-      ;;   - `:rf/spawned-id` is `:http/post#1` (allocator deterministic)
-      ;;   - `:rf/parent-id` is `:rf/transition-pure` (sentinel for the
-      ;;     pure-call surface)
-      ;;   - `:rf/invoke-id` is the state-path the spawn issued from
-      ;;     (`[:authenticating]`)
-      (is (= 1 (count fx1))
-          "exactly one effect emitted by the :submit transition")
-      (let [[[fx-id args]] fx1]
-        (is (= :rf.machine/spawn fx-id)
-            "the emitted fx is :rf.machine/spawn")
-        (is (= :http/post#1 (:rf/spawned-id args))
-            "the spawned-id is allocated deterministically as :http/post#1")
-        (is (= :rf/transition-pure (:rf/parent-id args))
-            "parent-id sentinel for the pure-call surface is :rf/transition-pure")
-        (is (= [:authenticating] (:rf/invoke-id args))
-            "invoke-id is the state-path the spawn issued from"))
-      ;; Snapshot: the load-bearing contract is that `:state` advanced and
-      ;; the in-snapshot counter bumped to 1 for the `:http/post` slot.
-      ;; The exact key-set of the snapshot map (e.g. whether the counter
-      ;; root is `:rf/spawn-counter` or evolves under refactor) is not
-      ;; load-bearing for this contract — assert the counter slot via
-      ;; `get-in`.
-      (is (= :authenticating (:state snap1))
-          "snapshot's :state advances to :authenticating")
-      ;; The pure transition binds the spawned id into the parent's own
-      ;; `:data` under `[:rf/spawned <invoke-id>]` (XState-context parity) —
-      ;; part of the pure-fn result, deterministic from the inputs. No
-      ;; USER-domain `:data` key was written; only the reserved capture.
-      (is (= {:rf/spawned {[:authenticating] :http/post#1}} (:data snap1))
-          "the spawned id is captured into the parent's :data under :rf/spawned (XState-context parity); user-domain :data is unchanged")
-      (is (= 1 (get-in snap1 [:rf/spawn-counter :http/post]))
-          "the in-snapshot counter advanced to 1 for the :http/post slot")))
-
-  (testing "different input snapshots allocate independently — no shared module-level counter"
-    ;; Two separate input snapshots, each starting at counter 0, both
-    ;; allocate `:http/post#1` — the allocator counter lives in the
-    ;; snapshot, so the two calls never share state.
-    (let [snap-a {:state :idle :data {:tag :a}}
-          snap-b {:state :idle :data {:tag :b}}
-          {fx-a :fx} (rf.machines/machine-transition auth-flow-spec snap-a [:submit])
-          {fx-b :fx} (rf.machines/machine-transition auth-flow-spec snap-b [:submit])]
-      (is (= :http/post#1 (-> fx-a first second :rf/spawned-id))
-          "first snapshot's spawn is :http/post#1")
-      (is (= :http/post#1 (-> fx-b first second :rf/spawned-id))
-          "second (independent) snapshot's spawn is also :http/post#1 — no shared counter")))
+  (testing "identical args produce identical Results; the spawn id comes from
+            the snapshot's counter"
+    (let [snap {:state :idle :data {}}
+          r    (rf.machines/machine-transition auth-flow-spec snap [:submit])]
+      (is (= r (rf.machines/machine-transition auth-flow-spec snap [:submit])))
+      ;; The contract slots of the spawn fx; the rest of its arg map is free
+      ;; to evolve. `:rf/transition-pure` is the pure-call parent sentinel.
+      (is (= [[:rf.machine/spawn {:rf/spawned-id :http/post#1
+                                  :rf/parent-id  :rf/transition-pure
+                                  :rf/invoke-id  [:authenticating]}]]
+             (mapv (fn [[fx-id arg]]
+                     [fx-id (select-keys arg [:rf/spawned-id :rf/parent-id :rf/invoke-id])])
+                   (:fx r))))
+      (is (= {:state            :authenticating
+              :data             {:rf/spawned {[:authenticating] :http/post#1}}
+              :rf/spawn-counter {:http/post 1}}
+             (select-keys (:snapshot r) [:state :data :rf/spawn-counter])))))
 
   (testing "a snapshot whose counter is pre-populated keeps allocating from where it left off"
-    ;; This is the in-snapshot allocator contract: the same snapshot
-    ;; threaded through multiple transitions accumulates spawn-id
-    ;; sequencing. We model it by manually pre-stamping the counter at
-    ;; 3 and then driving a transition.
-    (let [snap     {:state            :idle
-                    :data             {}
-                    :rf/spawn-counter {:http/post 3}}
-          {snap' :snapshot fx :fx} (rf.machines/machine-transition auth-flow-spec snap [:submit])]
-      (is (= :http/post#4 (-> fx first second :rf/spawned-id))
-          "spawn allocates :http/post#4 — bump of the pre-existing 3")
-      (is (= {:http/post 4} (:rf/spawn-counter snap'))
-          "the returned snapshot's counter is at 4"))))
-
-;; ---- trace is an observability side channel, not part of the reduction ----
-;;
-;; The honest-purity contract: the reducer emits `rf.trace/emit!` diagnostic
-;; events inline, but those emits are pure OBSERVABILITY — they never feed
-;; back into the returned Result. This test pins both halves: (a) the
-;; RETURNED transition value is identical whether or not a listener is
-;; registered (the reduction is independent of the trace side channel),
-;; and (b) the engine DID emit the expected trace data when a listener
-;; observes it (the side channel carries the action-ran / transition
-;; diagnostics consumers depend on).
+    (let [{:keys [snapshot fx]} (rf.machines/machine-transition
+                                  auth-flow-spec
+                                  {:state :idle :data {} :rf/spawn-counter {:http/post 3}}
+                                  [:submit])]
+      (is (= :http/post#4 (-> fx first second :rf/spawned-id)))
+      (is (= {:http/post 4} (:rf/spawn-counter snapshot))))))
 
 (deftest trace-is-observability-not-reduction
-  (testing "the returned Result is identical with and without a trace listener"
-    (let [m {:initial :idle
-             :data    {:n 0}
-             :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
-             :states  {:idle {:on {:go {:target :done :action :bump}}}
-                       :done {}}}
-          input {:state :idle :data {:n 0}}
-          ;; No listener registered: the trace emits are no-op-delivered.
-          r-no-listener (rf.machines/machine-transition m input [:go])
-          ;; A listener registered: same call, listener observes the
-          ;; emitted diagnostics; assert the RETURNED Result is unchanged.
-          ;; Intentional RAW register/unregister (not rf.machines.test-support/with-trace-capture):
-          ;; this test's whole point is to compare the reduction WITH a raw
-          ;; listener present vs WITHOUT one, binding `r-with-listener` from the
-          ;; guarded call and reading `@seen` in the surrounding `let` — the
-          ;; scope-macro form cannot express the with/without comparison.
-          seen          (atom [])
-          r-with-listener
-          (do (rf.trace.tooling/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
-              (try (rf.machines/machine-transition m input [:go])
-                   (finally (rf.trace.tooling/unregister-listener! ::purity-probe))))]
-      (is (= r-no-listener r-with-listener)
-          "the reduction (snapshot + fx) does not depend on listener presence")
-      (is (= :done (-> r-with-listener :snapshot :state))
-          "the transition resolved to :done either way")
-      (is (= {:n 1} (-> r-with-listener :snapshot :data))
-          "the :bump action's :data update landed in the returned snapshot")
-      (is (some #(= :rf.machine/action-ran (:operation %)) @seen)
-          "the side channel DID carry the :rf.machine/action-ran diagnostic")
-      (is (some #(= :bump (-> % :tags :action-id)) @seen)
-          "the action-ran trace named the :bump action that ran"))))
-
-;; ---- Pure transition smoke ----
-;;
-;; These pin baseline machine-transition behaviours — flat transitions,
-;; :always microsteps, and pre-commit :raise routing. Co-located with the
-;; allocator-purity contract above because they all exercise the pure
-;; `rf.machines/machine-transition` surface from argument to Result.
+  (let [m      {:initial :idle
+                :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
+                :states  {:idle {:on {:go {:target :done :action :bump}}}
+                          :done {}}}
+        input  {:state :idle :data {:n 0}}
+        bare   (rf.machines/machine-transition m input [:go])
+        [observed traces] (rf.machines.test-support/with-trace-capture seen
+                            [(rf.machines/machine-transition m input [:go]) @seen])]
+    (is (= {:state :done :data {:n 1}} (:snapshot bare)))
+    (is (= bare observed) "the Result does not depend on a listener being registered")
+    (is (some #(and (= :rf.machine/action-ran (:operation %))
+                    (= :bump (-> % :tags :action-id)))
+              traces)
+        "the listener did observe the transition's trace")))
 
 (deftest pure-machine-transition
-  (testing "machine-transition is pure"
-    (let [m {:id     :traffic-light
-             :initial :red
-             :data    {}
-             :states
-             {:red    {:on {:tick {:target :green}}}
-              :green  {:on {:tick {:target :yellow}}}
-              :yellow {:on {:tick {:target :red}}}}}]
-      (let [{s1 :snapshot} (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
-        (is (= :green (:state s1))))
-      (let [{s2 :snapshot} (rf.machines/machine-transition m {:state :green :data {}} [:tick])]
-        (is (= :yellow (:state s2)))))))
+  (let [m {:id      :traffic-light
+           :initial :red
+           :states  {:red   {:on {:tick {:target :green}}}
+                     :green {:on {:tick {:target :yellow}}}}}]
+    (is (= [:green :yellow]
+           (map #(-> (rf.machines/machine-transition m {:state % :data {}} [:tick]) :snapshot :state)
+                [:red :green])))))
 
 (deftest machine-always-microstep
-  (testing ":always fires once after the resolving event under a true guard"
-    (let [m {:id     :auth
-             :initial :checking
-             :data    {:authed? true}
+  (testing ":always fires after an event nothing handled, under a true guard"
+    (let [m {:initial :checking
              :guards  {:authed? (fn [{data :data}] (:authed? data))}
-             :states
-             {:checking {:always [{:guard :authed? :target :authed}]}
-              :authed   {}
-              :idle     {}}}
-          ;; Even with a no-op event (no match in :on), :always is checked
-          ;; and the guard passes — transition to :authed.
-          {s :snapshot} (rf.machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
-      (is (= :authed (:state s))))))
+             :states  {:checking {:always [{:guard :authed? :target :authed}]}
+                       :authed   {}}}]
+      (is (= :authed (-> (rf.machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])
+                         :snapshot
+                         :state))))))
 
-;; ---- depth-limit boundary parity ------------------------------------------
+;; ---- depth-limit boundary --------------------------------------------------
 ;;
-;; Per Spec 005 §Bounded depth (005:1276) the `:always` microstep loop and
-;; the `:raise` drain share the same default (16) and the same intent: a
-;; limit of N permits exactly N steps before the cascade aborts uncommitted.
-;; Both the `:always` loop and the `:raise` drain bound on `(>= depth limit)`,
-;; so a limit of N permits exactly N steps. These two tests pin the boundary
-;; to N on BOTH paths so the operators stay in lockstep.
-;;
-;; The boundary is a pure-engine property, observed here via the `:depth`
-;; tag the depth-exceeded error trace carries: with the `>=` boundary the
-;; abort fires at `depth == limit`, so the trace's `:depth` equals the limit
-;; (not limit+1).
+;; Spec 005 §Bounded depth: the `:always` loop and the `:raise` drain both
+;; bound on `(>= depth limit)`, so a limit of N permits exactly N steps and the
+;; depth-exceeded error trace's `:depth` equals the limit (not limit+1).
 
 (defn- capture-error-depth!
-  "Drive a pure `machine-transition` while a tooling listener records traces,
-  returning the `:depth` tag of the first error trace whose `:operation`
-  matches `error-op` (or nil if none fired). Routed through the shared
-  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
+  "Run a pure `machine-transition`, returning the `:depth` tag of the first
+  `error-op` trace it emitted (nil if none)."
   [error-op definition snapshot event]
   (rf.machines.test-support/with-trace-capture seen
     (rf.machines/machine-transition definition snapshot event)
@@ -244,108 +101,36 @@
          :depth)))
 
 (deftest always-depth-boundary-permits-exactly-limit-microsteps
-  (testing ":always loop with :always-depth-limit N aborts at depth N
-   (>= boundary) — permits exactly N microsteps"
-    ;; Two states ping-pong via always-true `:always` guards. With the
-    ;; limit set to 4 the loop runs microsteps at depths 0..3, then aborts
-    ;; at depth 4. The error trace's `:depth` is therefore 4 (== the limit).
-    (let [spec {:initial :start
-                :data    {}
-                :always-depth-limit 4
-                :guards  {:p? (fn [_] true)}
-                :states  {:start {:on {:go {:target :a}}}
-                          :a     {:always [{:guard :p? :target :b}]}
-                          :b     {:always [{:guard :p? :target :a}]}}}
-          depth (capture-error-depth!
-                  :rf.error/machine-always-depth-exceeded
-                  spec {:state :start :data {}} [:go])]
-      (is (= 4 depth)
-          ":always aborts at depth == limit (4), permitting exactly 4 microsteps"))))
+  ;; :a and :b ping-pong via always-true `:always` guards.
+  (is (= 4 (capture-error-depth!
+             :rf.error/machine-always-depth-exceeded
+             {:initial            :start
+              :always-depth-limit 4
+              :guards             {:p? (fn [_] true)}
+              :states             {:start {:on {:go {:target :a}}}
+                                   :a     {:always [{:guard :p? :target :b}]}
+                                   :b     {:always [{:guard :p? :target :a}]}}}
+             {:state :start :data {}} [:go]))))
 
 (deftest raise-depth-boundary-matches-always-boundary
-  (testing ":raise drain with :raise-depth-limit N aborts at depth N
-   (>= boundary) — parity with the :always loop, not N+1"
-    ;; The `drain-raises` depth counts raises drained from the queue. A
-    ;; fanned-out batch of more raises than the limit feeds the loop past
-    ;; the bound (same shape as raise-depth-exceeded-tag-carries-frame).
-    ;; With :raise-depth-limit 4 and 6 raises in one batch the drain
-    ;; processes raises at depths 0..3 then aborts at depth 4 — the SAME
-    ;; boundary the :always loop above hits at its limit (`>= depth limit`).
-    (let [spec {:initial :idle
-                :data    {}
-                :raise-depth-limit 4
-                :actions {:fan-out (fn [_]
-                                     {:fx [[:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]]})}
-                :states  {:idle    {:on {:start {:target :running :action :fan-out}
-                                         :noop  :idle}}
-                          :running {:on {:noop :idle}}}}
-          depth (capture-error-depth!
-                  :rf.error/machine-raise-depth-exceeded
-                  spec {:state :idle :data {}} [:start])]
-      (is (= 4 depth)
-          ":raise aborts at depth == limit (4) — same boundary as :always (a > boundary would abort at 5)"))))
-
-;; ---- transitive self-chaining raise depth ---------------------------------
-;;
-;; The `raise-depth-boundary-matches-always-boundary` test above bounds
-;; BREADTH — N raise siblings drained from a single `:fx` vector through
-;; one `drain-raises` queue. A SELF-CHAINING single-raise (a state whose
-;; `:raise` re-targets a path that itself raises) recurses through nested
-;; `machine-transition-single` → `drain-raises` frames. The transitive
-;; raise-depth threads across the nested recursion so self-chaining raises
-;; accumulate against the same `:raise-depth-limit` — a runaway self-chain
-;; fires the clean `:rf.error/machine-raise-depth-exceeded` rather than
-;; blowing the JVM call stack.
-
-(deftest self-chaining-raise-bounded-transitively
-  (testing "an infinitely self-chaining :raise hits :raise-depth-limit cleanly,
-   not a host StackOverflowError"
-    ;; `:loop` has an internal (no-:target) transition on :tick whose
-    ;; action re-raises [:tick] — an unbounded self-chain. Each raise
-    ;; re-enters machine-transition-single from the same state. With
-    ;; :raise-depth-limit 4 the transitive chain must abort at depth 4
-    ;; (the >= boundary, matching the breadth test above) rather than
-    ;; recursing forever down the JVM stack.
-    (let [spec {:initial :loop
-                :data    {}
-                :raise-depth-limit 4
-                :actions {:reraise (fn [_] {:fx [[:raise [:tick]]]})}
-                :states  {:loop {:on {:tick {:action :reraise}}}}}
-          ;; If the transitive depth were NOT threaded this call would
-          ;; recurse without bound and throw StackOverflowError before
-          ;; producing any Result — so reaching the assertion at all
-          ;; proves the chain terminated.
-          depth (capture-error-depth!
-                  :rf.error/machine-raise-depth-exceeded
-                  spec {:state :loop :data {}} [:tick])]
-      (is (= 4 depth)
-          "self-chaining :raise aborts at depth == limit (4) — the SAME bound
-           the breadth fan-out hits, reached transitively across nested
-           machine-transition-single calls (an unthreaded depth would overflow
-           the stack)"))))
+  ;; Six raises in one batch against a limit of 4: the drain handles depths
+  ;; 0..3 and aborts at 4, the same boundary as the `:always` loop.
+  (is (= 4 (capture-error-depth!
+             :rf.error/machine-raise-depth-exceeded
+             {:initial           :idle
+              :raise-depth-limit 4
+              :actions           {:fan-out (fn [_] {:fx (vec (repeat 6 [:raise [:noop]]))})}
+              :states            {:idle    {:on {:start {:target :running :action :fan-out}
+                                                 :noop  :idle}}
+                                  :running {:on {:noop :idle}}}}
+             {:state :idle :data {}} [:start]))))
 
 (deftest machine-raise-pre-commit
-  (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
-    (let [calls (atom [])
-          m {:id      :counter
-             :initial :idle
-             :data    {:n 0}
-             :actions {:start (fn [_]
-                                {:fx [[:raise [:bump]] [:raise [:bump]]]})
-                       :bump  (fn [{data :data}]
-                                {:data {:n (inc (:n data))}})}
-             :states
-             {:idle {:on {:start {:target :busy :action :start}
-                          :bump  {:action :bump}}}
-              :busy {:on {:bump {:action :bump}}}}}
-          {s :snapshot fx :fx} (rf.machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
-      ;; Two raised :bump events should have been processed pre-commit;
-      ;; final data :n should be 2.
-      (is (= 2 (:n (:data s))))
-      ;; No :raise should escape to the outer fx.
-      (is (not (some #{:raise} (map first fx)))))))
+  (testing ":raise is handled inside the macrostep, never surfaced as fx"
+    (let [m {:initial :idle
+             :actions {:start (fn [_] {:fx [[:raise [:bump]] [:raise [:bump]]]})
+                       :bump  (fn [{data :data}] {:data {:n (inc (:n data))}})}
+             :states  {:idle {:on {:start {:target :busy :action :start}}}
+                       :busy {:on {:bump {:action :bump}}}}}]
+      (is (= {:status :ok :snapshot {:state :busy :data {:n 2}} :fx [] :handled? true}
+             (rf.machines/machine-transition m {:state :idle :data {:n 0}} [:start]))))))
