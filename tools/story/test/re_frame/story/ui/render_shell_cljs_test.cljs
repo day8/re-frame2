@@ -67,8 +67,6 @@
                                                      {:where :under-test})))}}
           result     (rf.story.ui.canvas/safe-decorated-view [:div.user "user view"] [boom-dec] {})
           text-bits  (hiccup-text-flatten result)]
-      ;; The marker `one-passing-decorator-wraps-as-expected` relies on
-      ;; being absent from a happy-path wrap.
       (is (some #(re-find #"Decorator wrap threw" %) text-bits))
       (is (some #(re-find #"wrap exploded" %) text-bits))
       (is (some #(re-find #"crashing-wrap" %) text-bits))
@@ -169,8 +167,8 @@
 ;; same tree. A host rendering the BARE view would drop the variant's
 ;; :decorators, and a render-variant render of a decorated variant would
 ;; diverge from the canvas. render_cljs_test §decorators-are-view-wrapping
-;; pins only that :decorators RIDE render-inputs; these CLJS tests prove the
-;; HOST APPLIES them. They use a REGISTERED variant via the DEFAULT lookup
+;; pins only that :decorators RIDE render-inputs; these CLJS tests pin the
+;; shared seam the host routes through. They use a REGISTERED variant via the DEFAULT lookup
 ;; (the production path).
 ;; ===========================================================================
 
