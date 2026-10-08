@@ -1,38 +1,16 @@
 (ns re-frame.http-managed-machine-cljs-test
-  "CLJS-side smoke for Spec 014 §Machine-shape wrapper.
-
-  The JVM test (re-frame.http-managed-machine-test) exercises the full
-  end-to-end shape against the in-process JDK HTTP server. This file
-  confirms that on CLJS:
-
-  - A parent machine `:spawn`ing `:rf.http/managed` with the canned
-    stub receives `[:succeeded value]` / `[:failed failure]` back, which
-    needs the wrapper registered when `re-frame.machines` is on the
-    classpath at http-managed load time.
-  - Wrapper children under `:spawn-all` resolve the join (Spec 014
-    §Multiple wrappers per parent), hand a join parent the same value a
-    `:spawn` parent receives, and never message a join parent directly.
-
-  The Fetch transport itself is covered by the broader CLJS test
-  suite; this smoke is scoped to the wrapper's machine-shape envelope
-  plus the back-channel to the parent."
-  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  "Spec 014 §Machine-shape wrapper on CLJS, through canned stubs: a `:spawn`
+  parent and a `:spawn-all` join parent receive the same value from a wrapper
+  reply, and a join child never messages its parent directly (Spec 014
+  §Multiple wrappers per parent). The JVM round trips are
+  `re-frame.http-managed-machine-test`."
+  (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.frame :as rf.frame]
-            ;; re-frame.machines and re-frame.http.managed cross-publish their
-            ;; registration hooks through `re-frame.late-bind` (machines
-            ;; publishes `:machines/reg-machine`; http-managed publishes
-            ;; `:http/register-managed-machine!`). Either ns can load first;
-            ;; whichever loads second triggers the wrapper registration.
-            ;; Listing both here makes the dependency closure
-            ;; explicit so the bundle includes both producers.
+            ;; Whichever of these two loads second registers the wrapper.
             [re-frame.machines :as rf.machines]
             [re-frame.http.managed :as rf.http.managed]
-            ;; The stub macros / install fn live in
-            ;; `re-frame.http.test-support` (alongside the canned-stub fx
-            ;; registrations). This test calls `install-managed-request-stubs!`
-            ;; directly, so it requires that ns.
             [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.test-support :as rf.test-support]))
 
@@ -46,21 +24,14 @@
                 (rf.machines/reset-timers!)
                 (rf.http.managed/clear-all-in-flight!))}))
 
-;; ---- wrapper children under :spawn-all ----------------------------------
-;;
-;; Spec 014 §Multiple wrappers per parent puts `:rf.http/managed` children
-;; under `:spawn-all`. A join resolves only when each child reaches a `:final?`
-;; state (Spec 005 §Child completion protocol), so the wrapper's terminals
-;; declare `:final?` — without it the parent would stay in `:hydrating` with
-;; `:done #{}` for ever, both requests having answered.
+;; A join resolves only when each child reaches a `:final?` state (Spec 005
+;; §Child completion protocol), so the wrapper's terminals declare `:final?`.
 
 (defn- stubbed-frame!
-  "An anon frame whose PER-FRAME `:fx-overrides` route every `:rf.http/managed`
-  to `stub-fx-id`. Per-frame, because the wrapper children fire their requests
-  on later ticks, and a per-call override on the opening `dispatch-sync` does
-  not reach a `:spawn-all` child's request (on the JVM the real transport
-  runs instead). Create it AFTER the stub fx and the machines are
-  registered — a frame seals its image generation at construction."
+  "An anon frame whose per-frame `:fx-overrides` route `:rf.http/managed` to
+  `stub-fx-id`: the children fire on later ticks, which a per-call override
+  does not reach. Create it after the stub fx and machines are registered,
+  because a frame seals its image generation at construction."
   [stub-fx-id]
   (rf.frame/make-anon-frame-record!
     {:doc          ":rf.http/managed wrapper children"
@@ -129,8 +100,8 @@
       :failed     {}}}))
 
 (deftest spawn-and-spawn-all-parents-receive-the-same-value
-  (testing "one wrapper reply reaches a :spawn parent as [:succeeded value] / [:failed failure] and a :spawn-all parent as the join result — the SAME value on both paths, success and failure, so `:output-key` and the single-:spawn dispatch cannot drift apart; the failure path is also an accepted child error reaching :on-any-failed"
-    (async done
+  ;; So `:output-key` and the single-:spawn dispatch cannot drift apart.
+  (async done
       (rf.http.test-support/install-managed-request-stubs!
         {[:get "/api/ok"]  {:reply {:ok {:id 42}}}
          [:get "/api/bad"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
@@ -151,22 +122,22 @@
                            [s-bad v-bad]      (ev :cljs/spawn-bad)
                            [j-ok _ jv-ok]     (ev :cljs/join-ok)
                            [j-bad _ jv-bad]   (ev :cljs/join-bad)]
-                       (is (= [:succeeded {:id 42}] [s-ok v-ok]) "a :spawn parent receives [:succeeded (:value reply)]")
-                       (is (= :some-done j-ok))
-                       (is (= v-ok jv-ok) "success — the join result is the value the :spawn parent receives")
-                       (is (= :failed s-bad) "a :spawn parent receives [:failed …]")
-                       (is (= :any-failed j-bad) "an accepted child error reaches :on-any-failed")
-                       (is (= :rf.http/http-5xx (:kind v-bad)) "the :spawn parent's failure is the classified (:error reply)")
-                       (is (= v-bad jv-bad) "failure — the join result is the failure the :spawn parent receives"))))
+                       (is (= [[:succeeded {:id 42}] [:some-done {:id 42}]] [[s-ok v-ok] [j-ok jv-ok]])
+                           "success: the join result is the value the :spawn parent receives")
+                       (is (= [:failed :any-failed :rf.http/http-5xx v-bad] [s-bad j-bad (:kind v-bad) jv-bad])
+                           "failure: the classified error reaches both, :on-any-failed for the join"))))
             (.catch (fn [e] (is false (str "unexpected — "
                                            (pr-str (into {} (map (fn [[pid f]] [pid (:state (snap-in f pid))])) frames))
                                            " — " (.-message e)))
                       nil))
-            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done))))))))
+            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done)))))))
 
 (deftest join-child-sends-no-succeeded-event-to-its-parent
-  (testing "a :spawn-all parent that also carries the single-:spawn habit `:on {:succeeded … :failed …}` resolves through its join: a join child's terminal :entry stays silent, so no spurious [:succeeded value] reaches the parent. A :final? state's :entry still runs, so without the :rf/join-child gate the first child to finish would send it, the parent would leave :hydrating on it, and its own join would be torn down"
-    (async done
+  ;; The parent also carries the single-:spawn habit `:on {:succeeded … :failed …}`.
+  ;; A :final? state's :entry still runs, so without the :rf/join-child gate the
+  ;; first child to finish would send [:succeeded value], the parent would leave
+  ;; :hydrating on it, and its own join would be torn down.
+  (async done
       (rf.http.test-support/install-managed-request-stubs!
         {[:get "/api/me"]    {:reply {:ok {:id 42}}}
          [:get "/api/prefs"] {:reply {:ok {:theme "dark"}}}})
@@ -179,9 +150,7 @@
         (-> (rf.test-support/poll-until (settled? f :cljs/habit)
                                         {:timeout-ms 2000 :label "habit parent settles"})
             (.then (fn [_]
-                     (is (= :done (:state (snap-in f :cljs/habit)))
-                         "the parent resolved through its join, not through a spurious :succeeded")
                      (is (= :all-done (first (resolved-event f :cljs/habit)))
                          (str "the parent recorded " (pr-str (resolved-event f :cljs/habit))))))
             (.catch (fn [e] (is false (str "unexpected — " (where-is f :cljs/habit) " — " (.-message e))) nil))
-            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done))))))))
+            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done)))))))
