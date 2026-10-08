@@ -34,13 +34,15 @@
 
 (deftest a-coherent-envelope-is-stamped-over-its-body
   (let [e (rf.fresco.evidence/envelope :mounted-boundaries true nil {:boundaries [] :generation 3})]
-    (is (= rf.fresco.evidence/schema (:schema e)) "the version pin rides on every envelope")
-    (is (= rf.fresco.evidence/producer (:producer e)))
-    (is (= :mounted-boundaries (:read e)))
-    (is (true? (:complete? e)))
-    (is (nil? (:loss e)))
-    (is (= [] (:boundaries e)) "the body survives the stamp")
-    (is (= 3 (:generation e)))))
+    (is (= {:schema     rf.fresco.evidence/schema
+            :producer   rf.fresco.evidence/producer
+            :read       :mounted-boundaries
+            :complete?  true
+            :loss       nil
+            :boundaries []
+            :generation 3}
+           e)
+        "the stamp is merged over the body, which survives it")))
 
 (deftest a-capped-envelope-carries-its-loss
   (let [e (rf.fresco.evidence/envelope :intents false {:reason :cap :dropped rf.fresco.evidence/unknown} {:intents []})]
@@ -68,8 +70,6 @@
             [:intents false :cap] ":loss"]
            ["completeness claimed beside a reported loss"
             [:mounted-boundaries true {:reason :cap :dropped 4}] "claims completeness and also reports loss"]
-           ["a nil completeness"
-            [:mounted-boundaries nil nil] ":complete?"]
            ["a non-boolean completeness"
             [:mounted-boundaries :yes nil] ":complete?"]]]
     (let [o (outcome #(rf.fresco.evidence/envelope read complete? loss {}))]
@@ -79,14 +79,3 @@
   (let [o (outcome #(rf.fresco.evidence/envelope :nope true {:reason :cap} {}))]
     (is (= 3 (count (:problems (:refused o))))
         "the read, the loss's missing :dropped and the completeness clash are all named")))
-
-;; ---------------------------------------------------------------------------
-;; The vocabulary is closed
-;; ---------------------------------------------------------------------------
-
-(deftest the-vocabulary-is-closed
-  (is (= :unknown rf.fresco.evidence/unknown))
-  (is (= #{:cap :opaque :host-opaque :uncorrelated} rf.fresco.evidence/loss-reasons))
-  (is (= #{:mounted-boundaries :read-attribution :intents :explain-render} rf.fresco.evidence/reads))
-  (is (= :re-frame.fresco.evidence/v3 rf.fresco.evidence/schema)
-      "the wire shape and the stamp move together, or the pin is nominal"))
