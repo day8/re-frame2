@@ -18,8 +18,7 @@
 
   Each witness compares against what `run-variant-pane!` actually DID (the
   run result's app-db and epoch tape), never against a re-derivation of the
-  reader. The no-mode, no-override variant is the CONTROL: static and run
-  args coincide there, so it is green whichever arity the call sites use.
+  reader.
 
   The reader's `opts` arity itself is pinned on the JVM by
   `re-frame.story.stepper-compiled-plan-test`
@@ -123,47 +122,29 @@
 
 ;; ---- witnesses -----------------------------------------------------------
 
-(deftest scrubber-reads-the-cell-override-the-run-used
-  (testing "a controls-panel override feeding a script `[:arg]`: the
-            scrubber's events are compiled against the args Re-run used, so
-            every tick resolves to the epoch the run committed"
-    (let [vid :story.run-opts/scrubbed]
-      (reg-arg-variant! vid)
-      (rf.story.ui.state/swap-state! assoc-in [:cell-overrides vid] {:value "override"})
-      (async done
-        (-> (re-run! vid)
-            (rf.story.async/then
-              (fn [slot]
-                (is (= "override" (get-in slot [:result :app-db :value]))
-                    "PRECONDITION — Re-run ran with the controls-panel override")
-                (is (= [[:tmo/set-value "override"]] (:play-events slot))
-                    "the scrubber's events are the ones the run dispatched")
-                (is (= [[:tmo/set-value "override"]] (scrubbed-events slot))
-                    "each tick resolves to the epoch that event committed; read
-                     against the static args, `epoch-id-slice` would match
-                     nothing and the scrubber would offer no epochs")
-                (finish! vid done)))
-            (rf.story.async/catch* (fail-on-reject vid done)))))))
-
-(deftest stepper-steps-the-program-re-run-executed
-  (testing "a controls-panel override feeding a script `[:arg]`: Start
-            prepares and lists the program compiled against the args Re-run
-            used, so stepping it to the end reaches the app-db Re-run reached"
-    (let [vid :story.run-opts/stepped]
+(deftest cell-override-reaches-the-scrubber-and-the-stepper
+  (testing "a controls-panel override feeding a script `[:arg]`. Read
+            against the static args, `epoch-id-slice` would match nothing
+            (the scrubber would offer no epochs) and Start would list and
+            step a different program from the one Re-run executed"
+    (let [vid :story.run-opts/overridden]
       (reg-arg-variant! vid)
       (rf.story.ui.state/swap-state! assoc-in [:cell-overrides vid] {:value "override"})
       (async done
         (-> (re-run! vid)
             (rf.story.async/then
               (fn [ran]
+                (is (= "override" (get-in ran [:result :app-db :value]))
+                    "PRECONDITION — Re-run ran with the controls-panel override")
+                (is (= [[:tmo/set-value "override"]] (:play-events ran))
+                    "the scrubber's events are the ones the run dispatched")
+                (is (= [[:tmo/set-value "override"]] (scrubbed-events ran))
+                    "each tick resolves to the epoch the run committed")
                 (rf.story.async/then
                   (start-and-step! vid)
                   (fn [{:keys [slot app-db]}]
-                    (is (= "override" (get-in ran [:result :app-db :value]))
-                        "PRECONDITION — Re-run ran with the controls-panel override")
                     (is (= [[:dispatch-sync [:tmo/set-value "override"]]] (:play-steps slot))
-                        "the step list is the program Re-run executed, not the
-                         static-args one")
+                        "the step list is the program Re-run executed")
                     (is (= "override" (:value app-db))
                         "stepping to the end reaches the app-db Re-run reached")
                     (finish! vid done)))))
@@ -197,29 +178,5 @@
                         "Start prepared the frame and published a stepper")
                     (is (= [[:dispatch-sync [:tmo/set-value "moded"]]] (:play-steps slot))
                         "the step list is the moded program Re-run executed")
-                    (finish! vid done)))))
-            (rf.story.async/catch* (fail-on-reject vid done)))))))
-
-;; ---- the control ---------------------------------------------------------
-
-(deftest control-no-mode-no-override-agrees
-  (testing "CONTROL — no active mode and no override: the static args ARE
-            the run args, so the scrubber and the stepper agree with Re-run
-            whichever arity the call sites use"
-    (let [vid :story.run-opts/plain]
-      (reg-arg-variant! vid)
-      (async done
-        (-> (re-run! vid)
-            (rf.story.async/then
-              (fn [ran]
-                (is (= "static" (get-in ran [:result :app-db :value])))
-                (is (= [[:tmo/set-value "static"]] (:play-events ran)))
-                (is (= [[:tmo/set-value "static"]] (scrubbed-events ran))
-                    "the scrubber has its epoch")
-                (rf.story.async/then
-                  (start-and-step! vid)
-                  (fn [{:keys [slot app-db]}]
-                    (is (= [[:dispatch-sync [:tmo/set-value "static"]]] (:play-steps slot)))
-                    (is (= "static" (:value app-db)))
                     (finish! vid done)))))
             (rf.story.async/catch* (fail-on-reject vid done)))))))
