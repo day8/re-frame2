@@ -1,13 +1,8 @@
 (ns re-frame.story-share-url-state-test
-  "JVM tests for the URL-state sharability slots.
-
-  Pairs with `re-frame.story-share-test` (variant + modes + overrides +
-  substrate). This ns pins the remaining sharability slots — workspace,
-  mode-tab, viewport, background, tag-filter — and the
-  `rf.story.share/parse-params` round-trip.
-
-  Pure CLJC — every encoder + parser lives in `re-frame.story.share`,
-  no CLJS deps."
+  "JVM tests for the sharability slots beside `re-frame.story-share-test`'s
+  variant, modes, overrides and substrate: workspace, mode-tab, viewport,
+  background and tag-filter, and the `rf.story.share/parse-params`
+  round-trip."
   (:require [clojure.test :refer [are deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.share :as rf.story.share]))
@@ -15,11 +10,8 @@
 ;; ---- workspace -----------------------------------------------------------
 
 (deftest parse-workspace-param-reads-wire-token
-  (testing "parse-workspace-param reads a `ns/name` wire token back to a keyword"
-    (is (= :story.foo/grid
-           (rf.story.share/parse-workspace-param "story.foo/grid")))
-    (is (nil? (rf.story.share/parse-workspace-param "")))
-    (is (nil? (rf.story.share/parse-workspace-param nil)))))
+  (is (= [:story.foo/grid nil nil]
+         (map rf.story.share/parse-workspace-param ["story.foo/grid" "" nil]))))
 
 ;; ---- mode-tab ------------------------------------------------------------
 
@@ -34,12 +26,8 @@
 
 (deftest parse-mode-tab-param
   (testing "parse-mode-tab-param recognises :dev/:docs/:test, drops anything else"
-    (is (= :dev  (rf.story.share/parse-mode-tab-param "dev")))
-    (is (= :docs (rf.story.share/parse-mode-tab-param "docs")))
-    (is (= :test (rf.story.share/parse-mode-tab-param "test")))
-    (is (nil?    (rf.story.share/parse-mode-tab-param "bogus")))
-    (is (nil?    (rf.story.share/parse-mode-tab-param "")))
-    (is (nil?    (rf.story.share/parse-mode-tab-param nil)))))
+    (is (= [:dev :docs :test nil nil nil]
+           (map rf.story.share/parse-mode-tab-param ["dev" "docs" "test" "bogus" "" nil])))))
 
 ;; ---- viewport ------------------------------------------------------------
 
@@ -94,10 +82,8 @@
 
 (deftest parse-tag-filter-param
   (testing "tag-filter parses into a set"
-    (is (= #{:tag/a :tag/b}
-           (rf.story.share/parse-tag-filter-param "tag/a,tag/b")))
-    (is (nil? (rf.story.share/parse-tag-filter-param "")))
-    (is (nil? (rf.story.share/parse-tag-filter-param nil)))))
+    (is (= [#{:tag/a :tag/b} nil nil]
+           (map rf.story.share/parse-tag-filter-param ["tag/a,tag/b" "" nil])))))
 
 ;; ---- parse-params round-trip --------------------------------------------
 
@@ -135,8 +121,7 @@
       {:workspace-id :story.foo/grid}
 
       ;; a custom WxH viewport
-      {:viewport {:width 800 :height 600}})))
+      {:viewport {:width 800 :height 600}}
 
-(deftest parse-params-handles-missing-keys
-  (testing "parse-params returns every slot, nil when absent — caller decides defaults"
-    (is (= all-slots-absent (rf.story.share/parse-params {})))))
+      ;; nothing: parse-params returns every slot, nil — the caller decides defaults
+      {})))
