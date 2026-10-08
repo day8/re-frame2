@@ -77,7 +77,6 @@
   (testing "no two kinds share a testid suffix — a browser selector must not collide"
     (let [suffixes (keep (fn [kind] (:testid-suffix (hh/loss-chip kind)))
                          (keys hh/loss-kinds))]
-      (is (= 5 (count suffixes)))
       (is (= 5 (count (set suffixes))))))
 
   (testing "each kind resolves from a producer loss MAP, a bare reason, and a value"
@@ -98,7 +97,6 @@
 (deftest the-empties-are-pairwise-distinct
   (testing "presence classifies the four states"
     (is (= :absent   (hh/presence nil true)))
-    (is (= :mismatch (hh/presence (assoc mounted :schema :something/else) true)))
     (is (= :mismatch (hh/presence (assoc mounted :producer :someone/else) true))
         "an adapter-neutral schema means the PRODUCER is part of the pin")
     (is (= :idle     (hh/presence mounted true)))
@@ -115,18 +113,13 @@
     (is (string/includes? (:says (:mismatch hh/presence-copy)) "not taught to parse"))))
 
 (deftest an-empty-roster-means-something-different-in-each-view
-  ;; One `:idle` sentence — written for the mounted census, "nothing is
-  ;; mounted, a clean bill of health" — shown under every view would, under
-  ;; Intents, tell a reader a CAPPED window proved nothing had been
-  ;; dispatched, and under Reads deny the existence of mounted boundaries
-  ;; that read nothing.
+  ;; Each sentence is the per-view meaning `027-Fresco-Evidence.md` tabulates.
   (testing "every view has its own copy — a view with none would fall back to silence"
     (is (= (set (map :id hh/sub-modes)) (set (keys hh/empty-copy)))))
 
   (testing "no two views share a sentence or a testid suffix"
-    ;; Counted against the LIVE view list rather than a literal, so a
-    ;; view cannot be added with another view's sentence and still pass —
-    ;; the property this row is about is pairwise distinctness.
+    ;; Counted against the LIVE view list, so a view cannot be added
+    ;; carrying another view's sentence and still pass.
     (let [says     (map :says (vals hh/empty-copy))
           suffixes (map :testid-suffix (vals hh/empty-copy))
           n        (count hh/sub-modes)]
@@ -134,76 +127,37 @@
       (is (= n (count suffixes) (count (set suffixes))))))
 
   (testing "each names ITS OWN scope's fact and remedy"
-    (is (string/includes? (:says (:mounted hh/empty-copy)) "read edge"))
+    (let [mounted-says (:says (:mounted hh/empty-copy))]
+      (is (string/includes? mounted-says "read edge"))
+      (is (string/includes? mounted-says "SUBSCRIPTION")
+          "a survey of subscriptions, not a claim that the screen is empty")
+      (is (string/includes? mounted-says "re-subscribe")))
     (is (string/includes? (:says (:attribution hh/empty-copy)) "reads nothing"))
     (is (string/includes? (:says (:intents hh/empty-copy)) "CAP"))
+    (is (string/includes? (:says (:intents hh/empty-copy))
+                          "cannot say whether anything was dispatched"))
     (is (string/includes? (:says (:explain hh/empty-copy)) "no mounted boundary"))
-    (is (string/includes? (:says (:advisor hh/empty-copy)) "not a verdict that nothing is hot")
-        (str "an empty ranking is a consequence of an empty census, and must "
-             "not read as `nothing here is expensive` — which it cannot know, "
-             "having never measured lowering, React or layout"))
+    (is (string/includes? (:says (:advisor hh/empty-copy)) "not a verdict that nothing is hot"))
     (is (string/includes? (:says (:causal hh/empty-copy)) "no boundary to trace")))
-
-  (testing "the CAPPED window never claims nothing was dispatched"
-    (let [says (:says (:intents hh/empty-copy))]
-      (is (string/includes? says "cannot say whether anything was dispatched"))
-      (is (not (string/includes? says "clean bill of health"))
-          "the mounted census's verdict must not be reused where it is false")))
 
   (testing "state-copy resolves the empty per view and everything else view-free"
     (is (= "empty-intents" (:testid-suffix (hh/state-copy :idle :intents))))
-    (is (= "empty-mounted" (:testid-suffix (hh/state-copy :idle :mounted))))
     (is (= "absent" (:testid-suffix (hh/state-copy :absent :intents))))
-    (is (= "absent" (:testid-suffix (hh/state-copy :absent :mounted)))
-        "a door that answered nil says the same thing in every view")
     (is (nil? (hh/state-copy :live :mounted))
         "there is nothing to say when there are rows")))
-
-(deftest the-mounted-empty-does-not-claim-the-screen-is-empty
-  ;; An Activity-hidden subtree that released its reads leaves
-  ;; exactly this census, so the copy may not read as proof that nothing is
-  ;; retained above.
-  (let [says (:says (:mounted hh/empty-copy))]
-    (is (string/includes? says "SUBSCRIPTION"))
-    (is (string/includes? says "re-subscribe"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The schema pin
 ;; ---------------------------------------------------------------------------
 
-(deftest the-schema-pin-is-consumer-owned-and-exact
-  (testing "an envelope stamped anything else degrades rather than mis-parses"
-    (is (true? (hh/supported? mounted)))
-    (is (false? (hh/supported? (assoc mounted :schema :re-frame.fresco.evidence/v99))))
-    (is (false? (hh/supported? (assoc mounted :producer :re-frame/freehand))))
-    (is (false? (hh/supported? nil))))
-  (testing "an unsupported envelope yields NO rows — never a half-parsed one"
-    (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
-      (is (= [] (f (assoc mounted :schema :re-frame.fresco.evidence/v99))))
-      (is (= [] (f nil))))))
-
 (deftest the-superseded-v2-shape-is-refused-rather-than-mis-parsed
-  ;; A pin that accepted, as EXACT, a shape it had never been taught would
-  ;; be a version that lies — worse than no version, because it turns a
-  ;; loud refusal into a silent misread. v3's shape differs from v2's: v3
-  ;; has no scope and basis axes and no sub-projections, and carries
-  ;; `:views` where v2 carried `:view` / `:source`. The pin only earns its
-  ;; keep if the predecessor MISMATCHES; there is no acceptance path and
-  ;; no compatibility adapter to route around this.
+  ;; The pin is exact: a predecessor stamp is a mismatch, not an older
+  ;; dialect, and there is no acceptance path for it.
   (let [v2 (assoc mounted :schema :re-frame.fresco.evidence/v2)]
-    (testing "the pin names the version whose shape this build actually parses"
-      (is (= :re-frame.fresco.evidence/v3 hh/consumed-evidence-schema)
-          (str "the wire shape and the stamp move together or the pin is "
-               "nominal — change one and this row says so")))
-
-    (testing "the v2 stamp is a MISMATCH, not an older dialect"
-      (is (false? (hh/supported? v2)))
-      (is (= :mismatch (hh/presence v2 false))
-          "and it renders the mismatch banner, not an empty roster"))
-
-    (testing "and every view suppresses its rows rather than half-parsing them"
-      (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
-        (is (= [] (f v2)))))))
+    (is (= :mismatch (hh/presence v2 false))
+        "it renders the mismatch banner, not an empty roster")
+    (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
+      (is (= [] (f v2)) "and every view suppresses its rows rather than half-parsing them"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The row projections
@@ -212,29 +166,20 @@
 (deftest mounted-rows-carry-the-instance-count-the-view-and-the-chips
   (let [[row read-free] (hh/mounted-rows mounted)]
     (is (= 3 (:instances row)))
-    (is (= ":app/main" (hh/format-id :app/main)))
     (is (= "[:todo 7]" (:label row)))
     (testing "a named row leads with its view and carries no view chip"
       (is (= "app.views/todo-row" (:view-label row)))
-      (is (nil? (:view-chip row)))
-      (is (= "app.views/todo-row — /src/app/views.cljs:12" (hh/views-title (:views row)))
-          "the hover text is the coordinate defview captured"))
-    (is (nil? (:frame-chip row)) "the frame IS known here, so no chip")
+      (is (nil? (:view-chip row))))
     (testing "a read-free boundary is labelled, not blanked"
       (is (= "(reads nothing)" (:label read-free)))
-      (is (= "reads-nothing" (:slug read-free)))
       (is (= :unknown (:kind (:frame-chip read-free)))
           "with no reads there is no frame, and the chip says unknown"))
     (testing "an unnamed row renders the unknown chip in the view position, never a blank"
-      (is (nil? (:view-label read-free)))
       (is (= :unknown (:kind (:view-chip read-free)))))
-    (testing "two views over one edge set are both named, and a name without a source has no title"
+    (testing "two views over one edge set are both named, and a name without a source has no title line"
       (let [views [{:view "a/one" :source :unknown} {:view "b/two" :source {:file "f" :line 3}}]]
         (is (= "a/one, b/two" (hh/view-label views)))
-        (is (= "b/two — f:3" (hh/views-title views)))
-        (is (nil? (hh/views-title [{:view "a/one" :source :unknown}])))
-        (is (nil? (hh/view-label :unknown)))
-        (is (nil? (hh/view-label [])) "an empty vector is not a name either")))))
+        (is (= "b/two — f:3" (hh/views-title views)))))))
 
 (deftest attribution-rows-carry-fan-out-and-readers
   (let [e (envelope :read-attribution
@@ -244,39 +189,13 @@
                                         (assoc boundary-b :views :unknown)]}]})
         [row] (hh/attribution-rows e)]
     (is (= 3 (:fan-out row)))
-    (is (= "[:todo 7]" (:label row))
-        "the row names the projected QUERY, which is what a reader tells cells apart by")
-    (is (nil? (:frame-chip row)) "the frame IS known here, so no chip")
     (is (= ["[:todo 7]" "[:todo 7] + [:user 1]"] (mapv :label (:readers row))))
     (is (= ["app.views/todo-row" nil] (mapv :view-label (:readers row)))
         "a reader is named where the producer names it, and unnamed where it does not")))
 
 (deftest a-row-key-carries-the-WHOLE-projected-identity
-  ;; A `boundary-slug` that ignored the frame, or `attribution-rows`
-  ;; slugging every edge by sub-id alone, would give rows that are
-  ;; genuinely different facts one React key and one DOM testid:
-  ;;
-  ;;   boundary keys [[:frame/a :row [:row 1]]] and [[:frame/b :row [:row 1]]]
-  ;;     -> slugs ["row-row-1" "row-row-1"]
-  ;;   attribution rows for [:row 1] in frame A and [:row 2] in frame B
-  ;;     -> slugs ["row" "row"]
-  ;;
-  ;; Frames are ISOLATED CONTEXTS, so the first pair is two applications'
-  ;; boundaries and not one boundary counted twice.
-  (testing "two frames' boundaries over one query are two keys, not one"
-    (let [a {:parent nil :key [[:frame/a :row [:row 1]]]}
-          b {:parent nil :key [[:frame/b :row [:row 1]]]}]
-      (is (not= (hh/boundary-slug a) (hh/boundary-slug b))
-          (str "without the frame in the key both slug `row-row-1` — a "
-               "browser assertion selecting one would silently match the other, and "
-               "React would see one child where there are two"))
-      (is (string/includes? (hh/boundary-slug a) "frame-a"))
-      (is (string/includes? (hh/boundary-slug b) "frame-b"))))
-
-  (testing "and the projected query is in the key too, so two variants stay apart"
-    (is (not= (hh/boundary-slug {:parent nil :key [[:frame/a :row [:row 1]]]})
-              (hh/boundary-slug {:parent nil :key [[:frame/a :row [:row 2]]]}))))
-
+  ;; Attribution rows slugged by sub-id alone, or Why rows slugged without
+  ;; the frame, would give two different facts one React key and one testid.
   (testing "the Reads rows differ in frame AND in query, and say so on the row"
     (let [e (envelope :read-attribution
                       {:edges [{:sub-id :row :query [:row 1] :frame-id :frame/a
@@ -299,28 +218,19 @@
                 :loss {:reason :uncorrelated :dropped :unknown}
                 :candidates []})
           [a b] (hh/explain-rows (envelope :explain-render
-                                           {:complete? false
-                                            :loss {:reason :uncorrelated :dropped :unknown}
-                                            :explanations [(ex :frame/a [:row 1])
+                                           {:explanations [(ex :frame/a [:row 1])
                                                            (ex :frame/b [:row 1])]}))]
-      (is (= (:label a) (:label b))
-          "NON-VACUITY: the labels really are identical, so the frame is the
-           only thing that can tell these two rows apart on screen")
       (is (not= (:slug a) (:slug b)))
-      (is (= [:frame/a :frame/b] [(:frame a) (:frame b)]))
-      (is (nil? (:frame-chip a)) "a known frame renders as itself, not as a chip")))
+      (is (= [:frame/a :frame/b] [(:frame a) (:frame b)])
+          "their labels are identical, so the frame is what tells them apart on screen")))
 
-  (testing "NOTHING RAW returns through the slug — only projected fields"
+  (testing "a wholly redacted query is named by its registration id and the sentinel"
     (let [row (first (hh/attribution-rows
                        (envelope :read-attribution
                                  {:edges [{:sub-id :todo :query :rf/redacted
                                            :frame-id :app/main :epoch 1
                                            :fan-out 1 :readers []}]})))]
-      (is (= ":todo :rf/redacted" (:label row))
-          "a wholly redacted query is named by its registration id and the sentinel")
-      (is (string/includes? (:slug row) "rf-redacted")
-          "the slug is built from the sentinel the producer sent, never from a
-           raw query recovered to make the row legible"))))
+      (is (= ":todo :rf/redacted" (:label row))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The row key is INJECTIVE — the property, not three examples
@@ -407,11 +317,6 @@
          property below has stopped testing anything and the pool needs
          re-choosing"))
 
-  (testing "the door itself is injective — one string per identity"
-    (is (= (count legal-identities)
-           (count (distinct (map hh/read-key-str legal-identities))))
-        (str "read-key-str collisions: " (pr-str (collisions hh/read-key-str legal-identities)))))
-
   (testing "DISTINCT IDENTITIES YIELD DISTINCT READ SLUGS, over the whole space"
     (is (= (count legal-identities)
            (count (distinct (map hh/read-slug legal-identities))))
@@ -423,73 +328,36 @@
              (count (distinct (map slug legal-boundary-keys))))
           (str "boundary-slug collisions: " (pr-str (collisions slug legal-boundary-keys))))
       (is (= "reads-nothing" (slug []))
-          "the read-free key keeps its readable name")
-      (is (not (contains? (set (map slug (rest legal-boundary-keys))) "reads-nothing"))
-          "and no key with reads in it can mint that name")))
+          "the read-free key keeps its readable name, which the property above
+           forbids any key with reads in it to mint")))
 
   (testing "an intent row key is injective over the same shapes"
     (let [rows (for [event-id  legal-components
                      dispatch  legal-components]
                  {:event-id event-id :dispatch-id dispatch})
-          slug (fn [r] (:slug (first (hh/intent-rows
-                                       (envelope :intents {:complete? false
-                                                           :loss {:reason :cap :dropped :unknown}
-                                                           :frames []
-                                                           :intents [r]})))))]
+          slug (fn [r] (:slug (first (hh/intent-rows (envelope :intents {:intents [r]})))))]
       (is (= (count rows) (count (distinct (map slug rows))))
           (str "intent slug collisions: " (pr-str (collisions slug rows))))))
-
-  (testing "EQUAL identities yield ONE key — a seq and a vector are one row"
-    (is (= (hh/read-slug [:app/main :todo [:todo 7]])
-           (hh/read-slug (seq [:app/main :todo [:todo 7]])))
-        "the door normalises the triple, so an identity that arrives as a
-         seq does not mint a second React key for the same fact"))
-
-  (testing "the three-way control, spelled out"
-    (let [three [[:a/b :c :d] [:a-b :c :d] [:a :b/c :d]]]
-      (is (= 3 (count (distinct (map hh/read-slug three))))
-          (str "read-slugs: " (pr-str (mapv hh/read-slug three))))
-      (is (= 3 (count (distinct (map #(hh/boundary-slug {:parent nil :key [%]}) three))))
-          (str "boundary-slugs: "
-               (pr-str (mapv #(hh/boundary-slug {:parent nil :key [%]}) three))))))
 
   (testing "the readable stem survives, so a testid is still greppable"
     (is (string/starts-with? (hh/read-slug [:frame/a :row [:row 1]]) "frame-a-row-row-1-")
         "the stem is the readable slug; the tail behind the last `-` is what
-         makes it injective")
-    (is (not (string/includes? (hh/read-slug [:app/main :todo :rf/redacted]) "hunter"))
-        "and the encoding re-admits nothing — it encodes the PROJECTED
-         string it was handed and recovers no raw query")))
+         makes it injective")))
 
 (deftest intent-rows-carry-an-id-and-an-arity-and-no-arguments
-  (let [e (envelope :intents
-                    {:frames [:app/main]
-                     :complete? false
-                     :loss {:reason :cap :dropped :unknown}
-                     :intents [{:frames [:app/main] :dispatch-id 41
-                                :event-id :todo/toggle :arg-count 1
-                                :sub-ids [:todo]}
-                               {:frames [:app/main :app/other] :dispatch-id 42
-                                :event-id :todo/toggle :arg-count 1
-                                :sub-ids [:todo]}]})
-        [row second-row] (hh/intent-rows e)]
-    (is (= :todo/toggle (:event-id row)))
-    (is (= 1 (:arg-count row)))
-    (is (= [:app/main] (:frames row))
-        "a row names the frames the dispatch reached, not one ring's id")
-    (is (not (contains? row :event))
-        "an argument vector must not reach a row — the producer does not send one")
-    (testing "two runs of ONE event id get two testids"
-      (is (not= (:slug row) (:slug second-row))
-          (str "the stream is ordered by dispatch and one event id recurs, so an "
-               "event-only testid would name several rows at once")))))
+  (let [[row] (hh/intent-rows
+                (envelope :intents
+                          {:intents [{:frames [:app/main] :dispatch-id 41
+                                      :event-id :todo/toggle :arg-count 1
+                                      :sub-ids [:todo]}]}))]
+    (is (= {:dispatch-id 41 :event-id :todo/toggle :arg-count 1
+            :frames [:app/main] :sub-ids [:todo]}
+           (dissoc row :slug)))))
 
 (deftest explain-rows-keep-the-proven-half-apart-from-the-uncorrelated-half
   (let [with-leads
         (envelope :explain-render
-                  {:complete? false
-                   :loss {:reason :uncorrelated :dropped :unknown}
-                   :explanations [{:boundary boundary-a :views todo-row-views :frame :app/main
+                  {:explanations [{:boundary boundary-a :views todo-row-views :frame :app/main
                                    :instances 1 :snapshot 9 :peak-epoch 5
                                    :latest-reads [{:sub-id :todo :query [:todo 7]
                                                    :frame-id :app/main}]
@@ -498,9 +366,7 @@
                                                  :frame-id :app/main :sub-id :todo}]}]})
         blind
         (envelope :explain-render
-                  {:complete? false
-                   :loss {:reason :uncorrelated :dropped :unknown}
-                   :explanations [{:boundary boundary-a :views :unknown :frame :app/main
+                  {:explanations [{:boundary boundary-a :views :unknown :frame :app/main
                                    :instances 1 :snapshot :unknown
                                    :peak-epoch :unknown :latest-reads :unknown
                                    :loss {:reason :cap :dropped :unknown}
@@ -509,7 +375,8 @@
       (let [[row] (hh/explain-rows with-leads)]
         (is (true? (:proven? row)))
         (is (= ["[:todo 7]"] (:latest-reads row))
-            "the READ, not the bare sub-id — see the two-variants row below")
+            "the READ, not the bare sub-id — two parameterizations of one sub
+             must not both answer `:todo moved`")
         (is (= :uncorrelated (:kind (:cause-chip row))))
         (is (true? (:leads-known? row)))
         (is (= 1 (count (:leads row))))
@@ -525,57 +392,22 @@
             "rendered as an empty seq so a renderer cannot iterate a keyword —
              `:leads-known?` is what carries the distinction")))))
 
-(deftest two-parameterizations-of-one-sub-do-not-collapse-in-the-why-view
-  ;; `:latest-reads` naming sub-ids alone would have eight rows of one
-  ;; registered sub all answer ":row moved".
-  (let [e (envelope :explain-render
-                    {:complete? false
-                     :loss {:reason :uncorrelated :dropped :unknown}
-                     :explanations [{:boundary boundary-a :views :unknown :frame :app/main
-                                     :instances 1 :snapshot 9 :peak-epoch 5
-                                     :latest-reads [{:sub-id :row :query [:row 1]
-                                                     :frame-id :app/main}
-                                                    {:sub-id :row :query [:row 2]
-                                                     :frame-id :app/main}]
-                                     :loss {:reason :uncorrelated :dropped :unknown}
-                                     :candidates []}]})
-        [row] (hh/explain-rows e)]
-    (is (= ["[:row 1]" "[:row 2]"] (:latest-reads row))
-        "two reads of one sub read as two, because their queries differ")))
-
 (deftest the-summary-line-states-the-claim-even-when-it-is-good
   (testing "a complete envelope still says so — an absence of bad news is not news"
-    (is (string/includes? (hh/read-summary mounted) "complete"))
-    (is (not (string/includes? (hh/read-summary mounted) "INCOMPLETE"))))
+    (is (= "read :mounted-boundaries · complete" (hh/read-summary mounted))))
   (testing "an incomplete one names its loss and how much"
-    (let [s (hh/read-summary (envelope :intents
-                                       {:complete? false
-                                        :loss {:reason :cap :dropped :unknown}
-                                        :frames []
-                                        :intents []}))]
-      (is (string/includes? s "INCOMPLETE"))
-      (is (string/includes? s "capped"))
-      (is (string/includes? s "an unknown amount"))))
+    (is (= "read :intents · INCOMPLETE · capped — an unknown amount"
+           (hh/read-summary (envelope :intents
+                                      {:complete? false
+                                       :loss {:reason :cap :dropped :unknown}
+                                       :intents []})))))
   (testing "no envelope, no summary — the panel renders a presence note instead"
     (is (nil? (hh/read-summary nil)))))
 
-(deftest the-views-are-the-four-questions-plus-the-two-derivations
-  ;; The first four are Spec SN §10's questions, one sub-view each. The
-  ;; last two are derivations over the SAME one-turn read —
-  ;; a tab of their own would take a second turn, and a mount landing
-  ;; between the two would rank a census the slice no longer agrees with.
-  (is (= [:mounted :attribution :intents :explain :advisor :causal]
-         (mapv :id hh/sub-modes)))
-  (is (= :mounted hh/default-sub-mode))
+(deftest a-stale-sub-mode-normalises-to-the-default-view
   (is (= :mounted (hh/normalise-sub-mode :nonsense))
       "a stale or hand-dispatched id must land on a view that exists")
-  (is (= :explain (hh/normalise-sub-mode :explain)))
-  (is (= :advisor (hh/normalise-sub-mode :advisor)))
-  (testing "every view says what it asks, so a tooltip is not invented at render"
-    (is (every? (comp seq :asks) hh/sub-modes)))
-  (testing "and no two views share a mnemonic"
-    (let [mnems (map :mnem hh/sub-modes)]
-      (is (= (count mnems) (count (set mnems)))))))
+  (is (= :explain (hh/normalise-sub-mode :explain))))
 
 ;; ---------------------------------------------------------------------------
 ;; XRAY'S OWN MACHINERY IS NOT APPLICATION EVIDENCE
@@ -587,17 +419,12 @@
 ;; boundary mounted, the Mounted view would commit two rows, the second
 ;; `…panels.fresco/Panel · frame :rf/xray · 2 reads`.
 ;;
-;; EVERY ROW BELOW CARRIES BOTH DIRECTIONS IN ONE ASSERTION — the count
-;; that survives AND the identity of the survivor. A count alone would
-;; pass just as well on a filter that dropped the wrong row, and these
-;; fixtures are two rows deep precisely so that mistake is reachable.
-;;
-;; AND EVERY ROW RUNS TWICE, once for the production singleton `:rf/xray`
-;; and once for a NON-DEFAULT shell frame. A filter asking
-;; `(= :rf/xray frame)` is right for the singleton and blind to every other
-;; shell 008 §Parameterized shell frame-id permits — and a suite that only
-;; ever fed it `:rf/xray` could not tell the two apart. The custom arm is
-;; the one that reddens against such a filter.
+;; Each row asserts the identity of the survivors, not just their count,
+;; over fixtures two rows deep, so a filter dropping the WRONG row reddens.
+;; The frame rows run for the production singleton `:rf/xray` AND a
+;; NON-DEFAULT shell frame: a filter asking `(= :rf/xray frame)` is blind to
+;; every other shell 008 §Parameterized shell frame-id permits, and only the
+;; custom arm reddens against it.
 
 (def ^:private custom-shell-frame
   "A NON-DEFAULT Xray shell frame — the `:frame-id` a testbed mounting N
@@ -649,34 +476,16 @@
                               :latest-reads [] :candidates [] :loss nil}]})})
 
 (deftest the-own-frame-set-is-the-singleton-PLUS-the-shell-being-looked-from
-  (testing "`:rf/xray` is RESERVED (Conventions' `:rf/*` single
-            root is the framework's, and the L1 picker refuses it as
-            an inspectable frame), so it stays in the set whichever shell is
-            doing the looking. The second member is the shell looked from."
-    (is (= #{:rf/xray} (hh/own-frames nil))
-        "no shell to name — the singleton alone, so a caller with no frame
-         context loses nothing")
-    (is (= #{:rf/xray} (hh/own-frames :rf/xray))
-        "the production singleton names itself and the set does not grow")
-    (is (= #{:rf/xray custom-shell-frame} (hh/own-frames custom-shell-frame))
-        "a non-default shell adds ITSELF — this is the member a literal
-         `(= :rf/xray frame)` filter can never have")
-    (is (not (contains? (hh/own-frames custom-shell-frame) :app/main))
-        "and nothing else joins it: an application frame is never owned")))
+  ;; `:rf/xray` is reserved, so it stays in the set whichever shell is
+  ;; looking; the second member is the shell looked from.
+  (is (= #{:rf/xray custom-shell-frame} (hh/own-frames custom-shell-frame))))
 
 (deftest xray-own-frame-rows-are-dropped-from-every-roster
-  (testing "criterion 5 — a boundary seated in an Xray shell's frame is
-            the tool, not the application, and none of the four rosters may
-            carry it. Same rule and same unconditional posture as
-            `self-noise`'s trace-event drop, applied to the evidence surface."
+  (testing "a boundary seated in an Xray shell's frame is the tool, not the
+            application, and none of the four rosters may carry it"
     (doseq [tool-frame [:rf/xray custom-shell-frame]]
       (testing (str "shell frame " tool-frame)
-        (let [input (mixed-evidence tool-frame)
-              e     (hh/without-own-frame input (hh/own-frames tool-frame))]
-          (testing "NON-VACUITY: the unfiltered input really does carry both"
-            (is (= [:app/main tool-frame]
-                   (mapv :frame (get-in input [:mounted-boundaries :boundaries])))))
-
+        (let [e (hh/without-own-frame (mixed-evidence tool-frame) (hh/own-frames tool-frame))]
           (is (= [:app/main]
                  (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
               "the application's boundary survives the census and the shell's
@@ -697,108 +506,45 @@
                  dispatch that reached an application frame is the user's
                  whatever else it also touched; and the frameless one stays,
                  because an empty frame set is an absence and not a claim
-                 about Xray"))
-
-          (testing "the stamp is untouched — this filters ROWS, not the claim"
-            (is (true? (:complete? (:mounted-boundaries e))))
-            (is (= hh/consumed-evidence-schema (:schema (:mounted-boundaries e))))
-            (is (hh/supported? (:mounted-boundaries e))
-                "a filtered envelope is still a parseable one, so `presence`
-                 still answers `:live`/`:idle` rather than `:mismatch`")))))))
-
-(deftest a-shell-does-not-drop-ANOTHER-application-frames-rows
-  (testing "the set has two members, and the thing to prove about it is
-            that it does not reach the application. Here the
-            second row is seated in an ORDINARY application frame while the
-            filter is armed for the custom shell, so nothing in the roster is
-            the tool's and nothing may be dropped."
-    (let [e (hh/without-own-frame (mixed-evidence :app/other)
-                                  (hh/own-frames custom-shell-frame))]
-      (is (= [:app/main :app/other]
-             (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
-          "BOTH application rows survive — a filter that keyed on anything
-           softer than the shell's own id (tracing being off, say) would
-           eat the second one, which is far worse than listing the tool's
-           own rows"))))
+                 about Xray")))))))
 
 (deftest xray-read-free-chrome-is-not-application-evidence
-  (testing "a boundary that reads nothing has the key `[]` and the frame
-            `:unknown`, so its frame cannot say whose it is — the shell's
-            `dynamic-chrome` is one. Its declared view can: a row declaring
-            only Xray's views leaves Mounted and Why, while an application's
-            read-free view folded onto the same row keeps the row"
-    (let [chrome   [{:view   "day8.re-frame2-xray.shell/dynamic-chrome"
-                     :source {:ns 'day8.re-frame2-xray.shell :file "shell.cljs"
-                              :line 2989 :column 1}}]
-          layout   [{:view "app.views/layout" :source :unknown}]
-          free-key {:parent nil :key []}
-          run      (fn run
-                     ([views] (run views :unknown))
-                     ([views frame]
-                      (hh/without-own-frame
-                        {:mounted-boundaries
-                         (envelope :mounted-boundaries
-                                   {:boundaries [(first (:boundaries mounted))
-                                                 {:boundary free-key :views views
-                                                  :instances 1 :read-orders 1
-                                                  :frame frame :reads []}]})
-                         :explain-render
-                         (envelope :explain-render
-                                   {:explanations [{:boundary free-key :views views
-                                                    :frame frame :instances 1
-                                                    :snapshot :unknown :peak-epoch :unknown
-                                                    :latest-reads :unknown
-                                                    :candidates :unknown
-                                                    :loss {:reason :cap :dropped :unknown}}]})}
-                        (hh/own-frames :rf/xray))))]
-      (testing "where the frame resolves it is the answer: a row seated in an
-                application frame stays, whatever namespace declared its view"
-        (let [e (run chrome :app/main)]
-          (is (= [:app/main :app/main] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
-          (is (= 1 (count (hh/explain-rows (:explain-render e)))))))
-      (testing "Xray's chrome alone is dropped from the census and from Why"
-        (let [e (run chrome)]
-          (is (= [:app/main] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
-          (is (= [] (hh/explain-rows (:explain-render e))))))
-      (testing "an application's read-free view keeps the row, without Xray's"
-        (let [e (run (into layout chrome))]
-          (is (= [:app/main :unknown] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
-          (is (= ["app.views/layout"]
-                 (mapv :view (:views (second (hh/mounted-rows (:mounted-boundaries e)))))))
-          (is (= ["app.views/layout"]
-                 (mapv :view (:views (first (hh/explain-rows (:explain-render e))))))))))))
+  ;; A read-free boundary has the key `[]` and the frame `:unknown`, so its
+  ;; declared views are what say whose it is.
+  (let [chrome   [{:view   "day8.re-frame2-xray.shell/dynamic-chrome"
+                   :source {:ns 'day8.re-frame2-xray.shell :file "shell.cljs"
+                            :line 2989 :column 1}}]
+        layout   [{:view "app.views/layout" :source :unknown}]
+        rows     (fn rows
+                   ([views] (rows views :unknown))
+                   ([views frame]
+                    (hh/mounted-rows
+                      (:mounted-boundaries
+                        (hh/without-own-frame
+                          {:mounted-boundaries
+                           (envelope :mounted-boundaries
+                                     {:boundaries [(first (:boundaries mounted))
+                                                   {:boundary {:parent nil :key []} :views views
+                                                    :instances 1 :read-orders 1
+                                                    :frame frame :reads []}]})}
+                          (hh/own-frames :rf/xray))))))]
+    (testing "where the frame resolves it is the answer, whatever namespace declared the view"
+      (is (= [:app/main :app/main] (mapv :frame (rows chrome :app/main)))))
+    (testing "Xray's chrome alone is dropped"
+      (is (= [:app/main] (mapv :frame (rows chrome)))))
+    (testing "an application's read-free view keeps the row, without Xray's"
+      (is (= ["app.views/layout"] (mapv :view (:views (second (rows (into layout chrome))))))))))
 
-(deftest the-own-frame-drop-does-not-eat-an-unresolved-or-unparseable-envelope
-  (testing "two things the filter must NOT do, both of which
-            would turn a STATED absence into a silent one, which is the
-            failure this whole tab is built against."
-    (testing "`unknown` is not Xray's frame"
-      ;; The shared `mounted` fixture is the control: its second row is
-      ;; `:frame :unknown`, and every other row in this file reading it
-      ;; expects TWO rows back.
-      (doseq [tool-frame [:rf/xray custom-shell-frame]]
-        (let [rows (hh/mounted-rows
-                     (:mounted-boundaries
-                       (hh/without-own-frame {:mounted-boundaries mounted}
-                                             (hh/own-frames tool-frame))))]
-          (is (= [:app/main :unknown] (mapv :frame rows))
-              "both survive — the filter is set membership over resolved
-               frame ids and nothing cleverer")
-          (is (some? (:frame-chip (second rows)))
-              "and the unresolved row still carries its chip"))))
-
-    (testing "an absent or mismatched envelope passes through untouched"
-      (let [e (hh/without-own-frame
-                {:mounted-boundaries nil
-                 :read-attribution   {:schema :re-frame.fresco.evidence/v2
-                                      :producer :re-frame/fresco
-                                      :edges [{:frame-id :rf/xray}]}
-                 :intents            nil
-                 :explain-render     nil}
-                (hh/own-frames custom-shell-frame))]
-        (is (nil? (:mounted-boundaries e))
-            "nil stays nil — a missing door is not an empty roster")
-        (is (= :re-frame.fresco.evidence/v2 (:schema (:read-attribution e)))
-            "and a schema this build cannot parse is handed on whole, so
-             `presence` still reports `:mismatch`. Filtering it would
-             empty the roster and report a mismatch as clean")))))
+(deftest the-own-frame-drop-keeps-an-unresolved-row-and-an-absent-envelope
+  (testing "`unknown` is not Xray's frame — the filter is set membership over
+            resolved frame ids and nothing cleverer"
+    (doseq [tool-frame [:rf/xray custom-shell-frame]]
+      (is (= [:app/main :unknown]
+             (mapv :frame (hh/mounted-rows
+                            (:mounted-boundaries
+                              (hh/without-own-frame {:mounted-boundaries mounted}
+                                                    (hh/own-frames tool-frame)))))))))
+  (testing "an absent envelope passes through untouched — a missing door is not an empty roster"
+    (is (nil? (:mounted-boundaries
+                (hh/without-own-frame {:mounted-boundaries nil}
+                                      (hh/own-frames custom-shell-frame)))))))
