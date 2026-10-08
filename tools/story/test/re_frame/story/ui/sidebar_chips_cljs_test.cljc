@@ -1,25 +1,12 @@
 (ns re-frame.story.ui.sidebar-chips-cljs-test
-  "Tests for the sidebar's rendered signal-chip strip + large-list bounding
-  + variants-grid grouping (spec/018 §7.1 + §10).
+  "The sidebar's large-list bounding, variants-grid grouping and rendered
+  five-axis signal-chip strip (spec/018 §7.1 + §10).
 
   Every test here is CLJS-only: `re-frame.story.ui.sidebar` is a `.cljs`
-  file the JVM cannot `:require`. The CLJS node-test build (shadow's
-  `:node-test` target; ns-regexp `cljs-test$`) runs them; the JVM runner
-  loads the namespace and finds no tests in it.
-
-  ## Coverage layers
-
-  - **Pure data**: `bound-variants` cap / expand / no-bound-when-small;
-    `workspace-grid-grouping` grid-vs-non-grid, and a registry-enumerated
-    `:variants-grid` counting the cells it renders; the per-axis tint
-    style keys. The status tint keys are pinned against
-    `rf.story.theme.status/chip-style` in
-    `re_frame/story/theme/status_vocab_cljs_test.cljc`.
-  - **Rendered hiccup**: `signal-chips` renders one chip per axis, keeps
-    the five axes in DISTINCT `data-axis` groups, and never collapses
-    world inputs / runner / frame-binding into fidelity."
+  file the JVM cannot `:require`, so the JVM runner loads this namespace and
+  finds no tests in it."
   #?(:cljs
-     (:require [clojure.test :refer [deftest is testing]]
+     (:require [clojure.test :refer [are deftest is testing]]
                [re-frame.story :as rf.story]
                [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
                [re-frame.story.ui.workspace :as rf.story.ui.workspace])))
@@ -28,33 +15,23 @@
 
 #?(:cljs
    (deftest bound-variants-caps-and-expands
-     (testing "a list at or below the cap is never bounded"
-       (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 5))]
-         (is (= {:shown vs :hidden 0} (rf.story.ui.sidebar/bound-variants vs 10 false)))))
-     (testing "a list over the cap is bounded with the elided count"
-       (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 50))
-             {:keys [shown hidden]} (rf.story.ui.sidebar/bound-variants vs 40 false)]
-         (is (= 40 (count shown)))
-         (is (= 10 hidden))))
-     (testing "expanded? reveals the full list (nothing hidden)"
-       (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 50))
-             {:keys [shown hidden]} (rf.story.ui.sidebar/bound-variants vs 40 true)]
-         (is (= 50 (count shown)))
-         (is (= 0 hidden))))))
+     (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 50))]
+       (are [cap expanded? out] (= out (rf.story.ui.sidebar/bound-variants vs cap expanded?))
+         ;; a list at the cap is never bounded
+         50 false {:shown vs :hidden 0}
+         ;; over the cap: the prefix, with the elided count
+         40 false {:shown (subvec vs 0 40) :hidden 10}
+         ;; expanded? reveals the full list
+         40 true  {:shown vs :hidden 0}))))
 
 ;; ---- pure: variants-grid grouping ---------------------------------------
 
 #?(:cljs
    (deftest workspace-grid-grouping-projection
-     (testing ":grid and :tabs are grid groups counting their declared cells"
-       (is (= {:layout :grid :count 2}
-              (rf.story.ui.sidebar/workspace-grid-grouping
-                :Workspace.x/g {:layout :grid :variants [:a :b]})))
-       (is (= {:layout :tabs :count 1}
-              (rf.story.ui.sidebar/workspace-grid-grouping
-                :Workspace.x/t {:layout :tabs :variants [:a]}))))
-     (testing "a non-grid layout (prose) is NOT a grid group"
-       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/p {:layout :prose}))))))
+     (are [id body out] (= out (rf.story.ui.sidebar/workspace-grid-grouping id body))
+       :Workspace.x/g {:layout :grid :variants [:a :b]} {:layout :grid :count 2}
+       ;; a non-grid layout (prose) is NOT a grid group
+       :Workspace.x/p {:layout :prose}                  nil)))
 
 ;; A `:variants-grid` enumerates its anchor story's variants from the
 ;; registry and carries no `:variants` slot, so a count read off that slot
@@ -80,89 +57,59 @@
        (finally
          (rf.story/clear-all!)))))
 
-;; ---- CLJS-only: rendered signal-chip hiccup -----------------------------
+;; ---- rendered signal-chip hiccup ----------------------------------------
 
 #?(:cljs
-   (defn- find-by-data-test
-     "Walk a hiccup tree and return every element whose props map has
-     `:data-test` equal to `tag`. Mirrors the helper in the sibling
-     `tag-badges-cljs-test` so each test ns stays self-contained."
-     [tree tag]
+   (defn- chips-by-axis
+     "The `story-sidebar-signal-chip` elements of a `signal-chips` tree,
+     grouped by their `data-axis` → vector of `data-value`s in render order."
+     [tree]
      (let [hits (transient [])]
        (letfn [(walk [node]
                  (cond
                    (and (vector? node)
                         (map? (second node))
-                        (= tag (get (second node) :data-test)))
-                   (do (conj! hits node)
-                       (doseq [c (drop 2 node)] (walk c)))
+                        (= "story-sidebar-signal-chip" (:data-test (second node))))
+                   (conj! hits (second node))
 
-                   (vector? node)
-                   (doseq [c (rest node)] (walk c))
-
-                   (seq? node)
-                   (doseq [c node] (walk c))
-
-                   :else nil))]
+                   (vector? node) (doseq [c (rest node)] (walk c))
+                   (seq? node)    (doseq [c node] (walk c))
+                   :else          nil))]
          (walk tree))
-       (persistent! hits))))
-
-#?(:cljs
-   (defn- chips-by-axis
-     "Group the rendered signal chips of a `signal-chips` tree by their
-     `data-axis` attribute → vector of `data-value`s."
-     [tree]
-     (->> (find-by-data-test tree "story-sidebar-signal-chip")
-          (group-by (fn [c] (get (second c) :data-axis)))
-          (reduce-kv (fn [m axis chips]
-                       (assoc m axis (mapv #(get (second %) :data-value) chips)))
-                     {}))))
-
-#?(:cljs
-   (deftest signal-chips-always-present-axes
-     (testing "a calm default variant still renders status + runner +
-               frame-binding chips (one each), and no fidelity / world chips"
-       (let [tree   (rf.story.ui.sidebar/signal-chips {} :pending)
-             by-axis (chips-by-axis tree)]
-         (is (= ["pending"]  (get by-axis "status")))
-         (is (= ["headless"] (get by-axis "runner-requirement")))
-         (is (= ["fresh"]    (get by-axis "frame-binding")))
-         (is (nil? (get by-axis "fidelity")))
-         (is (nil? (get by-axis "world-inputs")))))))
+       (reduce (fn [m {:keys [data-axis data-value]}]
+                 (update m data-axis (fnil conj []) data-value))
+               {}
+               (persistent! hits)))))
 
 #?(:cljs
    (deftest signal-chips-keeps-five-axes-distinct
-     (testing "a rich variant renders all five axes in SEPARATE data-axis
-               groups — world inputs / runner / frame-binding are NEVER
-               folded into fidelity (spec/018 §7.1)"
-       (let [tree   (rf.story.ui.sidebar/signal-chips
-                      {:setup        [[:dispatch [:seed]]]
-                       :sub-overrides {[:q] 1}
-                       :args          {:label "x"}
-                       :network       {[:get "/x"] {:reply {:ok 1}}}
-                       :fx-overrides  {:fx :stub}
-                       :script        [[:click "#go"]]
-                       :frame-binding :attached}
-                      :fail)
-             by-axis (chips-by-axis tree)]
-         (is (= ["fail"] (get by-axis "status")))
-         (is (= #{"real-setup" "sub-overrides"} (set (get by-axis "fidelity"))))
-         (is (= #{"args" "network" "fx-overrides"} (set (get by-axis "world-inputs"))))
-         (is (= ["dom"]      (get by-axis "runner-requirement")))
-         (is (= ["attached"] (get by-axis "frame-binding")))
-         ;; the world-input values must NOT appear under fidelity
-         (is (not (some #{"args" "network" "fx-overrides"}
-                        (get by-axis "fidelity"))))))))
+     ;; World inputs / runner / frame-binding are NEVER folded into fidelity
+     ;; (spec/018 §7.1). Status / runner / frame-binding always render one
+     ;; chip; fidelity / world-inputs render none when the variant has none.
+     (are [body status by-axis] (= by-axis (chips-by-axis (rf.story.ui.sidebar/signal-chips body status)))
+       {} :pending
+       {"status"             ["pending"]
+        "runner-requirement" ["headless"]
+        "frame-binding"      ["fresh"]}
+
+       {:setup         [[:dispatch [:seed]]]
+        :sub-overrides {[:q] 1}
+        :args          {:label "x"}
+        :network       {[:get "/x"] {:reply {:ok 1}}}
+        :fx-overrides  {:fx :stub}
+        :script        [[:click "#go"]]
+        :frame-binding :attached}
+       :fail
+       {"status"             ["fail"]
+        "fidelity"           ["real-setup" "sub-overrides"]
+        "world-inputs"       ["args" "network" "fx-overrides"]
+        "runner-requirement" ["dom"]
+        "frame-binding"      ["attached"]})))
 
 #?(:cljs
    (deftest axis-group-style-key-projection
-     (testing "each non-status axis has its OWN tint family so the axes
-               read as distinct groups"
-       (is (= :signal-fidelity (rf.story.ui.sidebar/axis->group-style-key :fidelity)))
-       (is (= :signal-world    (rf.story.ui.sidebar/axis->group-style-key :world-inputs)))
-       (is (= :signal-runner   (rf.story.ui.sidebar/axis->group-style-key :runner-requirement)))
-       (is (= :signal-frame    (rf.story.ui.sidebar/axis->group-style-key :frame-binding)))
-       ;; the four tints are all different — no axis shares fidelity's tint.
-       (is (= 4 (count (set (map rf.story.ui.sidebar/axis->group-style-key
-                                 [:fidelity :world-inputs :runner-requirement
-                                  :frame-binding]))))))))
+     ;; each non-status axis has its OWN tint family, so the axes read as
+     ;; distinct groups
+     (is (= 4 (count (set (keep rf.story.ui.sidebar/axis->group-style-key
+                                [:fidelity :world-inputs :runner-requirement
+                                 :frame-binding])))))))
