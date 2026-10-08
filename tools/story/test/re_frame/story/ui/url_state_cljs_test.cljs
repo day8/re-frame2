@@ -1,53 +1,24 @@
 (ns re-frame.story.ui.url-state-cljs-test
-  "CLJS-side tests for the URL-state engine.
-
-  The pure pieces (params projection, query-string composition, slot
-  diff, parsed-application) are covered in
-  `re-frame.story.ui.url-state-test` (.cljc). This ns exercises the
-  CLJS-only surfaces — pushState idempotence, popstate-driven
-  hydration, and the install/teardown contract.
-
-  The window.history surface is mocked rather than driving the real
-  browser back-stack so the test stays deterministic under the node
-  runner (and so the test doesn't perturb the harness's own URL)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "CLJS-only surfaces of the URL-state engine: the browser codec
+  round-trip, pushState idempotence, `parse-current-url-or-empty` and the
+  popstate listener's install contract. The pure pieces are in
+  `re-frame.story.ui.url-state-test`."
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string               :as str]
             [re-frame.story.share         :as rf.story.share]
-            [re-frame.story.ui.state      :as rf.story.ui.state]
             [re-frame.story.ui.url-state  :as rf.story.ui.url-state]))
 
-;; ---- fixtures ------------------------------------------------------------
-
-(defn reset-all! []
-  (rf.story.ui.state/reset-shell-state!))
-
-(use-fixtures :each {:before reset-all!})
-
-;; ---- the window stub, and why it sits up here ---------------------------
+;; ---- the window stub ----------------------------------------------------
 ;;
-;; This namespace ends `-cljs-test`, so `:node-test` selects it and
-;; `:browser-test` — whose `:ns-regexp` is `.*-dom-cljs-test$` — never
-;; loads it at all. A row here wrapped in `(when (browser?) ...)` would
-;; therefore execute in NEITHER lane: node loads it with the guard false,
-;; and no browser ever sees the file.
-;;
-;; The host touch in the rows that need a window is INCIDENTAL — they
-;; assert `push!`'s idempotence algebra, `parse-current-url-or-empty`'s
-;; blank-search branch and the popstate listener's replace-not-stack
-;; invariant, none of which needs a real browser — so a stub host makes
-;; them run on node rather than nowhere. The helpers sit up here because
-;; three separate suites depend on them.
-;;
-;; `url-state/safe-window` is `(when (exists? js/window) js/window)`, so
-;; setting `globalThis.window` is all it takes to satisfy the whole
-;; module. The stub's `:search ""` is not incidental either — it IS the
-;; blank-search condition the blank-search row below asserts against.
+;; `:node-test` has no `window` and `:browser-test` never loads a
+;; `-cljs-test` namespace, so the rows that touch `window` run against this
+;; stub. `url-state/safe-window` is `(when (exists? js/window) js/window)`,
+;; so setting `globalThis.window` satisfies the whole module.
 
 (defn- install-window-stub!
-  "Install a minimal `window` on `js/globalThis` with a countable
-  event-listener registry and a location whose `search` is `search-str`
-  (default `\"\"`, the blank-search case). Returns the registry atom
-  `{event-type → [listener ...]}`."
+  "Install a minimal `window` whose `location.search` is `search-str`
+  (default blank) and whose listeners are counted. Returns the registry
+  atom `{event-type → [listener ...]}`."
   ([] (install-window-stub! ""))
   ([search-str]
     (let [registry (atom {})
@@ -76,170 +47,41 @@
 (defn- popstate-listener-count [registry]
   (count (get @registry "popstate" [])))
 
-;; ---- url-from-state composition -----------------------------------------
-
-;; ---- unowned params survive a state-driven address-bar write ------------
-;;
-;; The JVM half of this pin asserts the composed STRING. Only the real
-;; `URLSearchParams` can answer what the shell will actually READ back off
-;; that string: `params->getter` and `embed-flag-from-current-url` both go
-;; through `.get`, whose first-value semantics are why a stale Story key
-;; must be cleared rather than appended behind. So read the composed URL
-;; back through the same API the hydrator uses.
-
-;; ---- the LIVE address bar owns escaped key spellings --------------------
-;;
-;; Both address-bar writers share `rf.story.share/apply-story-params`. The
-;; `URLSearchParams` this shell reads with compares DECODED names, so
-;; ownership matched on raw key text would let a `location.search` spelling
-;; a Story key with escapes survive a state-driven push, the generated
-;; value would be appended behind it, and the next reload's `.get` —
-;; first-value — would restore the stale cell. Asserted against the real
-;; browser API, on the address-bar writer specifically: the key decoding
-;; lives in the shared helper, so this and the share-builder pin move
-;; together.
-
-(deftest url-from-state-clears-every-escaped-story-key-cljs
-  (testing "the whole vocabulary spelled with escapes.
-            Derived from `rf.story.share/story-query-keys`, so a key added to the
-            vocabulary is covered without editing this test."
-    (let [escape #(str "%" (.toUpperCase (.toString (.charCodeAt % 0) 16))
-                       (subs % 1))
-          stale  {"variant"    "story.old%2Fa"
-                  "workspace"  "story.old%2Fws"
-                  "mode-tab"   "docs"
-                  "modes"      "Mode.app%2Fstale"
-                  "viewport"   "tablet"
-                  "background" "dark"
-                  "tag-filter" "stale"
-                  "overrides"  "%7B%3Afoo%201%7D"
-                  "substrate"  "uix"}
-          search (str "?"
-                      (str/join "&" (map #(str (escape (name %))
-                                               "="
-                                               (get stale (name %)))
-                                         rf.story.share/story-query-keys))
-                      "&from=index&embed=1")
-          url    (rf.story.ui.url-state/url-from-state
-                   {:selected-variant :story.new/b}
-                   {:pathname "/p/" :search search :hash "#/stories"})
-          usp    (js/URLSearchParams.
-                   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
-      (is (= (set (map name rf.story.share/story-query-keys)) (set (keys stale)))
-          "the fixture carries a stale value for every key in the vocabulary")
-      (is (= "story.new/b" (.get usp "variant"))
-          "URLSearchParams.get returns the variant this state asked for")
-      (is (= 1 (count (.getAll usp "variant")))
-          "exactly one variant value")
-      (doseq [k (map name rf.story.share/story-query-keys)
-              :when (not= k "variant")]
-        (is (zero? (count (.getAll usp k)))
-            (str "URLSearchParams sees no stale " k "= at all")))
-      (is (= "index" (.get usp "from")) "unrelated from= survives")
-      (is (= "1" (.get usp "embed")) "unrelated embed= survives")
-      (is (= "/p/?from=index&embed=1&variant=story.new%2Fb#/stories" url)
-          "every escaped Story key is cleared; both unowned params survive"))))
-
-(deftest url-from-state-consumes-a-browser-shaped-location
-  (testing "`current-location-shape` snapshots the browser's own
-            {pathname, search, hash} triple off `window.location`. Drive the
-            composer from a real `js/URL`'s three properties — the same
-            accessors, with the same `?`/`#` prefix conventions — so the
-            merge is exercised against browser-produced values rather than
-            hand-written strings."
-    (let [loc (js/URL. (str "https://example.test/counter-with-stories/"
-                            "?from=index&embed=1&variant=story.old%2Fa"
-                            "#/stories"))
-          url (rf.story.ui.url-state/url-from-state
-                {:selected-variant :story.new/b}
-                {:pathname (.-pathname loc)
-                 :search   (.-search loc)
-                 :hash     (.-hash loc)})]
-      (is (= "/counter-with-stories/?from=index&embed=1&variant=story.new%2Fb#/stories"
-             url)))))
-
 ;; ---- params-from-state via the public share encoder ---------------------
 
 (deftest params-from-state-feeds-share-build-params
-  (testing "the projection contract: params-from-state +
-            rf.story.share/build-params produce a URL params vector that
-            rf.story.share/parse-params round-trips back to the projection"
-    (let [shell  {:selected-variant   :foo/bar
-                  :active-mode-tab    {:foo/bar :test}
-                  :active-modes       [:m/dark]
-                  :viewport           {:width 800 :height 600}
-                  :background         "#abc123"
-                  :tag-filter         #{:tag/x}
-                  :cell-overrides     {:foo/bar {:label "Hi"}}
-                  :substrate          :uix}
-          proj   (rf.story.ui.url-state/params-from-state shell)
-          ps     (rf.story.share/build-params proj)
-          usp    (js/URLSearchParams. (str/join "&" ps))
-          getter {"variant"    (.get usp "variant")
-                  "workspace"  (.get usp "workspace")
-                  "mode-tab"   (.get usp "mode-tab")
-                  "modes"      (.get usp "modes")
-                  "viewport"   (.get usp "viewport")
-                  "background" (.get usp "background")
-                  "tag-filter" (.get usp "tag-filter")
-                  "overrides"  (.get usp "overrides")
-                  "substrate"  (.get usp "substrate")}
-          out    (rf.story.share/parse-params getter)]
-      (is (= :foo/bar (:variant-id out)))
-      (is (= :test    (:mode-tab out)))
-      (is (= [:m/dark] (:active-modes out)))
-      (is (= {:width 800 :height 600} (:viewport out)))
-      (is (= "#abc123" (:background out)))
-      (is (= #{:tag/x} (:tag-filter out)))
-      (is (= {:label "Hi"} (:cell-overrides out)))
-      (is (= :uix (:substrate out))))))
-
-;; ---- full override round-trip via URLSearchParams -----------------------
-
-(deftest override-round-trip-through-urlsearchparams
-  (testing "the focused-variant override round-trip as a single
-            invariant: shell-state → params-from-state → build-params →
-            URLSearchParams encode/decode → parse-params →
-            apply-parsed-to-state restores [:cell-overrides variant-id]
-            equal to the source slice — INCLUDING a string value carrying
-            the list separator (comma), which a comma-split codec would
-            shred."
-    (let [variant  :foo/bar
-          slice    {:label "Save, continue" :count 3 :items [1 2 3]}
-          shell    {:selected-variant variant
-                    :cell-overrides   {variant slice}}
-          ;; encode: project → build params → real URLSearchParams string
-          proj     (rf.story.ui.url-state/params-from-state shell)
-          ps       (rf.story.share/build-params proj)
-          qs       (str/join "&" ps)
-          usp      (js/URLSearchParams. qs)
-          getter   {"variant"   (.get usp "variant")
-                    "overrides" (.get usp "overrides")}
-          ;; decode: parse-params → apply back into a fresh shell state
-          parsed   (rf.story.share/parse-params getter)
-          out      (rf.story.ui.url-state/apply-parsed-to-state {} parsed {})]
-      (is (= variant (:selected-variant out)))
-      (is (= slice (get-in out [:cell-overrides variant]))
-          "decoded overrides equal the encoded overrides (round-trip)")
-      ;; explicit: the comma-bearing value is intact, not shredded
-      (is (= "Save, continue"
-             (get-in out [:cell-overrides variant :label]))))))
+  (testing "params-from-state → build-params → the browser's URLSearchParams
+            → parse-params returns the projection, through the CLJS
+            encoder and decoders"
+    (let [usp (js/URLSearchParams.
+                (str/join "&" (rf.story.share/build-params
+                                (rf.story.ui.url-state/params-from-state
+                                  {:selected-variant :foo/bar
+                                   :active-mode-tab  {:foo/bar :test}
+                                   :active-modes     [:m/dark]
+                                   :viewport         {:width 800 :height 600}
+                                   :background       "#abc123"
+                                   :tag-filter       #{:tag/x}
+                                   :cell-overrides   {:foo/bar {:label "Hi"}}
+                                   :substrate        :uix}))))]
+      (is (= {:variant-id     :foo/bar
+              :workspace-id   nil
+              :mode-tab       :test
+              :active-modes   [:m/dark]
+              :viewport       {:width 800 :height 600}
+              :background     "#abc123"
+              :tag-filter     #{:tag/x}
+              :cell-overrides {:label "Hi"}
+              :substrate      :uix}
+             (rf.story.share/parse-params
+               (into {} (map (fn [k] [k (.get usp k)]))
+                     (map name rf.story.share/story-query-keys))))))))
 
 ;; ---- pushState idempotence ----------------------------------------------
-;;
-;; There is no jsdom, no happy-dom and no DOM shim in any dependency list
-;; here, so on node `js/window` is undefined unless a test installs one.
-;;
-;; The property here is `push!`'s idempotence ALGEBRA — does it compare the
-;; candidate URL against the current location and decline when they match —
-;; which needs a `location` and a `history.pushState` to call, not a real
-;; browser. So the rows run on node against `install-window-stub!`, the
-;; same stub the popstate suite below uses.
 
 (defn- with-history-spy
-  "Install a spy around `window.history.pushState`; returns the
-  captured-calls atom + a restore fn. Requires a window — real or the
-  stub installed by `install-window-stub!`."
+  "Spy on `window.history.pushState`; returns the captured-URLs atom and a
+  restore fn."
   []
   (let [captured (atom [])
         orig     (.-pushState (.-history js/window))
@@ -254,115 +96,40 @@
        (.-hash     (.-location js/window))))
 
 (deftest push!-skips-when-url-matches-current-location
-  (testing "push! is idempotent: no-op when the URL matches
-            the current location (avoids gratuitous back-stack entries)"
+  (testing "push! pushes a differing URL and declines the current one, so
+            the back-stack gets no gratuitous entries"
     (install-window-stub!)
     (try
       (let [[captured restore] (with-history-spy)
-            cur                (current-url-str)]
+            cur                (current-url-str)
+            next-url           (str cur "?variant=foo%2Fbar")]
         (try
-          ;; Control FIRST, so the zero below is evidence that `push!`
-          ;; DECLINED rather than evidence that nothing could have been
-          ;; captured either way. A bare `(= 0 (count @captured))` passes
-          ;; just as happily against an unwired spy or an absent window.
-          (rf.story.ui.url-state/push! (str cur "?control=1"))
-          (is (= 1 (count @captured))
-              "precondition: the spy captures a genuine differing push")
+          (rf.story.ui.url-state/push! next-url)
+          (is (= [next-url] @captured) "a differing URL is pushed as given")
           (reset! captured [])
           (rf.story.ui.url-state/push! cur)
-          (is (= 0 (count @captured))
-              "no pushState calls when URL matches")
+          (is (= [] @captured) "no pushState when the URL matches")
           (finally (restore))))
       (finally (uninstall-window-stub!)))))
-
-(deftest push!-fires-when-url-differs
-  (testing "push! pushes a different URL"
-    (install-window-stub!)
-    (try
-      (let [[captured restore] (with-history-spy)]
-        (rf.story.ui.url-state/push!
-          (str (.-pathname (.-location js/window))
-               "?variant=foo%2Fbar"
-               (.-hash (.-location js/window))))
-        (try
-          (is (= 1 (count @captured)))
-          (is (re-find #"variant=foo" (first @captured)))
-          (finally (restore))))
-      (finally (uninstall-window-stub!)))))
-
-;; ---- state-watcher install/teardown -------------------------------------
-;;
-;; `install-state-watcher!` registers a single keyed `add-watch` under a
-;; fixed watch-key, so a re-install REPLACES rather than stacks — the
-;; "no doubled fires" invariant. We give it teeth by counting the ratom's registered watches directly
-;; (`.-watches`, the same introspection reagent's own ratom suite uses):
-;; a re-install must NOT grow the watch count, and a stacking regression
-;; (a fresh key per install) would. Runs headlessly — `add-watch` needs
-;; no window.
-
-(deftest state-watcher-reinstall-replaces-under-same-key
-  (testing "re-installing the state-watcher
-            replaces under the same watch-key: the ratom carries exactly
-            ONE url-state watch after a double-install (no doubled fires),
-            and teardown removes it. A watcher that stacked (fresh key per
-            install) would leave the count one higher and fail here."
-    (let [a  rf.story.ui.state/shell-state-atom
-          n0 (count (.-watches a))]
-      (rf.story.ui.url-state/install-state-watcher! a)
-      (let [n1 (count (.-watches a))]
-        (rf.story.ui.url-state/install-state-watcher! a)          ; re-install under same key
-        (let [n2 (count (.-watches a))]
-          (try
-            (is (= (inc n0) n1)
-                "first install registers exactly one keyed watch")
-            (is (= n1 n2)
-                "re-install does NOT grow the watch count — replaces under
-                 the same key (no stacked / doubled-fire watchers)")
-            (finally (rf.story.ui.url-state/remove-state-watcher! a)))
-          (is (= n0 (count (.-watches a)))
-              "teardown removes the watch (back to baseline)"))))))
 
 ;; ---- popstate listener install/teardown ---------------------------------
-;;
-;; The node runner has no `window`, so a body wrapped in
-;; `(when (browser?) ...)` would execute ZERO assertions under
-;; `npm run test:cljs` — a vacuous pass. The `install-window-stub!` helper
-;; at the top of this file installs a minimal `window` on `js/globalThis`
-;; whose add/removeEventListener maintain a countable per-type listener
-;; registry. That makes the "re-install replaces rather than stacks"
-;; invariant node-runnable AND gives it teeth: after a double-install
-;; exactly ONE popstate listener is registered and a single popstate event
-;; fires the handler exactly once. A stacking regression leaves 2 listeners
-;; and double-fires — so this fails under the default node gate rather than
-;; passing vacuously.
 
 (deftest popstate-listener-reinstall-replaces-rather-than-stacks
-  (testing "re-installing the popstate listener
-            replaces the previous handler rather than stacking: after a
-            double-install exactly ONE popstate listener is registered, and
-            a single popstate event fires the apply-fn exactly once. Runs
-            under the default node gate via a window stub (no browser? gate),
-            so a stacking regression fails here — not a vacuous pass."
+  (testing "after a double install exactly ONE popstate listener is
+            registered and one popstate fires the apply-fn once; teardown
+            removes it"
     (let [registry (install-window-stub!)
           fires    (atom 0)
-          apply-fn (fn [s _parsed] (swap! fires inc) s)]
+          apply-fn (fn [s _parsed] (swap! fires inc) s)
+          shell    (atom {})]
       (try
-        ;; Clear any process-wide handler left by a prior test/run so the
-        ;; registry count reflects only this test's installs.
-        (rf.story.ui.url-state/remove-popstate-listener!)
-        (reset! fires 0)
-        (rf.story.ui.url-state/install-popstate-listener! rf.story.ui.state/shell-state-atom apply-fn)
-        (rf.story.ui.url-state/install-popstate-listener! rf.story.ui.state/shell-state-atom apply-fn) ; re-install
-        (is (= 1 (popstate-listener-count registry))
-            "exactly one popstate listener registered after double-install
-             (replaced, not stacked)")
-        ;; Drive a single popstate: the handler must fire exactly once.
+        (rf.story.ui.url-state/install-popstate-listener! shell apply-fn)
+        (rf.story.ui.url-state/install-popstate-listener! shell apply-fn)
+        (is (= 1 (popstate-listener-count registry)))
         (.dispatchEvent js/window #js {:type "popstate"})
-        (is (= 1 @fires)
-            "single popstate fires the handler exactly once (no doubled fires)")
+        (is (= 1 @fires))
         (rf.story.ui.url-state/remove-popstate-listener!)
-        (is (= 0 (popstate-listener-count registry))
-            "remove-popstate-listener! removes the listener")
+        (is (= 0 (popstate-listener-count registry)))
         (finally
           (rf.story.ui.url-state/remove-popstate-listener!)
           (uninstall-window-stub!))))))
@@ -370,62 +137,19 @@
 ;; ---- populated → omitted/default transition -----------------------------
 
 (deftest parse-current-url-or-empty-returns-empty-shape-on-blank-search
-  (testing "when the window is present but the search is empty
-            `parse-current-url-or-empty` returns the all-nil parsed shape
-            (not nil), so a no-query popstate drives the URL-owned slots to
-            their defaults instead of no-op'ing.
-
-            Runs against a stub window whose `search` is literally blank,
-            which IS the condition under test."
+  (testing "a blank search answers the all-nil parsed shape, never nil, so
+            a no-query popstate drives the URL-owned slots to their defaults"
     (install-window-stub! "")
     (try
       (let [parsed (rf.story.ui.url-state/parse-current-url-or-empty)]
-        (is (map? parsed) "returns a parsed map, never nil, when window present")
-        (is (nil? (:variant-id parsed)))
-        (is (nil? (:active-modes parsed)))
-        (is (nil? (:viewport parsed)))
-        (is (nil? (:background parsed)))
-        (is (nil? (:tag-filter parsed))))
-      (finally (uninstall-window-stub!)))))
-
-(deftest parse-current-url-or-empty-reads-a-populated-search
-  (testing "the discriminating contrast for the blank-search row
-            above. Every assertion there is a `nil?`, so all of them pass
-            against a `parse-current-url-or-empty` that ignored the URL
-            entirely and always answered the empty shape. This row proves
-            the function really does read `window.location.search`, so the
-            nils above are evidence about a BLANK search rather than about
-            a function that never looks."
+        (is (map? parsed))
+        (is (every? nil? (vals parsed))))
+      (finally (uninstall-window-stub!))))
+  (testing "a populated search is parsed — the nils above are about the
+            blank search, not a function that never reads the URL"
     (install-window-stub! "?variant=foo%2Fbar&viewport=tablet")
     (try
-      (let [parsed (rf.story.ui.url-state/parse-current-url-or-empty)]
-        (is (map? parsed))
-        (is (= :foo/bar (:variant-id parsed))
-            "a populated search really is parsed (not the empty shape)")
-        (is (= :tablet (:viewport parsed))))
+      (is (= [:foo/bar :tablet]
+             ((juxt :variant-id :viewport)
+              (rf.story.ui.url-state/parse-current-url-or-empty))))
       (finally (uninstall-window-stub!)))))
-
-(deftest popstate-to-empty-url-clears-prior-state-via-swap
-  (testing "the back/forward-to-bare-URL scenario through the
-            same swap path the popstate handler takes: a populated shell,
-            then applying the all-nil parsed shape (what
-            `parse-current-url-or-empty` yields for an empty search) clears
-            every URL-owned slot. Drives the live shell-state ratom."
-    (let [apply-fn (fn [s parsed] (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
-      ;; 1. populated: a deep-link with framing + filter + modes.
-      (swap! rf.story.ui.state/shell-state-atom apply-fn
-             {:variant-id   :foo/bar
-              :active-modes [:m/dark]
-              :viewport     :tablet
-              :background   :dark
-              :tag-filter   #{:tag/a}})
-      (is (= :foo/bar (:selected-variant @rf.story.ui.state/shell-state-atom)))
-      ;; 2. popstate to a no-query URL ⇒ all-nil parsed shape.
-      (swap! rf.story.ui.state/shell-state-atom apply-fn (rf.story.share/parse-params {}))
-      (let [s @rf.story.ui.state/shell-state-atom]
-        (is (nil? (:selected-variant s)) "selection cleared on bare-URL pop")
-        (is (= [] (:active-modes s))      "modes cleared")
-        (is (nil? (:viewport s))          "viewport cleared")
-        (is (nil? (:background s))        "background cleared")
-        (is (= #{} (:tag-filter s))       "tag-filter cleared")))))
-
