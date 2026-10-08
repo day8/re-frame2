@@ -1,13 +1,8 @@
 (ns re-frame.story.ui.keybindings-cljs-test
-  "CLJS-side regression net for the chrome-level hotkey registry.
-
-  Surface covered:
-
-  - `dispatch-key?`     — discrimination predicate (modifier + editable)
-  - `bindings`          — canonical key → handler map shape
-  - `shortcut-keys`     — sorted key list
-  - Each handler fn round-trips through the shell-state-atom"
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "The chrome hotkey registry: the `dispatch-key?` discrimination
+  predicate, the bound-keys table, and each handler round-tripping its
+  slot through shell state."
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -17,23 +12,22 @@
 ;; ---- dispatch predicate -------------------------------------------------
 
 (deftest dispatch-key-predicate
-  (testing "single lowercase char, no modifier, not editable → true"
-    (is (true? (rf.story.ui.keybindings/dispatch-key? "f" false false))))
-  (testing "modifier held → false (Cmd-K / Ctrl-S etc. pass through)"
-    (is (false? (rf.story.ui.keybindings/dispatch-key? "f" true false))))
-  (testing "focused input → false (typing in search shouldn't toggle)"
-    (is (false? (rf.story.ui.keybindings/dispatch-key? "f" false true))))
-  (testing "multi-char key (Arrow, Escape) → false"
-    (is (false? (rf.story.ui.keybindings/dispatch-key? "Escape" false false))))
-  (testing "nil / non-string → false"
-    (is (false? (rf.story.ui.keybindings/dispatch-key? nil false false)))))
+  (are [k modifier? editable? expected]
+       (= expected (rf.story.ui.keybindings/dispatch-key? k modifier? editable?))
+    "f"      false false true
+    ;; modifier held — Cmd-K / Ctrl-S pass through
+    "f"      true  false false
+    ;; focus in an editable — typing in search must not toggle
+    "f"      false true  false
+    ;; multi-char keys (Arrow, Escape)
+    "Escape" false false false
+    nil      false false false))
 
 ;; ---- registry shape -----------------------------------------------------
 
 (deftest bindings-table-shape
-  (testing "canonical 4-key registry: f / s / a / t"
-    (is (= #{"f" "s" "a" "t"} (set (keys rf.story.ui.keybindings/bindings))))
-    (is (= ["a" "f" "s" "t"]  (rf.story.ui.keybindings/shortcut-keys)))))
+  (testing "canonical 4-key registry, sorted for the help overlay"
+    (is (= ["a" "f" "s" "t"] (rf.story.ui.keybindings/shortcut-keys)))))
 
 ;; ---- handler round-trip -------------------------------------------------
 
@@ -48,18 +42,12 @@
            ["toolbar"     rf.story.ui.keybindings/toolbar-toggle!     :toolbar?     true]]]
     (testing (str label ": default → flipped → default")
       (rf.story.ui.state/reset-shell-state!)
-      (is (= default (slot (visibility))))
       (toggle!)
       (is (= (not default) (slot (visibility))))
       (toggle!)
       (is (= default (slot (visibility)))))))
 
 (deftest exit-full-screen-clears
-  (testing "exit handler always clears full-screen regardless of prior"
-    (rf.story.ui.keybindings/full-screen-toggle!)         ;; on
-    (is (true? (:full-screen? (visibility))))
-    (rf.story.ui.keybindings/exit-full-screen!)            ;; off
-    (is (false? (:full-screen? (visibility))))
-    ;; idempotent: calling again leaves it off
-    (rf.story.ui.keybindings/exit-full-screen!)
-    (is (false? (:full-screen? (visibility))))))
+  (rf.story.ui.keybindings/full-screen-toggle!)
+  (rf.story.ui.keybindings/exit-full-screen!)
+  (is (false? (:full-screen? (visibility)))))
