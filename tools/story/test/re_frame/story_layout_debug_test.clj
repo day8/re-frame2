@@ -1,18 +1,8 @@
 (ns re-frame.story-layout-debug-test
-  "JVM tests for the layout-debug decorator trio.
-
-  Coverage:
-  - The three decorators register under canonical ids.
-  - `:kind :hiccup` schema validation passes.
-  - The pure stylesheet builders return CSS strings scoped to a class.
-  - The pure forced-state-classes helper returns deterministic output.
-  - Decorator-resolution returns the registered decorators classified
-    as `:hiccup` per `002-Runtime.md` §Decorator composition order.
-
-  The DOM-mutation behaviour (the wrap fns produce `[:div [:style] body]`)
-  is exercised in JVM by calling the wrap fn directly — we can't
-  exercise the actual browser behaviour, but the hiccup shape is
-  JVM-testable."
+  "JVM tests for the layout-debug decorator trio: canonical registration as
+  `:kind :hiccup` decorators, the pure stylesheet and forced-state builders,
+  the hiccup each wrap fn returns, and decorator resolution
+  (`002-Runtime.md` §Decorator composition order)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             [re-frame.frame           :as rf.frame]
@@ -53,13 +43,6 @@
         (is (= :hiccup (:kind body)))
         (is (fn? (:wrap body)))))))
 
-(deftest canonical-decorator-ids-set
-  (testing "the canonical ids set is the three expected decorators"
-    (is (= #{:rf.story/layout-debug.measure
-             :rf.story/layout-debug.outline
-             :rf.story/layout-debug.pseudo}
-           rf.story.layout-debug/canonical-decorator-ids))))
-
 ;; ---- pure stylesheet builders -------------------------------------------
 
 (deftest outline-stylesheet-scoped
@@ -77,17 +60,12 @@
       (is (re-find #"::before" css)))))
 
 (deftest pseudo-stylesheet-includes-states
-  (testing "pseudo-stylesheet has a rule per requested state"
-    (let [css-h (rf.story.layout-debug/build-pseudo-stylesheet "rf-test-3" #{:hover})
-          css-hf (rf.story.layout-debug/build-pseudo-stylesheet "rf-test-3" #{:hover :focus})
-          css-all (rf.story.layout-debug/build-pseudo-stylesheet "rf-test-3"
-                                                       #{:hover :focus :active :visited})]
-      (is (re-find #"force-hover" css-h))
-      (is (not (re-find #"force-focus" css-h)))
-      (is (re-find #"force-hover" css-hf))
-      (is (re-find #"force-focus" css-hf))
-      (is (re-find #"force-active" css-all))
-      (is (re-find #"force-visited" css-all)))))
+  (testing "pseudo-stylesheet has a rule for each requested state and no other"
+    (doseq [states [#{:hover} #{:hover :focus} #{:hover :focus :active :visited}]
+            :let [css (rf.story.layout-debug/build-pseudo-stylesheet "rf-test-3" states)]
+            state [:hover :focus :active :visited]]
+      (is (= (contains? states state) (boolean (re-find (re-pattern (str "force-" (name state))) css)))
+          (str states " " state)))))
 
 (deftest forced-state-classes-stable
   (testing "forced-state-classes produces deterministic ordering"
@@ -99,66 +77,45 @@
 ;; ---- wrap fn shape ------------------------------------------------------
 
 (deftest measure-wrap-shape
-  (testing "the measure decorator's wrap fn returns [:div [:style ...] body]"
-    (let [body  {:wrap (-> (rf.story/handler-meta :decorator rf.story.layout-debug/id-measure)
-                            :wrap)}
-          wrap  (:wrap body)
-          out   (wrap [:span "x"] {})]
+  (testing "the measure decorator's wrap fn returns [:div attrs [:style css] body]"
+    (let [wrap (:wrap (rf.story/handler-meta :decorator rf.story.layout-debug/id-measure))
+          [tag attrs [style-tag css] :as out] (wrap [:span "x"] {})]
       (is (vector? out))
-      (is (= :div (first out)))
-      (let [attrs (second out)]
-        (is (true? (:data-rf-story-measure attrs)))
-        (is (string? (:class attrs))))
-      (let [style-form (nth out 2)]
-        (is (vector? style-form))
-        (is (= :style (first style-form)))
-        (is (re-find #":hover" (second style-form)))))))
+      (is (= [:div true true :style] [tag (:data-rf-story-measure attrs) (string? (:class attrs)) style-tag]))
+      (is (re-find #":hover" css)))))
 
 (deftest pseudo-wrap-with-ref-args
-  (testing "pseudo wrap reads ref-args via :decorator/args"
-    (let [body (rf.story/handler-meta :decorator rf.story.layout-debug/id-pseudo)
-          wrap (:wrap body)
-          out  (wrap [:span "x"] {:decorator/args [#{:hover :focus}]})
-          attrs (second out)]
-      (is (re-find #"force-focus" (:class attrs)))
-      (is (re-find #"force-hover" (:class attrs))))))
-
-(deftest pseudo-wrap-default-state
-  (testing "pseudo wrap defaults to #{:hover} when no ref-args"
-    (let [body (rf.story/handler-meta :decorator rf.story.layout-debug/id-pseudo)
-          wrap (:wrap body)
-          out  (wrap [:span "x"] {})
-          attrs (second out)]
-      (is (re-find #"force-hover" (:class attrs)))
-      (is (not (re-find #"force-focus" (:class attrs)))))))
+  (testing "the pseudo wrap reads its states from :decorator/args, defaulting to #{:hover}"
+    (let [wrap  (:wrap (rf.story/handler-meta :decorator rf.story.layout-debug/id-pseudo))
+          class #(:class (second (wrap [:span "x"] %)))]
+      (is (= [true true] (map #(boolean (re-find % (class {:decorator/args [#{:hover :focus}]})))
+                              [#"force-focus" #"force-hover"])))
+      (is (= [true false] (map #(boolean (re-find % (class {})))
+                               [#"force-hover" #"force-focus"]))))))
 
 ;; ---- decorator resolution -----------------------------------------------
 
 (deftest layout-debug-resolves-as-hiccup
   (testing "a variant declaring a layout-debug decorator resolves into :hiccup"
-    (rf.story/reg-variant* :story.x/y
-                        {:decorators [[rf.story.layout-debug/id-outline]]})
+    (rf.story/reg-variant* :story.x/y {:decorators [[rf.story.layout-debug/id-outline]]})
     (let [pack (rf.story.decorators/resolve-decorators :story.x/y)]
-      (is (= 1 (count (:hiccup pack))))
-      (is (= rf.story.layout-debug/id-outline (-> pack :hiccup first :id)))
-      (is (empty? (:errors pack))))))
+      (is (= [[rf.story.layout-debug/id-outline] true]
+             [(mapv :id (:hiccup pack)) (empty? (:errors pack))])))))
 
 ;; ---- wrap-id counter ----------------------------------------------------
 
 (deftest wrap-counter-monotonic
-  (testing "next-wrap-id returns monotonic distinct ids"
-    (rf.story.layout-debug/reset-wrap-counter!)
-    (let [a (rf.story.layout-debug/next-wrap-id)
-          b (rf.story.layout-debug/next-wrap-id)
-          c (rf.story.layout-debug/next-wrap-id)]
-      (is (= "rf-story-debug-1" a))
-      (is (= "rf-story-debug-2" b))
-      (is (= "rf-story-debug-3" c)))))
+  (rf.story.layout-debug/reset-wrap-counter!)
+  (is (= ["rf-story-debug-1" "rf-story-debug-2" "rf-story-debug-3"]
+         (vec (repeatedly 3 rf.story.layout-debug/next-wrap-id)))))
 
 ;; ---- public API surface -------------------------------------------------
 
 (deftest public-decorator-ids-exposed
-  (testing "the three public decorator-id Vars on re-frame.story carry the canonical ids"
-    (is (= :rf.story/layout-debug.measure rf.story/layout-debug-measure-id))
-    (is (= :rf.story/layout-debug.outline rf.story/layout-debug-outline-id))
-    (is (= :rf.story/layout-debug.pseudo  rf.story/layout-debug-pseudo-id))))
+  (testing "the public decorator-id Vars on re-frame.story carry the canonical
+            ids, and they are the canonical set"
+    (let [ids [:rf.story/layout-debug.measure :rf.story/layout-debug.outline
+               :rf.story/layout-debug.pseudo]]
+      (is (= ids [rf.story/layout-debug-measure-id rf.story/layout-debug-outline-id
+                  rf.story/layout-debug-pseudo-id]))
+      (is (= (set ids) rf.story.layout-debug/canonical-decorator-ids)))))
