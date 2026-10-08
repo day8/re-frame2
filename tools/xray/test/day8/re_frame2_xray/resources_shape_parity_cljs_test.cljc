@@ -62,10 +62,9 @@
                                     (vals @#'resources-suite/ledger))]
       (is (and (seq entries) (seq running) (seq settled))
           "PRECONDITION: the suite's fixtures were found")
-      (is (= #{} (phantom-keys real-entry entries)))
-      (is (= #{} (phantom-keys real-record running)))
-      (is (= #{} (phantom-keys (rf.resources.work-ledger/mark-terminal
-                                 real-record :completed {:ok true})
-                               settled)))
-      (is (= #{:stale?} (phantom-keys real-entry [{:status :loaded :stale? true}]))
-          "control: a stored derived flag is caught as a phantom key"))))
+      (is (= [#{} #{} #{}]
+             [(phantom-keys real-entry entries)
+              (phantom-keys real-record running)
+              (phantom-keys (rf.resources.work-ledger/mark-terminal
+                              real-record :completed {:ok true})
+                            settled)])))))

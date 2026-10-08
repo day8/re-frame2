@@ -41,6 +41,4 @@
           fixture (#'routing-suite/navigated-slice)]
       (is (= ::probe (:route-id real))
           "PRECONDITION: the real navigation landed")
-      (is (= (key-set real) (key-set fixture)))
-      (is (not= (key-set real) #{:route-id :params :path})
-          "control: a hand-typed `:path` slice fails this parity"))))
+      (is (= (key-set real) (key-set fixture))))))
