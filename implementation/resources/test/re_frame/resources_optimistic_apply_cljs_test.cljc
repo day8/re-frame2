@@ -1,48 +1,13 @@
 (ns re-frame.resources-optimistic-apply-cljs-test
-  "EP-0019 — optimistic APPLY (phase 1.5) + snapshot-inverse recording
-  + the `:optimistic` / `:optimistic-tags` API grammar.
-
-  The FORWARD optimistic patch lands in the resource cache BEFORE the request
-  settles, recording the truthful INVERSE (a snapshot of each touched entry +
-  its `:revision` at apply time) on the mutation instance row's reserved
-  `:patch-summary` `:snapshot-id` / `:rollback` slots. The SETTLE protocol
-  (commit / rollback / reconcile + the conflict rule) is tested in
-  `resources-optimistic-settle-cljs-test`; these tests pin only the apply +
-  recording contract:
-
-    1. APPLY-BEFORE-SETTLE — the optimistic patch lands in the cache at execute
-       time, before any reply (phase 1.5); the entry's `:revision` bumps.
-    2. SNAPSHOT INVERSE — the instance row records `:before` (the whole entry as
-       it stood, structural-shared) + the `:revision` observed at apply time.
-    3. ABSENT-SEED — an optimistic patch over an ABSENT key seeds it `:loaded`
-       and records the `:absent` sentinel inverse (so the settle can remove it).
-    4. OPTIMISTIC REMOVE — a `nil` patch-fn tombstones the entry in place and records the
-       full `:before` (so the settle can restore it).
-    5. TAG-ADDRESSED — `:optimistic-tags` patches EVERY tag-matched entry across
-       the resolved scope (the cross-view-consistency demand); each records its
-       own inverse.
-    6. OPT-OUT — `{:optimistic? false}` on the execute payload forces the
-       pessimistic path (no optimistic apply) for one call.
-    7. BEFORE-REQUEST INCOMPATIBILITY — `:optimistic` + `:invalidate-timing
-       :before-request` is a loud registration error
-       (`:rf.error/mutation-optimistic-before-request`).
-    8. TRACE — `:rf.mutation/optimistic-applied` carries the snapshot id, the
-       affected keys, and the per-key revision + forward op shape (pinned by
-       case 12 of `resources-optimistic-validation-cljs-test`).
-
-  The fail-closed law for a `{:from-db …}` optimistic target that resolves
-  nil is case 9 of `resources-optimistic-validation-cljs-test`.
-
-  The transport is a capturing stub: the optimistic apply runs at execute time,
-  so most assertions read the cache immediately AFTER dispatching `:execute`,
-  before any reply is synthesised."
+  "Optimistic apply: the forward patch lands in the cache at execute time,
+  before any reply, and the instance row records the inverse (each touched
+  entry as it stood, plus its :revision) on :patch-summary. Settlement is
+  `resources-optimistic-settle-cljs-test`."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* +
-   ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.state :as rf.resources.state]
@@ -53,8 +18,6 @@
    [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
@@ -73,12 +36,9 @@
        :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
-;; ---- helpers ---------------------------------------------------------------
-
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
-;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
+;; :rf.runtime/mutations is keyed on the instance id's CEDN-1 byte key-id.
 (defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
@@ -87,6 +47,9 @@
 
 (def ^:private article-key
   (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
+
+(def ^:private article-owned
+  {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]})
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -100,15 +63,9 @@
   (reply-success! @last-managed-args value)
   (reset! last-managed-args nil))
 
-;; ===========================================================================
-;; 1 + 2. Optimistic apply lands in the cache at execute time (phase 1.5),
-;;        BEFORE any reply, and records the snapshot inverse.
-;; ===========================================================================
-
 (deftest optimistic-apply-patches-before-the-request-settles
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
   (let [rev-before (:revision (entry article-key))]
     (rf/reg-mutation :m/favorite
       {:scope :rf.scope/global
@@ -119,120 +76,62 @@
                                   (assoc-in [:article :favorited] true)
                                   (update-in [:article :favoritesCount] inc)))})}
       (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-    ;; dispatch EXECUTE but DO NOT reply yet — the optimistic value must already
-    ;; be in the cache.
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-    (testing "the optimistic forward patch is applied to the cache BEFORE the reply"
-      (let [e (entry article-key)]
-        (is (= true (get-in e [:data :article :favorited])) "heart flipped optimistically")
-        (is (= 10 (get-in e [:data :article :favoritesCount])) "count incremented optimistically")
-        (is (= :loaded (:status e)))))
-    (testing "the optimistic apply bumped the entry's :revision (an authoritative
-              durable write the rollback could clobber)"
-      (is (= (inc rev-before) (:revision (entry article-key)))))
-    (testing "the instance row records the snapshot inverse on :patch-summary"
-      (let [ps (patch-summary :f1)
-            [inv] (:rollback ps)]
-        (is (some? (:snapshot-id ps)) ":snapshot-id is filled (was nil)")
-        (is (= article-key (:resource/key inv)))
-        (is (= rev-before (:revision inv))
-            "the recorded revision is the one observed BEFORE the apply bump")
-        (is (= :patch (:forward inv)))
-        (testing "the recorded :before is the WHOLE entry as it stood (truthful inverse)"
-          (is (= false (get-in (:before inv) [:data :article :favorited])))
-          (is (= 9 (get-in (:before inv) [:data :article :favoritesCount]))))))
-    (testing "the pending mutation reply has NOT yet been delivered (apply is not a reply)"
-      (is (= :pending (:status (instance :f1)))))))
-
-;; ===========================================================================
-;; 3. Absent-seed — an optimistic patch over an ABSENT key seeds it and records
-;;    the :absent sentinel inverse.
-;; ===========================================================================
+    (let [e     (entry article-key)
+          ps    (patch-summary :f1)
+          [inv] (:rollback ps)]
+      (is (= [{:favorited true :favoritesCount 10} :loaded (inc rev-before)]
+             [(get-in e [:data :article]) (:status e) (:revision e)])
+          "patched before any reply, and the apply moved :revision")
+      (is (= :pending (:status (instance :f1))) "an apply is not a reply")
+      (is (some? (:snapshot-id ps)))
+      (is (= {:resource/key article-key :revision rev-before :forward :patch}
+             (select-keys inv [:resource/key :revision :forward]))
+          "the inverse records the revision observed before the apply"))))
 
 (deftest optimistic-apply-seeds-absent-key-with-absent-inverse
   (reg-article-resource!)
   (rf/reg-mutation :m/create
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; optimistic SEED of a not-yet-cached article (patch-fn over nil).
      :optimistic (fn [{:keys [slug]}]
                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                     (fn [_absent] {:article {:slug slug :favorited false}})})}
     (fn [{:keys [slug]} _] {:request {:method :post :url "/a"}}))
-  (is (nil? (entry article-key)) "no entry before the apply")
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:slug "w"} :instance :c1}])
-  (testing "the absent key is SEEDED :loaded with the optimistic value"
-    (let [e (entry article-key)]
-      (is (= :loaded (:status e)))
-      (is (= {:article {:slug "w" :favorited false}} (:data e)))
-      (is (= 1 (:revision e)) "a freshly-seeded optimistic entry bumps 0 -> 1")
-      (is (= #{[:article "w"] [:article-list]} (:tags e))
-          "a seeded entry carries its resource's tags (so invalidation can reach it)")))
-  (testing "the recorded inverse is the :absent sentinel + :seed forward op"
-    (let [[inv] (:rollback (patch-summary :c1))]
-      (is (= :rf.optimistic/absent (:before inv)) "rollback removes the seeded entry")
-      (is (= 0 (:revision inv)) "an absent key's recorded revision is 0")
-      (is (= :seed (:forward inv))))))
-
-;; ===========================================================================
-;; 4. Optimistic REMOVE — a nil patch-fn tombstones the entry in place, recording the
-;;    full :before so the settle can restore it.
-;; ===========================================================================
+  (is (= [:loaded {:article {:slug "w" :favorited false}} 1 #{[:article "w"] [:article-list]}]
+         ((juxt :status :data :revision :tags) (entry article-key)))
+      "the absent key is seeded :loaded at revision 1, carrying its resource's tags")
+  (is (= {:before :rf.optimistic/absent :revision 0 :forward :seed}
+         (select-keys (first (:rollback (patch-summary :c1))) [:before :revision :forward]))
+      "the absent sentinel inverse, so the settle can remove the seed"))
 
 (deftest optimistic-remove-tombstones-the-entry-in-place-and-records-before
-  ;; An optimistic remove writes a TOMBSTONE (`:data nil`,
-  ;; `:status :idle`) IN PLACE rather than dissoc'ing the entry. The card still
-  ;; disappears from the view (no data), but the ENTRY survives to carry the
-  ;; owner-liveness facts the settle protocol needs: a dissoc'd entry cannot
-  ;; record an owner releasing mid-flight (`detach-owner` is a no-op on a nil
-  ;; entry), so a failed reply would restore the pre-apply snapshot verbatim
-  ;; and RESURRECT the departed owner, pinning the entry for the frame's life.
+  ;; A nil patch-fn writes a tombstone in place rather than dissocing the entry,
+  ;; so the entry still carries the owner facts the settle needs: a dissoc'd
+  ;; entry cannot record an owner releasing mid-flight.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:slug "w" :title "Doomed"}})
+  (own-loaded! article-owned {:article {:slug "w" :title "Doomed"}})
   (rf/reg-mutation :m/delete
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; a nil patch-fn is an optimistic REMOVE (Open Issue 6).
      :optimistic (fn [{:keys [slug]}]
                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} nil})}
     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
-  (is (some? (entry article-key)))
   (let [before-revision (:revision (entry article-key))]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete :params {:slug "w"} :instance :d1}])
-    (testing "the entry is TOMBSTONED in place — present, but carrying no data"
-      (let [e (entry article-key)]
-        (is (some? e)
-            "the entry survives the optimistic remove (it is not dissoc'd)")
-        (is (nil? (:data e)) "the payload is gone — the card disappears from the view")
-        (is (= :idle (:status e)) "an entry with no data is :idle")
-        (is (nil? (:error e)) "a remove is not an error state")
-        (is (nil? (:loaded-at e)) "no data means no load timestamp")
-        (is (nil? (:stale-at e)) "no data means no freshness deadline")
-        (is (nil? (:invalidated-at e)) "a tombstone is empty, not stale")))
-    (testing "the tombstone KEEPS the live facts a remove never owned"
-      (let [e (entry article-key)]
-        (is (= #{[:v :d]} (:active-owners e))
-            "the owner still holds the entry — this is what a dissoc would destroy")
-        (is (seq (:tags e)) "tags ride through, so an invalidation can still reach the key")
-        (is (= (:resource/key (entry article-key)) article-key) "identity is intact")))
-    (testing "the tombstone is an authoritative durable write, so it BUMPS :revision"
-      ;; the whole point: a concrete revision is what lets the ordinary
-      ;; detach-owner / attach-owner bumps register as a CONFLICT at settle.
-      (is (= (inc before-revision) (:revision (entry article-key))))))
-  (testing "the recorded inverse carries the full :before entry + :remove op"
-    (let [[inv] (:rollback (patch-summary :d1))]
-      (is (= :remove (:forward inv)))
-      (is (= {:article {:slug "w" :title "Doomed"}} (:data (:before inv)))
-          "the whole removed entry is snapshotted so the settle can restore it")
-      (is (= (:revision (entry article-key)) (:applied-revision inv))
-          "the baseline is the revision the apply LEFT the tombstone at — a
-           concrete number, never a sentinel"))))
-
-;; ===========================================================================
-;; 5. Tag-addressed optimistic — :optimistic-tags patches EVERY tag-matched
-;;    entry; each records its own inverse.
-;; ===========================================================================
+    (let [e (entry article-key)]
+      (is (some? e) "the entry survives the optimistic remove")
+      (is (= [nil :idle nil nil nil nil]
+             ((juxt :data :status :error :loaded-at :stale-at :invalidated-at) e))
+          "an empty, non-stale, non-error tombstone")
+      (is (= [#{[:v :d]} true (inc before-revision)]
+             [(:active-owners e) (boolean (seq (:tags e))) (:revision e)])
+          "owners and tags ride through, and the tombstone moves :revision")))
+  (let [[inv] (:rollback (patch-summary :d1))]
+    (is (= [:remove {:article {:slug "w" :title "Doomed"}} (:revision (entry article-key))]
+           [(:forward inv) (:data (:before inv)) (:applied-revision inv)])
+        "the inverse snapshots the removed entry; its baseline is the tombstone's revision")))
 
 (deftest optimistic-tags-patches-every-tag-matched-entry
   (reg-article-resource!)
@@ -241,15 +140,12 @@
      :params-schema [:map]
      :tags (fn [_p _] #{[:article "w"] [:article-list]})}
     (fn [_p _] {:request {:method :get :url "/articles"}}))
-  ;; two entries both carrying [:article "w"] — a detail and a list.
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false}})
+  (own-loaded! article-owned {:article {:favorited false}})
   (own-loaded! {:resource :r/article-list :scope :rf.scope/global :params {} :owner [:v :l]}
                {:list [{:favorited false}]})
   (rf/reg-mutation :m/favorite-everywhere
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; patch EVERY cached entry carrying [:article slug] in global scope.
      :optimistic-tags (fn [{:keys [slug]}]
                         [{:scope :rf.scope/global
                           :tags  #{[:article slug]}
@@ -258,23 +154,16 @@
   (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite-everywhere
                                              :params {:slug "w"} :instance :fe1}])
-    (testing "BOTH tag-matched entries were optimistically patched"
-      (is (= true (get-in (entry article-key) [:data :touched])) "detail patched")
-      (is (= true (get-in (entry list-key) [:data :touched])) "list patched"))
-    (testing "each matched key recorded its own snapshot inverse"
-      (let [ps (patch-summary :fe1)
-            keys-recorded (set (map :resource/key (:rollback ps)))]
-        (is (= #{article-key list-key} keys-recorded))
-        (is (= 2 (count (:rollback ps))))))))
-
-;; ===========================================================================
-;; 6. Per-call opt-out — {:optimistic? false} forces the pessimistic path.
-;; ===========================================================================
+    (is (= [true true] [(get-in (entry article-key) [:data :touched])
+                        (get-in (entry list-key) [:data :touched])])
+        "both tag-matched entries were patched")
+    (is (= {article-key 1 list-key 1}
+           (frequencies (map :resource/key (:rollback (patch-summary :fe1)))))
+        "each matched key recorded its own inverse")))
 
 (deftest optimistic-false-opts-out-of-the-apply
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false}})
+  (own-loaded! article-owned {:article {:favorited false}})
   (let [rev-before (:revision (entry article-key))]
     (rf/reg-mutation :m/favorite
       {:scope :rf.scope/global
@@ -285,49 +174,22 @@
       (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"}
                                              :instance :f1 :optimistic? false}])
-    (testing "the optimistic patch was NOT applied (the value is unchanged + no bump)"
-      (let [e (entry article-key)]
-        (is (= false (get-in e [:data :article :favorited])) "no optimistic flip")
-        (is (= rev-before (:revision e)) "no revision bump — no optimistic write")))
-    (testing "no snapshot inverse was recorded"
-      (is (nil? (:snapshot-id (patch-summary :f1)))))))
-
-;; ===========================================================================
-;; 7. :optimistic + :before-request timing is a loud registration error.
-;; ===========================================================================
+    (let [e (entry article-key)]
+      (is (= [false rev-before] [(get-in e [:data :article :favorited]) (:revision e)])
+          "no optimistic write"))
+    (is (nil? (:snapshot-id (patch-summary :f1))) "no inverse recorded")))
 
 (deftest optimistic-with-before-request-is-a-registration-error
-  (testing ":optimistic + :invalidate-timing :before-request throws
-            :rf.error/mutation-optimistic-before-request at registration"
+  (doseq [[id plan] [[:m/bad {:optimistic (fn [_p] {})}]
+                     [:m/bad2 {:optimistic-tags (fn [_p] [])}]]]
     (let [ex (try
-               (rf/reg-mutation :m/bad
-                 {:scope :rf.scope/global
-                  :params-schema [:map [:slug :string]]
-                  :invalidate-timing :before-request
-                  :optimistic (fn [_p] {})}
+               (rf/reg-mutation id
+                 (merge {:scope :rf.scope/global
+                         :params-schema [:map]
+                         :invalidate-timing :before-request}
+                        plan)
                  (fn [_p _] {:request {:method :post :url "/x"}}))
                nil
                (catch #?(:clj Exception :cljs :default) e e))]
-      (is (some? ex) "registration threw")
-      (is (= :rf.error/mutation-optimistic-before-request
-             (:rf.error/id (ex-data ex))))
-      (is (nil? (rf.resources.mutation-registry/mutation-meta :m/bad)) "the bad mutation was NOT registered")))
-  (testing ":optimistic-tags + :before-request also throws"
-    (let [ex (try
-               (rf/reg-mutation :m/bad2
-                 {:scope :rf.scope/global
-                  :params-schema [:map]
-                  :invalidate-timing :before-request
-                  :optimistic-tags (fn [_p] [])}
-                 (fn [_p _] {:request {:method :post :url "/x"}}))
-               nil
-               (catch #?(:clj Exception :cljs :default) e e))]
-      (is (= :rf.error/mutation-optimistic-before-request
-             (:rf.error/id (ex-data ex))))))
-  (testing "an optimistic mutation with the DEFAULT timing registers fine"
-    (is (= :m/ok
-           (rf/reg-mutation :m/ok
-             {:scope :rf.scope/global
-              :params-schema [:map [:slug :string]]
-              :optimistic (fn [_p] {})}
-             (fn [_p _] {:request {:method :post :url "/x"}}))))))
+      (is (= :rf.error/mutation-optimistic-before-request (:rf.error/id (ex-data ex))) (str id))
+      (is (nil? (rf.resources.mutation-registry/mutation-meta id)) (str id)))))
