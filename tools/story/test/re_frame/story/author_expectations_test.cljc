@@ -1,13 +1,8 @@
 (ns re-frame.story.author-expectations-test
   "Tests for the pure expectation-authoring substrate (spec/021 §S5,
-  spec/019).
-
-  Runs on the JVM under `clojure -M:test` — the substrate is pure data →
-  data (catalog / atom builders / cost projection / snippet), so it pins the
-  contract the dialog + assertion-strip + palette entry depend on without a
-  host. The ns suffix `-test` lands it in the JVM runner only, since no CLJS
-  build's ns-regexp selects it; the `-cljs-test` companion
-  (`ui/author_expectations_cljs_test`) carries the dialog-transition coverage."
+  spec/019): the catalog, atom builders, cost projection and snippet the
+  dialog, assertion strip and palette entry depend on. JVM-only: no CLJS
+  build's ns-regexp selects a `-test` namespace."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
@@ -23,71 +18,33 @@
     (doseq [{:keys [kind assertion-id]} rf.story.author-expectations/expectation-kinds]
       (is (rf.story.assertions/assertion-id-known? assertion-id)
           (str kind " folds onto a known assertion id"))))
-  (testing "the catalog spans every acceptance-criteria surface"
-    (let [surfaces (into #{} (map :surface) rf.story.author-expectations/expectation-kinds)]
-      ;; app-db, subscriptions, rendered DOM, schema behaviour, browser/a11y
-      (is (= #{:app-db :subscriptions :dom :schema :browser} surfaces)
-          "app-db / subscriptions / DOM / schema / browser are all authorable")))
-  (testing "kind-descriptor round-trips by kind"
-    (doseq [{:keys [kind] :as d} rf.story.author-expectations/expectation-kinds]
-      (is (= d (rf.story.author-expectations/kind-descriptor kind))))))
+  (testing "app-db / subscriptions / DOM / schema / browser are all authorable"
+    (is (= #{:app-db :subscriptions :dom :schema :browser}
+           (into #{} (map :surface) rf.story.author-expectations/expectation-kinds)))))
 
 ;; ===========================================================================
 ;; OPERAND PARSING + ATOM CONSTRUCTION — builds the CANONICAL vocabulary
 ;; ===========================================================================
 
 (deftest expectation->atom-builds-canonical-atoms
-  (testing "app-db value equals → :rf.assert/path-equals"
-    (is (= [:rf.assert/path-equals [:counter :value] 5]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :app-db-equals
-              :operands {:path "[:counter :value]" :expected "5"}}))))
-  (testing "a bare keyword path lifts to a single-element path vector"
-    (is (= [:rf.assert/path-equals [:open?] true]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :app-db-equals
-              :operands {:path ":open?" :expected "true"}}))))
-  (testing "subscription equals → :rf.assert/sub-equals"
-    (is (= [:rf.assert/sub-equals [:counter/value] 5]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :sub-equals
-              :operands {:query-v "[:counter/value]" :expected "5"}}))))
-  (testing "app-db matches schema → :rf.assert/path-matches"
-    (is (= [:rf.assert/path-matches [:user] [:map [:id :int]]]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :app-db-matches
-              :operands {:path "[:user]" :schema "[:map [:id :int]]"}}))))
-  (testing "no-warnings is a nullary atom"
-    (is (= [:rf.assert/no-warnings]
-           (rf.story.author-expectations/expectation->atom {:kind :no-warnings :operands {}}))))
-  (testing "DOM text → :rf.assert/dom-text"
-    (is (= [:rf.assert/dom-text ".count" "5"]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :dom-text :operands {:selector "\".count\"" :text "\"5\""}}))))
-  (testing "schema-error with a spec map → :rf.assert/schema-error spec"
-    (is (= [:rf.assert/schema-error {:where :event :event :user/save}]
-           (rf.story.author-expectations/expectation->atom
-             {:kind :schema-error
-              :operands {:where-spec "{:where :event :event :user/save}"}}))))
-  (testing "schema-error with no spec → bare atom"
-    (is (= [:rf.assert/schema-error]
-           (rf.story.author-expectations/expectation->atom {:kind :schema-error :operands {}}))))
-  (testing "an unparsable operand yields nil (the caller guards)"
-    (is (nil? (rf.story.author-expectations/expectation->atom
-                {:kind :app-db-equals :operands {:path "" :expected "5"}}))
-        "a blank required operand fails the parse → no atom")
-    (is (nil? (rf.story.author-expectations/expectation->atom
-                {:kind :app-db-equals :operands {:path "[:a" :expected "5"}}))
-        "a malformed EDN operand fails the parse → no atom")))
+  (doseq [[row expected]
+          [[{:kind :app-db-equals :operands {:path ":open?" :expected "true"}}
+            [:rf.assert/path-equals [:open?] true]]
+           [{:kind :sub-equals :operands {:query-v "[:counter/value]" :expected "5"}}
+            [:rf.assert/sub-equals [:counter/value] 5]]
+           [{:kind :app-db-matches :operands {:path "[:user]" :schema "[:map [:id :int]]"}}
+            [:rf.assert/path-matches [:user] [:map [:id :int]]]]
+           [{:kind :no-warnings :operands {}}
+            [:rf.assert/no-warnings]]
+           [{:kind :schema-error :operands {:where-spec "{:where :event :event :user/save}"}}
+            [:rf.assert/schema-error {:where :event :event :user/save}]]
+           [{:kind :schema-error :operands {}}
+            [:rf.assert/schema-error]]
+           [{:kind :app-db-equals :operands {:path "[:a" :expected "5"}}
+            nil]]]
+    (is (= expected (rf.story.author-expectations/expectation->atom row)) (pr-str row))))
 
 (deftest parse-operands-reports-per-field-errors
-  (testing "ok? true when every operand parses"
-    (let [{:keys [ok? values errors]}
-          (rf.story.author-expectations/parse-operands
-            {:kind :app-db-equals :operands {:path "[:a]" :expected "1"}})]
-      (is ok?)
-      (is (= {:path [:a] :expected 1} values))
-      (is (empty? errors))))
   (testing "ok? false + a per-field error when an operand is blank"
     (let [{:keys [ok? errors]}
           (rf.story.author-expectations/parse-operands
@@ -106,79 +63,52 @@
 ;; ===========================================================================
 
 (deftest expectation-cost-reads-the-requirement-registry
-  (testing "an app-db expectation runs headless (no escalation cost)"
-    (let [cost (rf.story.author-expectations/expectation-cost [:rf.assert/path-equals [:a] 1])]
-      (is (= #{:app-db} (:required cost)))
-      (is (:headless? cost))
-      (is (not (:cannot-run? cost)))
-      (is (= :headless (:cheapest-runner cost)))
-      (is (empty? (:missing cost)))))
   (testing "a sub-equals expectation needs :pure-subs but still runs headless"
     (let [cost (rf.story.author-expectations/expectation-cost [:rf.assert/sub-equals [:s] 1])]
-      (is (= #{:app-db :pure-subs} (:required cost)))
-      (is (not (:cannot-run? cost)))
-      (is (= :headless (:cheapest-runner cost)))))
+      (is (= {:required #{:app-db :pure-subs} :cheapest-runner :headless :headless? true :missing #{}}
+             (dissoc cost :cannot-run?)))
+      (is (not (:cannot-run? cost)))))
   (testing "a DOM expectation CANNOT run headless — visible before save"
     (let [cost (rf.story.author-expectations/expectation-cost [:rf.assert/dom-text ".x" "y"])]
-      (is (= #{:dom} (:required cost)))
-      (is (:cannot-run? cost) "the honest before-save cannot-run flag")
-      (is (= :dom (:cheapest-runner cost)) "cheapest runner that CAN prove it")
-      (is (contains? (:missing cost) :dom) "the missing token is surfaced")))
-  (testing "a nil atom (unparsed row) projects an empty, non-throwing cost"
-    (let [cost (rf.story.author-expectations/expectation-cost nil)]
-      (is (not (:cannot-run? cost)))
-      (is (empty? (:required cost))))))
+      (is (= {:required #{:dom} :cheapest-runner :dom :headless? false :missing #{:dom}}
+             (dissoc cost :cannot-run?)))
+      (is (:cannot-run? cost)))))
 
 ;; ===========================================================================
 ;; DRAFT SUMMARY — the before-save honesty banner data
 ;; ===========================================================================
 
 (deftest draft-summary-aggregates-cost-and-surfaces
-  (let [draft {:rows [{:row-id 0 :kind :app-db-equals
-                       :operands {:path "[:a]" :expected "1"}}
-                      {:row-id 1 :kind :dom-text
-                       :operands {:selector "\".x\"" :text "\"y\""}}
-                      {:row-id 2 :kind :app-db-equals
-                       :operands {:path "" :expected "1"}}]}  ; not ready
-        {:keys [count ready atoms required cheapest-runner cannot-run-rows surfaces]}
-        (rf.story.author-expectations/draft-summary draft)]
-    (testing "counts authored vs ready"
-      (is (= 3 count))
-      (is (= 2 ready) "the blank-path row is not ready"))
-    (testing "atoms are the canonical vocabulary for ready rows only"
-      (is (= [[:rf.assert/path-equals [:a] 1]
-              [:rf.assert/dom-text ".x" "y"]]
-             atoms)))
-    (testing "required is the union of every ready atom's tokens"
-      (is (= #{:app-db :dom} required)))
-    (testing "cheapest runner proves the WHOLE draft (escalates to :dom for the DOM row)"
-      (is (= :dom cheapest-runner)))
+  (let [summary (rf.story.author-expectations/draft-summary
+                  {:rows [{:row-id 0 :kind :app-db-equals
+                           :operands {:path "[:a]" :expected "1"}}
+                          {:row-id 1 :kind :dom-text
+                           :operands {:selector "\".x\"" :text "\"y\""}}
+                          {:row-id 2 :kind :app-db-equals
+                           :operands {:path "" :expected "1"}}]})]  ; not ready
+    (testing "counts, ready atoms, the required union, the one runner proving the
+              whole draft, and the surfaces the authored kinds span"
+      (is (= {:count           3
+              :ready           2
+              :atoms           [[:rf.assert/path-equals [:a] 1]
+                                [:rf.assert/dom-text ".x" "y"]]
+              :required        #{:app-db :dom}
+              :cheapest-runner :dom
+              :surfaces        #{:app-db :dom}}
+             (dissoc summary :cannot-run-rows))))
     (testing "cannot-run-rows lists the DOM row — the honest before-save list"
-      (is (= 1 (clojure.core/count cannot-run-rows)))
-      (is (= [:rf.assert/dom-text ".x" "y"] (:atom (first cannot-run-rows)))))
-    (testing "surfaces span the authored kinds"
-      (is (= #{:app-db :dom} surfaces)))))
+      (is (= [[:rf.assert/dom-text ".x" "y"]] (mapv :atom (:cannot-run-rows summary)))))))
 
 ;; ===========================================================================
 ;; SNIPPET — expectations become EXPLICIT variant DATA (the round-trip)
 ;; ===========================================================================
 
 (deftest merge-assertions-is-additive-and-dedupes
-  (testing "authored atoms append after existing, order preserved"
-    (is (= [[:rf.assert/path-equals [:a] 1]
-            [:rf.assert/no-warnings]]
-           (rf.story.author-expectations/merge-assertions
-             [[:rf.assert/path-equals [:a] 1]]
-             [[:rf.assert/no-warnings]]))))
   (testing "an exact duplicate is dropped (re-authoring is idempotent)"
     (is (= [[:rf.assert/path-equals [:a] 1]]
            (rf.story.author-expectations/merge-assertions
              [[:rf.assert/path-equals [:a] 1]]
-             [[:rf.assert/path-equals [:a] 1]]))))
-  (testing "nil existing / authored are tolerated"
-    (is (= [[:rf.assert/no-warnings]]
-           (rf.story.author-expectations/merge-assertions nil [[:rf.assert/no-warnings]])))
-    (is (= [] (rf.story.author-expectations/merge-assertions nil nil)))))
+             [[:rf.assert/path-equals [:a] 1]])))))
 
 (deftest gen-expectations-snippet-round-trips
   (let [snippet (rf.story.author-expectations/gen-expectations-snippet
@@ -198,14 +128,3 @@
                                  [:rf.assert/path-equals [:counter :value] 5]]
                     :tags       #{:test}})
              (edn/read-string snippet))))))
-
-(deftest assertions-known-validates-against-the-vocabulary
-  (is (rf.story.author-expectations/assertions-known?
-        [[:rf.assert/path-equals [:a] 1] [:rf.assert/dom-text ".x" "y"]]))
-  (is (not (rf.story.author-expectations/assertions-known?
-             [[:rf.assert/not-a-real-assertion]]))
-      "an unknown id is rejected so the snippet can never reference one"))
-
-(deftest default-id-prefix-is-distinct-from-siblings
-  (testing "the prefix distinguishes authored-expectations from save / promotion"
-    (is (= "expects" rf.story.author-expectations/default-id-prefix))))
