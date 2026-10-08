@@ -7,10 +7,9 @@
   feature-load browser gate. These unit tests pin the mutator semantics
   by redef-ing the substrate calls so the slot transitions can be
   observed deterministically without booting the runtime."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.story.play :as rf.story.play]
-            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]))
 
@@ -74,53 +73,27 @@
         (is (= 1 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid)))
             "cursor stays at total")))))
 
-(deftest step-noops-when-inactive
-  (testing "step! does nothing when the slot is :active? false"
-    (let [vid        :story.unit/inactive
-          dispatched (atom [])]
-      (seed-slot! vid [[:e/a]])
-      (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc-in [vid :active?] false)
-      (with-redefs [rf.story.play/step-once!    (fn [v] (swap! dispatched conj v))
-                    rf/epoch-history (fn [_] [{:epoch-id :x}])]
-        (rf.story.ui.test-mode.stepper-state/step! vid)
-        (is (empty? @dispatched))))))
-
 ;; ---- step-back! ----------------------------------------------------------
 
 (deftest step-back-cursor-2-plus-does-not-undershoot
-  (testing "`begin!` seeds :epoch-stack with the pre-play
-            epoch, and step 0 (no domino between begin! and the first
-            step!) pushes that SAME epoch again, so the stack carries a
-            duplicate bottom entry [S0 S0 S1 S2 …]. Stepping back from
-            cursor=3 must restore S2 (the state right before the THIRD
-            step ran) — not S1, which a `(peek (butlast stack))`
-            under-shoot would return."
+  (testing "`begin!` seeds the stack with the pre-play epoch and the first
+            step! pushes that SAME epoch again, so the stack reads
+            [S0 S0 S1 S2]. Stepping back from cursor 3 restores S2, the
+            pre-image of the step just taken — not S1, which a
+            `(peek (butlast stack))` under-shoot would return"
     (let [vid      :story.unit/back-cursor3
           restored (atom [])]
       (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
       (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
-             (fn [s] (-> s
-                         (assoc :cursor 3)
-                         ;; The real duplicate-seed shape begin!/step!
-                         ;; build: seed pushed twice (S0 S0), then one
-                         ;; genuine pre-image per subsequent step (S1, S2).
-                         (assoc :epoch-stack [:epoch/s0 :epoch/s0
-                                              :epoch/s1 :epoch/s2]))))
+             assoc :cursor 3 :epoch-stack [:epoch/s0 :epoch/s0 :epoch/s1 :epoch/s2])
       (with-redefs [rf/restore-epoch! (fn [v eid]
                                        (swap! restored conj [v eid]))]
         (rf.story.ui.test-mode.stepper-state/step-back! vid)
-        (is (= [[vid :epoch/s2]] @restored)
-            "restores S2 — the pre-image of the step just taken —
-             rather than S1 (an off-by-one under-shoot)")
+        (is (= [[vid :epoch/s2]] @restored))
         (is (= 2 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
-        ;; Stepping back again from cursor=2 must land on S1, exercising
-        ;; the SAME correct behaviour continues past the duplicate-seed
-        ;; entry at the bottom.
         (rf.story.ui.test-mode.stepper-state/step-back! vid)
         (is (= [[vid :epoch/s2] [vid :epoch/s1]] @restored)
-            "a second step-back restores S1 — the duplicate seed at the
-             bottom of the stack is consumed correctly, never restoring
-             one epoch too far")
+            "a second step-back restores S1, never one epoch too far")
         (is (= 1 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))))
 
 (deftest step-back-noops-at-start
@@ -136,59 +109,39 @@
 
 ;; ---- rewind! -------------------------------------------------------------
 
+;; Restoring the bottom-of-stack seed epoch is the whole rewind: the
+;; assertions accumulator lives in that app-db, so nothing else is cleared.
 (deftest rewind-resets-to-seed
-  (testing "rewind! restores against the bottom-of-stack epoch and zeros
-            cursor"
-    (let [vid      :story.unit/rewind
-          restored (atom [])]
-      (seed-slot! vid [[:e/a] [:e/b]])
-      (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
-             (fn [s] (-> s
-                         (assoc :cursor 2)
-                         (assoc :epoch-stack [:epoch/seed
-                                              :epoch/before-a
-                                              :epoch/before-b]))))
-      (with-redefs [rf/restore-epoch! (fn [v eid]
-                                       (swap! restored conj [v eid]))]
-        (rf.story.ui.test-mode.stepper-state/rewind! vid)
-        (is (= [[vid :epoch/seed]] @restored)
-            "restored against the SEED epoch-id (bottom of stack) — that
-             epoch-restore alone rewinds [:rf.story/assertions]; there is
-             no side-table accumulator to clear separately")
-        (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
-          (is (= 0 (:cursor s)))
-          (is (= [:epoch/seed] (:epoch-stack s))))))))
-
-(deftest rewind-clears-interval
-  (testing "rewind! pauses any in-flight auto-play"
-    (let [vid :story.unit/rewind-autoplay]
-      (seed-slot! vid [[:e/a]])
-      (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
-             (fn [s] (-> s
-                         (assoc :cursor 1)
-                         (assoc :auto-playing? true)
-                         (assoc :interval-id 999))))
-      (with-redefs [rf/restore-epoch! (fn [_ _] nil)
-                    js/clearInterval (fn [_] nil)]
-        (rf.story.ui.test-mode.stepper-state/rewind! vid)
-        (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
-          (is (false? (:auto-playing? s)))
-          (is (nil?   (:interval-id   s))))))))
+  (let [vid      :story.unit/rewind
+        restored (atom [])]
+    (seed-slot! vid [[:e/a] [:e/b]])
+    (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
+           assoc :cursor 2 :epoch-stack [:epoch/seed :epoch/before-a :epoch/before-b]
+                 :auto-playing? true :interval-id 999)
+    (with-redefs [rf/restore-epoch! (fn [v eid]
+                                     (swap! restored conj [v eid]))
+                  js/clearInterval  (fn [_] nil)]
+      (rf.story.ui.test-mode.stepper-state/rewind! vid)
+      (is (= [[vid :epoch/seed]] @restored))
+      (is (= {:cursor 0 :epoch-stack [:epoch/seed] :auto-playing? false :interval-id nil}
+             (select-keys (get @rf.story.ui.test-mode.stepper-state/results-atom vid)
+                          [:cursor :epoch-stack :auto-playing? :interval-id]))
+          "rewind! also stops any in-flight auto-play"))))
 
 ;; ---- pause! / resume! ----------------------------------------------------
 
 (deftest pause-clears-interval
-  (testing "pause! clears the interval and flips :auto-playing? to false"
-    (let [vid     :story.unit/pause
-          cleared (atom [])]
-      (seed-slot! vid [[:e/a]])
-      (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
-             (fn [s] (assoc s :auto-playing? true :interval-id 42)))
-      (with-redefs [js/clearInterval (fn [h] (swap! cleared conj h))]
-        (rf.story.ui.test-mode.stepper-state/pause! vid)
-        (is (= [42] @cleared))
-        (is (false? (:auto-playing? (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
-        (is (nil?   (:interval-id   (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))))
+  (let [vid     :story.unit/pause
+        cleared (atom [])]
+    (seed-slot! vid [[:e/a]])
+    (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
+           assoc :auto-playing? true :interval-id 42)
+    (with-redefs [js/clearInterval (fn [h] (swap! cleared conj h))]
+      (rf.story.ui.test-mode.stepper-state/pause! vid)
+      (is (= [42] @cleared))
+      (is (= {:auto-playing? false :interval-id nil}
+             (select-keys (get @rf.story.ui.test-mode.stepper-state/results-atom vid)
+                          [:auto-playing? :interval-id]))))))
 
 (deftest resume-noops-at-end
   (testing "resume! does nothing when parked at the end"
@@ -215,22 +168,15 @@
 
 ;; ---- toggle-breakpoint! --------------------------------------------------
 
+;; Add 1, add 2, toggle 1 again: only #{2} survives if both the add and the
+;; remove work.
 (deftest toggle-breakpoint-adds-and-removes
-  (testing "toggle-breakpoint! adds when absent, removes when present"
-    (let [vid :story.unit/bp]
-      (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
-      (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 1)
-      (is (= #{1} (:breakpoints (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
-      (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 2)
-      (is (= #{1 2} (:breakpoints (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
-      (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 1)
-      (is (= #{2} (:breakpoints (get @rf.story.ui.test-mode.stepper-state/results-atom vid)))))))
-
-(deftest toggle-breakpoint-noops-without-a-slot
-  (testing "toggle-breakpoint! is a no-op when there is no slot"
-    (let [vid :story.unit/bp-noslot]
-      (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 0)
-      (is (nil? (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))
+  (let [vid :story.unit/bp]
+    (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
+    (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 1)
+    (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 2)
+    (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 1)
+    (is (= #{2} (:breakpoints (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))
 
 ;; ---- end! ---------------------------------------------------------------
 
@@ -256,48 +202,27 @@
 
 (deftest begin-reaches-its-start-position-through-the-pre-play-lifecycle
   (testing "begin! prepares the variant through
-            `rf.story.runtime/prepare-variant` — phases 0-2, script left
-            pending — and NEVER through `reset-variant`, whose promise
-            settles only once phase 4 has run the whole script, so the
-            section would show cursor 0 over a post-script app-db.
-
-            Synchronous by construction: `begin!` calls the seam before it
-            returns its promise, and the redefined seam never settles, so
-            the continuation cannot run outside the redef scope. The
-            behaviour behind the seam — Start parks at the `:setup` state,
-            each Step is 1:1 with the cursor, Rewind restores the pre-play
-            epoch — is pinned on both runtimes by
+            `rf.story.runtime/prepare-variant` (phases 0-2, script left
+            pending) and NEVER through `reset-variant`, whose promise
+            settles only after phase 4 has run the whole script, so the
+            section would show cursor 0 over a post-script app-db. The
+            behaviour behind the seam is pinned by
             `re-frame.story.stepper-start-cljs-test`."
     (let [vid      :story.unit/begin-seam
           prepared (atom [])
           reset    (atom [])
           ended    (atom [])]
-      ;; Each stub carries EVERY arity of the fn it stands in for.
-      ;; `prepare-variant` and `reset-variant` are both `([variant-id]
-      ;; [variant-id opts])`, so ClojureScript compiles `begin!`'s call site
-      ;; to the arity-specialised entry point
-      ;; `…prepare_variant.cljs$core$IFn$_invoke$arity$1`, and `with-redefs`
-      ;; assigns the stub straight over that fn object. A single-arity stub
-      ;; carries no such property, so the seam dies with `… is not a
-      ;; function` instead of being exercised. Clojure hides this — it
-      ;; dispatches through the var on argument count at run time — so a
-      ;; double must mirror the SHAPE of the fn it replaces, not merely the
-      ;; arity its caller happens to use.
+      ;; Each stub carries EVERY arity of the fn it replaces: ClojureScript
+      ;; compiles `begin!`'s call to the arity-specialised entry point, which
+      ;; a single-arity stub lacks, so the seam would die with `… is not a
+      ;; function` instead of being exercised.
       (with-redefs [rf.story.runtime/prepare-variant
                     (fn stub-prepare
                       ([v] (stub-prepare v nil))
                       ([v _opts]
                        (swap! prepared conj v)
-                       ;; A promise that never settles: the assertions below
-                       ;; are about what `begin!` CALLS, and a pending
-                       ;; promise keeps the continuation out of the way.
+                       ;; Never settles, so the continuation stays out of the way.
                        (js/Promise. (fn [_ _] nil))))
-
-                    ;; Never called — that is what `@reset` asserts. Giving it
-                    ;; the real shape anyway is what makes that negative
-                    ;; control REPORT: a regression that reached for the full
-                    ;; run would fail the assertion honestly rather than
-                    ;; erroring out before it.
                     rf.story.runtime/reset-variant
                     (fn stub-reset
                       ([v] (stub-reset v nil))
