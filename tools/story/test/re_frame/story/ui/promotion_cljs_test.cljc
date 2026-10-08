@@ -6,7 +6,7 @@
   the JVM and on the CLJS node-test build. The capture store, `promote!` and
   the dialog render are CLJS-only."
   (:require [clojure.string :as str]
-            [clojure.test :refer [are deftest is use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -55,6 +55,21 @@
 ;; ===========================================================================
 ;; PURE: artifact label
 ;; ===========================================================================
+
+(deftest artifact-id-is-stable-and-seed-keyed
+  (testing "the same artifact yields the same id (idempotent capture key)"
+    (let [art (sample-artifact)]
+      (is (= (rf.story.ui.promotion/artifact-id art) (rf.story.ui.promotion/artifact-id art)))
+      (is (qualified-keyword? (rf.story.ui.promotion/artifact-id art)))
+      (is (= "rf.test.artifact" (namespace (rf.story.ui.promotion/artifact-id art))))
+      (is (str/includes? (name (rf.story.ui.promotion/artifact-id art)) "42")
+          "a seeded artifact keys on its seed"))))
+
+(deftest artifact-id-hash-keyed-without-seed
+  (testing "a seedless artifact still gets a stable content-hash id"
+    (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})]
+      (is (qualified-keyword? (rf.story.ui.promotion/artifact-id art)))
+      (is (= (rf.story.ui.promotion/artifact-id art) (rf.story.ui.promotion/artifact-id art))))))
 
 (deftest artifact-label-reads-status-and-steps
   (let [label (rf.story.ui.promotion/artifact-label (sample-artifact))]
@@ -330,3 +345,13 @@
        (rf.story.ui.promotion/open! id-b)
        (is (not (str/includes? (flat) "regression-a"))
            "B shows no stale confirmation for A"))))
+
+#?(:cljs
+   (deftest dialog-renders-curation-controls-and-snippet-when-open
+     (let [id   (rf.story.ui.promotion/capture! (sample-artifact) :story.counter/happy)
+           _    (rf.story.ui.promotion/open! id)
+           flat (str ((rf.story.ui.promotion/promotion-dialog)))]
+       (is (str/includes? flat "story-promotion-snippet"))
+       (is (str/includes? flat "story-promotion-curation"))
+       (is (str/includes? flat "story-promotion-primary")
+           "the primary 'promote' action renders"))))
