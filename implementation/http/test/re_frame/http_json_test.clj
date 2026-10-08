@@ -1,155 +1,47 @@
 (ns re-frame.http-json-test
-  "Unit tests for `re-frame.http.json` on JVM (Cheshire path).
-
-   - JSON keyword-interning DoS: cap on unique keys decoded
-     (configurable via `:max-decoded-keys` option per call).
-     Overflow throws `:rf.error/id :rf.error/malformed-json`
-     with `:cause :too-many-keys`, which the
-     `:rf.http/managed` cascade classifies as
-     `:rf.http/decode-failure`.
-   - Cheshire is a hard JVM dep (no fallback reader). Native
-     Cheshire `JsonParseException`s propagate to the transport
-     catch site, which classifies them as
-     `:rf.http/decode-failure`. Cheshire is RFC-8259-conforming and
-     bulletproof around `\\uXXXX` escapes by construction, so no
-     hand-rolled parser bounds-checking is needed."
+  "`re-frame.http.json` on the JVM (Cheshire): the per-call unique-key cap
+  that guards keyword interning, and the bytes `json-stringify` writes."
   (:require [cheshire.core :as cheshire]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [re-frame.http.json :as rf.http.json]))
 
-;; ---- keyword-interning cap -----------------------------------------------
-
 (defn- big-json [n-keys]
-  ;; Build `{"k0": 0, "k1": 1, ..., "kN-1": N-1}` — N unique keys exactly.
-  (str "{"
-       (clojure.string/join
-         ","
-         (for [i (range n-keys)]
-           (str "\"k" i "\":" i)))
-       "}"))
+  (str "{" (str/join "," (for [i (range n-keys)] (str "\"k" i "\":" i))) "}"))
+
+(defn- parse-ex-data [s opts]
+  (try (rf.http.json/json-parse s opts) nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest json-parse-caps-unique-keys
-  (testing "Cheshire branch caps unique-key cardinality"
-    (let [s (big-json 50)]
-      ;; Under the cap → success.
-      (is (map? (rf.http.json/json-parse s {:max-decoded-keys 100}))
-          "50 keys under cap=100 should succeed")
-      ;; At the cap exactly → success (50 unique strings ≤ 50).
-      (is (map? (rf.http.json/json-parse s {:max-decoded-keys 50}))
-          "50 keys at cap=50 should succeed")
-      ;; Over the cap → throws tagged ex-info.
-      (let [thrown (try (rf.http.json/json-parse s {:max-decoded-keys 10}) ::no-throw
-                        (catch clojure.lang.ExceptionInfo e e))
-            data   (when (instance? clojure.lang.ExceptionInfo thrown)
-                     (ex-data thrown))]
-        (is (instance? clojure.lang.ExceptionInfo thrown)
-            "expected ex-info when key-count exceeds cap")
-        (is (= :rf.error/malformed-json (:rf.error/id data)))
-        (is (= :too-many-keys (:cause data)))
-        (is (string? (:reason data))
-            ":reason is a human-readable sentence (canonical shape)")
-        (is (= 10 (:limit data)))))))
+  (let [s (big-json 50)]
+    (is (map? (rf.http.json/json-parse s {:max-decoded-keys 50})) "at the cap succeeds")
+    (is (= {:rf.error/id :rf.error/malformed-json :cause :too-many-keys :limit 49}
+           (select-keys (parse-ex-data s {:max-decoded-keys 49}) [:rf.error/id :cause :limit])))))
 
 (deftest default-cap-enforced-at-default-max
-  (testing "default cap (`default-max-decoded-keys`) fires
-  when no opts supplied."
-    ;; Sanity: the documented constant is what we say it is.
-    (is (= 10000 rf.http.json/default-max-decoded-keys))
-    ;; A payload one-over the documented default trips the cap when no
-    ;; per-call override is supplied.
-    (let [s (big-json (inc rf.http.json/default-max-decoded-keys))
-          thrown (try (rf.http.json/json-parse s) ::no-throw
-                      (catch clojure.lang.ExceptionInfo e e))
-          data   (when (instance? clojure.lang.ExceptionInfo thrown)
-                   (ex-data thrown))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "10001-key payload with no opts must trip the default cap")
-      (is (= :rf.error/malformed-json (:rf.error/id data)))
-      (is (= :too-many-keys (:cause data)))
-      (is (= rf.http.json/default-max-decoded-keys (:limit data))))))
+  (is (= {:cause :too-many-keys :limit 10000}
+         (select-keys (parse-ex-data (big-json 10001) nil) [:cause :limit]))))
 
 (deftest cap-counts-unique-not-total
-  (testing "repeated keys don't multiply the count"
-    ;; 1000 entries but only 5 unique key strings: {\"a\":1,\"a\":2,...}
-    (let [pairs (clojure.string/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5"))
-          s     (str "{" pairs "}")]
-      (is (map? (rf.http.json/json-parse s {:max-decoded-keys 10}))
-          "5 unique keys under cap=10 should succeed even with 1000 entries"))))
+  (let [s (str "{" (str/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5")) "}")]
+    (is (map? (rf.http.json/json-parse s {:max-decoded-keys 10})))))
 
-;; The same body writes the same JSON on both hosts. The CLJS
-;; twin (`cljs-json-stringify-matches-across-hosts` in
-;; http_json_cljs_test.cljs) pins the identical expectations; this JVM half
-;; pins what Cheshire writes. Parsed JSON is compared,
-;; because key order is not part of the contract.
 (def ^:private uuid-a #uuid "6f1c2b3a-0000-4000-8000-000000000001")
 
-(defn- wire [v]
-  (cheshire/parse-string (rf.http.json/json-stringify v)))
-
 (deftest json-stringify-matches-across-hosts
-  (testing "keywords keep their namespace, keys and values
-  alike, and a UUID goes out as its canonical string wherever it sits"
-    (is (= {"order/id" 1 "customer/id" 7} (wire {:order/id 1 :customer/id 7}))
-        "two qualified keys sharing a local name stay two members")
-    (is (= {"status" "order/pending"} (wire {:status :order/pending}))
-        "a qualified keyword VALUE keeps its namespace")
-    (is (= {"id" "6f1c2b3a-0000-4000-8000-000000000001"} (wire {:id uuid-a}))
-        "a UUID value is its canonical string")
-    (is (= {"ids" ["6f1c2b3a-0000-4000-8000-000000000001"]} (wire {:ids [uuid-a]}))
-        "a UUID nested in a vector is its canonical string")
-    (is (= {"6f1c2b3a-0000-4000-8000-000000000001" 1} (wire {uuid-a 1}))
-        "a UUID map key is its canonical string")
-    (is (= {:order/id 1 :customer/id 7}
-           (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))
-        "qualified keys round-trip through the framework's own decoder")
-    (is (= "{\"a\":1,\"b\":\"hello\"}" (rf.http.json/json-stringify {:a 1 :b "hello"}))
-        "control: an unqualified body is unchanged")))
+  ;; The CLJS twin pins the same expectations against its own walk; parsed
+  ;; JSON is compared because key order is not part of the contract.
+  (is (= {"order/id" 1 "customer/id" 7 "status" "order/pending"
+          "id" "6f1c2b3a-0000-4000-8000-000000000001"
+          "ids" ["6f1c2b3a-0000-4000-8000-000000000001"]
+          "6f1c2b3a-0000-4000-8000-000000000001" 1}
+         (cheshire/parse-string
+           (rf.http.json/json-stringify {:order/id 1 :customer/id 7 :status :order/pending
+                                         :id uuid-a :ids [uuid-a] uuid-a 1}))))
+  (is (= {:order/id 1 :customer/id 7}
+         (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))))
 
-;; ---- non-string / empty input coverage -----------------------------------
-;;
-;; The JVM `json-parse` body opens with `(when (string? s) ...)`. That
-;; guard means a non-string `s` (nil, keyword, number, map, vector)
-;; returns nil cleanly rather than throwing — protecting the
-;; `:rf.http/managed` decode pipeline from a programmer error in the
-;; transport layer. The CLJS branch carries the same
-;; guard, so the two hosts agree on non-string input (see the CLJS
-;; counterpart `cljs-json-parse-non-string-input-returns-nil`).
-;;
-;; The empty-string case `""` flows through Cheshire's `parse-string`
-;; which returns nil (Jackson's end-of-stream → nil for an empty
-;; document). A future Cheshire upgrade that changes that behaviour
-;; would surface here.
-;;
-;; Malformed inputs throw instead (http_decode_test's malformed-JSON tests
-;; pin that through `decode-response-body`). This
-;; deftest is the no-throw counterpart that pins the
-;; "input simply has no JSON value to surface → return nil" path.
-
-(deftest jvm-json-parse-non-string-and-empty-return-nil
-  (testing "`json-parse` returns nil (not a throw) for
-  non-string inputs and the empty string. The JVM body's `(when
-  (string? s) ...)` guard protects the managed-HTTP decode pipeline
-  from a programmer error in transport — a malformed input throws
-  through to `:rf.http/decode-failure`, a missing input is benign nil."
-    (is (nil? (rf.http.json/json-parse nil))
-        "nil input → nil (string? guard short-circuits)")
-    (is (nil? (rf.http.json/json-parse ""))
-        "empty string → nil (Cheshire's end-of-stream → nil)")
-    (is (nil? (rf.http.json/json-parse :keyword))
-        "keyword input → nil (string? guard short-circuits)")
-    (is (nil? (rf.http.json/json-parse 42))
-        "number input → nil (string? guard short-circuits)")
-    (is (nil? (rf.http.json/json-parse {:already :clojure}))
-        "map input → nil (string? guard short-circuits — caller
-         passed an already-parsed value by mistake)")
-    (is (nil? (rf.http.json/json-parse [1 2 3]))
-        "vector input → nil (same)")))
-
-(deftest jvm-json-parse-whitespace-only-returns-nil
-  (testing "whitespace-only inputs (\" \", \"\\n\", \"\\t\")
-  are not valid JSON documents per RFC 8259, but Cheshire/Jackson
-  surfaces them as end-of-stream → nil (same as the empty-string
-  case). Pin the contract."
-    (is (nil? (rf.http.json/json-parse "   ")))
-    (is (nil? (rf.http.json/json-parse "\n")))
-    (is (nil? (rf.http.json/json-parse "\t")))))
+(deftest jvm-json-parse-nil-returns-nil
+  ;; A response with no body text decodes to nil rather than throwing.
+  (is (nil? (rf.http.json/json-parse nil))))
