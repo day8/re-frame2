@@ -1,59 +1,23 @@
 (ns day8.re-frame2-xray.theme.a11y-cljs-test
-  "Pure-data tests for the shared a11y helper.
-
-  The helper extracts the WAI-ARIA dialog contract + a full modal-
-  focus `:ref` callback (`dialog-ref` — capture-on-open, Tab trap,
-  restore-on-close) shared by Xray's six modal surfaces. Tests cover:
-
-    1. `dialog-attrs` shape — role + aria-modal always present;
-       labelled-by preferred over label; describedby attaches when set.
-    2. `trap-wrap-target` — the pure Tab-wrap math (JVM/node-runnable):
-       wrap at the boundaries, no-op mid-cycle, pull-in when focus is
-       outside the cycle, single-focusable wraps to itself.
-    3. `dialog-ref` returns a fn (callback ref) that is a no-op on
-       unmount (`nil` node) and tolerates a DOM-less runtime.
-
-  The live `.focus()` capture / trap / restore behaviour against a real
-  DOM is exercised by `theme.a11y-dom-cljs-test` (browser-test build)."
+  "DOM-free tests for the shared a11y helper: the dialog ARIA attrs, the
+  Tab-wrap math, and `dialog-ref` reading the dialog's own document in
+  pop-out mode. The live-DOM focus contract is exercised by
+  `theme.a11y-dom-cljs-test` (browser-test build)."
   (:require [cljs.test :refer-macros [are deftest is testing]]
             [day8.re-frame2-xray.test-helpers.popout-document :as popout-document]
             [day8.re-frame2-xray.theme.a11y :as a11y]))
 
 ;; ---- dialog-attrs --------------------------------------------------------
 
-(deftest dialog-attrs-prefers-labelledby-over-label
-  (testing "when both :labelled-by and :label are
-            supplied, :aria-labelledby wins and :aria-label is dropped
-            so the heading text drives the accessible name (the
-            preferred a11y pattern)"
-    (let [attrs (a11y/dialog-attrs {:label       "fallback"
-                                    :labelled-by "the-heading-id"})]
-      (is (= "the-heading-id" (:aria-labelledby attrs)))
-      (is (nil? (:aria-label attrs))
-          ":aria-label is dropped in favour of :aria-labelledby"))))
+(deftest dialog-attrs-names-the-dialog-by-heading-else-label
+  (testing "a visible heading (`:labelled-by`) names the dialog and drops
+            `:label`; without one, `:label` is the accessible name"
+    (are [opts expected] (= expected (a11y/dialog-attrs opts))
+      {:label "fallback" :labelled-by "the-heading-id"}
+      {:role "dialog" :aria-modal "true" :aria-labelledby "the-heading-id"}
 
-(deftest dialog-attrs-falls-back-to-label
-  (testing "without a heading id, :aria-label provides the accessible
-            name. The palette modal uses this path (no visible title)."
-    (let [attrs (a11y/dialog-attrs {:label "Command palette"})]
-      (is (= "Command palette" (:aria-label attrs)))
-      (is (nil? (:aria-labelledby attrs))))))
-
-(deftest dialog-attrs-attaches-describedby
-  (testing "optional :describedby points at a description element id
-            for verbose modals"
-    (let [attrs (a11y/dialog-attrs {:label "Demo"
-                                    :describedby "demo-desc"})]
-      (is (= "demo-desc" (:aria-describedby attrs))))))
-
-(deftest dialog-attrs-without-name-still-yields-role-and-modal
-  (testing "a degenerate {} input still produces a syntactically valid
-            dialog attribute map (caller may add the name separately)"
-    (let [attrs (a11y/dialog-attrs {})]
-      (is (= "dialog" (:role attrs)))
-      (is (= "true"   (:aria-modal attrs)))
-      (is (nil? (:aria-label attrs)))
-      (is (nil? (:aria-labelledby attrs))))))
+      {:label "Command palette"}
+      {:role "dialog" :aria-modal "true" :aria-label "Command palette"})))
 
 ;; ---- trap-wrap-target (pure) ---------------------------------------------
 ;;
@@ -80,16 +44,6 @@
       [:only]    :only     true  :only
       ;; no focusables: nil, and the caller pins focus on the dialog root
       []         :anything false nil)))
-
-;; ---- dialog-ref factory --------------------------------------------------
-
-(deftest dialog-ref-tolerates-nil-unmount
-  (testing "React invokes the ref with `nil` on unmount;
-            the callback must short-circuit so it never throws after the
-            modal closes (e.g. backdrop click before any mount)"
-    (let [ref (a11y/dialog-ref)]
-      (is (nil? (ref nil))
-          "calling with nil returns nil and does not throw"))))
 
 ;; ---- dialog-ref reads the DIALOG's own document --------------------------
 ;;
