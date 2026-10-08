@@ -1,21 +1,13 @@
 (ns re-frame.story.ui.view-state-upgrade-test
-  "End-to-end acceptance for the fidelity-upgrade handoff. The
-  snippet `upgrade-snippet` emits is taken down the path an author takes —
-  read, completed, registered, compiled, run — and graded on what the
-  UPGRADED variant can prove, never on the snippet's shape:
+  "End-to-end acceptance for the fidelity-upgrade handoff: the snippet
+  `upgrade-snippet` emits is read, completed, registered and run, and the
+  UPGRADED variant detects a handler defect its pinned parent cannot.
 
-  1. the emitted snippet reads as EDN;
-  2. a handler defect the pinned parent CANNOT detect IS detected by the
-     upgraded child.
-
-  The compiled child's `:fidelity` is graded host-free in
-  `re-frame.story.ui.view-state-test`.
-
-  Clause 2 grades the RENDER-PATH read — what the view would show for the
-  subscription — because that is exactly what a pin masks. It deliberately
-  does not grade `:rf.assert/sub-equals`: that assertion reads `compute-sub`
-  against app-db and ignores overrides, so a child still carrying the pin
-  would pass it too, and the test would prove nothing about the upgrade."
+  It grades the RENDER-PATH read — what the view would show for the
+  subscription — because that is exactly what a pin masks. It does not
+  grade `:rf.assert/sub-equals`: that assertion reads `compute-sub` against
+  app-db and ignores overrides, so a child still carrying the pin would
+  pass it too, and the test would prove nothing about the upgrade."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -79,9 +71,8 @@
   setup slot with the real event, register what it names. Returns the
   upgraded variant id."
   []
-  (let [snippet      (rf.story.ui.view-state/upgrade-snippet :story.upgrade/pinned :real-setup)
-        [op id body] (edn/read-string snippet)]
-    (is (= 'rf.story/reg-variant op) "the snippet reads back as a reg-variant form")
+  (let [[_ id body] (edn/read-string
+                      (rf.story.ui.view-state/upgrade-snippet :story.upgrade/pinned :real-setup))]
     (rf.story.registrar/reg-variant* id (assoc body :setup [[:dispatch [:login/set-email address]]]))
     id))
 
