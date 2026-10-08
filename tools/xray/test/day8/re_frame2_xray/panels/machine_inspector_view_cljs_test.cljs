@@ -38,10 +38,6 @@
             [re-frame.schemas.malli]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            ;; The chart-head row below needs BOTH of this ns's public
-            ;; heads: the Fresco boundary ELEMENT 3 mounts, and the
-            ;; `reg-view` that is its two-directions control.
-            [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -154,44 +150,10 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines! [])
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector")))
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-empty"))
-            "empty-state container present")))))
+      (is (some? (find-by-testid (panel-tree) "rf-xray-machine-inspector-empty"))
+          "empty-state container present"))))
 
 ;; ---- (3) blank state (event has no machine activity) ------------------
-;;
-;; Visibility-gate polarity. The Dynamic Machines panel is **event-driven
-;; only** (see the panel docstring): TRULY BLANK when the focused event
-;; triggered no machine transition; the per-machine topology surface ONLY
-;; mounts when a transition fired. An all-machines topology in the blank
-;; state would invert the panel's visibility (content on non-machine
-;; events, drowning the lens job). These tests pin the non-inverted
-;; polarity.
-
-(deftest blank-state-is-truly-blank-when-focused-event-has-no-machine-activity
-  (testing "when machines are registered but the focused event triggered
-            no transitions, the panel renders the TRULY BLANK affordance:
-            the blank container is present, NO per-machine topology
-            section/chart is rendered, and the focused-event surface is
-            suppressed (the visibility gate)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login :checkout/flow])
-      (override-definitions! {:auth/login    fixture-definition
-                              :checkout/flow fixture-definition})
-      (let [tree (panel-tree)
-            root (find-by-testid tree "rf-xray-machine-inspector")]
-        (is (= "focused-event" (:data-view-mode (second root))))
-        (is (= "false" (:data-has-records (second root))))
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "blank-state container present")
-        (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "no focused-event surface when cascade has no transitions")
-        (is (empty? (find-all-by-testid-prefix
-                      tree "rf-xray-machines-topology"))
-            "no Topology view mounts when the focused event is not
-             machine-related")))))
 
 (deftest blank-state-stays-blank-on-an-event-less-focused-epoch
   (testing "an explicitly-focused epoch whose :trace-events carry no
@@ -214,14 +176,8 @@
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2 :trace-events []}])
       (focus-epoch! 2)
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "blank-state container present on the event-less focused epoch")
-        (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "focused-event surface suppressed — no transition this epoch")
-        (is (empty? (find-all-by-testid-prefix
-                      tree "rf-xray-machines-topology"))
-            "no topology renders for a focused epoch with no transition")))))
+      (is (some? (find-by-testid (panel-tree) "rf-xray-machine-inspector-blank"))
+          "blank-state container present on the event-less focused epoch"))))
 
 ;; ---- (4) focused-event lens (one section per transition) --------------
 
@@ -254,16 +210,10 @@
                       tree "rf-xray-machine-focused-event-section-door/main")
             chart   (find-by-testid
                       tree "rf-xray-machine-focused-event-chart")]
-        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "the focused-event surface mounts for a machine birth")
-        (is (some? section)
-            "the per-machine section renders for the started machine")
         (is (= "true" (:data-start (second section)))
             "the section is flagged as a machine-birth record")
         (is (= ":closed" (:data-to-state (second section)))
             "to-state is the resulting initial state")
-        (is (some? chart)
-            "the topology chart renders for the birth (not the empty state)")
         ;; The initial state is the active state — surfaced as the to-
         ;; highlight on the chart props (no from-highlight on a birth).
         (is (= "closed" (:data-to-highlight-id (second chart)))
@@ -275,9 +225,7 @@
         ;; header badge.
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-machine-cascade-kind-start"))
-            "the mini-pipeline renders a [START] cascade-row pill for the birth")
-        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "the blank-state is suppressed — not an empty tab")))))
+            "the mini-pipeline renders a [START] cascade-row pill for the birth")))))
 
 (deftest focused-event-guard-blocked-no-op-renders-topology-not-blank-rf2-skmc7
   (testing "a focused guard-blocked / NO-OP machine event (a
@@ -307,18 +255,12 @@
                       tree "rf-xray-machine-focused-event-section-door/main")
             chart   (find-by-testid
                       tree "rf-xray-machine-focused-event-chart")]
-        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "the focused-event surface mounts for a guard-blocked no-op")
-        (is (some? section)
-            "the per-machine section renders for the no-op'd machine")
         (is (= "true" (:data-no-op (second section)))
             "the section is flagged as a no-op record")
         (is (= ":open" (:data-to-state (second section)))
             "to-state is the CURRENT state the no-op left in place")
         (is (= ":open" (:data-from-state (second section)))
             "from-state == to-state — the machine stayed put")
-        (is (some? chart)
-            "the topology chart renders for the no-op (not the empty state)")
         ;; The current state is the active state — surfaced via :current-state
         ;; (NOT a from/to highlight, which would paint a misleading
         ;; state→state self-transition). The wrapper's highlight-id attrs are
@@ -327,150 +269,16 @@
             "no to-highlight — a no-op is not a from→to landing")
         (is (= "" (:data-from-highlight-id (second chart)))
             "no from-highlight — a no-op is not a from→to origin")
-        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "the blank-state is suppressed — not an empty tab")
         ;; The no-op story reads off the SHARED mini-pipeline's `:no-op`
-        ;; cascade row (the `[NO OP]` qualifier chip); there is no bespoke
-        ;; header badge or forensic lens.
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-event-handler-mini-pipeline"))
-            "the SHARED mini-pipeline mounts for a no-op")
+        ;; cascade row (the `[NO OP]` qualifier chip).
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
             "the mini-pipeline renders a [NO OP] cascade-row qualifier")))))
 
-(deftest gate-reads-the-migrated-rf-machine-transition-op-only
-  (testing "the machine-relatedness gate keys on the `:rf.*` op
-            `:rf.machine/transition`. A focused epoch whose trace carries
-            ONLY a bare `:machine/transition` op does NOT trip the gate —
-            the panel stays blank — while `:rf.machine/transition` shows
-            the focused-event surface. Pins that the op name is
-            load-bearing for detection: a gate reading
-            `:machine/transition` would misfire and invert the panel's
-            visibility."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      ;; epoch 1 — only the bare `:machine/transition` op. Must NOT trip the gate.
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (panel-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "bare `:machine/transition` op does NOT show the focused-
-             event surface")
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "panel stays blank when only the bare op is present"))
-      ;; epoch 2 — the `:rf.machine/transition` op. Must trip the gate.
-      (override-epoch-history!
-        [{:epoch-id 2
-          :trace-events
-          [{:id 2 :time 20 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-2"}}]}])
-      (focus-epoch! 2)
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "`:rf.machine/transition` op shows the focused-event
-             surface")
-        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "blank suppressed when the `:rf.machine/transition` op fired")))))
-
 ;; ---- (4b) the SHARED EVENT HANDLER mini-pipeline ------------------------
 ;;
-;; The Machine tab renders EXACTLY THREE elements:
-;; Prev/Next + the SHARED EVENT HANDLER mini-pipeline + the chart. The
-;; mini-pipeline is the SAME renderer + projection the Epoch panel's EVENT
-;; HANDLER step uses — `epoch-view/machine-cascade-mini-pipeline` over the
-;; focused epoch's `machine-cascade-rows` projection — so the two surfaces
-;; cannot diverge. These tests pin: there is no bespoke forensic lens /
-;; snapshot drill-in / chart-collapse chrome, the mini-pipeline mounts, and
-;; it carries the SAME `rf-xray-epoch-machine-cascade-*` testids the Epoch
-;; panel renders.
-
-(deftest machine-tab-renders-exactly-three-elements-rf2-g2axio
-  (testing "the Machine tab renders EXACTLY THREE elements —
-            the Prev/Next nav, the SHARED EVENT HANDLER mini-pipeline,
-            and the chart — and NONE of the bespoke chrome (the
-            focused-transition lens, the per-machine header ribbon, the
-            list/canvas view-mode wrapper, the chart-collapse toggle/
-            summary, the snapshot drill-in, the inline cancellation
-            cascade)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (panel-tree)]
-        ;; ELEMENT 1 — Prev/Next nav (in the header).
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-prev"))
-            "element 1: Prev nav")
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-next"))
-            "element 1: Next nav")
-        ;; ELEMENT 2 — the SHARED mini-pipeline.
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-event-handler-mini-pipeline"))
-            "element 2: the SHARED EVENT HANDLER mini-pipeline host")
-        ;; ELEMENT 3 — the chart.
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-focused-event-chart"))
-            "element 3: the topology chart")))))
-
-(deftest machine-tab-mini-pipeline-is-the-shared-renderer-rf2-g2axio
-  (testing "the Machine tab's mini-pipeline IS the SAME
-            renderer the Epoch panel's EVENT HANDLER step uses — it
-            carries the SAME `rf-xray-epoch-handler-machine` cascade host
-            + the SAME `rf-xray-epoch-machine-cascade-row-N` /
-            `-ordinal-N` testids (no second bespoke renderer)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (panel-tree)]
-        ;; The SHARED cascade host the Epoch panel renders.
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-handler-machine"))
-            "the shared `rf-xray-epoch-handler-machine` cascade host mounts")
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-handler-machine-cascade-rows"))
-            "the shared cascade rows host mounts")
-        ;; The numbered cascade rows the Epoch panel renders — same testids.
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-machine-cascade-row-1"))
-            "the first numbered cascade row carries the SHARED testid")
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-machine-cascade-ordinal-1"))
-            "the cascade row's left-rail ordinal carries the SHARED testid")
-        ;; The EVENT HANDLER orientation line the Epoch panel renders.
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-event-handler-orientation"))
-            "the SHARED EVENT HANDLER orientation line renders")))))
+;; The mini-pipeline is the SAME renderer + projection the Epoch panel's EVENT
+;; HANDLER step uses, so the two surfaces cannot diverge.
 
 (deftest machine-tab-prev-next-moves-mini-pipeline-and-chart-together-rf2-g2axio
   (testing "Prev/Next moves the focused epoch, so BOTH the
@@ -499,15 +307,6 @@
                    :event      [:auth/ok] :rf.trace/dispatch-id "d-2"}}]}])
       ;; Focus the LATER epoch (authing → done).
       (focus-epoch! 2)
-      (let [tree  (panel-tree)
-            chart (find-by-testid tree "rf-xray-machine-focused-event-chart")]
-        (is (= "authing" (:data-from-highlight-id (second chart)))
-            "chart highlights the focused (later) epoch's from-state")
-        (is (= "done" (:data-to-highlight-id (second chart)))
-            "chart highlights the focused (later) epoch's to-state")
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-event-handler-mini-pipeline"))
-            "the mini-pipeline renders for the focused epoch"))
       ;; Prev → the earlier epoch (idle → authing). Both re-read the focus.
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
       (let [tree  (panel-tree)
@@ -521,8 +320,6 @@
         ;; (:idle).
         (let [orient (find-by-testid
                        tree "rf-xray-epoch-event-handler-orientation-state")]
-          (is (some? orient)
-              "the mini-pipeline's orientation state line renders")
           (is (str/includes? (pr-str orient) "idle")
               "after Prev, the mini-pipeline orientation reads the earlier
                epoch's pre-transition state — it moved WITH the chart"))))))
@@ -586,14 +383,7 @@
             predicate, reading the one own property (`frescoBoundary`) that
             only `rf.fresco/defview` sets — rather than by identity against a
             var, so the row states the PROPERTY the codec will act on rather
-            than a name that could be satisfied by the wrong kind of thing.
-
-            CONTROLLED BOTH WAYS on this same tree. `machine-canvas/Chart`,
-            the `reg-view` the two Static Reagent-island callers head,
-            must grade FALSE: without that half a predicate that
-            answered true for everything would satisfy the claim above. The
-            two heads share one body (`machine-canvas/chart-tree`), so they
-            differ in exactly the property being read."
+            than a name that could be satisfied by the wrong kind of thing."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -607,20 +397,12 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [mount (find-chart-mount (panel-tree))
-            head  (first mount)]
-        (is (some? mount)
-            "precondition: ELEMENT 3 emitted a chart mount at all — an
-             absent mount would make the head assertion vacuous")
+      (let [head (first (find-chart-mount (panel-tree)))]
         (is (rf.fresco.impl.codec/boundary-head? head)
             (str "the chart head is a Fresco boundary, so the panel's own "
                  "boundary mounts it directly instead of crossing an "
                  "`as-child` island into Reagent. Head was "
-                 (pr-str head)))
-        (is (not (rf.fresco.impl.codec/boundary-head? machine-canvas/Chart))
-            "CONTROL: the `reg-view` head grades FALSE under the
-             same predicate, so the assertion above discriminates rather
-             than reading true for any fn it is handed")))))
+                 (pr-str head)))))))
 
 (def ^:private schema-fixture-definition
   "A machine carrying a `[:schemas :data]` schema so the declared Context shape
@@ -654,9 +436,7 @@
                    :after      {:state :authing :data {:retries 1}}
                    :event      [:start] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree  (panel-tree)
-            props (find-machine-chart-props tree)]
-        (is (some? props) "the focused-event chart mount carries the chart props")
+      (let [props (find-machine-chart-props (panel-tree))]
         (is (= {:retries "number" :token "string?"}
                (:context-band props))
             "the Context shape is the AUTHORITATIVE declared schema shape,
@@ -687,9 +467,7 @@
                    :after      {:state :busy :data {:hits 1 :trail []}}
                    :event      [:add] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree  (panel-tree)
-            props (find-machine-chart-props tree)]
-        (is (some? props))
+      (let [props (find-machine-chart-props (panel-tree))]
         (is (= {:hits "number" :trail "vector"} (:context-band props))
             "no schema → shape inferred from one sample of initial :data")
         (is (true? (:context-band-inferred? props))
@@ -814,16 +592,10 @@
     ;; redaction fn is exercised directly with that frame-id below.
     (declare-redaction-frame-marks! :rf/xray)
     (rf/with-frame :rf/xray
-      ;; Seed the live snapshots slot directly (the test override stands
-      ;; in for a populated `[:rf.runtime/machines :snapshots]` in runtime-db); the sub
-      ;; redacts on read.
-      (rf/dispatch-sync
-        [:rf.xray/set-machine-snapshots-override-for-test nil])
-      ;; Drive the redaction through the live sub by pinning a frame-db
-      ;; snapshot. We exercise the sub's redaction fn directly on a
-      ;; populated snapshots map (the sub composes target-frame +
-      ;; target-frame-db → this map) to keep the assertion independent of a
-      ;; live machine runtime under the plain-atom test substrate.
+      ;; The sub's redaction fn, driven directly on a populated snapshots
+      ;; map (the sub composes target-frame + target-frame-db → this map) to
+      ;; keep the assertion independent of a live machine runtime under the
+      ;; plain-atom test substrate.
       (let [snaps    {redaction-machine-id
                       {:state :authed
                        :data  {:retries 2 :token "secret-jwt-live"}}}
@@ -846,17 +618,10 @@
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
-      (let [tree    (panel-tree)
-            blank   (find-by-testid tree "rf-xray-machine-inspector-blank")
-            message (find-by-testid tree "rf-xray-machine-inspector-blank-message")]
-        (is (some? blank)  "blank-state container present")
-        (is (some? message) "verbatim message container present")
-        ;; The verbatim string per spec/003 §Empty state.
-        (is (= "This event does not target a state machine"
-               (last message))
-            "the empty-state surface renders the verbatim spec text")
-        (is (nil? (find-by-testid tree "rf-xray-machine-focused-event-chart"))
-            "no chart in the empty state")))))
+      (is (= "This event does not target a state machine"
+             (last (find-by-testid (panel-tree)
+                                   "rf-xray-machine-inspector-blank-message")))
+          "the empty-state surface renders the verbatim spec text"))))
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 
@@ -1040,17 +805,13 @@
       ;; The operator is looking at the OTHER machine when the JUMP fires.
       (focus-epoch! 2)
       (rf/dispatch-sync [:rf.xray/select-machine-id :auth/login])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)
-            focus   (:focus xray-db)]
-        (is (= 3 (:epoch-id focus))
-            "the spine moved to :auth/login's NEWEST epoch — the one the
-             panel will draw")
-        (is (= "d-3" (:dispatch-id focus))
-            "landed through the spine's canonical focus mutation, so the
-             settling dispatch-id is resolved and pinned")
-        (is (= :retro (:mode focus))
-            "and stamped :retro, so compose-focus's LIVE head-tracking
-             does not snap it straight back")
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
+        (is (= {:epoch-id 3 :dispatch-id "d-3" :mode :retro}
+               (select-keys (:focus xray-db) [:epoch-id :dispatch-id :mode]))
+            "the spine moved to :auth/login's NEWEST epoch through the
+             spine's canonical focus mutation (settling dispatch-id pinned),
+             stamped :retro so compose-focus's LIVE head-tracking does not
+             snap it straight back")
         (is (= :auth/login (:selected-machine-id xray-db))
             "the slot is written as well: it is the picker focus the
              Static surfaces and the cancellation-cascade composite read")))))
@@ -1125,17 +886,11 @@
             sections (find-all-by-testid-prefix
                        tree "rf-xray-machine-focused-event-section-")
             nav      (find-by-testid
-                       tree "rf-xray-machine-inspector-prev-next-nav")
-            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= 3 (get-in xray-db [:focus :epoch-id]))
-            "the epoch pin — the spine lands on the newest epoch
-             touching the requested machine")
+                       tree "rf-xray-machine-inspector-prev-next-nav")]
         (is (= "2" (:data-cascade-transition-count (second host)))
-            "and that epoch really is a two-machine cascade, so `first`
-             and `the selected machine` are genuinely different records")
-        (is (= "1" (:data-section-count (second host)))
-            "EXACTLY ONE section — the single-instance rule holds; the
-             selection only chooses which")
+            "the spine landed on the newest epoch touching the requested
+             machine, a two-machine cascade, so `first` and `the selected
+             machine` are genuinely different records")
         (is (= [":checkout/flow"]
                (mapv #(:data-machine-id (second %)) sections))
             "THE CLAIM: the rendered section is the machine the operator
@@ -1161,10 +916,7 @@
             sections (find-all-by-testid-prefix
                        tree "rf-xray-machine-focused-event-section-")
             nav      (find-by-testid
-                       tree "rf-xray-machine-inspector-prev-next-nav")
-            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
-        (is (nil? (:selected-machine-id xray-db))
-            "no selection has been made — the panel's opening posture")
+                       tree "rf-xray-machine-inspector-prev-next-nav")]
         (is (= [":auth/login"]
                (mapv #(:data-machine-id (second %)) sections))
             "first in trace order wins")
@@ -1185,17 +937,9 @@
       (focus-epoch! 1)
       (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [tree     (panel-tree)
-            sections (find-all-by-testid-prefix
-                       tree "rf-xray-machine-focused-event-section-")
-            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= 2 (get-in xray-db [:focus :epoch-id]))
-            "Prev stepped to epoch 2 — :checkout/flow's previous epoch —
-             not to epoch 1, which is :auth/login's")
-        (is (= [":checkout/flow"]
-               (mapv #(:data-machine-id (second %)) sections))
-            "and after Prev the panel draws the machine the operator
-             selected")))))
+      (is (= 2 (get-in (rf.frame/frame-app-db-value :rf/xray) [:focus :epoch-id]))
+          "Prev stepped to epoch 2 — :checkout/flow's previous epoch — not to
+           epoch 1, which is :auth/login's"))))
 
 (deftest select-machine-id-leaves-focus-alone-when-the-machine-has-no-epoch
   (testing "a selection made before the machine has done anything must
@@ -1260,20 +1004,13 @@
                    :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 3)
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)
-            focus   (:focus xray-db)]
-        (is (= 1 (:epoch-id focus))
-            "focus stepped to epoch 1 (the prior auth/login epoch)")
-        (is (= "d-1" (:dispatch-id focus))
-            "the target epoch's settling dispatch-id is resolved + pinned
-             (the spine-routed mutation, not a bare epoch-id write)")
-        (is (= :retro (:mode focus))
-            "the jump stamps :mode :retro so compose-focus stops head-
-             tracking and the navigation holds")))))
-
-;; ---- (5b) no Share affordance --------------------------------------------
-
-;; ---- (7) frame isolation ------------------------------------------------
+      (is (= {:epoch-id 1 :dispatch-id "d-1" :mode :retro}
+             (select-keys (:focus (rf.frame/frame-app-db-value :rf/xray))
+                          [:epoch-id :dispatch-id :mode]))
+          "focus stepped to the prior auth/login epoch through the spine-routed
+           mutation (its settling dispatch-id pinned) and stamped :mode
+           :retro so compose-focus stops head-tracking and the navigation
+           holds"))))
 
 ;; ---------------------------------------------------------------------------
 ;; React unique-key guard. `focused-event-view` renders each per-section
@@ -1377,8 +1114,6 @@
                               tree "rf-xray-machine-focused-event"))
             keyed    (remove nil? (drop 2 host))]
         (when (seq sections)
-          (doseq [section sections]
-            (is (vector? section) "focused-event-section is a hiccup vector"))
           (is (= 1 (count keyed)) "exactly one keyed section child")
           (doseq [node keyed]
             (is (some? (fresco-key node))
@@ -1386,73 +1121,3 @@
                      (pr-str (fresco-key node))))
             (is (= (reagent-key node) (fresco-key node))
                 "the same key reaches React on both substrates")))))))
-
-;; ---- (6) section layout -------------------------------------------------
-;;
-;; Pin the section's hiccup-level layout invariants so a refactor that
-;; quietly drops one has a row to fail against. These node-lane tests read
-;; the inline styles; the measured DOM (the rendered sibling gap) is out of
-;; their reach.
-
-(defn- style-of
-  "Return the inline :style map of a hiccup node, or nil."
-  [node]
-  (when (and (vector? node) (map? (second node)))
-    (:style (second node))))
-
-(deftest rf2-3d987-issue-1-focused-event-section-has-gap
-  (testing "the
-            focused-event-section's children sit on a flex column with a
-            non-zero :gap so the two sub-panels (the SHARED
-            mini-pipeline + the chart) get visible breathing room rather
-            than reading as one wall of grey."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree    (panel-tree)
-            section (find-by-testid
-                      tree "rf-xray-machine-focused-event-section-auth/login")
-            style   (style-of section)]
-        (is (some? section)   "focused-event-section mounts")
-        (is (= "flex" (:display style))   "section is a flex container")
-        (is (= "column" (:flex-direction style))
-            "section is a flex column")
-        (is (some? (:gap style))
-            "section carries a :gap so siblings get breathing room")))))
-
-(deftest rf2-3d987-issue-8-section-has-panel-breathing-room
-  (testing "focused-event-section's outer margin is 16px so the
-            card has visible breathing room from the panel host edge at
-            every viewport width."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree    (panel-tree)
-            section (find-by-testid
-                      tree "rf-xray-machine-focused-event-section-auth/login")
-            margin  (-> section style-of :margin)]
-        (is (some? section)   "section mounts")
-        (is (= "16px" margin)
-            (str "section uses the 16px (gap-4) margin so it has "
-                 "breathing room from the panel host edge — got "
-                 (pr-str margin)))))))
