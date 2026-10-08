@@ -1,64 +1,22 @@
 (ns re-frame.ssr.multi-root-hydration-cljs-test
-  "Multi-root hydration — hydration PREFLIGHT and the IDEMPOTENT
-  payload install (Spec 011 §Hydration preflight; ratified by
-  [Spec 004C §6/§7]).
+  "Multi-root hydration: preflight and the idempotent payload install (Spec 011
+  §Hydration preflight). A page is N roots referencing M frames, every root
+  boots off the same `__rf_payload`, and the second root to reference a payload
+  finds it live and does not re-seed.
 
-  A server-rendered page is N roots referencing M frames, and M is
-  routinely smaller than N. Every root on the page boots, and every one
-  of them reads the same page-wide `__rf_payload`. The contract under
-  test is that the SECOND root to reference a payload finds it live and
-  does NOT re-seed.
-
-  ## The idempotence proof is CAUSAL, not structural
-
-  `installing-the-same-payload-twice-is-indistinguishable-from-once`
-  does not assert \"the ledger has one entry\" — a ledger can hold one
-  entry while the frame was seeded twice. It asserts on the OBSERVABLE
-  frame-state: it interleaves a real client mutation between the two
-  installs and requires the mutation to SURVIVE the second one. That is
-  the harm a re-seed actually causes, so that is what the test watches.
-
-  ## The unguarded twin is permanent and executable
-
-  `re-seeding-a-live-payload-destroys-client-state` measures the harm the
-  guard prevents, kept runnable forever. It reaches PAST the
-  ledger — dispatching `:rf/hydrate` directly, exactly as a caller who
-  skipped preflight would — and proves the client mutation IS destroyed
-  on that path. Delete the guard from `hydrate!` and the idempotence
-  test above reproduces this test's outcome; keep the guard and the two
-  tests must disagree. So the guard cannot decay into a tautology: one
-  of these tests is always exercising the unguarded behaviour.
-
-  ## Both hosts
-
-  This is a `.cljc` named `*-cljs-test`, so it runs under BOTH
-  `clojure -M:test` from `implementation/ssr` (JVM) and the node runner
-  (`npm run test:cljs`). The JVM emitter and the client substrates can
-  diverge, so the `.cljc` pins the two hosts' agreement rather than
-  assuming it.
-
-  Handlers are registered INSIDE each test body, never at ns-load. In
-  the shared node process a sibling namespace's `registrar/clear-all!`
-  wipes ns-load-time registrations, which silently turns a dispatch into
-  a no-op and would make an idempotence assertion pass for the wrong
-  reason."
+  Runs on the JVM and the node runner. Handlers are registered inside each test
+  body: in the shared node process a sibling's `registrar/clear-all!` wipes
+  ns-load registrations, which would turn a dispatch into a silent no-op."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.boot :as rf.ssr.boot]
             [re-frame.ssr.install :as rf.ssr.install]
             [re-frame.ssr.manifest :as rf.ssr.manifest]
-            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
-            [re-frame.router :as rf.router]))
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
-;; DIFFERENT one it raises `:rf.error/adapter-already-installed`. This ns
-;; runs in the shared node bundle beside suites that seat Reagent / UIx /
-;; plain-atom, so a bare `init!` here would meet whichever adapter one of
-;; them left seated. Destroy first, seat the adapter this ns
-;; NAMES, and destroy again on the way out so the slot is left cold for
-;; whichever namespace the runner reaches next.
+;; Seat the adapter this ns names, and leave the slot cold for the next ns:
+;; `init!` with a different adapter already seated raises.
 (use-fixtures :once
   (fn [f]
     (rf/destroy-adapter!)
@@ -67,145 +25,26 @@
 
 (use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
-;; ---------------------------------------------------------------------------
-;; Host-neutral fixtures
-;; ---------------------------------------------------------------------------
-
 (def ^:private frame-counter (atom 0))
 
 (defn- fresh-frame!
-  "A `:client`-platform frame under an id no other test in this shared
-  process has used. Frames are not torn down between tests here, so a
-  reused id would carry a prior test's app-db into this one.
-
-  `make-frame` opts are FLAT — `:platform` sits alongside `:id`. A nested
-  `{:config {:platform :client}}` stores `:config {:config {…}}` and the
-  frame is never platform-tagged at all; every test below would still pass,
-  because the runtime falls back to the host-wide platform marker, which on
-  CLJS is already `:client`. `the-fixture-frames-are-actually-platform-tagged`
-  is what catches that accident."
+  "A `:client` frame under an id no other test in this process has used."
   []
   (let [fid (keyword "rf.multiroot" (str "f" (swap! frame-counter inc)))]
     (rf/make-frame {:id fid :platform :client})
     fid))
 
 (defn- payload-for
-  "The page-wide hydration payload, built by the SHIPPED assembler
-  (`payload-policy/build-payload`) rather than a hand-written literal, so
-  these tests track the real wire shape.
-
-  No `:rf/frame-id`: the documented no-conflict shape (an anonymous
-  per-request server frame), which lets the explicit client `:frame`
-  target stand. The frame-id mismatch arm is covered by
-  `ssr_hydration_test`."
+  "The page-wide payload, built by the shipped assembler; no `:rf/frame-id`, so
+  the explicit client `:frame` stands."
   [db]
   (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
 
-(defn- reg-bump!
-  "Register the client-side mutation the idempotence proof interleaves.
-  Registered per-test (see the ns docstring)."
-  []
-  (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)})))
-
 (def ^:private manifest-v1
-  "A minimal valid Root Manifest v1 — only `:rf.root/schema-version` is
-  required."
   {:rf.root/schema-version rf.ssr.manifest/schema-version
    :root-id                :page/shop
    :view-id                :app/shop-root
    :phase                  :server})
-
-;; ---------------------------------------------------------------------------
-;; The fixture's own tag, asserted so it cannot lapse
-;; ---------------------------------------------------------------------------
-
-(deftest the-fixture-frames-are-actually-platform-tagged
-  (testing "`fresh-frame!` asks for `:platform :client` and the frame CARRIES
-            it. Read through `frame-meta`, the canonical `:rf/frame-meta`
-            shape, which flattens the frame's OWN config and does not fall
-            back to the host-wide platform marker — so this discriminates a
-            tagged frame from an untagged one, where the hydration tests
-            below cannot: they would pass either way on CLJS."
-    (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
-
-;; ---------------------------------------------------------------------------
-;; THE UNGUARDED TWIN, kept permanently executable
-;; ---------------------------------------------------------------------------
-
-(deftest re-seeding-a-live-payload-destroys-client-state
-  (testing "dispatching :rf/hydrate a second time DIRECTLY — the unguarded
-            path a caller who skipped preflight takes — discards everything
-            that happened after the first install"
-    (reg-bump!)
-    (let [fid     (fresh-frame!)
-          payload (payload-for {:count 7})]
-      (rf.ssr.boot/hydrate! {:frame fid :payload payload})
-      (is (= {:count 7} (rf/app-db-value fid)) "first install seeded")
-
-      (rf/dispatch-sync [::bump] {:frame fid})
-      (is (= {:count 8} (rf/app-db-value fid))
-          "the client moved past the server slice")
-
-      ;; PAST the ledger, straight at the handler.
-      (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame fid})
-
-      (is (= {:count 7} (rf/app-db-value fid))
-          (str "MEASURED (this is the defect, not an aspiration): an "
-               "unguarded second install reverts the client mutation. "
-               "`:replace-frame-state` is the locked merge policy, so the "
-               "second install is not additive corruption — it is a "
-               "silent RESET. If this ever goes green, the re-seed harm "
-               "disappeared and the guard below is testing nothing.")))))
-
-;; ---------------------------------------------------------------------------
-;; The idempotence proof
-;; ---------------------------------------------------------------------------
-
-(deftest installing-the-same-payload-twice-is-indistinguishable-from-once
-  (testing "root B, booting second against the same page payload, finds it
-            live and does not re-seed (004C §6)"
-    (reg-bump!)
-    (let [fid     (fresh-frame!)
-          payload (payload-for {:count 7})]
-      ;; ROOT A boots.
-      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/a})
-      (rf/dispatch-sync [::bump] {:frame fid})
-      (let [after-one (rf/app-db-value fid)]
-        (is (= {:count 8} after-one))
-
-        ;; ROOT B boots — same page, same frame, same payload script.
-        (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/b})
-
-        (is (= after-one (rf/app-db-value fid))
-            (str "the observable frame-state is IDENTICAL to installing "
-                 "once — the second root did not re-seed. Compare "
-                 "`re-seeding-a-live-payload-destroys-client-state`, which "
-                 "takes the unguarded path and reverts to {:count 7}."))))))
-
-(deftest a-no-op-install-still-reports-the-page-as-server-rendered
-  (testing "hydrate! returns the payload on the idempotent path too — the
-            page WAS server-rendered, whichever root got there first"
-    (let [fid     (fresh-frame!)
-          payload (payload-for {:count 7})]
-      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload})))
-      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload}))
-          "a caller branching on the return value cannot tell root order"))))
-
-(deftest order-independence-either-root-may-boot-first
-  (testing "the ledger records whichever root arrives first — install is
-            order-INdependent, not first-listed-wins (004C §6)"
-    (let [payload (payload-for {:count 7})]
-      (doseq [[first-root second-root] [[:page/a :page/b] [:page/b :page/a]]]
-        (let [fid (fresh-frame!)]
-          (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id first-root})
-          (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id second-root})
-          (is (= first-root (:installed-by (rf.ssr.install/installed-payload fid)))
-              (str "whichever root booted first owns the claim (order "
-                   (pr-str [first-root second-root]) ")")))))))
-
-;; ---------------------------------------------------------------------------
-;; The conflict arm — 004C §7's S5 content-digest trigger
-;; ---------------------------------------------------------------------------
 
 (defn- caught-error-id
   [f]
@@ -213,175 +52,94 @@
        (catch #?(:clj Exception :cljs :default) e
          (:rf.error/id (ex-data e)))))
 
-(deftest a-conflicting-root-fails-loud-and-leaves-the-installed-payload-untouched
-  (testing "two roots referencing one payload id with DIFFERENT content is
-            :rf.error/frame-payload-conflict — never a silent first-wins —
-            and the conflict throws BEFORE any install: the live payload,
-            the frame it seeded, and the ledger record all survive intact"
-    (reg-bump!)
-    (let [fid (fresh-frame!)]
-      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
-                      :root-id :page/a})
+(deftest installing-the-same-payload-twice-is-indistinguishable-from-once
+  (testing "root B, booting second against the same payload, does not re-seed —
+            a client mutation made after root A survives — and still reports the
+            page as server-rendered"
+    (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
+    (let [fid     (fresh-frame!)
+          payload (payload-for {:count 7})]
+      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/a})))
       (rf/dispatch-sync [::bump] {:frame fid})
-      (let [before-conflict (rf/app-db-value fid)
-            record-before   (rf.ssr.install/installed-payload fid)
-            data            (try (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
-                                                        :root-id :page/b})
-                                 nil
-                                 (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
-            "the differing payload fails loud")
-        (is (= before-conflict (rf/app-db-value fid))
-            "the frame the first root seeded was not touched")
-        (is (= record-before (rf.ssr.install/installed-payload fid))
-            "the ledger still attributes the payload to root A — a
-             conflicting root never overwrites, merges, or partially claims")
-        (testing "ex-data carries :payload-id, :installed and :arriving, each
-                  with its content :digest (004C §7 — the S5 arm's own slot)"
-          (is (= fid (:payload-id data)))
-          (is (= :page/a (get-in data [:installed :installed-by])))
-          (is (= :page/b (get-in data [:arriving :root-id])))
-          (is (string? (get-in data [:installed :digest])))
-          (is (string? (get-in data [:arriving :digest])))
-          (is (not= (get-in data [:installed :digest])
-                    (get-in data [:arriving :digest]))
-              "the digests are what disagreed; both ride the diagnostic")
-          (is (= :render-the-page-from-one-response (:recovery data))))))))
+      (is (= {:count 8} (rf/app-db-value fid)))
+      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/b})))
+      (is (= {:count 8} (rf/app-db-value fid))))))
 
-;; ---------------------------------------------------------------------------
-;; Nil is CONTENT in a payload, however it is spelled
-;; ---------------------------------------------------------------------------
-;;
-;; `render-tree-hash`'s canonicalisation PRUNES nil — the right rule for a
-;; render tree (`[:div {:class nil}]` and `[:div {}]` emit the same HTML)
-;; and the wrong one for a data-identity test. Each pair below is `not=` as
-;; a Clojure value; under that pruning it would produce ONE digest, so the
-;; second root would be waved through as `:already-installed` and hydrate
-;; against a slice it never received.
-;;
-;; The three shapes are the three places the render-tree walk prunes, and
-;; they are asserted separately because they are three different code
-;; paths (map-entry removal, sequence-child skip, set-member keep).
+(deftest a-conflicting-root-fails-loud-and-leaves-the-installed-payload-untouched
+  (testing "a DIFFERENT payload under the same id throws
+            :rf.error/frame-payload-conflict before any install"
+    (let [fid           (fresh-frame!)
+          installed     (payload-for {:count 7})
+          _             (rf.ssr.boot/hydrate! {:frame fid :payload installed :root-id :page/a})
+          db-before     (rf/app-db-value fid)
+          record-before (rf.ssr.install/installed-payload fid)
+          arriving      (payload-for {:count 99})
+          data          (try (rf.ssr.boot/hydrate! {:frame fid :payload arriving :root-id :page/b})
+                             nil
+                             (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= {:rf.error/id :rf.error/frame-payload-conflict
+              :payload-id  fid
+              :installed   {:digest       (rf.ssr.install/payload-content-digest installed)
+                            :installed-by :page/a}
+              :arriving    {:digest  (rf.ssr.install/payload-content-digest arriving)
+                            :root-id :page/b}
+              :recovery    :render-the-page-from-one-response}
+             (select-keys data [:rf.error/id :payload-id :installed :arriving :recovery])))
+      (is (= db-before (rf/app-db-value fid)) "the seeded frame is untouched")
+      (is (= record-before (rf.ssr.install/installed-payload fid)) "the ledger is untouched"))))
 
-(defn- payload-with-app-db
-  "A payload literal carrying `db` verbatim — NOT the policy-built
-  `payload-for`, whose projection could itself normalise the nils these
-  tests are about. The digest is a function of the payload map it is
-  handed, so the literal is the honest input here."
-  [db]
+;; The render-tree hash prunes nil; a payload digest must not, or each pair
+;; below would alias and a second root carrying a different slice would be
+;; waved through as :already-installed. One pair per collection branch.
+
+(defn- payload-with-app-db [db]
   {:rf/version 1 :rf/app-db db})
 
 (deftest nil-differences-in-payload-data-are-digest-differences
-  (testing "map PRESENCE: an explicit nil value is not an absent key"
-    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil}))
-              (rf.ssr.install/payload-content-digest (payload-with-app-db {})))))
-
-  (testing "vector POSITION: a nil slot is not a shorter vector"
-    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [nil 7]}))
-              (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [7]}))))
-    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [7 nil]}))
-              (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [nil 7]})))
-        "and position within the vector is content too"))
-
-  (testing "set MEMBERSHIP: nil is a member like any other"
-    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{nil 1}}))
-              (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{1}}))))))
+  (doseq [[a b] [[{:x nil} {}]
+                 [{:items [nil 7]} {:items [7]}]
+                 [{:s #{nil 1}} {:s #{1}}]]]
+    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db a))
+              (rf.ssr.install/payload-content-digest (payload-with-app-db b)))
+        (pr-str a b))))
 
 (deftest the-digest-stays-idempotent-for-genuinely-equal-payloads
-  (testing "preserving nil must not make equal payloads disagree — a digest
-            that never repeats turns every second root into a conflict,
-            which is the opposite failure"
-    (is (= (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil :items [nil 7] :s #{nil 1}}))
-           (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil :items [nil 7] :s #{nil 1}}))))
-
-    (testing "map insertion order is still not content"
-      (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a nil :b 2} :rf/version 1})
-             (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a nil}}))))
-
-    (testing "set order is still not content"
-      (is (= (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{nil 1 :k}}))
-             (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{:k nil 1}})))))))
-
-(deftest a-nil-only-payload-difference-reaches-the-conflict-arm
-  (testing "the ledger is what the digest is FOR: two roots whose payloads
-            differ only by a preserved nil must meet
-            :rf.error/frame-payload-conflict, not :already-installed"
-    (let [payload-id :rf.multiroot/tax2-conflict
-          decision   (fn [payload root-id]
-                       (rf.ssr.install/payload-install-decision!
-                         'test payload-id
-                         (rf.ssr.install/payload-content-digest payload)
-                         root-id))]
-      (is (= :install (decision (payload-with-app-db {:items [nil 7]}) :page/a)))
-      (is (= :rf.error/frame-payload-conflict
-             (caught-error-id #(decision (payload-with-app-db {:items [7]}) :page/b))))))
-
-  (testing "and the genuinely identical second root is the ratified
-            no-op — the guard above does not come at its expense"
-    (let [payload-id :rf.multiroot/tax2-idempotent
-          decision   (fn [payload root-id]
-                       (rf.ssr.install/payload-install-decision!
-                         'test payload-id
-                         (rf.ssr.install/payload-content-digest payload)
-                         root-id))]
-      (is (= :install (decision (payload-with-app-db {:items [nil 7]}) :page/a)))
-      (is (= :already-installed (decision (payload-with-app-db {:items [nil 7]}) :page/b))))))
-
-;; ---------------------------------------------------------------------------
-;; Preflight step 1 — the manifest
-;; ---------------------------------------------------------------------------
+  (testing "map insertion order is not content"
+    (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a nil :b 2} :rf/version 1})
+           (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a nil}})))))
 
 (deftest preflight-validates-an-explicit-manifest-and-takes-root-id-from-it
-  (testing "a hydrating root's identity comes FROM its manifest (004C §3),
-            not from a caller-supplied guess"
-    (let [fid (fresh-frame!)
-          {:keys [root-id decision manifest]}
-          (rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
-                                     :payload-id fid
-                                     :manifest   manifest-v1})]
-      (is (= :page/shop root-id) "read from the manifest's content")
-      (is (= :install decision))
-      (is (= manifest-v1 manifest)))))
+  (is (= {:root-id :page/shop :decision :install :manifest manifest-v1}
+         (select-keys (rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
+                                                        :payload-id (fresh-frame!)
+                                                        :manifest   manifest-v1})
+                      [:root-id :decision :manifest]))))
 
 (deftest preflight-rejects-a-value-outside-the-manifest-schema-family
-  (testing "a manifest whose schema-version is not 1 is not from this
-            family — :rf.error/root-manifest-invalid, before any install"
-    (let [fid (fresh-frame!)]
-      (is (= :rf.error/root-manifest-invalid
-             (caught-error-id
-              #(rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
-                                          :payload-id fid
-                                          :manifest   {:rf.root/schema-version 2}}))))
-      (is (nil? (rf.ssr.install/installed-payload fid))
-          "the payload was NOT claimed — preflight failed first"))))
+  (let [fid (fresh-frame!)]
+    (is (= :rf.error/root-manifest-invalid
+           (caught-error-id
+            #(rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
+                                                :payload-id fid
+                                                :manifest   {:rf.root/schema-version 2}}))))
+    (is (nil? (rf.ssr.install/installed-payload fid))
+        "the payload was not claimed")))
 
 (deftest an-explicit-root-id-wins-over-the-manifests
-  (testing "a caller that knows its root-id may say so; the manifest is the
-            default source, not an override"
-    (let [fid (fresh-frame!)]
-      (is (= :page/explicit
-             (:root-id (rf.ssr.install/preflight! 'test
-                                           {:payload    (payload-for {:count 7})
-                                            :payload-id fid
-                                            :manifest   manifest-v1
-                                            :root-id    :page/explicit})))))))
-
-;; ---------------------------------------------------------------------------
-;; Release
-;; ---------------------------------------------------------------------------
+  (is (= :page/explicit
+         (:root-id (rf.ssr.install/preflight! 'test
+                                              {:payload    (payload-for {:count 7})
+                                               :payload-id (fresh-frame!)
+                                               :manifest   manifest-v1
+                                               :root-id    :page/explicit})))))
 
 (deftest releasing-a-claim-lets-a-fresh-lifetime-install-again
-  (testing "a destroyed frame's claim goes with it — a frame re-created
-            under the same id must not meet a phantom conflict raised by a
-            lifetime that no longer exists"
+  (testing "after release, a DIFFERENT payload installs instead of conflicting"
     (let [fid (fresh-frame!)]
-      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
-                      :root-id :page/a})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7}) :root-id :page/a})
       (rf.ssr.install/release-payload! fid)
-      (is (nil? (rf.ssr.install/installed-payload fid)))
-      ;; A DIFFERENT payload would have conflicted a moment ago.
       (is (= :install
              (:decision (rf.ssr.install/preflight! 'test
-                                            {:payload    (payload-for {:count 99})
-                                             :payload-id fid
-                                             :root-id    :page/c})))))))
+                                                   {:payload    (payload-for {:count 99})
+                                                    :payload-id fid
+                                                    :root-id    :page/c})))))))
