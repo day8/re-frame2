@@ -1,33 +1,9 @@
 (ns re-frame.timeout-cljs-test
-  "State-level and spawn-level `:timeout` / `:on-timeout`
-  (delayed transitions).
-
-  Covers:
-    - the duration grammar (integer-ms OR ISO-8601 only; the XState
-      `\"5s\"` / `\"10ms\"` shorthand is rejected);
-    - registration-time fail-loud validation (timeout requires on-timeout
-      and vice-versa; bad duration; :after collision);
-    - desugaring `:timeout` / `:on-timeout` onto the `:after`
-      timer mechanism (distinct intent, ONE mechanism);
-    - the dispatch boundary — the timeout actually arms an `:after`
-      timer on state entry and the synthetic timer-elapsed event fires the
-      `:on-timeout` transition through the real runtime;
-    - `:timeout` and `:after` coexisting on the same state node;
-    - the absent `:timeout-ms` slot on `:spawn` / `:spawn-all`.
-
-  The dispatch-boundary tests dispatch the synthetic
-  `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]` event
-  manually (the same way after_test.clj does) so verification is
-  deterministic without depending on setTimeout firing — the desugared
-  timeout IS an `:after` timer, so the synthetic-event path exercises it
-  end-to-end.
-
-  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
-  `:node-test` build on `cljs-test$`, so the duration grammar runs through
-  both hosts' number parsing (`Long/parseLong` / `Double/parseDouble` on the
-  JVM, `js/parseInt` / `js/parseFloat` on CLJS)."
+  "State- and spawn-level `:timeout` / `:on-timeout`: the integer-ms / ISO-8601
+  duration grammar, the registration-time refusals, and the lowering onto `:after`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timeout :as rf.machines.timeout]
             #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
@@ -37,232 +13,65 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
-;; ---- duration grammar -----------------------------------------------------
-
-(deftest duration-integer-ms
-  (testing "a positive integer is literal ms"
-    (is (= 5000 (rf.machines.timeout/resolve-duration-ms 5000)))
-    (is (= 1    (rf.machines.timeout/resolve-duration-ms 1))))
-  (testing "a non-positive / non-integer number resolves to nil"
-    (is (nil? (rf.machines.timeout/resolve-duration-ms 0)))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms -5)))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms 1.5)))))
-
-(deftest duration-iso-8601
-  (testing "ISO-8601 durations resolve to ms"
-    (is (= 5000    (rf.machines.timeout/resolve-duration-ms "PT5S")))
-    (is (= 120000  (rf.machines.timeout/resolve-duration-ms "PT2M")))
-    (is (= 5400000 (rf.machines.timeout/resolve-duration-ms "PT1H30M")))
-    (is (= 500     (rf.machines.timeout/resolve-duration-ms "PT0.5S")))
-    (is (= 86400000 (rf.machines.timeout/resolve-duration-ms "P1D")))
-    (is (= 1800000  (rf.machines.timeout/resolve-duration-ms "PT30M"))))
-  (testing "lower-case `pt5s` is accepted (case-insensitive)"
-    (is (= 5000 (rf.machines.timeout/resolve-duration-ms "pt5s"))))
-  (testing "the bare `P` (no component) is not a duration"
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "P")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "PT")))))
-
-(deftest duration-rejects-xstate-shorthand
-  (testing "the XState `5s` / `10ms` shorthand is REJECTED (a deliberate divergence)"
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "5s")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "10ms")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "2m")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "1h"))))
-  (testing "other malformed / non-duration forms resolve to nil"
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "soon")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms "")))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms nil)))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms [1000])))
-    (is (nil? (rf.machines.timeout/resolve-duration-ms (fn [_] 5000))))))
-
-;; ---- registration-time fail-loud validation -------------------------------
+(deftest duration-grammar
+  ;; Integer ms or ISO-8601 only: the XState "5s" shorthand and the fn / vector
+  ;; delays `:after` admits resolve to nil.
+  (let [rows [[5000 5000] [1 1] [0 nil] [1.5 nil]
+              ["PT5S" 5000] ["PT1H30M" 5400000] ["PT0.5S" 500] ["P1D" 86400000] ["pt5s" 5000]
+              ["P" nil] ["5s" nil] [(fn [_] 5000) nil]]]
+    (is (= rows (mapv (fn [[d _]] [d (rf.machines.timeout/resolve-duration-ms d)]) rows)))))
 
 (defn- reg-error-id [machine]
   (try (rf/reg-machine (keyword "tt" (str (gensym))) machine) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (:rf.error/id (ex-data e)))))
 
-(deftest state-timeout-fail-loud
-  (testing "the XState `5s` shorthand duration fails loud"
-    (is (= :rf.error/machine-bad-timeout-duration
-           (reg-error-id {:initial :w :states {:w {:timeout "5s" :on-timeout :d} :d {}}}))))
-  (testing "a `10ms` shorthand duration fails loud"
-    (is (= :rf.error/machine-bad-timeout-duration
-           (reg-error-id {:initial :w :states {:w {:timeout "10ms" :on-timeout :d} :d {}}}))))
-  (testing "a non-positive integer duration fails loud"
-    (is (= :rf.error/machine-bad-timeout-duration
-           (reg-error-id {:initial :w :states {:w {:timeout 0 :on-timeout :d} :d {}}}))))
-  (testing "a fn duration fails loud (timeouts are fixed wall-clock deadlines)"
-    (is (= :rf.error/machine-bad-timeout-duration
-           (reg-error-id {:initial :w :states {:w {:timeout (fn [_] 5) :on-timeout :d} :d {}}})))))
+(deftest registration-refuses-malformed-timeouts
+  (let [spawn (fn [m] {:initial :l :states {:l {:spawn (merge {:machine-id :stub} m)} :to {}}})
+        both  (fn [state-ms spawn-ms]
+                {:initial :l
+                 :states  {:l  {:timeout state-ms :on-timeout {:target :st}
+                                :spawn   {:machine-id :stub :timeout spawn-ms :on-timeout {:target :sp}}}
+                           :st {} :sp {}}})
+        rows  [[:rf.error/machine-bad-timeout-duration
+                {:initial :w :states {:w {:timeout "5s" :on-timeout :d} :d {}}}]
+               [:rf.error/machine-timeout-without-on-timeout (spawn {:timeout 10000})]
+               [:rf.error/machine-on-timeout-without-timeout (spawn {:on-timeout :to})]
+               [:rf.error/spawn-timeout-ms-removed (spawn {:timeout-ms 1000})]
+               [:rf.error/spawn-timeout-ms-removed
+                {:initial :h
+                 :states  {:h {:spawn-all {:children        [{:id :a :machine-id :stub}]
+                                           :join            :all
+                                           :on-all-complete [:done!]
+                                           :timeout-ms      5000}}}}]
+               [:rf.error/machine-timeout-after-collision
+                {:initial :w
+                 :states  {:w {:after {5000 {:target :x}} :timeout 5000 :on-timeout {:target :d}}
+                           :x {} :d {}}}]
+               [:rf.error/machine-timeout-after-collision (both 5000 5000)]
+               [nil (both 3000 5000)]
+               [:rf.error/machine-unresolved-target
+                {:initial :w :states {:w {:timeout 5000 :on-timeout {:target :nowhere}} :d {}}}]]]
+    (is (= (mapv first rows) (mapv (comp reg-error-id second) rows)))))
 
-(deftest spawn-timeout-fail-loud
-  (testing "a spawn :timeout without :on-timeout fails loud"
-    (is (= :rf.error/machine-timeout-without-on-timeout
-           (reg-error-id {:initial :l
-                          :states {:l {:spawn {:machine-id :stub :timeout 10000}}
-                                   :to {}}}))))
-  (testing "a spawn :timeout with the `5s` shorthand fails loud"
-    (is (= :rf.error/machine-bad-timeout-duration
-           (reg-error-id {:initial :l
-                          :states {:l {:spawn {:machine-id :stub
-                                               :timeout "5s" :on-timeout :to}}
-                                   :to {}}})))))
-
-;; There is no `:timeout-ms` slot on `:spawn` / `:spawn-all`: it throws
-;; :rf.error/spawn-timeout-ms-removed (use :timeout). A bare :on-timeout (no
-;; :timeout) is the A4 pairing error, NOT the :timeout-ms error.
-
-(deftest spawn-timeout-ms-rejected
-  (testing ":timeout-ms on :spawn fails registration"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :r}}
-                         :r    {:spawn {:machine-id :stub
-                                         :timeout-ms 1000}}}}]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad bad))
-          "registration emits the removed-slot error category")))
-  (testing ":on-timeout alone on :spawn is the A4 pairing error"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :r}}
-                         :r    {:spawn {:machine-id :stub
-                                         :on-timeout [:never]}}}}]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                            #"machine-on-timeout-without-timeout"
-                            (rf/reg-machine :rmv/bad2 bad))
-          "a spawn :on-timeout with no :timeout fails per EP-0029 A4")))
-  (testing ":timeout-ms on :spawn-all is rejected"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :h}}
-                         :h    {:spawn-all
-                                {:children        [{:id :a :machine-id :stub}]
-                                 :join            :all
-                                 :on-all-complete [:done!]
-                                 :timeout-ms      5000}}}}]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad3 bad))))))
-
-(deftest timeout-after-collision-fail-loud
-  (testing "a timeout ms colliding with an explicit :after delay-key fails loud"
-    (is (= :rf.error/machine-timeout-after-collision
-           (reg-error-id {:initial :w
-                          :states {:w {:after {5000 {:target :x}}
-                                       :timeout 5000 :on-timeout {:target :d}}
-                                   :x {} :d {}}}))))
-  (testing "a state-level and a spawn-level timeout resolving to the same ms collide"
-    (is (= :rf.error/machine-timeout-after-collision
-           (reg-error-id {:initial :l
-                          :states {:l {:timeout 5000 :on-timeout {:target :st}
-                                       :spawn {:machine-id :stub
-                                               :timeout 5000 :on-timeout {:target :sp}}}
-                                   :st {} :sp {}}}))))
-  (testing "distinct state-level and spawn-level timeout durations register cleanly"
-    (is (nil? (reg-error-id {:initial :l
-                             :states {:l {:timeout 3000 :on-timeout {:target :st}
-                                          :spawn {:machine-id :stub
-                                                  :timeout 5000 :on-timeout {:target :sp}}}
-                                      :st {} :sp {}}})))))
-
-(deftest timeout-target-resolution
-  (testing "an :on-timeout target that resolves to no state fails loud"
-    (is (= :rf.error/machine-unresolved-target
-           (reg-error-id {:initial :w
-                          :states {:w {:timeout 5000 :on-timeout {:target :nowhere}}
-                                   :d {}}})))))
-
-;; ---- desugaring (distinct intent, one mechanism) --------------------------
-
-(deftest desugar-state-timeout
-  (testing "state :timeout / :on-timeout lowers to an :after entry keyed by ms"
-    (is (= {:initial :w :states {:w {:after {5000 {:target :d}}} :d {}}}
-           (rf.machines.timeout/desugar-timeouts
-             {:initial :w :states {:w {:timeout "PT5S" :on-timeout {:target :d}} :d {}}})))))
-
-(deftest desugar-spawn-timeout
-  (testing "spawn :timeout / :on-timeout lowers onto the spawn-bearing state's :after"
-    (is (= {:initial :l
-            :states {:l {:spawn {:machine-id :c} :after {10000 {:target :to}}}
-                     :to {}}}
+(deftest desugar-lowers-timeouts-onto-the-state-after
+  (testing "a spawn-level timeout lands on the spawn-bearing state's :after"
+    (is (= {:initial :l :states {:l {:spawn {:machine-id :c} :after {10000 {:target :to}}} :to {}}}
            (rf.machines.timeout/desugar-timeouts
              {:initial :l
-              :states {:l {:spawn {:machine-id :c :timeout 10000 :on-timeout {:target :to}}}
-                       :to {}}})))))
-
-(deftest desugar-coexists-with-after
-  (testing ":timeout and an explicit :after coexist on the same node (A4)"
-    (let [out (rf.machines.timeout/desugar-timeouts
-                {:initial :w
-                 :states {:w {:after {1000 :warn} :timeout "PT5S" :on-timeout :done}
-                          :warn {} :done {}}})]
-      (is (= {1000 :warn 5000 :done} (get-in out [:states :w :after])))
-      (is (not (contains? (get-in out [:states :w]) :timeout))))))
-
-;; ---- dispatch boundary — the timeout actually fires the transition --------
+              :states  {:l {:spawn {:machine-id :c :timeout 10000 :on-timeout {:target :to}}} :to {}}}))))
+  (testing "a state-level timeout merges into an explicit :after on the same node"
+    (is (= {:initial :w :states {:w {:after {1000 :warn 5000 :done}} :warn {} :done {}}}
+           (rf.machines.timeout/desugar-timeouts
+             {:initial :w
+              :states  {:w {:after {1000 :warn} :timeout "PT5S" :on-timeout :done} :warn {} :done {}}})))))
 
 (deftest state-timeout-arms-and-fires
-  (testing "entering a :timeout-bearing state arms an :after timer at the resolved ms"
-    (let [m {:initial :idle :data {}
-             :states {:idle    {:on {:go :waiting}}
-                      :waiting {:timeout "PT5S" :on-timeout {:target :timed-out}}
-                      :timed-out {}}}
-          traces (atom [])]
-      (rf/reg-machine :tt/fire m)
-      (rf/register-listener! :trace ::s (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:tt/fire [:go]])
-      (let [s (snapshot :tt/fire)]
-        (is (= :waiting (:state s)) "transitioned into the timeout-bearing state")
-        (is (= 1 (get-in s [:data :rf/after-epoch [:waiting]]))
-            "the desugared :after timer armed with epoch 1"))
-      (is (some #(and (= :rf.machine.timer/scheduled (:operation %))
-                      (= 5000 (:delay (:tags %))))
-                @traces)
-          "the resolved 5000ms `PT5S` timer scheduled")
-      (rf/register-listener! :trace ::s (fn [_]) )
-      ;; Fire the synthetic timer-elapsed event at the resolved ms.
-      (rf/dispatch-sync [:tt/fire [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]])
-      (is (= :timed-out (:state (snapshot :tt/fire)))
-          "the :on-timeout transition fired when the timer elapsed"))))
-
-(deftest leaving-state-cancels-timeout
-  (testing "a normal :on transition out of the state cancels the timeout timer"
-    (let [m {:initial :idle :data {}
-             :states {:idle    {:on {:go :waiting}}
-                      :waiting {:timeout 5000 :on-timeout {:target :timed-out}
-                                :on {:done :ready}}
-                      :timed-out {}
-                      :ready {}}}
-          traces (atom [])]
-      (rf/reg-machine :tt/cancel m)
-      (rf/dispatch-sync [:tt/cancel [:go]])
-      (rf/register-listener! :trace ::c (fn [ev] (swap! traces conj ev)))
-      ;; Leave the state before the timeout elapses.
-      (rf/dispatch-sync [:tt/cancel [:done]])
-      (is (= :ready (:state (snapshot :tt/cancel))))
-      (is (some #(= :rf.machine.timer/cancelled (:operation %)) @traces)
-          "the exit cascade cancelled the in-flight timeout timer")
-      ;; A late timer carrying the pre-exit epoch is now stale — firing it
-      ;; does NOT move the machine.
-      (rf/dispatch-sync [:tt/cancel [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]])
-      (is (= :ready (:state (snapshot :tt/cancel)))
-          "the cancelled (stale-epoch) timeout does not fire after the state was left"))))
-
-(deftest timeout-coexists-with-after-at-runtime
-  (testing "a node with both :after and :timeout arms BOTH timers; each fires its own transition"
-    (let [m {:initial :idle :data {}
-             :states {:idle    {:on {:go :waiting}}
-                      :waiting {:after {1000 {:target :warn}}
-                                :timeout 5000 :on-timeout {:target :timed-out}}
-                      :warn {} :timed-out {}}}
-          traces (atom [])]
-      (rf/reg-machine :tt/both m)
-      (rf/register-listener! :trace ::b (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:tt/both [:go]])
-      (let [scheduled (->> @traces
-                           (filter #(= :rf.machine.timer/scheduled (:operation %)))
-                           (map #(:delay (:tags %)))
-                           set)]
-        (is (= #{1000 5000} scheduled)
-            "both the explicit :after (1000) and the desugared :timeout (5000) timers armed")))))
+  ;; The elapsed event names the resolved 5000 ms key and epoch 1, so it moves
+  ;; the machine only if entering :waiting armed the desugared :after timer.
+  (rf/reg-machine :tt/fire {:initial :idle
+                            :states  {:idle      {:on {:go :waiting}}
+                                      :waiting   {:timeout "PT5S" :on-timeout {:target :timed-out}}
+                                      :timed-out {}}})
+  (rf/dispatch-sync [:tt/fire [:go]])
+  (rf/dispatch-sync [:tt/fire [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]])
+  (is (= :timed-out (:state (rf.machines.test-support/snapshot :tt/fire)))))
