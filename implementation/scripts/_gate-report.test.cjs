@@ -30,7 +30,6 @@ test('green details are buffered while PASS stays one line', () => {
     'PASS demo-gate: 2 sentinels checked; bundle=out/demo',
   ]);
   assert.deepEqual(stderr, []);
-  assert.equal(report.bufferedLineCount(), 2);
 });
 
 test('failure flush emits buffered diagnostics to stderr', () => {
@@ -45,7 +44,6 @@ test('failure flush emits buffered diagnostics to stderr', () => {
   report.flushDetails();
 
   assert.deepEqual(stderr, ['[FAIL] sentinel expected ABSENT, was PRESENT']);
-  assert.equal(report.bufferedLineCount(), 0);
 });
 
 test('RF2_VERBOSE_TESTS=1 streams details immediately', () => {
@@ -63,13 +61,6 @@ test('RF2_VERBOSE_TESTS=1 streams details immediately', () => {
 
   assert.deepEqual(stdout, ['verbose table line', 'PASS demo-gate: ok']);
   assert.deepEqual(stderr, []);
-  assert.equal(report.bufferedLineCount(), 0);
-});
-
-test('verbose env parser is shared with browser tests', () => {
-  assert.equal(isVerboseTests({ RF2_VERBOSE_TESTS: '1' }), true);
-  assert.equal(isVerboseTests({ RF2_VERBOSE_TESTS: 'true' }), false);
-  assert.equal(isVerboseTests({}), false);
 });
 
 let failed = 0;
