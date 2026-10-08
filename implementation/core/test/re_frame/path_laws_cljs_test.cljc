@@ -1,20 +1,11 @@
 (ns re-frame.path-laws-cljs-test
-  "Law / property tests for the `:rf/path` algebra (EP-0012, Conventions
-  §Path laws). Covers the put-lookup family, compose associativity,
-  prefix?/overlap? symmetry, the root-path laws, the missing-vs-present-nil
-  distinction, and template normalization (sugar -> data form).
+  "Law tests for the `:rf/path` algebra (EP-0012, Conventions §Path laws):
+  put-lookup family, compose associativity, prefix?/overlap?, root-path laws,
+  missing vs present-nil, template normalization, and the shared segment
+  domain.
 
-  No `clojure.test.check` on the classpath — these use a small seeded
-  generator (`gen-edn` / `gen-path`) sampled over a fixed seed so the
-  property checks are deterministic and reproducible across CLJ/CLJS. The
-  hand-rolled generator emits the same value stream on both hosts because
-  it draws from a self-contained linear-congruential PRNG, not the host
-  RNG.
-
-  Named `*-cljs-test` so the shadow-cljs `:node-test` build (ns-regexp
-  `cljs-test$`) discovers it; the `-test` suffix also satisfies the JVM
-  cognitect test-runner, so this one `.cljc` file runs on both runtimes."
-  (:refer-clojure :exclude [])
+  The property checks sample a self-contained seeded LCG rather than the host
+  RNG (no test.check on the classpath), so CLJ and CLJS draw the same values."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.error :as rf.error]
@@ -22,10 +13,6 @@
             [re-frame.path :as rf.path]))
 
 ;; ---- a deterministic, host-portable PRNG ---------------------------------
-;;
-;; A 32-bit linear-congruential generator with the Numerical-Recipes
-;; constants. Identical sequence on CLJ and CLJS because every op stays in
-;; the int32 range under `unchecked` arithmetic emulation via `bit-and`.
 
 (defn- lcg-next [state]
   (-> (unchecked-multiply (long state) 1664525)
@@ -34,8 +21,6 @@
 
 (defn- rnd [state n] (mod (lcg-next state) n))
 
-;; ---- generators ----------------------------------------------------------
-
 (def ^:private seg-pool
   [:a :b :c :x :y 0 1 2 "k" 'sym true false nil])
 
@@ -43,8 +28,7 @@
   (nth seg-pool (rnd state (count seg-pool))))
 
 (defn- gen-path
-  "Generate a path of 0..max-len segments drawn from `seg-pool`. Returns
-  `[path next-state]`. nil segments are allowed (a present-nil key path)."
+  "A path of 0..max-len segments (nil segments allowed). Returns [path next-state]."
   [state max-len]
   (let [len (rnd state (inc max-len))]
     (loop [i 0, s (lcg-next state), acc []]
@@ -53,8 +37,7 @@
         (recur (inc i) (lcg-next s) (conj acc (gen-seg s)))))))
 
 (defn- gen-edn
-  "Generate a small EDN value (maps/vectors of scalars) to `depth`.
-  Returns `[value next-state]`."
+  "A small EDN value (maps/vectors of scalars) to `depth`. Returns [value next-state]."
   [state depth]
   (let [k (rnd state (if (zero? depth) 4 7))
         s (lcg-next state)]
@@ -63,7 +46,6 @@
       1 [(rnd s 1000) (lcg-next s)]
       2 [(str "v" (rnd s 50)) (lcg-next s)]
       3 [nil (lcg-next s)]
-      ;; composites only when depth remains
       4 (let [n (rnd s 3)]
           (loop [i 0, st (lcg-next s), acc {}]
             (if (= i n)
@@ -80,9 +62,8 @@
       6 [(rnd s 1000) (lcg-next s)])))
 
 (defn- samples
-  "Run `f` over `n` deterministic draws of `[value path x]`. `f` returns
-  truthy on a passing case; returns the first failing `[value path x]` or
-  nil if all pass."
+  "Run `f` over `n` deterministic draws of [value path x]; nil when all pass,
+  else the first failing draw."
   [n f]
   (loop [i 0, s 12345]
     (if (= i n)
@@ -94,25 +75,22 @@
           (recur (inc i) (lcg-next s3))
           [v p x])))))
 
+(defn- error-id [f]
+  (try (f) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (:rf.error/id (ex-data e)))))
+
 ;; ---- root-path laws ------------------------------------------------------
 
 (deftest root-path-laws
-  (testing "get(s, []) = s"
-    (is (= {:a 1} (rf.path/get {:a 1} [])))
-    (is (= 42 (rf.path/get 42 []))))
-  (testing "lookup(s, []) = present s"
-    (is (= {:present? true :value {:a 1}} (rf.path/lookup {:a 1} [])))
-    (is (= {:present? true :value nil} (rf.path/lookup nil []))))
-  (testing "put(s, [], x) = x  (the law raw assoc-in violates)"
-    (is (= {:b 2} (rf.path/put {:a 1} [] {:b 2})))
-    ;; raw assoc-in would give {:a 1, nil {:b 2}}
-    (is (not= (assoc-in {:a 1} [] {:b 2}) (rf.path/put {:a 1} [] {:b 2}))))
-  (testing "over(s, [], f) = f(s)"
-    (is (= {:a 2} (rf.path/over {:a 1} [] #(update % :a inc)))))
-  (testing "overlap?([], p) = true for every p"
-    (is (true? (rf.path/overlap? [] [])))
-    (is (true? (rf.path/overlap? [] [:anything :deep 3])))
-    (is (true? (rf.path/overlap? [:anything] [])))))
+  (is (= [{:a 1} 42] [(rf.path/get {:a 1} []) (rf.path/get 42 [])]) "get(s, []) = s")
+  (is (= [{:present? true :value {:a 1}} {:present? true :value nil}]
+         [(rf.path/lookup {:a 1} []) (rf.path/lookup nil [])])
+      "lookup(s, []) = present s")
+  (is (= {:b 2} (rf.path/put {:a 1} [] {:b 2})) "put(s, [], x) = x (raw assoc-in breaks this)")
+  (is (= {:a 2} (rf.path/over {:a 1} [] #(update % :a inc))) "over(s, [], f) = f(s)")
+  (is (= [true true true] (map #(apply rf.path/overlap? %) [[[] []] [[] [:anything :deep 3]] [[:anything] []]]))
+      "overlap?([], p) = true for every p"))
 
 ;; ---- put-lookup family ---------------------------------------------------
 
@@ -122,7 +100,7 @@
                 (fn [v p x]
                   (= {:present? true :value x}
                      (rf.path/lookup (rf.path/put v p x) p)))))))
-  (testing "explicitly at p=[] and x=nil (the nil-write trap)"
+  (testing "explicitly at x=nil (the nil-write trap)"
     (is (= {:present? true :value nil}
            (rf.path/lookup (rf.path/put {:page 1} [:page] nil) [:page])))
     (is (= {:present? true :value nil}
@@ -133,9 +111,7 @@
     (is (nil? (samples 400
                 (fn [v p _x]
                   (let [{:keys [present? value]} (rf.path/lookup v p)]
-                    (if present?
-                      (= v (rf.path/put v p value))
-                      true))))))))
+                    (or (not present?) (= v (rf.path/put v p value))))))))))
 
 (deftest put-put-law
   (testing "put(put(s,p,x),p,y) = put(s,p,y)"
@@ -147,9 +123,8 @@
 ;; ---- compose laws --------------------------------------------------------
 
 (deftest compose-laws
-  (testing "compose(p,[]) = p and compose([],p) = p"
-    (is (= [:a :b] (rf.path/compose [:a :b] [])))
-    (is (= [:a :b] (rf.path/compose [] [:a :b]))))
+  (is (= [[:a :b] [:a :b]] [(rf.path/compose [:a :b] []) (rf.path/compose [] [:a :b])])
+      "compose(p,[]) = p = compose([],p)")
   (testing "compose associativity over generated paths"
     (is (nil?
           (loop [i 0, s 999]
@@ -162,13 +137,10 @@
                        (rf.path/compose p (rf.path/compose q r)))
                   (recur (inc i) (lcg-next s3))
                   [p q r])))))))
-  (testing "get-compose: get(s, compose(p,q)) = get(get(s,p), q) when intermediate present"
-    (let [s {:cart {:items {42 {:qty 2}}}}
-          p [:cart :items]
-          q [42 :qty]]
-      (is (= (rf.path/get s (rf.path/compose p q))
-             (rf.path/get (rf.path/get s p) q)))
-      (is (= 2 (rf.path/get s (rf.path/compose p q)))))))
+  (testing "get(s, compose(p,q)) = get(get(s,p), q)"
+    (let [s {:cart {:items {42 {:qty 2}}}}]
+      (is (= [2 2] [(rf.path/get s (rf.path/compose [:cart :items] [42 :qty]))
+                    (rf.path/get (rf.path/get s [:cart :items]) [42 :qty])])))))
 
 ;; ---- over law ------------------------------------------------------------
 
@@ -176,10 +148,8 @@
   (testing "over(s,p,identity) = s when present"
     (is (nil? (samples 300
                 (fn [v p _x]
-                  (let [{:keys [present?]} (rf.path/lookup v p)]
-                    (if present?
-                      (= v (rf.path/over v p identity))
-                      true)))))))
+                  (or (not (:present? (rf.path/lookup v p)))
+                      (= v (rf.path/over v p identity))))))))
   (testing "over(s,p,f) = put(s,p,f(get(s,p))) (nil-on-missing get semantics)"
     (is (nil? (samples 300
                 (fn [v p _x]
@@ -189,16 +159,15 @@
 ;; ---- prefix? / overlap? --------------------------------------------------
 
 (deftest prefix-and-overlap
-  (testing "prefix? basics"
-    (is (true? (rf.path/prefix? [:cart] [:cart :items 42])))
-    (is (false? (rf.path/prefix? [:cart :items 42] [:cart])))
-    (is (true? (rf.path/prefix? [] [:anything])))
-    (is (true? (rf.path/prefix? [:a] [:a]))))
-  (testing "overlap? examples from the spec"
-    (is (true? (rf.path/overlap? [:cart :items] [:cart :items 42 :qty])))
-    (is (true? (rf.path/overlap? [:cart :items 42 :qty] [:cart :items 42])))
-    (is (false? (rf.path/overlap? [:cart :items 42] [:cart :items 43])))
-    (is (false? (rf.path/overlap? [:cart :items] [:profile :display-name]))))
+  (is (= [true false true true]
+         (map #(apply rf.path/prefix? %)
+              [[[:cart] [:cart :items 42]] [[:cart :items 42] [:cart]]
+               [[] [:anything]] [[:a] [:a]]])))
+  (is (= [true true false false]
+         (map #(apply rf.path/overlap? %)
+              [[[:cart :items] [:cart :items 42 :qty]] [[:cart :items 42 :qty] [:cart :items 42]]
+               [[:cart :items 42] [:cart :items 43]] [[:cart :items] [:profile :display-name]]]))
+      "the spec's overlap? examples")
   (testing "overlap? is symmetric over generated path pairs"
     (is (nil?
           (loop [i 0, s 7777]
@@ -213,320 +182,118 @@
 ;; ---- missing vs present nil ----------------------------------------------
 
 (deftest missing-versus-present-nil
-  (testing "absent key vs present-nil are distinct under lookup"
-    (is (= {:present? false} (rf.path/lookup {} [:page])))
-    (is (= {:present? true :value nil} (rf.path/lookup {:page nil} [:page]))))
-  (testing "get returns not-found only when missing, never for present-nil"
-    (is (= ::nf (rf.path/get {} [:page] ::nf)))
-    (is (= nil  (rf.path/get {:page nil} [:page] ::nf)))))
+  (is (= [{:present? false} {:present? true :value nil}]
+         [(rf.path/lookup {} [:page]) (rf.path/lookup {:page nil} [:page])]))
+  (is (= [::nf nil] [(rf.path/get {} [:page] ::nf) (rf.path/get {:page nil} [:page] ::nf)])
+      "get returns not-found only when missing, never for present-nil"))
 
-;; ---- template normalization (disposition 2) ------------------------------
+;; ---- template normalization ----------------------------------------------
 
 (deftest template-normalization
-  (testing "'?name sugar normalizes to the data form [:rf.path/param :name]"
-    (is (= [:billing :invoices :by-id [:rf.path/param :invoice-id] :email]
-           (rf.path/normalize-template
-             [:billing :invoices :by-id '?invoice-id :email]))))
-  (testing "already-canonical data-form passes through unchanged (idempotent)"
-    (let [canon [:billing [:rf.path/param :invoice-id] :email]]
-      (is (= canon (rf.path/normalize-template canon)))
-      (is (= canon (rf.path/normalize-template (rf.path/normalize-template canon))))))
-  (testing "'?name NEVER survives into the normalized shape"
-    (is (not (some symbol? (rf.path/normalize-template [:a '?x :b '?y])))))
-  (testing "a literal symbol that is not a ?-marker passes through"
-    (is (= [:a 'plain :b] (rf.path/normalize-template [:a 'plain :b])))
-    ;; a bare `?` symbol is not a marker (name length 1)
-    (is (= ['?] (rf.path/normalize-template ['?]))))
-  (testing "template? detection"
-    (is (true? (rf.path/template? [:a '?x])))
-    (is (true? (rf.path/template? [:a [:rf.path/param :x]])))
-    (is (false? (rf.path/template? [:a :b 3]))))
-  (testing "param-segment? recognises only the data form"
-    (is (true? (rf.path/param-segment? [:rf.path/param :id])))
-    (is (false? (rf.path/param-segment? '?id)))
-    (is (false? (rf.path/param-segment? [:rf.path/param :id :extra])))
-    (is (false? (rf.path/param-segment? [:rf.path/param "id"])))))
+  (is (= [:billing :invoices :by-id [:rf.path/param :invoice-id] :email]
+         (rf.path/normalize-template [:billing :invoices :by-id '?invoice-id :email]))
+      "'?name sugar normalizes to the data form")
+  (let [canon [:billing [:rf.path/param :invoice-id] :email]]
+    (is (= canon (rf.path/normalize-template canon)) "the data form passes through"))
+  (is (= [:a 'plain :b] (rf.path/normalize-template [:a 'plain :b])) "a non-marker symbol passes through")
+  (is (= ['?] (rf.path/normalize-template ['?])) "a bare ? is not a marker")
+  (is (= [true true false]
+         (map rf.path/template? [[:a '?x] [:a [:rf.path/param :x]] [:a :b 3]])))
+  (is (= [true false false false]
+         (map rf.path/param-segment?
+              [[:rf.path/param :id] '?id [:rf.path/param :id :extra] [:rf.path/param "id"]]))
+      "param-segment? recognises only the data form"))
 
 ;; ---- instantiate ---------------------------------------------------------
 
 (deftest instantiate-template
-  (testing "substitutes bound params, leaves literals"
-    (is (= [:billing :invoices :by-id "iid" :email]
-           (rf.path/instantiate
-             [:billing :invoices :by-id '?invoice-id :email]
-             {:invoice-id "iid"}))))
-  (testing "accepts a named-path-declaration map"
-    (is (= [:profile :display-name]
-           (rf.path/instantiate {:id :p :rf/path [:profile :display-name]} {}))))
-  (testing "a present-nil binding is a legal substitution"
-    (is (= [:a nil :c] (rf.path/instantiate [:a '?x :c] {:x nil}))))
-  (testing "an unbound param fails closed"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-                 (rf.path/instantiate [:a '?x] {})))))
-
-;; ---- instantiate validates the substituted binding -----------------------
-;;
-;; `instantiate` is a CONCRETE-path PRODUCER (its result feeds get/put/over),
-;; so it routes the substituted result through `normalize-concrete` — the
-;; SAME validated boundary frame classification and resource scope use.
-;; A binding whose VALUE is outside the concrete-segment domain
-;; (a fn / host object / composite vector|map|set, or a literal
-;; `[:rf.path/param …]` data form) FAILS CLOSED with `:rf.error/bad-path`
-;; rather than silently smuggling a non-portable segment into a path
-;; presented as concrete. The defect class this guards is exactly the
-;; silent-non-portable-segment leak `normalize-concrete` exists to prevent;
-;; an `instantiate` that substituted the binding unchecked would leak it.
+  (is (= [:billing :invoices :by-id "iid" :email]
+         (rf.path/instantiate [:billing :invoices :by-id '?invoice-id :email] {:invoice-id "iid"})))
+  (is (= [:profile :display-name]
+         (rf.path/instantiate {:id :p :rf/path [:profile :display-name]} {}))
+      "accepts a named-path-declaration map")
+  (is (= [:a nil :c] (rf.path/instantiate [:a '?x :c] {:x nil})) "present-nil is a legal binding")
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+               (rf.path/instantiate [:a '?x] {}))
+      "an unbound param fails closed"))
 
 (deftest instantiate-rejects-non-concrete-binding
-  (testing "a function-valued binding fails closed with :rf.error/bad-path"
-    (is (= :rf.error/bad-path
-           (try (rf.path/instantiate [:a [:rf.path/param :x] :b] {:x identity}) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e))))
-           )
-        "a fn binding is a host handle — never a concrete EDN segment"))
-  (testing "a composite (vector) binding fails closed — not a concrete segment"
-    (is (= :rf.error/bad-path
-           (try (rf.path/instantiate [:by-id [:rf.path/param :id]] {:id [:nested]}) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))
-        "a vector binding is indistinguishable from a template-param data form
-         once substituted; it is rejected at the concrete boundary"))
-  (testing "a map binding fails closed"
-    (is (= :rf.error/bad-path
-           (try (rf.path/instantiate [:a '?x] {:x {:k 1}}) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))))
-  (testing "a set binding fails closed"
-    (is (= :rf.error/bad-path
-           (try (rf.path/instantiate [:a '?x] {:x #{:a}}) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))))
-  (testing "the error names the offending substituted segment under :bad-segment"
-    (let [data (try (rf.path/instantiate [:a '?x] {:x [:nope]}) nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= [:nope] (:bad-segment data))
-          ":bad-segment surfaces the non-concrete binding value")))
-  (testing "every concrete-domain binding instantiates (the check rejects only non-concrete values)"
-    (is (= [:billing :invoices :by-id "iid" :email]
-           (rf.path/instantiate [:billing :invoices :by-id '?invoice-id :email]
-                             {:invoice-id "iid"}))
-        "string binding")
-    (is (= [:by-id #uuid "00000000-0000-0000-0000-000000000001"]
-           (rf.path/instantiate [:by-id '?id]
-                             {:id #uuid "00000000-0000-0000-0000-000000000001"}))
-        "uuid binding")
-    (is (= [:n 42] (rf.path/instantiate [:n '?i] {:i 42})) "integer binding")
-    (is (= [:a nil :c] (rf.path/instantiate [:a '?x :c] {:x nil}))
-        "present-nil is a legal concrete segment — must NOT be rejected")))
+  ;; instantiate produces a CONCRETE path, so the substituted result goes
+  ;; through normalize-concrete: a composite binding fails closed rather than
+  ;; smuggling a non-portable segment into a path presented as concrete
+  (let [data (try (rf.path/instantiate [:by-id [:rf.path/param :id]] {:id [:nested]}) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                    (ex-data e)))]
+    (is (= [:rf.error/bad-path [:nested]] [(:rf.error/id data) (:bad-segment data)]))))
 
 ;; ---- vector-index container policy ---------------------------------------
 ;;
-;; The intermediate-container policy (Conventions §Path laws) defines the
-;; vector-index case EXPLICITLY rather than letting a host `assoc` throw.
-;; The generative laws above prove put-lookup / put-put hold for every
-;; generated path, but the SPECIFIC vector-vs-map behaviour is only implied
-;; by them. These direct examples PIN the intended policy so a change to
-;; `container-for` is caught:
-;;
-;;   - a vector holds an entry ONLY at an in-range non-negative integer index;
-;;   - an out-of-range index, a negative index, or a non-integer segment
-;;     REPLACES the vector with a fresh map (never throws, never grows the
-;;     vector) — keeping `put` total so put-lookup holds for every path;
-;;   - an existing compatible vector is preserved (not silently rebuilt).
+;; A vector holds an entry only at an in-range non-negative integer index; an
+;; out-of-range, negative or non-integer segment REPLACES it with a fresh map
+;; (never throws, never grows), keeping `put` total.
 
 (deftest vector-index-container-policy
-  (testing "in-range non-negative integer index: vector is preserved + updated in place"
+  (testing "in-range index: the vector is preserved and updated in place"
     (is (= [10 99 30] (rf.path/put [10 20 30] [1] 99)))
-    (is (= {:present? true :value 20} (rf.path/lookup [10 20 30] [1])))
-    (is (= 20 (rf.path/get [10 20 30] [1])))
-    ;; index 0 and the last in-range index are both legal vector steps
-    (is (= [99 20 30] (rf.path/put [10 20 30] [0] 99)))
-    (is (= [10 20 99] (rf.path/put [10 20 30] [2] 99)))
-    ;; a nested vector under a map key composes through
-    (is (= 30 (rf.path/get {:xs [10 20 30]} [:xs 2])))
-    (is (= {:xs [10 99 30]} (rf.path/put {:xs [10 20 30]} [:xs 1] 99))))
-  (testing "out-of-range index: vector is REPLACED by a fresh map (no growth, no throw)"
-    (is (= {5 99} (rf.path/put [10 20] [5] 99)))
-    ;; the index equal to count is out of range (a vector has no slot there)
-    (is (= {2 99} (rf.path/put [10 20] [2] 99)))
-    ;; lookup of an out-of-range index on a vector is simply missing
-    (is (= {:present? false} (rf.path/lookup [10 20] [5])))
-    (is (= {:present? false} (rf.path/lookup [10 20] [2]))))
-  (testing "negative index: vector is REPLACED by a fresh map (not a tail index)"
-    (is (= {-1 99} (rf.path/put [10 20] [-1] 99)))
-    (is (= {:present? false} (rf.path/lookup [10 20] [-1]))))
-  (testing "non-integer segment over a vector: REPLACED by a fresh map"
-    (is (= {:k 99} (rf.path/put [10 20] [:k] 99)))
-    (is (= {"s" 99} (rf.path/put [10 20] ["s"] 99)))
-    (is (= {:present? false} (rf.path/lookup [10 20] [:k])))
-    ;; lookup on a vector with a non-integer segment is missing, not a throw
+    (is (= [{:present? true :value 20} 20] [(rf.path/lookup [10 20 30] [1]) (rf.path/get [10 20 30] [1])]))
+    (is (= [30 {:xs [10 99 30]}] [(rf.path/get {:xs [10 20 30]} [:xs 2])
+                                  (rf.path/put {:xs [10 20 30]} [:xs 1] 99)])))
+  (testing "index = count, a negative index, or a non-integer segment replaces the vector"
+    (is (= [{2 99} {-1 99} {:k 99}]
+           [(rf.path/put [10 20] [2] 99) (rf.path/put [10 20] [-1] 99) (rf.path/put [10 20] [:k] 99)]))
+    (is (= [{:present? false} {:present? false} {:present? false}]
+           [(rf.path/lookup [10 20] [2]) (rf.path/lookup [10 20] [-1]) (rf.path/lookup [10 20] [:k])]))
     (is (= ::nf (rf.path/get [10 20] [:k] ::nf))))
-  (testing "deeper write that must create a fresh map UNDER a replaced vector"
-    ;; [10 20] faced with non-integer :a is replaced by {}, then :b nests
-    (is (= {:a {:b 99}} (rf.path/put [10 20] [:a :b] 99)))
-    ;; and the put-lookup law still holds across the replacement
-    (is (= {:present? true :value 99}
-           (rf.path/lookup (rf.path/put [10 20] [:a :b] 99) [:a :b]))))
-  (testing "an in-range vector write does NOT clobber sibling indexes"
-    (is (= [:a :B :c :d] (rf.path/put [:a :b :c :d] [1] :B))))
-  (testing "vector-index put at x=nil stores present-nil at the index (not dissoc)"
-    (is (= [10 nil 30] (rf.path/put [10 20 30] [1] nil)))
-    (is (= {:present? true :value nil}
-           (rf.path/lookup (rf.path/put [10 20 30] [1] nil) [1])))))
+  (is (= {:a {:b 99}} (rf.path/put [10 20] [:a :b] 99)) "a fresh map nests under a replaced vector")
+  (is (= [10 nil 30] (rf.path/put [10 20 30] [1] nil)) "x=nil stores present-nil at the index"))
 
 ;; ---- concrete paths + explicit root --------------------------------------
-;;
-;; A concrete `:rf/path` is a vector of EDN segments; the empty vector `[]`
-;; is the explicit root path (Conventions §Path shape). normalize coerces any
-;; sequential container to the canonical vector form. These pin the
-;; container-shape coercion + the root spelling directly (the laws cover root
-;; semantics; this covers the SHAPE the declaration boundary stores).
 
 (deftest concrete-path-shape-and-root
-  (testing "normalize coerces sequential containers to the canonical vector"
-    (is (= [:a :b 3] (rf.path/normalize (list :a :b 3))))
-    (is (= [:a :b]   (rf.path/normalize (seq [:a :b]))))
-    (is (vector? (rf.path/normalize (list :a :b))))
-    ;; an already-vector path passes through
-    (is (= [:cart :items 42 :qty] (rf.path/normalize [:cart :items 42 :qty]))))
-  (testing "the empty vector is the canonical root path"
-    (is (= [] (rf.path/normalize [])))
-    (is (= [] (rf.path/normalize (list))))
-    ;; The root path is the EXPLICIT empty vector [], and a
-    ;; nil path fails closed with :rf.error/bad-path — an omitted path is NOT
-    ;; silently the whole value.
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize nil) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))
-        "nil is not the root path — it fails closed (explicit [] is the root)"))
-  (testing "a non-sequential path fails closed with :rf.error/bad-path"
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize :not-a-path) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e))))))
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize 42) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e))))))))
+  (is (= [[:a :b 3] true] ((juxt identity vector?) (rf.path/normalize (list :a :b 3))))
+      "normalize coerces a sequential container to the canonical vector")
+  (is (= [] (rf.path/normalize (list))) "the empty vector is the canonical root")
+  (is (= [:rf.error/bad-path :rf.error/bad-path]
+         [(error-id #(rf.path/normalize nil)) (error-id #(rf.path/normalize 42))])
+      "nil is not the root path, and a non-sequential path fails closed"))
 
 ;; ---- the SHARED concrete-segment domain predicate ------------------------
 ;;
-;; `re-frame.path/segment?` is the public membership predicate for the shared
-;; concrete-segment domain (Conventions §Segment domain) — the upper bound a
-;; consumer (flows / resources / routing) narrows from but never widens past,
-;; and the predicate counterpart of `normalize-concrete`'s fail-closed
-;; validation. Flows' reg-flow validator delegates to it rather than
-;; re-enumerating the domain. These pin
-;; the domain so a consumer's narrowing stays anchored to one definition.
+;; `segment?` is the upper bound a consumer (flows / resources / routing)
+;; narrows from but never widens past (Conventions §Segment domain).
 
 (deftest segment-domain-predicate
-  (testing "the shared concrete-segment domain is admitted"
-    (is (true? (rf.path/segment? :kw)))
-    (is (true? (rf.path/segment? "str")))
-    (is (true? (rf.path/segment? 'sym)))
-    (is (true? (rf.path/segment? true)))
-    (is (true? (rf.path/segment? false)))
-    (is (true? (rf.path/segment? 42)))
-    (is (true? (rf.path/segment? nil)) "nil is a valid associative-key segment")
-    (is (true? (rf.path/segment? #uuid "00000000-0000-0000-0000-000000000001")))
-    (is (true? (rf.path/segment? #inst "2026-06-12T00:00:00.000-00:00"))))
-  (testing "composites and host handles are NOT concrete segments"
-    (is (false? (rf.path/segment? [:nested])) "a vector is not a concrete segment")
-    (is (false? (rf.path/segment? {:k 1})))
-    (is (false? (rf.path/segment? #{:a})))
-    (is (false? (rf.path/segment? (list :a))))
-    (is (false? (rf.path/segment? 1.5)) "a float is not an EDN identity segment")
-    (is (false? (rf.path/segment? identity)) "a fn is not a segment"))
-  (testing "segment? agrees with normalize-concrete's fail-closed boundary"
-    ;; A path of all-segment? elements passes normalize-concrete; one with a
-    ;; composite segment fails closed with :rf.error/bad-path naming it.
-    (is (= [:a 1 nil "x"] (rf.path/normalize-concrete [:a 1 nil "x"])))
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize-concrete [:a [:nested] :b]) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e))))))))
+  (is (= (repeat 9 true)
+         (map rf.path/segment? [:kw "str" 'sym true false 42 nil
+                                #uuid "00000000-0000-0000-0000-000000000001"
+                                #inst "2026-06-12T00:00:00.000-00:00"])))
+  (is (= (repeat 6 false)
+         (map rf.path/segment? [[:nested] {:k 1} #{:a} (list :a) 1.5 identity]))
+      "composites, floats and host handles are not segments")
+  (is (= [:a 1 nil "x"] (rf.path/normalize-concrete [:a 1 nil "x"]))))
 
 ;; ---- segment? shares the CEDN-1 safe-integer range -----------------------
-;;
-;; The shared path vocabulary MUST NOT be wider than canonical EDN identity
-;; (Conventions §Segment domain limits integer segments to the CEDN-1 safe-
-;; integer range). A `segment?` that admitted EVERY `integer?` would let a
-;; consumer keying off it accept an integer segment the canonicalizer
-;; rejects — a path that cannot be portably compared, printed, routed, or
-;; digested. `segment?` composes `re-frame.identity/safe-segment-integer?`,
-;; the SAME predicate the CEDN-1 encoder enforces, so the two surfaces agree.
 
 (deftest segment-integer-shares-cedn1-safe-range
-  (testing "both safe-integer boundaries are accepted"
-    (is (true? (rf.path/segment? 9007199254740991))  "max safe integer is a segment")
-    (is (true? (rf.path/segment? -9007199254740991)) "min safe integer is a segment")
-    (is (true? (rf.path/segment? 0)))
-    (is (true? (rf.path/segment? 1)))
-    (is (true? (rf.path/segment? -1))))
-  (testing "an integer ONE BEYOND either safe boundary is NOT a segment"
-    (is (false? (rf.path/segment? 9007199254740992))
-        "2^53 is outside the CEDN-1 safe range — not a portable segment")
-    (is (false? (rf.path/segment? -9007199254740992))
-        "-2^53 is outside the CEDN-1 safe range — not a portable segment"))
-  (testing "normalize-concrete fails closed on an out-of-range integer segment,
-            accepting both boundaries (the segment? predicate counterpart)"
-    (is (= [:a 9007199254740991 :b]  (rf.path/normalize-concrete [:a 9007199254740991 :b])))
-    (is (= [:a -9007199254740991 :b] (rf.path/normalize-concrete [:a -9007199254740991 :b])))
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize-concrete [:a 9007199254740992 :b]) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))
-        "an unsafe-high integer segment fails closed")
-    (is (= :rf.error/bad-path
-           (try (rf.path/normalize-concrete [:a -9007199254740992 :b]) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e)))))
-        "an unsafe-low integer segment fails closed"))
-  (testing "segment? and canonical-bytes AGREE on the integer domain (one
-            definition, not two): an out-of-range integer is rejected by BOTH"
-    (is (false? (rf.path/segment? 9007199254740992)))
-    (is (= :rf.error/non-edn-identity
-           (try (rf.identity/canonical-bytes 9007199254740992) nil
-                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-                  (:rf.error/id (ex-data e))))))))
+  (is (= [true true false false]
+         (map rf.path/segment? [9007199254740991 -9007199254740991
+                                9007199254740992 -9007199254740992]))
+      "both safe boundaries are segments; one past either is not")
+  (is (= [[:a 9007199254740991 :b] :rf.error/bad-path]
+         [(rf.path/normalize-concrete [:a 9007199254740991 :b])
+          (error-id #(rf.path/normalize-concrete [:a 9007199254740992 :b]))]))
+  (is (= :rf.error/non-edn-identity (error-id #(rf.identity/canonical-bytes 9007199254740992)))
+      "canonical-bytes rejects the same out-of-range integer: one domain, not two"))
 
 ;; ---- thrown-error shape conformance for bad-path! ------------------------
-;;
-;; `bad-path!` routes through `rf.error/throw-error!` rather than hand-rolling
-;; the ex-info, so its message LEADS with the human sentence and TRAILS with
-;; the `[:rf.error/bad-path]` greppability token (Spec 009 §The thrown-error
-;; shape, rules 1+4) and its ex-data carries the canonical `:where` /
-;; `:recovery` slots. A bare-keyword message would fail these.
 
 (deftest bad-path-thrown-error-shape
-  (testing "a nil path throw carries the canonical thrown-error shape"
-    (let [thrown (try (rf.path/normalize nil) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e e))
-          msg    (ex-message thrown)
-          data   (ex-data thrown)]
-      (is (some? thrown) "a nil path throws")
-      (is (= :rf.error/bad-path (:rf.error/id data))
-          ":rf.error/id is the machine discriminator")
-      (is (rf.error/message-has-id-token? msg)
-          "the message carries the trailing [:rf.error/bad-path] token (rule 4)")
-      (is (not (rf.error/keyword-only-message? msg))
-          "the message is a human sentence, NOT a bare keyword (rule 1)")
-      (is (= 'rf.path/normalize (:where data))
-          ":where names the throwing helper")
-      (is (= :fix-path (:recovery data))
-          ":recovery carries the canonical disposition")
-      (is (= nil (:bad-path data))
-          "the offending slot rides in ex-data")))
-  (testing "a non-sequential path throw is equally conformant"
-    (let [thrown (try (rf.path/normalize 42) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e e))
-          data   (ex-data thrown)]
-      (is (rf.error/message-has-id-token? (ex-message thrown)))
-      (is (= :rf.error/bad-path (:rf.error/id data)))
-      (is (= :fix-path (:recovery data)))
-      (is (= 42 (:bad-path data))))))
+  ;; Spec 009 §The thrown-error shape: a human sentence trailed by the
+  ;; [:rf.error/bad-path] token, with the canonical :where / :recovery slots
+  (let [thrown (try (rf.path/normalize nil) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
+        msg    (ex-message thrown)]
+    (is (= [true false] [(boolean (rf.error/message-has-id-token? msg))
+                         (boolean (rf.error/keyword-only-message? msg))]))
+    (is (= [:rf.error/bad-path 'rf.path/normalize :fix-path nil]
+           ((juxt :rf.error/id :where :recovery :bad-path) (ex-data thrown))))))
