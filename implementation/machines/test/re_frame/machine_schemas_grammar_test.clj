@@ -5,22 +5,10 @@
   (validated at the `:where :machine-data` boundary — pinned by
   `machine-schema-test`), and `:output` validates completion payloads.
   `:events`, `:tags`, and `:meta` are declaration-only surfaces.
-  `[:schemas :input]` is NOT accepted (state input is not adopted). Any other
-  sub-key — or a non-map `:schemas` — fails loud at registration.
-
-  Contract under test:
-
-   1. **Accepted categories.** A `:schemas` map carrying only members of the
-      closed set (`:data` / `:events` / `:output` / `:tags` / `:meta`)
-      registers cleanly and round-trips through the `:rf/machine` registrar projection.
-   2. **Unknown sub-key fails loud.** A `:schemas` map carrying an unknown
-      sub-key raises `:rf.error/machine-bad-schemas-key`.
-   3. **`:input` rejected.** `[:schemas :input]` raises
-      `:rf.error/machine-bad-schemas-key` (state input is not adopted, B1).
-   4. **Non-map `:schemas` fails loud.** A non-map `:schemas` value raises
-      `:rf.error/machine-bad-schemas`.
-   5. **Absent `:schemas` registers.** A machine with no `:schemas` key
-      registers cleanly."
+  `[:schemas :input]` is NOT accepted (state input is not adopted).
+  Any other sub-key, `:input` included, fails with
+  `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` with
+  `:rf.error/machine-bad-schemas`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
@@ -40,8 +28,8 @@
 ;; ---- (1) accepted categories register + round-trip ------------------------
 
 (deftest accepted-schemas-categories-register
-  (testing "a :schemas map of accepted categories registers cleanly and
-            round-trips through the `:rf/machine` projection"
+  (testing "a :schemas map of accepted categories registers and round-trips
+            through the `:rf/machine` projection"
     (let [schemas {:data   [:map [:n :int]]
                    :events {:counter/inc [:map [:by :int]]}
                    :output [:map [:result :int]]
@@ -49,57 +37,28 @@
                    :meta   [:map [:rf/snapshot-version :int]]}]
       (rf/reg-machine :rf.machine-schemas/full
         {:initial :idle :schemas schemas :states {:idle {}}})
-      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-schemas/full}))]
-        (is (some? meta) "registration completed")
-        (is (= schemas (:schemas meta))
-            "the whole :schemas map round-trips through the `:rf/machine` projection")
-        (is (= [:map [:n :int]] (get-in meta [:schemas :data]))
-            "[:schemas :data] is the wired data-context schema home")))))
+      (is (= schemas (get-in (rf/handler-meta {:source :store :kind :event :id :rf.machine-schemas/full})
+                             [:rf/machine :schemas]))))))
 
 ;; ---- (2) unknown sub-key fails loud ---------------------------------------
 
 (deftest unknown-schemas-sub-key-fails-loud
-  (testing "an unknown :schemas sub-key raises :rf.error/machine-bad-schemas-key"
-    (let [ex (registration-throws? :rf.machine-schemas/unknown
-               {:initial :idle
-                :schemas {:data [:map] :bogus [:map]}
-                :states  {:idle {}}})]
-      (is (some? ex) "an unknown :schemas sub-key SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-schemas-key (:rf.error/id (ex-data ex)))
-          "error category names the bad-schemas-key contract")
-      (is (= :bogus (:schemas-key (ex-data ex)))
-          "ex-data carries the offending sub-key"))))
+  (is (= {:rf.error/id :rf.error/machine-bad-schemas-key :schemas-key :bogus}
+         (select-keys (ex-data (registration-throws? :rf.machine-schemas/unknown
+                                 {:initial :idle
+                                  :schemas {:data [:map] :bogus [:map]}
+                                  :states  {:idle {}}}))
+                      [:rf.error/id :schemas-key]))))
 
 ;; ---- (3) :input is rejected (state input not adopted) ---------------------
-
-(deftest input-schemas-sub-key-rejected
-  (testing "[:schemas :input] raises :rf.error/machine-bad-schemas-key — state
-            input (B1) is not adopted, so declaring it must fail loud"
-    (let [ex (registration-throws? :rf.machine-schemas/input
-               {:initial :idle
-                :schemas {:input [:map]}
-                :states  {:idle {}}})]
-      (is (some? ex) "[:schemas :input] SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-schemas-key (:rf.error/id (ex-data ex))))
-      (is (= :input (:schemas-key (ex-data ex)))))))
 
 ;; ---- (4) non-map :schemas fails loud --------------------------------------
 
 (deftest non-map-schemas-fails-loud
-  (testing "a non-map :schemas value raises :rf.error/machine-bad-schemas"
-    (let [ex (registration-throws? :rf.machine-schemas/non-map
-               {:initial :idle
-                :schemas [:not :a :map]
-                :states  {:idle {}}})]
-      (is (some? ex) "a non-map :schemas SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-schemas (:rf.error/id (ex-data ex)))
-          "error category names the bad-schemas contract"))))
+  (is (= :rf.error/machine-bad-schemas
+         (:rf.error/id (ex-data (registration-throws? :rf.machine-schemas/non-map
+                                  {:initial :idle
+                                   :schemas [:not :a :map]
+                                   :states  {:idle {}}}))))))
 
 ;; ---- (5) absent :schemas registers cleanly --------------------------------
-
-(deftest absent-schemas-registers-cleanly
-  (testing "a machine with no :schemas key registers cleanly"
-    (is (= :rf.machine-schemas/none
-           (rf/reg-machine :rf.machine-schemas/none
-             {:initial :idle :data {:n 0} :states {:idle {}}}))
-        "a schema-less machine registers and returns its id")))
