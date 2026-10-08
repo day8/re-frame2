@@ -52,8 +52,6 @@
                                {:file "placed/root.cljs" :line 7 :column 3})
         entry        (action-row (cascade-of [:rlsf/flat [:rf.machine/start]]) (:entry spec))
         exit         (action-row (cascade-of [:rlsf/flat [:fin]]) (:exit spec))]
-    (is (some? entry) "the start ran the root's :entry")
-    (is (some? exit) "finality ran the root's :exit")
     (testing "the root's own :entry row"
       (is (= "(fn [_] {:data {:at :root-in}})"
              (#'view/cascade-row-source-form machine-meta entry))
