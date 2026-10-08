@@ -38,41 +38,14 @@
     7. React-19 concurrent-rendering / suspense — provider survives
        across re-renders + suspense boundaries (act-wrapped).
 
-  Browser-only — every scenario requires a real React render so the
-  React-context tier actually pushes the Provider's value. The
-  `-dom-cljs-test$` suffix opts this file into the
-  `:browser-test` build; `:node-test` still loads it (matches
-  `cljs-test$`) and the DOM-mounting branches gate on `(browser?)`
-  and exit early under :node-test where `js/document` is absent.
-
-  Adapter target: stock Reagent.
-
-  `cross_spec_dom_cljs_test.cljs` covers the cross-spec interactions of
-  the React-context tier broadly, scenarios 4 and 5 among them; this
-  suite covers the rest of the scenario surface.
-
-  Frame-id naming convention: the scenario tests below
-  use unnamespaced frame keywords (e.g. `:rf-22ds-1-outer`); the
-  `namespaced-frame-id-survives-react-context-round-trip`
-  test pins the contract that `rf/frame-provider` with a namespaced
-  frame keyword (e.g. `:tenant/admin`) preserves the namespace across
-  the React-context round trip — the canonical surface mounts the
-  Provider via Reagent's `:r>` interop head, which bypasses
-  `convert-prop-value`. A raw-hiccup mount via
-  `[:> (.-Provider frame-context) {:value :foo/bar}]` (NOT via
-  `rf/frame-provider`) still drops the namespace under the classic
-  adapter because that path passes through stock Reagent's
-  `convert-prop-value`; the shared
-  `re-frame.adapter.context/coerce-context-value` is the defensive
-  cover for that raw-hiccup case.
-
-  Scenario-3 asserts the structured `:rf.error/frame-context-corrupted`
-  trace event fires on a corrupted `_currentValue` read. EP-0002:
-  recovery is `:no-frame-context` —
-  the reader returns nil (NOT a synthesised `:rf/default`); a public
-  frame-scoped op reading that nil then raises
-  `:rf.error/no-frame-context`. The corruption error event is its own
-  distinct diagnostic surface."
+  Every scenario needs a real React render for the context tier to push
+  the Provider's value, so `:node-test` loads this and exits early;
+  `:browser-test` asserts, on stock Reagent. A raw-hiccup
+  `[:> (.-Provider frame-context) {:value :foo/bar}]` mount still drops a
+  frame keyword's namespace through stock Reagent's `convert-prop-value`;
+  `re-frame.adapter.context/coerce-context-value` is the defensive cover
+  for that case, while `rf/frame-provider` bypasses it (pinned by
+  `namespaced-frame-id-survives-react-context-round-trip`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react" :as React]
@@ -88,12 +61,8 @@
             [re-frame.views.frame-boundary :as rf.views.frame-boundary])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
-;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
-;; maps when the ns contains ANY `async` test (a fn-form fixture's teardown runs
-;; before the async body's `done` fires). Scenario-6-ensure (the hot-reload gate)
-;; + the genuine-unmount test advance macrotask windows across a real React
-;; lifecycle. `make-reset-runtime-fixture` performs the snapshot/restore +
-;; frames-reset + adapter dispose/install this suite hand-rolled.
+;; MAP-FORM fixture (`:async? true`): a fn-form fixture's teardown would run
+;; before an async body's `done` fires.
 ;;
 ;; EP-0002: `:ambient-frame nil` OPTS OUT of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. EVERY render-based test in this
@@ -143,10 +112,7 @@
 ;; into the process-global trace listener the one `:browser-test` page shares
 ;; across every `-dom-cljs-test` namespace. Each mounting scenario below
 ;; awaits its OWN teardown so no marker outlives it.
-;; This is the local Reagent-DOM settle idiom (identical to the machines
-;; artefact's `machine_view_unmount_teardown_mounted_dom_cljs_test` and the
-;; sibling `form_3_lifecycle_dom_cljs_test`) — NOT a new runtime and NOT a
-;; shared framework; the frame-teardown runtime is only awaited.
+
 
 (defn settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
@@ -266,10 +232,8 @@
                               [rf/frame-provider {:frame outer}
                                [rf/frame-provider {:frame inner}
                                 [render-fn]]])))
-              (is (= inner @resolved-frame)
-                  "current-frame inside the doubly-wrapped subtree resolves to the INNER provider's frame")
-              (is (= :inner-app-db @resolved-value)
-                  "subscribe routes against the inner frame's app-db, not outer's, not :rf/default's")
+              (is (= [inner :inner-app-db] [@resolved-frame @resolved-value])
+                  "current-frame inside the doubly-wrapped subtree resolves to the INNER provider's frame, and subscribe reads its app-db")
               (finish)
               (catch :default e
                 (is false (str "scenario-1 threw: " (pr-str e)))
@@ -331,20 +295,16 @@
             (try
               ;; (a) No frame-provider in the tree.
               (react-dom/flushSync (fn [] (rdc/render root-a [render-fn-a])))
-              (is (some? @render-error)
-                  "no provider in the tree → current-frame-id raised (no :rf/default floor)")
               (is (= :rf.error/no-frame-context
                      (:rf.error/id (ex-data @render-error)))
-                  "the raised error is :rf.error/no-frame-context")
+                  "no provider in the tree → current-frame-id raised :rf.error/no-frame-context (no :rf/default floor)")
               ;; (b) An explicit provider scopes the frame.
               (react-dom/flushSync
                 (fn []
                   (rdc/render root-b [rf/frame-provider {:frame target}
                                       [render-fn-b]])))
-              (is (= target @resolved-frame)
-                  "an explicit frame-provider scopes the frame the probe resolves to")
-              (is (= 99 @resolved-value)
-                  "subscribe routes against the explicitly-scoped frame's app-db")
+              (is (= [target 99] [@resolved-frame @resolved-value])
+                  "an explicit frame-provider scopes the frame the probe resolves to, and subscribe reads its app-db")
               (finish)
               (catch :default e
                 (is false (str "scenario-2 threw: " (pr-str e)))
@@ -352,12 +312,8 @@
 
 ;; ---- Scenario 3: context-not-present error path ---------------------------
 ;;
-;; Per the bead: "if the React-context boundary is corrupted (component
-;; rendered through an unwrapped portal? misuse case), the failure is
-;; observable + diagnostic — emits a structured error event, not a
-;; silent fallback."
-;;
-;; When `_currentValue` is a shape
+;; A corrupted React-context boundary is observable and diagnostic, not a
+;; silent fallback. When `_currentValue` is a shape
 ;; `coerce-context-value` cannot resolve to a frame keyword (nil,
 ;; false, number, JS object, empty string), the runtime emits
 ;; `:rf.error/frame-context-corrupted` (op-type `:error`). EP-0002:
@@ -369,6 +325,14 @@
 
 (defn- corruption-traces [traces]
   (filter #(= :rf.error/frame-context-corrupted (:operation %)) @traces))
+
+(defn- read-corrupted
+  "Set the shared frame-context's `_currentValue` to `value` and read it,
+  returning `[resolved-frame corruption-events]`."
+  [traces value]
+  (reset! traces [])
+  (set! (.-_currentValue ^js rf.adapter.context/frame-context) value)
+  [(rf.adapter.context/function-component-current-frame) (vec (corruption-traces traces))])
 
 (deftest scenario-3-context-corrupted-emits-structured-error
   "Scenario 3 — context-not-present / corrupted error path.
@@ -401,63 +365,19 @@
     (with-trace-recorder! [traces]
       (try
         (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
-          (reset! traces [])
-          (set! (.-_currentValue ^js rf.adapter.context/frame-context) nil)
-          (is (nil? (rf.adapter.context/function-component-current-frame))
-              "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
-          (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one :rf.error/frame-context-corrupted event fired")
-            (is (= :error (:op-type (first errs)))
-                ":op-type is :error per Spec 009 §Error contract")
-            (is (= :no-frame-context (:recovery (first errs)))
-                ":recovery is :no-frame-context — no synthesised default")
-            (is (= :nil (-> errs first :tags :type))
-                ":tags :type names the corrupted shape")
-            (is (contains? (-> errs first :tags) :received)
-                ":tags :received carries the offending value")))
-        (testing "false _currentValue: error trace fires; resolves to nil"
-          (reset! traces [])
-          (set! (.-_currentValue ^js rf.adapter.context/frame-context) false)
-          (is (nil? (rf.adapter.context/function-component-current-frame))
-              "returns nil")
-          (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one error trace per corrupted read")
-            (is (= :boolean (-> errs first :tags :type))
-                ":tags :type identifies false as a boolean shape")))
-        (testing "numeric _currentValue: error trace fires; resolves to nil"
-          (reset! traces [])
-          (set! (.-_currentValue ^js rf.adapter.context/frame-context) 42)
-          (is (nil? (rf.adapter.context/function-component-current-frame))
-              "returns nil")
-          (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one error trace per corrupted read")
-            (is (= :number (-> errs first :tags :type))
-                ":tags :type identifies the number shape")
-            (is (= 42 (-> errs first :tags :received))
-                ":tags :received echoes the offending value")))
-        (testing "JS object _currentValue: error trace fires; resolves to nil"
-          (reset! traces [])
-          (set! (.-_currentValue ^js rf.adapter.context/frame-context) #js {:not "a frame"})
-          (is (nil? (rf.adapter.context/function-component-current-frame))
-              "returns nil")
-          (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one error trace per corrupted read")
-            (is (= :js-object (-> errs first :tags :type))
-                ":tags :type identifies the JS object shape")))
-        (testing "empty-string _currentValue: error trace fires; resolves to nil"
-          (reset! traces [])
-          (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
-          (is (nil? (rf.adapter.context/function-component-current-frame))
-              "returns nil")
-          (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one error trace per corrupted read")
-            (is (= :empty-string (-> errs first :tags :type))
-                ":tags :type identifies empty-string distinctly from string")))
+          (let [[resolved errs] (read-corrupted traces nil)
+                err             (first errs)]
+            (is (= [nil 1 :error :no-frame-context :nil true]
+                   [resolved (count errs) (:op-type err) (:recovery err)
+                    (-> err :tags :type) (contains? (:tags err) :received)])
+                "returns nil (no synthesised :rf/default), with one :rf.error/frame-context-corrupted event: :op-type :error per Spec 009 §Error contract, :recovery :no-frame-context, a :tags :type naming the shape and a :tags :received")))
+        (testing "a false, numeric, JS object or empty-string _currentValue: one error trace naming its shape; resolves to nil"
+          (doseq [[value type] [[false :boolean] [42 :number] [#js {:not "a frame"} :js-object] ["" :empty-string]]]
+            (let [[resolved errs] (read-corrupted traces value)]
+              (is (= [nil 1 type] [resolved (count errs) (-> errs first :tags :type)])
+                  (str (pr-str value) " reads as nil, with one error trace typed " type))))
+          (is (= 42 (-> (read-corrupted traces 42) second first :tags :received))
+              ":tags :received echoes the offending value"))
         (finally
           (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
 
@@ -527,14 +447,13 @@
               ;; can class-ify, behaviour can vary by mode) — we pin the
               ;; observability contract: every invocation saw the same
               ;; frame, and every subscribe returned the same value.
-              (is (>= @invocation-count 1)
-                  "the probe rendered at least once")
-              (is (every? #(= target %) @observed-frames)
-                  (str "every render observed the wrapped frame; got "
-                       (pr-str @observed-frames)))
-              (is (every? #(= :strict-mode-app-db %) @observed-values)
-                  (str "every subscribe returned the wrapped frame's app-db value; got "
-                       (pr-str @observed-values)))
+              (is (= [true true true]
+                     [(>= @invocation-count 1)
+                      (every? #(= target %) @observed-frames)
+                      (every? #(= :strict-mode-app-db %) @observed-values)])
+                  (str "the probe rendered, every render observing the wrapped frame and "
+                       "every subscribe its app-db value; got " (pr-str @observed-frames)
+                       " " (pr-str @observed-values)))
               ;; Await the deferred teardown.
               (finish)
               (catch :default e
@@ -625,10 +544,8 @@
                 (fn [_]
                   ;; (1) Sanity: the commit-phase ensure created the frame +
                   ;; seeded durable state.
-                  (is (some? (rf.frame/frame target))
-                      "frame-root created the frame at COMMIT (useLayoutEffect)")
-                  (is (= {:n 7} (rf/app-db-value target))
-                      ":initial-events seeded the durable app-db ONCE")
+                  (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                      "frame-root created the frame at COMMIT (useLayoutEffect), and :initial-events seeded the durable app-db ONCE")
                   (js/Promise.resolve
                     (js/Promise.
                       (fn [resolve _]
@@ -641,13 +558,10 @@
                   ;; survives (frame-root has no destroy effect; StrictMode did
                   ;; not corrupt it or re-seed it — the double-invoked effect's
                   ;; second make-frame was idempotent, not a replay).
-                  (is (some? (rf.frame/frame target))
-                      (str "the frame-root frame is STILL LIVE after the StrictMode "
-                           "cycle — frame-root has no destroy-on-unmount"))
-                  (is (= {:n 7} (rf/app-db-value target))
-                      (str "STRICTMODE-ONCE: durable app-db is {:n 7}, not re-seeded "
-                           "by the effect double-invoke (got "
-                           (pr-str (rf/app-db-value target)) ")"))
+                  (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                      (str "the frame-root frame is STILL LIVE after the StrictMode cycle (no "
+                           "destroy-on-unmount), its durable app-db not re-seeded by the effect "
+                           "double-invoke"))
                   ;; (2) Mutate durable state so the hot-reload remount has
                   ;; something distinct to preserve.
                   (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
@@ -668,13 +582,10 @@
                     (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
               (.then
                 (fn [_]
-                  (is (some? (rf.frame/frame target))
-                      "the frame is REUSED across the hot-reload remount (still live)")
-                  (is (= {:n 42} (rf/app-db-value target))
-                      (str "REUSE-NO-RESEED: durable {:n 42} survived the hot-reload "
-                           "remount — the re-seeding :initial-events [[:rf/set-db "
-                           "{:n 999}]] was RE-RECORDED but NOT replayed (got "
-                           (pr-str (rf/app-db-value target)) ")"))
+                  (is (= [true {:n 42}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                      (str "REUSE-NO-RESEED: the frame is REUSED across the hot-reload remount, "
+                           "its durable {:n 42} surviving — the re-seeding :initial-events "
+                           "[[:rf/set-db {:n 999}]] was RE-RECORDED but NOT replayed"))
                   nil))
               ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block`
               ;; a continuation that runs the WHOLE remainder of the run
@@ -731,8 +642,8 @@
           (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
               (.then
                 (fn [_]
-                  (is (some? (rf.frame/frame target)) "frame created at commit")
-                  (is (= {:n 3} (rf/app-db-value target)) ":initial-events seeded app-db")
+                  (is (= [true {:n 3}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                      "frame created at commit, :initial-events seeding its app-db")
                   ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
               ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
@@ -751,10 +662,8 @@
                         4)))))
               (.then
                 (fn [_]
-                  (is (some? (rf.frame/frame target))
-                      "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount)")
-                  (is (= {:n 3} (rf/app-db-value target))
-                      "durable app-db survived the unmount intact")
+                  (is (= [true {:n 3}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                      "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount), its durable app-db intact")
                   nil))
               ;; Reports; it does NOT finish — as above.
               (.catch
@@ -883,13 +792,9 @@
 ;; reflects a post-dispatch app-db change after act flushes pending
 ;; renders, and the resolution chain still lands on the wrapped frame.
 ;;
-;; React's `act()` is exposed on `react` directly at the React-19
-;; adapter floor. The harness reads it there and nowhere else; if it is
-;; unreachable — React's production bundle omits `act` by design — the
-;; test SKIPS and files a bead
-;; (per the bead's "no new test infrastructure" rule). `get-act` lives
-;; in the helpers section above (shared with the frame-root StrictMode
-;; scenarios, which also need act() to drive React's effect double-invoke).
+;; React's `act()` is exposed on `react` directly at the React-19 adapter
+;; floor; where it is unreachable (React's production bundle omits it) the
+;; test skips.
 
 (deftest scenario-7-concurrent-renders-survive-act-flush
   "Scenario 7 — React concurrent rendering survives across re-renders.
@@ -901,21 +806,17 @@
    on the wrapped frame (the provider boundary held across both
    renders).
 
-   No real Suspense boundary is mounted because the bead's
-   suspend-able primitive (a real-Suspense data-fetcher) doesn't ship
-   with this test infrastructure; the act-wrapped re-render is the
-   minimally-sufficient signal that pending React work commits
-   without corrupting the provider chain."
+   No real Suspense boundary is mounted: no suspend-able primitive ships
+   with this test infrastructure, and the act-wrapped re-render is the
+   minimally-sufficient signal that pending React work commits without
+   corrupting the provider chain."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
       (let [target :rf-22ds-7-concurrent
             act-fn (get-act)]
         (if (nil? act-fn)
-          ;; Harness gap — no act() reachable. Per the bead, file and
-          ;; skip rather than yak-shave a new harness primitive.
-          (do (is true (str "act() not reachable from this test runner; "
-                            "scenario-7 skipped — bead filed (see suite docstring)."))
+          (do (is true "act() not reachable from this test runner; scenario-7 skipped")
               (done))
           (let [_ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
                 _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -952,10 +853,8 @@
               (act-fn (fn []
                         (rdc/render root [rf/frame-provider {:frame target}
                                           [render-fn]])))
-              (is (some #{target} @observed-frames)
-                  "first render saw the wrapped frame")
-              (is (some #{1} @observed-values)
-                  "first render saw the seeded value n=1")
+              (is (= [target 1] [(some #{target} @observed-frames) (some #{1} @observed-values)])
+                  "first render saw the wrapped frame and the seeded value n=1")
               ;; Mutate the wrapped frame's app-db. The mounted probe's
               ;; subscription re-renders on the reactive substrate's SCHEDULED
               ;; flush (batched, not synchronous with dispatch-sync). Await that
@@ -967,10 +866,9 @@
               (-> (settle-macrotasks 3)
                   (.then
                     (fn [_]
-                      (is (= target (last @observed-frames))
-                          "post-dispatch render still observes the wrapped frame — provider boundary held")
-                      (is (some #{2} @observed-values)
-                          (str "post-dispatch re-render observes the incremented value n=2; got "
+                      (is (= [target 2] [(last @observed-frames) (some #{2} @observed-values)])
+                          (str "the post-dispatch re-render still observes the wrapped frame (provider "
+                               "boundary held) and the incremented value n=2; got "
                                (pr-str @observed-values)))
                       nil))
                   (.catch report!)
@@ -1029,11 +927,8 @@
                 (fn []
                   (rdc/render root [rf/frame-provider {:frame target}
                                     [render-fn]])))
-              (is (= target @observed-frame)
-                  (str "current-frame inside the wrapped subtree resolves to the FULL "
-                       "namespaced keyword (got " (pr-str @observed-frame) ")"))
-              (is (= :wrapped-value @observed-value)
-                  "subscribe routes against the namespaced frame's app-db, not :rf/default's")
+              (is (= [target :wrapped-value] [@observed-frame @observed-value])
+                  "current-frame inside the wrapped subtree resolves to the FULL namespaced keyword, and subscribe reads its app-db")
               ;; Await the deferred teardown.
               (finish)
               (catch :default e
