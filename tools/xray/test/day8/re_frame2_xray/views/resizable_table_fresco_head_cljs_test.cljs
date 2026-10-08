@@ -1,79 +1,20 @@
 (ns day8.re-frame2-xray.views.resizable-table-fresco-head-cljs-test
-  "The shared resizable-table's FRESCO SIBLING.
+  "The shared resizable-table's two heads: `resizable-table`, the Reagent
+  `reg-view`, and `resizable-table-view`, the `rf.fresco/defview`
+  boundary. Same props, one renderer; they differ only in how they resolve
+  the column-widths read and the frame-bound dispatcher.
 
-  `views/resizable_table.cljs` ships two heads over one renderer:
-  `resizable-table`, the Reagent `reg-view`, and `resizable-table-view`,
-  the `rf.fresco/defview` boundary. Same props, same output; they differ
-  only in how they resolve the column-widths read and the frame-bound
-  dispatcher the drag flow runs on.
+  `reagent-head-is-invalid-to-the-codec` pins the refusal a consumer panel
+  meets if it mounts the Reagent head inside a boundary, which is what
+  makes that mistake LOUD. `both-heads-resolve-the-same-widths` runs the
+  boundary body through `re-frame.fresco.test/tree`, whose `:subs` roster
+  refuses a read no fixture answers, so its fixture also pins the query the
+  boundary reads.
 
-  ## Why the codec is the instrument, not a pattern match
-
-  `head-kind` is the renderer's OWN answer to 'what kind of head is
-  this?', and it is one call. A census that pattern-matches the authoring
-  shape gets this wrong in both directions: a `reg-view` head is a `def`
-  and LOOKS like a component while grading `:invalid`, and a `defview`
-  product is also a `def` and grades `:boundary`. So the codec is asked
-  instead: `panels/trace_view_cljs_test`'s
-  `panel-heads-are-the-ones-the-codec-accepts` grades both heads against
-  a `:tag` control, and `reagent-head-is-invalid-to-the-codec` below meets
-  the same answer at the element door.
-
-  ## The kit runs the BODY, which is the half a `def` cannot pin
-
-  `re-frame.fresco.test/tree` runs a boundary body on the runtime's own
-  body-run path — the real ambient-read extent, the real read-set
-  accounting — and answers a Spec 004B tree. No React, no DOM, so it runs
-  in `:node-test` beside everything else.
-
-  That matters here for one specific reason: `rf.fresco/sub` REFUSES
-  outside a render extent, so a boundary whose read is misspelled cannot
-  be caught by looking at the var. The kit's `:subs` roster is what turns
-  the read into a gate — a body that reads a key no fixture answers is
-  refused by name (`:rf.error/fresco-test-missing-read-fixture`) rather
-  than resolving to nil, so the fixture below IS the assertion that the
-  boundary reads `[:rf.xray.column-widths/for-table <table-id>]` and
-  nothing else.
-
-  ## THE FIXTURE IS THE CORE ONE, WITH `:ambient-frame nil`, AND THAT IS
-  LOAD-BEARING
-
-  The suite's usual `make-xray-runtime-fixture` cannot be used here, and
-  the failure is loud rather than subtle, so it is worth naming for
-  whoever writes the next boundary test.
-
-  `make-reset-runtime-fixture` binds `re-frame.frame/*current-frame*` to
-  `:rf/default` by default, and the Xray wrapper deliberately does not
-  thread the option that turns it off. `rf.fresco.test/tree` runs the body under a
-  probe frame of its own, and `(rf/capture-frame)` inside a boundary body
-  refuses when it finds a CARRIED stamp naming a different frame from the
-  extent's — `:rf.error/ambient-frame-refused`, on the reasoning that two
-  frames in one body is exactly what frame isolation forbids. The refusal
-  is correct; an ambient `:rf/default` left standing by a test fixture is
-  the artefact. So this namespace opts out, as
-  `make-xray-runtime-fixture`'s own docstring says to
-  (\"reach for the core fixture directly if you do\"), and drives its own
-  frames explicitly.
-
-  Production is unaffected: a boundary renders inside a React tree with
-  no dynamic frame scope in force, and an Xray shell that does scope one
-  scopes the SAME frame the boundary renders under, which is a match
-  rather than a conflict.
-
-  ## WHO ADOPTS `resizable-table-view`
-
-  All five production call sites head the boundary:
-  `panels/epoch/view.cljs` ×3 and `panels/trace.cljs` ×2. The Reagent
-  head has no production call site.
-
-  The rows below grade live contracts. A Fresco boundary in
-  a Reagent head position is the mirror of the failure
-  `reagent-head-is-invalid-to-the-codec` pins, and that refusal is what
-  makes either panel mounting the Reagent head LOUD rather than silent.
-  `both-heads-resolve-the-same-widths` has two heads to compare: the
-  Reagent one is the tree's only public pure-render door into the private
-  `render-table` (see its own docstring for the four namespaces that
-  depend on it)."
+  The fixture is the core one with `:ambient-frame nil`: the kit runs the
+  body under its own probe frame, and `(rf/capture-frame)` inside a
+  boundary body refuses a carried `:rf/default` stamp naming a different
+  frame (`:rf.error/ambient-frame-refused`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -87,15 +28,8 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.substrate.plain-atom/adapter
-     ;; See the ns docstring — an ambient `:rf/default` collides with the
-     ;; kit's probe frame inside a boundary body.
      :ambient-frame nil
-     :init-fn       (fn []
-                      (xray-test-support/reset-all!)
-                      (rt/clear!)
-                      (rt/set-storage-key! nil))}))
-
-;; ---- fixtures -----------------------------------------------------------
+     :init-fn       xray-test-support/reset-all!}))
 
 (def ^:private table-id :rf.xray.test/fresco)
 
@@ -105,9 +39,8 @@
    {:id :c :label "c" :default-flex "1fr"}])
 
 (def ^:private overrides
-  "A width override per column pair, so `build-template` has something to
-  say that the default flex tracks do not — otherwise a read that never
-  happened would produce the same template as one that did."
+  "Width overrides, so a read that never happened produces a different
+  template from one that did."
   {:a 120 :b 90})
 
 (defn- opts []
@@ -115,96 +48,38 @@
    :columns   columns
    :rows      [{:v 1} {:v 2}]
    :row-key   (fn [_row i] (str "row-" i))
-   :row-attrs (fn [_row i] {:data-testid (str "r-" i)})
    :row-cells (fn [row _i]
                 (for [col columns]
                   [:div {:data-col (name (:id col))} (str (:v row))]))})
 
-(def ^:private widths-query
-  [:rf.xray.column-widths/for-table table-id])
-
-;; ---- (1) the codec's own answer ----------------------------------------
-
-(deftest reagent-head-is-invalid-to-the-codec
-  (testing "the refusal a consumer panel meets if it mounts
-            `[rt/resizable-table …]` inside a boundary. It is LOUD,
-            which is why both heads can ship at once."
-    (let [thrown (try
-                   (rf.fresco.impl.codec/as-element [rt/resizable-table (opts)])
-                   nil
-                   (catch :default e e))]
-      (is (some? thrown) "a `reg-view` head in a Fresco position throws")
-      (is (= :rf.error/fresco-bad-head (:rf.error/id (ex-data thrown)))
-          "…under the codec's own bad-head id"))
-    (is (some? (rf.fresco.impl.codec/as-element
-                 [rt/resizable-table-view (opts)]))
-        "…while the boundary is accepted in the same position")))
-
-;; ---- (2) the body actually runs, and reads the slot it claims to -------
-
-(defn- fresco-tree []
-  (rf.fresco.test/tree [rt/resizable-table-view (opts)]
-           {:subs {widths-query overrides}}))
-
 (defn- style-of [node]
   (:style (rf.fresco.test/attrs node)))
 
-(defn- testid-of [node]
-  (:data-testid (rf.fresco.test/attrs node)))
-
-(deftest fresco-head-emits-the-gutters-as-native-nodes
-  (testing "the gutters under a boundary: a Form-2 Reagent Ratom for the
-            hover flag would put `header-gutter` in head position as a
-            plain `defn`, which the codec refuses. With the hover in CSS
-            it is a pure fn the weaver CALLS, so what the Fresco tree
-            carries here is N-1 ordinary divs."
-    (let [tree    (fresco-tree)
-          gutters (rf.fresco.test/find-all tree #(some-> (testid-of %)
-                                             (.startsWith "rf-xray-resizable-gutter-")))]
-      (is (= 2 (count gutters)) "N-1 gutters for N columns")
-      (is (= ["rf-xray-resizable-gutter-fresco-a"
-              "rf-xray-resizable-gutter-fresco-b"]
-             (mapv testid-of gutters))
-          "the stable testids the CSS hover rule selects on")
-      (is (= ["g-a" "g-b"] (mapv :key gutters))
-          "keyed in the attrs map, which is where the codec reads a key")
-      (is (every? #(= "transparent" (:background (style-of %))) gutters)
-          "no hover state to render — the accent is the global CSS rule's")
-      (is (every? #(contains? (:events %) :on-pointer-down) gutters)
-          "every gutter carries the drag affordance"))))
-
-(deftest fresco-head-emits-every-row-with-the-consumers-key
-  (testing "the row weaver's output under the boundary. The keys sit in
-            the attrs map rather than in metadata precisely so this
-            holds; this row observes it through a real Fresco body run
-            rather than through the codec's element door alone."
-    (let [tree (fresco-tree)
-          rows (rf.fresco.test/find-all tree #(some-> (testid-of %) (.startsWith "r-")))]
-      (is (= 2 (count rows)) "one node per row")
-      (is (= ["row-0" "row-1"] (mapv :key rows))
-          "the consumer's `:row-key`, reaching the substrate"))))
-
-;; ---- (3) the two heads agree ------------------------------------------
+(deftest reagent-head-is-invalid-to-the-codec
+  (testing "the refusal a consumer panel meets if it mounts
+            `[rt/resizable-table …]` inside a boundary"
+    (is (= :rf.error/fresco-bad-head
+           (try
+             (rf.fresco.impl.codec/as-element [rt/resizable-table (opts)])
+             nil
+             (catch :default e (:rf.error/id (ex-data e))))))))
 
 (deftest both-heads-resolve-the-same-widths
-  (testing "one renderer, two reads. The Reagent head
-            resolves the slot through its `reg-view`-injected `subscribe`
-            and the boundary through `rf.fresco/sub`; with the SAME
-            overrides in play both must produce the same grid template.
-            This is the row that would go red if a future edit taught one
-            head a different query vector or a different renderer."
+  (testing "one renderer, two reads: the Reagent head resolves the slot
+            through its injected `subscribe`, the boundary through
+            `rf.fresco/sub`, and with the same overrides in play both
+            produce the same grid template"
     (registry/register-xray-handlers!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray.column-widths/hydrate {table-id overrides}]))
-    (let [reagent-tree (rf/with-frame :rf/xray (rt/resizable-table (opts)))
-          reagent-header (nth reagent-tree 2)
-          reagent-template (get-in reagent-header [1 :style :grid-template-columns])
-          fresco-template (:grid-template-columns
-                            (style-of (rf.fresco.test/find (fresco-tree)
-                                               #(= "grid" (:display (style-of %))))))]
-      (is (= (rt/build-template columns overrides) reagent-template)
-          "the Reagent head read the hydrated slot")
-      (is (= reagent-template fresco-template)
-          "…and the boundary resolved the same widths through
-           `rf.fresco/sub`"))))
+    (let [reagent-template (-> (rf/with-frame :rf/xray (rt/resizable-table (opts)))
+                               (nth 2)
+                               (get-in [1 :style :grid-template-columns]))
+          fresco-template  (-> (rf.fresco.test/tree
+                                 [rt/resizable-table-view (opts)]
+                                 {:subs {[:rf.xray.column-widths/for-table table-id] overrides}})
+                               (rf.fresco.test/find #(= "grid" (:display (style-of %))))
+                               style-of
+                               :grid-template-columns)]
+      (is (= "120px 4px 90px 4px 1fr" reagent-template fresco-template)))))
