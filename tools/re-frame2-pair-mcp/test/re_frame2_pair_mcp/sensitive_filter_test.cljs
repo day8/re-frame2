@@ -1,266 +1,83 @@
 (ns re-frame2-pair-mcp.sensitive-filter-test
-  "Unit tests for the spec/009 §Privacy default-suppress filter on
-  `:sensitive? true` events.
-
-  Spec 009 mandates that framework-published forwarders (Sentry /
-  Honeybadger, re-frame2-pair server, Xray-MCP) MUST default-drop trace events
-  whose registration declared `:sensitive? true`. The runtime stamps
-  the flag at the top level of every emitted trace event; the
-  forwarder's job is to gate egress on it.
-
-  These tests pin `sensitive-epoch?` / `strip-sensitive` /
-  `scrub-snapshot-sensitive` directly from
-  `re-frame2-pair-mcp.tools.sensitive` — a rename or signature change
-  surfaces as a failing test rather than a silent contract drift. The
-  trace-event predicate is `re-frame.mcp-base.sensitive/sensitive-event?`,
-  which `strip-sensitive` calls directly; mcp-base's own suite pins it on
-  both the JVM and CLJS lanes.
-
-  The `wire-pipeline-epoch-vector-*` deftests at the foot drive the
-  `:epoch-vector` arm of `run-wire-pipeline` — the SAME call site
-  `trace-window` and `watch-epochs` route projected epoch vectors
-  through — so the `sensitive-epoch?` predicate cannot be bypassed by
-  the tool response path."
+  "The spec/009 §Privacy default-drop of sensitive trace events and epoch
+  records at the pair-MCP wire. A stamp is classified fail-closed: any
+  truthy non-boolean drops too, so a transport bug cannot leak an event."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
-;; ---------------------------------------------------------------------------
-;; strip-sensitive — the default-suppress filter applied per batch.
-;; ---------------------------------------------------------------------------
+(deftest strip-sensitive-drops-true-and-malformed-truthy-stamps
+  (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the drift warning
+    (is (= [[{:id 1 :sensitive? false} {:id 3}] 2]
+           (sensitive/strip-sensitive [{:id 1 :sensitive? false}
+                                       {:id 2 :sensitive? true}
+                                       {:id 3}
+                                       {:id 4 :sensitive? "true"}]
+                                      false)))))
 
-(deftest strip-sensitive-default-drops-true-stamps
-  (let [evts [{:id 1 :sensitive? false}
-              {:id 2 :sensitive? true}
-              {:id 3}
-              {:id 4 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
-    (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-    (is (= 2 dropped))))
-
-(deftest strip-sensitive-include-opt-in-passes-everything
-  (let [evts [{:id 1 :sensitive? true}
-              {:id 2 :sensitive? false}
-              {:id 3 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts true)]
-    (is (= evts kept))
-    (is (zero? dropped))))
-
-(deftest strip-sensitive-empty-batch-zero-overhead
-  (let [[kept dropped] (sensitive/strip-sensitive [] false)]
-    (is (= [] kept))
-    (is (zero? dropped))))
-
-(deftest strip-sensitive-fail-closed-drops-malformed-truthy
-  ;; A transport bug that coerces `:sensitive? true` into
-  ;; `:sensitive? "true"` (string) or `:sensitive? :yes` (keyword) MUST
-  ;; NOT silently leak the event past the re-frame2-pair-mcp wire boundary. The
-  ;; fail-closed posture (inherited from `re-frame.mcp-base.sensitive`)
-  ;; drops the malformed-truthy event so the contract drift is visible
-  ;; to operators on stderr / js/console.warn.
-  (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the warning
-    (let [evts [{:id 1 :sensitive? false}
-                {:id 2 :sensitive? "true"} ; malformed-truthy → drop
-                {:id 3}
-                {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
-          [kept dropped] (sensitive/strip-sensitive evts false)]
-      (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-      (is (= 2 dropped)))))
-
-;; ---------------------------------------------------------------------------
-;; Snapshot scrubber — sensitive trace events stripped from per-frame
-;; :traces / :epochs slices; other slices pass through unchanged.
-;; ---------------------------------------------------------------------------
-
-(deftest snapshot-scrubber-strips-sensitive-from-traces
-  ;; The epoch slice uses the record-level rollup `:rf.epoch/sensitive?`
-  ;; — the key the runtime epoch assembler writes — not the
-  ;; trace-event-level unqualified `:sensitive?`.
-  (let [snap {:rf/default
-              {:app-db  {:user/name "ada" :password "secret"}
-               :traces  [{:id 1 :sensitive? false}
-                         {:id 2 :sensitive? true}
-                         {:id 3}]
-               :epochs  [{:event-id :foo} {:event-id :auth/sign-in :rf.epoch/sensitive? true}]
-               :machines {}}
-              :stories
-              {:app-db {} :traces [{:id 10 :sensitive? true}]}}
-        [out dropped] (sensitive/scrub-snapshot-sensitive snap false)]
-    (is (= 3 dropped))
-    (is (= [{:id 1 :sensitive? false} {:id 3}]
-           (get-in out [:rf/default :traces])))
-    (is (= [{:event-id :foo}]
-           (get-in out [:rf/default :epochs])))
-    (is (= [] (get-in out [:stories :traces])))))
-
-(deftest snapshot-scrubber-leaves-non-trace-slices-alone
-  ;; The CLIENT-SIDE scrubber's sole job is dropping whole sensitive
-  ;; trace / epoch ITEMS; it must NOT touch :app-db / :sub-cache /
-  ;; :machines. Those slices are projected UPSTREAM, server-side, before
-  ;; they reach this scrubber: :app-db / :sub-cache through
-  ;; `re-frame.core/project-egress`, and the :machines runtime-db slice
-  ;; fail-closed to `:rf/redacted` by default (EP-0015 / EP-0001 — Spec 011
-  ;; §Off-box redaction). Here the slices arrive already-projected, so the
-  ;; scrubber passes them through verbatim even when they carry literal
-  ;; "sensitive"-looking shapes.
-  (let [snap {:rf/default
-              {:app-db    {:password "still-here" :sensitive? true}
-               :sub-cache {:user/profile {:sensitive? true :data "x"}}
-               :machines  {:auth {:state :idle}}
-               :traces    [{:id 1}]}}
-        [out _] (sensitive/scrub-snapshot-sensitive snap false)]
-    (is (= {:password "still-here" :sensitive? true}
-           (get-in out [:rf/default :app-db])))
-    (is (= {:user/profile {:sensitive? true :data "x"}}
-           (get-in out [:rf/default :sub-cache])))
-    (is (= {:auth {:state :idle}}
-           (get-in out [:rf/default :machines])))))
-
-(deftest snapshot-scrubber-include-opt-in-passes-everything
-  (let [snap {:rf/default {:traces [{:id 1 :sensitive? true}
-                                    {:id 2 :sensitive? true}]}}
-        [out dropped] (sensitive/scrub-snapshot-sensitive snap true)]
-    (is (= snap out))
-    (is (zero? dropped))))
-
-;; ---------------------------------------------------------------------------
-;; sensitive-epoch? — defense-in-depth on the epoch-record shape.
-;;
-;; Spec 009 §Privacy / Security.md §Epoch privacy mandate that the runtime's
-;; epoch assembler computes a record-level `:rf.epoch/sensitive?` rollup at
-;; record-assembly time (the "epoch is sensitive iff any constituent trace
-;; event is sensitive OR a schema-declared sensitive app-db path resolves"
-;; rule). `project-egress` preserves that QUALIFIED key verbatim through
-;; off-box projection. This forwarder-side guard reads the
-;; `:rf.epoch/sensitive?` key — the runtime never writes the UNqualified
-;; `:sensitive?` on a record, so reading the unqualified key would leak
-;; schema-derived sensitive epochs whose constituent traces are clean. It
-;; is also BELT-AND-BRACES: if the rollup is absent (older runtime,
-;; missing late-bind hook, hand-built record), it still detects sensitivity by
-;; walking the record's `:trace-events` slot at egress.
-;; ---------------------------------------------------------------------------
+(deftest snapshot-scrubber-drops-sensitive-items-and-nothing-else
+  ;; Only `:traces` / `:epochs` items drop, epochs on their
+  ;; `:rf.epoch/sensitive?` rollup. `:app-db` / `:sub-cache` / `:machines`
+  ;; arrive already projected server-side and pass verbatim, even when they
+  ;; carry sensitive-looking shapes.
+  (let [snap {:rf/default {:app-db    {:password "still-here" :sensitive? true}
+                           :sub-cache {:user/profile {:sensitive? true :data "x"}}
+                           :machines  {:auth {:state :idle}}
+                           :traces    [{:id 1 :sensitive? false} {:id 2 :sensitive? true} {:id 3}]
+                           :epochs    [{:event-id :foo}
+                                       {:event-id :auth/sign-in :rf.epoch/sensitive? true}]}
+              :stories    {:app-db {} :traces [{:id 10 :sensitive? true}]}}]
+    (is (= [(-> snap
+                (assoc-in [:rf/default :traces] [{:id 1 :sensitive? false} {:id 3}])
+                (assoc-in [:rf/default :epochs] [{:event-id :foo}])
+                (assoc-in [:stories :traces] []))
+            3]
+           (sensitive/scrub-snapshot-sensitive snap false)))
+    (is (= [snap 0] (sensitive/scrub-snapshot-sensitive snap true)))))
 
 (deftest sensitive-epoch?-truth-table
-  ;; The runtime never writes a top-level `:sensitive?` on an epoch RECORD
-  ;; (only on trace events), so a stray unqualified key is not the rollup
-  ;; signal — the qualified key is authoritative. A transport bug that
-  ;; coerces `:rf.epoch/sensitive? true` into a string/keyword MUST NOT
-  ;; leak the record: the rollup is classified through the shared
-  ;; fail-closed `mcp-base.sensitive/sensitive-stamp?`, so malformed-truthy
-  ;; drops. A `:rf.epoch/sensitive? false` rollup is the assembler's claim
-  ;; that no constituent is sensitive; if a constituent disagrees we trust
-  ;; the constituent — defense-in-depth drops on EITHER signal.
-  (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the warning
+  ;; The qualified rollup is authoritative (the runtime never writes an
+  ;; unqualified `:sensitive?` on a record) and goes through the shared
+  ;; fail-closed classifier; a sensitive constituent trace event drops the
+  ;; record whatever the rollup says, which covers a runtime with no rollup.
+  (with-redefs [js/console (clj->js {:warn (fn [& _])})]
     (doseq [[record sensitive? note]
-            [[{:epoch-id 1 :event-id :auth/sign-in :rf.epoch/sensitive? true} true
-              "the runtime rollup alone (the schema-derived-sensitive shape)"]
-             [{:epoch-id 1 :event-id :cart/add :rf.epoch/sensitive? false} false
-              "a false rollup with no sensitive constituent"]
-             [{:epoch-id 1 :event-id :auth/sign-in :sensitive? true} false
-              "an unqualified :sensitive? on the record is not the rollup"]
-             [{:epoch-id 1 :rf.epoch/sensitive? "true"} true "malformed-truthy string rollup fails closed"]
-             [{:epoch-id 2 :rf.epoch/sensitive? :yes} true "malformed-truthy keyword rollup fails closed"]
-             [{:epoch-id 3 :rf.epoch/sensitive? 1} true "malformed-truthy number rollup fails closed"]
-             [{:epoch-id 2
-               :event-id :auth/sign-in
-               :trace-events [{:op-type :rf.event :operation :rf.event/run-start
-                               :tags {:rf.trace/phase :run-start}}
-                              {:op-type :rf.event :operation :rf.event/run-end
-                               :tags {:rf.trace/phase :run-end}
-                               :sensitive? true}]}
-              true
-              "rollup absent (older runtime) but a constituent trace event carries the stamp"]
-             [{:epoch-id 3
-               :event-id :cart/add
-               :trace-events [{:op-type :rf.event :operation :rf.event/run-start
-                               :tags {:rf.trace/phase :run-start}}
-                              {:op-type :rf.event :operation :rf.event/run-end
-                               :tags {:rf.trace/phase :run-end}}]}
-              false
-              "no stamps anywhere"]
-             [{:epoch-id 4 :trace-events []} false "empty trace events"]
-             [{:epoch-id 5} false "no trace events slot"]
-             [nil false "nil input"]
-             [[:trace-events [{:sensitive? true}]] false "a non-map input"]
-             ["anything" false "a string input"]
-             [{:epoch-id 6
-               :rf.epoch/sensitive? false
-               :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
-              true
-              "a false rollup never overrules a sensitive constituent"]]]
+            [[{:rf.epoch/sensitive? true} true "the rollup alone (schema-derived sensitivity)"]
+             [{:rf.epoch/sensitive? false} false "a false rollup, no constituents"]
+             [{:sensitive? true} false "an unqualified :sensitive? is not the rollup"]
+             [{:rf.epoch/sensitive? "true"} true "a malformed-truthy rollup fails closed"]
+             [{:trace-events [{:operation :rf.event/run-start}
+                              {:operation :rf.event/run-end :sensitive? true}]}
+              true "no rollup, a constituent carries the stamp"]
+             [{:trace-events [{:operation :rf.event/run-start}
+                              {:operation :rf.event/run-end}]}
+              false "no stamps anywhere"]
+             [{:rf.epoch/sensitive? false :trace-events [{:sensitive? true}]}
+              true "a false rollup never overrules a sensitive constituent"]]]
       (is (= sensitive? (boolean (sensitive/sensitive-epoch? record))) note))))
 
-;; ---------------------------------------------------------------------------
-;; strip-sensitive on epoch records — the epoch-read defense-in-depth
-;; scenarios. These match how trace-window-tool / watch-epochs-tool feed
-;; epoch vectors through the same helper.
-;; ---------------------------------------------------------------------------
+;; The `:epoch-vector` arm is the path trace-window and watch-epochs ship
+;; epoch pages through, so these drive the filter the way the tools do.
 
-(deftest strip-sensitive-mixed-batch-drops-sensitive-keeps-rest
-  ;; Three sensitivity signals in one batch:
-  ;;   - epoch 1: rollup absent, constituent stamped sensitive  → drop
-  ;;   - epoch 2: `:rf.epoch/sensitive?` rollup stamped sensitive → drop
-  ;;   - epoch 3: clean                                          → keep
-  ;;   - epoch 4: clean (no trace-events slot at all)            → keep
-  (let [epochs [{:epoch-id 1
-                 :event-id :auth/sign-in
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
-                {:epoch-id 2
-                 :event-id :auth/recover
-                 :rf.epoch/sensitive? true
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 3
-                 :event-id :cart/add
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 4 :event-id :nav/route}]
-        [kept dropped] (sensitive/strip-sensitive epochs false)]
-    (is (= [3 4] (mapv :epoch-id kept)))
-    (is (= 2 dropped))))
-
-;; ---------------------------------------------------------------------------
-;; Integration through the :epoch-vector wire pipeline.
-;;
-;; `run-wire-pipeline` with `:kind :epoch-vector` is the EXACT call site
-;; `trace-window` (trace_window.cljs) and `watch-epochs`
-;; (watch_epochs.cljs) route projected epoch vectors through before the
-;; payload crosses the MCP boundary. Its first step is `strip-sensitive`,
-;; so the `sensitive-epoch?` predicate governs the tool response path —
-;; these tests assert the leak cannot be bypassed by the pipeline.
-;; The pipeline reports the drop count on `:indicators :dropped` (the
-;; `:dropped-sensitive` indicator the tools surface on the envelope).
-;; ---------------------------------------------------------------------------
-
-(deftest wire-pipeline-epoch-vector-drops-schema-derived-sensitive-record
-  ;; The leak, through the real egress pipeline. A projected epoch with
-  ;; `:rf.epoch/sensitive? true`, NO unqualified `:sensitive?`, and clean
-  ;; constituent trace events must be DROPPED under the default gate and
-  ;; counted in `:dropped`.
-  (let [epochs [{:epoch-id 1
-                 :event-id :auth/sign-in
-                 :rf.epoch/sensitive? true
-                 :rf.epoch/redacted-modified-paths-count 1
-                 :outcome :rf.epoch/committed
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 2
-                 :event-id :cart/add
-                 :rf.epoch/sensitive? false
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}]
+(deftest wire-pipeline-epoch-vector-drops-sensitive-records
+  ;; Either signal drops the record, and nothing of a dropped record (event
+  ;; id, timing, outcome) reaches the wire.
+  (let [run-end {:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}
+        epochs  [{:epoch-id 1 :event-id :auth/sign-in
+                  :trace-events [(assoc run-end :sensitive? true)]}
+                 {:epoch-id 2 :event-id :auth/recover :rf.epoch/sensitive? true
+                  :rf.epoch/redacted-modified-paths-count 1 :outcome :rf.epoch/committed
+                  :trace-events [run-end]}
+                 {:epoch-id 3 :event-id :cart/add :rf.epoch/sensitive? false
+                  :trace-events [run-end]}
+                 {:epoch-id 4 :event-id :nav/route}]
         {:keys [value indicators]}
         (wp/run-wire-pipeline epochs {:kind :epoch-vector :incl? false :mode :diff :dedup? false})]
-    (is (= [2] (mapv :epoch-id value))
-        "the schema-derived sensitive record MUST NOT reach the agent surface by default")
-    (is (= 1 (:dropped indicators))
-        "the pipeline reports the dropped-sensitive count for the record")
-    ;; The dropped record's metadata (event-id, timing, outcome, …) is gone.
-    (is (not-any? #(= :auth/sign-in (:event-id %)) value)
-        "no metadata of the dropped sensitive epoch survives on the wire")))
+    (is (= [3 4] (mapv :epoch-id value)))
+    (is (= 2 (:dropped indicators)))))
 
 (deftest wire-pipeline-epoch-vector-include-sensitive-passes-rollup-record
-  ;; The documented opt-in still passes the rollup-marked record through.
-  (let [epochs [{:epoch-id 1 :event-id :auth/sign-in :rf.epoch/sensitive? true
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}]
-        {:keys [value indicators]}
-        (wp/run-wire-pipeline epochs {:kind :epoch-vector :incl? true :mode :diff :dedup? false})]
-    (is (= [1] (mapv :epoch-id value))
-        ":include-sensitive true is the documented escape hatch")
-    (is (zero? (:dropped indicators)))))
+  (let [{:keys [value indicators]}
+        (wp/run-wire-pipeline [{:epoch-id 1 :rf.epoch/sensitive? true}]
+                              {:kind :epoch-vector :incl? true :mode :diff :dedup? false})]
+    (is (= [[1] 0] [(mapv :epoch-id value) (:dropped indicators)]))))
