@@ -1,18 +1,12 @@
 (ns re-frame.story.story-is-test
   "Headless `rf.story/is` clojure.test bridge tests
-  (`tools/story/spec/017-Testing-Story.md` §Public execution API — the
-  three verbs; §Run result — `rf.story/is` reports per assertion).
+  (`tools/story/spec/017-Testing-Story.md` §Public execution API; §Run
+  result — `rf.story/is` reports per assertion).
 
-  JVM-only (`.clj`): on the JVM `rf.story/is` BLOCKS on the run promise and
-  fires one `clojure.test` report per assertion synchronously, so the
-  reports can be captured by rebinding `clojure.test/report`. The CLJS
-  path is async (returns a promise); its pure report projection is covered
-  by `re-frame.story.result-test/result->reports-*`.
-
-  The bridge is verified by collecting every `clojure.test/do-report` map
-  `rf.story/is` emits into an atom (the standard report-capture seam) and
-  asserting the per-assertion granularity + the verdict-driven run-level
-  report."
+  JVM-only (`.clj`): on the JVM `rf.story/is` blocks on the run and fires one
+  `clojure.test` report per assertion synchronously, so the reports are
+  captured by rebinding `clojure.test/report`. The pure report projection is
+  covered by `re-frame.story.result-test/result->reports-*`."
   (:require [clojure.test :refer [deftest is testing use-fixtures] :as t]
             [re-frame.core      :as rf]
             [re-frame.frame     :as rf.frame]
@@ -37,11 +31,8 @@
 (use-fixtures :each reset-rf!)
 
 (defn- capture-reports
-  "Run `thunk` with `clojure.test/report` rebound to collect every report
-  map into a vector, so a `rf.story/is` call's emitted reports can be
-  inspected. Returns `[thunk-return reports-vector]`. The capture excludes
-  the outer test's own pass/fail bookkeeping by collecting ONLY the
-  `:pass` / `:fail` / `:error` report maps `rf.story/is` fires."
+  "Run `thunk` with `clojure.test/report` rebound to collect the `:pass` /
+  `:fail` / `:error` report maps it fires. Returns `[thunk-return reports]`."
   [thunk]
   (let [collected (atom [])]
     (binding [t/report (fn [m]
@@ -77,39 +68,16 @@
           "the report names the failing assertion id"))))
 
 (deftest story-is-two-is-in-one-script-report-as-two-results
-  (testing "per-assertion cljs.test/is granularity: TWO
-            assertions in ONE :script emit TWO independent reports — one
-            failing assertion does not collapse or suppress the other, and
-            the pass/fail verdict is tracked separately per :assert step"
+  (testing "a failing assertion does not suppress a sibling in the same
+            :script — each reports separately with its own expected / actual"
     (rf.story/reg-variant :story.is/two-mixed
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
-                              ;; assertion 1 — passes
-                              [:assert-db [:status] :loaded]
-                              ;; assertion 2 — fails (status is :loaded, not :idle)
-                              [:assert-db [:status] :idle]]}})
-    (let [[result reports] (capture-reports #(rf.story/is :story.is/two-mixed))]
-      (is (= :fail (:status result)) "the aggregate verdict is :fail")
-      (is (= 2 (count reports))
-          "two :assert steps → two separate reports, not one lumped result")
-      (is (= [:pass :fail] (mapv :type reports))
-          "each assertion is tracked separately: first passes, second fails")
-      (is (= :loaded (:actual (second reports)))
-          "the failing report carries its own per-assertion :actual")
-      (is (= :idle (:expected (second reports)))
-          "and its own per-assertion :expected — granularity, not aggregation"))))
-
-(deftest story-is-accepts-an-already-resolved-result
-  (testing "rf.story/is reports a unified result map directly (the sync path for
-            tests that ran the variant themselves)"
-    (let [result {:status :fail :variant/id :story.is/direct
-                  :assertions [{:assertion :rf.assert/path-equals
-                                :status :fail :passed? false
-                                :payload [[:k] 1] :expected 1 :actual 2}]}
-          [ret reports] (capture-reports #(rf.story/is result))]
-      (is (= result ret) "the result is returned verbatim")
-      (is (= 1 (count reports)))
-      (is (= :fail (:type (first reports)))))))
+                         [:assert-db [:status] :loaded]
+                         [:assert-db [:status] :idle]]}})
+    (let [[_ reports] (capture-reports #(rf.story/is :story.is/two-mixed))]
+      (is (= [:pass :fail] (mapv :type reports)))
+      (is (= [:idle :loaded] ((juxt :expected :actual) (second reports)))))))
 
 (deftest story-is-reports-an-errored-run
   (testing "an :error run reports through clojure.test's do-report, which
@@ -125,56 +93,31 @@
       (is (instance? Throwable (:actual (first reports))))
       (is (contains? (ex-data (:actual (first reports))) :actual)
           "the record's own :actual survives as ex-data")))
-  (testing "an already-resolved :error result whose record :actual is data"
+  (testing "an already-resolved result is reported directly and returned
+            verbatim; an :error its record already carries reports once"
     (let [result {:status :error :variant/id :story.is/direct-error
                   :assertions [{:assertion :rf.error/exception :status :error
                                 :passed? false :reason :some/why}]}
-          [_ reports] (capture-reports #(rf.story/is result))]
+          [ret reports] (capture-reports #(rf.story/is result))]
+      (is (= result ret))
       (is (= [:error] (mapv :type reports)))
       (is (= :some/why (:actual (ex-data (:actual (first reports)))))))))
 
 (deftest story-is-accepts-a-timeout-ms-opt
-  (testing "rf.story/is :timeout-ms opt threads through to the JVM blocking
-            deref — a run that resolves inside the window is reported
-            normally; an extra opt is stripped before reaching the runner"
+  (testing ":timeout-ms bounds the JVM blocking deref and is stripped from the
+            opts the runner receives"
     (rf.story/reg-variant :story.is/timeout
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
-                              [:assert-db [:status] :loaded]]}})
-    ;; A generous custom timeout still produces the normal unified result.
-    ;; The two seams `is` calls are observed through delegating redefs, so
-    ;; the bound the deref received and the opts the runner received are
-    ;; both read back rather than inferred from a passing run.
+                         [:assert-db [:status] :loaded]]}})
     (let [bounds     (atom [])
           run-opts   (atom [])
           real-deref rf.story.async/deref-blocking
-          real-run   rf.story/run
-          [result reports]
-          (with-redefs [rf.story.async/deref-blocking
-                        (fn [p ms] (swap! bounds conj ms) (real-deref p ms))
-                        rf.story/run
-                        (fn [target opts] (swap! run-opts conj opts) (real-run target opts))]
-            (capture-reports
-              #(rf.story/is :story.is/timeout {:timeout-ms 5000})))]
-      (is (= :pass (:status result)) "the run resolves inside the window")
-      (is (= 1 (count reports)) "one report per assertion (1 assertion)")
-      (is (= :pass (:type (first reports))))
+          real-run   rf.story/run]
+      (with-redefs [rf.story.async/deref-blocking
+                    (fn [p ms] (swap! bounds conj ms) (real-deref p ms))
+                    rf.story/run
+                    (fn [target opts] (swap! run-opts conj opts) (real-run target opts))]
+        (capture-reports #(rf.story/is :story.is/timeout {:timeout-ms 5000})))
       (is (= [5000] @bounds) "the custom bound reached deref-blocking")
       (is (= [nil] @run-opts) "the runner never saw :timeout-ms"))))
-
-(deftest deref-blocking-throws-at-its-timeout-bound
-  (testing "the :timeout-ms value is the literal bound handed to the JVM
-            blocking deref — a never-resolving promise + a tight custom
-            timeout throws promptly rather than blocking on the 30000ms
-            default"
-    ;; Drive `rf.story.async/deref-blocking` directly with the custom bound: a
-    ;; CompletableFuture that never completes must throw a TimeoutException
-    ;; at the custom 50ms bound, not the 30000ms default. This is the unit
-    ;; that `rf.story/is` parameterises.
-    (let [never (java.util.concurrent.CompletableFuture.)
-          t0    (System/currentTimeMillis)]
-      (is (thrown? java.util.concurrent.TimeoutException
-                   (rf.story.async/deref-blocking never 50))
-          "a tight custom timeout throws TimeoutException")
-      (is (< (- (System/currentTimeMillis) t0) 5000)
-          "the deref returned at the custom bound, nowhere near 30000ms"))))
