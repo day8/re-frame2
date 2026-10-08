@@ -248,17 +248,12 @@
 (rf.late-bind/set-fn! :trace.cascade/set-focus-predicate!   set-focus-predicate!)
 (rf.late-bind/set-fn! :trace.cascade/clear-focus-predicate! clear-focus-predicate!)
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; The cascade aggregator is dev-only; CLJS production bundles must NOT
-;; pull this ns in (the require in `re-frame.core` is gated under
-;; `#?(:clj ...)` so Closure DCE strips the body). The bundle-isolation
-;; gate (`implementation/scripts/check-bundle-isolation.cjs`, its
-;; `trace-cascade` entry) does NOT search for the string below: it greps
-;; the emitted module for `trace.cascade/set-focus-predicate!`, the
-;; late-bind key published above. Its presence in a release bundle means a
-;; `:require` on `re-frame.trace.cascade` slipped into a core path that
+;; CLJS production bundles must NOT pull this ns in; `re-frame.core` requires
+;; it under `#?@(:clj ...)` only. The bundle-isolation gate
+;; (`implementation/scripts/check-bundle-isolation.cjs`, its `trace-cascade`
+;; entry) greps the emitted module for `trace.cascade/set-focus-predicate!`,
+;; the late-bind key published above. Its presence in a release bundle means
+;; a `:require` on `re-frame.trace.cascade` slipped into a core path that
 ;; survives production CLJS compilation.
-
-(def ^:no-doc bundle-isolation-sentinel
-  "rf.trace.cascade/sentinel:rf2-931pm:do-not-rename")
