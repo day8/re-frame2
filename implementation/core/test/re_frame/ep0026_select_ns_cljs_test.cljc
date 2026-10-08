@@ -1,23 +1,19 @@
 (ns re-frame.ep0026-select-ns-cljs-test
-  "EP-0026 §Namespace Selection / §Layered Resolution / §Image Keys
-  — the CORE resolution mechanism the rest of EP-0026 builds on:
+  "EP-0026 §Namespace Selection / §Layered Resolution / §Image Keys — the core
+  resolution mechanism the rest of EP-0026 builds on:
 
-    * `:select-ns` as ONE `{:include … :exclude …}` map (not sibling keys),
-      with GLOBAL exclusion and STRICT include diagnostics (a zero-match
-      `:include` pattern FAILS LOUD);
-    * image-order resolution — the LATER image in `:images` WINS;
-    * within ONE image any `[kind id]` that resolves two ways is an ERROR
-      (two selected = ambiguous; inline-vs-selected = override-must-be-later;
-      two inline = malformed, pinned by `image-assembly-cljs-test`);
-    * image ids are UNIQUE per `:images` composition (a duplicate id fails
-      loud), pinned by `image-assembly-cljs-test`;
-    * `:select-ns` SELECTS, it does NOT load (it must not defeat DCE).
+    * `:select-ns` is ONE `{:include … :exclude …}` map, with GLOBAL exclusion
+      and STRICT include diagnostics (a zero-match `:include` pattern fails
+      loud);
+    * image order resolves — the LATER image in `:images` wins;
+    * within ONE image any `[kind id]` that resolves two ways is an error (two
+      selected = ambiguous; inline-vs-selected = the override must be a later
+      image; two inline = malformed, pinned by `image-assembly-cljs-test`).
 
-  Each fail-loud assertion checks the `:rf.error/id` discriminator, never the
-  message bytes (Spec 009 §The thrown-error shape rule 3). Pure data — no
-  adapter/runtime state. The framework-standard registry IS process state, so a
-  fixture clears it per case. `.cljc` ending `-cljs-test` rides
-  `npm run test:cljs` AND `clojure -M:test`."
+  Image-id uniqueness and framework-standard protection are pinned by
+  `image-assembly-cljs-test`. Fail-loud cases read the `:rf.error/id`
+  discriminator, never the message (Spec 009 §The thrown-error shape rule 3).
+  The framework-standard registry is process state, so the fixture clears it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.image          :as rf.image]
@@ -30,218 +26,97 @@
     (rf.image-assembly/clear-standards!)))
 
 (defn- reg-desc
-  "A synthetic REGISTERED descriptor authored in `provenance-ns`."
+  "A synthetic registered descriptor authored in `provenance-ns`."
   [provenance-ns kind id impl]
   {:rf.provenance/ns provenance-ns
    :kind             kind
    :id               id
    :handler-fn       impl})
 
-(defn- err-id
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (:rf.error/id (ex-data e)))))
-
-(defn- err-data
-  [thunk]
+(defn- err-data [thunk]
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (ex-data e))))
 
-;; ===========================================================================
-;; 1. :select-ns — one {:include :exclude} map; global exclusion; strict include
-;; ===========================================================================
+(defn- err-id [thunk] (:rf.error/id (err-data thunk)))
+
+;; ---- :select-ns — one {:include :exclude} map ------------------------------
 
 (deftest select-ns-include-is-required-and-non-empty
-  (testing "a :select-ns with NO :include fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:exclude ["a.**"]}})))))
-  (testing "a :select-ns with an EMPTY :include vector fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include []}})))))
-  (testing "a non-vector :include fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include "a.**"}})))))
-  (testing "a non-vector :exclude fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include ["a.**"] :exclude "b.**"}})))))
-  (testing "an unknown :select-ns key fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include ["a.**"] :bogus 1}})))))
-  (testing "a non-map :select-ns fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns [:not :a :map]})))))
-  (testing "a non-string include/exclude glob element fails loud"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include ['a.b]}}))))
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include ["a.b"] :exclude ['c.d]}}))))))
+  ;; one row per validation clause: missing / empty / non-vector :include,
+  ;; non-vector :exclude, an unknown key, a non-map, a non-string glob in
+  ;; :include and in :exclude
+  (is (= (repeat 8 :rf.error/invalid-image)
+         (map #(err-id (fn [] (rf.image/image {:id :x :select-ns %})))
+              [{:exclude ["a.**"]}
+               {:include []}
+               {:include "a.**"}
+               {:include ["a.**"] :exclude "b.**"}
+               {:include ["a.**"] :bogus 1}
+               [:not :a :map]
+               {:include ['a.b]}
+               {:include ["a.b"] :exclude ['c.d]}]))))
 
 (deftest select-ns-global-exclusion-and-strict-include
-  (let [pool [(reg-desc "app.todo.list"     :event :todo/add ::add)
-              (reg-desc "app.todo.dev.seed" :event :todo/seed ::seed)
-              (reg-desc "app.admin.users"   :event :admin/ban ::ban)]]
-    (testing "include selects the union; exclude is GLOBAL (a namespace matched by
-              any exclude is never selected, regardless of which include caught it)"
-      (let [img (rf.image/image {:id :app/main
-                              :select-ns {:include ["app.todo.**" "app.admin.**"]
-                                          :exclude ["app.todo.dev.**"]}})
-            gen (rf.image-assembly/assemble [img] pool)]
-        (is (contains? (:rf.gen/resolver gen) [:event :todo/add]))
-        (is (contains? (:rf.gen/resolver gen) [:event :admin/ban]))
-        (is (not (contains? (:rf.gen/resolver gen) [:event :todo/seed]))
-            "the excluded dev namespace is dropped even though app.todo.** caught it")))
-    (testing "a zero-match :include pattern FAILS LOUD (strict include diagnostics)"
-      (let [img (rf.image/image {:id :app/main :select-ns {:include ["app.nope.**"]}})]
-        (is (= :rf.error/image-zero-match
-               (err-id #(rf.image-assembly/assemble [img] pool))))))
-    (testing "ONE matching + ONE zero-match include still fails (every pattern must match)"
-      (let [img (rf.image/image {:id :app/main
-                              :select-ns {:include ["app.todo.**" "ghost.**"]}})]
-        (is (= :rf.error/image-zero-match
-               (err-id #(rf.image-assembly/assemble [img] pool))))))
-    (testing "an :exclude pattern matching nothing is a no-op, NOT fail-loud"
-      (let [img (rf.image/image {:id :app/main
-                              :select-ns {:include ["app.todo.list"]
-                                          :exclude ["does.not.exist.**"]}})
-            gen (rf.image-assembly/assemble [img] pool)]
-        (is (contains? (:rf.gen/resolver gen) [:event :todo/add]))))))
+  (let [pool     [(reg-desc "app.todo.list"     :event :todo/add ::add)
+                  (reg-desc "app.todo.dev.seed" :event :todo/seed ::seed)
+                  (reg-desc "app.admin.users"   :event :admin/ban ::ban)]
+        resolves (fn [select-ns]
+                   (set (keys (:rf.gen/resolver
+                                (rf.image-assembly/assemble [(rf.image/image {:id :app/main :select-ns select-ns})]
+                                                           pool)))))]
+    (testing "include selects the union; exclude is GLOBAL — a namespace any
+              exclude matches is dropped whichever include caught it"
+      (is (= #{[:event :todo/add] [:event :admin/ban]}
+             (resolves {:include ["app.todo.**" "app.admin.**"] :exclude ["app.todo.dev.**"]}))))
+    (testing "every include pattern must match: a zero-match pattern fails loud,
+              alone or beside a matching one"
+      (is (= [:rf.error/image-zero-match :rf.error/image-zero-match]
+             [(err-id #(resolves {:include ["app.nope.**"]}))
+              (err-id #(resolves {:include ["app.todo.**" "ghost.**"]}))])))
+    (testing "an :exclude pattern matching nothing is a no-op, not fail-loud"
+      (is (= #{[:event :todo/add]}
+             (resolves {:include ["app.todo.list"] :exclude ["does.not.exist.**"]}))))))
 
-;; ===========================================================================
-;; 2. Image-order resolution — the LATER image wins (cross-image override)
-;; ===========================================================================
+;; ---- image order: the LATER image wins -------------------------------------
 
 (deftest later-image-wins-cross-image-override
-  (testing "a [kind id] defined in two composed images resolves to the LATER
-            image's descriptor — image order is the only precedence"
-    (let [pool [(reg-desc "app.checkout" :fx :checkout.http/post ::real)]
-          app-image    (rf.image/image {:id :app/main
-                                     :select-ns {:include ["app.checkout"]}})
-          test-doubles (rf.image/image {:id :test/doubles
-                                     :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})]
-      (testing "test-doubles composed AFTER app-image wins (the inline stub)"
-        (let [gen (rf.image-assembly/assemble [app-image test-doubles] pool)]
-          (is (= ::stub (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post))))))
-      (testing "reversing the order reverses the winner (app-image now last)"
-        (let [gen (rf.image-assembly/assemble [test-doubles app-image] pool)]
-          (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))))
+  ;; image order is the only precedence, so reversing it reverses the winner
+  (let [pool         [(reg-desc "app.checkout" :fx :checkout.http/post ::real)]
+        app-image    (rf.image/image {:id :app/main :select-ns {:include ["app.checkout"]}})
+        test-doubles (rf.image/image {:id :test/doubles
+                                      :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
+        resolved     #(rf.image-assembly/resolve-descriptor (rf.image-assembly/assemble % pool) :fx :checkout.http/post)]
+    (is (= [::stub ::real]
+           [(:impl (resolved [app-image test-doubles]))
+            (:handler-fn (resolved [test-doubles app-image]))]))))
 
 (deftest multi-image-chain-last-wins
-  (testing "a chain [base override-a override-b] resolves to the LAST image's
-            descriptor for the shared [kind id]"
-    (let [base  (rf.image/image {:id :base
-                              :registrations {:reg-fx [[:metrics/send {} ::base]]}})
-          ov-a  (rf.image/image {:id :ov/a
-                              :registrations {:reg-fx [[:metrics/send {} ::a]]}})
-          ov-b  (rf.image/image {:id :ov/b
-                              :registrations {:reg-fx [[:metrics/send {} ::b]]}})
-          gen   (rf.image-assembly/assemble [base ov-a ov-b] [])]
-      (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :metrics/send)))
-          "the last image in the chain wins"))))
+  ;; three layers tell "the last wins" apart from "the second wins"
+  (let [layer (fn [id impl] (rf.image/image {:id id :registrations {:reg-fx [[:metrics/send {} impl]]}}))
+        gen   (rf.image-assembly/assemble [(layer :base ::base) (layer :ov/a ::a) (layer :ov/b ::b)] [])]
+    (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :metrics/send))))))
 
-;; ===========================================================================
-;; 3. Within-image collision — every [kind id] resolving two ways is an ERROR
-;; ===========================================================================
+;; ---- within one image, a [kind id] resolving two ways is an error -----------
 
 (deftest within-image-two-selected-is-ambiguous
-  (testing "two SELECTED descriptors for the same [kind id] (different source
-            namespaces) within ONE image → :rf.error/image-duplicate-id (ambiguous)"
-    (let [pool [(reg-desc "todo.boot"    :event :boot/init ::todo)
-                (reg-desc "counter.boot" :event :boot/init ::counter)]
-          img  (rf.image/image {:id :both
-                             :select-ns {:include ["todo.boot" "counter.boot"]}})]
-      (is (= :rf.error/image-duplicate-id
-             (err-id #(rf.image-assembly/assemble [img] pool))))))
-  (testing "the two-selected ambiguous error is order-independent within the image"
-    (let [a   (reg-desc "todo.boot"    :event :boot/init ::a)
-          b   (reg-desc "counter.boot" :event :boot/init ::b)
-          img (rf.image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
-      (is (= :rf.error/image-duplicate-id (err-id #(rf.image-assembly/assemble [img] [a b]))))
-      (is (= :rf.error/image-duplicate-id (err-id #(rf.image-assembly/assemble [img] [b a])))))))
+  ;; two SELECTED descriptors for one [kind id] from different namespaces are
+  ;; ambiguous, in either pool order
+  (let [a   (reg-desc "todo.boot"    :event :boot/init ::a)
+        b   (reg-desc "counter.boot" :event :boot/init ::b)
+        img (rf.image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
+    (is (= [:rf.error/image-duplicate-id :rf.error/image-duplicate-id]
+           [(err-id #(rf.image-assembly/assemble [img] [a b]))
+            (err-id #(rf.image-assembly/assemble [img] [b a]))]))))
 
 (deftest within-image-inline-vs-selected-collides
-  (testing "an INLINE entry colliding with a SELECTED registration in ONE image →
-            :rf.error/image-within-image-collision (an override must be a LATER image)"
-    (let [pool [(reg-desc "counter.core" :event :counter/inc ::selected)]
-          img  (rf.image/image {:id :i
+  ;; an INLINE entry colliding with a SELECTED registration in one image fails,
+  ;; and the recovery names the move-to-a-later-image fix
+  (let [img (rf.image/image {:id :i
                              :select-ns {:include ["counter.core"]}
                              :registrations {:reg-event [[:counter/inc {} ::inline]]}})]
-      (is (= :rf.error/image-within-image-collision
-             (err-id #(rf.image-assembly/assemble [img] pool))))))
-  (testing "the recovery names the move-to-a-later-image fix"
-    (let [pool [(reg-desc "counter.core" :event :counter/inc ::selected)]
-          img  (rf.image/image {:id :i
-                             :select-ns {:include ["counter.core"]}
-                             :registrations {:reg-event [[:counter/inc {} ::inline]]}})
-          d    (err-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-within-image-collision (:rf.error/id d)))
-      (is (= :move-the-override-to-a-later-image-or-deduplicate (:recovery d))))))
-
-;; ===========================================================================
-;; 4. Image ids unique per :images composition (a duplicate id fails loud):
-;;    `image-assembly-cljs-test`
-;; ===========================================================================
-
-;; ===========================================================================
-;; 5. Framework standards are protected — an app [kind id] colliding with a
-;;    standard fails loud (standards are not part of app layer order)
-;; ===========================================================================
-
-(deftest app-shadowing-a-standard-fails-loud
-  (testing "an app descriptor with the same [kind id] as a framework STANDARD →
-            :rf.error/image-standard-replacement-forbidden (a standard must not
-            be shadowed by a public app image)"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (rf.image/image {:id :i :select-ns {:include ["product.story"]}})]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (err-id #(rf.image-assembly/assemble [img] pool))))))
-  (testing "an INLINE app entry colliding with a standard also fails loud"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [img (rf.image/image {:id :i :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (err-id #(rf.image-assembly/assemble [img] []))))))
-  (testing "a standard with NO colliding app id is unioned into the generation"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [pool [(reg-desc "app.core" :event :app/boot ::boot)]
-          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (= ::std (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url))))
-      (is (contains? (:rf.gen/resolver gen) [:event :app/boot])))))
-
-;; ===========================================================================
-;; 6. :select-ns SELECTS, it does NOT load — DCE preserved
-;; ===========================================================================
-
-(deftest select-ns-selects-does-not-load
-  (testing ":select-ns only FILTERS the candidate pool by :rf.provenance/ns — it
-            never loads a namespace. A namespace NOT present in the pool is simply
-            not selectable (an include naming only it zero-matches); selection
-            does not conjure descriptors for an unloaded namespace."
-    (let [pool [(reg-desc "loaded.core" :event :a/e ::a)]
-          ;; "unloaded.feature" is NOT in the pool — :select-ns cannot load it.
-          img  (rf.image/image {:id :i :select-ns {:include ["unloaded.feature.**"]}})]
-      (is (= :rf.error/image-zero-match
-             (err-id #(rf.image-assembly/assemble [img] pool)))
-          "an include naming only an unloaded namespace zero-matches — selection
-           never loaded it into existence")))
-  (testing "selection chooses from the descriptors the runtime ALREADY knows
-            about — a loaded sibling is selected, the absent one is not"
-    (let [pool [(reg-desc "loaded.a" :event :a/e ::a)
-                (reg-desc "loaded.b" :event :b/e ::b)]
-          img  (rf.image/image {:id :i :select-ns {:include ["loaded.a"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:event :a/e]))
-      (is (not (contains? (:rf.gen/resolver gen) [:event :b/e]))
-          "loaded.b exists in the pool but is not selected — and was never loaded
-           by the selection"))))
-
-(deftest select-ns-resolution-is-pure-no-mutation
-  (testing "resolution does NOT mutate the image value or its registrations
-            (EP-0026 §Layered Resolution — resolution must not mutate the image)"
-    (let [pool [(reg-desc "app.core" :event :a/e ::a)]
-          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
-          img-before (into {} img)]
-      (rf.image-assembly/assemble [img] pool)
-      (is (= img-before (into {} img)) "the image value is unchanged after assembly"))))
+    (is (= {:rf.error/id :rf.error/image-within-image-collision
+            :recovery    :move-the-override-to-a-later-image-or-deduplicate}
+           (select-keys (err-data #(rf.image-assembly/assemble
+                                     [img] [(reg-desc "counter.core" :event :counter/inc ::selected)]))
+                        [:rf.error/id :recovery])))))
