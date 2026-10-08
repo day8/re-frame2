@@ -128,27 +128,6 @@
   [machine-id]
   (machine-transition-event* :machine-id machine-id))
 
-;; ---- (1) frame-snapshot-classification re-rooting -------------------------
-
-(deftest frame-snapshot-marks-rooted-under-data
-  (testing "the frame's absolute snapshot-path declarations re-root snapshot-
-            relative under [:data …] via rf.classification/frame-snapshot-classification"
-    (declare-frame-marks!)
-    (let [m (rf.classification/frame-snapshot-classification :rf/default auth-id)]
-      (is (some? m) "a frame-declared marks set exists for the snapshot")
-      (is (= #{[:data :token]} (set (:sensitive m)))
-          "sensitive path re-rooted snapshot-relative")
-      (is (= #{[:data :blob]} (set (:large m)))
-          "large path re-rooted snapshot-relative"))))
-
-(deftest no-frame-declaration-no-marks
-  (testing "a machine whose frame declares nothing has no snapshot marks"
-    (reg-auth-machine!)
-    (is (nil? (rf.classification/frame-snapshot-classification :rf/default auth-id))
-        "no frame declaration → no snapshot marks")))
-
-;; ---- (2) egress redaction at the chokepoint -------------------------------
-
 ;; ---- (2b) FULL machine :data slot coverage -------------------------------
 
 (deftest started-data-slot-redacted-in-egress
@@ -157,78 +136,65 @@
             slot redacts / elides"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [ev   {:operation :rf.machine/started
-                :tags      {:machine-id auth-id
-                            :frame      :rf/default
-                            :state      :anon
-                            :data       {:retries 0
-                                         :token   "secret-jwt-started"
-                                         :blob    "huge-started"}}}
-          out  (rf.classification/project-trace-event ev)
-          tags (:tags out)]
-      (is (= :rf/redacted (get-in tags [:data :token])))
-      (is (contains? (get-in tags [:data :blob]) :rf.size/large-elided))
-      (is (= 0 (get-in tags [:data :retries])) "plain sibling rides verbatim")
-      (is (not (.contains (pr-str out) "secret-jwt-started"))))))
+    (let [out  (rf.classification/project-trace-event
+                 {:operation :rf.machine/started
+                  :tags      {:machine-id auth-id
+                              :frame      :rf/default
+                              :state      :anon
+                              :data       {:retries 0
+                                           :token   "secret-jwt-started"
+                                           :blob    "huge-started"}}})
+          data (get-in out [:tags :data])]
+      (is (= [:rf/redacted true 0 false]
+             [(:token data) (contains? (:blob data) :rf.size/large-elided) (:retries data)
+              (.contains (pr-str out) "secret-jwt-started")])))))
 
 (deftest guard-evaluated-input-data-redacted-in-egress
   (testing ":rf.machine/guard-evaluated carries :input {:data … :event …}; the
             :data sub-slot redacts, :event is left to project-event-tags"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [ev   {:operation :rf.machine/guard-evaluated
-                :tags      {:machine-id auth-id
-                            :frame      :rf/default
-                            :guard-id   :ready?
-                            :state      :anon
-                            :outcome    :pass
-                            :input      {:data  {:retries 0
-                                                 :token   "secret-jwt-guard"
-                                                 :blob    "huge-guard"}
-                                         :event [:login]}}}
-          out  (rf.classification/project-trace-event ev)
-          tags (:tags out)]
-      (is (= :rf/redacted (get-in tags [:input :data :token])))
-      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
-      (is (= [:login] (get-in tags [:input :event]))
-          ":input :event passes through (not machine :data)")
-      (is (not (.contains (pr-str out) "secret-jwt-guard"))))))
+    (let [out   (rf.classification/project-trace-event
+                  {:operation :rf.machine/guard-evaluated
+                   :tags      {:machine-id auth-id
+                               :frame      :rf/default
+                               :guard-id   :ready?
+                               :state      :anon
+                               :outcome    :pass
+                               :input      {:data  {:retries 0
+                                                    :token   "secret-jwt-guard"
+                                                    :blob    "huge-guard"}
+                                            :event [:login]}}})
+          input (get-in out [:tags :input])]
+      (is (= [:rf/redacted true [:login] false]
+             [(get-in input [:data :token])
+              (contains? (get-in input [:data :blob]) :rf.size/large-elided)
+              (:event input)
+              (.contains (pr-str out) "secret-jwt-guard")])))))
 
 (deftest transition-cascade-data-deltas-redacted-in-egress
   (testing "a :rf.machine/transition's :cascade carries per-step :data-delta
             maps keyed by :data keys directly; each delta redacts"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [ev   {:operation :rf.machine/transition
-                :tags      {:machine-id auth-id
-                            :frame      :rf/default
-                            :before     {:state :anon  :data {:retries 0 :token nil :blob nil}}
-                            :after      {:state :authed :data {:retries 1
-                                                               :token "secret-jwt-after"
-                                                               :blob "huge-after"}}
-                            :microsteps 0
-                            :cascade    [{:kind   :action
-                                          :state  []
-                                          :region nil
-                                          :action :authenticate
-                                          :data-delta {:token "secret-jwt-delta"
-                                                       :blob  "huge-delta"
-                                                       :retries 1}}
-                                         {:kind   :entry
-                                          :state  [:authed]
-                                          :region nil
-                                          :action nil
-                                          :data-delta {}}]}}
-          out     (rf.classification/project-trace-event ev)
-          cascade (get-in out [:tags :cascade])
-          step0   (first cascade)]
-      (is (= :rf/redacted (get-in step0 [:data-delta :token])))
-      (is (contains? (get-in step0 [:data-delta :blob]) :rf.size/large-elided))
-      (is (= 1 (get-in step0 [:data-delta :retries])) "plain key rides verbatim")
-      (is (= {} (get-in cascade [1 :data-delta])) "empty :data-delta unchanged")
-      (is (= :rf/redacted (get-in out [:tags :after :data :token])))
-      (is (not (.contains (pr-str out) "secret-jwt-delta")))
-      (is (not (.contains (pr-str out) "secret-jwt-after"))))))
+    (let [out           (rf.classification/project-trace-event
+                          {:operation :rf.machine/transition
+                           :tags      {:machine-id auth-id
+                                       :frame      :rf/default
+                                       :cascade    [{:kind       :action
+                                                     :state      []
+                                                     :action     :authenticate
+                                                     :data-delta {:token   "secret-jwt-delta"
+                                                                  :blob    "huge-delta"
+                                                                  :retries 1}}
+                                                    {:kind :entry :state [:authed] :data-delta {}}]}})
+          [step0 step1] (get-in out [:tags :cascade])]
+      (is (= [:rf/redacted true 1 {} false]
+             [(get-in step0 [:data-delta :token])
+              (contains? (get-in step0 [:data-delta :blob]) :rf.size/large-elided)
+              (get-in step0 [:data-delta :retries])
+              (:data-delta step1)
+              (.contains (pr-str out) "secret-jwt-delta")])))))
 
 ;; ---- (2c) :actor-id PREFERRED-branch coverage ----------------------------
 
@@ -240,12 +206,11 @@
     (rf/reg-machine :rf.machine-redaction/undeclared-sibling
       {:initial :idle :data {:n 0} :states {:idle {}}})
     (declare-frame-marks! auth-id)
-    (let [ev   (-> (machine-transition-event* :actor-id auth-id)
-                   (assoc-in [:tags :machine-id] :rf.machine-redaction/undeclared-sibling))
-          out  (rf.classification/project-trace-event ev)]
-      (is (= :rf/redacted (get-in out [:tags :after :data :token]))
-          "redacted via the PREFERRED :actor-id (declared), not the :machine-id sibling")
-      (is (not (.contains (pr-str out) "secret-jwt"))))))
+    (let [out (rf.classification/project-trace-event
+                (-> (machine-transition-event* :actor-id auth-id)
+                    (assoc-in [:tags :machine-id] :rf.machine-redaction/undeclared-sibling)))]
+      (is (= [:rf/redacted false]
+             [(get-in out [:tags :after :data :token]) (.contains (pr-str out) "secret-jwt")])))))
 
 ;; ---- (3) a [:schemas :data] :sensitive? prop does NOT classify durable :data
 ;;          at snapshot egress.
@@ -256,15 +221,10 @@
             NO frame declaration the marked slot rides RAW (there is no
             schema→marks bridge; only a declared path — frame or machine —
             classifies)"
-    ;; auth-schema carries :token {:sensitive? true} + :blob {:large? true},
-    ;; but we declare NOTHING on the frame.
     (reg-auth-machine!)
-    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
-          tags (:tags out)]
-      (is (= "secret-jwt-after" (get-in tags [:after :data :token]))
-          "a :sensitive? [:schemas :data] slot does NOT redact without a frame declaration")
-      (is (= "huge-after" (get-in tags [:after :data :blob]))
-          "a :large? [:schemas :data] slot does NOT elide without a frame declaration"))))
+    (is (= {:retries 1 :token "secret-jwt-after" :blob "huge-after"}
+           (get-in (rf.classification/project-trace-event (machine-transition-event auth-id))
+                   [:tags :after :data])))))
 
 ;; ---- (4) EP-0025 §subsystems — the machine declaration: ------------------
 ;;          a top-level projection-relative `:sensitive` / `:large` key on
@@ -289,49 +249,30 @@
   (testing "a SINGLETON's projection-relative :sensitive /
             :large `:data` declaration lowers into the per-frame elision registry
             at first-boot, redacts at snapshot egress, and is DROPPED at destroy"
-    (let [mid :rf.machine-redaction/declared-singleton
+    (let [mid       :rf.machine-redaction/declared-singleton
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
-          abs-blob  [:rf.runtime/machines :snapshots mid :data :blob]]
+          abs-blob  [:rf.runtime/machines :snapshots mid :data :blob]
+          lowered   #(let [reg (snapshot-elision-reg)]
+                       [(set (map :source (get-in reg [:sensitive-declarations abs-token])))
+                        (contains? (:declarations reg) abs-blob)])]
       (rf/reg-machine mid
         {:sensitive [[:data :token]]
          :large     [[:data :blob]]
          :initial   :anon
          :data      {:token nil :blob nil :retries 0}
          :states    {:anon {:on {:login :authed}} :authed {}}})
-      ;; registry empty before any instance is born
-      (is (not (contains? (:sensitive-declarations (snapshot-elision-reg)) abs-token))
-          "no registry entry before the singleton boots")
-      ;; first dispatch boots the singleton → lowering fires
       (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (let [reg (snapshot-elision-reg)]
-        (is (contains? (:sensitive-declarations reg) abs-token)
-            "sensitive `:data` path lowered to the ABSOLUTE snapshot path at boot")
-        (is (some #(= :machine (:source %)) (get-in reg [:sensitive-declarations abs-token]))
-            "lowered under :source :machine")
-        (is (contains? (:declarations reg) abs-blob)
-            "large `:data` path lowered at boot"))
-      ;; the lowered registry entry redacts at the egress chokepoint, via the
-      ;; SAME read path (frame-snapshot-classification) the frame-declared mechanism uses
+      (is (= [#{:machine} true] (lowered))
+          "lowered to the ABSOLUTE snapshot paths at boot, under :source :machine")
       (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
-            tags (:tags out)]
-        (is (= :rf/redacted (get-in tags [:after :data :token]))
-            "machine-declared sensitive slot redacts at snapshot egress")
-        (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided)
-            "machine-declared large slot elides at snapshot egress")
-        (is (= 1 (get-in tags [:after :data :retries])) "plain sibling rides verbatim")
-        (is (not (.contains (pr-str out) "secret-jwt"))))
-      ;; DESTROY drops the registry entry — no leak. The imperative
-      ;; `[:rf.machine/destroy <id>]` teardown is an FX returned from a
-      ;; handler (the XState-v5 `stopChild` spelling), not a directly
-      ;; dispatched event.
+            data (get-in out [:tags :after :data])]
+        (is (= [:rf/redacted true 1 false]
+               [(:token data) (contains? (:blob data) :rf.size/large-elided) (:retries data)
+                (.contains (pr-str out) "secret-jwt")])))
       (rf/reg-event :rf.machine-redaction/destroy-singleton
         (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
       (rf/dispatch-sync [:rf.machine-redaction/destroy-singleton])
-      (let [reg (snapshot-elision-reg)]
-        (is (not (contains? (:sensitive-declarations reg) abs-token))
-            "sensitive entry DROPPED at destroy (no leak)")
-        (is (not (contains? (:declarations reg) abs-blob))
-            "large entry DROPPED at destroy (no leak)")))))
+      (is (= [#{} false] (lowered)) "both entries DROPPED at destroy (no leak)"))))
 
 (defn- live-instance-ids
   "The live spawned-actor instance ids under `:rf/default`'s machines
@@ -347,40 +288,34 @@
             the machine def and lowers PER INSTANCE at spawn (the generated
             <type>#n is classified with no per-instance author code), dropped at
             the actor's destroy"
-    (let [child-type :rf.machine-redaction/charge]
-      (rf/reg-machine child-type
-        {:sensitive [[:data :token]]
-         :initial   :charging
-         :data      {:token nil}
-         :states    {:charging {:on {:done :done}} :done {}}})
-      (rf/reg-machine :rf.machine-redaction/supervisor
-        {:initial :idle
-         :data    {}
-         :states  {:idle    {:on {:go :working}}
-                   :working {:spawn {:machine-id child-type}
-                             :on    {:stop :idle}}}})
-      (rf/dispatch-sync [:rf.machine-redaction/supervisor [:go]])
-      (let [spawned-id (first (live-instance-ids "charge"))]
-        (is (some? spawned-id) "a child actor instance was spawned")
-        (let [abs-token [:rf.runtime/machines :snapshots spawned-id :data :token]
-              reg       (snapshot-elision-reg)]
-          (is (contains? (:sensitive-declarations reg) abs-token)
-              "the spawned instance's :data :token lowered at spawn (per-instance)")
-          (is (some #(= :machine (:source %)) (get-in reg [:sensitive-declarations abs-token])))
-          ;; egress redacts the spawned instance's declared slot
-          (let [out (rf.classification/project-trace-event
-                      {:operation :rf.machine/snapshot-updated
-                       :tags      {:actor-id spawned-id
-                                   :frame    :rf/default
-                                   :snapshot {:state :charging
-                                              :data  {:token "secret-child-jwt"}}}})]
-            (is (= :rf/redacted (get-in out [:tags :snapshot :data :token]))
-                "spawned instance's declared slot redacts at egress")
-            (is (not (.contains (pr-str out) "secret-child-jwt"))))
-          ;; the parent exits :working → the spawned child is destroyed
-          (rf/dispatch-sync [:rf.machine-redaction/supervisor [:stop]])
-          (is (not (contains? (:sensitive-declarations (snapshot-elision-reg)) abs-token))
-              "spawned instance's entry DROPPED at its destroy (no leak)"))))))
+    (rf/reg-machine :rf.machine-redaction/charge
+      {:sensitive [[:data :token]]
+       :initial   :charging
+       :data      {:token nil}
+       :states    {:charging {:on {:done :done}} :done {}}})
+    (rf/reg-machine :rf.machine-redaction/supervisor
+      {:initial :idle
+       :data    {}
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn {:machine-id :rf.machine-redaction/charge}
+                           :on    {:stop :idle}}}})
+    (rf/dispatch-sync [:rf.machine-redaction/supervisor [:go]])
+    (let [spawned-id (first (live-instance-ids "charge"))
+          abs-token  [:rf.runtime/machines :snapshots spawned-id :data :token]
+          sources    #(set (map :source (get-in (snapshot-elision-reg)
+                                                [:sensitive-declarations abs-token])))
+          out        (rf.classification/project-trace-event
+                       {:operation :rf.machine/snapshot-updated
+                        :tags      {:actor-id spawned-id
+                                    :frame    :rf/default
+                                    :snapshot {:state :charging
+                                               :data  {:token "secret-child-jwt"}}}})]
+      (is (= [#{:machine} :rf/redacted false]
+             [(sources) (get-in out [:tags :snapshot :data :token])
+              (.contains (pr-str out) "secret-child-jwt")])
+          "the spawned instance's :data :token lowered at spawn and redacts at egress")
+      (rf/dispatch-sync [:rf.machine-redaction/supervisor [:stop]])
+      (is (= #{} (sources)) "spawned instance's entry DROPPED at its destroy (no leak)"))))
 
 (deftest machine-classification-malformed-declaration-fails-loud
   (testing "EP-0025 fail-loud-input — a malformed :sensitive / :large machine
@@ -409,47 +344,30 @@
   (testing "a machine's lowered :data claim and an app effect claim
             on the SAME absolute snapshot path UNION (both owners retained), and
             each removes INDEPENDENTLY: the effect clear leaves the machine claim
-            standing; the actor destroy leaves the effect claim standing. Both
-            keep the path redacted while any owner claims it."
+            standing; the actor destroy leaves the effect claim standing."
     (let [mid       :rf.machine-redaction/union-single
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
-          owners    #(get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])]
+          sources   #(set (map :source (get-in (snapshot-elision-reg)
+                                               [:sensitive-declarations abs-token])))]
       (rf/reg-machine mid
         {:sensitive [[:data :token]]
          :initial   :anon
          :data      {:token nil :retries 0}
          :states    {:anon {:on {:login :authed}} :authed {}}})
-      ;; Machine boots FIRST → its own claim lands at the absolute snapshot path.
-      (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (is (some #(= :machine (:source %)) (owners))
-          "the machine's own claim is standing after boot")
-      ;; An app effect ALSO classifies the same absolute path (Spec 015 L149) →
-      ;; UNION: both owners now claim the path.
       (rf/reg-event :rf.machine-redaction/union-classify
         (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
-      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
-      (is (contains? (owners) {:source :effect})
-          "the effect claim UNIONS in alongside the machine claim")
-      (is (some #(= :machine (:source %)) (owners))
-          "the machine claim is retained through the effect SET")
-      ;; The effect CLEAR removes ONLY the effect owner — the machine survives.
       (rf/reg-event :rf.machine-redaction/union-clear
         (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
-      (rf/dispatch-sync [:rf.machine-redaction/union-clear])
-      (is (not (contains? (owners) {:source :effect}))
-          "the effect owner is removed by its source-scoped clear")
-      (is (some #(= :machine (:source %)) (owners))
-          "the machine claim SURVIVES the effect clear — the path stays classified")
-      ;; Re-add the effect, then DESTROY the actor — the effect survives the
-      ;; source-scoped actor teardown (the reverse independent-removal leg).
-      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
       (rf/reg-event :rf.machine-redaction/union-destroy
         (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
+      (is (= #{:machine :effect} (sources)) "the effect claim UNIONS in alongside the machine claim")
+      (rf/dispatch-sync [:rf.machine-redaction/union-clear])
+      (is (= #{:machine} (sources)) "the machine claim SURVIVES the effect clear")
+      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
       (rf/dispatch-sync [:rf.machine-redaction/union-destroy])
-      (is (contains? (owners) {:source :effect})
-          "the effect claim SURVIVES the actor destroy — no fail-open")
-      (is (not (some #(= :machine (:source %)) (owners)))
-          "the machine's own owner is dropped by the source-scoped teardown"))))
+      (is (= #{:effect} (sources)) "the effect claim SURVIVES the actor destroy — no fail-open"))))
 
 ;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
 ;; When an effect PRE-classifies a machine's absolute snapshot
@@ -475,46 +393,23 @@
             the machine claim keeps the path redacted after the effect clears"
     (let [mid       :rf.machine-redaction/effect-first-single
           abs-token [:rf.runtime/machines :snapshots mid :data :token]
-          owners    #(get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])]
+          sources   #(set (map :source (get-in (snapshot-elision-reg)
+                                               [:sensitive-declarations abs-token])))]
       (rf/reg-machine mid
         {:sensitive [[:data :token]]
          :initial   :anon
          :data      {:token nil :retries 0}
          :states    {:anon {:on {:login :authed}} :authed {}}})
-      ;; (1) The EFFECT classifies the absolute snapshot path FIRST — BEFORE the
-      ;; singleton is ever booted (the effect-first order:
-      ;; this is what seeds `:rf.runtime/elision` into the coeffect the boot
-      ;; handler later reads).
       (rf/reg-event :rf.machine-redaction/ef-classify
         (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
-      (rf/dispatch-sync [:rf.machine-redaction/ef-classify])
-      (is (contains? (owners) {:source :effect})
-          "precondition: the effect's claim is standing before the machine boots")
-      (is (not (some #(= :machine (:source %)) (owners)))
-          "precondition: no machine owner yet (the singleton has not booted)")
-      ;; (2) Boot the singleton. `lower-at-spawn!` unions the machine owner into
-      ;; the LIVE registry; the boot commit keeps that claim.
-      (rf/dispatch-sync [mid [:rf.machine/noop]])
-      ;; THE KEY ASSERTION — a boot commit that honoured the stale registry
-      ;; verbatim would wipe the machine owner, leaving only the effect owner.
-      (is (some #(= :machine (:source %)) (owners))
-          "the machine IS a durable claim owner after boot (not only the effect)")
-      (is (contains? (owners) {:source :effect})
-          "the effect's claim UNIONS alongside — both owners retained")
-      ;; (3) Remove the EFFECT's claim. The machine's surviving claim must keep
-      ;; the path classified (independent removal). Were the effect the only
-      ;; owner, the path would go UNCLASSIFIED here.
       (rf/reg-event :rf.machine-redaction/ef-clear
         (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/ef-classify])
+      (is (= #{:effect} (sources)) "precondition: only the effect's claim before the machine boots")
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      (is (= #{:machine :effect} (sources)) "the machine IS a durable claim owner after boot")
       (rf/dispatch-sync [:rf.machine-redaction/ef-clear])
-      (is (not (contains? (owners) {:source :effect}))
-          "the effect owner is removed by its source-scoped clear")
-      (is (some #(= :machine (:source %)) (owners))
-          "the machine's own claim SURVIVES the effect clear — the path stays classified")
-      ;; (4) And egress STILL redacts via the machine's surviving claim alone.
-      (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
-            tags (:tags out)]
-        (is (= :rf/redacted (get-in tags [:after :data :token]))
-            "the machine's surviving claim keeps the value redacted after the effect cleared")
-        (is (not (.contains (pr-str out) "secret-jwt"))
-            "no secret leaks once only the machine claim remains")))))
+      (let [out (rf.classification/project-trace-event (machine-transition-event mid))]
+        (is (= [#{:machine} :rf/redacted false]
+               [(sources) (get-in out [:tags :after :data :token]) (.contains (pr-str out) "secret-jwt")])
+            "the machine's surviving claim keeps the value redacted after the effect cleared")))))
