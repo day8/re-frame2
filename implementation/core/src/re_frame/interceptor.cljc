@@ -124,15 +124,13 @@
 ;; ---- chain execution ------------------------------------------------------
 
 (defn- record-error
-  "Append `err` to `:rf/interceptor-errors` (preserving prior errors) and
-  set `:rf/interceptor-error` to the FIRST error only. The singleton key
-  is the original cause — tracing code that reads it gets the root failure
-  without surprise. The vector key carries every error in the order they
-  occurred so downstream tooling can surface the full chain of failures."
+  "Record `err` under `:rf/interceptor-error` unless an earlier stage already
+  failed. The key holds the FIRST error, the original cause, which the
+  router's exception emit reads; a later failure (an `:after` throwing during
+  the unwind) leaves it unchanged."
   [context err]
-  (let [existing-first (:rf/interceptor-error context)]
-    (cond-> (update context :rf/interceptor-errors (fnil conj []) err)
-      (nil? existing-first) (assoc :rf/interceptor-error err))))
+  (cond-> context
+    (nil? (:rf/interceptor-error context)) (assoc :rf/interceptor-error err)))
 
 (defn- error-record
   "Build the per-stage error record stamped into the context by
@@ -150,10 +148,7 @@
   `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
   row renders a jump-to-source chip (parity with EVENT HANDLER /
   SUBSCRIPTIONS / VIEWS). Absent on the fn-path / framework interceptors
-  (`:rf.interceptor/path`) — they have no user definition site to jump to; the
-  slot's absence preserves the singleton-vs-vector equality invariant
-  (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) for the
-  common case."
+  (`:rf.interceptor/path`) — they have no user definition site to jump to."
   [phase interceptor exception]
   (cond-> {:phase phase :id (:id interceptor) :exception exception}
     (:source-coord interceptor) (assoc :source-coord (:source-coord interceptor))))
@@ -330,12 +325,9 @@
        the kind-specific factory; see events.cljc / subs.cljc).
     3. :after of each interceptor in REVERSE declaration order.
 
-  Failures during :before or :after are captured in the context:
-    - `:rf/interceptor-error`  — the FIRST error (original cause; what
-                                 tracing code reads).
-    - `:rf/interceptor-errors` — vector of ALL errors in order of
-                                 occurrence (preserves later errors that
-                                 would otherwise be overwritten).
+  The FIRST failure during :before or :after is captured in the context
+  under `:rf/interceptor-error` (the original cause; what tracing code
+  reads). A later failure leaves it unchanged.
 
   Once a :before fails, subsequent :before stages are short-circuited
   (the partial context would be invalid input). The :after pass still

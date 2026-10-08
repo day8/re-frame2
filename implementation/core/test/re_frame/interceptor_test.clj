@@ -125,12 +125,11 @@
              (select-keys (:rf/interceptor-error final) [:phase :id])))
       (is (= {:c false :a true} @saw))))
 
-  (testing "every failure is appended in order; :rf/interceptor-error stays the first"
+  (testing "a later failure leaves :rf/interceptor-error on the first"
     (let [final (run-chain [(stage (atom []) :after-bad identity boom)
-                            (stage (atom []) :before-bad boom identity)])
-          errs  (:rf/interceptor-errors final)]
-      (is (= [[:before :before-bad] [:after :after-bad]] (mapv (juxt :phase :id) errs)))
-      (is (= (first errs) (:rf/interceptor-error final)))))
+                            (stage (atom []) :before-bad boom identity)])]
+      (is (= [:before :before-bad]
+             ((juxt :phase :id) (:rf/interceptor-error final))))))
 
   (testing "a throwing :before skips the remaining befores; every :after still runs"
     (let [trail (atom [])
@@ -139,7 +138,7 @@
                             (stage trail :c identity identity)])]
       (is (= [[:before :a] [:before :boom] [:after :c] [:after :boom] [:after :a]]
              @trail))
-      (is (= [:boom] (mapv :id (:rf/interceptor-errors final)))))))
+      (is (= :boom (:id (:rf/interceptor-error final)))))))
 
 ;; ---- pipeline-exception attribution (dev trace) ---------------------------
 
