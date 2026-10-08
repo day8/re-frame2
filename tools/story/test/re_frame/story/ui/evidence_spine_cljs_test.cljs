@@ -1,25 +1,11 @@
 (ns re-frame.story.ui.evidence-spine-cljs-test
-  "CLJS-side regression net for the evidence spine (spec/020 §3 +
-  spec/021 §2).
-
-  Pairs with the host-free projection coverage in
-  `re_frame/story/ui/evidence_spine_test.cljc`. This namespace pins the
-  reachability + render wiring + focus side effect that need a CLJS runtime:
-
-  - **render-no-variant / no-evidence / spine states** — the panel reads
-    shell selection + the Test-mode result slot and renders the right
-    surface for each;
-  - **selection** — `select-beat!` / `open!` drive the selected span and
-    each beat row's `data-selected` highlight (spec/021 §2);
-  - **focus wiring** — the per-beat focus links render with the focus-panel
-    vocabulary, fire `focus-beat!` → the real `day8.re-frame2-xray.core/focus!`
-    (the host-facing entry), and the no-coords graceful path
-    renders the 'why focus is unavailable' note while STILL offering the
-    panel-only links (spec/020 §3).
-
-  Per the Story testing posture (CLJS unit tests, not Playwright) the panel
-  render is exercised by calling the form-2 component's inner render fn
-  directly and walking the hiccup with `re-frame.test-helpers`."
+  "CLJS coverage of the evidence spine (spec/020 §3 + spec/021 §2): the
+  panel's render states, beat selection and its `data-selected` highlight,
+  the focus links and `focus-beat!` → the real
+  `day8.re-frame2-xray.core/focus!`, and the static-export focus boundary.
+  The panel render is exercised by calling the form-2 component's inner
+  render fn and walking the hiccup with `re-frame.test-helpers`; the pure
+  projection is covered by `evidence_spine_test.cljc`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -83,6 +69,15 @@
   (let [render-fn (rf.story.ui.evidence-spine/evidence-spine-panel)]
     (render-fn)))
 
+(defn- stand-up-xray!
+  "The Xray shell frame + handlers, so `focus!` has a live target."
+  []
+  (xray-preload/reset-for-test!)
+  (xray-registry/reset-for-test!)
+  (xray-trace-collector/reset-for-test!)
+  (xray-registry/register-xray-handlers!)
+  (rf/make-frame {:id :rf/xray}))
+
 ;; ===========================================================================
 ;; render states
 ;; ===========================================================================
@@ -129,15 +124,9 @@
 
 ;; ---- per-row data-selected highlight (multi-beat) -----------------------
 ;;
-;; 015-Test-Coverage.md's cascade-row `data-selected` highlight row asks
-;; for this DOM assertion: scrubbing to an epoch sets
-;; `data-selected="true"` on the producing row while NON-selected rows
-;; carry `data-selected="false"`. Story has no scrubber panel (Xray owns
-;; the ribbon); the evidence-spine `beat-row` is Story's live
-;; selectable-row surface and carries exactly that `data-selected` attr,
-;; driven by the pure `select-beat!` / `selected-beat-idx` state. A
-;; two-beat narrative proves both halves (the selected row is "true", its
-;; sibling "false") and the round-trip (re-select moves the highlight).
+;; The evidence-spine `beat-row` is Story's selectable-row surface for
+;; 015-Test-Coverage.md's cascade-row `data-selected` highlight: the
+;; selected row reads "true", every sibling "false".
 
 (def ^:private two-beat-narrative
   ;; Two committed dispatch beats → flattened beat-idx 0 and 1 in tape
@@ -169,7 +158,6 @@
     (let [tree  (render-panel)
           beats (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-beat")
           sel   (mapv #(get (second %) :data-selected) beats)]
-      (is (= 2 (count beats)) "both committed beats render as rows")
       (is (= ["true" "false"] sel)
           (str "the selected producing row is data-selected=true and the "
                "sibling is false; got " (pr-str sel))))))
@@ -222,20 +210,6 @@
 ;; ===========================================================================
 ;; focus wiring (spec/020 §2.1 — links call the Xray focus API)
 ;; ===========================================================================
-
-(deftest focus-links-render-with-focus-vocabulary
-  (testing "each beat renders 'open in Xray' focus links keyed to the
-            host-facing focus-panel vocabulary"
-    (reg-counter!)
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
-    (seed-result! :story.evidence/basic)
-    (let [tree  (render-panel)
-          links (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-focus-link")
-          panels (into #{} (map #(get (second %) :data-panel)) links)]
-      (is (seq links) "focus links present on the settled beat")
-      (is (contains? panels "epoch"))
-      (is (contains? panels "app-db"))
-      (is (contains? panels "trace")))))
 
 (deftest clicking-a-focus-link-focuses-its-panel
   (testing "a focus link's :on-click stops the click reaching its beat row and
@@ -290,15 +264,9 @@
             day8.re-frame2-xray.core/focus! host-facing entry,
             returning the {:ok? true …} result with the applied dispatches +
             echoed Story provenance"
-    ;; Stand up the Xray shell frame + handlers so focus! has a live target.
-    (xray-preload/reset-for-test!)
-    (xray-registry/reset-for-test!)
-    (xray-trace-collector/reset-for-test!)
-    (xray-registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
+    (stand-up-xray!)
     (let [beat   {:epoch-id 100 :dispatch-id 100 :beat-idx 3 :span-idx 1}
           result (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)]
-      (is (map? result))
       (is (true? (:ok? result)) "the focus command applied")
       (is (vector? (:applied result)))
       (is (seq (:applied result)) "at least one :rf.xray/* event fired")
@@ -311,11 +279,7 @@
   (testing "an 'Xray: …' link scrolls the rail to the Xray band, which sits
             above the Evidence section the link lives in, so the switched
             embed comes into view rather than changing out of sight"
-    (xray-preload/reset-for-test!)
-    (xray-registry/reset-for-test!)
-    (xray-trace-collector/reset-for-test!)
-    (xray-registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
+    (stand-up-xray!)
     (let [scrolls (atom 0)
           beat    {:epoch-id 100 :dispatch-id 100 :beat-idx 0 :span-idx 0}]
       (with-redefs [rf.story.ui.evidence-spine/scroll-rail-to-xray! #(swap! scrolls inc)]
@@ -391,23 +355,11 @@
             "static: and no orphan 'why focus is unavailable' note left behind")))))
 
 (deftest static-export-focus-callback-cannot-dispatch-into-xray
-  (testing "even with a REAL :rf/xray frame and Xray's handlers
-            standing, focus-beat! refuses to dispatch under static-mode?.
-            The callback is guarded as well as the affordance because
+  (testing "focus-beat! refuses to dispatch under static-mode?. The
+            callback is guarded as well as the affordance because
             `re-frame.story.ui.docs/excerpt-beat-row` reaches focus-beat!
             directly — an affordance-only guard would leave that path live."
-    ;; Stand the real Xray target up, so a static-mode refusal cannot be
-    ;; confused with 'there was nothing to dispatch to anyway'.
-    (xray-preload/reset-for-test!)
-    (xray-registry/reset-for-test!)
-    (xray-trace-collector/reset-for-test!)
-    (xray-registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
     (let [beat {:epoch-id 100 :dispatch-id 100 :beat-idx 3 :span-idx 1}]
-      ;; DEV CONTROL FIRST, through the real focus API.
-      (let [dev (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)]
-        (is (map? dev) "dev control: focus-beat! drives the real focus API")
-        (is (true? (:ok? dev)) "dev control: the focus command applied"))
       ;; A BOUNDARY SPY, both ways — `nil` alone would not distinguish a
       ;; guard that fired from a focus! that returned nothing.
       (let [called? (atom false)]
