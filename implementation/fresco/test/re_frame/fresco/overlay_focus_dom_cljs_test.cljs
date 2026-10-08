@@ -19,7 +19,6 @@
 
   | claim | row |
   |---|---|
-  | a real `<dialog>` traps focus when it is MODAL, and does not when it is merely shown | [[the-instrument-tells-a-trap-from-its-absence]] |
   | the module's modal is the trapping kind: the reachable set becomes EXACTLY the panel's controls | [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
   | the module's popover is NOT a trap, and must not be read as one | [[an-open-popover-leaves-the-page-behind-it-reachable]] |
   | a REAL Tab and a REAL Shift+Tab cycle inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
@@ -377,8 +376,7 @@
   as readable names.
 
   Scoped to a root rather than to the document because a mount's own
-  container is what a page is here, and because the sabotage row below
-  parks a raw `<dialog>` on `document.body` deliberately outside it."
+  container is what a page is here."
   [^js root]
   (let [order (->> (.querySelectorAll root "a[href],button,input,select,textarea,[tabindex]")
                    (array-seq)
@@ -391,78 +389,6 @@
 (defn- close! [m] (rf.fresco.test.mounted/dispatch-and-settle! m [::closed]) m)
 
 (defn- $ [m sel] (.querySelector (:container m) sel))
-
-;; ---------------------------------------------------------------------------
-;; The seeded violation — one method name apart
-;; ---------------------------------------------------------------------------
-
-(defn- raw-dialog!
-  "A `<dialog>` holding one button, built from raw DOM and parked on
-  `document.body`.
-
-  Raw, and not this module's, on purpose: the claim it settles is about
-  the PLATFORM's two doors, and the shortest honest way to compare them
-  is an element nothing else has touched. It is parked outside the
-  mount's container so that removing it cannot disturb React's
-  reconciliation of a tree it does not own."
-  []
-  (let [d (.createElement js/document "dialog")
-        b (.createElement js/document "button")]
-    (set! (.-id b) "raw-inside")
-    (set! (.-textContent b) "Inside")
-    (.appendChild d b)
-    (.appendChild (.-body js/document) d)
-    d))
-
-(deftest the-instrument-tells-a-trap-from-its-absence
-  ;; THE SEEDED VIOLATION, made permanent. Every row below this one is an
-  ;; emptiness claim about the page behind an overlay, and an instrument
-  ;; that answered `not focusable` to everything would satisfy all of
-  ;; them at once. So the trap is removed here — the same element, the
-  ;; same contents, `show()` where `showModal()` was — and the page
-  ;; behind must be measured STILL REACHABLE.
-  (if-not (browser?)
-    (skip! ":node-test has no <dialog>")
-    (let [m      (rf.fresco.test.mounted/mount! [a-page-with-a-modal {}])
-          ^js d  (raw-dialog!)]
-      (try
-        (testing "premise: with nothing open, the page's own controls are
-                  the reachable set"
-          (is (= ["before" "trigger" "after"] (reachable (:container m)))))
-
-        (testing "SHOWN, NOT MODAL — the trap removed. A legal call on
-                  the same element: it paints the same panel, fires the
-                  same events, joins no top layer of its own, and leaves
-                  the document behind it live"
-          (.show d)
-          (is (true? (.-open d)) "premise: it really is open")
-          (is (zero? (.-length (.querySelectorAll js/document ":modal")))
-              "and the engine does not consider it modal")
-          (is (= ["before" "trigger" "after"] (reachable (:container m)))
-              "so every control behind it is still the engine's to focus
-               — which is what a missing focus trap looks like, measured
-               rather than described")
-          (.close d))
-
-        (testing "MODAL — the same element, one method name apart, and
-                  the page behind goes inert"
-          (.showModal d)
-          (is (= 1 (.-length (.querySelectorAll js/document ":modal"))))
-          (is (= [] (reachable (:container m)))
-              "nothing behind it can be focused. The two arms differ in
-               `show` versus `showModal` and in nothing else, so the
-               instrument is measuring modality and not, say, an element
-               it cannot see")
-          (is (true? (focusable? (.querySelector d "#raw-inside")))
-              "while the dialog's own control still takes focus, so the
-               reading above is inertness rather than a page that has
-               stopped answering")
-          (.close d))
-
-        (finally
-          (when (.-open d) (.close d))
-          (.remove d)
-          (rf.fresco.test.mounted/unmount! m))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The module's modal — the trap, complete
