@@ -1,27 +1,17 @@
 (ns re-frame.resources-provenance-stamp-cljs-test
   "The `:ns` image-selection stamp on the resource family — `reg-resource`,
-  `reg-mutation`, `reg-resource-scope`.
+  `reg-mutation`, `reg-resource-scope` (Spec 001 §Production elision contract).
+  A programmatic registration leaves the macro's source-coord capture unbound,
+  so a stamped `:ns` (or `:rf.provenance/ns`) is its only provenance; these
+  three build their own registrar map from their canonical spec, so they must
+  forward both keys, and dropping them would be silent.
 
-  Spec 001 §Production elision contract: a PROGRAMMATIC registration (fn-alias,
-  JVM-direct, code-generated) leaves the macro's source-coord capture unbound,
-  so its descriptor carries no `:rf.provenance/ns` and an explicit image's
-  `:select-ns` `:include` globs never match it. Stamping `:ns` (or the qualified
-  `:rf.provenance/ns`) in the registration metadata is the documented remedy on
-  every REGISTRAR-BACKED kind — and these three build their own registrar map
-  from their canonical spec, so they must forward both keys: dropping them
-  would be SILENT, landing the descriptor under nil provenance.
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$` regex.
-
-  READ THE STORE, NOT A RENDERING. `re-frame.source-store/descriptors-for`
-  returns the `provenance-ns-string → descriptor` map for `(kind, id)`; a key of
-  \"probe.ns\" IS `:select-ns` selectability, and a key of `nil` is its absence.
-  Every case here calls the OWNING FN directly (never the `rf/*` macro), so
-  `*pending-coords*` is unbound and the stamp is the only provenance in play."
+  Each case calls the owning fn, never the `rf/*` macro, and reads
+  `re-frame.source-store/descriptors-for`: a key of \"probe.ns\" IS `:select-ns`
+  selectability, and a key of `nil` is its absence."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
@@ -30,23 +20,17 @@
    [re-frame.source-coords :as rf.source-coords]
    [re-frame.source-store :as rf.source-store]))
 
-;; ---- fixtures -------------------------------------------------------------
-
-;; FN form, not the `{:before … :after …}` map form. `cljs.test`
-;; accepts both shapes; `clojure.test` accepts only a function, and given a map
-;; it invokes it as one — a map called with the test thunk is a KEY LOOKUP that
-;; returns nil and never runs the test. The JVM lane then reports zero tests for
-;; this namespace, silently and with exit 0. This file is `.cljc`, so it runs on
-;; both lanes and must use the shape both accept.
-;;
-;; `clear-kind!` also drops the matching kind from the provenance source store
-;; (registrar.cljc), so each case starts from an empty store slot.
+;; `clear-kind!` also drops the kind from the provenance source store, so each
+;; case starts from an empty store slot
 (defn- clear-kinds! []
   (rf.registrar/clear-kind! :resource)
   (rf.registrar/clear-kind! :mutation)
   (rf.registrar/clear-kind! :resource-scope)
   (rf.registrar/clear-kind! :event))
 
+;; FN form, not the `{:before … :after …}` map form: clojure.test calls a map
+;; fixture as a function, a key lookup that never runs the test, so the JVM lane
+;; would silently report zero tests for this namespace.
 (use-fixtures :each
   (fn [test-fn]
     (clear-kinds!)
@@ -55,90 +39,48 @@
       (finally
         (clear-kinds!)))))
 
-;; ---- minimal valid metadata per kind --------------------------------------
-;;
-;; None of the three validators is a closed map, so a caller's `:ns`
-;; passes validation and a dropped key would be SILENT.
-
 (def ^:private request-fn
   (fn [_params _ctx] {:request {:method :get :url "/api/probe"}}))
 
 (def ^:private resolve-fn
   (fn [_inputs] :rf.scope/global))
 
-(defn- resource-meta
-  "Minimal valid `reg-resource` metadata (the REQUIRED fail-closed `:scope`
-  policy plus `:params-schema`), merged with `overrides`."
-  [overrides]
-  (merge {:scope :rf.scope/global :params-schema [:map]} overrides))
-
-(defn- mutation-meta
-  "Minimal valid `reg-mutation` metadata (the REQUIRED `:params-schema`)."
-  [overrides]
-  (merge {:params-schema [:map]} overrides))
-
-(defn- scope-meta
-  "Minimal valid `reg-resource-scope` metadata (the REQUIRED `:inputs`)."
-  [overrides]
-  (merge {:inputs {:db [:db []]}} overrides))
-
-;; ---- the three registrars, each called as a plain FN -----------------------
-
 (defn- reg!
-  "Register `id` under `kind` through the kind's OWN registration fn with
-  `overrides` merged onto the kind's minimal valid metadata. Never the macro —
-  `*pending-coords*` stays whatever the caller bound it to."
+  "Register `id` under `kind` through the kind's OWN registration fn, with
+  `overrides` merged onto its minimal valid metadata. None of the three
+  validators is a closed map, so a caller's `:ns` passes validation."
   [kind id overrides]
   (case kind
-    :resource       (rf.resources.registry/reg-resource id (resource-meta overrides) request-fn)
-    :mutation       (rf.resources.mutation-registry/reg-mutation  id (mutation-meta overrides) request-fn)
-    :resource-scope (rf.resources.scope-registry/reg-resource-scope id (scope-meta overrides) resolve-fn)))
+    :resource       (rf.resources.registry/reg-resource
+                      id (merge {:scope :rf.scope/global :params-schema [:map]} overrides) request-fn)
+    :mutation       (rf.resources.mutation-registry/reg-mutation
+                      id (merge {:params-schema [:map]} overrides) request-fn)
+    :resource-scope (rf.resources.scope-registry/reg-resource-scope
+                      id (merge {:inputs {:db [:db []]}} overrides) resolve-fn)))
 
 (defn- provenance-keys
-  "The source store's provenance keys for `(kind, id)` — what `:select-ns` reads."
-  [kind id]
-  (vec (keys (rf.source-store/descriptors-for kind id))))
-
-(def ^:private kinds [:resource :mutation :resource-scope])
-
-;; ---- (c) CONTROL: the instrument reads ABSENCE -----------------------------
-;;
-;; Passes whether or not the stamp is forwarded. It is what makes every `["probe.ns"]`
-;; below a measurement rather than a coincidence: an unstamped programmatic
-;; registration really does land under nil provenance.
+  "Register `id` under every kind with `overrides`, and return each kind's
+  source-store provenance keys — what `:select-ns` reads."
+  [id overrides]
+  (mapv (fn [kind]
+          (reg! kind id overrides)
+          (vec (keys (rf.source-store/descriptors-for kind id))))
+        [:resource :mutation :resource-scope]))
 
 (deftest unstamped-programmatic-registration-lands-under-nil-provenance
-  (doseq [kind kinds]
-    (testing (str "CONTROL — an unstamped " kind " registration records a "
-                  "nil-provenance descriptor (nothing to :select-ns)")
-      (reg! kind :probe/unstamped {})
-      (is (= [nil] (provenance-keys kind :probe/unstamped))
-          (str kind ": no stamp, no provenance — the instrument reads absence")))))
-
-;; ---- (d) precedence: the qualified key wins -------------------------------
+  ;; the CONTROL that makes every "probe.*" below a measurement: an unstamped
+  ;; programmatic registration really does land under nil provenance
+  (is (= [[nil] [nil] [nil]] (provenance-keys :probe/unstamped {}))))
 
 (deftest qualified-stamp-wins-over-the-bare-one
-
-  (doseq [kind kinds]
-    (testing (str "both stamps on one " kind " metadata map: the store reads the "
-                  "explicit `:rf.provenance/ns` FIRST (source_store.cljc), so it "
-                  "wins — the wrapper forwards both keys and changes no precedence")
-      (reg! kind :probe/both {:ns 'probe.bare :rf.provenance/ns "probe.qualified"})
-      (is (= ["probe.qualified"] (provenance-keys kind :probe/both))
-          (str kind ": dropping both keys would give [nil]")))))
-
-;; ---- (e) a user `:ns` overrides macro-captured coords ---------------------
+  ;; the store reads `:rf.provenance/ns` first, so forwarding both keys keeps
+  ;; that precedence; dropping both would give [nil]
+  (is (= [["probe.qualified"] ["probe.qualified"] ["probe.qualified"]]
+         (provenance-keys :probe/both {:ns 'probe.bare :rf.provenance/ns "probe.qualified"}))))
 
 (deftest user-ns-stamp-overrides-captured-pending-coords
-  (doseq [kind kinds]
-    (testing (str "merge-coords' user-overrides-captured rule reaches " kind ": "
-                  "with `*pending-coords*` bound (the code-generated / macro "
-                  "case), a caller's `:ns` still decides the provenance")
-      (binding [rf.source-coords/*pending-coords* {:ns     'probe.generated
-                                                   :file   "g.cljc"
-                                                   :line   1
-                                                   :column 1}]
-        (reg! kind :probe/override {:ns 'probe.target}))
-      (is (= ["probe.target"] (provenance-keys kind :probe/override))
-          (str kind ": a dropped stamp would let the captured coords "
-               "answer instead, giving [\"probe.generated\"]")))))
+  ;; with `*pending-coords*` bound (the code-generated / macro case), a caller's
+  ;; `:ns` still decides; a dropped stamp would answer "probe.generated"
+  (is (= [["probe.target"] ["probe.target"] ["probe.target"]]
+         (binding [rf.source-coords/*pending-coords* {:ns 'probe.generated :file "g.cljc" :line 1 :column 1}]
+           (provenance-keys :probe/override {:ns 'probe.target})))))
