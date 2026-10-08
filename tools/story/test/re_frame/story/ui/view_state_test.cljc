@@ -69,6 +69,15 @@
     (is (= [false false true]
            (mapv :active? (rf.story.ui.view-state/fidelity-ladder design-plan))))))
 
+(deftest sub-overrides-rung-labelled-low-fidelity-never-proof
+  (testing "the :sub-overrides rung is labelled lowest-fidelity and as
+            proving nothing — the honest reading the surface surfaces"
+    (let [r (first (filter #(= :sub-overrides (:rung %)) rf.story.ui.view-state/ladder-rungs))]
+      (is (= :low (:tone r)))
+      (is (= 3 (:rank r)))
+      (is (str/includes? (:note r) "never proof"))
+      (is (str/includes? (:proves r) "nothing")))))
+
 ;; ---------------------------------------------------------------------------
 ;; the upgrade path — keeps the artifact a variant
 ;; ---------------------------------------------------------------------------
