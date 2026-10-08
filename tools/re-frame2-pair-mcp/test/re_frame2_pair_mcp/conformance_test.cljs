@@ -945,16 +945,19 @@
 
    ;; ---------- trace-window -----------------------------------------------
    {:fixture/id    :trace-window/happy
-    :fixture/doc   "trace-window returns the runtime's epoch payload through the wire pipeline."
+    :fixture/doc   "trace-window carries the runtime's epoch page through the wire pipeline: one epoch in, :count 1 out."
     :fixture/tool  "trace-window"
     :fixture/args  {:ms 500}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ["trace-window-since"        {:epochs [] :since 0 :now 0}]
+     ["epoch-history"             {:epochs        [{:epoch-id 7 :event [:counter/inc]}]
+                                   :history-count 1
+                                   :remaining     0}]
      [:default                    nil]]
     :fixture/expect
     {:isError? false
-     :edn-contains-keys #{:epochs}}}
+     :edn-contains-keys #{:epochs}
+     :edn-submap {:ok? true :count 1}}}
 
    ;; ---------- watch-epochs -----------------------------------------------
    ;; watch-epochs wraps the runtime's `epochs-since` result into a
@@ -965,7 +968,7 @@
    {:fixture/id    :watch-epochs/empty
     :fixture/doc   "watch-epochs surfaces the empty-window cursor envelope when the ring is empty."
     :fixture/tool  "watch-epochs"
-    :fixture/args  {:max-ms 50 :poll-ms 25}
+    :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:matches      []
@@ -980,15 +983,15 @@
      :edn-submap        {:ok? true :has-more? false :count 0 :id-aged-out? false}}}
 
    ;; ---------- tail-build -------------------------------------------------
-   {:fixture/id    :tail-build/timeout
-    :fixture/doc   "tail-build surfaces its current build status via the runtime."
+   {:fixture/id    :tail-build/no-probe-soft-delay
+    :fixture/doc   "tail-build with no probe resolves after its fixed soft delay, evaluating nothing."
     :fixture/tool  "tail-build"
-    :fixture/args  {:max-ms 10}
+    :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     [:default                    {:status :idle :last-completed 0}]]
+    [[:default nil]]
     :fixture/expect
-    {:isError? false}}
+    {:isError? false
+     :edn-submap {:ok? true :soft? true}}}
 
    ;; The `:probe` is arbitrary CLJS evaluated in the
    ;; runtime (the eval-cljs authority class), so `--no-eval` refuses it
@@ -1957,7 +1960,7 @@
   (cache/clear!)
   (let [forms-seen      (atom [])
         prev-eval-gate  (eval-cljs/eval-allowed-enabled?)
-        prev-raw-gate   (raw-state/allow-raw-state-enabled?)
+        prev-raw-gate   (raw-state/raw-state-allowed?)
         prev-write-gate (writes/allow-writes-enabled?)]
     (eval-cljs/set-eval-allowed! (if (nil? eval-allowed?) true (boolean eval-allowed?)))
     (raw-state/set-allow-raw-state! (boolean allow-raw-state?))
