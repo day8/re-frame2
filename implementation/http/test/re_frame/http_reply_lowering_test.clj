@@ -5,7 +5,7 @@
   canonical success and failure replies, self-identifying failures,
   supersession, and the completion time a reply handler receives. The pure
   builders are pinned host-symmetrically in `http-reply-lowering-cljs-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
@@ -57,25 +57,6 @@
            (catch InterruptedException _ nil))
       (try (write-response! ex 200 "application/json" "{\"v\":1}")
            (catch java.io.IOException _ nil)))))
-
-(def ^:private base-ctx
-  {:request-id   :article/by-id
-   :origin-event [:article/load {:id 42}]
-   :attempt      1
-   :frame        :app/main
-   :completed-at 1781078400456})
-
-(deftest success-reply-response-meta-is-optional-and-canonical
-  (let [meta* {:status      200
-               :status-text "OK"
-               :headers     {"content-type" "application/json"
-                             "set-cookie"   ["a=1; Path=/" "b=2; Path=/"]}}
-        r     (rf.http.reply/success-reply base-ctx {:title "Welcome"} meta*)]
-    (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-    (is (= {:status :ok :value {:title "Welcome"} :meta meta*} (select-keys r [:status :value :meta])))
-    (testing "absent metadata is omitted, never fabricated"
-      (is (not-any? #(contains? % :meta) [(rf.http.reply/success-reply base-ctx {:v 1})
-                                          (rf.http.reply/success-reply base-ctx {:v 1} nil)])))))
 
 (deftest real-transport-success-reply-carries-response-meta
   (let [srv (start-server!
@@ -138,7 +119,7 @@
             "a failure reply carries no :meta; its wire facts ride :error")
         (is (= {:kind :rf.http/http-4xx :request {:method :get :url url} :request-id :sid/get
                 :attempt 1 :work/id [:rf.work/http :sid/get 1 1] :status 404}
-               (select-keys (:error reply) (remove #{:max-attempts} identity-keys)))))
+               (select-keys (:error reply) identity-keys))))
       (finally (stop-server! srv)))))
 
 (deftest failure-reply-echoes-the-defaulted-method
