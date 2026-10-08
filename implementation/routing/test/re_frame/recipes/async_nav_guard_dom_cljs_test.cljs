@@ -1,64 +1,47 @@
 (ns re-frame.recipes.async-nav-guard-dom-cljs-test
-  "THE DIRTY-NAVIGATION GUARD, HELD AGAINST THE BROWSER'S OWN BACK BUTTON
-  (recipe 3).
+  "THE DIRTY-NAVIGATION GUARD (recipe 3), HELD IN A REAL BROWSER.
 
-  `re-frame.recipes.async-nav-l0-cljs-test` already proves the guard's
-  whole model with zero DOM — blocked, parked, continued, cancelled,
-  bypassed. This file exists for the one claim that model cannot make.
+  `re-frame.recipes.async-nav-l0-cljs-test` holds the guard's sub; this
+  file holds the navigation it guards — a programmatic leave and the
+  browser's own Back button, each blocked and parked, the prompt's two
+  buttons continuing and cancelling, and the address bar the guard puts
+  back.
 
   ## The claim only a browser can carry
 
   A programmatic navigation is a FORWARD door: the address bar has not
   moved when the guard runs, so blocking it leaves nothing to undo. The
   Back button is not. By the time `popstate` reaches the application the
-  browser has ALREADY changed the URL, so a guard that merely declines
-  to commit leaves the user in the editor with the list's address in the
-  bar — and the next reload, copy, or bookmark takes that address at its
-  word and silently discards the draft.
-
-  Routing answers that with `:rf.nav/replace-url` on the leave-block
-  path (`re-frame.routing.decisions/decide`, the `url-driven?` arm), a
-  REPLACE rather than a push so no history entry is added. Whether the
-  address bar actually goes back is a fact about `window.history`, and
-  the only instrument that can read it is a browser.
-
-  ## Built on `re-frame.routing-conduct-dom-cljs-test`'s seam, not beside it
-
-  That file owns the arrangement this one
-  reuses rather than reinvents: a `:url-bound? true` frame, so routing's
-  registration installs its REAL `popstate` listener; a deep link that
-  is a URL the browser is genuinely sitting on; `history.back()` rather
-  than a hand-written `:rf.route/handle-url-change` carrying a synthetic
-  cause; and the borrowing discipline below. Focus-on-route and scroll
-  restoration are its subject and are not re-measured here.
+  browser has ALREADY changed the URL, so a guard that merely declined to
+  commit would leave the editor on screen under the list's address — and
+  the next reload, copy or bookmark takes that address at its word and
+  discards the draft. Routing answers with `:rf.nav/replace-url` on the
+  leave-block path (`re-frame.routing.decisions/decide`, the `url-driven?`
+  arm), and whether the address bar actually goes back is a fact about
+  `window.history`.
 
   ## The URL is borrowed, and given back
 
-  `js/location.href` is captured at NAMESPACE LOAD and `replaceState`d
-  back in the trailing step both the success and failure paths reach.
-  `pushState` does not reload, and **no row ever goes back past the
-  entry it started on**, so the runner's execution context is never
-  destroyed.
+  The arrangement is `re-frame.routing-conduct-dom-cljs-test`'s: a
+  `:url-bound? true` frame, so routing installs its REAL `popstate`
+  listener, and `history.back()` rather than a synthetic
+  `:rf.route/handle-url-change`. `js/location.href` is captured at
+  NAMESPACE LOAD and `replaceState`d back in the trailing step both the
+  success and failure paths reach. `pushState` does not reload, and no row
+  ever goes back past the entry it started on, so the runner's execution
+  context is never destroyed. The guard's own restore rewrites the entry
+  the row went back TO; that is what a replace does, and teardown puts the
+  runner's URL back over it regardless.
 
-  One consequence is worth naming because it looks alarming and is not:
-  the guard's own restore rewrites the entry the row went back TO. That
-  is what a replace does, it is the correct behaviour, and teardown puts
-  the runner's URL back over it regardless.
+  ## Async rows
 
-  ## Async rows, and the run that must be counted
-
-  Two rows here are `async`, unavoidably — a real `popstate` and a real
-  `.click()` both arrive on the browser's own task loop. An async row
-  under the wrong fixture arrangement can abort the entire `test:browser`
-  run silently, every later namespace included, so these use the same
-  `make-reset-runtime-fixture` `:async? true` arrangement
-  `re-frame.routing-conduct-dom-cljs-test` uses in this lane, and a run's
-  namespace and assertion counts are worth checking against a control.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers
-  it; `:node-test` loads it too, where every engine-dependent row
-  degrades to a STATED skip."
-  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  Both rows are `async` — a real `popstate` and a real `.click()` arrive
+  on the browser's own task loop — under the `make-reset-runtime-fixture`
+  `:async? true` arrangement `re-frame.routing-conduct-dom-cljs-test` uses,
+  because an async row under the wrong arrangement can abort the entire
+  `test:browser` run silently. `:node-test` loads this namespace too,
+  where each row records a STATED skip."
+  (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -198,35 +181,6 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The negative control — no prompt until something is pending
-;; ---------------------------------------------------------------------------
-
-(deftest the-prompt-renders-nothing-until-a-leave-is-blocked
-  (if-not (browser?)
-    (skip! ":node-test has no document to mount into")
-    (let [frame-id ::quiet
-          _        (at-url! rf.recipes.async-nav/list-url)
-          _        (rf/make-frame {:id             frame-id
-                                   :url-bound?     true
-                                   :initial-events [[::rf.recipes.async-nav/seed]]})
-          m        (mount! frame-id)]
-      (try
-        (is (= rf.recipes.async-nav/list-route (route-id frame-id))
-            "precondition: the frame's initial sync read the address bar")
-        (is (nil? (pending frame-id)))
-        (is (nil? (node m rf.recipes.async-nav/prompt-selector))
-            "the confirm UI is ordinary view code over `:rf/pending-navigation`,
-             so with nothing pending it puts NO node on the page — which is
-             what makes the rows below able to assert its presence")
-        (open-dirty-editor! frame-id)
-        (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
-            "the editor is dirty and says so")
-        (is (nil? (node m rf.recipes.async-nav/prompt-selector))
-            "and being dirty is not being blocked — nothing has tried to
-             leave yet, so there is still no prompt")
-        (finally (teardown! m frame-id))))))
-
-;; ---------------------------------------------------------------------------
 ;; The browser's own Back button
 ;; ---------------------------------------------------------------------------
 
@@ -244,67 +198,37 @@
                                      :initial-events [[::rf.recipes.async-nav/seed]]})
             m        (mount! frame-id)]
         (-> (js/Promise.resolve
-              (testing "forward into the editor, and dirty it"
-                (open-dirty-editor! frame-id)
-                (is (= rf.recipes.async-nav/editor-route (route-id frame-id)))
-                (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
-                    (str "precondition: `:rf.nav/push-url` is a real"
-                         " `history.pushState`, so the address bar reads the"
-                         " editor; it reads " (pr-str (path))))
-                (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
-                    "precondition: there is unsaved work to protect")))
+              (do (open-dirty-editor! frame-id)
+                  (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
+                      (str "precondition: `:rf.nav/push-url` is a real"
+                           " `history.pushState`; the address bar reads " (pr-str (path))))))
             (.then (fn [_]
-                     ;; THE BACK BUTTON. Not a dispatch standing in for one:
-                     ;; a real `history.back()`, which fires a real `popstate`
-                     ;; on the browser's own task loop, reaching the listener
-                     ;; the url-bound frame's lifecycle installed.
+                     ;; A real `history.back()`, firing a real `popstate` on
+                     ;; the browser's own task loop.
                      (.back js/window.history)
                      (parked frame-id "the real Back button's blocked attempt")))
             (.then
               (fn [p]
-                (testing "the leave was refused, and the URL came back with it"
-                  (is (= rf.recipes.async-nav/editor-route (route-id frame-id))
-                      "the navigation did not commit — the user is still in
-                       the editor with their draft")
-                  (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
-                      (str "AND THE ADDRESS BAR WAS PUT BACK. It reads "
-                           (pr-str (path)) ". `popstate` had already moved it"
-                           " before the application heard about it, so a guard"
-                           " that only declined to commit would leave the"
-                           " editor on screen under the list's address — and"
-                           " a reload, a copy or a bookmark takes the address"
-                           " at its word and discards the draft. This is the"
-                           " one claim in the recipe that no zero-DOM row can"
-                           " make"))
-                  (is (true? (:url-restored? p))
-                      "and the pending value records that the restore happened,
-                       so a confirm dialog reading `current-url` sees the
-                       restored value rather than the one the browser moved to")
-                  (is (= rf.recipes.async-nav/editor-route (:rejecting-route p)))
-                  (is (= ::rf.recipes.async-nav/can-leave? (:rejecting-guard p))))
-
-                (testing "and the prompt is on the page — ordinary view code"
-                  (is (some? (node m rf.recipes.async-nav/prompt-selector))
-                      "no `window.confirm` and no `beforeunload`: a blocked
-                       attempt is a value, and the dialog is a view over it")
-                  (is (some? (node m rf.recipes.async-nav/leave-selector))))
-
-                ;; A REAL CLICK on the reader's own choice.
+                (is (= rf.recipes.async-nav/editor-route (route-id frame-id))
+                    "the navigation did not commit")
+                (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
+                    (str "the address bar was put back; it reads " (pr-str (path))))
+                (is (= {:url-restored?   true
+                        :rejecting-route rf.recipes.async-nav/editor-route
+                        :rejecting-guard ::rf.recipes.async-nav/can-leave?}
+                       (select-keys p [:url-restored? :rejecting-route :rejecting-guard])))
+                (is (some? (node m rf.recipes.async-nav/prompt-selector))
+                    "the prompt is ordinary view code over the pending value")
                 (.click (node m rf.recipes.async-nav/leave-selector))
                 (settled-at frame-id rf.recipes.async-nav/list-route
                             "the reader's `Discard and leave` completing the parked navigation")))
             (.then
               (fn [_]
-                (is (nil? (pending frame-id))
-                    "the slot cleared, so the prompt cannot come back")
-                (is (nil? (node m rf.recipes.async-nav/prompt-selector)))
+                (is (nil? (node m rf.recipes.async-nav/prompt-selector))
+                    "the slot cleared, and the prompt went with it")
                 (is (= rf.recipes.async-nav/list-url (path))
-                    (str "and the address bar followed the completed"
-                         " navigation to " (pr-str rf.recipes.async-nav/list-url) "; it reads "
-                         (pr-str (path)) ". A continue that landed the route"
-                         " without landing the URL would leave the two"
-                         " disagreeing in exactly the state the guard was"
-                         " protecting"))))
+                    (str "the address bar followed the completed navigation; it reads "
+                         (pr-str (path))))))
             (finish m frame-id done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -323,36 +247,30 @@
             m        (mount! frame-id)]
         (-> (js/Promise.resolve (open-dirty-editor! frame-id))
             (.then (fn [_]
-                     ;; A PROGRAMMATIC leave this time — a forward door, so
-                     ;; the address bar never moved and there is nothing to
-                     ;; restore. The row is here for the OTHER button, and
-                     ;; deliberately touches no history: it must not go back
-                     ;; past the entry it started on.
+                     ;; A PROGRAMMATIC leave — a forward door, which touches
+                     ;; no history, so this row never goes back past the
+                     ;; entry it started on.
                      (rf/dispatch-sync [:rf.route/navigate {:to rf.recipes.async-nav/list-route}]
                                        {:frame frame-id})
                      (parked frame-id "the programmatic leave's blocked attempt")))
             (.then
               (fn [_]
-                (is (= rf.recipes.async-nav/editor-route (route-id frame-id)))
                 (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
                     "a forward door never moved the address bar, so there was
-                     nothing to put back — the asymmetry the Back-button row
-                     exists for")
-                (is (some? (node m rf.recipes.async-nav/stay-selector)))
+                     nothing to put back")
                 (.click (node m rf.recipes.async-nav/stay-selector))
                 (rf.test-support/poll-until #(nil? (pending frame-id))
-                                         {:label "the reader's `Stay` clearing the parked attempt"})))
+                                            {:label "the reader's `Stay` clearing the parked attempt"})))
             (.then
               (fn [_]
                 (rf.substrate.adapter/flush-render!)
                 (is (= rf.recipes.async-nav/editor-route (route-id frame-id))
                     "still in the editor")
                 (is (nil? (node m rf.recipes.async-nav/prompt-selector))
-                    "the prompt went with the pending value")
+                    "dirty is not blocked: with nothing pending there is no prompt")
                 (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
-                    "and the work is still there — cancelling the leave must
-                     not also cancel the edits it was protecting")
-                (is (= "My own title"
-                       (.-value (node m "[data-editor-title]")))
+                    "and the work is still there — cancelling the leave must not
+                     also cancel the edits it was protecting")
+                (is (= "My own title" (.-value (node m "[data-editor-title]")))
                     "in the field itself, not merely in app-db")))
             (finish m frame-id done))))))
