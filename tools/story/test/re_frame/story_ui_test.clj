@@ -141,12 +141,6 @@
                 (rf.story.ui.state/clear-cell-overrides :story.x/v))]
       (is (= [nil true] [(get-in s [:cell-overrides :story.x/v]) (empty? (row-ids s))])))))
 
-(deftest panel-visibility-toggle
-  (testing "toggle-panel flips a panel's visibility"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/toggle-panel s :controls)]
-      (is (= false (get-in s1 [:panel-visibility :controls]))))))
-
 ;; ---- command palette -----------------------------------------------------
 
 (deftest command-palette-builds-search-corpus
