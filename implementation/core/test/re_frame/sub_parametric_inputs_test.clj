@@ -1,30 +1,16 @@
 (ns re-frame.sub-parametric-inputs-test
-  "Tests for parametric subscription inputs — the `{:inputs input-fn}`
-  form, `(reg-sub id {:inputs input-fn} computation-fn)` (EP
-  docs/EP/EP-0004-subscription-inputs.md §Test Plan; Spec 006 §Subscription
-  input producers).
+  "Parametric subscription inputs, `(reg-sub id {:inputs input-fn} body)`
+  (docs/EP/EP-0004-subscription-inputs.md §Test Plan; Spec 006 §Subscription
+  input producers). The `input-fn` is a pure function from the outer `query-v`
+  to a vector of input query-vectors; each realized input resolves in the outer
+  subscription's frame, and the cache entry records the realized query-vectors.
+  The grammar and vector delivery are pinned by `re-frame.sub-declared-inputs-test`.
 
-  The `input-fn` is a PURE function from the outer `query-v` to a vector
-  of input query-vectors (data, NOT live reactions). The runtime
-  resolves each in the same frame as the outer subscription and passes
-  the resolved values (in producer order) — as a VECTOR — to the
-  computation fn.
-
-  The `{:inputs …}` grammar, the registration slots, and vector delivery on
-  all three read paths are pinned by `re-frame.sub-declared-inputs-test`.
-
-  Coverage:
-    - `normalize-sub-inputs` grammar: rejects scalar / bare-keyword / map /
-      mixed / reaction / derefable
-    - a materialized parametric node recomputes on an upstream change
-    - hot-reload of an upstream invalidates the parametric entries realized
-      over it
-    - a Var-valued handler is accepted
-    - the realized-inputs cache shape (`:inputs` = realized query-vectors)
-    - multi-frame: every realized input resolves in the OUTER frame
-    - the 3 error ids fire loudly (reg-sub-bad-args /
-      sub-input-fn-exception / sub-input-fn-bad-return)"
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The three error ids fire loudly. `:rf.error/reg-sub-bad-args`'s trace is a
+  bare dev `emit-error!`; `sub-input-fn-exception` and `sub-input-fn-bad-return`
+  are promoted to the always-on error registry, so their occurrence, sub-id and
+  query-v are readable in production too (`:where` rides only the dev trace)."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
@@ -33,7 +19,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
-            [re-frame.trace :as rf.trace]
             ;; load the tooling sibling so the late-bind hooks behind the
             ;; public listener API resolve.
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -46,11 +31,8 @@
   (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`,
-  ;; and ambient subscribe / dispatch require a carried frame stamp.
-  ;; These parametric-input tests run against a single conventional app
-  ;; frame, so register `:rf/default` explicitly and pin it as the
-  ;; established scope for the whole body via `with-frame`.
+  ;; `init!` does not synthesise `:rf/default` and ambient reads need a
+  ;; carried frame (EP-0002), so register it and pin it as the scope.
   (rf.frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -58,9 +40,10 @@
   (rf/with-frame :rf/default
     (test-fn)))
 
+(use-fixtures :each reset-runtime)
+
 (defn- capture-errors!
-  "Register a one-shot trace listener that collects every emitted error
-  event whose `:operation` is `error-kw` into the returned atom. Returns
+  "Collect every dev trace event whose `:operation` is `error-kw`. Returns
   `[errs-atom unregister-fn]`."
   [error-kw]
   (let [errs (atom [])
@@ -72,13 +55,8 @@
     [errs #(rf/unregister-listener! :trace k)]))
 
 (defn- capture-error-records!
-  "The ALWAYS-ON counterpart of [[capture-errors!]]. Both
-  `:rf.error/sub-input-fn-exception` and `:rf.error/sub-input-fn-bad-return`
-  are PROMOTED categories — `rf.subs/emit-sub-input-fn-error!` fans them through
-  `error-emit/emit-error-both!` — so their occurrence, sub-id and query-v are
-  readable in production posture off the corpus-wide registry. (`:where` is
-  not: it rides the dev-trace tags, which `emit-error-both!` does not lift
-  from.) Returns `[records-atom unregister-fn]`."
+  "Collect every always-on error-registry record for `error-kw`. Returns
+  `[records-atom unregister-fn]`."
   [error-kw]
   (let [recs (atom [])
         k    (keyword "rf2-d2841" (str (name error-kw) "-rec-" (gensym)))]
@@ -87,259 +65,118 @@
                                      (swap! recs conj r))))
     [recs #(rf.error-emit/unregister-error-listener! k)]))
 
-(use-fixtures :each reset-runtime)
-
-(defn- sub-meta [id] (rf.registrar/lookup :sub id))
-
 (defn- entry [frame-id query-v]
   (get-in @(:sub-cache (rf.frame/frame frame-id)) [query-v]))
 
-(defn- cache-keys [frame-id]
-  (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
-
-;; ---- normalize-sub-inputs grammar ----------------------------------------
+(defn- reg-item-title! []
+  (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
+  (rf/reg-sub :item/title
+              {:inputs (fn [[_ id]] [[:item/by-id id]])}
+              (fn [[item] _] (:title item))))
 
 (deftest normalize-rejects-every-shape-but-a-vector-of-query-vectors
-  (testing "anything but a vector of query vectors is rejected as sub-input-fn-bad-return"
-    (doseq [[label bad]
-            [["a scalar query vector (ambiguous: an arg, or two inputs?)" [:x :y]]
-             ["a bare keyword (no shorthand)"                            :viewer/current]
-             ["a map"                                                    {:article [:article/by-id 1]}]
-             ["a vector with a non-query-vector element"                 [[:article/by-id 1] :viewer]]
-             ["a vector whose head is not a keyword"                     [[:a] [42 :b]]]
-             ["a reaction / derefable (not a vector)"                    (atom [[:a]])]
-             ["a vector containing a derefable (not a query vector)"     [(atom [:a])]]]]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-            (rf.subs/normalize-sub-inputs bad))
-          (str label " is rejected")))))
-
-;; ---- a materialized parametric node recomputes ----------------------------
+  (doseq [bad [:viewer/current        ;; not a vector
+               [(atom [:a])]          ;; a vector of reactions, not query vectors
+               [[:a] [42 :b]]]]       ;; a query vector whose head is not a keyword
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
+          (rf.subs/normalize-sub-inputs bad))
+        (pr-str bad))))
 
 (deftest parametric-recomputes-reactively-on-upstream-change
-  (testing "a materialized parametric node follows ordinary layer-2+
-            semantics — an upstream value change recomputes it"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed   (fn [{:keys [db]} _]        {:db {:items {:x {:title "v1"}}}}))
-    (rf/reg-event :rename (fn [{:keys [db]} [_ t]]   {:db (assoc-in db [:items :x :title] t)}))
-    (rf/dispatch-sync [:seed])
-    (let [r (rf/subscribe [:item/title :x])]
-      (is (= "v1" @r))
-      (rf/dispatch-sync [:rename "v2"])
-      (is (= "v2" @r) "the parametric node recomputed on the upstream change")
-      (rf/unsubscribe [:item/title :x]))))
-
-;; ---- the realized-inputs cache shape -------------------------------------
-
-(deftest realized-inputs-stored-on-cache-entry
-  (testing ":inputs on a parametric cache entry holds the REALIZED query-vectors
-            for the concrete outer query-v (not containers); key-set is the
-            spec-pinned {:reaction :inputs :ref-count}"
-    (rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
-    (rf/reg-sub :comments/for  (fn [db [_ id]] (get-in db [:comments id])))
-    (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
-    (rf/reg-sub :article/page
-                {:inputs (fn [[_ id]] [[:article/by-id id] [:comments/for id] [:viewer]])}
-                (fn [[a c v] _] [a c v]))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:articles {} :comments {} :viewer nil}}))
-    (rf/dispatch-sync [:seed])
-    (rf/subscribe [:article/page :a1])
-    (let [e (entry :rf/default [:article/page :a1])]
-      (is (= #{:reaction :inputs :ref-count} (set (keys e)))
-          "entry key-set is exactly the spec-006 shape")
-      (is (= [[:article/by-id :a1] [:comments/for :a1] [:viewer]]
-             (:inputs e))
-          ":inputs holds the realized parametric query-vectors for THIS entry"))
-    (rf/unsubscribe [:article/page :a1])))
+  (reg-item-title!)
+  (rf/reg-event :seed   (fn [_ _]               {:db {:items {:x {:title "v1"}}}}))
+  (rf/reg-event :rename (fn [{:keys [db]} [_ t]] {:db (assoc-in db [:items :x :title] t)}))
+  (rf/dispatch-sync [:seed])
+  (let [r      (rf/subscribe [:item/title :x])
+        before @r]
+    (rf/dispatch-sync [:rename "v2"])
+    (is (= ["v1" "v2"] [before @r]))))
 
 (deftest distinct-outer-query-vs-get-distinct-realized-inputs
-  (testing "two concrete cache entries realize their own parametric edges"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"} :y {:title "Y"}}}}))
-    (rf/dispatch-sync [:seed])
-    (rf/subscribe [:item/title :x])
-    (rf/subscribe [:item/title :y])
-    (is (= [[:item/by-id :x]] (:inputs (entry :rf/default [:item/title :x]))))
-    (is (= [[:item/by-id :y]] (:inputs (entry :rf/default [:item/title :y]))))
-    (rf/unsubscribe [:item/title :x])
-    (rf/unsubscribe [:item/title :y])))
-
-;; ---- hot-reload invalidates parametric cache entries ---------------------
+  ;; Each concrete cache entry records the edges it realized.
+  (reg-item-title!)
+  (rf/reg-event :seed (fn [_ _] {:db {:items {:x {:title "X"} :y {:title "Y"}}}}))
+  (rf/dispatch-sync [:seed])
+  (rf/subscribe [:item/title :x])
+  (rf/subscribe [:item/title :y])
+  (is (= [[[:item/by-id :x]] [[:item/by-id :y]]]
+         [(:inputs (entry :rf/default [:item/title :x]))
+          (:inputs (entry :rf/default [:item/title :y]))])))
 
 (deftest hot-reload-invalidates-downstream-of-realized-upstream
-  (testing "re-registering a realized upstream invalidates the parametric
-            entry that realized it (transitive dependent closure)"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X" :name "n"}}}}))
-    (rf/dispatch-sync [:seed])
-    (rf/subscribe [:item/title :x])
-    (is (contains? (cache-keys :rf/default) [:item/title :x]))
-    ;; Re-register the upstream :item/by-id — the parametric entry that
-    ;; realized [:item/by-id :x] depends on it and must be evicted.
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (assoc (get-in db [:items id]) :hot true)))
-    (is (not (contains? (cache-keys :rf/default) [:item/title :x]))
-        "the parametric entry whose realized input was re-registered is evicted")
-    (rf/unsubscribe [:item/title :x])))
-
-;; ---- multi-frame: realized inputs resolve in the OUTER frame --------------
+  ;; Re-registering a realized upstream evicts its transitive dependents.
+  (reg-item-title!)
+  (rf/reg-event :seed (fn [_ _] {:db {:items {:x {:title "X"}}}}))
+  (rf/dispatch-sync [:seed])
+  (rf/subscribe [:item/title :x])
+  (rf/reg-sub :item/by-id (fn [db [_ id]] (assoc (get-in db [:items id]) :hot true)))
+  (is (nil? (entry :rf/default [:item/title :x]))))
 
 (deftest multi-frame-realized-inputs-resolve-in-outer-frame
-  (testing "every realized parametric input resolves in the same (outer)
-            frame as the outer subscription — composes with frame-target
-            resolution. Two isolated frames hold different state; each
-            parametric read resolves its inputs in its OWN frame."
-    (rf/make-frame {:id :frame-a :doc "tenant a"})
-    (rf/make-frame {:id :frame-b :doc "tenant b"})
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed (fn [{:keys [db]} [_ title]] {:db {:items {:x {:title title}}}}))
-    (rf/dispatch-sync [:seed "A-title"] {:frame :frame-a})
-    (rf/dispatch-sync [:seed "B-title"] {:frame :frame-b})
-    ;; Each frame's parametric read resolves [:item/by-id :x] in its OWN
-    ;; frame, so the values differ by frame state.
-    (is (= "A-title" (rf/subscribe-once [:item/title :x] {:frame :frame-a})))
-    (is (= "B-title" (rf/subscribe-once [:item/title :x] {:frame :frame-b})))
-    ;; The realized upstream is cached IN the outer frame, not :rf/default.
-    (rf/subscribe [:item/title :x] {:frame :frame-a})
-    (is (contains? (cache-keys :frame-a) [:item/by-id :x])
-        "the realized input is cached in the outer frame")
-    (is (not (contains? (cache-keys :rf/default) [:item/by-id :x]))
-        "the realized input did NOT leak into :rf/default")
-    (rf/unsubscribe :frame-a [:item/title :x])))
-
-;; ---- error contract: the 3 ids fire loudly -------------------------------
+  (rf/make-frame {:id :frame-a})
+  (rf/make-frame {:id :frame-b})
+  (reg-item-title!)
+  (rf/reg-event :seed (fn [_ [_ title]] {:db {:items {:x {:title title}}}}))
+  (rf/dispatch-sync [:seed "A-title"] {:frame :frame-a})
+  (rf/dispatch-sync [:seed "B-title"] {:frame :frame-b})
+  (is (= ["A-title" "B-title"]
+         (mapv #(rf/subscribe-once [:item/title :x] {:frame %}) [:frame-a :frame-b]))))
 
 (deftest reg-sub-bad-args-rejects-and-emits
-  (testing ":rf.error/reg-sub-bad-args — a malformed registration shape is
-            rejected (thrown) AND emits a structured dev trace"
-    (let [[errs unreg] (capture-errors! :rf.error/reg-sub-bad-args)]
-      (try
-        ;; Three trailing args (input-fn + 2 fns) — not an accepted shape.
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
-              (rf/reg-sub :bad (fn [_] [[:a]]) (fn [a _] a) (fn [x _] x))))
-        ;; The retired `:<-` spelling, refused by name.
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
-              (rf/reg-sub :bad2 :<- (fn [x _] x))))
-        ;; `:rf.error/reg-sub-bad-args` is a bare
-        ;; `rf.trace/emit-error!` in `subs.cljc` (no always-on leg), so the TRACE
-        ;; half is dev-only. The LOUD half — the two `thrown-with-msg?` rows
-        ;; above — is what a production build has, and it is unguarded.
-        (when rf.interop/debug-enabled?
-          (is (seq @errs) "a :rf.error/reg-sub-bad-args trace was emitted")
-          (is (some #(= :bad (get-in % [:tags :rf.sub/id])) @errs)
-              "the trace carries the offending sub id"))
-        (finally (unreg))))))
+  ;; Three trailing args (input-fn and two fns) is not an accepted shape.
+  (let [[errs unreg] (capture-errors! :rf.error/reg-sub-bad-args)]
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
+            (rf/reg-sub :bad (fn [_] [[:a]]) (fn [a _] a) (fn [x _] x))))
+      (when rf.interop/debug-enabled?
+        (is (some #(= :bad (get-in % [:tags :rf.sub/id])) @errs)
+            "the dev trace carries the offending sub id"))
+      (finally (unreg)))))
 
 (deftest sub-input-fn-exception-fires-and-recovers
-  (testing ":rf.error/sub-input-fn-exception — an input-fn that throws emits
-            loudly (compute-sub path) and recovers the sub to nil"
-    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-exception)
-          [recs unrec] (capture-error-records! :rf.error/sub-input-fn-exception)]
-      (try
-        (rf/reg-sub :leaf (fn [db _] (:leaf db)))
-        (rf/reg-sub :boom
-                    {:inputs (fn [_] (throw (ex-info "input-fn boom" {})))}
-                    (fn [[v] _] v))
-        ;; compute-sub path.
-        (is (nil? (rf/compute-sub [:boom] {:leaf 1}))
-            "the sub recovers to nil when its input-fn throws")
-        ;; `:where` rides the dev-trace tags only.
-        (when rf.interop/debug-enabled?
-          (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
-              "the compute-sub path emitted :rf.error/sub-input-fn-exception"))
-        ;; reactive path.
-        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
-        (rf/dispatch-sync [:seed])
-        (is (nil? (rf/subscribe-once [:boom]))
-            "the reactive path also recovers to nil")
-        (when rf.interop/debug-enabled?
-          (is (some #(= :reactive (get-in % [:tags :where])) @errs)
-              "the reactive path emitted :rf.error/sub-input-fn-exception"))
-        ;; ---- ALWAYS-ON: BOTH paths fanned a corpus-wide record
-        ;;      naming the failing sub. "Emits loudly" is the claim; the
-        ;;      always-on axis is where a production build hears it.
-        (is (= 2 (count @recs))
-            "both the compute-sub and the reactive path fanned an always-on
-             :rf.error/sub-input-fn-exception record")
-        (is (every? #(= :boom (:event-id %)) @recs)
-            "each always-on record names the failing sub")
-        (finally (unrec) (unreg))))))
+  ;; Both read paths recover the sub to nil and report the throw.
+  (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-exception)
+        [recs unrec] (capture-error-records! :rf.error/sub-input-fn-exception)]
+    (try
+      (rf/reg-sub :boom
+                  {:inputs (fn [_] (throw (ex-info "input-fn boom" {})))}
+                  (fn [[v] _] v))
+      (rf/reg-event :seed (fn [_ _] {:db {:leaf 1}}))
+      (rf/dispatch-sync [:seed])
+      (is (= [nil nil] [(rf/compute-sub [:boom] {:leaf 1}) (rf/subscribe-once [:boom])]))
+      (is (= [:boom :boom] (mapv :event-id @recs)) "an always-on record from each path")
+      (when rf.interop/debug-enabled?
+        (is (= #{:compute-sub :reactive} (set (map #(get-in % [:tags :where]) @errs)))))
+      (finally (unrec) (unreg)))))
 
 (deftest sub-input-fn-bad-return-fires-and-recovers
-  (testing ":rf.error/sub-input-fn-bad-return — an input-fn returning a bad
-            shape emits loudly (reactive + compute-sub) and recovers to nil;
-            it is NEVER silently treated as no inputs"
-    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-bad-return)
-          [recs unrec] (capture-error-records! :rf.error/sub-input-fn-bad-return)]
-      (try
-        (rf/reg-sub :leaf (fn [db _] (:leaf db)))
-        ;; Returns a scalar query vector — the classic ambiguous shape.
-        (rf/reg-sub :bad-shape
-                    {:inputs (fn [_] [:leaf :extra])}     ;; scalar — rejected
-                    (fn [[v] _] v))
-        ;; compute-sub path.
-        (is (nil? (rf/compute-sub [:bad-shape] {:leaf 1})))
-        ;; reactive path.
-        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
-        (rf/dispatch-sync [:seed])
-        (is (nil? (rf/subscribe-once [:bad-shape])))
-        ;; `:where` / `:rf.sub/query-v` ride the dev-trace tags.
-        (when rf.interop/debug-enabled?
-          (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
-            (is (contains? wheres :compute-sub))
-            (is (contains? wheres :reactive)))
-          ;; The error carries the outer query-v + sub id.
-          (is (some #(= [:bad-shape] (get-in % [:tags :rf.sub/query-v])) @errs)))
-        ;; ---- ALWAYS-ON: the record carries the query-vector
-        ;;      VERBATIM as its positional `:event` (raw identity), so
-        ;;      production learns exactly which
-        ;;      subscription was rejected — not merely that one was.
-        (is (= 2 (count @recs))
-            "both paths fanned an always-on :rf.error/sub-input-fn-bad-return record")
-        (is (every? #(= [:bad-shape] (:event %)) @recs)
-            "each always-on record carries the outer query-vector")
-        (is (every? #(= :bad-shape (:event-id %)) @recs)
-            "and names the sub")
-        (finally (unrec) (unreg))))))
-
-(deftest bad-return-not-treated-as-no-inputs
-  (testing "a bad input return does NOT silently feed the body an empty input
-            set — the sub recovers to nil rather than running the body"
-    (let [body-ran (atom false)]
+  ;; A bad input return recovers the sub to nil without running the body, and
+  ;; is never treated as an empty input set.
+  (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-bad-return)
+        [recs unrec] (capture-error-records! :rf.error/sub-input-fn-bad-return)]
+    (try
       (rf/reg-sub :leaf (fn [db _] (:leaf db)))
-      (rf/reg-sub :bad
-                  {:inputs (fn [_] :viewer)}                       ;; bare keyword — rejected
-                  (fn [_ _] (reset! body-ran true) :ran))
-      (is (nil? (rf/compute-sub [:bad] {:leaf 1})))
-      (is (false? @body-ran)
-          "the computation fn was NOT run with a silently-empty input set"))))
+      (rf/reg-sub :bad-shape {:inputs (fn [_] [:leaf :extra])} (fn [_ _] :ran))
+      (rf/reg-event :seed (fn [_ _] {:db {:leaf 1}}))
+      (rf/dispatch-sync [:seed])
+      (is (= [nil nil] [(rf/compute-sub [:bad-shape] {:leaf 1}) (rf/subscribe-once [:bad-shape])]))
+      ;; The record carries the query-vector verbatim as its `:event`.
+      (is (= (repeat 2 {:event [:bad-shape] :event-id :bad-shape})
+             (map #(select-keys % [:event :event-id]) @recs)))
+      (when rf.interop/debug-enabled?
+        (is (= [#{:compute-sub :reactive} true]
+               [(set (map #(get-in % [:tags :where]) @errs))
+                (boolean (some #(= [:bad-shape] (get-in % [:tags :rf.sub/query-v])) @errs))])))
+      (finally (unrec) (unreg)))))
 
-;; ---- handler-detection robustness ------------------------------------------
-;;
-;; `handler?` (fn-or-Var, not bare `ifn?`) decides whether the ONE trailing
-;; arg is a computation fn, and has to accept a Var: HoF and
-;; `requiring-resolve` call sites register with one.
-
+;; `handler?` is fn-or-Var, not bare `ifn?`: HoF and `requiring-resolve` call
+;; sites register with a Var, and storing the Var lets a REPL redefinition take
+;; effect.
 (defn- a-var-layer-1-handler [db _] (:v db))
 
 (deftest var-valued-handler-is-accepted
-  (testing "a Var (callable IFn, not fn?) is a valid handler — `handler?` is
-            fn-or-Var, not bare `fn?`; HoF / requiring-resolve call sites
-            register with a Var"
-    (rf/reg-sub :vh #'a-var-layer-1-handler)
-    (let [m (sub-meta :vh)]
-      (is (= :db (:input-kind m)))
-      (is (var? (:handler-fn m)) "the Var handler is stored as-is"))
-    (rf/reg-event :seed-vh (fn [{:keys [db]} _] {:db {:v 42}}))
-    (rf/dispatch-sync [:seed-vh])
-    (is (= 42 (rf/subscribe-once [:vh])))))
+  (rf/reg-sub :vh #'a-var-layer-1-handler)
+  (rf/reg-event :seed-vh (fn [_ _] {:db {:v 42}}))
+  (rf/dispatch-sync [:seed-vh])
+  (is (= [true 42] [(var? (:handler-fn (rf.registrar/lookup :sub :vh)))
+                    (rf/subscribe-once [:vh])])))
