@@ -1,49 +1,11 @@
 (ns re-frame.join-exact-attempt-cljs-test
-  "Join folds are FENCED to the EXACT child attempt and resolved
-  join (a fail-closed correlation record, not authentication).
-
-  Per Spec 005 §Child completion protocol a join child completes by reaching a
-  `:final?` state, and `lifecycle-fx.finalize` mints ONE reserved carrier for
-  it —
-
-      [<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]
-
-  — copying the exact-attempt COORDINATE (`:parent-id` / `:invoke-id` /
-  `:child-id` / `:spawned-id` / `:attempt` / `:work-generation`) straight off
-  the child's runtime-stamped `:rf/join-child` membership record. Strip that
-  coordinate and a completion carries no actor or attempt identity at all, so a
-  STALE completion from a prior attempt (parent re-entry / child respawn) would
-  fold into the SUCCESSOR join and make the CURRENT child appear completed —
-  most sharply for a `:fixed-actor-id` child, whose address is identical across
-  attempts.
-
-  The fence is ONE gate (a fail-closed correlation record, NOT
-  authentication — single-trust-domain, gate accidents). A carrier folds only
-  when its coordinate EQUALS the current join's parent/invoke identity, logical
-  child id, exact current actor id, and exact per-attempt token (minted by
-  `spawn-all-init-fx`). A missing / superseded / duplicate coordinate is
-  suppressed stale (`:rf.machine.spawn-all/stale-completion`) with zero
-  mutation. An exact-current coordinate is accepted regardless of source —
-  including deliberate app authoring (unsupported, not prohibited), which is
-  what every hand-authored carrier below relies on. The coordinate rides ON THE
-  CARRIER and nowhere else: no coeffect, metadata or other side channel can
-  supply it.
-
-  Teardown is not part of the fence. Completion IS finality, so a child
-  that folds into a join destroys ITSELF at its own completion (`:reason
-  :rf.machine/finished`) and is already gone by the time the join resolves;
-  only SURVIVORS are destroyed at resolution, as genuine cancellations. The
-  join never reaps a folded child, so there is no reap destroy form and no
-  `:rf.machine/join-reaped` reason.
-
-  The file is named `*-cljs-test.cljc` so it's discovered by both
-  cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
+  "A join folds a completion carrier only when every exact-attempt coordinate field
+  equals the current join attempt (Spec 005 §Exact-attempt fold fence); the fence
+  runs before the resolved/unresolved split, and resolution destroys only survivors."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   ;; load the machines artefact so its fx handlers + late-bind hooks are
-   ;; installed when this ns runs in isolation.
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -55,85 +17,43 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   rf.machines.test-support/trace-capture-fixture)
 
+(def ^:private child
+  {:initial :running
+   :states  {:running {:on {:go :done}}
+             :done    {:final? true}}})
+
 (defn- join-state [parent-id]
   (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
-(defn- stale-completions []
-  (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))
+(defn- events-of [op]
+  (rf.machines.test-support/events-of op))
 
 (defn- stale-reasons []
-  (mapv (comp :rf.reply/stale-reason :tags) (stale-completions)))
-
-(defn- destroyed-for [actor-id]
-  (filterv #(= actor-id (:actor-id (:tags %)))
-           (rf.machines.test-support/events-of :rf.machine/destroyed)))
-
-(defn- mk-child
-  "A join child that completes the ONE way every machine completes: on `:go`
-  it reaches the top-level `:final?` leaf `:done` (`:output-key :id` selects
-  its result), on `:fail` the `:error? true` leaf `:failed`. It dispatches
-  nothing and carries no parent vocabulary, so the runtime's own finalize
-  cascade mints the completion carrier — with the exact-attempt coordinate
-  copied off the child's `:rf/join-child` membership record."
-  []
-  {:initial :running
-   :data    {:id nil}
-   :actions {:record-id (fn [{data :data ev :event}]
-                          {:data (assoc data :id (second ev))})}
-   :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done}
-                            :fail   {:target :failed}}}
-             :done   {:final? true :output-key :id}
-             :failed {:final? true :error? true :output-key :id}}})
+  (mapv (comp :rf.reply/stale-reason :tags) (events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- reg-join-parent!
-  "Register a re-enterable two-child `:all` join parent + `:final?`-completing
-  children and start it. The parent stays on `:racing` at resolution (no
-  `:on` for `:all/done`) so the join slot survives for post-resolution
-  probes; `:abort` exits `:racing` (tearing the attempt down) and `:start`
-  re-enters it (seeding a NEW attempt). Returns the seeded join state."
-  [parent-kw child-a-kw child-b-kw]
-  (rf/reg-machine child-a-kw (mk-child))
-  (rf/reg-machine child-b-kw (mk-child))
+  "Register and start a two-child `:all` join parent. It stays on `:racing` at
+  resolution, so the join slot survives; `:abort` then `:start` re-enters it as a
+  NEW attempt. Returns the seeded join state."
+  [parent-kw child-kw]
+  (rf/reg-machine child-kw child)
   (rf/reg-machine parent-kw
     {:initial :idle
      :states  {:idle   {:on {:start :racing}}
-               :racing {:spawn-all
-                        {:children        [{:id :a :machine-id child-a-kw :start [:set-id :a]}
-                                           {:id :b :machine-id child-b-kw :start [:set-id :b]}]
-                         :join            :all
-                         :on-all-complete [:all/done]}
+               :racing {:spawn-all {:children        [{:id :a :machine-id child-kw}
+                                                      {:id :b :machine-id child-kw}]
+                                    :join            :all
+                                    :on-all-complete [:all/done]}
                         :on {:abort :idle}}}})
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw))
 
-(defn- dispatch-forged!
-  "Hand-dispatch the reserved completion carrier
-
-      [<parent> [:rf.machine.spawn/done <invoke-id> <completion>]]
-
-  that `lifecycle-fx.finalize` mints at a child's finality — here with a
-  HAND-AUTHORED `completion`, so a test can present the stale / cross-attempt /
-  wrong-actor / unstamped / duplicate coordinate the runtime itself would never
-  mint. The coordinate rides ON THE CARRIER and nowhere else: an EXACT-CURRENT
-  one folds regardless of who authored it, a MISMATCHED one fails closed, and
-  one bearing no `:attempt` is unverifiable.
-
-  `completion` must carry `:child-id` — that is what marks it a JOIN child's
-  completion and routes it to the join fold rather than to the `:spawn`
-  `:on-done` path. The OUTER `invoke-id` is what the fold looks the join state
-  up by; the coordinate's own `:invoke-id` is then checked against it."
-  ([parent-kw completion]
-   (dispatch-forged! parent-kw [:racing] completion))
-  ([parent-kw invoke-id completion]
-   (rf/dispatch-sync [parent-kw [:rf.machine.spawn/done invoke-id completion]])))
+(defn- dispatch-forged! [parent-kw completion]
+  (rf/dispatch-sync [parent-kw [:rf.machine.spawn/done [:racing] completion]]))
 
 (defn- exact-completion
-  "The `:done` completion the runtime WOULD mint for `child-id` at the CURRENT
-  attempt of the join at `[parent-kw [:racing]]` — every coordinate field read
-  straight off live runtime state, then hand-assembled. Tests `assoc` one field
-  off-current to exercise a single fence clause."
+  "The completion the runtime would mint for `child-id` at the join's CURRENT attempt."
   [parent-kw child-id]
   (let [j (join-state parent-kw)]
     {:result     child-id
@@ -144,305 +64,82 @@
      :spawned-id (get-in j [:children child-id])
      :attempt    (:rf/attempt j)}))
 
-(defn- unstamped-completion
-  "A completion bearing NO exact-attempt coordinate at all — a hand-authored
-  carrier that never came from a child's finality."
-  [child-id]
-  {:result child-id :error? false :child-id child-id})
-
-;; ---------------------------------------------------------------------------
-;; The fence is fail-closed-on-mismatch + accept-on-exact, NOT a "protected
-;; channel". The coordinate is read from ONE place, the carrier the runtime
-;; minted; an event-metadata side channel is not read. An EXACT-CURRENT coordinate is accepted regardless of
-;; source — including one the app author deliberately hand-crafts onto the
-;; carrier (unsupported, not prohibited). The honesty: an exact-current tuple
-;; is not "forged" — it is what the fence is defined to accept; a MISMATCHED
-;; tuple is what fails closed.
-;; ---------------------------------------------------------------------------
-
 (deftest exact-current-coordinate-accepted-from-any-source-metadata-slot-not-read
-  (testing "accept-on-exact + fail-closed-on-mismatch.
-            (1) The EXACT-CURRENT coordinate ON THE CARRIER is ACCEPTED and
-            folds — even though the app author hand-crafted every field here
-            (an exact-current coordinate is accepted regardless of source;
-            deliberate authoring is unsupported, not prohibited).
-            (2) The IDENTICAL tuple on event-vector METADATA, over a carrier
-            bearing no coordinate of its own, folds nothing
-            (`:attempt-unverified`): the metadata slot is simply not read,
-            which is not a secrecy boundary. The fold reads the coordinate
-            ONLY off the carrier's own completion map."
-    (reg-join-parent! :jea/meta1 :jea/meta1a :jea/meta1b)
-    ;; (1) exact-current coordinate on the carrier — ACCEPTED + folds, from
-    ;;     deliberate app authoring.
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/meta1 (exact-completion :jea/meta1 :a))
-    (is (= #{:a} (:done (join-state :jea/meta1)))
-        "the hand-authored EXACT-CURRENT coordinate folds — accepted regardless of source")
-    (is (empty? (stale-reasons))
-        "no stale suppression — an exact-current coordinate is what the fence accepts, not a forgery")
-    ;; (2) the IDENTICAL tuple on METADATA — folds nothing (the slot is not read).
-    (reg-join-parent! :jea/meta2 :jea/meta2a :jea/meta2b)
-    (let [exact2 (exact-completion :jea/meta2 :a)]
+  (reg-join-parent! :jea/p4 :jea/p4c)
+  (dispatch-forged! :jea/p4 (exact-completion :jea/p4 :a))
+  (is (= [#{:a} []] [(:done (join-state :jea/p4)) (stale-reasons)])
+      "a hand-authored exact-current coordinate on the carrier folds")
+  (reg-join-parent! :jea/p5 :jea/p5c)
+  (rf.machines.test-support/reset-captured!)
+  (rf/dispatch-sync [:jea/p5 (with-meta [:rf.machine.spawn/done [:racing] {:result :a :error? false :child-id :a}]
+                                        {:rf/join-attempt (exact-completion :jea/p5 :a)})])
+  (let [j (join-state :jea/p5)]
+    (is (= [#{} false [:rf.machine.spawn-all/attempt-unverified]]
+           [(:done j) (:resolved? j) (stale-reasons)])
+        "the same tuple on event metadata is not read")))
+
+(deftest a-coordinate-off-current-in-any-field-is-superseded
+  (let [prior-attempt (:rf/attempt (reg-join-parent! :jea/p1 :jea/p1c))]
+    (rf/dispatch-sync [:jea/p1 [:abort]])
+    (rf/dispatch-sync [:jea/p1 [:start]])
+    (doseq [[field v] [[:attempt prior-attempt]   ;; the CURRENT actor id, a prior attempt's token
+                       [:spawned-id (get-in (join-state :jea/p1) [:children :b])]
+                       [:invoke-id [:other-invoke]]
+                       [:parent-id :jea/other-parent]]]
       (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync
-        [:jea/meta2 (with-meta [:rf.machine.spawn/done [:racing] (unstamped-completion :a)]
-                               {:rf/join-attempt exact2})])
-      (is (= #{} (:done (join-state :jea/meta2)))
-          "the metadata-borne exact-current tuple folded nothing (metadata slot not read)")
-      (is (false? (:resolved? (join-state :jea/meta2))) "no resolution")
-      (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-          "the metadata slot is not read — coordinate-less carrier"))))
-
-;; ---------------------------------------------------------------------------
-;; stale prior-attempt completion after re-entry
-;; ---------------------------------------------------------------------------
-
-(deftest old-token-with-current-actor-id-is-superseded
-  (testing "the attempt token discriminates INDEPENDENTLY of
-            actor identity (the :fixed-actor-id-respawn pin, where actor ids
-            are equal across attempts): a carrier naming the CURRENT actor
-            but a PRIOR attempt token is stale (:attempt-superseded)"
-    (let [j1     (reg-join-parent! :jea/p2 :jea/p2a :jea/p2b)
-          token1 (:rf/attempt j1)]
-      (rf/dispatch-sync [:jea/p2 [:abort]])
-      (rf/dispatch-sync [:jea/p2 [:start]])
-      ;; CURRENT actor id (read off attempt 2), PRIOR attempt token.
-      (let [c (assoc (exact-completion :jea/p2 :a) :attempt token1)]
-        (is (= (get-in (join-state :jea/p2) [:children :a]) (:spawned-id c))
-            "the carrier names attempt 2's CURRENT actor for :a")
-        (rf.machines.test-support/reset-captured!)
-        (dispatch-forged! :jea/p2 c)
-        (is (= #{} (:done (join-state :jea/p2)))
-            "an old-token carrier cannot fold even when the actor id matches")
-        (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons)))))))
-
-;; ---------------------------------------------------------------------------
-;; unstamped / wrong-actor / wrong-child / wrong-invoke carriers
-;; ---------------------------------------------------------------------------
-
-(deftest wrong-actor-for-correct-child-is-superseded
-  (testing "a carrier naming the correct child but the WRONG
-            actor (sibling :b's id, current token) fails the exact
-            actor-identity clause"
-    (let [j (reg-join-parent! :jea/p4 :jea/p4a :jea/p4b)]
-      (rf.machines.test-support/reset-captured!)
-      (dispatch-forged! :jea/p4 (assoc (exact-completion :jea/p4 :a)
-                                       ;; WRONG actor — sibling :b's id
-                                       :spawned-id (get-in j [:children :b])))
-      (is (= #{} (:done (join-state :jea/p4))))
-      (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
-
-(deftest wrong-invoke-identity-is-superseded
-  (testing "a carrier whose COORDINATE names a different invoke
-            path than the one it was routed to fails the parent/invoke identity
-            clause. The outer invoke-id is what looks the join up; the
-            coordinate's own `:invoke-id` is checked against it, so the two
-            disagreeing is a mis-routed carrier and folds nothing."
-    (reg-join-parent! :jea/p6 :jea/p6a :jea/p6b)
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/p6 [:racing]
-                      (assoc (exact-completion :jea/p6 :a)
-                             :invoke-id [:other-invoke])) ;; WRONG invoke
-    (is (= #{} (:done (join-state :jea/p6))))
-    (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons)))))
-
-(deftest wrong-parent-identity-is-superseded
-  (testing "the parent half of the same clause: a coordinate
-            naming a DIFFERENT parent, delivered to this one, folds nothing"
-    (reg-join-parent! :jea/p6b1 :jea/p6b1a :jea/p6b1b)
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/p6b1 (assoc (exact-completion :jea/p6b1 :a)
-                                       :parent-id :jea/some-other-parent))
-    (is (= #{} (:done (join-state :jea/p6b1))))
-    (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons)))))
-
-;; ---------------------------------------------------------------------------
-;; teardown — completion IS finality, so a folded child is already gone
-;; ---------------------------------------------------------------------------
-
-(deftest folded-child-closes-itself-at-finality-and-the-join-reaps-nothing
-  (testing "Spec 005 §Final states D4 — a child that folds into a STILL-WAITING
-            :all join tears ITSELF down at its own completion, with the
-            non-cancellation reason :rf.machine/finished, BEFORE the parent
-            ever sees the carrier. At resolution the join therefore emits NO
-            destroy for it — only SURVIVORS are destroyed, as genuine
-            :explicit cancellations. So there is no reap destroy form for a
-            folded child and no cancellation-suppressing
-            :rf.machine/join-reaped reason: there is no second, contradictory
-            terminal to suppress."
-    (let [j (reg-join-parent! :jea/p8 :jea/p8a :jea/p8b)
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
-      (rf.machines.test-support/reset-captured!)
-      ;; :a folds; the 2-child :all join is NOT resolved.
-      (rf/dispatch-sync [a [:go]])
-      (is (= #{:a} (:done (join-state :jea/p8))) ":a folded")
-      (is (false? (:resolved? (join-state :jea/p8))) "the join still waits on :b")
-      (is (nil? (rf.machines.test-support/snapshot a))
-          "the folded child is ALREADY gone — finality tore it down at completion")
-      (is (= [:rf.machine/finished] (mapv (comp :reason :tags) (destroyed-for a)))
-          "exactly one destroyed trace for :a, and it is its own finality — never a reap")
-      (is (some? (rf.machines.test-support/snapshot b)) "the survivor :b is still live")
-      ;; Resolution: :b completes decisively. :a is long gone, so the join has
-      ;; nothing to tear down for it, and :b closed itself the same way.
-      (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync [b [:go]])
-      (is (true? (:resolved? (join-state :jea/p8))) "the join resolved")
-      (is (empty? (destroyed-for a))
-          "the resolution emitted NO destroy for the already-folded child")
-      (is (= [:rf.machine/finished] (mapv (comp :reason :tags) (destroyed-for b)))
-          "the decisive child also closed itself at its finality"))))
+      (dispatch-forged! :jea/p1 (assoc (exact-completion :jea/p1 :a) field v))
+      (is (= [#{} [:rf.machine.spawn-all/attempt-superseded]]
+             [(:done (join-state :jea/p1)) (stale-reasons)])
+          (str field)))))
 
 (deftest join-resolution-destroys-only-survivors
-  (testing "Spec 005 §Spawn-and-join — an :any join resolves on the first
-            completion: the decisive child is already gone (it finished), and
-            the SURVIVOR is destroyed as a genuine :explicit cancellation
-            carrying :rf.machine.spawn/cancelled-on-join-resolution."
-    (rf/reg-machine :jea/p10a (mk-child))
-    (rf/reg-machine :jea/p10b (mk-child))
-    (rf/reg-machine :jea/p10
-      {:initial :idle
-       :states  {:idle   {:on {:start :racing}}
-                 :racing {:spawn-all
-                          {:children         [{:id :a :machine-id :jea/p10a :start [:set-id :a]}
-                                              {:id :b :machine-id :jea/p10b :start [:set-id :b]}]
-                           :join             :any
-                           :on-some-complete [:any/done]}}}})
-    (rf/dispatch-sync [:jea/p10 [:start]])
-    (let [j (join-state :jea/p10)
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
-      (rf.machines.test-support/reset-captured!)
+  (rf/reg-machine :jea/p2c child)
+  (rf/reg-machine :jea/p2
+    {:initial :idle
+     :states  {:idle   {:on {:start :racing}}
+               :racing {:spawn-all {:children         [{:id :a :machine-id :jea/p2c}
+                                                       {:id :b :machine-id :jea/p2c}]
+                                    :join             :any
+                                    :on-some-complete [:any/done]}}}})
+  (rf/dispatch-sync [:jea/p2 [:start]])
+  (let [{:keys [a b]}  (:children (join-state :jea/p2))
+        destroy-reasons (fn [actor-id]
+                          (into [] (comp (filter #(= actor-id (:actor-id (:tags %))))
+                                         (map (comp :reason :tags)))
+                                (events-of :rf.machine/destroyed)))]
+    (rf/dispatch-sync [a [:go]])
+    (is (= [[:rf.machine/finished] [:explicit] [:b]]
+           [(destroy-reasons a)
+            (destroy-reasons b)
+            (mapv (comp :child-id :tags)
+                  (events-of :rf.machine.spawn/cancelled-on-join-resolution))])
+        "the decisive child closed itself; only the survivor is cancelled by the join")))
+
+;; Classifying `:resolved?` first would attribute any carrier against a resolved
+;; join to the CURRENT attempt and forge a `:late-completion` from it.
+(deftest against-a-resolved-join-only-an-exact-current-carrier-is-late
+  (let [straggler (do (reg-join-parent! :jea/p3 :jea/p3c)
+                      (exact-completion :jea/p3 :a))]
+    (rf/dispatch-sync [:jea/p3 [:abort]])
+    (rf/dispatch-sync [:jea/p3 [:start]])
+    (let [{:keys [a b]} (:children (join-state :jea/p3))]
       (rf/dispatch-sync [a [:go]])
-      (is (true? (:resolved? (join-state :jea/p10))) "the :any join resolved on :a")
-      (is (= [:rf.machine/finished] (mapv (comp :reason :tags) (destroyed-for a)))
-          "the decisive child closed itself — the join added no destroy for it")
-      (is (= [:explicit] (mapv (comp :reason :tags) (destroyed-for b)))
-          "the SURVIVOR is destroyed by the join, as a genuine :explicit cancellation")
-      (is (= [:b] (mapv (comp :child-id :tags)
-                        (rf.machines.test-support/events-of
-                          :rf.machine.spawn/cancelled-on-join-resolution)))
-          "exactly one cancelled-on-join-resolution trace, for the survivor"))))
-
-;; ---------------------------------------------------------------------------
-;; the genuine flow folds through the runtime-minted carrier
-;; ---------------------------------------------------------------------------
-
-(deftest genuine-child-completions-still-fold-and-resolve
-  (testing "real member children reaching their `:final?` leaves
-            fold and resolve the join (the runtime-minted carrier
-            end-to-end), across BOTH attempts of a re-entered parent"
-    (let [j1 (reg-join-parent! :jea/p9 :jea/p9a :jea/p9b)]
-      ;; Attempt 1 resolves normally.
-      (rf/dispatch-sync [(get-in j1 [:children :a]) [:go]])
-      (rf/dispatch-sync [(get-in j1 [:children :b]) [:go]])
-      (is (true? (:resolved? (join-state :jea/p9))) "attempt 1 resolved")
-      ;; Re-enter; attempt 2 resolves normally too (fresh token, fresh stamps).
-      (rf/dispatch-sync [:jea/p9 [:abort]])
-      (rf/dispatch-sync [:jea/p9 [:start]])
-      (let [j2 (join-state :jea/p9)]
-        (is (false? (:resolved? j2)))
-        (rf/dispatch-sync [(get-in j2 [:children :a]) [:go]])
-        (rf/dispatch-sync [(get-in j2 [:children :b]) [:go]])
-        (is (true? (:resolved? (join-state :jea/p9))) "attempt 2 resolved")))))
-
-;; ---------------------------------------------------------------------------
-;; Ownership + exact-attempt coordinate are validated BEFORE the
-;; resolved-vs-unresolved classification. Running the `:resolved?` branch
-;; FIRST would attribute ANY matching event shape against a resolved join to
-;; the CURRENT attempt: an old-attempt straggler, an unstamped carrier, or
-;; even an unknown child would forge a `:late-completion` record built from the
-;; CURRENT join's `[:children child-id]`, borrowing the current attempt's
-;; spawned/work identity. So the post-resolution late-completion path is
-;; gated on an EXACT-CURRENT carrier; every stale/forged carrier is classified
-;; the same way it is on the pre-resolution path, with ZERO db mutation.
-;; ---------------------------------------------------------------------------
-
-(defn- late-completions []
-  (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))
-
-(defn- bad-child-errors []
-  (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
-
-(defn- resolve-all-join!
-  "Resolve a fresh `reg-join-parent!` `:all` join by driving BOTH children to
-  their `:final?` leaves (so each folds through the runtime-minted carrier and
-  its exact-attempt coordinate). The parent has no `:on` for `:all/done`, so it
-  stays on `:racing` and the resolved join slot survives for post-resolution
-  probes. Returns the resolved join state."
-  [parent-kw]
-  (let [j (join-state parent-kw)]
-    (rf/dispatch-sync [(get-in j [:children :a]) [:go]])
-    (rf/dispatch-sync [(get-in j [:children :b]) [:go]])
-    (join-state parent-kw)))
-
-(deftest old-attempt-straggler-against-resolved-successor-is-superseded
-  (testing "THE COUNTEREXAMPLE. Attempt A's completion is queued;
-            the parent re-enters, installs attempt B, and B RESOLVES; then A
-            drains. Classifying `:resolved?` first would forge a
-            join-resolved `:late-completion` carrying B's CURRENT spawned/work
-            identity for A's straggler. The exact-attempt coordinate is validated first: A is
-            classified `:attempt-superseded` carrying ITS OWN (attempt-A)
-            identity, NO late-completion fires, and B's resolved join is
-            untouched (zero db mutation)."
-    (let [j1 (reg-join-parent! :jea/pr1 :jea/pr1a :jea/pr1b)
-          a1 (get-in j1 [:children :a])
-          ;; attempt A's OWN completion, captured while attempt A is live.
-          cA (exact-completion :jea/pr1 :a)]
-      ;; Tear attempt 1 down (its completion is still 'in flight'), re-enter
-      ;; (attempt 2 = B), and RESOLVE B.
-      (rf/dispatch-sync [:jea/pr1 [:abort]])
-      (rf/dispatch-sync [:jea/pr1 [:start]])
-      (let [j2 (resolve-all-join! :jea/pr1)
-            a2 (get-in j2 [:children :a])]
-        (is (true? (:resolved? j2)) "attempt B resolved")
-        (is (not= a1 a2) "attempt B respawned :a as a fresh instance")
-        (rf.machines.test-support/reset-captured!)
-        ;; Attempt A's exact carrier drains AFTER B resolved.
-        (dispatch-forged! :jea/pr1 cA)
-        ;; (1) exactly :attempt-superseded evidence; NO late-completion.
-        (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
-            "the old-attempt straggler is superseded, not late-completed")
-        (is (empty? (late-completions))
-            "no late-completion record for a superseded straggler")
-        ;; (2) the evidence carries ATTEMPT A's own identity, never B's.
-        (let [wid (:rf.reply/work-id (:tags (first (stale-completions))))]
-          (is (= a1 (nth wid 1))
-              "the superseded evidence carries the CARRIER's own (attempt-A) actor")
-          (is (not= a2 (nth wid 1))
-              "the superseded evidence does NOT borrow attempt B's current identity"))
-        ;; (3) zero db mutation — B's resolved join is untouched.
-        (let [j2' (join-state :jea/pr1)]
-          (is (= #{:a :b} (:done j2')) "B's :done set unchanged")
-          (is (true? (:resolved? j2')) "B stays resolved")
-          (is (= (:children j2) (:children j2')) "B's children mapping unchanged"))))))
-
-(deftest unstamped-carrier-against-resolved-join-is-unverified
-  (testing "an UNSTAMPED carrier against a RESOLVED
-            join is `:attempt-unverified`, NOT late-completion: the
-            exact-attempt coordinate is checked before the `:resolved?` branch
-            can attribute it."
-    (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
-    (resolve-all-join! :jea/pr3)
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/pr3 (unstamped-completion :a))
-    (is (empty? (late-completions))
-        "no late-completion for a coordinate-less carrier")
-    (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-        "an unstamped post-resolution carrier is attempt-unverified")
-    (is (= #{:a :b} (:done (join-state :jea/pr3))) "record frozen")))
-
-(deftest unknown-child-against-resolved-join-is-bad-child
-  (testing "an UNKNOWN child-id against a RESOLVED
-            join takes the canonical bad-child-id error path, NOT the resolved
-            late-completion path (which would forge a late-completion built
-            from a nil `[:children child-id]`)."
-    (reg-join-parent! :jea/pr4 :jea/pr4a :jea/pr4b)
-    (resolve-all-join! :jea/pr4)
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/pr4 (unstamped-completion :zzz))
-    (is (empty? (late-completions))
-        "no late-completion for an unknown child")
-    (is (= 1 (count (bad-child-errors)))
-        "the canonical bad-child-id error fires against the resolved join")
-    (is (= #{:a :b} (:done (join-state :jea/pr4))) "record frozen")))
+      (rf/dispatch-sync [b [:go]]))
+    (let [resolved (join-state :jea/p3)]
+      (is (:resolved? resolved))
+      (is (not= (:spawned-id straggler) (get-in resolved [:children :a]))
+          "the successor respawned :a, so borrowed identity is observable")
+      (rf.machines.test-support/reset-captured!)
+      (dispatch-forged! :jea/p3 straggler)
+      (dispatch-forged! :jea/p3 {:result :a :error? false :child-id :a})
+      (dispatch-forged! :jea/p3 {:result :zzz :error? false :child-id :zzz})
+      (is (= [[:rf.machine.spawn-all/attempt-superseded :rf.machine.spawn-all/attempt-unverified]
+              (:spawned-id straggler)
+              []
+              1]
+             [(stale-reasons)
+              (second (:rf.reply/work-id (:tags (first (events-of :rf.machine.spawn-all/stale-completion)))))
+              (events-of :rf.machine.spawn-all/late-completion)
+              (count (events-of :rf.error/machine-spawn-all-bad-child-id))])
+          "superseded (with its OWN identity), unverified and bad-child — never late")
+      (is (= resolved (join-state :jea/p3)) "zero mutation"))))
