@@ -59,4 +59,8 @@
 (deftest toggle-xray-embed-collapsed-flip
   (testing "first toggle from default collapses (expanded → collapsed)"
     (is (true? (rf.story.ui.state.transitions/xray-embed-collapsed?
-                 (rf.story.ui.state.transitions/toggle-xray-embed-collapsed {}))))))
+                 (rf.story.ui.state.transitions/toggle-xray-embed-collapsed {})))))
+  (testing "double toggle round-trips back to expanded"
+    (let [a (rf.story.ui.state.transitions/toggle-xray-embed-collapsed {})
+          b (rf.story.ui.state.transitions/toggle-xray-embed-collapsed a)]
+      (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? b))))))
