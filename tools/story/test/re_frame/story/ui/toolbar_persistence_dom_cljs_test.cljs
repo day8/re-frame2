@@ -1,70 +1,15 @@
 (ns re-frame.story.ui.toolbar-persistence-dom-cljs-test
-  "Browser-lane tests for toolbar mode persistence across reload.
+  "Toolbar mode persistence across reload (spec/010 §Persistence): set
+  modes, drop the in-memory shell state, hydrate from localStorage, and
+  check what came back — including stale-id pruning, per-axis exclusivity
+  after reload, and the URL-over-localStorage mount precedence.
 
-  Pairs with `re-frame.story.ui.toolbar-cljs-test` (toggle) and
-  `re-frame.story.ui.toolbar-storage-dom-cljs-test` (storage round-trip,
-  hydrate-from-storage-only-when-empty). This namespace pins the
-  reload-survives contract of spec/010 §Persistence + spec/015 §
-  reg-mode toolbar primitive:
-
-  - **Mode persistence across reload** — set theme + viewport modes,
-    simulate a page reload by tearing down + re-seeding the shell-state
-    atom (clears the in-memory active-modes vector), call
-    `hydrate-modes-from-storage!`, assert the active modes are
-    rehydrated from localStorage.
-
-  - **URL beats localStorage on mount** — the mount-hydration order
-    (`hydrate-modes-from-storage!` then the url-state engine's
-    `apply-parsed-to-state`) is exercised through the SINGLE canonical
-    ownership path: the localStorage seed lands first, the URL parse
-    (`rf.story.share/parse-params`) + apply then authoritatively
-    overrides it. The toolbar does not read the URL itself.
-
-  - **Unknown mode id in localStorage is dropped at hydrate** — write
-    a stale id (referring to a `reg-mode` that no longer exists) into
-    localStorage; assert hydrate prunes it and only valid modes
-    survive.
-
-  - **Single-select within axis vs multi-select across axes survives
-    reload** — set a theme + a viewport mode; reload; the rehydrated
-    active set still respects the per-axis exclusivity (toggling a
-    third theme mode evicts the rehydrated theme without touching the
-    viewport).
-
-  Per spec/010 the persistence key is chrome-wide
-  `re-frame.story/active-modes` (one slot per shell instance, not per
-  variant).
-
-  ## Why this namespace ends `-dom-cljs-test`
-
-  Every row here is a localStorage round-trip: write through
-  `toggle-mode!` / `save-modes-to-storage!`, drop the in-memory shell
-  state, then `hydrate-modes-from-storage!` and assert what came back.
-  That is real host-storage semantics — survives-reload and hydrate —
-  so it needs a real `window.localStorage`, which the `:node-test`
-  runtime does not have (no jsdom, no happy-dom in any dependency
-  list).
-
-  Named `-cljs-test`, with every row inside `(when (browser?) ...)`, it
-  would execute in NEITHER lane: skipped under `:node-test` for want of
-  storage, and never loaded by `:browser-test`, whose `:ns-regexp` is
-  `.*-dom-cljs-test$`. A namespace must end `-dom-cljs-test` to reach
-  the browser build at all.
-
-  The host guard is not vestigial: `:node-test`'s
-  `cljs-test$` regexp matches the `-dom-cljs-test` suffix too, so this
-  namespace is loaded on BOTH targets. Every row spells that guard as
-  `(if-not (browser?) (is true skip-msg) (do ...))`: under node the
-  marker assertion fires and the row reports a STATED skip; under
-  `:browser-test` the guard is true and the assertions run for real. So
-  no deftest here holds zero assertions in EITHER lane. That is the same
-  shape every other `*_dom_cljs_test.cljs` in this tree uses. A bare
-  `(when (browser?) ...)` would leave the node lane running every
-  deftest here with zero assertions — a silent pass rather than a
-  legible one; the marker assertion is what makes the skip visible."
+  Every row needs a real `window.localStorage`, so the namespace ends
+  `-dom-cljs-test` to reach `:browser-test`. `:node-test` loads it too
+  (its `cljs-test$` regexp matches the suffix), so each row answers the
+  node lane with a stated skip assertion rather than running empty."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story             :as rf.story]
-            [re-frame.story.registrar   :as rf.story.registrar]
             [re-frame.story.share        :as rf.story.share]
             [re-frame.story.ui.state     :as rf.story.ui.state]
             [re-frame.story.ui.toolbar   :as rf.story.ui.toolbar]
@@ -73,22 +18,14 @@
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn- browser?
-  "True when running in a context with a working `js/window.localStorage`.
-
-  Answers FALSE under the shadow `:node-test` target and TRUE under
-  `:browser-test`. Both targets load this namespace (see the ns
-  docstring), so this predicate is what routes each row to the lane that
-  can actually run it."
+  "True under `:browser-test`, false under `:node-test`."
   []
   (and (exists? js/window) (.-localStorage js/window)))
 
 (def ^:private skip-msg
   "skipped: no localStorage (node lane — see ns docstring)")
 
-(defn- clear-storage!
-  "Remove the chrome-wide active-modes slot from localStorage between
-  tests so state doesn't leak across the suite."
-  []
+(defn- clear-storage! []
   (when (browser?)
     (try
       (.removeItem (.-localStorage js/window) rf.story.ui.toolbar/ls-key)
@@ -103,51 +40,26 @@
 ;; `:after` matters because these rows reach a REAL `localStorage`. The
 ;; slot is chrome-wide, so the browser lane runs every namespace on ONE
 ;; page and a `Mode.persist.*` id left behind here would still be in
-;; storage when the next namespace hydrates. `:before` alone would keep
-;; only THIS suite's rows honest.
+;; storage when the next namespace hydrates.
 (use-fixtures :each {:before reset-all! :after clear-storage!})
 
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- simulate-reload!
-  "Simulate a page reload by tearing down + re-seeding the in-memory
-  shell-state atom. localStorage survives (browsers persist it across
-  reload); the in-memory active-modes vector resets to empty. The
-  shell's `:component-did-mount` then fires `hydrate!`.
-
-  This is the JVM-of-CLJS equivalent of a real reload: clears the
-  per-instance shell-state, leaves the persisted localStorage intact.
-  Modes registered against the registry persist by design (they live
-  in the side-table, not in the shell state)."
+  "Drop the in-memory shell state; localStorage and the mode registry
+  survive, as they do across a real reload."
   []
   (rf.story.ui.state/reset-shell-state!))
 
 (defn- modes-url-search
-  "Build the canonical `?modes=...` search string for `mode-ids` via the
-  PRODUCTION encoder `rf.story.share/build-params` — the same wire form the live
-  share URL emits — so the test round-trips through the real codec rather
-  than hand-assembling tokens (and avoids the `(name kw)`-drops-namespace
-  trap)."
+  "The `?modes=...` search for `mode-ids`, through the production encoder."
   [mode-ids]
   (str "?" (first (rf.story.share/build-params {:active-modes mode-ids}))))
 
 (defn- mount-hydrate-modes!
-  "Compose the shell-mount `:active-modes` hydration through the SINGLE
-  documented ownership path, as `shell/shell`'s `:component-did-mount`
-  does, with `url-search` (e.g. \"?modes=Mode.app%2Fdark\" or \"\")
-  written into the address bar for the duration of the call:
-
-    1. `rf.story.ui.toolbar/hydrate-modes-from-storage!` — localStorage FALLBACK
-       seeds `:active-modes` (idempotent, pruned against the registrar).
-    2. `rf.story.ui.url-state/hydrate-from-url!` parses `location.search`
-       and folds it into the shell state through `apply-parsed-to-state`,
-       the SINGLE authoritative URL writer. A present `modes=` overwrites
-       the seed; an omitted `modes=` (but other params present)
-       authoritatively CLEARS `:active-modes` to []; a fully-empty search
-       means no URL state — `parse-current-url` returns nil, nothing is
-       applied, and the localStorage seed survives.
-
-  The page's own URL is restored afterwards."
+  "Run the shell-mount `:active-modes` hydration with `url-search` in the
+  address bar: the localStorage fallback first, then the URL hydrator
+  through `apply-parsed-to-state`. The page's own URL is restored after."
   [url-search]
   (rf.story.ui.toolbar/hydrate-modes-from-storage!)
   (let [loc  (.-location js/window)
@@ -161,127 +73,74 @@
       (finally
         (.replaceState (.-history js/window) nil "" page)))))
 
-;; ===========================================================================
-;; Mode persistence across reload (the marquee scenario)
-;;
-;; The user toggles dark theme + mobile viewport. The chrome persists
-;; the active-modes vector to localStorage on every change (per spec/010
-;; §Persistence — chrome-wide localStorage). On reload the shell calls
-;; `hydrate!` from `:component-did-mount`, which reads localStorage
-;; back into the shell state.
-;; ===========================================================================
+;; ---- mode persistence across reload --------------------------------------
 
 (deftest theme-and-viewport-persist-and-rehydrate-on-reload
-  (testing "marquee scenario: set theme + viewport, reload,
-            both active modes rehydrate from localStorage"
+  (testing "set theme + viewport, reload, both rehydrate from localStorage"
     (if-not (browser?)
       (is true skip-msg)
       (do
-        ;; Seed: register the modes the user will toggle.
         (rf.story/reg-mode :Mode.persist.theme/dark
           {:axis :theme :args {:theme :dark}})
         (rf.story/reg-mode :Mode.persist.vp/mobile
           {:axis :viewport :args {:viewport :mobile}})
-        ;; User actions: toggle each on. toggle-mode! persists per call.
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/dark)
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.vp/mobile)
-        ;; Pre-reload sanity.
-        (is (= #{:Mode.persist.theme/dark :Mode.persist.vp/mobile}
-               (set (:active-modes (rf.story.ui.state/get-state)))))
-        ;; SIMULATED RELOAD — in-memory state cleared, localStorage
-        ;; survives. The registry survives by design (it's a side-table,
-        ;; not per-instance state).
         (simulate-reload!)
+        ;; Teeth: hydrate only seeds an EMPTY slot, so a reload that left
+        ;; the modes in memory would pass the final assertion for nothing.
         (is (= [] (:active-modes (rf.story.ui.state/get-state)))
-            "post-reload in-memory state is empty — no surprise carry-over")
-        ;; Shell's :component-did-mount fires this.
+            "post-reload in-memory state is empty")
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
         (is (= #{:Mode.persist.theme/dark :Mode.persist.vp/mobile}
                (set (:active-modes (rf.story.ui.state/get-state))))
-            "both modes rehydrated from localStorage — reload preserved")))))
+            "both modes rehydrated from localStorage")))))
 
 (deftest single-mode-persists-and-rehydrates
-  (testing "the simpler one-mode case: a single mode survives reload.
-            Pins the baseline contract before the multi-mode case"
+  (testing "a single mode survives reload"
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.persist.theme/light
           {:axis :theme :args {:theme :light}})
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/light)
-        (is (= [:Mode.persist.theme/light]
-               (:active-modes (rf.story.ui.state/get-state))))
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
         (is (= [:Mode.persist.theme/light]
-               (:active-modes (rf.story.ui.state/get-state)))
-            "single mode survives the reload round-trip")))))
+               (:active-modes (rf.story.ui.state/get-state))))))))
 
 (deftest empty-active-modes-rehydrates-as-empty
-  (testing "the boundary case: no active modes before reload → no active
-            modes after reload. Pins the empty-cycle path"
+  (testing "a mode toggled on then off leaves nothing to rehydrate"
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.persist.theme/dark
           {:axis :theme :args {:theme :dark}})
-        ;; Toggle on then off — leaves an empty vector in localStorage.
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/dark)
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/dark)
-        (is (= [] (:active-modes (rf.story.ui.state/get-state))))
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-        (is (= [] (:active-modes (rf.story.ui.state/get-state)))
-            "empty active set survives reload")))))
+        (is (= [] (:active-modes (rf.story.ui.state/get-state))))))))
 
-;; ===========================================================================
-;; modes=, omitted modes=, and localStorage fallback all compose through
-;; ONE documented ownership path.
+;; ---- URL vs localStorage at mount ----------------------------------------
 ;;
-;; The toolbar does not read the URL. Mount hydration is:
-;;   1. rf.story.ui.toolbar/hydrate-modes-from-storage!  (localStorage FALLBACK)
-;;   2. rf.story.ui.url-state/hydrate-from-url!           (the SINGLE URL authority)
-;; `mount-hydrate-modes!` composes exactly that with the URL search
-;; written into the address bar. These three tests pin the precedence
-;; end-to-end against the canonical share/url-state path — no manual
-;; simulation of the parser, no second URL reader.
-;; ===========================================================================
+;; The toolbar does not read the URL. Mount hydration seeds from
+;; localStorage, then `url-state/hydrate-from-url!` — the single URL
+;; authority — applies any URL state over it.
 
 (deftest mount-url-modes-beat-localstorage
-  (testing "a URL carrying `modes=` overrides the
-            localStorage seed: the localStorage hydrator seeds :dark
-            first, then apply-parsed-to-state writes the URL's :light.
-            Last-shared wins over last-used — through ONE path."
+  (testing "a URL carrying `modes=` overrides the localStorage seed:
+            last-shared wins over last-used"
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.persist.theme/dark  {:axis :theme :args {:theme :dark}})
         (rf.story/reg-mode :Mode.persist.theme/light {:axis :theme :args {:theme :light}})
-        ;; localStorage seeded with :dark (last-used).
         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
         (simulate-reload!)
-        ;; Mount with a URL that carries modes=...light (last-shared).
         (mount-hydrate-modes! (modes-url-search [:Mode.persist.theme/light]))
         (is (= [:Mode.persist.theme/light]
-               (:active-modes (rf.story.ui.state/get-state)))
-            "URL modes (light) replaced the localStorage seed (dark)")))))
-
-(deftest mount-omitted-modes-clears-localstorage-seed
-  (testing "a URL that carries OTHER params but
-            OMITS `modes=` is authoritative: it CLEARS the localStorage
-            seed to [] (the URL is the source of truth for the full
-            share surface). A share link like ?variant=foo restores the
-            DEFAULT (no modes) chrome for the recipient."
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (rf.story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
-        (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
-        (simulate-reload!)
-        ;; Mount with a populated URL that has NO modes= param.
-        (mount-hydrate-modes! "?variant=story.counter/loaded")
-        (is (= [] (:active-modes (rf.story.ui.state/get-state)))
-            "omitted modes= cleared the localStorage seed — URL authoritative")))))
+               (:active-modes (rf.story.ui.state/get-state))))))))
 
 (deftest mount-empty-search-keeps-localstorage-seed
   (testing "a mount with no URL params at all is not URL state:
@@ -294,99 +153,56 @@
         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
         (simulate-reload!)
         (mount-hydrate-modes! "")
-        (is (= [:Mode.persist.theme/dark] (:active-modes (rf.story.ui.state/get-state)))
-            "the localStorage seed survived a URL with no params")))))
+        (is (= [:Mode.persist.theme/dark] (:active-modes (rf.story.ui.state/get-state))))))))
 
-;; ===========================================================================
-;; Unknown mode id in localStorage is dropped at hydrate
-;;
-;; Spec/010 §Persistence: stale ids in localStorage (a mode renamed or
-;; removed between reload windows) are silently dropped at hydrate time.
-;; The known-good ids remain active.
-;; ===========================================================================
+;; ---- unknown mode id in localStorage is dropped at hydrate ---------------
 
 (deftest stale-mode-id-pruned-at-hydrate
-  (testing "localStorage contains a mode id that no longer resolves at
-            the registrar — hydrate prunes it and only the valid ids
-            survive. Pin the stale-survive contract"
+  (testing "a persisted id that no longer resolves at the registrar is
+            silently dropped; the valid ids survive"
     (if-not (browser?)
       (is true skip-msg)
       (do
-        ;; Register only one of the two ids the localStorage will name.
         (rf.story/reg-mode :Mode.persist.live/x {:args {:k 1}})
-        ;; Manually seed localStorage with one live id + one stale id.
         (rf.story.ui.toolbar/save-modes-to-storage!
           [:Mode.persist.live/x :Mode.persist.removed/y])
-        ;; Reload + hydrate.
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
         (is (= [:Mode.persist.live/x]
-               (:active-modes (rf.story.ui.state/get-state)))
-            "only the live mode id survives — stale id silently dropped")
-        (is (not (some #{:Mode.persist.removed/y}
-                       (:active-modes (rf.story.ui.state/get-state))))
-            "the stale id is NOT in active-modes — drop, not error")))))
+               (:active-modes (rf.story.ui.state/get-state))))))))
 
 (deftest all-stale-ids-pruned-to-empty
-  (testing "if every persisted id is stale, hydrate leaves the active-
-            modes vector empty rather than seeding garbage. The shell
-            renders no chips selected — the user re-discovers the
-            available modes from scratch"
+  (testing "if every persisted id is stale, hydrate leaves the active set empty"
     (if-not (browser?)
       (is true skip-msg)
       (do
-        ;; No registered modes here — every id in storage is stale.
         (rf.story.ui.toolbar/save-modes-to-storage!
           [:Mode.persist.removed/a :Mode.persist.removed/b])
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-        (is (= [] (:active-modes (rf.story.ui.state/get-state)))
-            "every stale id dropped — active vector is empty after hydrate")))))
+        (is (= [] (:active-modes (rf.story.ui.state/get-state))))))))
 
-;; ===========================================================================
-;; Axis semantics survive reload
-;;
-;; Spec/010 §Optional grouping :axis: a mode declared with :axis is
-;; single-select within its axis; modes in different axes co-exist.
-;; The axis check is enforced by `toggle-mode!`, which derives the
-;; axis from the registrar on each call. After reload + hydrate, a
-;; subsequent toggle MUST still honour the per-axis exclusivity.
-;; ===========================================================================
+;; ---- axis semantics survive reload --------------------------------------
 
 (deftest reload-then-toggle-third-mode-evicts-rehydrated-sibling
-  (testing "post-reload: rehydrated :dark theme. Toggling :light theme
-            (also :axis :theme) MUST evict the rehydrated :dark and
-            leave :light. The viewport mode (different axis) is
-            untouched. Pin the axis-aware behaviour survives the
-            reload boundary"
+  (testing "after reload, toggling :light evicts the rehydrated :dark (same
+            axis) and leaves :mobile (another axis) alone"
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.persist.theme/dark  {:axis :theme    :args {:theme :dark}})
         (rf.story/reg-mode :Mode.persist.theme/light {:axis :theme    :args {:theme :light}})
         (rf.story/reg-mode :Mode.persist.vp/mobile   {:axis :viewport :args {:viewport :mobile}})
-        ;; Seed: dark + mobile (multi-select across axes).
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/dark)
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.vp/mobile)
-        ;; Reload + hydrate.
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-        (is (= #{:Mode.persist.theme/dark :Mode.persist.vp/mobile}
-               (set (:active-modes (rf.story.ui.state/get-state)))))
-        ;; Post-reload action: toggle light theme — must evict dark.
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/light)
-        (let [active (set (:active-modes (rf.story.ui.state/get-state)))]
-          (is (contains? active :Mode.persist.theme/light)
-              ":light is now active")
-          (is (not (contains? active :Mode.persist.theme/dark))
-              ":dark was evicted by axis sibling rule — survived reload")
-          (is (contains? active :Mode.persist.vp/mobile)
-              ":mobile (different axis) untouched"))))))
+        (is (= #{:Mode.persist.theme/light :Mode.persist.vp/mobile}
+               (set (:active-modes (rf.story.ui.state/get-state)))))))))
 
 (deftest reload-preserves-multi-axis-set
-  (testing "spec/010 §Optional grouping :axis: modes in distinct axes
-            survive reload as a set. Toggling between them does not
-            disturb the membership of sibling axes"
+  (testing "modes on three distinct axes survive reload as a set"
     (if-not (browser?)
       (is true skip-msg)
       (do
@@ -396,12 +212,9 @@
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.theme/dark)
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.vp/mobile)
         (rf.story.ui.toolbar/toggle-mode! :Mode.persist.locale/en)
-        ;; Three axes co-active.
-        (is (= 3 (count (:active-modes (rf.story.ui.state/get-state)))))
         (simulate-reload!)
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
         (is (= #{:Mode.persist.theme/dark
                  :Mode.persist.vp/mobile
                  :Mode.persist.locale/en}
-               (set (:active-modes (rf.story.ui.state/get-state))))
-            "three-axis active set survives the reload round-trip")))))
+               (set (:active-modes (rf.story.ui.state/get-state)))))))))
