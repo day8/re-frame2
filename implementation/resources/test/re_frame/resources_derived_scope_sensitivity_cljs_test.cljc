@@ -1,36 +1,18 @@
 (ns re-frame.resources-derived-scope-sensitivity-cljs-test
-  "No derived-sensitivity propagation — a resource does NOT inherit
-  sensitivity from the inputs of the named scope resolver that derives its
-  scope (EP-0025). Per Spec 015 §No propagation, no
-  taint / Spec 016 §No derived-sensitivity propagation.
-
-  THE CONTRACT under test:
-
-    - classification does NOT propagate from a resolver's `:db` inputs to its
-      derived scope — a resource whose `{:from-db <id>}` resolver reads a
-      FRAME-SENSITIVE app-db path does NOT inherit `:sensitive`; only the
-      resource's OWN coarse `:sensitive?` / `:large?` claim governs its
-      whole-entry disposition (`whole-entry-disposition`, frame-blind);
-    - a resolver's `:rf.egress/output-sensitivity` claim is SILENTLY IGNORED
-      (not validated fail-closed — it is not a resolver key), which the
-      scope-registry suite's `output-sensitivity-claim-silently-ignored` pins.
-
-  Controls: a resource declared `:sensitive?` redacts via its
-  own owner claim; a resource that reads a sensitive input but declares nothing
-  serializes (the fail-OPEN the EP names — classify the path you care about).
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$` regex.
-  CLJC so the load-bearing JVM gate exercises it."
+  "No derived-sensitivity propagation (Spec 015 §No propagation, no taint;
+  Spec 016 §No derived-sensitivity propagation): a resource whose
+  `{:from-db <id>}` scope resolver reads a frame-sensitive app-db path does
+  not inherit `:sensitive`, so its value serializes (the fail-open the spec
+  names: classify the path you care about). Only the resource's own coarse
+  claim governs its whole-entry disposition."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
    [re-frame.registrar :as rf.registrar]
-   [re-frame.resources.scope-registry :as rf.resources.scope-registry]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    ;; load-bearing side-effecting requires: register the :resource +
@@ -41,29 +23,22 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- fixture --------------------------------------------------------------
-
 (def ^:private frame-id :rf/default)
 
 (defn- init!
-  "Register the named db-derived session resolver (reads the FRAME-SENSITIVE
-  `[:auth :user :username]` path) and a session-scoped feed resource whose
-  `:scope` is the `{:from-db …}` reference but NOT itself declared sensitive.
-  EP-0025: the frame's sensitive declaration does NOT propagate to the resource."
+  "The frame classifies the viewer-identity path sensitive; a named resolver
+  reads it to derive a session scope; a feed resource takes that scope and
+  declares nothing."
   []
   (rf.registrar/clear-kind! :resource-scope)
   (rf.registrar/clear-kind! :resource)
-  ;; FRAME classification: the viewer-identity path is sensitive (commit-plane
-  ;; effect path, :source :effect).
   (rf/make-frame {:id frame-id})
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
-  ;; resolver reading the sensitive viewer-identity path — NO propagation.
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
       (when username [:rf.scope/session {:username username}])))
-  ;; a session-scoped feed resource — NOT declared :sensitive?
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/session}
      :params-schema [:map [:page :int]]}
@@ -75,77 +50,44 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter :init-fn init!}
        :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!})))
 
-;; ---- helpers --------------------------------------------------------------
+(defn- runtime-db-with
+  "One `:loaded` entry under `scoped-key`, in the runtime's byte-keyed shape."
+  [scoped-key data]
+  {rf.resources.state/resources-key
+   {:entries     {(rf.resources.state/key-id scoped-key)
+                  (merge (rf.resources.state/empty-entry (second scoped-key))
+                         {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15
+                          :resource/key scoped-key})}
+    :tag-index   {} :owner-index {}}})
 
-(defn- entry
-  [resource-id data]
-  (merge (rf.resources.state/empty-entry resource-id)
-         {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15}))
-
-;; Re-key into the runtime's byte-`key-id` :entries shape, stamping
-;; each entry's `:resource/key`.
-(defn- runtime-db-with [entries]
-  {rf.resources.state/resources-key {:entries (into {}
-                                       (map (fn [[sk e]]
-                                              [(rf.resources.state/key-id sk) (assoc e :resource/key sk)]))
-                                       entries)
-                        :tag-index {} :owner-index {}}})
-
-;; the projected SCOPED KEY rides as the wire entry's `:resource/key` (the map
-;; key is the opaque byte id); return it as the first element.
-(defn- only-wire [proj]
-  (let [we (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
-    [(:resource/key we) we]))
-
-(defn- session-key [u page]
-  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
-
-;; ===========================================================================
-;; 3. SSR projection END-TO-END — a resource that reads a sensitive input but
-;;    declares nothing SERIALIZES (the fail-OPEN; no inheritance). A resource
-;;    declared :sensitive? redacts via its own claim.
-;; ===========================================================================
+(defn- project [runtime-db]
+  (rf/with-frame frame-id (rf.resources.ssr/project-resources-runtime-db runtime-db)))
 
 (deftest ssr-no-inheritance-resource-serializes
-  (testing "the feed entry (NOT declared :sensitive?) under a scope derived from
-            a sensitive input SERIALIZES — no propagation (the value the author
-            did not classify ships raw, the EP's fail-open hygiene bargain)"
-    (let [k   (session-key "jake" 1)
-          e   (entry :t/feed {:articles [:a :b]})
-          proj (rf/with-frame frame-id
-                 (rf.resources.ssr/project-resources-runtime-db (runtime-db-with {k e})))
-          [wk we] (only-wire proj)]
-      (is (= {:articles [:a :b]} (:data we))
-          "the non-classified entry's data rides verbatim (no inheritance)")
-      (is (= k wk) "the wire key rides verbatim (no inheritance redaction)"))))
+  (let [k  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/feed {:page 1})
+        we (val (first (get-in (project (runtime-db-with k {:articles [:a :b]}))
+                               [rf.resources.state/resources-key :entries])))]
+    (is (= [k {:articles [:a :b]}] [(:resource/key we) (:data we)])
+        "the key and data the author did not classify ride verbatim")))
 
 (deftest ssr-owner-declared-sensitive-redacts-via-own-claim
-  (testing "a resource declared :sensitive? is projected via its OWN coarse claim
-            — scope + params tokenized in the projected KEY, and the
-            row withheld outright, since substituting both components leaves an
-            identity no live client derives (the control: the owner
-            boundary, not propagation)"
-    (rf/reg-resource :t/secret-feed
-      {:scope         {:from-db :t/session}
-       :sensitive?    true
-       :params-schema [:map [:page :int]]}
-      (fn [_ _] {:request {:method :get :url "/secret"}}))
-    (let [k    (rf.resources.state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/secret-feed {:page 1})
-          e    (entry :t/secret-feed {:articles [:a :b]})
-          rdb  (runtime-db-with {k e})
-          proj (rf/with-frame frame-id (rf.resources.ssr/project-resources-runtime-db rdb))
-          m    (rf/with-frame frame-id
-                 (first (rf.resources.ssr/projection-metadata
-                          frame-id 5000
-                          (get-in rdb [rf.resources.state/resources-key :entries]))))
-          wk   (:projected-key m)]
-      (is (= :redacted (:disposition m))
-          "the owner-:sensitive? entry is classified by its own coarse claim")
-      (is (true? (:withheld? m)))
-      (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
-          (str "and its row does not ride at all: " (pr-str proj)))
-      (is (= :t/secret-feed (nth wk 1)) "the resource-id rides at position 1")
-      (is (contains? (nth wk 0) :rf/redacted) "the scope is tokenized in the key")
-      (is (contains? (nth wk 2) :rf/redacted) "the params are tokenized in the key")
-      (is (not (str/includes? (pr-str proj) "jake"))
-          "the raw viewer identity does not ride on the wire"))))
+  ;; the control: the owner's own coarse claim, not propagation. Tokenizing
+  ;; both scope and params leaves an identity no live client derives, so the
+  ;; row is withheld outright.
+  (rf/reg-resource :t/secret-feed
+    {:scope         {:from-db :t/session}
+     :sensitive?    true
+     :params-schema [:map [:page :int]]}
+    (fn [_ _] {:request {:method :get :url "/secret"}}))
+  (let [k    (rf.resources.state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/secret-feed {:page 1})
+        rdb  (runtime-db-with k {:articles [:a :b]})
+        proj (project rdb)
+        m    (rf/with-frame frame-id
+               (first (rf.resources.ssr/projection-metadata
+                        frame-id 5000 (get-in rdb [rf.resources.state/resources-key :entries]))))
+        wk   (:projected-key m)]
+    (is (= [:redacted true true :t/secret-feed true true false]
+           [(:disposition m) (:withheld? m) (empty? (get-in proj [rf.resources.state/resources-key :entries]))
+            (nth wk 1) (contains? (nth wk 0) :rf/redacted) (contains? (nth wk 2) :rf/redacted)
+            (str/includes? (pr-str proj) "jake")])
+        "the entry is redacted by its own claim, its key tokenized, its row withheld, the identity nowhere")))
