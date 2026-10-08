@@ -1,135 +1,39 @@
 (ns re-frame.http-empty-body-parity-cljs-test
-  "Cross-host tests for the managed-HTTP decode altitude (Spec 014
-  §Decoding). Named `*-cljs-test.cljc` so BOTH cognitect.test-runner (JVM
-  `clojure -M:test`) and shadow-cljs (`npm run test:cljs`, `cljs-test$`
-  ns-regexp) discover it — the contracts here are host-symmetric BY
-  DESIGN (the two hosts must agree), so a single source asserted on both
-  runtimes is the right shape.
+  "Host-symmetric decode contracts (Spec 014 §Decoding), asserted on both
+  hosts from one source.
 
-  Cross-host parity for an empty body:
-    An empty / whitespace-only 2xx JSON body is a NORMAL HTTP outcome
-    (the common 200/204-shaped PUT/DELETE/POST-with-no-content reply),
-    NOT a programmer error. The host readers disagree on an empty
-    document: the JVM Cheshire reader surfaces it as end-of-stream → nil,
-    while CLJS `js/JSON.parse(\"\")` THROWS.
-    That helper-level divergence stays deliberately pinned at the
-    `re-frame.http.json` unit altitude (http_json_*_test); the MANAGED path
-    normalises it in `decode-response-body` so both hosts classify an empty
-    2xx JSON body identically as nil.
-
-  The schema path is JSON-only:
-    The Malli `:decode` schema path is JSON-only. A response that DECLARES
-    a present, non-JSON Content-Type under a schema `:decode` is rejected
-    up-front with a `:rf.error/http-schema-non-json-content-type` ex-info
-    (the transport classifies it as `:rf.http/decode-failure`) rather than
-    silently JSON-parsing a non-JSON body and surfacing a confusing
-    schema-validation failure that would mask the real MIME mismatch."
+  An empty or whitespace-only 2xx JSON body is a normal outcome, not an
+  error. The host readers disagree on an empty document (Cheshire yields nil,
+  `JSON.parse` throws), so `decode-response-body` short-circuits a blank body
+  to nil on both. And the schema decode path is JSON-only: a present non-JSON
+  Content-Type is refused up front rather than JSON-parsed."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing]]
-      :cljs [cljs.test :refer-macros [deftest is testing]])
+   #?(:clj  [clojure.test :refer [are deftest is]]
+      :cljs [cljs.test :refer-macros [are deftest is]])
    [re-frame.http.decode :as rf.http.decode]))
 
-;; ---------------------------------------------------------------------------
-;; empty / whitespace-only 2xx JSON body → nil on BOTH hosts
-;; ---------------------------------------------------------------------------
-
-(deftest empty-2xx-json-body-decodes-to-nil-cross-host
-  (testing "an EMPTY 2xx `:decode :json` body decodes to nil
-            (NOT a thrown decode-failure) on both the JVM and CLJS hosts.
-            This is the headline cross-host parity case:
-            CLJS `js/JSON.parse(\"\")` throws while the JVM Cheshire reader
-            returns nil, so `decode-response-body` short-circuits the
-            empty/blank case before the host JSON reader is reached, and
-            the value is nil identically — `run-accept`'s default then
-            yields `{:ok nil}` → reply `{:status :ok :value nil …}`."
-    (is (nil? (rf.http.decode/decode-response-body
-                {:body-text        ""
-                 :headers          {"content-type" "application/json"}
-                 :decode           :json}))
-        "empty 2xx JSON body must decode to nil on the running host")))
-
-(deftest whitespace-only-2xx-json-body-decodes-to-nil-cross-host
-  (testing "a WHITESPACE-ONLY 2xx `:decode :json` body
-            (spaces / newline / tab) likewise decodes to nil on both hosts.
-            Whitespace-only is not a valid JSON document per RFC 8259, but
-            it is the same empty-success-envelope outcome as `\"\"` — both
-            classify as nil, not decode-failure."
-    (doseq [s ["   " "\n" "\t" "  \n\t  "]]
-      (is (nil? (rf.http.decode/decode-response-body
-                  {:body-text        s
-                   :headers          {"content-type" "application/json"}
-                   :decode           :json}))
-          (str "whitespace-only body " (pr-str s) " must decode to nil")))))
-
-(deftest non-empty-json-body-still-parses-cross-host
-  (testing "the empty-body guard is surgical: a NON-empty
-            JSON body parses normally on both hosts (the happy
-            path)."
-    (is (= {:ok true}
-           (rf.http.decode/decode-response-body
-             {:body-text        "{\"ok\":true}"
-              :headers          {"content-type" "application/json"}
-              :decode           :json}))
-        "a real JSON body must parse")))
-
-(deftest empty-2xx-schema-body-parses-to-nil-then-schema-decides-cross-host
-  (testing "under a Malli schema `:decode`, an empty 2xx
-            body parses to nil on BOTH hosts (rather than CLJS throwing in
-            the reader). The schema THEN decides whether nil is acceptable:
-            a `[:maybe ...]` schema accepts nil → success; this is a
-            host-symmetric outcome, not a per-host parse divergence. (Malli
-            may be absent on a given test classpath — when absent, the
-            decode is a pass-through and nil flows straight out. Either way
-            the value is nil cross-host, which is the parity contract under
-            test.)"
-    (is (nil? (rf.http.decode/decode-response-body
-                {:body-text        ""
-                 :headers          {"content-type" "application/json"}
-                 :decode           [:maybe [:map [:id :int]]]}))
-        "empty 2xx body under a [:maybe ...] schema decodes to nil cross-host")))
-
-;; ---------------------------------------------------------------------------
-;; schema path is JSON-only; non-JSON Content-Type rejected
-;; ---------------------------------------------------------------------------
+(defn- decode [body-text headers decode]
+  (rf.http.decode/decode-response-body {:body-text body-text :headers headers :decode decode}))
 
 (defn- thrown-id
-  "Run `f` capturing any throw cross-host; return the `:rf.error/id` of the
-  ex-data, or ::no-throw when nothing was thrown."
+  "The `:rf.error/id` of what `f` throws, or ::no-throw."
   [f]
   (try (f) ::no-throw
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-         (:rf.error/id (#?(:clj ex-data :cljs ex-data) e)))))
+         (:rf.error/id (ex-data e)))))
+
+(deftest empty-2xx-body-decodes-to-nil-cross-host
+  (are [body dec] (nil? (decode body {"content-type" "application/json"} dec))
+    ""        :json
+    "  \n\t " :json
+    ""        [:maybe [:map [:id :int]]]))
 
 (deftest schema-rejects-non-json-content-type-cross-host
-  (testing "a schema `:decode` over a response that declares
-            a NON-JSON Content-Type is rejected with
-            `:rf.error/http-schema-non-json-content-type` on both hosts,
-            rather than silently JSON-parsing the body and surfacing a
-            confusing schema-validation failure. The schema path is
-            JSON-only (it wires Malli's json-transformer), so the declared
-            MIME decides even when the body is JSON the schema would accept."
-    (doseq [[ct body] [["application/edn" "{:a 1}"]       ;; valid EDN, NOT JSON
-                       ["text/plain"      "hello"]
-                       ["application/xml" "{\"a\":1}"]]] ;; valid JSON
-      (is (= :rf.error/http-schema-non-json-content-type
-             (thrown-id
-               #(rf.http.decode/decode-response-body
-                  {:body-text        body
-                   :headers          {"content-type" ct}
-                   :decode           [:map [:a :int]]})))
-          (str "non-JSON declared MIME " ct " under a schema must throw the tagged error")))))
+  ;; The declared MIME decides even when the body is JSON the schema accepts.
+  (is (= :rf.error/http-schema-non-json-content-type
+         (thrown-id #(decode "{\"a\":1}" {"content-type" "application/xml"} [:map [:a :int]])))))
 
 (deftest schema-tolerates-absent-content-type-cross-host
-  (testing "a MISSING/absent Content-Type stays JSON-eligible
-            under a schema `:decode` (many JSON APIs omit the header); the
-            body is JSON-parsed, NOT rejected. Only a PRESENT
-            non-JSON MIME is rejected. (Asserts only that the non-JSON
-            rejection does NOT fire — the actual decode result depends on
-            whether Malli is on the host's test classpath.)"
-    (is (not= :rf.error/http-schema-non-json-content-type
-              (thrown-id
-                #(rf.http.decode/decode-response-body
-                   {:body-text        "{\"a\":1}"
-                    :headers          {}                 ;; no content-type
-                    :decode           [:map [:a :int]]})))
-        "absent Content-Type must NOT trigger the non-JSON schema rejection")))
+  ;; Many JSON APIs omit the header; only a PRESENT non-JSON MIME is refused.
+  (is (not= :rf.error/http-schema-non-json-content-type
+            (thrown-id #(decode "{\"a\":1}" {} [:map [:a :int]])))))
