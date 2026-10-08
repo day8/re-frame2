@@ -31,7 +31,7 @@
 
   ## Shape — allow-list, fail-safe
 
-  `recordable-edn-value?` is a recursive ALLOW-LIST: it accepts the known EDN
+  `explain-non-recordable` walks a recursive ALLOW-LIST: it accepts the known EDN
   leaf kinds (nil / boolean / number / string / keyword / symbol / char /
   `#uuid` / `#inst`) and recurses into the EDN collection kinds (vector /
   list / seq / set / map). Anything outside that closed set — a function, an
@@ -158,32 +158,12 @@
                               :bad-type  (type-name value)
                               :bad-value value}))
 
-(defn recordable-edn-value?
-  "True iff `value` is recordable EDN data all the way down — i.e. it can be
-  written to the causal record and read back as ordinary data. See the ns
-  docstring for the accept / reject domain. Use `explain-non-recordable` to
-  get the failing path + type for an error payload."
-  [value]
-  (nil? (first-non-recordable [] value)))
-
 (defn explain-non-recordable
   "Return `{:path <vec> :bad-type <string> :bad-value <x>}` describing the
   first non-recordable value reachable from `value`, or nil when `value` is
   recordable EDN data. The `:bad-value` is the RAW value (a host handle when
-  the failure is a host object) — callers MUST NOT put it verbatim into a
-  trace / record; use `safe-preview` for the surfaced payload."
+  the failure is a host object) — callers MUST NOT put it into a trace or a
+  record."
   [value]
   (first-non-recordable [] value))
 
-(defn safe-preview
-  "A printable, recordable-only preview of `value` for an error payload —
-  NEVER the raw host object. Returns a short `pr-str` of `value` when `value`
-  is itself recordable EDN data (so the preview round-trips), else nil (the
-  caller surfaces `:bad-type` alone). Truncated to `max-len` chars."
-  ([value] (safe-preview value 200))
-  ([value max-len]
-   (when (recordable-edn-value? value)
-     (let [s (pr-str value)]
-       (if (> (count s) max-len)
-         (str (subs s 0 max-len) "…")
-         s)))))

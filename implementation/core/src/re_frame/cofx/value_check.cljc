@@ -18,11 +18,10 @@
       (`re-frame.cofx/validate-generated-recordable-value!`).
 
   Both emit the SAME `:rf.error/cofx-value-invalid` (reason
-  `:non-edn-recordable-value`) with the SAME path-rooting, the SAME `:preview`-
-  only-when-itself-recordable rule, the SAME two-channel fan-out, and the SAME
-  `:extra` discriminator shape — differing only by the `:supplied` / `:generated`
-  noun in the human message, the throw `where` symbol, and which always-on
-  listener positional slot (`event` vs `frame`) the source carries. [[check-edn-value!]]
+  `:non-edn-recordable-value`) with the SAME path-rooting, the SAME two-channel
+  fan-out, and the SAME `:extra` discriminator shape — differing only by the
+  `:supplied` / `:generated` noun in the human message, the throw `where`
+  symbol, and which always-on listener positional slot (`event` vs `frame`) the source carries. [[check-edn-value!]]
   is the ONE shared definition both delegate to.
 
   Requires `error` / `interop` / `late-bind` / `recordable` — exactly the four
@@ -80,13 +79,13 @@
   carries and `nil` for the other. The reported path is rooted at `cofx-id`
   here, so both call sites hand the bare per-value walk result.
 
-  Both kinds share one emitted category + reason, one
-  `:preview`-only-when-itself-recordable rule, one `cond->` payload and one
-  `:extra` discriminator shape; only the per-kind human message differs."
+  Both kinds share one emitted category + reason, one `cond->` payload and
+  one `:extra` discriminator shape; only the per-kind human message differs.
+  The payload names the bad leaf by `:path` and `:bad-type` and never carries
+  the value itself."
   [kind cofx-id value failing-id event frame-id]
   (when-let [bad (rf.recordable/explain-non-recordable value)]
     (let [{:keys [path bad-type]} (update bad :path #(into [cofx-id] %))
-          preview                 (rf.recordable/safe-preview value)
           {:keys [noun where durable-clause]} (kind->shape kind)]
       ;; Both channels via the shared helper: axis 1 the always-on
       ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
@@ -103,7 +102,6 @@
                                    :path              path
                                    :bad-type          bad-type
                                    :recovery          :no-recovery}
-                            (some? preview) (assoc :preview preview)
                             frame-id        (assoc :frame frame-id))))
       (rf.error/throw-error!
         :rf.error/cofx-value-invalid where
