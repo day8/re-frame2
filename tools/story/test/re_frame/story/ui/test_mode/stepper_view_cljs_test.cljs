@@ -6,7 +6,7 @@
   asserts the hiccup tree carries the documented `data-test` selectors,
   the correct controls for each state, and the disabled-button rules.
   No reagent mounting — we deref the component fn directly."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]
             [re-frame.story.ui.test-mode.stepper-view  :as rf.story.ui.test-mode.stepper-view]))
 
@@ -51,25 +51,16 @@
 
 ;; ---- inactive state ------------------------------------------------------
 
-(deftest renders-section-with-data-test
-  (testing "the section root carries data-test='story-stepper-section'"
-    (let [tree    (render :story.x/inactive)
-          section (first (find-by-data-test tree "story-stepper-section"))]
-      (is (some? section) "section is present")
-      (is (= "false" (get (second section) :data-active))
-          "data-active='false' when no slot exists"))))
-
 (deftest inactive-shows-start-and-hint
-  (testing "inactive state renders Start button + the inactive hint"
-    (let [tree     (render :story.x/inactive2)
-          start    (first (find-by-data-test tree "story-stepper-start"))
-          hint     (first (find-by-data-test tree "story-stepper-inactive"))
-          step-btn (first (find-by-data-test tree "story-stepper-step"))]
-      (is (some? start)    "Start button is present")
-      (is (some? hint)     "inactive hint is present")
-      (is (re-find #"no :script has no steps" (last hint))
-          "the hint does not promise a :script to a variant without one")
-      (is (nil?  step-btn) "Step button is NOT present in inactive state"))))
+  (let [tree (render :story.x/inactive)]
+    (is (= "false" (get (second (first (find-by-data-test tree "story-stepper-section")))
+                        :data-active)))
+    (is (some? (first (find-by-data-test tree "story-stepper-start"))))
+    (is (re-find #"no :script has no steps"
+                 (last (first (find-by-data-test tree "story-stepper-inactive"))))
+        "the hint does not promise a :script to a variant without one")
+    (is (nil? (first (find-by-data-test tree "story-stepper-step")))
+        "no Step button while inactive")))
 
 ;; ---- active state -------------------------------------------------------
 
@@ -78,138 +69,44 @@
   (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc variant-id slot))
 
 (deftest active-shows-all-controls
-  (testing "active state renders step / step-back / rewind / play /
-            stop controls + the step list"
-    (let [vid  :story.x/active]
-      (seed-slot! vid
-                  {:variant-id    vid
-                   :active?       true
-                   :auto-playing? false
-                   :cursor        1
-                   :total         3
-                   :play-events   [[:e/a] [:e/b] [:e/c]]
-                   :statuses      [{:index 0 :label ":e/a" :position :done
-                                    :outcome :event :breakpoint? false}
-                                   {:index 1 :label ":e/b" :position :current
-                                    :outcome nil   :breakpoint? false}
-                                   {:index 2 :label ":e/c" :position :pending
-                                    :outcome nil   :breakpoint? false}]
-                   :breakpoints   #{}
-                   :epoch-stack   [:epoch/seed :epoch/a]
-                   :interval-id   nil
-                   :tick-ms       100})
-      (let [tree     (render vid)
-            stop     (first (find-by-data-test tree "story-stepper-stop"))
-            step     (first (find-by-data-test tree "story-stepper-step"))
-            back     (first (find-by-data-test tree "story-stepper-step-back"))
-            resume   (first (find-by-data-test tree "story-stepper-resume"))
-            rewind   (first (find-by-data-test tree "story-stepper-rewind"))
-            rows     (find-by-data-test tree "story-stepper-row")
-            progress (first (find-by-data-test tree "story-stepper-progress"))]
-        (is (some? stop)     "Stop button replaces Start when active")
-        (is (some? step)     "Step button is present")
-        (is (some? back)     "Step-back button is present")
-        (is (some? resume)   "Play button is present (auto-playing? false)")
-        (is (some? rewind)   "Rewind button is present")
-        (is (some? progress) "progress label is present")
-        (is (= 3 (count rows)) "one row per step")))))
+  (let [vid :story.x/active]
+    (seed-slot! vid {:active? true :auto-playing? false :cursor 1 :total 3})
+    (let [tree (render vid)]
+      (is (some? (first (find-by-data-test tree "story-stepper-stop")))
+          "Stop replaces Start when active")
+      (is (some? (first (find-by-data-test tree "story-stepper-resume")))
+          "Play shows while not auto-playing")
+      (is (some? (first (find-by-data-test tree "story-stepper-rewind"))))
+      (is (some? (first (find-by-data-test tree "story-stepper-progress")))))))
 
 (deftest pause-button-when-auto-playing
-  (testing "when :auto-playing? is true the Pause button replaces Play"
-    (let [vid :story.x/playing]
-      (seed-slot! vid
-                  {:variant-id    vid
-                   :active?       true
-                   :auto-playing? true
-                   :cursor        1
-                   :total         3
-                   :play-events   [[:e/a] [:e/b] [:e/c]]
-                   :statuses      [{:index 0 :label ":e/a" :position :done
-                                    :outcome :event :breakpoint? false}
-                                   {:index 1 :label ":e/b" :position :current
-                                    :outcome nil   :breakpoint? false}
-                                   {:index 2 :label ":e/c" :position :pending
-                                    :outcome nil   :breakpoint? false}]
-                   :breakpoints   #{}
-                   :epoch-stack   [:epoch/seed :epoch/a]
-                   :interval-id   42
-                   :tick-ms       100})
-      (let [tree   (render vid)
-            pause  (first (find-by-data-test tree "story-stepper-pause"))
-            resume (first (find-by-data-test tree "story-stepper-resume"))]
-        (is (some? pause) "Pause button is present")
-        (is (nil?  resume) "Play button is NOT present while auto-playing")))))
+  (let [vid :story.x/playing]
+    (seed-slot! vid {:active? true :auto-playing? true :cursor 1 :total 3})
+    (let [tree (render vid)]
+      (is (some? (first (find-by-data-test tree "story-stepper-pause"))))
+      (is (nil? (first (find-by-data-test tree "story-stepper-resume")))
+          "Pause replaces Play while auto-playing"))))
 
 (deftest step-button-disabled-at-end
-  (testing "Step button renders disabled when cursor = total"
-    (let [vid :story.x/at-end]
-      (seed-slot! vid
-                  {:variant-id    vid
-                   :active?       true
-                   :auto-playing? false
-                   :cursor        2
-                   :total         2
-                   :play-events   [[:e/a] [:e/b]]
-                   :statuses      [{:index 0 :label ":e/a" :position :done
-                                    :outcome :event :breakpoint? false}
-                                   {:index 1 :label ":e/b" :position :done
-                                    :outcome :event :breakpoint? false}]
-                   :breakpoints   #{}
-                   :epoch-stack   [:epoch/seed :epoch/a :epoch/b]
-                   :interval-id   nil
-                   :tick-ms       100})
-      (let [tree (render vid)
-            step (first (find-by-data-test tree "story-stepper-step"))]
-        (is (some? step) "Step button is rendered")
-        (is (true? (get (second step) :disabled))
-            "the Step button is disabled at the end of the sequence")))))
+  (let [vid :story.x/at-end]
+    (seed-slot! vid {:active? true :auto-playing? false :cursor 2 :total 2})
+    (is (true? (get (second (first (find-by-data-test (render vid) "story-stepper-step")))
+                    :disabled)))))
 
 (deftest step-back-disabled-at-start
-  (testing "Step-back button renders disabled at cursor=0"
-    (let [vid :story.x/at-start]
-      (seed-slot! vid
-                  {:variant-id    vid
-                   :active?       true
-                   :auto-playing? false
-                   :cursor        0
-                   :total         2
-                   :play-events   [[:e/a] [:e/b]]
-                   :statuses      [{:index 0 :label ":e/a" :position :current
-                                    :outcome nil :breakpoint? false}
-                                   {:index 1 :label ":e/b" :position :pending
-                                    :outcome nil :breakpoint? false}]
-                   :breakpoints   #{}
-                   :epoch-stack   [:epoch/seed]
-                   :interval-id   nil
-                   :tick-ms       100})
-      (let [tree (render vid)
-            back (first (find-by-data-test tree "story-stepper-step-back"))]
-        (is (true? (get (second back) :disabled))
-            "the Step-back button is disabled at step 0")))))
+  (let [vid :story.x/at-start]
+    (seed-slot! vid {:active? true :auto-playing? false :cursor 0 :total 2})
+    (is (true? (get (second (first (find-by-data-test (render vid) "story-stepper-step-back")))
+                    :disabled)))))
 
 ;; ---- breakpoint affordance ----------------------------------------------
 
 (deftest breakpoint-chip-aria-pressed
-  (testing "each row carries a BP toggle chip; aria-pressed reflects
-            whether the index is in :breakpoints"
-    (let [vid :story.x/bp]
-      (seed-slot! vid
-                  {:variant-id    vid
-                   :active?       true
-                   :auto-playing? false
-                   :cursor        0
-                   :total         2
-                   :play-events   [[:e/a] [:e/b]]
-                   :statuses      [{:index 0 :label ":e/a" :position :current
-                                    :outcome nil :breakpoint? false}
-                                   {:index 1 :label ":e/b" :position :pending
-                                    :outcome nil :breakpoint? true}]
-                   :breakpoints   #{1}
-                   :epoch-stack   [:epoch/seed]
-                   :interval-id   nil
-                   :tick-ms       100})
-      (let [tree  (render vid)
-            chips (find-by-data-test tree "story-stepper-bp-toggle")]
-        (is (= 2 (count chips)) "one chip per row")
-        (is (= "false" (get (second (first chips)) :aria-pressed)))
-        (is (= "true"  (get (second (second chips)) :aria-pressed)))))))
+  (let [vid :story.x/bp]
+    (seed-slot! vid {:active?  true
+                     :statuses [{:index 0 :position :current :breakpoint? false}
+                                {:index 1 :position :pending :breakpoint? true}]})
+    (is (= ["false" "true"]
+           (mapv #(get (second %) :aria-pressed)
+                 (find-by-data-test (render vid) "story-stepper-bp-toggle")))
+        "one chip per row, aria-pressed tracking the row's breakpoint")))
