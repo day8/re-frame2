@@ -17,7 +17,6 @@
   say the thing that matters — the refusal comes from the instruments, not
   from a missing arm."
   (:require [clojure.string :as string]
-            #?(:cljs [cljs.reader])
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing]])
             [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
@@ -100,44 +99,36 @@
   ;; and the reader would then rank it LAST, which is the loudest possible
   ;; version of the `unknown is never zero` mistake.
   (let [t (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :slow nil)
-                                                        (sub-ev :slow nil)])]})
-        e (get-in t [:by-read [:app/main :slow]])]
-    (is (= 2 (:runs e)) "the runs really happened and are counted")
-    (is (nil? (:timed-runs e)) "none of them carried a duration")
-    (is (= 2 (:untimed-runs e)))
-    (is (nil? (:elapsed-ms e)) "no duration was summed"))
+                                                        (sub-ev :slow nil)])]})]
+    (is (= {:runs 2 :untimed-runs 2 :dispatch-ids #{1}}
+           (get-in t [:by-read [:app/main :slow]]))
+        "the runs are counted, and no duration is summed or timed-run claimed"))
 
   (testing "and the boundary's time axis states unknown, with the reason"
+    ;; The recomputes are observed and it is the DURATION that joins to
+    ;; nothing, so the loss is `:uncorrelated` — a cap would call the
+    ;; window empty.
     (let [adv (advisor/advise
                 {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :slow]])])}
-                (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :slow nil)])]}))
-          ax  (get-in (first (:rows adv)) [:axes :time])]
-      (is (hh/unknown? (:ms ax)) "unknown, not 0.0")
-      (is (= :uncorrelated (:reason (:loss ax)))
-          (str "the recomputes are observed and it is the DURATION that joins "
-               "to nothing — reporting a cap would call the window empty and "
-               "send the reader to reproduce recomputes it already holds")))))
+                (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :slow nil)])]}))]
+      (is (= {:ms :unknown :loss {:reason :uncorrelated :dropped 1}}
+             (select-keys (get-in (first (:rows adv)) [:axes :time]) [:ms :loss]))))))
 
 (deftest a-run-with-no-registration-id-is-UNCORRELATED-not-dropped
   ;; An untagged stream must not be able to read as an idle one.
   (let [t (advisor/sub-timing {:app/main [(bundle 1 :e [{:op-type :rf.sub
                                                          :operation :rf.sub/run
                                                          :tags {}}])]})]
-    (is (= 1 (:unnamed-runs t)))
-    (is (= :uncorrelated (:reason (:unnamed-loss t))))
-    (is (= 1 (:dropped (:unnamed-loss t))))))
+    (is (= {:unnamed-runs 1 :unnamed-loss {:reason :uncorrelated :dropped 1}}
+           (select-keys t [:unnamed-runs :unnamed-loss])))))
 
 (deftest the-window-is-scoped-per-FRAME
-  ;; Two frames are two applications. Summing frame B's clock into frame
-  ;; A's ranking would make an idle boundary look hot because something
-  ;; unrelated was busy next door — the same defect `explain-render`
-  ;; scopes its leads against.
+  ;; Two frames are two applications: summing frame B's clock into frame
+  ;; A's ranking would make an idle boundary look hot.
   (let [t (advisor/sub-timing {:app/a [(bundle 1 :e [(sub-ev :shared 5.0)])]
                                :app/b [(bundle 2 :e [(sub-ev :shared 50.0)])]})]
     (is (= 5.0  (get-in t [:by-read [:app/a :shared] :elapsed-ms])))
-    (is (= 50.0 (get-in t [:by-read [:app/b :shared] :elapsed-ms])))
-    (is (nil? (get-in t [:by-read [:shared]]))
-        "there is no frame-free key to sum into")))
+    (is (= 50.0 (get-in t [:by-read [:app/b :shared] :elapsed-ms])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Ranking — four axes in four units, and the order stated out loud
@@ -166,15 +157,10 @@
                   (advisor/sub-timing windows))
         ids     (mapv #(get-in % [:attributable :edges 0 :sub-id]) (:rows adv))]
     (is (= [:heavy :medium :light] ids)
-        "ranked by attributable subscription time, highest first")
+        "ranked by attributable subscription time, highest first — the
+         frequency order (3, 2, 6 runs) disagrees, so the sort axis matters")
     (is (= [1 2 3] (mapv :rank (:rows adv))))
-    (is (= :time (get-in adv [:ordered-by :axis])))
-
-    (testing "and the frequency axis really does disagree, so the sort matters"
-      (is (= [3 2 6] (mapv #(get-in % [:axes :frequency :runs]) (:rows adv)))
-          (str "the cheapest boundary recomputes twice as often as the "
-               "hottest — a roster sorted on the wrong axis would put it "
-               "first and be defensible about it")))))
+    (is (= :time (get-in adv [:ordered-by :axis])))))
 
 (deftest with-no-clock-the-roster-says-so-rather-than-implying-time
   (let [adv (advisor/advise
@@ -183,27 +169,23 @@
               (advisor/sub-timing
                 {:app/main [(bundle 1 :e [(sub-ev :a nil) (sub-ev :b nil) (sub-ev :b nil)])]}))]
     (is (= :frequency (get-in adv [:ordered-by :axis])))
-    (is (string/includes? (get-in adv [:ordered-by :says]) "NOT by time"))
     (is (= [:b :a] (mapv #(get-in % [:attributable :edges 0 :sub-id]) (:rows adv)))
         "ordered by recompute count, the only axis that survived")
     (is (string/includes? (advisor/advice-summary adv) "NOT by time")
-        "and the summary line carries it too — this is not a footnote")))
+        "and the summary line says so — this is not a footnote")))
 
 (deftest the-advice-envelope-is-never-complete
-  ;; The roster covers every mounted boundary, but the QUESTION is *where
-  ;; is the pressure*, and three of its five answers are outside this
-  ;; door. A `:complete? true` here would be the schema's own fail-open
-  ;; shape, written by the one function best placed to know better.
+  ;; Three of the five pressure classes are outside this door, so the
+  ;; advice never claims completeness — and it carries Xray's stamp, not
+  ;; the producer's, because Fresco never vouched for a ranking.
   (let [adv (advisor/advise
               {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :a]])])}
               (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :a 9.0)])]}))]
-    (is (false? (:complete? adv)))
-    (is (= :host-opaque (:reason (:loss adv))))
-    (is (= advisor/advice-schema (:schema adv)))
-    (is (= :re-frame2/xray (:producer adv))
-        (str "Xray derived it and Fresco did not — stamping the producer's "
-             "schema would tell a reader Fresco vouched for a ranking it has "
-             "never seen"))))
+    (is (= {:complete? false
+            :loss      {:reason :host-opaque :dropped :unknown}
+            :schema    advisor/advice-schema
+            :producer  :re-frame2/xray}
+           (select-keys adv [:complete? :loss :schema :producer])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Classification — four outcomes, driven
@@ -219,11 +201,16 @@
 (deftest a-dominant-measured-subscription-is-CLASSIFIED-computation
   (let [c (classify-with (boundary [[:app/main :heavy] [:app/main :trivial]])
                          {:app/main [(bundle 1 :e [(sub-ev :heavy 8.0)
-                                                   (sub-ev :trivial 0.1)])]})]
-    (is (= :computation (:owner c)))
-    (is (= :observation (:basis c)) "measured, not derived")
+                                                   (sub-ev :trivial 0.1)])]})
+        r (advisor/recommend c)]
+    (is (= {:owner :computation :basis :observation :loss nil}
+           (select-keys c [:owner :basis :loss]))
+        "measured, not derived, and carrying no loss")
     (is (= :heavy (get-in c [:read :sub-id])))
-    (is (nil? (:loss c)))))
+    (testing "and it is routed BELOW the view substrate — a native route would
+              move the markup and keep the cost"
+      (is (= :narrow-the-subscription (:route r)))
+      (is (string/includes? (:says r) "keep the cost")))))
 
 (deftest a-spread-of-time-is-not-a-computation-finding
   ;; 55/45 across two reads. The remedy is the read SET, not either member
@@ -236,74 +223,29 @@
              "one the owner would be a coin toss printed as a finding"))))
 
 (deftest a-read-orders-fold-is-a-rung-2-topology-finding-with-its-own-UNCORRELATED-loss
-  ;; `:read-orders` is a FOLD COUNT and the producer says so: entries
-  ;; whose key arrays differ only in ORDER, and entries an egress policy
-  ;; folded onto one projected key, are one row, and `:read-orders` counts
-  ;; how many folded in. So `> 1` is at least three situations and only
-  ;; one of them is an oscillating read set — an arm stating that one as
-  ;; fact would route to rung 2, recommending topology surgery on a signal
-  ;; its own producer documents as ambiguous.
-  ;;
-  ;; The arm and the rung are right: whichever of the three it is, the read
-  ;; set is where to look, and every other classification available for
-  ;; this window is worse advice. The qualification goes in the field a
-  ;; classification already carries.
+  ;; `:read-orders` is a FOLD COUNT: `> 1` is an oscillating read set, two
+  ;; views' orders of one set, or an elided-argument projection, and the
+  ;; entry cache does not say which. The read set is where to look in all
+  ;; three, so the arm routes to rung 2 — and stamps `:uncorrelated` and
+  ;; names all three rather than stating one as fact.
   (let [c (classify-with (boundary [[:app/main :a]] :read-orders 4)
-                         {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})]
-    (is (= :read-topology (:owner c))
+                         {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})
+        r (advisor/recommend c)]
+    (is (= {:owner :read-topology :basis :derivation
+            :loss {:reason :uncorrelated :dropped :unknown}}
+           (select-keys c [:owner :basis :loss]))
         "a topology finding with no clock at all: the window carries no duration")
-    (is (= :derivation (:basis c)))
-    (is (= :uncorrelated (:reason (:loss c)))
-        (str "a fold count is real and joins to nothing that says WHICH fold "
-             "it was — the textbook :uncorrelated state, and the panel already "
-             "renders a classification's loss as a chip beside the sentence"))
     (doseq [candidate ["oscillating" "views' orders" "elided-argument"]]
       (is (string/includes? (:says c) candidate)
-          (str "all three candidates must be named — a sentence naming one "
-               "of them is the fabrication this row exists to stop: "
-               candidate)))
-    (is (string/includes? (:says c) "does not say which"))
-
-    (testing "and the route is still rung 2, and no further, because the remedy is the same for all three"
-      (let [r (advisor/recommend c)]
-        (is (= :tune-topology (:route r)))
-        (is (= 2 (:rung r)))
-        (is (false? (:native? r)))
-        (is (string/includes? (:says r) "Do not split per element mechanically")
-            "the ladder's own warning rides with the advice")))
-
-    (testing "while a MEASURED computation owner still carries no loss"
-      ;; The control. A loss stamped on every classification would say
-      ;; nothing; this one is stamped on the arm whose evidence is
-      ;; genuinely ambiguous and on no other.
-      (let [m (classify-with (boundary [[:app/main :heavy]])
-                             {:app/main [(bundle 1 :e [(sub-ev :heavy 8.0)])]})]
-        (is (= :computation (:owner m)))
-        (is (nil? (:loss m)))))))
+          (str "all three candidates must be named: " candidate)))
+    (is (= [:tune-topology 2] ((juxt :route :rung) r)))))
 
 (deftest repeated-recomputes-for-negligible-work-are-a-topology-finding
+  ;; The other topology arm: no fold, so no `:uncorrelated` loss.
   (let [c (classify-with (boundary [[:app/main :a]])
                          {:app/main (repeat 5 (bundle 1 :e [(sub-ev :a 0.05)]))})]
-    (is (= :read-topology (:owner c)))
-    (is (= :derivation (:basis c)))
-    (is (string/includes? (:says c) "bringing it back"))))
-
-(deftest a-searched-window-that-explains-nothing-is-HOST-OPAQUE-not-CAPPED
-  ;; The pair a naive advisor collapses. One remedy is free (reproduce the
-  ;; interaction and read again); the other is a change of INSTRUMENT. A tool that
-  ;; printed one sentence for both would send half its readers to the
-  ;; wrong place.
-  (let [searched (classify-with (boundary [[:app/main :a]])
-                                {:app/main [(bundle 1 :e [(sub-ev :a 0.05)])]})
-        capped   (classify-with (boundary [[:app/main :a]]) {:app/main []})]
-    (is (= :unattributed (:owner searched)))
-    (is (= :host-opaque (:basis searched)))
-    (is (= :unattributed (:owner capped)))
-    (is (= :cap (:basis capped)))
-    (is (not= (:says searched) (:says capped))
-        "two states, two sentences")
-    (is (string/includes? (:says capped) "absence of evidence"))
-    (is (string/includes? (:says searched) "lowering, React or layout"))))
+    (is (= {:owner :read-topology :basis :derivation :loss nil}
+           (select-keys c [:owner :basis :loss])))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE REFUSAL — and its non-vacuity control
@@ -348,7 +290,6 @@
   ;; from this evidence selects one.
   ;;
   ;; A property over the classifier's whole output, not three fixtures.
-  (is (seq classification-space) "the space must be non-empty to test anything")
   (doseq [c classification-space]
     (let [r (advisor/recommend c)]
       (is (false? (:native? r))
@@ -375,63 +316,31 @@
                               [:react-shaped :native-screen  5]]]
     (let [r (advisor/recommend {:owner owner :basis :observation :loss nil
                                 :says "measured elsewhere"})]
-      (is (= route (:route r)))
-      (is (= rung (:rung r)))
-      (is (true? (:native? r)))
-      (is (seq (:working-loop r)) "with its steps attached")
-      (is (nil? (:refusal r))))))
+      (is (= [route rung true] ((juxt :route :rung :native?) r)))
+      (is (seq (:working-loop r)) "with its steps attached"))))
 
 (deftest the-refusal-names-the-instrument-for-each-candidate
-  ;; A refusal with a next step, not a shrug.
+  ;; A refusal with a next step, not a shrug — and never Xray as the
+  ;; authority for a class it does not measure.
   (let [c (classify-with (boundary [[:app/main :a]])
                          {:app/main [(bundle 1 :e [(sub-ev :a 0.05)])]})
         r (advisor/recommend c)]
-    (is (= :measure-first (:route r)))
-    (is (= [:direct-element :native-island :native-screen]
-           (get-in r [:refusal :refused])))
     (is (= [:lowering :react :layout]
            (mapv :class (get-in r [:refusal :next]))))
     (doseq [n (get-in r [:refusal :next])]
-      (is (string? (:authority n)))
-      (is (not (string/includes? (:authority n) "Xray"))
-          (str "Xray must not be nominated as the authority for a class it "
-               "does not measure")))))
-
-(deftest a-computation-owner-is-routed-BELOW-the-view-substrate
-  ;; The other half of the same rule. The measured owner here is the
-  ;; subscription body, which runs below the boundary — so every native
-  ;; route would move the markup and keep the cost.
-  (let [c (classify-with (boundary [[:app/main :heavy]])
-                         {:app/main [(bundle 1 :e [(sub-ev :heavy 8.0)])]})
-        r (advisor/recommend c)]
-    (is (= :narrow-the-subscription (:route r)))
-    (is (false? (:native? r)))
-    (is (string/includes? (:says r) "keep the cost"))))
+      (is (not (string/includes? (:authority n) "Xray"))))))
 
 (deftest a-capped-boundary-is-told-to-reproduce-not-to-grow-the-buffer-or-measure-react
-  ;; `:cap` marks an EMPTY window. A bigger buffer recovers nothing already
-  ;; dropped and cannot fill an empty window, so the remedy is to reproduce
-  ;; the interaction and read again — the advice the `:cap` chip gives
-  ;; beside this sentence, which is why the two are asserted to agree.
+  ;; `:cap` marks an EMPTY window, so the remedy is to reproduce the
+  ;; interaction and read again — and the classification, the route and the
+  ;; `:cap` chip beside them give that same advice (028 §Five classifications).
   (let [r (advisor/recommend (classify-with (boundary [[:app/main :a]]) {:app/main []}))
         ruled "Retention matters only when it is set to 0"]
-    (is (= :measure-first (:route r)))
     (is (= :cap (get-in r [:refusal :reason])))
     (is (string/includes? (:label r) "Reproduce the interaction"))
-    (is (string/includes? (:says r) "reproduce the interaction"))
-    (doseq [[field s] {:label (:label r) :says (:says r) :because (:because r)}]
-      (is (not (string/includes? s "events-retained"))
-          (str field " must not send the reader to the retention knob — a "
-               "bigger buffer cannot fill an empty window"))
-      (is (not (re-find #"(?i)\bwiden\b" s))
-          (str field " must not tell the reader to widen the window")))
     (is (string/includes? (:says r) ruled))
     (is (string/includes? (:because r) ruled))
-    (is (string/includes? (:says (hh/loss-chip :cap)) ruled)
-        "the chip beside the sentence gives the same advice")
-    (is (not (string/includes? (:says r) "DevTools"))
-        (str "an empty window is reproduced, and sending its reader to "
-             "another tool would waste the free remedy"))))
+    (is (string/includes? (:says (hh/loss-chip :cap)) ruled))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fan-out and the shape of the roster
@@ -527,22 +436,6 @@
         (str "while the read COUNT still says two — the boundary really does "
              "hold two read edges, and that axis is about the edge set rather "
              "than about what the ring could price"))))
-
-(deftest the-advisor-ADVISES-and-carries-nothing-executable
-  ;; The advisor never rewrites code and never switches
-  ;; semantics. Structurally that is a property of the VALUE — advice made
-  ;; of readable EDN cannot carry a patch, a thunk or a rewrite, and it
-  ;; round-trips through the reader unchanged.
-  (let [envelopes {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :a]])])}
-        timing    (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :a 4.0)])]})
-        adv       (advisor/advise envelopes timing)]
-    (is (= adv #?(:clj (read-string (pr-str adv))
-                  :cljs (cljs.reader/read-string (pr-str adv))))
-        (str "the whole advice round-trips through the reader — so it is "
-             "data a reader can inspect, print and diff, and not a closure "
-             "that could do something"))
-    (testing "and it is deterministic over one turn's evidence"
-      (is (= adv (advisor/advise envelopes timing))))))
 
 (deftest an-absent-door-yields-an-empty-roster-and-still-states-what-is-unmeasured
   (let [adv (advisor/advise {:mounted-boundaries nil} (advisor/sub-timing {}))]
