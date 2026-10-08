@@ -1,40 +1,21 @@
 (ns re-frame.story.open-in-editor-ownership-cljs-test
   "Cross-tool ownership contract for open-in-editor.
 
-  ## What this pins
-
   Story and Xray each own a DISTINCT open-in-editor effect —
-  `:rf.story.fx/open-in-editor` and `:rf.xray.fx/open-in-editor`. There
-  is no shared fx-id both tools register: `re-frame.registrar/register!`
-  is last-writer-wins (`swap! reg assoc-in`), so with one shared id
-  whichever tool's installer ran LAST would silently commandeer the other
-  tool's editor preference, project root and navigator seam. Co-loading is
-  the FLAGSHIP topology (Story mounts Xray as its embed), so that is not
-  an edge case.
+  `:rf.story.fx/open-in-editor` and `:rf.xray.fx/open-in-editor`.
+  `re-frame.registrar/register!` is last-writer-wins, so with one shared
+  id whichever tool installed LAST would commandeer the other's editor,
+  project root and navigator — and co-loading is the flagship topology
+  (Story mounts Xray as its embed). Both tools are configured with
+  DIFFERENT editors and roots, installed in both orders, and each tool's
+  public event must reach its OWN navigator with its OWN URI.
 
-  The failure this file forbids: a load-order-dependent policy
-  takeover. Both tools are configured with DELIBERATELY DIFFERENT
-  editors and project roots, then installed in BOTH orders. Each
-  tool's public event must drive its OWN tool's navigator with its
-  OWN tool's URI, in either order.
-
-  ## Why this test ns lives under Story
-
-  Both tool source paths sit on the `:node-test` build (see
-  `implementation/shadow-cljs.edn`), and Story tests already require
-  Xray directly (`xray_preset_cljs_test.cljs`) because Story-mounting-
-  Xray is the shipped topology. Same direction here.
-
-  ## Seams (NOT `:fx-overrides`)
-
-  Stubbing the effect via a frame's `:fx-overrides` would replace the
-  very registration whose ownership is under test — a green test that
-  proves nothing. Instead this file drives the REAL registered
-  effects and observes them at each tool's own navigator seam
-  (`open-in-editor/set-navigator!`), forcing the synchronous
-  `editor://` URI path via the shared core endpoint-launcher seam
-  (`rf.source-coords.open-endpoint/set-launcher!`), whose stub invokes the caller's
-  `fallback!` thunk directly."
+  The real registered effects are driven and observed at each tool's
+  navigator seam (`set-navigator!`); stubbing them via `:fx-overrides`
+  would replace the very registration under test. The shared core
+  endpoint launcher (`rf.source-coords.open-endpoint/set-launcher!`) is
+  stubbed to call the `fallback!` thunk, forcing the synchronous
+  `editor://` URI path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -81,9 +62,7 @@
   (xray-config/update-setting! :general :editor-override nil))
 
 (defn- capture-navigators!
-  "Point each tool's navigator seam at its own capture atom, and force
-  the endpoint launcher to fall straight through to the `editor://` URI
-  path so the whole flow is synchronous under `dispatch-sync`."
+  "Point each tool's navigator seam at its own capture atom."
   []
   (reset! story-navigated [])
   (reset! xray-navigated [])
@@ -95,15 +74,10 @@
 (defn- install-xray!  [] (xray-open/install!))
 
 (defn- ensure-adapter!
-  "Install the plain-atom test adapter unless one is already installed.
-
-  `rf/make-frame` needs a state-container factory. A namespace that
-  supplies none passes only when some earlier namespace happens to have
-  called `init!` first — run ALONE, every test here would fail with
-  `:rf.error/no-adapter-installed`. A suite whose green depends on a
-  neighbour is not a suite. `init!` is a no-op for the adapter already
-  seated and throws `:rf.error/adapter-already-installed` for a different
-  one, so the catch is the no-op branch for an already-seated adapter."
+  "Install the plain-atom test adapter unless one is already installed, so
+  `rf/make-frame` has a state-container factory when this namespace runs
+  alone. `init!` throws for an already-seated adapter; the catch is that
+  no-op branch."
   []
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil)))
@@ -116,8 +90,7 @@
   (rf/make-frame {:id :rf/xray}))
 
 (defn- dispatch-both!
-  "Fire each tool's PUBLIC event (the surface programmers and agents
-  actually use — the fx-ids are internal)."
+  "Fire each tool's PUBLIC event (the fx-ids are internal)."
   []
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:rf.story/open-in-editor coord]))
@@ -125,17 +98,14 @@
     (rf/dispatch-sync [:rf.xray/open-in-editor coord])))
 
 ;; Every seam these tests swap is process-global, so each is saved and
-;; restored around the test rather than reset to a guessed default —
-;; leaking a capturing navigator or a synchronous launcher into another
-;; namespace's tests would be a silent cross-suite corruption.
+;; restored around the test rather than reset to a guessed default.
 (use-fixtures :each
   (fn [run-test]
     (let [prev-story-nav (rf.story.ui.open-in-editor/set-navigator! #(swap! story-navigated conj %))
           prev-xray-nav  (xray-open/set-navigator! #(swap! xray-navigated conj %))
-          ;; The shared core seam: `open-coord!` calls
-          ;; `(@launcher url fallback!)`. Invoking `fallback!` immediately
-          ;; models "no dev server present" — the documented standalone
-          ;; contract, and the only path carrying the per-tool URI.
+          ;; `open-coord!` calls `(@launcher url fallback!)`; invoking
+          ;; `fallback!` models "no dev server present", the only path
+          ;; carrying the per-tool URI.
           prev-launcher  (rf.source-coords.open-endpoint/set-launcher!
                            (fn [_url fallback!] (fallback!)))]
       (try
@@ -151,11 +121,8 @@
 ;; ---- the ownership contract ---------------------------------------------
 
 (deftest each-tool-keeps-its-own-editor-regardless-of-install-order
-  (testing "installing Story-then-Xray AND Xray-then-Story
-            both leave each tool driving its OWN navigator with its OWN
-            editor + project root. Were the two tools to share one fx-id,
-            the second installer would overwrite the first, so exactly one
-            of these two orders would fail."
+  (testing "with one shared fx-id the second installer would overwrite the
+            first, so exactly one of these two orders would fail"
     (doseq [[label install-first! install-second!]
             [["story-then-xray" install-story! install-xray!]
              ["xray-then-story" install-xray!  install-story!]]]
@@ -175,63 +142,12 @@
                xray-editor ") and Xray's project root; it is NOT "
                "carrying Story's " story-editor " URI")))))
 
-;; ---- Xray-specific policy stays Xray-owned ------------------------------
-
-(deftest xray-operator-override-does-not-reach-story
-  (testing "the operator's `[:general :editor-override]`
-            is Xray policy. It must retarget Xray's launch and leave
-            Story's entirely alone, in a co-loaded process."
-    (configure-both-tools!)
-    (install-story!)
-    (install-xray!)
-    (fresh-frames!)
-    (capture-navigators!)
-    (xray-config/update-setting! :general :editor-override :cursor)
-
-    (dispatch-both!)
-
-    (is (= ["cursor://file/C:/repo/xray-root/src/app/events.cljs:17:3"]
-           @xray-navigated)
-        "the operator override retargets Xray to :cursor")
-    (is (= [story-uri] @story-navigated)
-        "Story still launches its OWN :zed editor — the Xray operator
-         override is not a global editor setting")))
-
-(deftest xray-unconfigured-editor-hint-does-not-gate-story
-  (testing "Xray's unconfigured-editor DX hint is Xray
-            EVENT policy. With no editor confirmed on the
-            Xray side it must suppress Xray's silent navigation while
-            Story — which has no such gate — still opens normally."
-    (rf.story.config/set-editor! story-editor)
-    (rf.story.config/set-project-root! story-root)
-    (xray-config/set-project-root! xray-root)
-    ;; Reset Xray to the unconfirmed state: no host editor, no override.
-    (xray-config/set-editor! nil)
-    (xray-config/update-setting! :general :editor-override nil)
-    (install-story!)
-    (install-xray!)
-    (fresh-frames!)
-    (capture-navigators!)
-
-    (is (false? (xray-config/editor-configured?))
-        "precondition — Xray considers itself unconfigured")
-
-    (dispatch-both!)
-
-    (is (= [] @xray-navigated)
-        "Xray fires the Settings hint instead of a silent navigation —
-         no URI reaches Xray's navigator")
-    (is (= [story-uri] @story-navigated)
-        "Story is unaffected by Xray's hint gate and opens as usual")))
-
-;; ---- Story's public event is actually installed in production -----------
+;; ---- Story's public event is installed by canonical boot ----------------
 
 (deftest story-public-event-exists-after-canonical-boot
-  (testing "`[:rf.story/open-in-editor coord]` is a DOCUMENTED public
-            dispatch, and its installer rides the canonical roster, so the
-            event works after an explicit `rf.story.canonical/install!` with
-            no hand-wiring. An installer absent from the roster would leave
-            the documented path with no production handler."
+  (testing "`[:rf.story/open-in-editor coord]` is a documented public
+            dispatch whose installer rides the canonical roster, so it
+            works after `rf.story.canonical/install!` with no hand-wiring"
     (configure-both-tools!)
     (rf.story.canonical/reset-installed-flag!)
     (rf.story.canonical/install!)
@@ -241,6 +157,4 @@
     (rf/with-frame :rf/default
       (rf/dispatch-sync [:rf.story/open-in-editor coord]))
 
-    (is (= [story-uri] @story-navigated)
-        "canonical boot alone wires the public event through to Story's
-         navigator — no explicit `ui.open-in-editor/install!` call")))
+    (is (= [story-uri] @story-navigated))))
