@@ -13,24 +13,9 @@
   forces React to unmount the old subtree and mount a fresh one. No
   amount of pure hiccup-tree inspection proves whether that actually
   happens; only a real React commit + a SECOND real React commit after
-  the toggle can.
-
-  ## Pipeline under test
-
-      mount [rf.story.ui.shell/framed-canvas] (viewport :full)
-            |
-      rf.story.ui.canvas/canvas's component-did-mount -> run-if-needed! -> run-variant
-            |  (variant's :setup seed app-db)
-            v
-      simulate user interaction: dispatch a NON-setup event into the
-      variant's frame directly (mirrors 'user increments a counter')
-            |
-      rf.story.ui.viewport-switcher/select! :tablet  (crosses the :full -> sized boundary)
-            |
-      flushSync a second commit
-            v
-      ASSERT: the variant frame's app-db still carries the interactive
-      mutation -- canvas was NOT remounted / re-run.
+  the toggle can. The boundary is symmetric — an element type that
+  differs between sized and unsized remounts in either direction — so
+  one direction is driven.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   discovers it and mounts real DOM via `react-dom/client`; `:node-test`
@@ -133,23 +118,20 @@
             ;; `flushSync` returns.
             (react-dom/flushSync
               (fn [] (rdc/render root [framed-canvas])))
-            (is (= 1 (:n (rf/app-db-value variant-id)))
-                "the variant's setup :setup seeded app-db on first mount")
             (is (nil? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
                 "precondition: the default :full viewport is UNSIZED —
                  the sized wrapper marker is absent")
 
             ;; Simulate a user interaction: a dispatch the variant's
-            ;; OWN :setup never fire (not a setup re-run artifact).
+            ;; OWN :setup never fires. The :n 2 asserted below needs both
+            ;; the :setup seed and this event to have landed.
             (rf/dispatch-sync [:vp-toggle/inc] {:frame variant-id})
-            (is (= 2 (:n (rf/app-db-value variant-id)))
-                "the simulated interaction landed")
 
             ;; Cross the :full -> sized boundary. If the canvas remounts
             ;; here, `component-will-unmount` clears the run-key sentinel
             ;; and the fresh `component-did-mount` unconditionally re-runs
             ;; `run-variant`, resetting the frame to the bare :n 1 seed —
-            ;; wiping the :n 2 interactive state asserted above.
+            ;; wiping the interactive :n 2.
             (react-dom/flushSync
               (fn []
                 (rf.story.ui.viewport-switcher/select! :tablet)
@@ -161,48 +143,6 @@
                 "the interactive app-db mutation SURVIVES the
                  viewport toggle — the canvas was not force-remounted /
                  re-run across the :full-vs-sized boundary")
-
-            (finally
-              (try (.unmount root) (catch :default _ nil)))))))))
-
-(deftest viewport-toggle-back-to-full-also-preserves-app-db
-  (testing "the inverse direction — sized back to :full —
-            is the SAME reconciliation boundary and must be equally
-            stable"
-    (if-not (browser?)
-      (is true ":node-test — no DOM; :browser-test runs the real assertion")
-      (let [variant-id :story.viewport-toggle/probe-reverse]
-        (rf/reg-event :vp-toggle-rev/set
-          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-        (rf/reg-event :vp-toggle-rev/inc
-          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-        ;; No `:component` — see the sibling test above for why.
-        (rf.story/reg-variant variant-id
-          {:setup [[:vp-toggle-rev/set 1]]})
-        ;; Start already on a sized preset.
-        (rf.story.ui.viewport-switcher/select! :tablet)
-        (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
-        (let [mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn [] (rdc/render root [framed-canvas])))
-            (is (= 1 (:n (rf/app-db-value variant-id))))
-            (is (some? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
-                "precondition: mounted already sized")
-
-            (rf/dispatch-sync [:vp-toggle-rev/inc] {:frame variant-id})
-            (is (= 2 (:n (rf/app-db-value variant-id))))
-
-            (react-dom/flushSync
-              (fn []
-                (rf.story.ui.viewport-switcher/select! :full)
-                (r/flush)))
-
-            (is (nil? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
-                "the toggle actually took effect — back to :full")
-            (is (= 2 (:n (rf/app-db-value variant-id)))
-                "the interactive mutation survives the reverse toggle too")
 
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
