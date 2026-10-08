@@ -1,14 +1,11 @@
 (ns re-frame.event-emit-cljs-test
-  "The always-on event-emit substrate. Substrate-level contract: one record per processed event, fan-out to every
-  registered listener, listener exceptions are swallowed, registry is
-  symmetric under register/unregister, record shape is tight (no
-  trace-bus keys).
-
-  Companion to `re-frame.event-emit-elision-prod-test` (CLJS, prod-
-  mode elision smoke). This file runs on the default JVM / Node test
-  paths; the prod-elision file runs only under `:advanced` +
-  `goog.DEBUG=false`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The always-on event-emit substrate: one tight record per processed event,
+  and an `:outcome` that reports every failed dispatch as non-`:ok`. Runs on
+  the JVM (both postures) and Node. Fan-out, unregister and listener-throw
+  isolation are the shared registry's, pinned by `re-frame.emit-substrate-test`;
+  the `:advanced` + `goog.DEBUG=false` witness is
+  `re-frame.event-emit-elision-prod-test`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.flows :as rf.flows]
@@ -20,214 +17,77 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; The schema-validation and flow-run hooks are published by the optional
-;; `re-frame.schemas` / `re-frame.flows` artefacts (on the core test
-;; classpath). The cascade-failure tests below stub those hooks through
-;; the late-bind table to drive the router's rejection / flow-throw
-;; branches. The fixture snapshots and restores the hook table so a stub
-;; never leaks across tests, and resets the artefacts' global registries
-;; (`schemas-by-frame`, `flows`) so a schema / flow registered by an
-;; earlier namespace cannot reject this namespace's clean dispatches —
-;; the same isolation `smoke_test`'s fixture performs.
-;;
-;; `clear-all!` wipes the WHOLE registrar; in the shared `:node-test`
-;; bundle that also drops sibling namespaces' ns-load view /
-;; sub registrations. Snapshot the registrar first and restore it in the
-;; `finally` so the clean-slate is scoped to this test and cross-namespace
-;; registrations survive (rf.test-support/{snapshot,restore}-registrar!).
+;; The schema-validation and flow-run hooks come from the optional schemas and
+;; flows artefacts; the outcome tests stub them through the late-bind table,
+;; so the fixture restores that table, and resets those artefacts' registries
+;; so another namespace's schema or flow cannot reject a clean dispatch here.
+;; `clear-all!` wipes the whole registrar, which the shared `:node-test`
+;; bundle needs back afterwards, so it is snapshotted and restored.
 (defn- reset-runtime [test-fn]
   (let [registrar-before (rf.test-support/snapshot-registrar)]
-  (rf.registrar/clear-all!)
-  (reset! rf.frame/frames {})
-  (rf.schemas/clear-schemas-by-frame!)
-  (rf.flows/reset-flows!)
-  (rf.trace.tooling/clear-listeners!)
-  (rf.event-emit/clear-event-listeners!)
-  ;; COLD-START the slot: destroy, then seat. `init!` is idempotent only for
-  ;; the adapter ALREADY SEATED — handed a DIFFERENT one it raises
-  ;; `:rf.error/adapter-already-installed` rather than ignoring the call.
-  ;; This ns shares the node bundle with suites that seat Reagent, UIx and
-  ;; the SSR adapter, so without the destroy a bare `init!` here would meet
-  ;; whichever adapter one of them seated first, and the tests below would
-  ;; not run on the substrate they name.
-  (rf/destroy-adapter!)
-  (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`; framework operation
-  ;; surfaces require a carried frame stamp. Register `:rf/default` + pin it
-  ;; as the body's ambient scope (the carried-invariant equivalent of
-  ;; `(with-frame :rf/default …)`); explicit `{:frame …}` opts in the test
-  ;; bodies win.
-  (rf/make-frame {:id :rf/default})
-  (let [hooks-before @rf.late-bind/hooks]
-    (try
-      (rf/with-frame :rf/default
-        (test-fn))
-      (finally
-        (reset! rf.late-bind/hooks hooks-before)
-        (rf.late-bind/invalidate-cache! :schemas/validate-app-schema!)
-        (rf.late-bind/invalidate-cache! :flows/run-flows-on-db)
-        (rf.test-support/restore-registrar! registrar-before))))))
+    (rf.registrar/clear-all!)
+    (reset! rf.frame/frames {})
+    (rf.schemas/clear-schemas-by-frame!)
+    (rf.flows/reset-flows!)
+    (rf.trace.tooling/clear-listeners!)
+    (rf.event-emit/clear-event-listeners!)
+    ;; `init!` refuses a different adapter than the one seated, and the
+    ;; `:node-test` bundle seats others, so destroy before seating.
+    (rf/destroy-adapter!)
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (rf/make-frame {:id :rf/default})
+    (let [hooks-before @rf.late-bind/hooks]
+      (try
+        (rf/with-frame :rf/default
+          (test-fn))
+        (finally
+          (reset! rf.late-bind/hooks hooks-before)
+          (rf.late-bind/invalidate-cache! :schemas/validate-app-schema!)
+          (rf.late-bind/invalidate-cache! :flows/run-flows-on-db)
+          (rf.test-support/restore-registrar! registrar-before))))))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- 1. Listener fires once per processed event --------------------------
+(defn- record-events!
+  "Register an event-emit listener and return the atom its records land in."
+  []
+  (let [seen (atom [])]
+    (rf.event-emit/register-event-listener! :test/recorder #(swap! seen conj %))
+    seen))
 
 (deftest listener-fires-on-event
-  (testing "A registered listener receives exactly one record per
-            processed event, carrying the tight {:event :event-id
-            :frame :time :outcome :elapsed-ms} shape."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/inc
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:evt/inc "payload"])
-      (is (= 1 (count @seen))
-          "listener fired exactly once for one dispatch")
-      (let [r (first @seen)]
-        (is (= [:evt/inc "payload"] (:event r)))
-        (is (= :evt/inc        (:event-id r)))
-        (is (= :rf/default     (:frame r)))
-        (is (= :ok             (:outcome r)))
-        (is (number? (:time r))     ":time is a wall-clock millis number")
-        (is (integer? (:elapsed-ms r)) ":elapsed-ms is an integer ms count")
-        (is (not (neg? (:elapsed-ms r)))
-            ":elapsed-ms is non-negative (max 0 (- end start) shape)")
-        (is (= #{:event :event-id :frame :time :outcome :elapsed-ms}
-               (set (keys r)))
-            "record carries ONLY the tight Spec 009 keys — no trace-bus enrichment")))))
+  (let [seen (record-events!)]
+    (rf/reg-event :evt/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/dispatch-sync [:evt/inc "payload"])
+    (is (= [{:event [:evt/inc "payload"] :event-id :evt/inc :frame :rf/default :outcome :ok}]
+           (mapv #(dissoc % :time :elapsed-ms) @seen))
+        "one record per processed event, carrying only the tight keys")
+    (is (number? (:time (first @seen))))
+    (is (nat-int? (:elapsed-ms (first @seen))))))
 
 (deftest listener-marks-handler-exception-as-error-outcome
-  (testing "When a handler throws, the listener record's :outcome is
-            :error. The cascade does NOT abort (the runtime catches
-            the handler exception internally) and the dispatch
-            returns."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/throw
-                       (fn [{:keys [db]} _]
-                         {:db (throw (ex-info "kaboom" {:cause :test}))}))
-      (rf/dispatch-sync [:evt/throw])
-      (is (= 1 (count @seen)))
-      (is (= :error (:outcome (first @seen)))))))
-
-;; ---- 1b. Cascade-failure outcomes ----------------------------------------
-;;
-;; A dispatch can fail AFTER the interceptor chain settled cleanly: candidate
-;; app-db schema validation can REJECT the transition before install
-;; (Spec 010 §Per-step recovery row 4), or a flow's :output can
-;; throw (Spec 013 §Failure semantics rule 3). Both are detected inside the
-;; commit-and-flow! body; both MUST surface a non-:ok :outcome to off-box
-;; observability shippers rather than mis-report a clean :ok.
+  (let [seen (record-events!)]
+    (rf/reg-event :evt/throw (fn [_ _] {:db (throw (ex-info "kaboom" {}))}))
+    (rf/dispatch-sync [:evt/throw])
+    (is (= [:error] (mapv :outcome @seen)))))
 
 (deftest listener-marks-schema-rejection-as-non-ok-outcome
-  (testing "When candidate app-db schema validation rejects the transition
-            — nothing installs (app-db keeps its pre-handler value) and
-            flows + :fx are skipped — the event-emit record's :outcome is
-            NON-:ok (the dispatch failed, even though the handler did not
-            throw)."
-    (let [seen (atom [])]
-      ;; Stub the schema-validate hook to reject every candidate, driving
-      ;; commit-frame-effects! down its rejection branch.
-      (rf.late-bind/set-fn! :schemas/validate-app-schema!
-                         (fn [_db-after _event-id _frame _continue?] false))
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/writes
-                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-      (rf/dispatch-sync [:evt/writes])
-      (is (= 1 (count @seen)) "listener fired once for the dispatch")
-      (let [outcome (:outcome (first @seen))]
-        (is (= :rolled-back outcome)
-            "schema rejection surfaces as the distinct :rolled-back outcome
-             (the stable public vocabulary for transaction-rejected)")))))
+  ;; A rejected candidate app-db installs nothing, though the handler did not throw.
+  (rf.late-bind/set-fn! :schemas/validate-app-schema!
+                        (fn [_db-after _event-id _frame _continue?] false))
+  (let [seen (record-events!)]
+    (rf/reg-event :evt/writes (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/dispatch-sync [:evt/writes])
+    (is (= [:rolled-back] (mapv :outcome @seen)))))
 
 (deftest listener-marks-flow-throw-as-non-ok-outcome
-  (testing "When a flow's :output throws during the outermost :after flow
-            transform — the runtime ABORTS the event (no install, app-db
-            unchanged, :fx skipped) — the event-emit record's :outcome is
-            NON-:ok and the handler's :db did NOT land (atomicity contract,
-            Spec 013 §Failure semantics)."
-    (let [seen (atom [])]
-      ;; Stub the flow-transform hook to throw, driving the router's
-      ;; flows-after-interceptor down its catch branch (which DISCARDS the
-      ;; pending :db effect + stashes :rf/flow-error → event aborts before
-      ;; install + :fx). The hook is the (frame db runtime-db) -> db transform
-      ;; (EP-0001 — the router hands it both pending partitions); on throw it
-      ;; carries only :rf.flow/failed-id for
-      ;; attribution — there is no partial-db (no partial commit per the
-      ;; atomicity contract).
-      (rf.late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame _db _runtime-db _exact-owner]
-                           (throw (ex-info "flow output blew up"
-                                           {:rf.flow/failed-id :flow/derived}))))
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/writes
-                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-      (rf/dispatch-sync [:evt/writes])
-      (is (= 1 (count @seen)) "listener fired once for the dispatch")
-      (let [outcome (:outcome (first @seen))]
-        (is (= :flow-error outcome)
-            "a flow-output throw surfaces as the distinct :flow-error outcome"))
-      (is (not (contains? (rf/app-db-value :rf/default) :n))
-          "the handler's :db write did NOT land — a flow throw aborts the
-           event with no install (app-db unchanged)"))))
-
-;; ---- 2. Listener exceptions are swallowed --------------------------------
-
-(deftest listener-exception-is-swallowed
-  (testing "Per the substrate contract: a buggy listener cannot break
-            the cascade OR prevent sibling listeners from running.
-            Listener throws are caught inside `dispatch-on-event!`
-            and silently dropped — no recursive emit, no propagation
-            to user code."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/throws
-        (fn [_record]
-          (throw (ex-info "listener went boom" {}))))
-      (rf.event-emit/register-event-listener!
-        :test/sibling
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/quiet (fn [{:keys [db]} _] {:db db}))
-      ;; Must NOT throw — the listener's exception is swallowed.
-      (is (nil? (rf/dispatch-sync [:evt/quiet]))
-          "dispatch-sync returned nil despite the listener throw")
-      (is (= 1 (count @seen))
-          "the sibling listener still received the record — fan-out is
-           defensive across listeners"))))
-
-;; ---- 3. Multiple listeners are independent --------------------------------
-
-(deftest multiple-listeners-independent
-  (testing "Every registered listener receives every record,
-            independently of every other. Adding a listener does not
-            affect other listeners' delivery; removing one does not
-            affect siblings."
-    (let [a (atom [])
-          b (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/listener-a
-        (fn [record] (swap! a conj record)))
-      (rf.event-emit/register-event-listener!
-        :test/listener-b
-        (fn [record] (swap! b conj record)))
-      (rf/reg-event :evt/once (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:evt/once])
-      (is (= 1 (count @a)))
-      (is (= 1 (count @b)))
-      (rf.event-emit/unregister-event-listener! :test/listener-a)
-      (rf/dispatch-sync [:evt/once])
-      (is (= 1 (count @a)) ":listener-a stayed silent after unregister")
-      (is (= 2 (count @b)) ":listener-b still fired for the second dispatch"))))
-
-;; No registered listeners is the hot-path floor — the substrate
-;; short-circuits to a single deref-and-empty-check. This namespace's fixture,
-;; like the shared `re-frame.test-support` one, clears every event listener,
-;; so every dispatch in a test that registers none runs that path.
+  ;; A flow throw aborts the event: no install, so the handler's `:db` never lands.
+  (rf.late-bind/set-fn! :flows/run-flows-on-db
+                        (fn [_frame _db _runtime-db _exact-owner]
+                          (throw (ex-info "flow output blew up"
+                                          {:rf.flow/failed-id :flow/derived}))))
+  (let [seen (record-events!)]
+    (rf/reg-event :evt/writes (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/dispatch-sync [:evt/writes])
+    (is (= [:flow-error] (mapv :outcome @seen)))
+    (is (not (contains? (rf/app-db-value :rf/default) :n)))))
