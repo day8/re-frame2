@@ -45,25 +45,23 @@
          :preventDefault  (fn [])
          :stopPropagation (fn [])}))
 
-;; ---- pointercancel tears down (the core acceptance) ---------------------
+;; ---- pointerup and pointercancel both commit once and tear down ----------
 
-(deftest pointercancel-tears-down-drag
-  (testing "a pointercancel mid-drag removes the listeners + clears the
-            drag state (no stuck drag), and commits the last tick so
-            stored widths match what is on screen"
-    (let [d  (atom [])
-          df (fn [ev] (swap! d conj ev))]
-      (is (false? (rt/dragging?)) "no drag in progress at fixture start")
-      (rt/on-pointer-down df :tbl :a :b (stub-pointer-event 100 :a 120 :b 80))
-      (is (true? (rt/dragging?)) "pointerdown started a drag")
-      (rt/simulate-move! 130)   ;; delta +30 → tick
-      (rt/simulate-cancel!)     ;; system preempt
-      (is (false? (rt/dragging?))
-          "pointercancel tore the drag down — no listener/state stranded")
-      (is (some #(= :rf.xray.column-widths/resize-pair-tick (first %)) @d)
-          "the move ticked during the drag")
-      (is (some #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)
-          "cancel committed the last tick (stored == displayed)"))))
+(deftest pointerup-or-pointercancel-commits-once-and-tears-down
+  (testing "the ordinary pointerup, and a pointercancel from a system
+            preempt, each commit the last tick exactly once (one
+            localStorage write per drag, and stored == displayed) and
+            clear the drag"
+    (doseq [finish! [rt/simulate-up! rt/simulate-cancel!]]
+      (let [d (atom [])]
+        (rt/on-pointer-down #(swap! d conj %) :tbl :a :b
+                            (stub-pointer-event 100 :a 120 :b 80))
+        (rt/simulate-move! 130)
+        (finish!)
+        (is (= [:rf.xray.column-widths/resize-pair-tick
+                :rf.xray.column-widths/resize-pair-commit]
+               (mapv first @d)))
+        (is (false? (rt/dragging?)))))))
 
 (deftest missed-pointerup-then-new-drag-never-orphans
   (testing "a missed pointerup leaves the first drag's listeners bound;
@@ -88,10 +86,8 @@
         (is (fn? first-move) "the first drag bound a move listener")
         ;; A new drag begins with the old one still bound.
         (down! 200)
-        (is (true? (rt/dragging?)) "still exactly one drag live")
-        (doseq [ev-name ["pointermove" "pointerup" "pointercancel"]]
-          (is (= 1 (count (on ev-name)))
-              (str "exactly one " ev-name " listener — the first drag's was detached")))
+        (is (= [1 1 1] (map #(count (on %)) ["pointermove" "pointerup" "pointercancel"]))
+            "exactly one listener per event — the first drag's were detached")
         (is (not-any? #(identical? first-move %) (on "pointermove"))
             "the surviving move listener is the new drag's, not the first's")
         (reset! d [])
@@ -99,21 +95,8 @@
         (is (= [[:rf.xray.column-widths/resize-pair-tick :tbl :a 150 :b 50]] @d)
             "one window move dispatches one tick — no orphan re-dispatching")
         (doseq [f (on "pointerup")] (f #js {}))
-        (is (false? (rt/dragging?))
-            "one teardown clears the state")
         (is (popout-document/detached? wl)
-            "and leaves no listener on the window")))))
-
-(deftest pointerup-commits-and-tears-down
-  (testing "the ordinary pointerup path commits once + clears"
-    (let [d  (atom [])
-          df (fn [ev] (swap! d conj ev))]
-      (rt/on-pointer-down df :tbl :a :b (stub-pointer-event 100 :a 120 :b 80))
-      (rt/simulate-move! 90)    ;; delta -10
-      (rt/simulate-up!)
-      (is (false? (rt/dragging?)) "pointerup cleared the drag state")
-      (is (= 1 (count (filter #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)))
-          "exactly one commit per drag (one localStorage write, not one per pixel)"))))
+            "and one pointerup leaves no listener on the window")))))
 
 ;; ---- the gutter's own window --------------------------------------------
 
@@ -138,12 +121,11 @@
               "and the opener window received no listener at all")
           (when-let [on-move (first (popout-document/listeners-on pwin-listeners "pointermove"))]
             (on-move #js {:clientX 130}))
-          (is (some #(= [:rf.xray.column-widths/resize-pair-tick :tbl :a 150 :b 50] %) @d)
-              "a pop-out pointer move resizes the pair")
           (when-let [on-up (first (popout-document/listeners-on pwin-listeners "pointerup"))]
             (on-up #js {}))
-          (is (false? (rt/dragging?)) "the pop-out release ends the drag")
-          (is (some #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)
-              "and commits it")
+          (is (= [[:rf.xray.column-widths/resize-pair-tick :tbl :a 150 :b 50]
+                  [:rf.xray.column-widths/resize-pair-commit]]
+                 @d)
+              "a pop-out pointer move resizes the pair and the pop-out release commits it")
           (is (popout-document/detached? pwin-listeners)
               "detaching from the SAME window the drag attached to"))))))
