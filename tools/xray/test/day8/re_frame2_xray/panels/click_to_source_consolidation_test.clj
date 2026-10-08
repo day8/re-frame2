@@ -59,19 +59,11 @@
     "coord_link.cljs"})
 
 (defn- src-root []
-  ;; Resolve `src/day8/re_frame2_xray` on disk so the guard reads the
-  ;; on-disk source text. Every shipped invocation runs from `tools/xray`
-  ;; (`clojure -M:test`, typed by hand or driven by
-  ;; `scripts/test-jvm-tools.sh`, which cds into the artefact), so a
-  ;; cwd-relative `(io/file "src" …)` would happen to work there — but
-  ;; keying the walk to cwd makes this guard fail OPEN anywhere else, and
-  ;; silently: from any other working directory (a REPL or editor rooted at
-  ;; the repo root) the path resolves to a non-directory, the walk yields no
-  ;; files, and the `(is (empty? offenders))` below passes having scanned
-  ;; nothing. `src` is a classpath `:paths` root, so a known `.cljs` source
-  ;; is a classpath resource on the JVM regardless of cwd; its parent dir is
-  ;; the src-root. Fall back to the cwd-relative path if the resource is
-  ;; absent (e.g. a jar).
+  ;; Resolve `src/day8/re_frame2_xray` through the classpath rather than
+  ;; the cwd, so the guard scans the same tree from a REPL or editor rooted
+  ;; anywhere: `src` is a `:paths` root, so a known `.cljs` source is a
+  ;; resource whose parent dir is the src-root. Falls back to the
+  ;; cwd-relative path when the resource is absent (e.g. a jar).
   (let [marker (io/resource "day8/re_frame2_xray/defaults.cljs")]
     (if (and marker (= "file" (.getProtocol marker)))
       (.getParentFile (io/file (.toURI marker)))
@@ -85,26 +77,22 @@
                       (str/ends-with? n ".cljc"))))))
 
 (deftest no-bespoke-open-in-editor-dispatch-outside-shared-helpers
-  (let [root (src-root)]
-    (is (.exists root)
-        (str "source root must resolve from the test's working "
-             "directory (tools/xray); got " (.getPath root)))
-    (let [files     (cljs-source-files root)
-          matching  (filter #(re-find dispatch-pattern (code-text %)) files)
-          offenders (->> matching
-                         (remove #(sanctioned (.getName ^java.io.File %)))
-                         (map #(.getPath ^java.io.File %)))]
-      (is (= sanctioned
-             (into #{} (comp (map #(.getName ^java.io.File %))
-                             (filter sanctioned))
-                   matching))
-          "the pattern finds the dispatch in every sanctioned helper; if it
-          misses one it has stopped seeing the real shape and the offender
-          check below guards nothing")
-      (is (empty? offenders)
-          (str "These files inline a `[:rf.xray/open-in-editor …]` dispatch "
-               "call but are not a sanctioned shared helper. Route the "
-               "affordance through `panels/shared/coord_chip.cljs` "
-               "(icon-only), `panels/shared/coord_link.cljs` (label), or "
-               "bind `coord-link/open-in-editor!` for an SVG-node click:\n  "
-               (str/join "\n  " offenders))))))
+  (let [files     (cljs-source-files (src-root))
+        matching  (filter #(re-find dispatch-pattern (code-text %)) files)
+        offenders (->> matching
+                       (remove #(sanctioned (.getName ^java.io.File %)))
+                       (map #(.getPath ^java.io.File %)))]
+    (is (= sanctioned
+           (into #{} (comp (map #(.getName ^java.io.File %))
+                           (filter sanctioned))
+                 matching))
+        "the pattern finds the dispatch in every sanctioned helper; if it
+        misses one — or the source root resolved to nothing — the offender
+        check below guards nothing")
+    (is (empty? offenders)
+        (str "These files inline a `[:rf.xray/open-in-editor …]` dispatch "
+             "call but are not a sanctioned shared helper. Route the "
+             "affordance through `panels/shared/coord_chip.cljs` "
+             "(icon-only), `panels/shared/coord_link.cljs` (label), or "
+             "bind `coord-link/open-in-editor!` for an SVG-node click:\n  "
+             (str/join "\n  " offenders)))))
