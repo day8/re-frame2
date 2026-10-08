@@ -25,18 +25,10 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- per-overlay toggle state + DOM + variant-state ---------------------
-;;
-;; 015-Test-Coverage.md:120 (Layout-debug overlays) asks: assert each
-;; overlay toggles its DOM/aria state AND that the variant's own state stays
-;; unchanged across toggles. The layout-debug panel (`rf.story.ui.panels/layout-debug-
-;; view`) is the toggle surface — a checkbox per decorator id. The active
-;; set lives in `rf.story.ui.panels/layout-debug-toggles`, a per-process ratom keyed by
-;; variant-id and wholly independent of any variant's frame/app-db, so
-;; toggling an overlay provably CANNOT mutate variant state. Per the locked
-;; Story testing posture these are CLJS unit tests over the pure toggle
-;; state + the rendered checkbox DOM (the `:checked` attr the browser would
-;; show), not a Playwright spec.
+;; spec/015 asks each layout-debug overlay to toggle its DOM state while the
+;; variant's own state stays unchanged. The active set lives in
+;; `layout-debug-toggles`, a per-process ratom keyed by variant id and
+;; independent of every frame, and the panel renders one checkbox per overlay.
 
 (defn- render-layout-debug-panel
   "Render the form-2 layout-debug panel for `variant-id` to hiccup."
@@ -49,26 +41,20 @@
   [tree]
   (rf.test-helpers/find-all-by-attr tree :type "checkbox"))
 
-;; ---- pure per-overlay toggle state --------------------------------------
-
 (deftest each-overlay-toggles-independently
-  (testing "toggling one overlay id flips only that id in the active set;
-            a second overlay toggles independently; re-toggling clears it"
-    (let [vid :story.x/probe]
-      (is (= #{} (rf.story.ui.panels/active-layout-debug-decorators vid))
-          "fresh variant has no overlays active")
-      ;; Toggle outline on.
-      (rf.story.ui.panels/toggle-layout-debug! vid rf.story.layout-debug/id-outline)
-      (is (= #{rf.story.layout-debug/id-outline}
-             (rf.story.ui.panels/active-layout-debug-decorators vid)))
-      ;; Toggle measure on — outline stays on (independent).
-      (rf.story.ui.panels/toggle-layout-debug! vid rf.story.layout-debug/id-measure)
-      (is (= #{rf.story.layout-debug/id-outline rf.story.layout-debug/id-measure}
-             (rf.story.ui.panels/active-layout-debug-decorators vid)))
-      ;; Re-toggle outline off — measure survives.
-      (rf.story.ui.panels/toggle-layout-debug! vid rf.story.layout-debug/id-outline)
-      (is (= #{rf.story.layout-debug/id-measure}
-             (rf.story.ui.panels/active-layout-debug-decorators vid))))))
+  (testing "toggling one overlay flips only that id; a second toggles
+            independently; re-toggling clears it"
+    (let [vid    :story.x/probe
+          active #(rf.story.ui.panels/active-layout-debug-decorators vid)
+          toggle #(do (rf.story.ui.panels/toggle-layout-debug! vid %) (active))]
+      (is (= [#{}
+              #{rf.story.layout-debug/id-outline}
+              #{rf.story.layout-debug/id-outline rf.story.layout-debug/id-measure}
+              #{rf.story.layout-debug/id-measure}]
+             [(active)
+              (toggle rf.story.layout-debug/id-outline)
+              (toggle rf.story.layout-debug/id-measure)
+              (toggle rf.story.layout-debug/id-outline)])))))
 
 (deftest overlay-toggles-are-per-variant-isolated
   (testing "toggling variant A's overlay does not leak into variant B's set"
@@ -78,46 +64,27 @@
     (is (= #{} (rf.story.ui.panels/active-layout-debug-decorators :story.x/b))
         "sibling variant's overlay set is untouched")))
 
-;; ---- DOM: the checkbox reflects the active-overlay state ----------------
-
 (deftest overlay-checkboxes-reflect-active-set-in-dom
-  (testing "the panel renders one checkbox per overlay; :checked mirrors the
-            active set (the DOM state the browser toggle would show)"
-    (let [vid :story.x/probe]
-      ;; Nothing active → all three checkboxes unchecked.
-      (let [boxes (overlay-checkboxes (render-layout-debug-panel vid))]
-        (is (= 3 (count boxes)) "one checkbox per layout-debug overlay")
-        (is (= [false false false]
-               (mapv #(boolean (get (second %) :checked)) boxes))
-            "all overlays render unchecked before any toggle"))
-      ;; Toggle the OUTLINE overlay (render order: measure, outline, pseudo).
+  (testing "one checkbox per overlay (measure, outline, pseudo), whose :checked
+            mirrors the active set"
+    (let [vid     :story.x/probe
+          checked #(mapv (fn [box] (boolean (get (second box) :checked)))
+                         (overlay-checkboxes (render-layout-debug-panel vid)))]
+      (is (= [false false false] (checked)))
       (rf.story.ui.panels/toggle-layout-debug! vid rf.story.layout-debug/id-outline)
-      (let [boxes (overlay-checkboxes (render-layout-debug-panel vid))]
-        (is (= [false true false]
-               (mapv #(boolean (get (second %) :checked)) boxes))
-            "only the outline checkbox flips to :checked=true in the DOM")))))
-
-;; ---- variant state is unchanged across overlay toggles ------------------
+      (is (= [false true false] (checked))))))
 
 (deftest overlay-toggles-do-not-mutate-variant-state
-  (testing "toggling overlays leaves the variant's own state untouched — the
-            toggle set lives in a separate per-process ratom, not the
-            variant's frame/app-db (spec/015's 'variant state unchanged')"
-    (let [vid :story.x/counted]
-      (rf.story/reg-variant* vid {:args {:n 7}
-                               :setup [[:set-thing 1]]})
+  (testing "toggling every overlay on and off leaves the registered variant
+            body identical (spec/015 'variant state unchanged')"
+    (let [vid :story.x/counted
+          ids [rf.story.layout-debug/id-measure
+               rf.story.layout-debug/id-outline
+               rf.story.layout-debug/id-pseudo]]
+      (rf.story/reg-variant* vid {:args {:n 7} :setup [[:set-thing 1]]})
       (let [body-before (rf.story/handler-meta :variant vid)]
-        ;; Toggle every overlay on, then off again.
-        (doseq [id [rf.story.layout-debug/id-measure
-                    rf.story.layout-debug/id-outline
-                    rf.story.layout-debug/id-pseudo]]
+        (doseq [id (concat ids ids)]
           (rf.story.ui.panels/toggle-layout-debug! vid id))
-        (doseq [id [rf.story.layout-debug/id-measure
-                    rf.story.layout-debug/id-outline
-                    rf.story.layout-debug/id-pseudo]]
-          (rf.story.ui.panels/toggle-layout-debug! vid id))
-        (is (= #{} (rf.story.ui.panels/active-layout-debug-decorators vid))
-            "overlays round-tripped back to empty")
-        (is (= body-before (rf.story/handler-meta :variant vid))
-            "the registered variant body is byte-identical after the toggles —
-             overlay state never touches the variant's own registration")))))
+        (is (= [#{} body-before]
+               [(rf.story.ui.panels/active-layout-debug-decorators vid)
+                (rf.story/handler-meta :variant vid)]))))))
