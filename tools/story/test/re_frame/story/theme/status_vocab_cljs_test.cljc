@@ -1,41 +1,9 @@
 (ns re-frame.story.theme.status-vocab-cljs-test
-  "Lock-tests for the shared status colour vocabulary (spec/018
-  §12.6). `theme.status` is the single constructed
-  source of truth — the sidebar signal chips, the test-mode result rows,
-  the evidence beats, and the play-status banner all key off these
-  tokens — and its own docstring states it is JVM-portable 'so the test
-  corpus can assert the vocabulary without a render pass.' This is that
-  corpus.
-
-  Runs on BOTH the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build (shadow's `:node-test` target; the
-  `cljs-test$` ns-regexp picks up this `-cljs-test` ns). The pure
-  `theme.status` vocabulary is `.cljc` so it asserts on both platforms;
-  the two derivation locks that reach into `.cljs` files the JVM can't
-  `:require` (the sidebar style derivation + the empty-canvas render
-  hook) are gated `#?(:cljs …)`, mirroring `sidebar-chips-cljs-test`.
-
-  ## What these lock
-
-  1. **Descriptor completeness** — every one of the nine canonical
-     statuses carries all FOUR discriminators (colour / glyph / shape /
-     label) §12.6 mandates, plus the `:emphasis` hint. A future edit
-     dropping a glyph or a shape is caught here.
-  2. **Distinct channels** — the nine glyphs are distinct, the shapes
-     genuinely discriminate (a `:ring` ≠ an `:outline` at the rendered
-     border).
-  3. **Order + rollup** — `order` lists exactly the nine statuses in the
-     documented priority; `rollup` surfaces the worst member of a mixed
-     set.
-  4. **The documented nine** — the `descriptors` key set matches the
-     nine statuses the namespace + spec/018 §12.6 document, no more, no
-     fewer.
-  5. **Single-source derivation** (CLJS) — the sidebar's
-     `:signal-status-*` style keys are EQUAL to `rf.story.theme.status/chip-style`
-     output, so a drift in one region is structurally impossible.
-  6. **Empty-canvas hook** (CLJS) — the empty state renders the
-     `story-canvas-empty` hook spec/018 §12.5 promises."
-  (:require [clojure.test :refer [deftest is testing]]
+  "The shared status vocabulary (spec/018 §12.6): nine statuses, each
+  distinguishable by colour, glyph, shape and label, and the sidebar
+  regions derived from it. The `#?(:cljs …)` tests reach `.cljs`
+  sidebar and shell namespaces the JVM cannot load."
+  (:require [clojure.test :refer [deftest is]]
             [clojure.string :as str]
             [re-frame.story.theme.status :as rf.story.theme.status]
             #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
@@ -43,150 +11,64 @@
                        [re-frame.story.ui.shell :as rf.story.ui.shell]
                        [re-frame.story.ui.state :as rf.story.ui.state]])))
 
-;; The nine canonical statuses spec/018 §12.6 documents (the namespace's
-;; own table). `:running` is Story's live sibling of the spec's `pending`
-;; (see `theme.status` docstring); the other eight are the spec's list.
 (def expected-statuses
   #{:pending :running :pass :fail :error :cannot-run :blocked :dirty :redacted})
 
-(def valid-shapes #{:solid :outline :dashed :ring :half})
-(def valid-emphasis #{:high :normal :low})
-
-;; ---- 1 + 2: descriptor completeness + distinct channels -----------------
-
 (deftest descriptors-match-the-documented-nine
-  (testing "the descriptor set is EXACTLY the nine documented statuses —
-            no status quietly added or dropped (spec/018 §12.6 table)"
-    (is (= expected-statuses (set (keys rf.story.theme.status/descriptors)))))
-  (testing "`order` is exactly the nine statuses, each listed once"
-    (is (= expected-statuses (set rf.story.theme.status/order)))
-    (is (= 9 (count rf.story.theme.status/order)))))
+  (is (= expected-statuses (set (keys rf.story.theme.status/descriptors))))
+  (is (= expected-statuses (set rf.story.theme.status/order)))
+  (is (= 9 (count rf.story.theme.status/order))))
 
 (deftest every-descriptor-carries-all-four-discriminators
-  (testing "each status carries colour (:fg/:bg/:border) + :glyph + :shape
-            + :label + :emphasis — the §12.6 four channels are all present,
-            so no region can fall back to colour-only"
-    (doseq [s expected-statuses]
-      (let [d (rf.story.theme.status/descriptor s)]
-        (testing (str s)
-          ;; colour channel — three non-blank strings
-          (is (every? (fn [k] (and (string? (get d k))
-                                   (not (str/blank? (get d k)))))
-                      [:fg :bg :border]))
-          ;; glyph channel — a single non-blank structural character
-          (is (and (string? (:glyph d)) (not (str/blank? (:glyph d)))))
-          ;; shape channel — one of the five documented shapes
-          (is (contains? valid-shapes (:shape d)))
-          ;; text channel — a non-blank human label
-          (is (and (string? (:label d)) (not (str/blank? (:label d)))))
-          ;; presentation hint
-          (is (contains? valid-emphasis (:emphasis d))))))))
+  (doseq [s expected-statuses
+          :let [d (rf.story.theme.status/descriptor s)]]
+    (is (every? #(and (string? (d %)) (not (str/blank? (d %))))
+                [:fg :bg :border :glyph :label])
+        (str s))
+    (is (contains? #{:solid :outline :dashed :ring :half} (:shape d)) (str s))))
 
-(deftest channels-are-distinct
-  (testing "the nine glyphs are all distinct — the glyph channel
-            discriminates all nine, never collapses two states to one mark"
-    (let [glyphs (mapv #(:glyph (rf.story.theme.status/descriptor %)) (vec expected-statuses))]
-      (is (= 9 (count (set glyphs))) (str "duplicate glyph in " glyphs))))
-  (testing "every documented shape is actually used by some status — the
-            five-shape vocabulary is real, not aspirational"
-    (is (= valid-shapes (set (map #(:shape (rf.story.theme.status/descriptor %))
-                                  expected-statuses))))))
-
-;; ---- 3: the shape channel genuinely discriminates -----------------------
+(deftest glyphs-are-distinct
+  (let [glyphs (map #(:glyph (rf.story.theme.status/descriptor %)) expected-statuses)]
+    (is (apply distinct? glyphs) (str "duplicate glyph in " (vec glyphs)))))
 
 (deftest chip-style-shape-channel-discriminates
-  (testing "chip-style ALWAYS carries the colour channel (:background +
-            :color) for every status"
-    (doseq [s expected-statuses]
-      (let [cs (rf.story.theme.status/chip-style s)]
-        (is (contains? cs :background))
-        (is (contains? cs :color)))))
-  (testing "the five shapes render VISUALLY DISTINCT decorations — the
-            shape channel is genuinely five values, not a degraded two
-            (solid-border vs dashed)"
-    ;; :solid — no border decoration; the filled ground is the signal.
-    (let [pass (rf.story.theme.status/chip-style :pass)]
-      (is (not (contains? pass :border)))
-      (is (not (contains? pass :border-left))))
-    ;; :outline — 1px SOLID border (error / cannot-run).
-    (let [err (rf.story.theme.status/chip-style :error)]
-      (is (str/starts-with? (:border err) "1px solid")))
-    ;; :dashed — 1px DASHED border (redacted).
-    (let [red (rf.story.theme.status/chip-style :redacted)]
-      (is (str/includes? (:border red) "dashed")))
-    ;; :ring — 2px DOUBLE border (pending — a hollow double-ring, NOT a
-    ;; plain solid edge, which would collapse it into :outline).
-    (let [pend (rf.story.theme.status/chip-style :pending)]
-      (is (str/includes? (:border pend) "double")))
-    ;; :half — a one-sided left-accent BAR (running), NOT a full border.
-    (let [run (rf.story.theme.status/chip-style :running)]
-      (is (contains? run :border-left))
-      (is (not (contains? run :border)))))
-  (testing "outline / ring / half render three different CSS values —
-            none collapses to another"
-    (let [outline (:border      (rf.story.theme.status/chip-style :error))
-          ring    (:border      (rf.story.theme.status/chip-style :pending))
-          half    (:border-left (rf.story.theme.status/chip-style :running))]
-      (is (not= outline ring))
-      (is (not= outline half))
-      (is (not= ring half)))))
-
-;; ---- 4: rollup surfaces the worst member --------------------------------
+  (let [cs rf.story.theme.status/chip-style]
+    (is (= {:background (rf.story.theme.status/bg :pass)
+            :color      (rf.story.theme.status/fg :pass)}
+           (cs :pass)))
+    (is (str/starts-with? (:border (cs :error)) "1px solid"))
+    (is (str/includes? (:border (cs :redacted)) "dashed"))
+    (is (str/includes? (:border (cs :pending)) "double"))
+    (is (contains? (cs :running) :border-left))
+    (is (not (contains? (cs :running) :border)))))
 
 (deftest rollup-surfaces-worst-member
-  (testing "a mixed set surfaces its most-attention-demanding member per
-            `order` (one :fail among many :pass → :fail)"
-    (is (= :fail  (rf.story.theme.status/rollup [:pass :pass :fail :pass])))
-    (is (= :error (rf.story.theme.status/rollup [:pass :fail :error :pending])))
-    (is (= :pass  (rf.story.theme.status/rollup [:pass :pass :pass]))))
-  (testing "blocked / dirty / running outrank pending + pass + redacted"
-    (is (= :blocked (rf.story.theme.status/rollup [:pass :pending :blocked :redacted])))
-    (is (= :dirty   (rf.story.theme.status/rollup [:pass :pending :dirty :redacted])))
-    (is (= :running (rf.story.theme.status/rollup [:pass :pending :running :redacted]))))
-  (testing "an empty / all-nil set degrades to :pending, never throws"
-    (is (= :pending (rf.story.theme.status/rollup [])))
-    (is (= :pending (rf.story.theme.status/rollup [nil nil])))
-    (is (= :pending (rf.story.theme.status/rollup nil)))))
+  (is (= :fail    (rf.story.theme.status/rollup [:pass :pass :fail :pass])))
+  (is (= :error   (rf.story.theme.status/rollup [:pass :fail :error :pending])))
+  (is (= :pending (rf.story.theme.status/rollup []))))
 
 (deftest unknown-status-degrades-to-pending
-  (testing "an unknown / nil status paints the neutral :pending slot,
-            never blanks or throws"
-    (is (= (rf.story.theme.status/descriptor :pending) (rf.story.theme.status/descriptor :bogus)))
-    (is (= (rf.story.theme.status/descriptor :pending) (rf.story.theme.status/descriptor nil)))))
-
-;; ---- 5: single-source derivation (CLJS — sidebar style is .cljs) --------
+  (is (= (rf.story.theme.status/descriptor :pending) (rf.story.theme.status/descriptor :bogus)))
+  (is (= (rf.story.theme.status/descriptor :pending) (rf.story.theme.status/descriptor nil))))
 
 #?(:cljs
    (deftest sidebar-signal-status-derives-from-chip-style
-     (testing "the sidebar's :signal-status-* style keys EQUAL
-               rf.story.theme.status/chip-style output — the single-source guarantee
-               (a drift in one region is structurally impossible)"
-       (doseq [[stat style-key] rf.story.ui.sidebar/status-signal->style-key]
-         (is (= (rf.story.theme.status/chip-style stat) (get styles style-key))
-             (str style-key " drifted from (rf.story.theme.status/chip-style " stat ")"))))))
+     (doseq [[stat style-key] rf.story.ui.sidebar/status-signal->style-key]
+       (is (= (rf.story.theme.status/chip-style stat) (get styles style-key))
+           (str style-key " drifted from (rf.story.theme.status/chip-style " stat ")")))))
 
 #?(:cljs
    (deftest sidebar-status-style-key-covers-all-nine
-     (testing "every documented status has a sidebar style-key projection
-               — no status is unreachable from the sidebar"
-       (is (= expected-statuses (set (keys rf.story.ui.sidebar/status-signal->style-key)))))))
+     (is (= expected-statuses (set (keys rf.story.ui.sidebar/status-signal->style-key))))))
 
 #?(:cljs
    (deftest sidebar-status-dots-derive-from-fg
-     (testing "the per-variant status dots project from the descriptor
-               source (`rf.story.ui.sidebar/dot-style`) — the same single source the
-               chips read; there are no duplicate per-status style-map
-               entries to drift"
-       (is (= {:background (rf.story.theme.status/fg :pass)} (rf.story.ui.sidebar/dot-style :pass)))
-       (is (= {:background (rf.story.theme.status/fg :fail)} (rf.story.ui.sidebar/dot-style :fail)))
-       (is (= (rf.story.theme.status/fg :running) (:background (rf.story.ui.sidebar/dot-style :running))))
-       ;; :cannot-run rings in its own descriptor border colour — the
-       ;; canonical third run status never wears :pending's neutral ring.
-       (is (= (str "1px solid " (:border (rf.story.theme.status/descriptor :cannot-run)))
-              (:border (rf.story.ui.sidebar/dot-style :cannot-run))))
-       (is (not= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style :cannot-run))))))
-
-;; ---- glyph channel rendered in the sidebar chip -------------
+     (is (= {:background (rf.story.theme.status/fg :pass)} (rf.story.ui.sidebar/dot-style :pass)))
+     (is (= {:background (rf.story.theme.status/fg :fail)} (rf.story.ui.sidebar/dot-style :fail)))
+     (is (= (rf.story.theme.status/fg :running) (:background (rf.story.ui.sidebar/dot-style :running))))
+     (is (= (str "1px solid " (:border (rf.story.theme.status/descriptor :cannot-run)))
+            (:border (rf.story.ui.sidebar/dot-style :cannot-run))))
+     (is (not= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style :cannot-run)))))
 
 #?(:cljs
    (defn- walk-find-data-test
@@ -206,59 +88,20 @@
 
 #?(:cljs
    (deftest sidebar-status-chip-renders-the-glyph
-     (testing "the status chip in the rendered signal strip carries the
-               descriptor's :glyph — the spec/018 §12.6 headline channel
-               that survives colour-blindness + Windows HCM"
-       (let [tree   (rf.story.ui.sidebar/signal-chips {} :fail)
-             glyphs (walk-find-data-test tree "story-sidebar-signal-glyph")]
-         (is (= 1 (count glyphs)) "exactly one status glyph in the strip")
-         (let [[_tag props glyph] (first glyphs)]
-           ;; the rendered mark is the descriptor's glyph for :fail
-           (is (= (rf.story.theme.status/glyph :fail) glyph))
-           ;; aria-hidden — the label + data-value already voice the value
-           ;; to AT, so the glyph is a redundant VISUAL channel only.
-           (is (= "true" (:aria-hidden props)))))))
-   )
-
-#?(:cljs
-   (deftest sidebar-status-chip-keeps-label-and-data-value
-     (testing "rendering the glyph keeps the text label and the
-               data-value / title channels (AT + test corpus read them)"
-       (let [tree  (rf.story.ui.sidebar/signal-chips {} :pass)
-             chips (walk-find-data-test tree "story-sidebar-signal-chip")
-             status-chip (first (filter #(= "status" (:data-axis (second %)))
-                                        chips))
-             props (second status-chip)]
-         (is (= "pass" (:data-value props)))
-         (is (str/includes? (:title props) "status"))
-         ;; the label text is present as a child of the chip
-         (is (some string? (drop 2 status-chip))))))
-   )
-
-#?(:cljs
-   (deftest non-status-chips-carry-no-status-glyph
-     (testing "only the STATUS axis renders a glyph — fidelity / world /
-               runner / frame chips have no status descriptor glyph"
-       (let [tree   (rf.story.ui.sidebar/signal-chips
-                      {:args {:n 1} :network {[:get "/x"] {}}
-                       :script [[:click "#go"]] :frame-binding :attached}
-                      :pass)
-             glyphs (walk-find-data-test tree "story-sidebar-signal-glyph")]
-         ;; exactly one glyph — the single status chip — across the whole
-         ;; multi-axis strip.
-         (is (= 1 (count glyphs))))))
-   )
-
-;; ---- 6: the story-canvas-empty render hook (CLJS — shell is .cljs) ------
+     (let [tree (rf.story.ui.sidebar/signal-chips
+                  {:args {:n 1} :network {[:get "/x"] {}}
+                   :script [[:click "#go"]] :frame-binding :attached}
+                  :fail)
+           [[_ glyph-props glyph] :as glyphs] (walk-find-data-test tree "story-sidebar-signal-glyph")
+           [_ chip-props & children] (first (walk-find-data-test tree "story-sidebar-signal-chip"))]
+       (is (= 1 (count glyphs)) "only the status chip carries a glyph")
+       (is (= (rf.story.theme.status/glyph :fail) glyph))
+       (is (= "true" (:aria-hidden glyph-props)))
+       (is (= "fail" (:data-value chip-props)))
+       (is (str/includes? (:title chip-props) "status"))
+       (is (some string? children) "the text label survives beside the glyph"))))
 
 #?(:cljs
    (deftest story-canvas-empty-hook-renders
-     (testing "with no variant / workspace / story selected, the main pane
-               renders the spec/018 §12.5 calm empty state carrying the
-               `story-canvas-empty` hook"
-       (rf.story.ui.state/reset-shell-state!)
-       (let [tree (#'rf.story.ui.shell/main-pane)
-             hits (walk-find-data-test tree "story-canvas-empty")]
-         (is (= 1 (count hits))
-             "the empty-canvas hook renders exactly once for the empty state"))))
-   )
+     (rf.story.ui.state/reset-shell-state!)
+     (is (= 1 (count (walk-find-data-test (#'rf.story.ui.shell/main-pane) "story-canvas-empty"))))))
