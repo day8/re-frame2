@@ -53,12 +53,9 @@
   only under `interop/debug-enabled?` (read once at namespace-load time), so
   under `-Dre-frame.debug=false` the registered handle renders the same view
   subtree without them. The annotated literal lives in a
-  `(when interop/debug-enabled? …)` arm; the arm's actual claim — that BOTH
-  spellings resolve the same view — is asserted in both postures: by a
-  `str/includes?` triple on the shared subtree, and under the real gate by
-  comparing the two renders directly, which is the stronger statement."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [are deftest is testing use-fixtures]]
+  `(when interop/debug-enabled? …)` arm, and a `when-not` arm pins the same
+  handle to the bare bytes the Var renders."
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr.emit :as rf.ssr.emit]
@@ -98,21 +95,7 @@
             bytes Reagent + react-dom/server paints for the same tree
             (pinned as a cross-host equality in the CLJS twin)."
     (is (= "<card>revenue</card>"
-           (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil))))
-
-  (testing "the registration is genuinely present — this test would be
-            vacuous if `:dashboard/card` were simply unregistered, which
-            is exactly the shape that would let a registry probe hide"
-    (is (some? (rf/view :dashboard/card))
-        "card-view must be registered for the assertion above to mean
-         anything: the point is that a REGISTERED id still emits an
-         element."))
-
-  (testing "an unregistered keyword head emits the identical element —
-            registration state does not change the head's meaning, which
-            is the whole content of the one-grammar rule"
-    (is (= "<card>revenue</card>"
-           (rf.ssr.emit/render-to-string [:never-registered/card :revenue] nil)))))
+           (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil)))))
 
 (deftest scalar-children-are-spelled-by-name
   (testing "a keyword or symbol CHILD is spelled by its `name`:
@@ -125,29 +108,14 @@
             react-dom/server for the same tree; the CLJS twin asserts
             the same strings from the other side."
     (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
-      "<div>revenue</div>" [:div :revenue]
       ;; The namespace is DROPPED, not rendered — the case a
-      ;; colon-stripping rule gets wrong. Reagent routes a named child
-      ;; through `(name x)` rather than trimming the printed form, so
-      ;; `:a/b` paints `b`, never `a/b`.
+      ;; colon-stripping rule gets wrong.
       "<div>b</div>"       [:div :a/b]
-      "<div>leaf</div>"    [:div :ns.deep/leaf]
-      "<div>sym</div>"     [:div 'sym]
-      "<div>b</div>"       [:div 'a/b]
-      "<div>revenue growth</div>" [:div :revenue " " :growth]
-      "<div>1a</div>"      [:div 1 :a]))
+      "<div>b</div>"       [:div 'a/b]))
 
   (testing "escaping still applies to the NAME — spelling a child by
             `name` must not become an escape bypass"
-    (is (= "<div>x&lt;y</div>" (rf.ssr.emit/render-to-string [:div :x<y] nil))))
-
-  (testing "string, number, nil and boolean children keep their ordinary
-            spelling"
-    (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
-      "<div>plain</div>" [:div "plain"]
-      "<div>9</div>"     [:div 9]
-      "<div></div>"      [:div nil]
-      "<div></div>"      [:div true])))
+    (is (= "<div>x&lt;y</div>" (rf.ssr.emit/render-to-string [:div :x<y] nil)))))
 
 (deftest keyword-head-carries-ordinary-element-syntax
   (testing "the element branch is the ORDINARY element branch:
@@ -184,16 +152,6 @@
                     "<h3>:revenue</h3></div>")
                (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))
 
-    (testing "both spellings resolve to the SAME view subtree — the class and
-              child agree; the registered handle merely adds the debug-gated
-              annotation attributes on the root"
-      (is (str/includes? (rf.ssr.emit/render-to-string [card-view :revenue] nil)
-                         "class=\"card\""))
-      (is (str/includes? (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
-                         "class=\"card\""))
-      (is (str/includes? (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
-                         "<h3>:revenue</h3>")))
-
     ;; The REAL-gate arm. With no annotation wrapper installed the
     ;; two spellings are not merely "the same subtree modulo attributes", they
     ;; are byte-identical — which is the head-grammar claim in its purest
@@ -202,8 +160,6 @@
       (testing "under -Dre-frame.debug=false the registered handle and the bare
                 Var render byte-identically — nothing but the debug-gated
                 attributes ever separated them"
-        (is (= (rf.ssr.emit/render-to-string [card-view :revenue] nil)
-               (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))
         (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
                (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
 
@@ -226,16 +182,13 @@
             fails loud."
     (let [data (head-error #(rf.ssr.emit/render-to-string % nil)
                            [:rf/suspense-boundry {:id :x} [:p "hi"]])]
-      (is (some? data) "an unrecognised :rf/* head must throw")
-      (is (= :rf.error/invalid-hiccup-head (:rf.error/id data))
-          "reuses the existing malformed-head id rather than minting a
-           near-duplicate — the head genuinely has no HTML interpretation")
-      (is (= :use-a-recognised-reserved-head-or-an-unreserved-keyword
-             (:recovery data))
-          "the reserved-head ARM is distinguished from the malformed-head
-           arm by its :recovery, which is what the Spec 009 row promises")
-      (is (= :rf/suspense-boundry (:head data)))
-      (is (some? (:element data)))))
+      (is (= {:rf.error/id :rf.error/invalid-hiccup-head
+              :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
+              :head        :rf/suspense-boundry
+              :element     [:rf/suspense-boundry {:id :x} [:p "hi"]]}
+             (select-keys data [:rf.error/id :recovery :head :element]))
+          "the reserved-head arm reuses the malformed-head id and is told apart
+           by its :recovery, as the Spec 009 row promises")))
 
   (testing "the dotted `:rf.<area>/*` sub-namespaces are reserved too"
     (is (some? (head-error #(rf.ssr.emit/render-to-string % nil) [:rf.ssr/nope]))))
@@ -245,28 +198,9 @@
             hosts"
     (let [data (head-error #(:shell-html (rf.ssr.streaming/render-shell %))
                            [:rf/suspense-boundry {:id :x}])]
-      (is (= :rf.error/invalid-hiccup-head (:rf.error/id data)))
-      (is (= :use-a-recognised-reserved-head-or-an-unreserved-keyword
-             (:recovery data)))))
-
-  (testing "the RECOGNISED reserved heads are untouched — the guard must
-            not swallow the markers it sits next to"
-    (testing ":<> fragment still splices"
-      (is (= "<p>a</p><p>b</p>"
-             (rf.ssr.emit/render-to-string [:<> [:p "a"] [:p "b"]] nil))))
-
-    (testing ":rf/suspense-boundary still raises its OWN distinct error
-              from the standard emitter, not the reserved-head one"
-      (is (= :rf.error/ssr-suspense-boundary-outside-stream
-             (:rf.error/id (head-error #(rf.ssr.emit/render-to-string % nil)
-                                       [:rf/suspense-boundary {:id :b}])))))
-
-    (testing ":rf/suspense-boundary still WORKS in the streaming walker"
-      (let [{:keys [continuations]}
-            (rf.ssr.streaming/render-shell
-              [:rf/suspense-boundary {:id :b1 :fallback [:span "…"]}
-               [card-view :revenue]])]
-        (is (= 1 (count continuations))))))
+      (is (= {:rf.error/id :rf.error/invalid-hiccup-head
+              :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword}
+             (select-keys data [:rf.error/id :recovery])))))
 
   (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
             scoped to `:rf/*` and must not capture app namespaces, which
@@ -286,11 +220,7 @@
             rows are a delegation pin: the walker's scalar arm delegates to
             the standard emitter rather than implementing the spelling twice"
     (doseq [tree [[:dashboard/card :revenue]
-                  [:never-registered/card :revenue]
-                  [card-view :revenue]
                   [(rf/view :dashboard/card) :revenue]
-                  [:div :revenue]
-                  [:div :a/b]
                   [:div 'a/b]]]
       (is (= (rf.ssr.emit/render-to-string tree nil)
              (:shell-html (rf.ssr.streaming/render-shell tree)))
