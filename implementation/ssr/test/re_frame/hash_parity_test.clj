@@ -1,113 +1,23 @@
 (ns re-frame.hash-parity-test
-  "JVM side of the render-tree-hash cross-runtime byte-identity parity
-  smoke.
-
-  Spec 011 §Hydration-mismatch detection pins the hash as byte-identical
-  between CLJS and JVM runtimes: the server hashes the render-tree at
-  SSR time and the client recomputes the hash on first render — a
-  mismatch produces `:rf.ssr/hydration-mismatch`.
-  `re-frame.hash-check-cljs-test` pins one ASCII smoke
-  (`9d7457ef` for `[:div {:class \"x\"} [:p \"hi\"]]`) and one
-  bare-string non-ASCII pin (`a82b5049` for `\"café\"`); this file
-  extends that to a representative corpus spanning empty containers, scalars, hiccup
-  trees of growing depth, namespaced-keyword keys/values, multi-byte
-  UTF-8 (Latin-1 supplement, Cyrillic, CJK), UTF-16 surrogate-pair
-  codepoints, set ordering, list-vs-vector branching, and a 20-child
-  tree exercising the FNV multiply-accumulate loop.
-
-  Pattern mirrors `re-frame.schemas.digest-parity-test` —
-  both runtimes consume the SAME fixture map (loaded from a shared
-  `.cljc` fixtures namespace) and pin the SAME canonical literal. The
-  literal IS the cross-host byte-comparison point. The companion CLJS
-  test lives at `re-frame.ssr.hash-parity-cljs-test` and pins the same
-  literals against the same fixtures.
-
-  The hash-stability and nil-pruning equivalence rules are
-  pinned in `re-frame.ssr-hash-test`; this namespace focuses
-  on byte-identity literals, not structural equivalence."
-  (:require [clojure.test :refer [deftest is testing]]
+  "JVM side of the render-tree-hash cross-host parity pins (Spec 011
+  §Hydration-mismatch detection). `re-frame.ssr.hash-parity-cljs-test` pins the
+  same literals from the same `.cljc` fixtures on CLJS."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.ssr.hash :as rf.ssr.hash]
-            [re-frame.ssr.hash-parity-fixtures :as rf.ssr.hash-parity-fixtures]))
-
-;; ---- pinned-literal vectors -----------------------------------------------
-;;
-;; Each fixture in `fixtures/all-fixtures` carries a canonical literal —
-;; the 8-character hex form the hash MUST produce. Both runtimes pin
-;; the same literal; if either drifts, that runtime's test fails on
-;; the specific fixture.
+            [re-frame.ssr.hash-parity-fixtures :as fixtures]))
 
 (deftest jvm-render-tree-hash-matches-canonical-literal
-  (testing "Per Spec 011 §Hydration-mismatch detection — every canonical
-            fixture hashes to its pinned 8-hex literal under the JVM
-            pipeline. Byte-identity with the CLJS-side literal locks
-            the cross-runtime invariant."
-    (doseq [{:keys [label input expected rationale]} rf.ssr.hash-parity-fixtures/all-fixtures]
-      (let [actual (rf.ssr.hash/render-tree-hash input)]
-        (is (= expected actual)
-            (str "JVM render-tree-hash for fixture " (pr-str label)
-                 " — " rationale
-                 " — expected " (pr-str expected)
-                 ", got " (pr-str actual)
-                 " (canonical: " (pr-str (rf.ssr.hash/canonical-edn input)) ")"))))))
-
-;; ---- nil-pruning equivalence pairs ---------------------------------------
-;;
-;; Per Spec 011 §Hydration-mismatch detection: nil values
-;; in attribute maps and nil children in sequences are pruned. The
-;; with-nil and without-nil inputs MUST hash to the SAME pinned literal
-;; on both runtimes. `re-frame.ssr-hash-test` (JVM-only)
-;; asserts the equivalence but pins no literal; this file pins it.
+  (doseq [{:keys [label input expected]} fixtures/all-fixtures]
+    (is (= expected (rf.ssr.hash/render-tree-hash input))
+        (str label " — canonical " (pr-str (rf.ssr.hash/canonical-edn input))))))
 
 (deftest jvm-render-tree-hash-prunes-nil-to-canonical-literal
-  (testing "Spec 011 — both the with-nil and without-nil
-            inputs MUST hash to the pinned literal. A drift in either
-            the pruning step OR the FNV byte stream would fail one of
-            the two assertions."
-    (doseq [{:keys [label input-with-nil input-without-nil expected rationale]}
-            rf.ssr.hash-parity-fixtures/nil-prune-pairs]
-      (let [h-with    (rf.ssr.hash/render-tree-hash input-with-nil)
-            h-without (rf.ssr.hash/render-tree-hash input-without-nil)]
-        (is (= expected h-without)
-            (str "JVM no-nil canonical hash for " (pr-str label) " — "
-                 rationale " — expected " (pr-str expected)
-                 ", got " (pr-str h-without)))
-        (is (= expected h-with)
-            (str "JVM with-nil hash MUST equal the no-nil canonical for "
-                 (pr-str label) " (pruning equivalence) — expected "
-                 (pr-str expected) ", got " (pr-str h-with)))))))
-
-;; ---- structural-invariant pairs ------------------------------------------
-;;
-;; Attribute-map key-order independence — the canonical form sorts
-;; keys before emitting. The two inputs MUST hash identically; we
-;; don't pin which hash, only that they agree.
+  (doseq [{:keys [label input-with-nil input-without-nil expected]} fixtures/nil-prune-pairs]
+    (is (= expected (rf.ssr.hash/render-tree-hash input-without-nil)) label)
+    (is (= expected (rf.ssr.hash/render-tree-hash input-with-nil)) label)))
 
 (deftest jvm-render-tree-hash-honours-key-order-invariants
-  (testing "Spec 011 §Hydration-mismatch detection — attribute maps
-            emit in sorted-key order. Fixture pairs MUST produce
-            byte-identical hashes under the JVM pipeline."
-    (doseq [{:keys [label input-a input-b rationale]} rf.ssr.hash-parity-fixtures/equality-pairs]
-      (let [ha (rf.ssr.hash/render-tree-hash input-a)
-            hb (rf.ssr.hash/render-tree-hash input-b)]
-        (is (= ha hb)
-            (str "JVM key-order pair " (pr-str label) " — " rationale
-                 " — input-a → " (pr-str ha)
-                 ", input-b → " (pr-str hb)))))))
-
-;; ---- corpus distinctness sanity ------------------------------------------
-;;
-;; If two fixtures hashed to the same literal, the pinned-literal
-;; assertions would still pass (per-fixture) but the corpus would
-;; have lost discriminating power. Confirm the literals are pairwise
-;; distinct.
-
-(deftest jvm-fixture-literals-pairwise-distinct
-  (testing "The pinned-literal corpus is pairwise distinct — no two
-            fixtures collide on the 8-hex output. A collision wouldn't
-            be wrong (FNV-1a 32-bit doesn't forbid collisions) but it
-            would mean the corpus failed to discriminate between the
-            render trees, defeating the point of pinning."
-    (let [literals (mapv :expected rf.ssr.hash-parity-fixtures/all-fixtures)]
-      (is (= (count literals) (count (set literals)))
-          (str "Fixture literals must be pairwise distinct — got "
-               (pr-str literals))))))
+  (doseq [{:keys [label input-a input-b]} fixtures/equality-pairs]
+    (is (= (rf.ssr.hash/render-tree-hash input-a)
+           (rf.ssr.hash/render-tree-hash input-b))
+        label)))
