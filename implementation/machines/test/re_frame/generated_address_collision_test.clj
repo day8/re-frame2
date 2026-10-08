@@ -1,49 +1,13 @@
 (ns re-frame.generated-address-collision-test
   "A spawn whose GENERATED `<type>#<n>` address is already held by a LIVE actor
-  is REJECTED fail-closed with `:rf.error/machine-spawn-all-duplicate-id`.
-
-  WHY THE ADDRESS CAN COLLIDE AT ALL. The declarative allocator's counter lives
-  INSIDE THE SPAWNING PARENT'S SNAPSHOT (`:rf/spawn-counter`,
-  `transition/allocate-spawned-id` — that in-snapshot home is what makes
-  `machine-transition` pure in its spawn-id sequencing) while the address space
-  it allocates into is FRAME-GLOBAL. The two disagree in the ordinary
-  multi-actor shapes:
-
-    - a parent DESTROYED and RESPAWNED at the same address begins counting from
-      zero beside the children its previous incarnation HAND-EMITTED, which no
-      slot tracks and so outlive it, so its first new child re-mints
-      `<type>#1`; and
-    - two parents spawning the same child TYPE each mint `<type>#1`, with no
-      destroy or re-incarnation anywhere in sight.
-
-  Installing either straight over the live occupant through an unguarded
-  `assoc-in` would be simultaneously a birth and an unannounced death, because
-  a spawned actor's liveness IS its snapshot's presence (Spec 005 §Liveness is
-  derived from runtime-db): no `:exit`, no teardown, no
-  `:rf.machine/destroyed`, and two `:rf.machine.spawn/spawned` traces naming one
-  address with no destroy between them. The actor would be GONE, not detached.
-
-  WHY REJECT RATHER THAN REPLACE — the distinction this suite exists to pin.
-  A spawn arriving at an occupied `:fixed-actor-id` REPLACES
-  the occupant cleanly and raises nothing, because the AUTHOR NAMED that
-  address and naming it twice is a request. Nobody names a generated address, so
-  that reading is unavailable here: there is no request to honour, and Spec 005's
-  *Teardown is explicit in v1* rule reserves destroying the occupant to the
-  author. Rejecting is what is left, and it uses the category that fits —
-  `:rf.error/machine-spawn-all-duplicate-id` names
-  \"two distinct spawns resolve to one actor address and one would silently
-  overwrite the other\", including the fixed-versus-generated shape.
-
-  NOT ATTEMPTED HERE, deliberately: re-homing the counter so `<type>#<n>` is
-  frame-unique — that would move `machine-transition`'s
-  purity contract. This suite pins the loud failure,
-  not the absence of the collision.
-
-  Both directions are pinned, because an error-only suite is half a suite:
-  every reject test asserts the OCCUPANT SURVIVED INTACT, and the escape
-  tests assert that a hand-emitted spawn at a distinct address or `:id-prefix`
-  installs without a reject."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  is rejected fail-closed with `:rf.error/machine-spawn-all-duplicate-id`, and
+  the occupant survives intact (Spec 005 §Declarative `:spawn`). The
+  declarative counter lives in the spawning parent's snapshot while the
+  address space is frame-wide, so a respawned parent, or a second instance of
+  one parent type, re-mints a live address; nobody named that address, so
+  there is no replacement request to honour."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -57,28 +21,12 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 (def ^:private machine-data rf.machines.test-support/machine-data)
 
-(defn- rejects
-  "The captured collision rejects, each reduced to its `:tags` map (a trace
-  event carries its structural context there, not at the root)."
-  []
-  (mapv :tags (rf.machines.test-support/events-of
-                :rf.error/machine-spawn-all-duplicate-id)))
-
-(defn- spawned-ids
-  "Every actor address announced by a `:rf.machine.spawn/spawned` trace so far,
-  oldest first. The invariant a colliding install would break is that no
-  address appears here twice with no `:rf.machine/destroyed` between."
-  []
-  (mapv (comp :spawned-id :tags)
-        (rf.machines.test-support/events-of :rf.machine.spawn/spawned)))
-
-;; ---------------------------------------------------------------------------
-;; Shared fixtures under test.
-;; ---------------------------------------------------------------------------
+(defn- reject-events []
+  (rf.machines.test-support/events-of :rf.error/machine-spawn-all-duplicate-id))
 
 (defn- reg-child!
-  "A child machine that records a mark in its own `:data`, so a surviving
-  occupant can be told apart from a replacement that overwrote it."
+  "A child whose `[:mark v]` stores v, so a surviving occupant can be told apart
+  from a replacement that overwrote it."
   [id]
   (rf/reg-machine id
     {:initial :running
@@ -86,334 +34,83 @@
      :actions {:mark (fn [{d :data ev :event}] {:data (assoc d :mark (second ev))})}
      :states  {:running {:on {:mark {:action :mark}}}}}))
 
-;; ---------------------------------------------------------------------------
-;; (1) A respawned parent re-mints the address of a live actor its previous
-;;     incarnation hand-emitted.
-;; ---------------------------------------------------------------------------
-
-(deftest a-respawned-parent-is-refused-its-live-orphans-generated-address
-  (testing "a parent destroyed and respawned at the SAME address starts its
-            :rf/spawn-counter fresh, so its first declarative child would
-            allocate <type>#1 over the still-live orphan the previous
-            incarnation HAND-EMITTED — no slot tracks it, so the parent's
-            destroy left it live. That install is REJECTED: the orphan keeps
-            its snapshot and its :data verbatim, no second spawned trace names
-            the address, and one :rf.error/machine-spawn-all-duplicate-id fires."
-    (reg-child! :gac/child)
-    (rf/reg-machine :gac/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go    :working
-                                :adopt {:action (fn [_]
-                                                  {:fx [[:rf.machine/spawn {:machine-id :gac/child}]]})}}}
-                 :working {:spawn {:machine-id :gac/child}
-                           :on    {:back :idle}}}})
-    (rf/reg-event :gac/hire
-      (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :gac/parent
-                                          :fixed-actor-id :gac/p}]]}))
-    (rf/reg-event :gac/fire
-      (fn [_ _] {:fx [[:rf.machine/destroy :gac/p]]}))
-
-    ;; First incarnation of the parent hand-emits a child, which the
-    ;; frame-wide allocator places at the first generated address.
-    (rf/dispatch-sync [:gac/hire])
-    (rf/dispatch-sync [:gac/p [:adopt]])
-    (is (some? (snapshot :gac/child#1))
-        "the first incarnation's child installed at the generated address")
-    (rf/dispatch-sync [:gac/child#1 [:mark :FIRST]])
-    (is (= :FIRST (:mark (machine-data :gac/child#1)))
-        "and it is addressable — the mark distinguishes it from any successor")
-
-    ;; The parent's destroy ends the children its slots track; a hand-emitted
-    ;; child is tracked by none, so it is an independent actor at its own
-    ;; address and outlives its spawner (Spec 005 §Teardown is explicit in
-    ;; v1). That orphan is the occupant the respawned parent will collide with.
-    (rf/dispatch-sync [:gac/fire])
-    (is (nil? (snapshot :gac/p)) "the parent was destroyed")
-    (is (some? (snapshot :gac/child#1))
-        "its hand-emitted child survives as an orphan — teardown is explicit in v1")
-
-    (rf.machines.test-support/reset-captured!)
-
-    ;; A new incarnation at the SAME address, with a FRESH counter.
-    (rf/dispatch-sync [:gac/hire])
-    (is (= {} (:rf/spawn-counter (snapshot :gac/p)))
-        "the new incarnation's spawn-counter is seeded fresh — this is the
-         collision's cause, and pinning it keeps the test honest about what it
-         reproduces")
-    (rf/dispatch-sync [:gac/p [:go]])
-
-    (testing "the collision is REFUSED"
-      (is (= 1 (count (rejects)))
-          "exactly one :rf.error/machine-spawn-all-duplicate-id, not zero and
-           not one per retry")
-      (is (= :gac/child#1 (:failing-id (first (rejects))))
-          "the reject names the occupied address")
-      (is (= :gac/child (:machine-id (first (rejects))))
-          "and the machine TYPE that could not be spawned")
-      (is (= :gac/p (:parent-id (first (rejects))))
-          "and the spawning parent"))
-
-    (testing "the occupant SURVIVED — the half of this that is not the error"
-      (is (some? (snapshot :gac/child#1))
-          "the orphan still has a snapshot")
-      (is (= :FIRST (:mark (machine-data :gac/child#1)))
-          "and it is the SAME actor: its :data was never overwritten")
-      (is (= [] (filterv #(= :gac/child#1 %) (spawned-ids)))
-          "no :rf.machine.spawn/spawned announced the address a second time")
-      (is (nil? (snapshot :gac/child#2))
-          "and the runtime did not silently side-line the spawn to a fresh
-           address either — the reject is fail-closed, not a re-allocation"))))
-
-;; ---------------------------------------------------------------------------
-;; (5) The reject's own shape.
-;; ---------------------------------------------------------------------------
-
-(deftest the-reject-carries-structural-context-only-and-names-a-per-shape-escape
-  (testing "the diagnostic is structural-only (Spec 009 privacy: the
-            spawn args / :data may hold application PII) and its human reason
-            names the author-side escape PER SHAPE, since :recovery is
-            :no-recovery and the three shapes do not share one"
-    (reg-child! :gac8/child)
-    (rf/reg-machine :gac8/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :gac8/child
-                                   :data       {:secret "hunter2"}}}}})
-    (rf/reg-event :gac8/hire
-      (fn [_ [_ addr]] {:fx [[:rf.machine/spawn {:machine-id     :gac8/parent
-                                                 :fixed-actor-id addr}]]}))
-    (rf/dispatch-sync [:gac8/hire :gac8/a])
-    (rf/dispatch-sync [:gac8/hire :gac8/b])
-    (rf/dispatch-sync [:gac8/a [:go]])
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac8/b [:go]])
-
-    (let [ev  (first (rejects))
-          raw (first (rf.machines.test-support/events-of
-                       :rf.error/machine-spawn-all-duplicate-id))]
-      (is (some? ev) "the reject fired")
-      ;; Spec 009 §Core fields hoists `:recovery` onto the event root and
-      ;; drops it from `:tags`, so it is read off the raw event.
-      (is (= :no-recovery (:recovery raw))
-          "the runtime may neither re-allocate (that would break the
-           deterministic <type>#<n> sequencing) nor destroy the occupant")
-      (is (string? (:reason ev)))
-      (is (re-find #":fixed-actor-id" (:reason ev))
-          "the reason names the distinct-address escape")
-      (is (re-find #"destroy" (:reason ev))
-          "and the destroy-the-occupant-first escape")
-      (is (re-find #":id-prefix" (:reason ev))
-          "and the namespacing escape")
-      ;; The three shapes do NOT share a recovery, and the reason
-      ;; must say which is which — see `two-instances-of-one-parent-type-*`
-      ;; below, where BOTH static keys fail and the fixed one destroys an actor.
-      (is (re-find #"TWO LIVE INSTANCES OF ONE PARENT TYPE" (:reason ev))
-          "and it calls out the shape for which NEITHER static key works")
-      (is (re-find #"\[:rf\.machine/spawn" (:reason ev))
-          "naming the hand-emitted escape that shape actually has")
-      ;; That escape is unique only WITHIN
-      ;; the hand-emitted allocation stream. See
-      ;; `a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address`
-      ;; below, where the bare form is refused at this very address on every
-      ;; retry, and the `:id-prefix` form succeeds.
-      (is (re-find #":id-prefix <unused-prefix>" (:reason ev))
-          "and it spells that escape WITH its own :id-prefix, which is the form
-           that works from an occupied allocation namespace")
-      (is (re-find #"does not skip an occupied address" (:reason ev))
-          "and it qualifies the promise rather than offering the bare form as an
-           unconditional escape")
-      (is (not (re-find #"hunter2" (:reason ev)))
-          "and it never echoes the spawn :data")
-      (is (nil? (:data ev)) "no :data rides the record")
-      (is (nil? (:args ev)) "nor the raw spawn args")
-      (is (not (re-find #"hunter2" (pr-str raw)))
-          "and no slot of the WHOLE emitted event smuggles the payload through"))))
-
-;; ---------------------------------------------------------------------------
-;; (6) WHICH ESCAPE THE REJECT MAY HONESTLY NAME.
-;;
-;; The reject's `:recovery` is `:no-recovery`, so its human `reason` is the
-;; author's only guidance. These pin that the guidance is SHAPE-SPECIFIC: for
-;; two live instances of ONE parent type neither static key works, and the
-;; `:fixed-actor-id` half DESTROYS a live
-;; actor when followed. The escape that shape does have is the hand-emitted
-;; spawn, whose counter is the FRAME-wide runtime-db slot rather than the
-;; spawning snapshot's.
-;; ---------------------------------------------------------------------------
-
-(defn- hire!
-  "Register an event that spawns `parent-type` at an explicit address, so a test
-  can stand up N live INSTANCES of one parent TYPE."
+(defn- reg-hire!
+  "`[ev-id addr]` spawns `parent-type` at the fixed address `addr`."
   [ev-id parent-type]
   (rf/reg-event ev-id
     (fn [_ [_ addr]] {:fx [[:rf.machine/spawn {:machine-id     parent-type
                                                :fixed-actor-id addr}]]})))
 
-(deftest two-instances-of-one-parent-type-are-NOT-separated-by-id-prefix
-  (testing "`:id-prefix` is a static literal on the ONE spec both
-            instances share, so both mint the SAME <prefix>#1 and the second is
-            refused. The namespacing escape cannot reach this shape."
-    (reg-child! :gac9/child)
-    (rf/reg-machine :gac9/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :gac9/child
-                                   :id-prefix  :gac9/worker}}}})
-    (hire! :gac9/hire :gac9/parent)
-    (rf/dispatch-sync [:gac9/hire :gac9/a])
-    (rf/dispatch-sync [:gac9/hire :gac9/b])
-    (rf/dispatch-sync [:gac9/a [:go]])
-    (is (some? (snapshot :gac9/worker#1)) "A's child took the id-prefix address")
-    (rf/dispatch-sync [:gac9/worker#1 [:mark :FROM-A]])
+(deftest a-respawned-parent-is-refused-its-live-orphans-generated-address
+  ;; A hand-emitted child is tracked by no slot, so it outlives its parent's
+  ;; destroy; the respawned parent's fresh counter then re-mints its address.
+  (reg-child! :gac/child)
+  (rf/reg-machine :gac/parent
+    {:initial :idle
+     :states  {:idle    {:on {:go    :working
+                              :adopt {:action (fn [_]
+                                                {:fx [[:rf.machine/spawn {:machine-id :gac/child}]]})}}}
+               :working {:spawn {:machine-id :gac/child}}}})
+  (reg-hire! :gac/hire :gac/parent)
+  (rf/reg-event :gac/fire (fn [_ _] {:fx [[:rf.machine/destroy :gac/p]]}))
+  (rf/dispatch-sync [:gac/hire :gac/p])
+  (rf/dispatch-sync [:gac/p [:adopt]])
+  (rf/dispatch-sync [:gac/child#1 [:mark :FIRST]])
+  (rf/dispatch-sync [:gac/fire])
+  (rf/dispatch-sync [:gac/hire :gac/p])
+  (is (= {} (:rf/spawn-counter (snapshot :gac/p)))
+      "the new incarnation's counter is seeded fresh")
+  (rf.machines.test-support/reset-captured!)
+  (rf/dispatch-sync [:gac/p [:go]])
+  (is (= {:rejects [{:failing-id :gac/child#1 :machine-id :gac/child :parent-id :gac/p}]
+          :spawned []
+          :mark    :FIRST
+          :next    nil}
+         {:rejects (mapv #(select-keys (:tags %) [:failing-id :machine-id :parent-id])
+                         (reject-events))
+          :spawned (rf.machines.test-support/events-of :rf.machine.spawn/spawned)
+          :mark    (:mark (machine-data :gac/child#1))
+          :next    (snapshot :gac/child#2)})
+      "one reject naming the address, no spawned trace, the occupant untouched,
+       and no re-allocation to a fresh address"))
 
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac9/b [:go]])
-    (is (= 1 (count (rejects)))
-        "B is refused even though the author supplied the documented :id-prefix")
-    (is (= :gac9/worker#1 (:failing-id (first (rejects)))))
-    (is (nil? (snapshot :gac9/worker#2))
-        "and B gets no child at all — the prefix did not advance the counter")
-    (is (= :FROM-A (:mark (machine-data :gac9/worker#1)))
-        "A's child is untouched")))
-
-(deftest a-shared-fixed-actor-id-makes-the-second-instance-DESTROY-the-firsts-child
-  (testing "the `:fixed-actor-id` escape is also static, so both
-            instances name ONE address. That routes the second spawn down the
-            occupied-fixed-address path, which REPLACES. Following
-            this advice on this shape costs a live actor — which is why the
-            reason must not offer it here."
-    (reg-child! :gac10/child)
-    (rf/reg-machine :gac10/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id     :gac10/child
-                                   :fixed-actor-id :gac10/thechild}}}})
-    (hire! :gac10/hire :gac10/parent)
-    (rf/dispatch-sync [:gac10/hire :gac10/a])
-    (rf/dispatch-sync [:gac10/hire :gac10/b])
-    (rf/dispatch-sync [:gac10/a [:go]])
-    (rf/dispatch-sync [:gac10/thechild [:mark :FROM-A]])
-    (is (= :FROM-A (:mark (machine-data :gac10/thechild))))
-
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac10/b [:go]])
-    (is (empty? (rejects))
-        "no generated-address reject — a FIXED address is a named request")
-    (is (= :none (:mark (machine-data :gac10/thechild)))
-        "and A's child is GONE, replaced by B's fresh incarnation")))
-
-(deftest sibling-instances-CAN-each-own-a-child-via-the-hand-emitted-spawn
-  (testing "the escape this shape DOES have. A hand-emitted
-            `[:rf.machine/spawn ...]` allocates from the FRAME-wide counter at
-            `[:rf.runtime/machines :spawn-counter <id-prefix>]` rather than the
-            spawning snapshot's, so two instances of one parent TYPE receive
-            #1 and #2 and never collide. This is the control that shows the
-            frame-wide allocator exists and behaves correctly."
-    (reg-child! :gac11/child)
-    (rf/reg-machine :gac11/parent
-      {:initial :idle
-       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac11/child}]]})}
-       :states  {:idle    {:on {:go :working}}
-                 :working {:entry :hire}}})
-    (hire! :gac11/hire :gac11/parent)
-    (rf/dispatch-sync [:gac11/hire :gac11/a])
-    (rf/dispatch-sync [:gac11/hire :gac11/b])
-    (rf/dispatch-sync [:gac11/a [:go]])
-    (rf/dispatch-sync [:gac11/b [:go]])
-    (is (empty? (rejects)) "no collision anywhere")
-    (is (and (some? (snapshot :gac11/child#1)) (some? (snapshot :gac11/child#2)))
-        "each sibling instance owns its own child")
-    (rf/dispatch-sync [:gac11/child#1 [:mark :FROM-A]])
-    (is (= :FROM-A (:mark (machine-data :gac11/child#1))))
-    (is (= :none (:mark (machine-data :gac11/child#2)))
-        "and they are genuinely distinct actors, not one address twice")))
-
-;; ---------------------------------------------------------------------------
-;; (7) THE HAND-EMITTED ESCAPE IS UNIQUE ONLY WITHIN ITS OWN STREAM.
-;;
-;; The control directly above is the ALL-MANUAL shape: neither instance ever
-;; spawned declaratively, so the frame-wide counter owns the whole
-;; `<prefix>#<n>` namespace and hands out `#1` and `#2`. The two tests below pin
-;; the shape an author actually MEETS — the reject fires because a DECLARATIVE
-;; child is already installed, and the hand-emitted spawn is reached for as the
-;; recovery FROM that reject, in the same live frame.
-;;
-;; The two counters are SEPARATE (Spec 005 §Spawn-id allocator — counter
-;; location): the frame-wide slot is not advanced by declarative spawns, and
-;; `allocate-actor-id-in-runtime-db` does not skip occupied addresses. So a BARE
-;; hand-emitted spawn re-mints `<child>#1` — the very address the reject named —
-;; and is refused again, on every retry, because the rejected allocation is not
-;; committed either. The usable escape is a distinct `:id-prefix` ON THE
-;; HAND-EMITTED SPAWN, which allocates in an EMPTY namespace; that is what the
-;; reject's `reason` and Spec 005 must say.
-;; ---------------------------------------------------------------------------
-
-(deftest a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address
-  (testing "the frame-wide counter is a SEPARATE stream, not a
-            higher one: a declarative sibling already holding <child>#1 leaves it
-            at zero, and it does not skip occupied addresses, so the bare
-            hand-emitted recovery is refused at the SAME address the reject
-            named — on every retry, since the rejected allocation is not
-            committed"
-    (reg-child! :gac12/child)
-    (rf/reg-machine :gac12/parent
-      {:initial :idle
-       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac12/child}]]})}
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :gac12/child}
-                           :on    {:manual {:action :hire}}}}})
-    (hire! :gac12/hire :gac12/parent)
-    (rf/dispatch-sync [:gac12/hire :gac12/a])
-    (rf/dispatch-sync [:gac12/hire :gac12/b])
-    (rf/dispatch-sync [:gac12/a [:go]])
-    (is (some? (snapshot :gac12/child#1)) "A's declarative child holds #1")
-    (rf/dispatch-sync [:gac12/child#1 [:mark :FROM-A]])
-
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac12/b [:go]])
-    (is (= [:gac12/child#1] (mapv :failing-id (rejects)))
-        "B's declarative spawn is refused, as the earlier shape tests pin")
-
-    ;; B now follows the reject's advice, twice.
-    (rf/dispatch-sync [:gac12/b [:manual]])
-    (rf/dispatch-sync [:gac12/b [:manual]])
-    (is (= [:gac12/child#1 :gac12/child#1 :gac12/child#1]
-           (mapv :failing-id (rejects)))
-        "both hand-emitted attempts are refused at the SAME address — the
-         frame-wide counter began at zero and does not skip an occupant")
-    (is (nil? (snapshot :gac12/child#2))
-        "no #2 is ever installed: the rejected allocation is not committed, so
-         a retry repeats the address rather than advancing past it")
-    (is (= :FROM-A (:mark (machine-data :gac12/child#1)))
-        "and the occupant is untouched throughout — the reject is fail-closed")))
-
-(deftest a-DISTINCT-id-prefix-on-the-hand-emitted-spawn-IS-the-usable-escape
-  (testing "the recovery that works in the live frame. The
-            hand-emitted spawn carries its own `:id-prefix`, so it allocates in
-            an EMPTY namespace on the frame-wide counter: the instance gets
-            <prefix>#1 and <prefix>#2, and the declarative occupant survives"
-    (reg-child! :gac13/child)
-    (rf/reg-machine :gac13/parent
-      {:initial :idle
-       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac13/child
-                                                         :id-prefix  :gac13/manual}]]})}
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :gac13/child}
-                           :on    {:manual {:action :hire}}}}})
-    (hire! :gac13/hire :gac13/parent)
-    (rf/dispatch-sync [:gac13/hire :gac13/a])
-    (rf/dispatch-sync [:gac13/hire :gac13/b])
-    (rf/dispatch-sync [:gac13/a [:go]])
-    (rf/dispatch-sync [:gac13/child#1 [:mark :FROM-A]])
-    (rf/dispatch-sync [:gac13/b [:go]])
-
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac13/b [:manual]])
-    (rf/dispatch-sync [:gac13/b [:manual]])
-    (is (empty? (rejects))
-        "the distinct prefix names an EMPTY allocation namespace, so neither
-         hand-emitted spawn collides")
-    (is (and (some? (snapshot :gac13/manual#1)) (some? (snapshot :gac13/manual#2)))
-        "and the frame-wide counter sequences them #1 and #2 under that prefix")
-    (is (= :FROM-A (:mark (machine-data :gac13/child#1)))
-        "the declarative occupant is preserved — the escape costs no live actor")))
+(deftest two-instances-of-one-parent-type-escape-only-through-a-prefixed-hand-emitted-spawn
+  ;; Both instances' declarative spawns mint <child>#1 from their own counters.
+  ;; The hand-emitted allocator's frame-wide counter is a separate stream that
+  ;; declarative spawns do not advance and that does not skip an occupant, so
+  ;; only a hand-emitted spawn under its own :id-prefix escapes.
+  (reg-child! :gac2/child)
+  (rf/reg-machine :gac2/parent
+    {:initial :idle
+     :actions {:bare     (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac2/child}]]})
+               :prefixed (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac2/child
+                                                           :id-prefix  :gac2/manual}]]})}
+     :states  {:idle    {:on {:go :working}}
+               :working {:spawn {:machine-id :gac2/child :data {:secret "hunter2"}}
+                         :on    {:bare     {:action :bare}
+                                 :prefixed {:action :prefixed}}}}})
+  (reg-hire! :gac2/hire :gac2/parent)
+  (rf/dispatch-sync [:gac2/hire :gac2/a])
+  (rf/dispatch-sync [:gac2/hire :gac2/b])
+  (rf/dispatch-sync [:gac2/a [:go]])
+  (rf/dispatch-sync [:gac2/child#1 [:mark :FROM-A]])
+  (rf.machines.test-support/reset-captured!)
+  (rf/dispatch-sync [:gac2/b [:go]])
+  (let [raw (first (reject-events))]
+    (is (= :no-recovery (:recovery raw)))
+    (is (not (str/includes? (pr-str raw) "hunter2"))
+        "the reject carries structural context only, never the spawn :data"))
+  (rf/dispatch-sync [:gac2/b [:bare]])
+  (rf/dispatch-sync [:gac2/b [:bare]])
+  (rf/dispatch-sync [:gac2/a [:prefixed]])
+  (rf/dispatch-sync [:gac2/b [:prefixed]])
+  (is (= {:refused  [:gac2/child#1 :gac2/child#1 :gac2/child#1]
+          :child#2  nil
+          :prefixed [true true]
+          :mark     :FROM-A}
+         {:refused  (mapv (comp :failing-id :tags) (reject-events))
+          :child#2  (snapshot :gac2/child#2)
+          :prefixed (mapv (comp some? snapshot) [:gac2/manual#1 :gac2/manual#2])
+          :mark     (:mark (machine-data :gac2/child#1))})
+      "B's declarative spawn and both bare retries are refused at the same
+       address, the prefixed spawns get #1 and #2, and A's child is untouched"))
