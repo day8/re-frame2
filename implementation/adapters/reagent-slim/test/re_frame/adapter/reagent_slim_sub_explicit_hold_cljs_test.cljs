@@ -5,11 +5,10 @@
   render that stops reading a sub, or a watch removed from it, reaches the
   cache's on-dispose hook while that hold still counts; the hook keeps the
   slot, releasing only the render owner's reference, and re-arms itself.
-  The stock-Reagent twin of these deftests lives in
-  `re-frame.sub-dispose-view-cljs-test`.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up; no
-  DOM required."
+  The later `rf/unsubscribe` evicts the sub and cascades to its inputs; a
+  render-only read holds nothing else, so the flip alone frees it. The
+  stock-Reagent twin of these deftests lives in
+  `re-frame.sub-dispose-view-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.core :as rf]
@@ -27,19 +26,6 @@
   "Predicate matching the `:rf.sub/dispose` trace operation."
   #(= :rf.sub/dispose (:operation %)))
 
-;; ===========================================================================
-;; An explicit hold survives the render that stops reading it
-;; ===========================================================================
-;;
-;; An explicit `rf/subscribe` is a ref-counted hold on every adapter (Spec 006
-;; §Which lifetime governs a ratom adapter). A reagent-slim `Reaction` disposes
-;; itself the moment its last watcher drops, so a render that stops reading a
-;; sub, or a watch removed from it, reaches the cache's on-dispose hook while
-;; the explicit hold still counts. The hook keeps that slot, releasing only the
-;; render owner's reference, and re-arms itself, so the later `rf/unsubscribe`
-;; evicts the sub and cascades to its inputs. A render-only read holds nothing
-;; else, so the flip alone frees it.
-
 (defn- reg-sum-subs! []
   (rf/reg-event ::init (fn [_ _] {:db {:a 3 :b 4}}))
   (rf/reg-sub ::a (fn [db _] (:a db)))
@@ -54,6 +40,13 @@
   "`{sub-id n}` over the recorded `:rf.sub/dispose` events."
   [traces]
   (frequencies (map #(-> % :tags :rf.sub/id) traces)))
+
+(def ^:private all-evicted
+  "[dispose-counts slots] once the sub and both inputs are gone."
+  [{::sum 1 ::a 1 ::b 1} [nil nil nil]])
+
+(defn- eviction [traces]
+  [(dispose-counts traces) (mapv slot [[::sum] [::a] [::b]])])
 
 (defn- conditional-render
   "A render-shaped reaction reading `[::sum]` while `read?` is true."
@@ -73,21 +66,16 @@
             render (conditional-render read?)]
         (try
           @render
-          (is (= 7 @held) "precondition: the sub computes")
-          (is (= 2 (:ref-count (slot [::sum])))
-              "precondition: the explicit hold plus the render's reference")
+          (is (= [7 2] [@held (:ref-count (slot [::sum]))])
+              "precondition: the sub computes, held explicitly and by the render")
           (reset! read? false)
-          (is (empty? @traces) "the flip evicted nothing")
-          (is (= 1 (:ref-count (slot [::sum])))
-              "the render's reference was released; the explicit hold remains")
-          (is (identical? held (:reaction (slot [::sum])))
-              "the kept slot serves the reaction the caller holds")
-          (is (= 7 @held) "the kept sub still reads")
+          (is (= [0 1 true 7]
+                 [(count @traces) (:ref-count (slot [::sum]))
+                  (identical? held (:reaction (slot [::sum]))) @held])
+              "[disposes ref-count same-reaction? value]: the flip evicted nothing, released only the render's reference, and the kept slot still serves the held reaction")
           (rf/unsubscribe [::sum])
-          (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+          (is (= all-evicted (eviction @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once")
-          (is (every? nil? (map slot [[::sum] [::a] [::b]]))
-              "no slot survives the unsubscribe")
           (finally
             (rf.interop/dispose! render)))))))
 
@@ -101,13 +89,11 @@
         (is (= 7 @held) "precondition: the sub computes")
         (add-watch held ::w (fn [_ _ _ _] nil))
         (remove-watch held ::w)
-        (is (empty? @traces) "dropping the last watch evicted nothing")
-        (is (= 1 (:ref-count (slot [::sum]))) "the explicit hold remains")
+        (is (= [0 1] [(count @traces) (:ref-count (slot [::sum]))])
+            "dropping the last watch evicted nothing; the explicit hold remains")
         (rf/unsubscribe [::sum])
-        (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
-            "the unsubscribe evicted the sub and both inputs, each exactly once")
-        (is (every? nil? (map slot [[::sum] [::a] [::b]]))
-            "no slot survives the unsubscribe")))))
+        (is (= all-evicted (eviction @traces))
+            "the unsubscribe evicted the sub and both inputs, each exactly once")))))
 
 (deftest render-only-read-is-freed-by-the-flip
   (testing "control: with no explicit hold, the render that stops reading
@@ -121,10 +107,8 @@
           (is (= 1 (:ref-count (slot [::sum])))
               "precondition: the render's reference is the only one")
           (reset! read? false)
-          (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+          (is (= all-evicted (eviction @traces))
               "the flip evicted the sub and both inputs, each exactly once")
-          (is (every? nil? (map slot [[::sum] [::a] [::b]]))
-              "no slot survives the flip")
           (finally
             (rf.interop/dispose! render)))))))
 
@@ -149,10 +133,8 @@
           (is (= 2 (:ref-count (slot [::sum])))
               "precondition: the explicit hold plus the render's reference")
           (reset! read? false)
-          (is @re-entered? "precondition: the callback re-entered dispose")
-          (is (empty? @traces) "the re-entered dispose evicted nothing")
-          (is (= 1 (:ref-count (slot [::sum])))
-              "the render's reference was released once, not twice")
+          (is (= [true 0 1] [@re-entered? (count @traces) (:ref-count (slot [::sum]))])
+              "[re-entered? disposes ref-count]: the re-entered dispose evicted nothing and released the render's reference once, not twice")
           (rf/unsubscribe [::sum])
           (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
               "the unsubscribe evicted the sub and both inputs, each exactly once")
