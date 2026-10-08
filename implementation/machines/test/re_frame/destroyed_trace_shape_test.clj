@@ -1,222 +1,78 @@
 (ns re-frame.destroyed-trace-shape-test
-  "`:rf.machine/destroyed` is emitted at three distinct sites — each
-  for a different destroy class:
-
-    1. `destroy-spawn-all-children!` (lifecycle_fx/destroy.cljc):
-       per-child fire when a `:spawn-all` parent tears down its
-       children. The trace carries an extra `:child-id` slot keying
-       the join-state map.
-
-    2. `destroy-single!` (lifecycle_fx/destroy.cljc): the keyword /
-       tracked-map fire for an explicit `:rf.machine/destroy` fx or
-       the standard declarative-`:spawn` exit cascade.
-
-    3. `finalize-machine` (lifecycle_fx/finalize.cljc): the auto-destroy
-       fire when a state-machine enters a `:final?` state. The trace
-       carries `:reason :rf.machine/finished`.
-
-  Tools (re-frame-10x, Xray, story-mcp) key on the trace's argument
-  map. If the three emission sites drift in their key-set shape, tools
-  that depend on the contract observe inconsistent payloads depending
-  on which path emitted. This file locks the shape independently of
-  which code-path emitted — the test runs the three paths against the
-  SAME tap and asserts:
-
-    - every fire's argument map is a subset of the canonical union
-      `{:frame :actor-id :parent-id :invoke-id :child-id :reason}`,
-    - `:reason` is always present (the discriminator),
-    - `:frame` and `:actor-id` are always present (the common id pair),
-    - sites that don't have `:child-id` simply omit that slot
-      (no nil-stamping)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`:rf.machine/destroyed` carries one tag shape whichever site emits it — the
+  `:spawn-all` per-child teardown, the single-actor destroy and the final-state
+  auto-destroy — because tools key on it. An `:explicit` destroy is a
+  cancellation and carries the cancelled reply facts; a `:rf.machine/finished`
+  destroy carries none."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
-;; Canonical key-set that the destroyed-trace emission sites are
-;; responsible for assembling. The trace framework auto-stamps
-;; envelope cascade keys (currently `:rf.trace/dispatch-id`) under
-;; `:tags` per Spec 009 §Cascade-id stamping; those keys are not part
-;; of the per-site contract.
-;;
-;; An `:explicit` destroy closes the actor work attempt the reply-envelope
-;; way (a `:status :cancelled` reply — cancellation as DATA, Managed-Effects
-;; §Cancellation / EP-0011 §Cancellation). The cancelled reply facts ride
-;; on the destroyed trace alongside its public shape, so they are part of the
-;; contract for the `:explicit` (cancellation) sites; a `:rf.machine/finished`
-;; destroy carries none of them (the actor already closed through
-;; `finalize-machine`'s `:rf.machine/done` reply).
-;; The work identity rides as :rf.reply/work-id and the work kind as
-;; :rf.reply/work-kind; the reply-envelope rows carry no bare :work/id
-;; duplicate.
-(def ^:private reply-envelope-keys
-  #{:rf.reply/work-kind :rf.reply/status :rf.reply/work-id
-    :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
-    :rf.reply/correlation})
-
-(def ^:private canonical-site-keys
-  (clojure.set/union
-    #{:frame :actor-id :parent-id :invoke-id :child-id :reason}
-    reply-envelope-keys))
-
-(def ^:private framework-stamped-keys
-  #{:rf.trace/dispatch-id})
-
-(defn- destroyed-traces [captured]
-  (filter #(= :rf.machine/destroyed (:operation %)) @captured))
-
-;; Intentional RAW manual-stop listener (not rf.machines.test-support/with-trace-capture): this
-;; is the destroyed-trace SHAPE probe — it returns a [capture-atom
-;; unregister-fn] pair so a test can inspect the raw envelope key-set and
-;; control exactly when it stops capturing (the scope-macro form cannot
-;; express the manual-stop). This site is left as raw by design.
-(defn- record!
+(defn- destroyed-tags
+  "Each `:rf.machine/destroyed` trace's tags, without the framework-stamped
+  dispatch id and the reply correlation, with the reply work id reduced to its
+  presence."
   []
-  (let [a  (atom [])
-        id ::shape-listener]
-    (rf.trace.tooling/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(rf.trace.tooling/unregister-listener! id)]))
+  (mapv (fn [{tags :tags}]
+          (cond-> (dissoc tags :rf.trace/dispatch-id :rf.reply/correlation)
+            (contains? tags :rf.reply/work-id) (update :rf.reply/work-id some?)))
+        (rf.machines.test-support/events-of :rf.machine/destroyed)))
 
-(defn- assert-shape!
-  [traces label]
-  (is (seq traces)
-      (str label ": at least one :rf.machine/destroyed fired"))
-  (doseq [t traces]
-    (let [tags      (:tags t)
-          site-keys (remove framework-stamped-keys (keys tags))]
-      ;; (1) Every site-provided key is in the canonical contract —
-      ;; no drift. Framework-stamped envelope keys (:dispatch-id) are
-      ;; out of scope here.
-      (is (every? canonical-site-keys site-keys)
-          (str label ": trace tags must be a subset of canonical keys; saw "
-               (vec site-keys)))
-      ;; (2) Common id pair always present.
-      (is (contains? tags :frame)
-          (str label ": :frame is always emitted"))
-      (is (contains? tags :actor-id)
-          (str label ": :actor-id is always emitted"))
-      ;; (3) Reason discriminator always present.
-      (is (contains? tags :reason)
-          (str label ": :reason discriminator is always emitted"))
-      ;; Exactly the reasons the producers emit: every `emit-destroyed!` call
-      ;; in lifecycle_fx/destroy.cljc passes :explicit, and `finalize-machine`
-      ;; passes :rf.machine/finished.
-      (is (#{:explicit :rf.machine/finished} (:reason tags))
-          (str label ": :reason is one of :explicit / :rf.machine/finished"))
-      ;; An :explicit destroy is a cancellation; it carries the
-      ;; reply-envelope cancellation facts. A :rf.machine/finished destroy is
-      ;; post-completion cleanup, NOT a cancellation — the actor already
-      ;; closed through :rf.machine/done — so it carries no cancelled reply
-      ;; facts.
-      (if (= :explicit (:reason tags))
-        (do
-          (is (= :cancelled (:rf.reply/status tags))
-              (str label ": an :explicit destroy carries :rf.reply/status :cancelled"))
-          (is (= :cancelled (:rf.reply/work-status tags))
-              (str label ": ... and :rf.reply/work-status :cancelled"))
-          (is (true? (:rf.reply/cancelled? tags))
-              (str label ": ... and the :rf.reply/cancelled? marker"))
-          (is (= :explicit (:rf.reply/cancel-reason tags))
-              (str label ": ... and :rf.reply/cancel-reason"))
-          ;; The canonical work identity rides ONLY as
-          ;; :rf.reply/work-id (no bare :work/id duplicate).
-          (is (some? (:rf.reply/work-id tags))
-              (str label ": ... and the canonical :rf.reply/work-id"))
-          (is (not (contains? tags :work/id))
-              (str label ": ... and NO bare :work/id duplicate")))
-        (is (not (contains? tags :rf.reply/status))
-            (str label ": a :rf.machine/finished destroy carries no cancelled reply facts"))))))
-
-;; ---- Site 1: destroy-spawn-all-children! ---------------------------------
+(defn- cancelled
+  "The tags of an `:explicit` destroy of the actor `ids` names."
+  [ids]
+  (merge {:frame                  :rf/default
+          :reason                 :explicit
+          :rf.reply/work-kind     :machine
+          :rf.reply/status        :cancelled
+          :rf.reply/work-status   :cancelled
+          :rf.reply/cancelled?    true
+          :rf.reply/cancel-reason :explicit
+          :rf.reply/work-id       true}
+         ids))
 
 (deftest spawn-all-children-destroy-trace-shape
-  (testing "destroy-spawn-all-children! per-child traces carry :child-id"
-    (let [[cap unreg] (record!)
-          child {:initial :running
-                 :data    {}
-                 :states  {:running {:on {:done :final}}
-                           :final   {:final? true}}}
-          parent {:initial :hydrating
-                  :states
-                  {:hydrating {:spawn-all
-                               {:children
-                                [{:id :a :machine-id :ia/child}
-                                 {:id :b :machine-id :ia/child}]
-                                :join              :all
-                                :on-all-complete   [:go-done]
-                                :on-any-failed     [:ia/cancel]}
-                               :on {:go-done    :done
-                                    :ia/cancel  :idle}}
-                   :done {}
-                   :idle {}}}]
-      (try
-        (rf/reg-machine :ia/child child)
-        (rf/reg-machine :ia/parent parent)
-        (rf/dispatch-sync [:ia/parent [:rf.machine.spawn/spawned]])
-        ;; Force a :spawn-all teardown via re-entering :idle through
-        ;; an explicit destroy of the parent. Easier: drive the parent
-        ;; via :ia/cancel into :idle (the invoke-all exit cascade tears
-        ;; the children down through destroy-spawn-all-children!).
-        (rf/dispatch-sync [:ia/parent [:ia/cancel]])
-        (let [traces (destroyed-traces cap)
-              child-traces (filter #(contains? (:tags %) :child-id) traces)]
-          (assert-shape! traces "invoke-all-children")
-          (is (seq child-traces)
-              "at least one trace carries the :child-id discriminator (per-child path)")
-          (doseq [t child-traces]
-            (is (= :explicit (-> t :tags :reason)))))
-        (finally (unreg))))))
-
-;; ---- Site 2: destroy-single! ----------------------------------------------
+  (rf/reg-machine :ia/child {:initial :running
+                             :states  {:running {:on {:done :final}}
+                                       :final   {:final? true}}})
+  (rf/reg-machine :ia/parent {:initial :hydrating
+                              :states  {:hydrating {:spawn-all {:children        [{:id :a :machine-id :ia/child}
+                                                                                  {:id :b :machine-id :ia/child}]
+                                                                :join            :all
+                                                                :on-all-complete [:go-done]}
+                                                    :on        {:cancel :idle}}
+                                        :idle      {}}})
+  (rf/dispatch-sync [:ia/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [:ia/parent [:cancel]])
+  (is (= [(cancelled {:actor-id :ia/child#1 :parent-id :ia/parent :invoke-id [:hydrating] :child-id :a})
+          (cancelled {:actor-id :ia/child#2 :parent-id :ia/parent :invoke-id [:hydrating] :child-id :b})]
+         (sort-by :child-id (destroyed-tags)))))
 
 (deftest destroy-single-trace-shape
-  (testing "destroy-single! (declarative :spawn exit cascade) fires :reason :explicit"
-    (let [[cap unreg] (record!)
-          child {:initial :running
-                 :data    {}
-                 :states  {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :ds/child}
-                             :on     {:stop :idle}}}}]
-      (try
-        (rf/reg-machine :ds/child child)
-        (rf/reg-machine :ds/parent parent)
-        (rf/dispatch-sync [:ds/parent [:start]])
-        ;; Exit the :spawn-bearing state — destroy-single! fires.
-        (rf/dispatch-sync [:ds/parent [:stop]])
-        (let [traces (destroyed-traces cap)]
-          (assert-shape! traces "destroy-single")
-          (doseq [t traces]
-            (is (= :explicit (-> t :tags :reason)))))
-        (finally (unreg))))))
-
-;; ---- Site 3: finalize-machine ---------------------------------------------
+  (rf/reg-machine :ds/child {:initial :running :states {:running {}}})
+  (rf/reg-machine :ds/parent {:initial :idle
+                              :states  {:idle    {:on {:start :working}}
+                                        :working {:spawn {:machine-id :ds/child}
+                                                  :on    {:stop :idle}}}})
+  (rf/dispatch-sync [:ds/parent [:start]])
+  (rf/dispatch-sync [:ds/parent [:stop]])
+  (is (= [(cancelled {:actor-id :ds/child#1 :parent-id :ds/parent :invoke-id [:working]})]
+         (destroyed-tags))))
 
 (deftest finalize-machine-trace-shape
-  (testing "finalize-machine (entering :final?) fires :reason :rf.machine/finished"
-    (let [[cap unreg] (record!)
-          child {:initial :running
-                 :data    {}
-                 :states  {:running {:on {:end :done}}
-                           :done    {:final? true}}}
-          parent {:initial :working
-                  :states  {:working {:spawn {:machine-id :fz/child}}}}]
-      (try
-        (rf/reg-machine :fz/child child)
-        (rf/reg-machine :fz/parent parent)
-        (rf/dispatch-sync [:fz/parent [:rf.machine.spawn/spawned]])
-        (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/machines :spawned :fz/parent [:working]])]
-          (rf/dispatch-sync [spawned-id [:end]]))
-        (let [traces (destroyed-traces cap)
-              finish-traces (filter #(= :rf.machine/finished (-> % :tags :reason)) traces)]
-          (assert-shape! traces "finalize-machine")
-          (is (seq finish-traces)
-              "at least one trace carries :reason :rf.machine/finished"))
-        (finally (unreg))))))
+  (rf/reg-machine :fz/child {:initial :running
+                             :states  {:running {:on {:end :done}}
+                                       :done    {:final? true}}})
+  (rf/reg-machine :fz/parent {:initial :working
+                              :states  {:working {:spawn {:machine-id :fz/child}}}})
+  (rf/dispatch-sync [:fz/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [:fz/child#1 [:end]])
+  (is (= [{:frame :rf/default :actor-id :fz/child#1 :parent-id :fz/parent :invoke-id [:working]
+           :reason :rf.machine/finished}]
+         (destroyed-tags))))
