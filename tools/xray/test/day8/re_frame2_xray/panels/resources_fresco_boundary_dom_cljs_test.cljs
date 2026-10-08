@@ -6,7 +6,7 @@
   shipped collector rather than an `rf/reg-view` reading through whatever
   view build the installed substrate adapter supplies. This file is the
   behavioural evidence for that. Its first four rows follow the
-  `module_view_fresco_boundary_dom_cljs_test` template, claim for claim;
+  shared boundary template, claim for claim;
   the fifth is this panel's own and is described below.
 
   ## The boundary criteria, and which row answers each
@@ -160,10 +160,7 @@
                :scope         [:rf.scope/session {:username "probe"}]
                :resolved-nil? false}})
 
-;; ---- a probe event, and the `reg-view` W3 measures the panel against ------
-
-(rf/reg-event ::bump
-  (fn [{:keys [db]} [_ n]] {:db (assoc db ::n n)}))
+;; ---- a probe sub, and the `reg-view` W3 measures the panel against --------
 
 (rf/reg-sub ::n (fn [db _] (::n db)))
 
