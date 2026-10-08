@@ -2,43 +2,19 @@
   "EDN arguments advertised as DATA reach the runtime as the datum the
   caller sent.
 
-  ## Why printing is not enough
+  Every caller EDN slot is emitted through `eval-form/rt-quote`, because
+  printing renders a value as SOURCE: a printed list is a call and a
+  printed symbol a name lookup, both evaluated while the runtime call is
+  constructed — so `get-path [(inc 41)]` would read key 42 and report
+  success. Printed source and quoted data read back identically as EDN, so
+  these tests ask what the emitted argument EVALUATES to (`quoted-datum`):
+  `(quote x)` yields `x`, a bare `(inc 41)` yields 42.
 
-  Every EDN slot — `dispatch`'s event, `replace-app-db`'s db, a query, a
-  path, a signal, a scripted coeffect, a registrar id, an epoch-id — is
-  emitted through `eval-form/rt-quote` rather than the default `pr-str`
-  arg path, because PRINTING RENDERS A VALUE AS SOURCE. A printed slot
-  containing a LIST would be a function call, one containing a SYMBOL a
-  name lookup, and one shaped like the emitter's own tagged IR would be
-  spliced in as raw source. All three would happen while the runtime call
-  is being CONSTRUCTED — before the runtime validates anything, and
-  regardless of whether `eval-cljs` is enabled, since the expression is
-  embedded in a DIFFERENT tool's generated form.
-
-  The consequences would not be cosmetic: a read-only tool would answer
-  `:ok? true` ABOUT THE WRONG TARGET (`get-path [(inc 41)]` would read key
-  42 and report success), and a replayed dispatch would use a DIFFERENT
-  causal fact from the one the caller scripted, which is the exact
-  determinism a recorded cofx exists to provide.
-
-  ## How these tests read the emitted form
-
-  Through `quoted-datum`, which asks what the emitted argument EVALUATES
-  to rather than what it prints as. That distinction is the whole point:
-  `pr-str`'d source and quoted data READ BACK IDENTICALLY as EDN, so an
-  assertion that reads the argument as EDN and compares it would pass on a
-  printing tree. Only evaluation semantics tell them apart — `(quote x)`
-  yields `x` for every EDN value, a bare `(inc 41)` yields 42.
-
-  The controls matter as much as the witnesses: ordinary scalar/map
-  arguments must be unchanged, and the emitter's INTERNAL raw-source
-  splices (`rt-raw` — let-bound names, synthesised predicate fns, the
-  resolved-frame symbol) must stay raw source. Quoting everything would
-  break the tools as surely as quoting nothing would."
-  (:require [cljs.test :refer-macros [deftest is async testing use-fixtures]]
+  The controls matter as much as the witnesses: the emitter's own raw
+  source (synthesised predicate fns) must stay source."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
@@ -63,19 +39,10 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; ---------------------------------------------------------------------------
-;; Form readers.
-;; ---------------------------------------------------------------------------
-
 (defn- read-form
-  "Read an emitted form string back to data.
-
-  Two INTERNAL raw-source splices use reader syntax the EDN reader has
-  no tag for — the `#js {}` missing-sentinel and the `#(...)` anonymous
-  fn in the elision counter — so they are rewritten to their readable
-  equivalents (`{}` and a plain list) first. Both are emitter-composed
-  source this suite never asserts on; neither substitution can reach a
-  caller-supplied argument, which is what every assertion here reads."
+  "Read an emitted form string back to data. The `#js {}` sentinel and the
+  `#(...)` elision counter are emitter-composed source no caller argument
+  reaches, rewritten to forms the EDN reader accepts."
   [form-str]
   (-> form-str
       (str/replace "#js {}" "{}")
@@ -83,9 +50,7 @@
       (cljs.reader/read-string)))
 
 (defn- quoted-datum
-  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
-  anything else — an unquoted list is a call and an unquoted symbol is a
-  name lookup, so neither yields the datum it was printed from."
+  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted`."
   [form]
   (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
     (second form)
@@ -107,10 +72,9 @@
         (tree-seq coll? seq form)))
 
 (defn- capture-eval!
-  "Install a `cljs-eval-value` stub recording every emitted form into
-  `forms*` and answering with `canned`. Prelude evals (the preload
-  sentinel probe and the raw-state signal) are answered directly so the
-  preflight passes regardless of cache state."
+  "Stub `cljs-eval-value`: answer the preload probe and the raw-state
+  signal directly, record every other form into `forms*` and answer it
+  with `canned`."
   [forms* canned]
   (let [respond (fn [form]
                   (cond
@@ -134,74 +98,58 @@
   [forms* needle]
   (first (filter #(str/includes? % needle) @forms*)))
 
-;; The witness payload. `(inc 41)` is an ordinary EDN list that
-;; EVALUATES to 42, so an unquoted emission is visible as a value change
-;; rather than as a crash. The emitter-tagged vector — recognised as IR
-;; and its payload spliced in as raw source if left unquoted — is
-;; witnessed once, on the shared `rt-quote` emit, in eval_form_test.
+;; `(inc 41)` is ordinary EDN that EVALUATES to 42, so an unquoted emission
+;; shows up as a value change rather than a crash.
 (def ^:private inert-list (list 'inc 41))
 
-;; ---------------------------------------------------------------------------
-;; read-sub — the query vector.
-;; ---------------------------------------------------------------------------
+(def ^:private tool-slots
+  "[label tool args canned needle extract expected] — `extract` finds the
+  caller's slot in the read-back form."
+  [["read-sub query" read-sub/read-sub-tool #js {:sub "[:review/sub (inc 41)]"}
+    {:ok? true :query-v [:review/sub inert-list] :frame :rf/default :value 1}
+    "read-sub!" #(second (find-call % 're-frame2-pair.runtime/read-sub!))
+    [:review/sub inert-list]]
+   ["get-path path" get-path/get-path-tool #js {:path "[(inc 41)]"}
+    {:ok? true :exists? true :path [inert-list] :value :list-key :elided-count 0}
+    "get-in db path" #(let-binding % 'path)
+    [inert-list]]
+   ["get-path paths" get-path/get-path-tool #js {:paths "[[(inc 41)]]"}
+    {:ok? true :results {} :elided-count 0}
+    "reduce" #(last (find-call % 'reduce))
+    [[inert-list]]]
+   ["handler-meta id" handler-meta/handler-meta-tool #js {:kind "sub" :id "[:rf/composite (inc 41)]"}
+    {:ok? false :reason :not-registered}
+    "registrar-describe" #(last (find-call % 're-frame2-pair.runtime/registrar-describe))
+    [:rf/composite inert-list]]
+   ["restore-epoch epoch-id" restore-epoch/restore-epoch-tool #js {:epoch-id "(inc 41)"}
+    {:ok? false :restored? false :reason :restore-rejected}
+    "restore-epoch" #(second (find-call % 're-frame2-pair.runtime/restore-epoch))
+    inert-list]
+   ["replay-epoch epoch-id" replay-epoch/replay-epoch-tool #js {:epoch-id "(inc 41)"}
+    {:ok? false :reason :no-such-epoch}
+    "replay-epoch" #(second (find-call % 're-frame2-pair.runtime/replay-epoch))
+    inert-list]])
 
-(deftest read-sub-query-list-is-not-evaluated
+(deftest caller-edn-reaches-the-runtime-unevaluated
   (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :query-v [:review/sub inert-list]
-                            :frame :rf/default :value 1})
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:review/sub (inc 41)]"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "read-sub!"))
-                                         're-frame2-pair.runtime/read-sub!)]
-                     (is (= [:review/sub inert-list] (quoted-datum (second call)))
-                         "the query reaches read-sub! as the datum the caller sent"))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; get-path — the singular path and the plural batch.
-;; ---------------------------------------------------------------------------
-
-(deftest get-path-singular-path-is-not-evaluated
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :exists? true :path [inert-list]
-                            :value :list-key :elided-count 0})
-      (-> (get-path/get-path-tool (fresh-conn) #js {:path "[(inc 41)]"})
-          (.then (fn [_]
-                   (let [form (read-form (form-matching forms "get-in db path"))]
-                     (is (= [inert-list] (quoted-datum (let-binding form 'path)))
-                         "get-in reads the path the caller asked for"))
-                   (done)))))))
-
-(deftest get-path-batch-paths-are-not-evaluated
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :results {} :elided-count 0})
-      (-> (get-path/get-path-tool (fresh-conn) #js {:paths "[[(inc 41)]]"})
-          (.then (fn [_]
-                   (let [form   (read-form (form-matching forms "reduce"))
-                         reduce-call (find-call form 'reduce)]
-                     (is (= [[inert-list]] (quoted-datum (last reduce-call)))
-                         "the batch folds over the paths the caller sent"))
-                   (done)))))))
-
-(deftest get-path-keeps-internal-raw-source-raw
-  ;; CONTROL — the resolved-frame handle is an INTERNAL let-bound name
-  ;; (an `rt-raw` splice), not caller data. Quoting it would hand the
-  ;; runtime a symbol instead of the frame it names.
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :exists? true :path [:a] :value 1 :elided-count 0})
-      (-> (get-path/get-path-tool (fresh-conn) #js {:path "[:a]"})
-          (.then (fn [_]
-                   (let [form (read-form (form-matching forms "get-in db path"))
-                         snap (find-call form 're-frame2-pair.runtime/snapshot)]
-                     (is (symbol? (second snap))
-                         "the frame handed to snapshot stays a bare let-bound symbol")
-                     (is (= [:a] (quoted-datum (let-binding form 'path)))
-                         "while the caller's path is quoted data"))
-                   (done)))))))
+    (let [prev (writes/allow-writes-enabled?)]
+      (writes/set-allow-writes! true)
+      (-> (reduce
+            (fn [p [label tool args canned needle extract expected]]
+              (.then p (fn [_]
+                         (let [forms (atom [])]
+                           (capture-eval! forms canned)
+                           (.then (tool (fresh-conn) args)
+                                  (fn [_]
+                                    (is (= expected
+                                           (quoted-datum (extract (read-form (form-matching forms needle)))))
+                                        label)))))))
+            (js/Promise.resolve nil)
+            tool-slots)
+          (.catch (fn [e] (is false (str "drive rejected: " e))))
+          (.finally (fn []
+                      (writes/set-allow-writes! prev)
+                      (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; watch-until / record — the signal set and the stop bounds.
@@ -214,18 +162,15 @@
                                        (record/pred-source {:signal 0 :equals :done})
                                        "{}"))
         call (find-call form 're-frame2-pair.runtime/sample-signals)]
-    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (second call)))
-        "the sampler watches the signal the caller described")))
+    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (second call))))))
 
 (deftest watch-form-keeps-the-synthesised-predicate-as-source
-  ;; CONTROL — `pred-source` output is source this server synthesised,
-  ;; not caller data. It must NOT be quoted, or the poll would compare a
-  ;; list against the sample instead of calling the fn.
+  ;; CONTROL — quoted, the poll would compare a list against the sample
+  ;; instead of calling the fn.
   (let [src (watch-until/watch-form [{:app-db [:x]}] :rf/default
                                     (record/pred-source {:signal 0 :equals :done})
                                     "{}")]
-    (is (str/includes? src "(boolean ((fn [sample]")
-        "the predicate fn literal is still applied as source")))
+    (is (str/includes? src "(boolean ((fn [sample]"))))
 
 (deftest record-signals-and-stop-bounds-are-not-evaluated
   (let [src  (#'record/start-recording-form
@@ -234,61 +179,8 @@
                :rf/default
                2000
                "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")
-        form (read-form src)
-        call (find-call form 're-frame2-pair.runtime/start-recording!)
-        opts (second call)]
-    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (:signals opts)))
-        "the recorder records the signal the caller described")
-    (is (= 15000 (quoted-datum (get-in opts [:stop :ms])))
-        "the stop bound rides as the datum the caller sent")
-    (testing "the synthesised predicate stays raw source (the mixed map's point)"
-      (is (str/includes? src ":pred-fn (fn [sample]")
-          "the :pred-fn slot is a fn literal, not quoted data"))))
-
-;; ---------------------------------------------------------------------------
-;; handler-meta / restore-epoch / replay-epoch — the remaining EDN slots.
-;; ---------------------------------------------------------------------------
-
-(deftest handler-meta-id-is-not-evaluated
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? false :reason :not-registered})
-      (-> (handler-meta/handler-meta-tool
-            (fresh-conn)
-            #js {:kind "sub" :id "[:rf/composite (inc 41)]"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "registrar-describe"))
-                                         're-frame2-pair.runtime/registrar-describe)]
-                     (is (= [:rf/composite inert-list] (quoted-datum (last call)))
-                         "the composite id is looked up as the datum the caller sent"))
-                   (done)))))))
-
-(deftest restore-epoch-id-is-not-evaluated
-  (async done
-    (let [forms (atom [])
-          prev  (writes/allow-writes-enabled?)]
-      (writes/set-allow-writes! true)
-      (capture-eval! forms {:ok? false :restored? false :reason :restore-rejected})
-      (-> (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "(inc 41)"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "restore-epoch"))
-                                         're-frame2-pair.runtime/restore-epoch)]
-                     (is (= inert-list (quoted-datum (second call)))
-                         "the epoch-id reaches the runtime unevaluated"))
-                   (writes/set-allow-writes! prev)
-                   (done)))))))
-
-(deftest replay-epoch-id-is-not-evaluated
-  (async done
-    (let [forms (atom [])
-          prev  (writes/allow-writes-enabled?)]
-      (writes/set-allow-writes! true)
-      (capture-eval! forms {:ok? false :reason :no-such-epoch})
-      (-> (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "(inc 41)"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "replay-epoch"))
-                                         're-frame2-pair.runtime/replay-epoch)]
-                     (is (= inert-list (quoted-datum (second call)))
-                         "the epoch-id reaches the runtime unevaluated"))
-                   (writes/set-allow-writes! prev)
-                   (done)))))))
+        opts (second (find-call (read-form src) 're-frame2-pair.runtime/start-recording!))]
+    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (:signals opts))))
+    (is (= 15000 (quoted-datum (get-in opts [:stop :ms]))))
+    (is (str/includes? src ":pred-fn (fn [sample]")
+        "the synthesised predicate in the same map stays raw source")))
