@@ -17,7 +17,7 @@
             [re-frame.epoch             :as rf.epoch]
             [re-frame.machines          :as rf.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.registrar         :as registrar]
+            [re-frame.registrar         :as rf.registrar]
             #?@(:clj [[re-frame.story.async  :as rf.story.async]
                       [re-frame.story.config :as rf.story.config]
                       [re-frame.story.play.evidence :as rf.story.play.evidence]
@@ -44,7 +44,7 @@
 
 (defn- bridge-reset! [test-fn]
   (rf.story/clear-all!)
-  (registrar/clear-all!)
+  (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   ;; Each attribution test reads only its own freshly-captured tape.
   (rf.epoch/clear-history!)
@@ -207,7 +207,7 @@
    (deftest dispatch-replays-captured-cofx-into-handler
      ;; The fixture clears the registrar, so register the framework :rf/time-ms
      ;; recordable cofx for this frame (idempotent).
-     (when-not (registrar/lookup :cofx :rf/time-ms)
+     (when-not (rf.registrar/lookup :cofx :rf/time-ms)
        (rf.cofx/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
      ;; A provided fact has no generator: re-presenting the recorded value is
      ;; the only way replay succeeds.
