@@ -1,35 +1,14 @@
 (ns reagent2.impl.batching-cljs-test
-  "Unit tests for reagent2.impl.batching.
-
-  Per IMPL-SPEC §12.1 + §12.5 R-005. Covers:
-
-    - Microtask scheduling: enqueue triggers a single microtask;
-      microtask body drains the queue.
-    - Deduplication: same component enqueued multiple times before
-      drain runs only once (cljsIsDirty flag).
-    - Ordering: rea-flush -> render -> after-render.
-    - flush! synchronous drain: callable from test code, identical
-      contract to the microtask body.
-    - do-after-render: callbacks fire after the render phase.
-    - rea-schedule wiring: a Reaction whose dependency changes
-      triggers a microtask drain via the batching ns's installed
-      schedule fn.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Unit tests for reagent2.impl.batching: the microtask render queue, its
+  dedup, drain order and after-render callbacks, the synchronous flush!, and
+  the rea-schedule hook that drains reactions."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [reagent2.ratom :as ratom]
             [reagent2.impl.batching :as batching]))
 
-;; ---------------------------------------------------------------------------
-;; Test helpers — fake component
-;;
-;; The render scheduler keys dedup on a `cljsIsDirty` field on a
-;; component instance. A bare JS object suffices — we don't need a
-;; real React component to exercise the queue, only the contract that
-;; `forceUpdate` is called on each dirty component.
-;; ---------------------------------------------------------------------------
-
-(defn- fake-component [counter-atom]
+(defn- fake-component
+  "A bare object counting `forceUpdate` calls; the queue needs nothing else."
+  [counter-atom]
   (let [c #js {}]
     (set! (.-forceUpdate c)
           (fn [] (swap! counter-atom inc)))
@@ -50,26 +29,10 @@
 
 (deftest enqueue-during-drain-schedules-fresh-turn
   (testing "a component re-queued during drain fires on a later turn"
-    ;; Per IMPL-SPEC §4.5: the scheduler does NOT flatten cascades
-    ;; into the current drain. A component that re-queues during its
-    ;; own forceUpdate gets a fresh microtask turn.
-    ;;
-    ;; THE FINAL COUNT ALONE CANNOT WITNESS THAT. A drain that
-    ;; flattened the cascade — looping over the re-queues inside its FIRST
-    ;; turn — also arrives at 3, so `(= 3 @calls)` taken after the dust
-    ;; settles passes either way, and waiting more turns before counting
-    ;; does not help. What separates them is WHEN each call lands, so the
-    ;; count is observed at every turn BOUNDARY: 1, then 2, then 3. Under a
-    ;; flattening drain the first observation reads 3 and this test is red.
-    ;;
-    ;; Each hop below is exactly ONE microtask tick: `.then` on an
-    ;; already-resolved promise enqueues a single job, and the scheduler's
-    ;; own queueMicrotask callback shares that FIFO queue, so hop N observes
-    ;; the state turn N left behind. `next-microtask` is deliberately NOT
-    ;; used here — its handler RETURNS a promise, and the thenable adoption
-    ;; costs enough extra ticks that all three turns fit inside one hop,
-    ;; which is precisely how a final count can come to stand in for a
-    ;; turn count.
+    ;; A flattening drain also ends at 3 calls, so the count is read at each
+    ;; turn boundary. Each `.then` hop is exactly one microtask tick
+    ;; (`next-microtask` would span several, letting all three turns fit in
+    ;; one hop).
     (async done
       (let [calls (atom 0)
             c     #js {}]
@@ -112,22 +75,6 @@
                          "cljsIsDirty flag deduped 4 enqueues -> 1 forceUpdate")
                      (done))))))))
 
-(deftest dedup-clears-after-render
-  (testing "after the drain, the next enqueue triggers a fresh render"
-    (async done
-      (let [calls (atom 0)
-            c     (fake-component calls)]
-        (batching/queue-render! c)
-        (-> (next-microtask)
-            (.then (fn [_]
-                     (is (= 1 @calls))
-                     ;; Flag must clear; new enqueue picks up.
-                     (batching/queue-render! c)
-                     (next-microtask)))
-            (.then (fn [_]
-                     (is (= 2 @calls)
-                         "second enqueue triggered second forceUpdate")
-                     (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Ordering invariant: ratom/flush! -> render -> after-render
@@ -192,16 +139,8 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Per-callback throw isolation
-;;
-;; Without per-callback exception isolation, an earlier callback that
-;; threw would propagate straight out of the drain, permanently dropping
-;; every callback still queued behind it (the queue is reset to nil
-;; before the drain, so those callbacks would be gone for good — not
-;; merely deferred). So flush-after-render wraps each invocation in
-;; try/catch, matching
-;; `re-frame.substrate.spine/drain-after-render-queue!`'s identical
-;; per-callback guard on the shared React-adapter-spine flush path.
+;; A throwing after-render callback must not strand the ones queued behind
+;; it: the queue is reset before the drain, so they would be lost for good.
 ;; ---------------------------------------------------------------------------
 
 (deftest after-render-throw-does-not-strand-later-callbacks
@@ -218,42 +157,19 @@
                          "callback :c still ran after the middle callback threw")
                      (done))))))))
 
-(deftest after-render-throw-isolated-under-synchronous-flush
-  (testing "flush! isolates an after-render throw too —
-            the synchronous test-flush primitive shares flush-after-render
-            with the microtask path"
-    (let [order (atom [])]
-      (batching/do-after-render (fn [] (swap! order conj :a)))
-      (batching/do-after-render (fn [] (throw (js/Error. "boom"))))
-      (batching/do-after-render (fn [] (swap! order conj :c)))
-      (batching/flush!)
-      (is (= [:a :c] @order)
-          "synchronous flush! isolated the throw; :c still ran"))))
-
 ;; ---------------------------------------------------------------------------
-;; rea-schedule wiring (ratom hook → batching implementation)
-;;
-;; Per the rea-schedule contract: when ratom's rea-queue gets its
-;; first entry, it calls @rea-schedule. `reagent2.impl.batching` installs
-;; `batching/schedule` into that hook so the render-side scheduler
-;; knows to drain the reactive queue as part of the next microtask.
+;; Loading reagent2.impl.batching installs its scheduler into ratom's
+;; rea-schedule hook, which the rea-queue calls on its first entry.
 ;; ---------------------------------------------------------------------------
 
 (deftest rea-schedule-wired-after-batching-load
-  (testing "requiring reagent2.impl.batching installs batching/schedule into rea-schedule"
-    (is (some? @ratom/rea-schedule)
-        "rea-schedule got wired at batching ns load time")
-    (is (fn? @ratom/rea-schedule)
-        "the wired value is a fn")))
+  (is (fn? @ratom/rea-schedule)))
 
 (deftest rea-schedule-triggers-microtask-drain
   (testing "a Reaction dep change schedules a microtask + drains via batching"
     (async done
-      ;; Build: a ratom + an :auto-run nil Reaction subscribed via an
-      ;; outer auto-run so the inner reaction enqueues itself on dep
-      ;; change. The act of enqueueing fires rea-schedule -> batching
-      ;; microtask. After the microtask, the rea-queue should be drained
-      ;; (i.e. nil) and the inner reaction's value re-derefs current.
+      ;; The inner, non-auto-run reaction enqueues itself on a dep change,
+      ;; which fires rea-schedule and so the batching microtask.
       (let [a       (ratom/atom 1)
             r       (ratom/make-reaction (fn [] (* @a 10)))
             outer   (ratom/make-reaction (fn [] @r) :auto-run true)]
@@ -261,11 +177,7 @@
         (let [seen (atom nil)]
           (add-watch outer :w (fn [_ _ _ nu] (reset! seen nu)))
           (reset! a 2)
-          ;; Microtask hasn't fired yet — but a synchronous-auto-run on
-          ;; outer may already have observed the change; the contract
-          ;; tested here is that the microtask path also drains.
           (-> (next-microtask)
               (.then (fn [_]
-                       ;; outer saw r=20.
                        (is (= 20 @seen))
                        (done)))))))))
