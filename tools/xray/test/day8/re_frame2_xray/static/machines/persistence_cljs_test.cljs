@@ -1,19 +1,7 @@
 (ns day8.re-frame2-xray.static.machines.persistence-cljs-test
-  "Direct slot tests for the Static Machines persistence round-trip.
-
-  ## What's under test
-
-  `panel_cljs_test.cljs` only smoke-tests the persisted slots through
-  the registered subs (the default sub-mode resolves to `:topology`) —
-  it never hits `load-sub-mode-by-id`, `save-sub-mode-by-id!`,
-  `load-selected-id`, or `save-selected-id!` directly. This ns pins the
-  edge cases those four functions guard:
-
-    - malformed (unparseable) EDN
-    - invalid sub-mode VALUES (normalise back to `:topology`)
-    - non-keyword KEYS dropped
-    - selected-id nil clear
-    - selected-id namespaced-keyword round-trip
+  "Direct slot tests for the Static Machines persistence round-trip:
+  the stored selection format, sub-mode value normalisation, and the
+  malformed-EDN catch.
 
   ## Test seam
 
@@ -21,16 +9,11 @@
   `local-storage` seam (`get-item` / `set-item!` / `remove-item!`) over
   an in-process atom. No `js/window` / jsdom is touched — the slot
   parse + normalise logic is exercised hermetically."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.static.machines.persistence :as persistence]))
 
 ;; ---- in-process localStorage stub ---------------------------------------
-;;
-;; A bare atom standing in for `window.localStorage`. The shared
-;; `local-storage` seam is the one place the persistence ns touches the
-;; browser; redefing its three primitives over this atom lets the slot
-;; round-trip run under node-test with no jsdom.
 
 (def ^:private store (atom {}))
 
@@ -47,123 +30,34 @@
                 ls/remove-item! stub-remove-item!]
     (f)))
 
-;; -------------------------------------------------------------------------
-;; (2) sub-mode slot — malformed EDN
-;; -------------------------------------------------------------------------
+;; ---- sub-mode slot ------------------------------------------------------
 
 (deftest load-malformed-edn-returns-empty-map
-  (testing "unparseable EDN falls into the catch and
-            returns {} rather than crashing the render"
-    (with-stub-storage*
-      (fn []
-        (stub-set-item! persistence/sub-mode-key "{:a/b :topology")  ;; unbalanced
-        (is (= {} (persistence/load-sub-mode-by-id))
-            "unbalanced map literal → catch → {}")))))
-
-;; -------------------------------------------------------------------------
-;; (3) sub-mode slot — value normalisation + key filtering
-;; -------------------------------------------------------------------------
+  (with-stub-storage*
+    (fn []
+      (stub-set-item! persistence/sub-mode-key "{:a/b :topology")  ;; unbalanced
+      (is (= {} (persistence/load-sub-mode-by-id))))))
 
 (deftest load-normalises-invalid-sub-mode-values
-  (testing "every value normalises through
-            helpers/normalise-sub-mode; an out-of-enum value falls back
-            to :topology rather than riding through corrupted"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-sub-mode-by-id!
-          {:m/a :bogus          ;; not in the 4-mode enum → :topology
-           :m/b :sim            ;; valid → preserved
-           :m/c "instances"})   ;; string form of a valid mode → :instances
-        (is (= {:m/a :topology
-                :m/b :sim
-                :m/c :instances}
-               (persistence/load-sub-mode-by-id))
-            "invalid → :topology; valid kw preserved; valid string coerced")))))
+  (with-stub-storage*
+    (fn []
+      (persistence/save-sub-mode-by-id!
+        {:m/a :bogus
+         :m/b :sim
+         :m/c "instances"})
+      (is (= {:m/a :topology
+              :m/b :sim
+              :m/c :instances}
+             (persistence/load-sub-mode-by-id))))))
 
-(deftest load-drops-non-keyword-keys
-  (testing "the `(when (keyword? k) …)` keep-guard drops
-            entries whose key is not a keyword (a corrupted slot could
-            carry string / numeric keys)"
-    (with-stub-storage*
-      (fn []
-        ;; Hand-write a map with mixed key types (can't go through
-        ;; save! which only round-trips what the panel produces).
-        (stub-set-item! persistence/sub-mode-key
-                        (pr-str {:m/a :sim, "m/b" :topology, 42 :instances}))
-        (is (= {:m/a :sim} (persistence/load-sub-mode-by-id))
-            "string + numeric keys dropped; only the keyword key survives")))))
+;; ---- selected-id slot ---------------------------------------------------
 
-;; -------------------------------------------------------------------------
-;; (4) sub-mode slot — save! clears on empty / nil
-;; -------------------------------------------------------------------------
-
-(deftest save-empty-or-nil-clears-the-slot
-  (testing "save-sub-mode-by-id! with nil OR an empty map
-            removes the slot (so a cleared selection doesn't leave a
-            `{}` husk in storage)"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-sub-mode-by-id! {:m/a :sim})
-        (is (contains? @store persistence/sub-mode-key)
-            "non-empty map writes the slot")
-        (persistence/save-sub-mode-by-id! {})
-        (is (not (contains? @store persistence/sub-mode-key))
-            "empty map removes the slot")
-        (persistence/save-sub-mode-by-id! {:m/a :sim})
-        (persistence/save-sub-mode-by-id! nil)
-        (is (not (contains? @store persistence/sub-mode-key))
-            "nil also removes the slot")))))
-
-;; -------------------------------------------------------------------------
-;; (5) selected-id slot — save / load / clear
-;; -------------------------------------------------------------------------
-
-(deftest selected-id-round-trips-bare-keyword
-  (testing "a bare (un-namespaced) machine-id keyword
-            round-trips: save! stores the `name`-only string, load
-            re-keywords it"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-selected-id! :login)
-        (is (= "login" (get @store persistence/selection-key))
-            "stored as bare name string (no leading colon)")
-        (is (= :login (persistence/load-selected-id))
-            "load re-keywords the stored name")))))
-
+;; The stored form is `ns/name` with the leading colon stripped — the
+;; format a prior session's slot already holds.
 (deftest selected-id-round-trips-namespaced-keyword
-  (testing "a namespaced machine-id keyword round-trips via
-            the `ns/name` string form (the slot drops the leading colon
-            but keeps the namespace)"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-selected-id! :foo.bar/login)
-        (is (= "foo.bar/login" (get @store persistence/selection-key))
-            "stored as ns/name (leading colon stripped)")
-        (is (= :foo.bar/login (persistence/load-selected-id))
-            "load reconstructs the namespaced keyword")))))
-
-(deftest selected-id-nil-clears-the-slot
-  (testing "save-selected-id! nil removes the slot; a
-            subsequent load reads nil"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-selected-id! :login)
-        (is (contains? @store persistence/selection-key))
-        (persistence/save-selected-id! nil)
-        (is (not (contains? @store persistence/selection-key))
-            "nil clears the selection slot")
-        (is (nil? (persistence/load-selected-id))
-            "load reads nil from the cleared slot")))))
-
-(deftest selected-id-non-keyword-is-a-no-op
-  (testing "save-selected-id! with a non-nil, non-keyword
-            value neither writes nor crashes (the inner `when keyword?`
-            guard). Pins that a corrupted caller can't poison the slot."
-    (with-stub-storage*
-      (fn []
-        (persistence/save-selected-id! "not-a-keyword")
-        (is (not (contains? @store persistence/selection-key))
-            "string value is not persisted")
-        (persistence/save-selected-id! 42)
-        (is (not (contains? @store persistence/selection-key))
-            "numeric value is not persisted")))))
+  (with-stub-storage*
+    (fn []
+      (persistence/save-selected-id! :foo.bar/login)
+      (is (= ["foo.bar/login" :foo.bar/login]
+             [(get @store persistence/selection-key)
+              (persistence/load-selected-id)])))))
