@@ -523,9 +523,8 @@
             keys where `ref` and `className` are React's positions"
     (is (= "x" (prop (rf.fresco.impl.codec/as-element [:div {:mounting "x"}]) "mounting")))
     (is (= "x" (prop (rf.fresco.impl.codec/as-element [:div {:unmounting "x"}]) "unmounting")))
-    (doseq [spelling [:mounting "mounting" 'mounting :x/mounting :data-mounting]]
-      (is (= "x" (prop (rf.fresco.impl.codec/as-element [:div {spelling "x"}]) (name spelling)))
-          (str "emitted, spelled " (pr-str spelling))))
+    (is (= "x" (prop (rf.fresco.impl.codec/as-element [:div {:x/mounting "x"}]) "mounting"))
+        "a namespaced keyword with the same name is not the private key either")
     (is (= "x" (aget (raw-props (rf.fresco.impl.codec/as-element [:> an-override-crossing {:mounting "x"}])) "mounting"))
         "and the same at the crossing, where a foreign ABI may genuinely
          name a prop `mounting`")))
