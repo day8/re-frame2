@@ -1,28 +1,9 @@
 (ns re-frame.adapter.reagent-slim-source-coord-warn-once-cljs-test
-  "reagent-slim parity for the non-DOM-root warn-once contract (mirrors
-  `re-frame.source-coord-warn-once-cljs-test` for the Reagent
-  bridge).
-
-  Per Spec 006 §Documented exemption: a registered view whose root
-  element is a non-DOM root (Fragment, interop head, function/component
-  head) is exempt from source-coord annotation. The adapter MUST emit a
-  one-shot warning per id (so the developer learns the pair-tool footgun
-  without spamming the console on re-render) and MUST NOT inject the
-  attribute.
-
-  WHY THIS FILE EXISTS. slim is a drop-in
-  Reagent replacement and renders hiccup through the SAME
-  `re-frame.views/warn-non-dom-root!` path (the warned-set is a
-  process-wide `defonce` in re-frame.views). The Reagent bridge pins
-  fire-once via `source_coord_warn_once_cljs_test`; this file is the
-  slim side of that pin.
-
-  Mechanism: `re-frame.views/warn-non-dom-root!` (private) consults the
-  process-wide `defonce` set. First call for an id warns + records;
-  subsequent calls for the same id are silenced. Re-rendering the same
-  view repeatedly emits the warning exactly ONCE.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "A view with a non-DOM root is exempt from source-coord annotation and
+  warns once per id (Spec 006 §Documented exemption), on slim as on the
+  Reagent bridge (`re-frame.source-coord-warn-once-cljs-test`): both go
+  through `re-frame.views/warn-non-dom-root!` and its process-wide warned-set,
+  so each test uses its own ids."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -65,14 +46,12 @@
     (let [render   (rf/view :rf.slim-warn-once-test/fragment-multi)
           warnings (with-captured-console-warn
                      (fn [] (dotimes [_ 5] (render))))]
-      (is (= 1 (count warnings))
-          (str "expected EXACTLY ONE warning across 5 renders of the "
-               "Fragment-rooted slim view; got " (count warnings) ": "
-               (pr-str warnings)))
-      (is (str/includes? (first warnings) "rf.slim-warn-once-test/fragment-multi")
-          "the single warning names the offending view-id")
-      (is (str/includes? (first warnings) "data-rf2-source-coord")
-          "the warning mentions the attribute that was skipped"))))
+      (is (= [1 true true]
+             [(count warnings)
+              (str/includes? (str (first warnings)) "rf.slim-warn-once-test/fragment-multi")
+              (str/includes? (str (first warnings)) "data-rf2-source-coord")])
+          (str "exactly one warning across 5 renders, naming the view-id and the skipped attribute; got "
+               (pr-str warnings))))))
 
 ;; ---- Per-id silencing is independent across ids --------------------------
 
@@ -88,8 +67,8 @@
           render-b (rf/view :rf.slim-warn-once-test/fragment-id-b)
           warnings (with-captured-console-warn
                      (fn [] (render-a) (render-b) (render-a) (render-b)))]
-      (is (= 2 (count warnings))
-          (str "expected EXACTLY TWO warnings (one per id) across 4 renders; got "
-               (count warnings) ": " (pr-str warnings)))
-      (is (some #(str/includes? % "fragment-id-a") warnings) "id-a's warning fired")
-      (is (some #(str/includes? % "fragment-id-b") warnings) "id-b's warning fired"))))
+      (is (= [2 true true]
+             [(count warnings)
+              (boolean (some #(str/includes? % "fragment-id-a") warnings))
+              (boolean (some #(str/includes? % "fragment-id-b") warnings))])
+          (str "one warning per id across 4 renders; got " (pr-str warnings))))))
