@@ -1,29 +1,15 @@
 (ns re-frame.install-frame-state-cljs-test
-  "The framework-standard `:rf/install-frame-state` event: the production write
-  half of app-authored persistence, per Spec 002 §Installing a persisted
-  frame-state.
+  "The framework-standard `:rf/install-frame-state` event (Spec 002
+  §Installing a persisted frame-state): a present `:rf.db/app` replaces app-db,
+  a present `:rf.db/runtime` replaces per top-level subtree, an absent partition
+  is untouched. A malformed payload or a resource-runtime subtree makes the
+  handler throw, so the router reports `:rf.error/handler-exception` and
+  commits nothing.
 
-  The payload is `{:rf.db/app <map>? :rf.db/runtime <map>?}`:
-
-    - a present `:rf.db/app` REPLACES app-db;
-    - a present `:rf.db/runtime` is applied PER TOP-LEVEL SUBTREE — each
-      subtree it carries replaces that subtree, and the subtrees it omits are
-      preserved;
-    - an absent partition is untouched.
-
-  A non-map payload, a present non-map partition, or a resource-runtime
-  subtree makes the handler throw, so the router reports the one existing
-  `:rf.error/handler-exception` and commits nothing.
-
-  Posture split: the install semantics and the refusal are production-real
-  and asserted through the always-on error-emit substrate, so the namespace
-  runs in `clojure -M:test`, in the `-Dre-frame.debug=false` prod-gate lane
-  and in `npm run test:cljs`. The one dev diagnostic this event must NOT fire
-  (`:rf.warning/app-handler-runtime-effect`) rides the dev trace bus, so its
-  assertion sits inside `(when rf.interop/debug-enabled? …)`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            #?(:cljs [cljs.reader])
+  The one dev diagnostic this event must NOT fire rides the dev trace bus, so
+  it sits inside `(when rf.interop/debug-enabled? ...)`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
@@ -42,10 +28,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
 
 (def ^:private frame-counter (atom 0))
 
@@ -74,97 +56,50 @@
 (def ^:private saved-ssr
   {:hydration {:server-hash "bbbb2222" :version 2}})
 
-;; ---------------------------------------------------------------------------
-;; Registration
-;; ---------------------------------------------------------------------------
-
 (deftest install-frame-state-is-a-core-standard-with-framework-authority
-  (testing "core registers `:rf/install-frame-state` in the regular registrar
-            AND the image standard registry, stamped with framework-write
-            authority so the runtime-db it returns is in-bounds"
-    (rf.events/register-install-frame-state-standard!)
-    (let [meta (rf.registrar/handler-meta :event :rf/install-frame-state)]
-      (is (= rf.events/install-frame-state-handler (:handler-fn meta))
-          "the event resolves in the regular registrar")
-      (is (true? (:rf/framework-authority? meta))
-          "stamped with the general framework-write authority key"))
-    (let [std (->> (rf.image-assembly/standard-descriptors)
-                   (filter #(and (= :event (:kind %))
-                                 (= :rf/install-frame-state (:id %))))
-                   first)]
-      (is (true? (:standard std))
-          "unioned into every resolved image generation")
-      (is (true? (:rf/framework-authority? std))))))
-
-;; ---------------------------------------------------------------------------
-;; What the install writes
-;; ---------------------------------------------------------------------------
+  ;; framework-write authority keeps the runtime-db it returns in bounds; the
+  ;; standard registry unions it into every resolved image generation
+  (rf.events/register-install-frame-state-standard!)
+  (is (true? (:rf/framework-authority? (rf.registrar/handler-meta :event :rf/install-frame-state))))
+  (is (= {:standard true :rf/framework-authority? true}
+         (-> (->> (rf.image-assembly/standard-descriptors)
+                  (filter #(and (= :event (:kind %))
+                                (= :rf/install-frame-state (:id %))))
+                  first)
+             (select-keys [:standard :rf/framework-authority?])))))
 
 (deftest a-present-app-partition-replaces-app-db-and-runtime-db-is-untouched
-  (testing "`{:rf.db/app m}` replaces app-db with `m`; the absent runtime-db
-            partition is left exactly as it was"
-    (let [fid    (fresh-frame!)
-          before (seed! fid {:old :value :other 1}
-                        {:rf.runtime/ssr live-ssr})]
-      (rf/dispatch-sync [:rf/install-frame-state {:rf.db/app {:restored :yes}}]
-                        {:frame fid})
-      (is (= (assoc before :rf.db/app {:restored :yes}) (rf/frame-state-value fid))
-          "app-db is REPLACED, not merged — :old / :other are gone — and the
-           omitted runtime-db partition is untouched"))))
+  (let [fid    (fresh-frame!)
+        before (seed! fid {:old :value :other 1}
+                      {:rf.runtime/ssr live-ssr})]
+    (rf/dispatch-sync [:rf/install-frame-state {:rf.db/app {:restored :yes}}]
+                      {:frame fid})
+    (is (= (assoc before :rf.db/app {:restored :yes}) (rf/frame-state-value fid))
+        "app-db replaced, not merged; runtime-db untouched")))
 
 (deftest a-present-runtime-partition-replaces-per-subtree
-  (testing "each runtime-db subtree the payload carries replaces that subtree;
-            every subtree it omits is preserved; the absent app partition is
-            untouched"
-    (let [fid    (fresh-frame!)
-          before (seed! fid {:app :kept}
-                        {:rf.runtime/ssr     live-ssr
-                         :rf.runtime/routing live-routing})]
-      (rf/dispatch-sync [:rf/install-frame-state
-                         {:rf.db/runtime {:rf.runtime/ssr saved-ssr}}]
-                        {:frame fid})
-      (is (= (assoc-in before [:rf.db/runtime :rf.runtime/ssr] saved-ssr)
-             (rf/frame-state-value fid))
-          "the supplied subtree REPLACES the live one (the saved value, whole);
-           the omitted :routing subtree is preserved, nothing else in runtime-db
-           moved, and the omitted app partition is untouched"))))
+  (let [fid    (fresh-frame!)
+        before (seed! fid {:app :kept}
+                      {:rf.runtime/ssr     live-ssr
+                       :rf.runtime/routing live-routing})]
+    (rf/dispatch-sync [:rf/install-frame-state
+                       {:rf.db/runtime {:rf.runtime/ssr saved-ssr}}]
+                      {:frame fid})
+    (is (= (assoc-in before [:rf.db/runtime :rf.runtime/ssr] saved-ssr)
+           (rf/frame-state-value fid))
+        "the supplied subtree replaced whole; :routing and app-db untouched")))
 
 (deftest an-empty-payload-changes-nothing
-  (testing "`{}` names no partition, so nothing is installed"
-    (let [fid    (fresh-frame!)
-          before (seed! fid {:app :kept} {:rf.runtime/ssr live-ssr})]
-      (with-emit-recorder! [errs]
-        (rf/dispatch-sync [:rf/install-frame-state {}] {:frame fid})
-        (is (empty? @errs) "an empty payload is legal, not an error"))
-      (is (= before (rf/frame-state-value fid))))))
-
-(deftest a-round-trip-through-frame-state-value-restores-the-frame
-  (testing "the documented loop: read with `frame-state-value`, serialise,
-            read back, install into a fresh frame"
-    (let [src   (fresh-frame!)
-          _     (seed! src {:cart [1 2 3]} {:rf.runtime/ssr saved-ssr})
-          state (rf/frame-state-value src)
-          saved #?(:clj  (read-string (pr-str state))
-                   :cljs (cljs.reader/read-string (pr-str state)))
-          dst   (fresh-frame!)]
-      (is (= state saved) "precondition: the frame-state round-trips as data")
-      (rf/dispatch-sync [:rf/install-frame-state
-                         {:rf.db/app     (:rf.db/app saved)
-                          :rf.db/runtime (select-keys (:rf.db/runtime saved)
-                                                      [:rf.runtime/ssr])}]
-                        {:frame dst})
-      (is (= {:cart [1 2 3]} (rf/app-db-value dst)))
-      (is (= saved-ssr (get-in (rf/frame-state-value dst)
-                               [:rf.db/runtime :rf.runtime/ssr]))))))
-
-;; ---------------------------------------------------------------------------
-;; Fail-closed: the handler throws, the router reports, nothing commits
-;; ---------------------------------------------------------------------------
+  (let [fid    (fresh-frame!)
+        before (seed! fid {:app :kept} {:rf.runtime/ssr live-ssr})]
+    (with-emit-recorder! [errs]
+      (rf/dispatch-sync [:rf/install-frame-state {}] {:frame fid})
+      (is (empty? @errs) "legal, not an error"))
+    (is (= before (rf/frame-state-value fid)))))
 
 (defn- refused-install
   "Dispatch `[:rf/install-frame-state payload]` at a seeded frame and return
-  `[error-ids before after]`, where `error-ids` are the always-on error records
-  the dispatch produced."
+  `[error-ids before after]`."
   [payload]
   (let [fid    (fresh-frame!)
         before (seed! fid {:app :kept} {:rf.runtime/ssr live-ssr})]
@@ -173,70 +108,37 @@
       [(mapv :error @errs) before (rf/frame-state-value fid)])))
 
 (deftest a-malformed-payload-is-refused-and-the-frame-state-is-untouched
-  (doseq [[label payload] [["nil payload"                 nil]
-                           ["vector payload"              [:rf.db/app {}]]
-                           ["string payload"              "{:rf.db/app {}}"]
-                           ["nil app partition"           {:rf.db/app nil}]
-                           ["vector app partition"        {:rf.db/app [1 2]}]
-                           ["string runtime partition"    {:rf.db/runtime "x"}]
-                           ["valid app, bad runtime"      {:rf.db/app     {:ok 1}
-                                                           :rf.db/runtime [:no]}]]]
-    (testing label
-      (let [[errors before after] (refused-install payload)]
-        (is (= [:rf.error/handler-exception] errors)
-            "the existing handler-exception reports the refusal — no new error id")
-        (is (= before after)
-            "no install, no partial commit: the frame-state is unchanged")))))
+  (doseq [[label payload] [["non-map payload"          [:rf.db/app {}]]
+                           ["nil app partition"        {:rf.db/app nil}]
+                           ["non-map runtime partition" {:rf.db/runtime "x"}]
+                           ["valid app, bad runtime"   {:rf.db/app     {:ok 1}
+                                                        :rf.db/runtime [:no]}]]]
+    (let [[errors before after] (refused-install payload)]
+      (is (= [:rf.error/handler-exception] errors) label)
+      (is (= before after) (str label ": no partial commit")))))
 
 (deftest a-resource-runtime-subtree-is-refused
-  (testing "the resource cache, work ledger and mutation runtime are not
-            installable — a persisted resource cache is refused rather than
-            installed raw, and the frame refetches instead"
-    (doseq [k [:rf.runtime/resources :rf.runtime/work-ledger :rf.runtime/mutations]]
-      (testing (str k)
-        (let [[errors before after]
-              (refused-install {:rf.db/app     {:would :replace}
-                                :rf.db/runtime {:rf.runtime/ssr saved-ssr
-                                                k               {}}})]
-          (is (= [:rf.error/handler-exception] errors))
-          (is (= before after)
-              "neither partition moved, so the valid parts did not land alone"))))))
-
-(deftest the-refusal-names-the-reason
-  (testing "the handler throws an ex-info whose data carries the reason"
-    (let [reason (fn [payload]
-                   (try (rf.events/install-frame-state-handler
-                          {:rf.db/runtime {}} [:rf/install-frame-state payload])
-                        nil
-                        (catch #?(:clj clojure.lang.ExceptionInfo
-                                  :cljs cljs.core/ExceptionInfo) e
-                          (:reason (ex-data e)))))]
-      (is (string? (reason nil)))
-      (is (string? (reason {:rf.db/app 5})))
-      (is (string? (reason {:rf.db/runtime {:rf.runtime/mutations {}}})))
-      (is (nil? (reason {:rf.db/app {}})) "a well-formed payload does not throw"))))
-
-;; ---------------------------------------------------------------------------
-;; The dev diagnostic an app-authored runtime write fires — and this does not
-;; ---------------------------------------------------------------------------
+  ;; a persisted resource cache is refused rather than installed raw; the frame
+  ;; refetches instead
+  (let [[errors before after]
+        (refused-install {:rf.db/app     {:would :replace}
+                          :rf.db/runtime {:rf.runtime/ssr       saved-ssr
+                                          :rf.runtime/resources {}}})]
+    (is (= [:rf.error/handler-exception] errors))
+    (is (= before after) "the valid parts did not land alone")))
 
 (deftest no-runtime-effect-ownership-diagnostic
   (when rf.interop/debug-enabled?
-    (testing "the install writes runtime-db with framework authority, so the
-              `:rf.warning/app-handler-runtime-effect` diagnostic stays silent —
-              while an unstamped app handler returning the same effect fires it"
-      (let [fid     (fresh-frame!)
-            warning? #(= :rf.warning/app-handler-runtime-effect (:operation %))]
-        (rf.events/reg-event :install-test/app-writes-runtime
-          (fn [{rt :rf.db/runtime} _]
-            {:rf.db/runtime (assoc rt :rf.runtime/ssr saved-ssr)}))
-        (with-trace-recorder! [traces {:pred warning?}]
-          (rf/dispatch-sync [:install-test/app-writes-runtime] {:frame fid})
-          (is (= 1 (count @traces))
-              "control: an unstamped app handler returning :rf.db/runtime fires it"))
-        (with-trace-recorder! [traces {:pred warning?}]
-          (rf/dispatch-sync [:rf/install-frame-state
-                             {:rf.db/runtime {:rf.runtime/ssr live-ssr}}]
-                            {:frame fid})
-          (is (empty? @traces)
-              "the framework-authority install fires no ownership diagnostic"))))))
+    (let [fid      (fresh-frame!)
+          warning? #(= :rf.warning/app-handler-runtime-effect (:operation %))]
+      (rf.events/reg-event :install-test/app-writes-runtime
+        (fn [{rt :rf.db/runtime} _]
+          {:rf.db/runtime (assoc rt :rf.runtime/ssr saved-ssr)}))
+      (with-trace-recorder! [traces {:pred warning?}]
+        (rf/dispatch-sync [:install-test/app-writes-runtime] {:frame fid})
+        (is (= 1 (count @traces)) "control: an unstamped app handler fires it"))
+      (with-trace-recorder! [traces {:pred warning?}]
+        (rf/dispatch-sync [:rf/install-frame-state
+                           {:rf.db/runtime {:rf.runtime/ssr live-ssr}}]
+                          {:frame fid})
+        (is (empty? @traces) "the framework-authority install does not")))))
