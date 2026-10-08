@@ -4,18 +4,9 @@
   `:rf/epoch-record`'s `:renders` projection is the tuple
   `[<view-id> <instance-token>]`.
 
-  Coverage:
-
-    - reg-view'd component, two direct invocations through the wrapper
-      (no Reagent component context) → distinct instance-tokens, same
-      view-id (mirrors per-mount-fresh semantics for headless tests).
-    - The `:rf.view/render` trace is emitted with the tuple-shaped
-      `:rf.view/render-key`.
-    - The `*render-key*` dynamic var is bound during render-fn
-      invocation and unbound outside.
-    - Plain Reagent fns (no reg-view wrapper) — `current-render-key`
-      returns the documented anonymous fallback `[:rf.view/anonymous nil]`.
-    - The instance-counter monotonically increases."
+  `*render-key*` is bound only during a render, and outside one
+  `current-render-key` falls back to `[:rf.view/anonymous nil]`; two
+  headless invocations through the wrapper get distinct instance-tokens."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -45,12 +36,9 @@
       (let [wrapper (rf/view :rf.test/probe)]
         (wrapper)
         (let [k @observed]
-          (is (vector? k) ":rf.view/render-key is a vector")
-          (is (= 2 (count k)) ":rf.view/render-key is a 2-element tuple")
-          (is (= :rf.test/probe (first k))
-              "first slot is the registered view-id")
-          (is (int? (second k))
-              "second slot is the integer instance-token"))))))
+          (is (= [true :rf.test/probe true]
+                 [(and (vector? k) (= 2 (count k))) (first k) (int? (second k))])
+              ":rf.view/render-key is a 2-tuple of the registered view-id and an integer instance-token"))))))
 
 (deftest dynamic-var-unbound-outside-render
   (testing "*render-key* is nil outside an in-flight render"
@@ -71,14 +59,8 @@
       (let [wrapper (rf/view :rf.test/traced)]
         (wrapper 7)
         (wrapper 8)
-        (is (= 2 (count @traces)) "one trace per invocation")
-        (let [[ev1 ev2] @traces
-              k1        (get-in ev1 [:tags :rf.view/render-key])
-              k2        (get-in ev2 [:tags :rf.view/render-key])]
-          (is (= :rf.view/render (:operation ev1)))
-          (is (= :rf.view/render (:operation ev2)))
-          (is (vector? k1))
-          (is (vector? k2))
-          (is (= :rf.test/traced (first k1) (first k2)))
-          (is (not= (second k1) (second k2))
-              "tokens differ across instances"))))))
+        (let [ks (mapv #(get-in % [:tags :rf.view/render-key]) @traces)]
+          (is (= [[:rf.view/render :rf.view/render] [:rf.test/traced :rf.test/traced] true]
+                 [(mapv :operation @traces) (mapv first ks)
+                  (and (every? vector? ks) (apply not= (map second ks)))])
+              "one :rf.view/render trace per invocation, each tagged with a tuple render-key of the view-id and a distinct instance-token"))))))
