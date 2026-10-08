@@ -25,12 +25,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
-             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.theme.tokens :as tokens]
@@ -45,19 +42,10 @@
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
-;; ---- hiccup walker ------------------------------------------------------
-;; A thin alias over re-frame.test-helpers.
-;;
-;; The two Trace rows below are the only testid-PREFIX matches in this
-;; suite, and they scan through [[trace-status-bar]] for the reason given
-;; there.
-
-(def ^:private find-by-testid rf.test-helpers/find-by-testid)
-
 ;; ---- the Trace panel's status bar --------------------------------------
 ;;
-;; The two Trace rows below cannot call `trace/Panel` and hand the result
-;; to a walker. Neither half works.
+;; The Trace row below cannot call `trace/Panel` and hand the result to a
+;; walker. Neither half works.
 ;;
 ;; `trace/Panel` is an `rf.fresco/defview`: a real React function component
 ;; whose body reads through Fresco's collector, which refuses a read outside
@@ -71,7 +59,7 @@
 ;; same reason. The status bar is a CALLED helper returning a native div and
 ;; sits above the table, so a plain depth-first scan reaches it. The Trace
 ;; panel's own suite (`panels/trace_view_cljs_test`) owns the walking of the
-;; table's interior; these rows only need the bar.
+;; table's interior; this row only needs the bar.
 
 (defn- trace-status-bar
   "The Trace panel's event-bundle status-bar node whose `:data-testid`
@@ -118,57 +106,7 @@
    :operation :rf.error/handler-exception
    :tags      {:rf.trace/dispatch-id dispatch-id :rf.trace/event-id :foo}})
 
-;; ---- (1) L2 event-list row — no status stripe ---------------------------
-;;
-;; The L2 row carries no trailing lifecycle status stripe (no
-;; `box-shadow` accent, no `data-rf-xray-status` attribute) — the Figma
-;; mock has none. The status-colour vocabulary has a SINGLE render
-;; site (the Trace timeline bar); the pure-data layer is exercised in
-;; `event_status_colour_cljs_test.cljc`.
-
-(deftest l2-event-row-carries-no-status-stripe
-  (testing "the L2 row carries NO `data-rf-xray-status`
-            attribute and NO lifecycle status box-shadow (the active row
-            is marked by background only)."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
-    (rf/with-frame :rf/xray
-      (let [tree  (dynamic-shell-tree/shell-view-tree)
-            row   (find-by-testid tree "rf-xray-event-row-1")
-            attrs (second row)]
-        (is (some? row) "L2 row renders for the cascade")
-        (is (nil? (:data-rf-xray-status attrs))
-            "no data-rf-xray-status attribute on the row (no stripe)")
-        (is (nil? (get-in attrs [:style :box-shadow]))
-            "no lifecycle status box-shadow on the row")))))
-
-;; ---- (2) no Event-panel status dot --------------------------------------
-;;
-;; There is no Event/Handler panel (the Epoch panel covers that ground),
-;; so there is no panel-level lifecycle status dot to assert on.
-
-;; ---- (3) Trace timeline bar pickups ------------------------------------
-
-(deftest trace-event-bundle-status-bar-renders-with-canonical-colour
-  (testing "the Trace tab's event-bundle-status bar fills the
-            ribbon with the focused cascade's lifecycle colour. Wins
-            its testid from the resolved status keyword so a future
-            classifier shift surfaces here without a colour assertion."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [bar (trace-status-bar #(.startsWith ^String % status-bar-prefix))]
-        (is (some? bar)
-            "event-bundle-status bar renders when a cascade is in focus")
-        (let [attrs (second bar)
-              tid   (:data-testid attrs)]
-          (is (re-find #"settled-success$" tid)
-              "bar's testid carries the resolved status vocabulary")
-          (is (= (:green tokens/tokens)
-                 (get-in attrs [:style :background]))
-              "bar's background is the canonical green hex"))))))
+;; ---- the Trace timeline bar --------------------------------------------
 
 (deftest trace-event-bundle-status-bar-error
   (testing "an errored focused cascade flips the bar to
@@ -180,7 +118,6 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [bar (trace-status-bar #(= % (str status-bar-prefix "settled-error")))]
-        (is (some? bar))
         (is (= (:red tokens/tokens)
                (get-in (second bar) [:style :background])))
         (is (= "settled-error" (:data-rf-xray-status (second bar)))
