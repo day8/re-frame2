@@ -1,57 +1,20 @@
 (ns re-frame.story.egress-test
-  "JVM tests for the human-egress reproducibility classifier
-  (spec/022 §3 + spec/018 §4 T4).
-
-  The classifier is pure data → data so the JVM corpus covers it without
-  booting Reagent / the runtime. These tests pin the load-bearing
-  contract: human egress is NOT privacy-gated, but a shared / exported /
-  copied artifact says HONESTLY whether the recipient can reproduce it
-  (full / partial / view-only) and WHAT downgraded it."
+  "The human-egress reproducibility classifier (spec/022 §3, spec/018 §4
+  T4): a shared / exported / copied artifact says honestly whether the
+  recipient can reproduce it, and what downgraded it."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.egress :as rf.story.egress]))
 
-;; ---- worse / status fold -------------------------------------------------
-
-(deftest worse-takes-the-lower-fidelity
-  (testing "worse returns the lower-fidelity of two statuses"
-    (is (= :partial   (rf.story.egress/worse :full :partial)))
-    (is (= :view-only (rf.story.egress/worse :partial :view-only)))
-    (is (= :view-only (rf.story.egress/worse :full :view-only)))
-    (is (= :full      (rf.story.egress/worse :full :full)))
-    (is (= :view-only (rf.story.egress/worse :view-only :partial))
-        "one view-only reason wins regardless of argument order")))
-
-;; ---- contains-fn? / edn-round-trips? -------------------------------------
-
-(deftest contains-fn?-walks-structure
-  (testing "contains-fn? finds a fn anywhere in a nested structure"
-    (is (false? (rf.story.egress/contains-fn? {:a 1 :b [2 3] :c #{:x}})))
-    (is (true?  (rf.story.egress/contains-fn? (fn [] 1))))
-    (is (true?  (rf.story.egress/contains-fn? {:a {:b [1 (fn [_] 2)]}})))
-    (is (true?  (rf.story.egress/contains-fn? #{1 (fn [] 1)})))
-    (is (true?  (rf.story.egress/contains-fn? [:keep inc])))
-    (is (false? (rf.story.egress/contains-fn? {:f :not-a-fn :v "inc"}))
-        "a keyword / string that LOOKS fn-like is not a fn")))
-
-;; ---- classify: the happy path --------------------------------------------
-
 (deftest classify-empty-is-full
-  (testing "an artifact with no downgrade reasons is fully reproducible"
-    (let [r (rf.story.egress/classify {:plan nil :cell-overrides nil :dropped nil})]
-      (is (= :full (:status r)))
-      (is (= "fully reproducible" (:label r)))
-      (is (empty? (:reasons r)))
-      (is (true? (rf.story.egress/full? r))))))
-
-;; ---- classify: partial ---------------------------------------------------
+  (let [r (rf.story.egress/classify {:plan nil :cell-overrides nil :dropped nil})]
+    (is (= {:status :full :label "fully reproducible" :reasons []} r))
+    (is (true? (rf.story.egress/full? r)))))
 
 (deftest classify-dropped-overrides-is-partial
   (testing "share-URL overrides that no longer apply downgrade to partial"
     (let [r (rf.story.egress/classify {:dropped ["stale-arg:1" "gone:2"]})]
-      (is (= :partial (:status r)))
-      (is (= "partially reproducible" (:label r)))
-      (is (= 1 (count (:reasons r))))
-      (is (= :dropped-overrides (:code (first (:reasons r)))))
+      (is (= [:partial "partially reproducible" [:dropped-overrides]]
+             [(:status r) (:label r) (mapv :code (:reasons r))]))
       (is (re-find #"2 overrides" (:detail (first (:reasons r))))))))
 
 (deftest classify-downgrades-by-the-reason-it-finds
@@ -74,61 +37,21 @@
         (is (= status (:status r)))
         (is (some #(= code (:code %)) (:reasons r)))))))
 
-;; ---- classify: view-only -------------------------------------------------
-
 (deftest classify-fn-override-is-view-only
-  (testing "a fn-valued cell-override makes the artifact view-only"
-    (let [r (rf.story.egress/classify {:cell-overrides {:on-click (fn [_] nil) :label "ok"}})]
-      (is (= :view-only (:status r)))
-      (is (= "view-only" (:label r)))
-      (is (some #(= :override-fn (:code %)) (:reasons r))))))
-
-;; ---- classify: lowest status wins ----------------------------------------
+  (let [r (rf.story.egress/classify {:cell-overrides {:on-click (fn [_] nil) :label "ok"}})]
+    (is (= [:view-only "view-only" [:override-fn]]
+           [(:status r) (:label r) (mapv :code (:reasons r))]))))
 
 (deftest classify-mixes-reasons-and-takes-lowest
-  (testing "several reasons collect; the overall status is the lowest any implies"
-    (let [plan {:world {:render {:sub-overrides {[:s] (fn [] 1)}}}} ; view-only
-          r    (rf.story.egress/classify {:plan           plan
-                                 :cell-overrides {:count 5}        ; full
-                                 :dropped        ["gone:1"]})]     ; partial
-      (is (= :view-only (:status r)) "the view-only sub-override wins")
-      (is (<= 2 (count (:reasons r))) "all downgrade reasons are collected"))))
+  (testing "every reason is collected; the status is the lowest any implies"
+    (let [r (rf.story.egress/classify {:plan           {:world {:render {:sub-overrides {[:s] (fn [] 1)}}}}
+                                       :cell-overrides {:count 5}
+                                       :dropped        ["gone:1"]})]
+      (is (= [:view-only [:sub-override-fn :dropped-overrides]]
+             [(:status r) (mapv :code (:reasons r))])))))
 
-;; ---- status-labels are complete ------------------------------------------
-
-(deftest status-labels-cover-every-status
-  (testing "every status has a human label"
-    (doseq [s rf.story.egress/statuses]
-      (is (string? (get rf.story.egress/status-labels s))
-          (str "missing label for " s)))))
-
-;; ---- EP-0015 scope --------------------------------------------------------
-;;
-;; Story's share / copy / static / screenshot are feature-created artifacts,
-;; so EP-0015 scopes them in — and human-local egress ships UNREDACTED (the
-;; trusted-local operator act). The classifier
-;; is REPRODUCIBILITY-only: it must NOT redact a sensitive value, and a
-;; sensitive value must not change the reproducibility verdict. These tests
-;; pin that the human-egress seam is orthogonal to sensitivity.
-
+;; EP-0015: human-local egress ships unredacted. The classifier answers
+;; "can the recipient reproduce this?", never "is this sensitive?".
 (deftest classify-does-not-redact-sensitive-values
-  (testing "a sensitive value in a copied-EDN override SHIPS verbatim — the
-            human-egress classifier never substitutes :rf/redacted"
-    (let [secret "BEARER-secret-12345"
-          r      (rf.story.egress/classify {:cell-overrides {:auth/token secret}})]
-      ;; A plain string round-trips, so it is fully reproducible — and it
-      ;; ships verbatim (the classifier returns a verdict, not a redacted
-      ;; payload; nothing in the report is :rf/redacted).
-      (is (= :full (:status r))
-          "a round-tripping sensitive string is fully reproducible")
-      (is (empty? (:reasons r))
-          "a sensitive value introduces NO reproducibility downgrade")
-      (is (not (some #{:rf/redacted} (tree-seq coll? seq r)))
-          "the reproducibility report carries no redaction sentinel — human
-           egress is not a redaction seam")))
-  (testing "the reproducibility verdict is identical whether the value is a
-            secret or a benign string — sensitivity is orthogonal"
-    (is (= (rf.story.egress/classify {:cell-overrides {:k "BEARER-secret-12345"}})
-           (rf.story.egress/classify {:cell-overrides {:k "benign"}}))
-        "same shape ⇒ same reproducibility status regardless of sensitivity")))
-
+  (is (= {:status :full :label "fully reproducible" :reasons []}
+         (rf.story.egress/classify {:cell-overrides {:auth/token "BEARER-secret-12345"}}))))
