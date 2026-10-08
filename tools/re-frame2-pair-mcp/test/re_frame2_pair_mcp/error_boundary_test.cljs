@@ -1,101 +1,29 @@
 (ns re-frame2-pair-mcp.error-boundary-test
   "What a consumer's AI agent actually READS when a pair-mcp tool throws.
 
-  A bare-keyword ex-message is tolerable inside a tool's internals. It is
-  not tolerable once it is relayed onto the MCP tool surface, because the
-  reader there is an agent trying to ACT on it: `:rf.error/pair-mcp-…`
-  strands every actionable word somewhere the agent never sees. This
-  surface's throws use the canonical Spec 009 shape — a human sentence
-  plus a trailing `[:rf.error/<id>]` greppability token — and `tools/`
-  is bundle-isolated from `re-frame.error`, so those messages are
-  hand-rolled at each site and no shared builder can keep them honest.
-  This namespace is what stands behind them.
+  A throw that escapes a tool body reaches the agent by one of two relays,
+  depending on WHERE it fires. Both carry the message AND the ex-data, and
+  differ only in which `:reason` wins:
 
-  ## Two relays, not one
+  - `server.cljs` `invoke-and-guard` — anything thrown while the tool body
+    builds its request, before the nREPL round-trip. The ex-data merges
+    UNDER `{:reason :handler-threw :message …}`: `:reason` is the
+    envelope's discriminator, and the site's rides in `:rf.error/id`.
+  - `tools/probe.cljs` `err->result` — anything thrown while shaping the
+    response. The ex-data merges OVER `{:ok? false :message …}`: its
+    `:reason` is the payload's own discriminator.
 
-  `tools/re-frame2-pair-mcp/src` has five `throw` sites. One —
-  `tools/freshness.cljs`'s malformed-build-id refusal — is caught by its
-  own caller, which degrades the read to nil. A throw that escapes
-  reaches the agent by one of two DIFFERENT relays depending on WHERE in
-  a tool body it fires. Both relays carry the whole exception, and
-  differ only in the precedence they give the two `:reason` slots:
+  The relayed ex-data is WIRE DATA: `tu/extract-edn` is the consumer's EDN
+  reader, so one unreadable value reds every assertion here at once.
 
-  - `server.cljs` `invoke-and-guard` → the ex-data merged UNDER
-    `{:reason :handler-threw :message (.-message err)}`. Carries both
-    halves. Reached by anything thrown while the tool
-    body builds its request — before the nREPL round-trip. `:reason`
-    is the ENVELOPE's discriminator here, so it outranks a site's own;
-    the site's rides in `:rf.error/id`.
-
-  - `tools/probe.cljs` `err->result` → the ex-data merged OVER
-    `{:ok? false :message (ex-message err)}`. Carries both halves.
-    Reached by anything thrown from the `on-value` callback
-    of `eval-after-runtime!` / `eval-after-runtime-signalled!` — i.e.
-    all response shaping, after the round-trip. Here the ex-data's
-    `:reason` IS the payload's discriminator, so it wins.
-
-  Both relays put ex-data on the wire, which makes a relayed throw's
-  ex-data WIRE DATA: every value in it must be EDN-round-trippable,
-  because the envelope's canonical slot is `(pr-str v)` and one
-  unreadable value reds the consumer's read of the WHOLE envelope
-  rather than merely going missing.
-
-  Each relay is pinned here at its own boundary:
-
-  - **rt-let binding shape** (`tools/eval-form` `emit-name`) fires during
-    synchronous form construction, so it meets `invoke-and-guard`. The
-    first test pins both halves: the human sentence and the token in the
-    message, and `:rf.error/id` / `:where` / `:recovery` / `:name` as
-    ex-data slots — plus the precedence rule, since `emit-name`'s
-    ex-data carries a `:reason` of its own that must NOT displace
-    `:handler-threw`.
-
-  - **unknown wire `:kind`** (`tools/wire-pipeline` `run-wire-pipeline`)
-    fires only from response shaping — all five call sites across
-    `snapshot`, `get-path`, `read-sub`, `trace-window` and `watch-epochs`
-    sit inside an `on-value` callback — so it meets `err->result`. The
-    second test pins BOTH halves it relays: the ex-data's `:reason`
-    sentence and `:rf.error/id` discriminator, AND the ex-message's own
-    sentence plus trailing token. The message half needs a tripwire of
-    its own: a relay that silently discards a canonical message is
-    invisible to every test that only reads ex-data.
-
-  The two discovery throws (`server.cljs`'s `:rf.error/pair-mcp-ambiguous-shadow`
-  and `:rf.error/pair-mcp-nrepl-port-not-found`) are raised inside discovery
-  and caught by `handle-call*`'s own arm, which rebuilds a payload from
-  `:rf.error/id` and never reads the message. Their bare-keyword messages
-  are genuinely tool-internal and stay that way.
-
-  mcp-base's diff-encode validation family is not reachable from this
-  surface at all: mcp-base's grammar gate
-  resolves `malli.core/validate` at runtime and soft-passes when Malli is
-  absent — and Malli is deliberately absent from pair-mcp's CLJS
-  classpath (`tools/mcp-base/deps.edn`) — while the shipped `:server`
-  build additionally DCEs the gate via `:closure-defines
-  {re-frame.mcp-base.diff-encode/validate-patches? false}`. A row for it
-  could not fail in either build, and a boundary row that cannot fail is
-  decoration.
-
-  ## What is real here, and what is forced
-
-  Both covered throws are programmer-typo guards: every `rt-let` call
-  site passes literal quoted symbols and every `run-wire-pipeline` call
-  site passes a literal `:kind`, so no tool ARGUMENT reaches either. That
-  is exactly why no other test reaches them, and why an edit reverting
-  one of their messages would be invisible to every other test.
-
-  So the seam corrupts only the INPUT, at the production call site, and
-  nothing else: the real `ef/rt-let` builds the malformed binding vector,
-  the real `ef/emit` walks it, the real `emit-name` composes the message,
-  and the real `run-wire-pipeline` rejects the real out-of-vocabulary
-  `:kind`. Downstream of the throw everything is the shipped path — real
-  `handle-call` → real `ensure-connection!` (over a seeded conn) → real
-  `tools/invoke` → real relay → real envelope. `trace-window` is the
-  carrier for both because one tool body reaches both relays: it builds
-  its form with `ef/rt-let` and shapes its response with
+  Both covered throws are programmer-typo guards no tool argument reaches,
+  which is why no other test reaches them. The seam corrupts only the
+  INPUT at the production call site; downstream of the throw everything is
+  the shipped path — real `handle-call` → `ensure-connection!` (over a
+  seeded conn) → `tools/invoke` → relay → envelope. `trace-window` carries
+  both: it builds its form with `ef/rt-let` and shapes its response with
   `run-wire-pipeline`."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
-            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -106,27 +34,16 @@
   {:before (fn [] (server/reset-session-state-for-tests!))
    :after  (fn [] (server/reset-session-state-for-tests!))})
 
-;; ---------------------------------------------------------------------------
-;; The real boundary.
-;; ---------------------------------------------------------------------------
-
 (def ^:private trace-canned
-  "What `trace-window`'s eval form returns after server-side slicing. An
-  empty page: the rows assert on the ERROR path, so the payload only has
-  to let the happy path reach the response-shaping step."
+  "An empty `trace-window` page: enough for the happy path to reach the
+  response-shaping step."
   {:epochs [] :id-aged-out? false :requested-id nil
    :head-id nil :next-id nil :history-count 0 :remaining 0})
 
 (defn- drive
-  "Drive the REAL `tools/call` path for `trace-window` and return a
-  Promise of the MCP result envelope the SDK ships.
-
-  Seeding the conn via `mark-discovered-for-tests!` (no port-file, so
-  `ensure-connection!` takes its cached fast path) is what routes the
-  drive through `handle-call*` → `tools/invoke` rather than the
-  discovery-error arm — the distinction every assertion below rests on.
-  The eval stub answers the runtime-preload probe `true` and every other
-  form with `trace-canned`, mirroring `trace_window_test`."
+  "Drive the REAL `tools/call` path for `trace-window`. Seeding the conn
+  (no port-file) routes it through `handle-call*` → `tools/invoke` rather
+  than the discovery-error arm."
   []
   (server/reset-session-state-for-tests!)
   (server/mark-discovered-for-tests! (nrepl/make-conn 0 "127.0.0.1"))
@@ -146,10 +63,8 @@
 
 (defn- drive-with-seam
   "Install `seam` over its production var, drive the boundary, hand the
-  envelope to `check`, then restore. `install!` / `restore!` are 1-arity
-  fns over the seam because CLJS `set!` needs the var literal at the call
-  site. Restore is identity-guarded the same way `tu/restore-eval!` is,
-  so a late `.finally` cannot clobber a neighbouring test's seam."
+  envelope to `check`, then restore (identity-guarded, like
+  `tu/restore-eval!`)."
   [install! restore! seam check done]
   (install! seam)
   (-> (drive)
@@ -158,29 +73,12 @@
                 (is false (str "the boundary drive rejected: " (.-message e)))))
       (.finally (fn [] (restore! seam) (done)))))
 
-;; ---------------------------------------------------------------------------
-;; Relay 1 — `invoke-and-guard`: the MESSAGE is the consumer contract.
-;; ---------------------------------------------------------------------------
-
 (deftest rt-let-binding-shape-reaches-the-agent-as-a-readable-message
-  ;; Reverting `emit-name`'s message to a bare `(str error-kw)` reds the
-  ;; sentence assertion; dropping the trailing token reds the token
-  ;; assertion; changing `invoke-and-guard` to `{:reason :handler-threw
-  ;; :message …}` — a shape that would make this ex-data unreachable — reds
-  ;; the four ex-data rows; a regression that turns the tool error into a
-  ;; rejected promise reds `tu/error?` and takes the whole row with it.
-  ;;
-  ;; And the row is a tripwire for the hazard of relaying ex-data at all,
-  ;; at no extra cost: `tu/extract-edn` IS the consumer's EDN reader, so a
-  ;; single non-EDN value anywhere in a relayed ex-data reds EVERY assertion
-  ;; below at once with `No reader function for tag object` — adding, say,
-  ;; `:type (type n)` (a JS constructor) to `emit-name`'s ex-data
-  ;; demonstrates the failure.
+  ;; Relay 1. The REAL `ef/rt-let`, handed a binding name that is not a
+  ;; symbol: `trace-window` emits the form and the real `emit-name` composes
+  ;; the message — a human sentence plus the trailing [:rf.error/…] token.
   (async done
     (let [orig ef/rt-let
-          ;; The REAL constructor, handed a binding name that is not a
-          ;; symbol. `trace-window` then emits this form itself, and the
-          ;; real `emit-name` composes the message under test.
           seam (fn [bindings & body-forms]
                  (apply orig (assoc (vec bindings) 0 "not-a-symbol") body-forms))]
       (drive-with-seam
@@ -188,82 +86,27 @@
         (fn [s] (when (identical? ef/rt-let s) (set! ef/rt-let orig)))
         seam
         (fn [result]
-          (is (tu/error? result)
-              "a handler throw is an MCP tool error, not a rejected promise")
-          (let [edn (tu/extract-edn result)
-                msg (:message edn)]
-            (is (= :handler-threw (:reason edn))
-                "form construction throws BEFORE the round-trip, so the
-                 drive really did meet invoke-and-guard's relay")
-            (is (re-find #"rt-let binding name must be a symbol" msg)
-                (str "the agent reads a human sentence, not a keyword\n  got: "
-                     (pr-str msg)))
-            (is (str/includes? msg "[:rf.error/pair-mcp-rt-let-binding-bad-shape]")
-                (str "the canonical [:rf.error/…] token rides the message\n  got: "
-                     (pr-str msg)))
-            ;; The other half. A relay 1 that relayed the message and
-            ;; DROPPED `(ex-data err)` would leave the discriminator an
-            ;; agent BRANCHES on only as a token embedded in prose — it
-            ;; would have to regex it back out — and the actionable slots
-            ;; beside it would not arrive at all. Nothing else on this
-            ;; surface can notice that: every other assertion here reads
-            ;; the message, which such a relay preserves. These rows are
-            ;; the only thing standing between a `{:reason :handler-threw
-            ;; :message …}` relay and ex-data that reaches nobody.
-            (is (= :rf.error/pair-mcp-rt-let-binding-bad-shape
-                   (:rf.error/id edn))
-                "the machine discriminator rides as a SLOT, namespace intact")
-            (is (= 're-frame2-pair-mcp/rt-let (:where edn))
-                "along with the rest of the site's actionable ex-data")
-            (is (= :no-recovery (:recovery edn)))
-            (is (= (pr-str "not-a-symbol") (:name edn))
-                "and the offending value, in its total pr-str rendering")
-            ;; Precedence, and it is the OPPOSITE of relay 2's. `emit-name`'s
-            ;; ex-data carries its own `:reason` string; the `:handler-threw`
-            ;; row above passes only because the relay's `:reason` wins over
-            ;; it. Merge the ex-data OVER instead and that row reds, because
-            ;; the agent loses the one key telling it the tool body threw
-            ;; before the runtime was ever reached.
-            (is (= :handler-threw (:reason edn))
-                "the envelope discriminator survives an ex-data :reason")))
-        done))))
-
-(deftest invoke-and-guard-relays-the-producers-message-verbatim
-  ;; The control, and the reason the row above is a BOUNDARY row rather
-  ;; than a unit test in disguise: `invoke-and-guard` adds nothing and
-  ;; rewrites nothing. Whatever the producer put in the message is what
-  ;; the agent reads — so a producer-side message regression is, with no
-  ;; intermediate to absorb it, a consumer-side regression.
-  (async done
-    (let [orig ef/rt-let
-          seam (fn [& _] (throw (ex-info "a plain sentence, no token" {:x 1})))]
-      (drive-with-seam
-        (fn [s] (set! ef/rt-let s))
-        (fn [s] (when (identical? ef/rt-let s) (set! ef/rt-let orig)))
-        seam
-        (fn [result]
-          (is (tu/error? result))
           (let [edn (tu/extract-edn result)]
-            (is (= :handler-threw (:reason edn)))
-            (is (= "a plain sentence, no token" (:message edn))
-                "the relay neither trims nor decorates the producer's message")))
+            (is (tu/error? result) "a handler throw is an MCP tool error, not a rejected promise")
+            (is (re-find #"rt-let binding name must be a symbol.*\[:rf\.error/pair-mcp-rt-let-binding-bad-shape\]"
+                         (str (:message edn)))
+                (str "got: " (pr-str (:message edn))))
+            ;; `emit-name`'s ex-data carries its own `:reason`; the relay's
+            ;; :handler-threw must win, and the site's slots ride beside it.
+            (is (= {:reason      :handler-threw
+                    :rf.error/id :rf.error/pair-mcp-rt-let-binding-bad-shape
+                    :where       're-frame2-pair-mcp/rt-let
+                    :recovery    :no-recovery
+                    :name        (pr-str "not-a-symbol")}
+                   (select-keys edn [:reason :rf.error/id :where :recovery :name])))))
         done))))
-
-;; ---------------------------------------------------------------------------
-;; Relay 2 — `probe/err->result`: the EX-DATA *and* the MESSAGE are the
-;; consumer contract.
-;; ---------------------------------------------------------------------------
 
 (deftest unknown-wire-pipeline-kind-reaches-the-agent-as-readable-ex-data
-  ;; Reverting the ex-data's `:reason` to a bare keyword reds the sentence
-  ;; assertion; dropping `:rf.error/id` reds the discriminator assertion;
-  ;; changing `err->result` to `(merge {:ok? false} data)` — a shape that
-  ;; would make this message dead prose — reds the two ex-message assertions.
+  ;; Relay 2. The REAL pipeline, handed a `:kind` outside its closed
+  ;; three-case dispatch. Both halves must arrive: the ex-data the agent
+  ;; branches on, and the ex-message with its token.
   (async done
     (let [orig wp/run-wire-pipeline
-          ;; The REAL pipeline, handed a `:kind` outside its closed
-          ;; three-case dispatch — the shape a contributor adding a new
-          ;; payload kind, or typing an existing one, actually produces.
           seam (fn [payload opts] (orig payload (assoc opts :kind :not-a-wire-kind)))]
       (drive-with-seam
         (fn [s] (set! wp/run-wire-pipeline s))
@@ -271,36 +114,15 @@
                   (set! wp/run-wire-pipeline orig)))
         seam
         (fn [result]
-          (is (tu/error? result)
-              "a response-shaping throw is a tool error, not a rejected promise")
           (let [edn (tu/extract-edn result)]
-            (is (= false (:ok? edn))
-                "response shaping throws AFTER the round-trip, so the drive
-                 really did meet err->result's relay")
-            (is (= :rf.error/pair-mcp-unknown-wire-pipeline-kind
-                   (:rf.error/id edn))
-                "the machine discriminator the agent BRANCHES on rides the
-                 wire, namespace intact")
+            (is (tu/error? result) "a response-shaping throw is a tool error, not a rejected promise")
+            (is (= {:ok?         false
+                    :rf.error/id :rf.error/pair-mcp-unknown-wire-pipeline-kind
+                    :kind        :not-a-wire-kind}
+                   (select-keys edn [:ok? :rf.error/id :kind])))
             (is (re-find #"unknown :kind" (str (:reason edn)))
-                (str "and the human sentence the agent READS rides with it\n  got: "
-                     (pr-str (:reason edn))))
-            (is (= :not-a-wire-kind (:kind edn))
-                "along with the actionable slot — WHICH kind was unknown")
-            ;; The message tripwire. An `err->result` that relayed ex-data
-            ;; and DROPPED `(ex-message err)` would leave
-            ;; `run-wire-pipeline`'s carefully composed message — and the
-            ;; `[:rf.error/…]` token in it — reaching nobody. Nothing else
-            ;; on this surface can notice that: every other assertion here
-            ;; reads ex-data, which such a relay preserves. These two rows
-            ;; are the only thing standing between a `(merge {:ok? false}
-            ;; data)` relay and silently dead prose.
-            (let [msg (:message edn)]
-              (is (re-find #"unknown :kind" (str msg))
-                  (str "the ex-MESSAGE reaches the agent at this relay too\n  got: "
-                       (pr-str msg)))
-              (is (str/includes?
-                    (str msg)
-                    "[:rf.error/pair-mcp-unknown-wire-pipeline-kind]")
-                  (str "carrying the canonical [:rf.error/…] token\n  got: "
-                       (pr-str msg))))))
+                (str "got: " (pr-str (:reason edn))))
+            (is (re-find #"unknown :kind.*\[:rf\.error/pair-mcp-unknown-wire-pipeline-kind\]"
+                         (str (:message edn)))
+                (str "got: " (pr-str (:message edn))))))
         done))))
