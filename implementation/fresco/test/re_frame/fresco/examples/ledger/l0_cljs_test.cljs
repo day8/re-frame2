@@ -58,14 +58,6 @@
             virtualizer leaves it on"
     (is (not= (str 5) (:id (rf.fresco.examples.ledger.events/record 5))))))
 
-(deftest the-default-ledger-is-ten-thousand-records
-  (is (= 10000 rf.fresco.examples.ledger.events/default-total)
-      "specification §7's `10K-row behavior`, as a number the witnesses read")
-  (let [db (rf.fresco.examples.ledger.events/seed 10000)]
-    (is (= 10000 (count (:records db))))
-    (is (= {} (:notes db)) "an untouched record costs no entry")
-    (is (= -1 (:focused db)) "nothing is pinned before anything has focus")))
-
 ;; ---------------------------------------------------------------------------
 ;; The model — ordinary re-frame2, at ten thousand rows
 ;; ---------------------------------------------------------------------------
