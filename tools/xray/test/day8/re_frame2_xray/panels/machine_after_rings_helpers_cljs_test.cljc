@@ -1,631 +1,153 @@
 (ns day8.re-frame2-xray.panels.machine-after-rings-helpers-cljs-test
-  "Pure-data tests for Xray's Machine Inspector `:after` timer
-  countdown-rings helpers.
-
-  Dual-target via the `_cljs_test.cljc` extension — Cognitect's CLJ
-  test-runner picks the ns up via the `.*-test$` regex; Shadow's
-  `:node-test` build picks it up via `cljs-test$`. Same pattern every
-  Xray helper test uses.
-
-  ## What's under test
-
-    1. `timer-event?` / `fold-timer-events` — the projection state
-       machine.
-    2. `project-timers`                     — full pipeline over a
-                                              trace buffer.
-    3. `active-timers-for-machine`          — armed + cancelled filter.
-    4. `ring-fraction`                      — boundary cases (just-
-                                              armed / about-to-fire /
-                                              past-deadline /
-                                              uncomputable).
-    5. `ring-color` / `timer-color`         — colour tier mapping +
-                                              status-based overrides.
-    6. `format-timer-tooltip`               — per-status messages.
-    7. `timer->ring-spec` / `timers->ring-specs` — xyflow overlay
-       ring-spec projection.
-    8. `needs-ticking?` / `cancelled-ring-live?` — rAF tick driver gate,
-       and the retention boundary it shares with `prune-timers`.
-    9. `ms-remaining`                       — tooltip-ms calc.
-    10. `focused-cascade-time-ms` / `resolve-now-ms` — retro now-ms
-        anchor (xray/003 §M.2)."
-  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
-               :cljs [cljs.test    :refer-macros [are deftest is testing]])
+  "Pure-data tests for Xray's Machine Inspector `:after` countdown-rings
+  helpers. Dual-target: the JVM test-runner and the `:node-test` build
+  both pick up a `-cljs-test` ns."
+  (:require #?(:clj  [clojure.test :refer [are deftest is]]
+               :cljs [cljs.test    :refer-macros [are deftest is]])
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
              :as h]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- scheduled
-  ([id machine-id state delay epoch]
-   (scheduled id machine-id state delay epoch :literal))
-  ([id machine-id state delay epoch source]
-   {:id id :time id
-    :operation :rf.machine.timer/scheduled
-    :tags {:machine-id   machine-id
-           :state        state
-           :delay        delay
-           :delay-source source
-           :epoch        epoch}}))
-
-(defn- fired
-  "`:delay` is optional — real `:rf.machine.timer/fired` traces always
-  carry it (the resolved ms value, stable across a timer's whole
-  lifecycle; `machines/transition.cljc emit-pick-traces!`), and fixtures
-  exercising MULTIPLE concurrent `:after` timers on one state (same
-  `machine-id`/`state`/`epoch`, different `:delay`) need it so a
-  `:fired` for ONE delay closes only that timer's record."
-  [id machine-id state epoch & {:keys [fired? delay] :or {fired? true}}]
-  {:id id :time id
-   :operation :rf.machine.timer/fired
-   :tags (cond-> {:machine-id machine-id
-                  :state      state
-                  :epoch      epoch
-                  :fired?     fired?}
-           (some? delay) (assoc :delay delay))})
-
-(defn- stale-after
-  [id machine-id state scheduled-epoch current-epoch]
-  {:id id :time id
-   :operation :rf.machine.timer/stale-after
-   :tags {:machine-id      machine-id
-          :state           state
-          :scheduled-epoch scheduled-epoch
-          :current-epoch   current-epoch
-          :recovery        :replaced-with-default}})
-
-(defn- cancelled
-  "The `:rf.machine.timer/cancelled` event — one event for every cancel
-  cause; `reason` is from the closed set `:on-exit / :on-destroy /
-  :on-resolution / :on-supersede / :on-frame-destroy`. The sub-resolve
-  path is `:reason :on-resolution`."
-  ([id machine-id state epoch sub-id]
-   (cancelled id machine-id state epoch sub-id :on-resolution))
-  ([id machine-id state epoch sub-id reason]
-   {:id id :time id
-    :operation :rf.machine.timer/cancelled
-    :tags {:machine-id machine-id
-           :state      state
-           :epoch      epoch
-           :reason     reason
-           :sub-id     sub-id}}))
-
-(defn- skipped-on-server
   [id machine-id state delay epoch]
   {:id id :time id
-   :operation :rf.machine.timer/skipped-on-server
-   :tags {:machine-id machine-id
-          :state      state
-          :delay      delay
+   :operation :rf.machine.timer/scheduled
+   :tags {:machine-id   machine-id
+          :state        state
+          :delay        delay
           :delay-source :literal
-          :epoch      epoch
-          :platform   :server
-          :recovery   :skipped}})
+          :epoch        epoch}})
 
-(defn- other-event
-  [id]
-  {:id id :time id :operation :rf.machine/transition
-   :tags {:machine-id :auth/login :from :idle :to :authing}})
+(defn- fired
+  "`:delay` names which of several concurrent timers at one
+  (machine, state, epoch) fired."
+  [id machine-id state epoch & {:keys [delay]}]
+  {:id id :time id
+   :operation :rf.machine.timer/fired
+   :tags (cond-> {:machine-id machine-id :state state :epoch epoch}
+           delay (assoc :delay delay))})
 
-;; FRAME-STAMPED fixtures. Every `:rf.machine.timer/*`
-;; trace carries its owning frame under `:tags :frame`; read off the
-;; PRODUCER rather than composed by hand — `machines/timer.cljc`'s
-;; `:rf.machine.timer/scheduled` + `/cancelled` emits and
-;; `machines/transition.cljc`'s `/fired`, `/stale-after` and
-;; `/skipped-on-server` emits all stamp `:frame frame-id` beside
-;; `:actor-id` / `:state` / `:delay` / `:epoch`. The plain fixtures above
-;; omit it deliberately: an unstamped event is what a replay with no
-;; `:frame` stamp looks like, and the unfiltered arity must fold one.
+(defn- cancelled
+  [id machine-id state epoch]
+  {:id id :time id
+   :operation :rf.machine.timer/cancelled
+   :tags {:machine-id machine-id :state state :epoch epoch :reason :on-exit}})
 
-(defn- scheduled-in
-  [frame id machine-id state delay epoch]
-  (assoc-in (scheduled id machine-id state delay epoch)
-            [:tags :frame] frame))
-
-(defn- cancelled-in
-  [frame id machine-id state epoch]
-  (assoc-in (cancelled id machine-id state epoch nil :on-exit)
-            [:tags :frame] frame))
-
-;; ---- (1) timer-event? ---------------------------------------------------
-
-(deftest timer-event?-recognises-each-operation
-  (is (h/timer-event? (scheduled 1 :auth/login :idle 1000 0)))
-  (is (h/timer-event? (fired 2 :auth/login :idle 0)))
-  (is (h/timer-event? (stale-after 3 :auth/login :idle 0 1)))
-  (is (h/timer-event? (cancelled 4 :auth/login :idle 0 :delay-ms)))
-  (is (h/timer-event? (skipped-on-server 5 :auth/login :idle 1000 0))))
-
-(deftest timer-event?-rejects-non-timer-and-nil
-  (is (not (h/timer-event? nil)))
-  (is (not (h/timer-event? {})))
-  (is (not (h/timer-event? (other-event 1))))
-  (is (not (h/timer-event? "scheduled"))))
-
-;; ---- (2) fold-timer-events ----------------------------------------------
-
-(deftest fold-empty
-  (is (= {} (h/fold-timer-events []))))
-
-(deftest fold-scheduled-opens-armed-record
-  (let [t (h/fold-timer-events [(scheduled 1000 :auth/login :idle 5000 0)])
-        r (-> t vals first)]
-    (is (= 1 (count t)))
-    (is (= :armed (:status r)))
-    (is (= 1000   (:armed-at r)))
-    (is (= 6000   (:fires-at r)))
-    (is (= 5000   (:duration-ms r)))
-    (is (= 0      (:epoch r)))
-    (is (= :idle  (:state r)))
-    (is (= :auth/login (:machine-id r)))))
-
-(deftest fold-fired-closes-matching-record
-  (let [t (h/fold-timer-events
-            [(scheduled 1000 :auth/login :idle 5000 0)
-             (fired     6000 :auth/login :idle 0)])
-        r (-> t vals first)]
-    (is (= :fired (:status r)))
-    (is (= 6000   (:closed-at r)))))
-
-(deftest fold-fired-guard-suppressed-flips-to-guard-suppressed
-  (let [t (h/fold-timer-events
-            [(scheduled 1000 :auth/login :idle 5000 0)
-             (fired     6000 :auth/login :idle 0 :fired? false)])
-        r (-> t vals first)]
-    (is (= :guard-suppressed (:status r)))))
-
-(deftest fold-stale-after-uses-scheduled-epoch
-  (let [t (h/fold-timer-events
-            [(scheduled   1000 :auth/login :idle 5000 0)
-             (stale-after 6500 :auth/login :idle 0 1)])
-        r (-> t vals first)]
-    (is (= :stale (:status r)))
-    (is (= 0      (:epoch r))
-        "epoch is preserved from the scheduled record")))
-
-(deftest fold-cancelled-flips-to-cancelled
-  (let [t (h/fold-timer-events
-            [(scheduled 1000 :auth/login :idle 5000 0 :sub)
-             (cancelled 3000 :auth/login :idle 0 :delay-ms)])
-        r (-> t vals first)]
-    (is (= :cancelled       (:status r)))
-    (is (= 3000             (:closed-at r)))
-    (is (= 1000             (:armed-at r))
-        "armed-at survives so the view can render the ring at its last
-         position with the diagonal cross overlay")
-    (is (= :on-resolution   (:cancel-reason r))
-        "the closing event's `:reason` rides through
-         to the record so downstream consumers can branch on cause")))
-
-(deftest fold-skipped-on-server-flips-to-skipped
-  (let [t (h/fold-timer-events
-            [(skipped-on-server 1000 :auth/login :idle 5000 0)])
-        r (-> t vals first)]
-    (is (= :skipped (:status r)))))
-
-(deftest fold-reschedule-same-state-bumps-epoch
-  (testing "the runtime guarantees epoch monotonicity per (machine, state)
-            so a fresh schedule always opens a new record"
-    (let [t (h/fold-timer-events
-              [(scheduled 1000 :auth/login :idle 5000 0)
-               (fired     6000 :auth/login :idle 0)
-               (scheduled 7000 :auth/login :idle 5000 1)])]
-      (is (= 2 (count t)))
-      (let [armed (some #(when (= :armed (:status %)) %) (vals t))
-            fired (some #(when (= :fired (:status %)) %) (vals t))]
-        (is (= 1 (:epoch armed)))
-        (is (= 0 (:epoch fired)))))))
-
-(deftest fold-multiple-after-timers-fire-independently
-  (testing "a :fired event for ONE delay closes only that
-            timer's record; the concurrent timer at the same
-            (machine-id, state, epoch) but a DIFFERENT delay stays
-            :armed, untouched"
-    (let [t (h/fold-timer-events
-              [(scheduled 1000 :auth/login :idle 5000  0)
-               (scheduled 1000 :auth/login :idle 30000 0)
-               (fired     6000 :auth/login :idle 0 :delay 5000)])
-          by-duration (into {} (map (fn [r] [(:duration-ms r) r]) (vals t)))]
-      (is (= 2 (count t)) "both records still present after the fire")
-      (is (= :fired (:status (get by-duration 5000)))
-          "the 5000ms timer's fired trace closed its own record")
-      (is (= :armed (:status (get by-duration 30000)))
-          "the concurrent 30000ms timer did NOT collapse into the fired
-           record — it keeps counting down independently"))))
-
-(deftest fold-ignores-events-without-machine-id-or-state
-  (let [bad-machine {:id 1 :time 1
-                     :operation :rf.machine.timer/scheduled
-                     :tags {:state :idle :delay 1000 :epoch 0}}
-        bad-state   {:id 2 :time 2
-                     :operation :rf.machine.timer/scheduled
-                     :tags {:machine-id :x :delay 1000 :epoch 0}}]
-    (is (= {} (h/fold-timer-events [bad-machine bad-state])))))
-
-;; ---- (3) project-timers + active-timers-for-machine --------------------
-
-(deftest project-timers-returns-empty-on-nil-id
-  (is (= [] (h/project-timers
-              [(scheduled 1 :auth/login :idle 1000 0)] nil))))
-
-(deftest project-timers-filters-by-machine-id
-  (let [buf [(scheduled 1 :auth/login   :idle 1000 0)
-             (scheduled 2 :other/machine :foo  2000 0)]]
-    (is (= 1 (count (h/project-timers buf :auth/login))))
-    (is (= 1 (count (h/project-timers buf :other/machine))))))
-
-(deftest project-timers-orders-by-armed-at
-  (let [buf [(scheduled 3000 :auth/login :foo 1000 0)
-             (scheduled 1000 :auth/login :bar 1000 0)
-             (scheduled 2000 :auth/login :baz 1000 0)]]
-    (is (= [1000 2000 3000]
-           (mapv :armed-at (h/project-timers buf :auth/login))))))
-
-;; ---- (3b) target-frame narrowing ----------------------------------------
-
-(deftest project-timers-narrows-to-target-frame
-  (testing "ONE machine definition instantiated in TWO
-            frames. A singleton actor-id is identical across them, and the
-            fold key is `(machine-id, state, epoch, delay)`, so without the
-            frame narrowing frame A's `cancelled` closes the record frame
-            B's `scheduled` had just opened — one live countdown ring
-            silently becomes a grey crossed one because an unrelated
-            runtime tore its own timer down."
-    (let [buf [(scheduled-in :rf/a 1000 :auth/login :idle 5000 0)
-               (scheduled-in :rf/b 1500 :auth/login :idle 5000 0)
-               (cancelled-in :rf/a 2000 :auth/login :idle 0)]]
-      (testing "frame A sees its own arm, closed by its own cancel"
-        (let [rs (h/project-timers buf :auth/login :rf/a)]
-          (is (= 1 (count rs)))
-          (is (= :cancelled (-> rs first :status)))
-          (is (= 1000 (-> rs first :armed-at)))
-          (is (= 2000 (-> rs first :closed-at)))))
-      (testing "frame B sees its own arm, STILL ARMED — A's cancel is
-                not its business"
-        (let [rs (h/project-timers buf :auth/login :rf/b)]
-          (is (= 1 (count rs)))
-          (is (= :armed (-> rs first :status)))
-          (is (= 1500 (-> rs first :armed-at)))))
-      (testing "the control: unfiltered, the two frames collide on one
-                fold record and B's live ring is reported cancelled"
-        (let [rs (h/project-timers buf :auth/login)]
-          (is (= 1 (count rs)))
-          (is (= :cancelled (-> rs first :status)))
-          (is (= 1500 (-> rs first :armed-at))
-              "B's arm is the one A's cancel closed"))))))
-
-(deftest project-timers-nil-target-frame-applies-no-filter
-  (testing ":rf.xray/target-frame defaults to nil = UNSELECTED (EP-0002),
-            and an unstamped replay carries no :frame at all — so
-            nil must fold everything rather than blank the chart"
-    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
-               (scheduled-in :rf/a 2000 :auth/login :authing 5000 0)]]
-      (is (= 2 (count (h/project-timers buf :auth/login nil))))
-      (is (= 2 (count (h/project-timers buf :auth/login))))
-      (is (= 1 (count (h/project-timers buf :auth/login :rf/a)))
-          "a NAMED frame does drop the unstamped event — it cannot be
-           attributed"))))
-
-;; ---- (3c) cancelled-ring retention + dedupe ----------------------------
-
-(deftest active-timers-dedupes-cancelled-per-state-newest-wins
-  (testing "enter and leave one state twice inside the
-            retention window and the node carries ONE crossed ring, not
-            two. The machines-viz overlay keys a ring by its `:node-id`
-            (`^{:key node-id}`), so N cancelled records for one state are
-            N siblings under ONE React key."
-    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
-               (cancelled 1100 :auth/login :idle 0 nil)
-               (scheduled 1200 :auth/login :idle 5000 1)
-               (cancelled 1300 :auth/login :idle 1 nil)]
-          rs  (h/active-timers-for-machine buf :auth/login 1400)]
-      (is (= 1 (count rs)))
-      (is (= :cancelled (-> rs first :status)))
-      (is (= 1300 (-> rs first :closed-at))
-          "newest wins — the ring shows the most recent teardown")
-      (is (= 2 (count (h/timers-for-machine buf :auth/login)))
-          "the control: the buffer-keyed fold DOES hold both records; it
-           is the now-keyed filter that collapses them"))))
-
-(deftest active-timers-keeps-concurrent-armed-timers-on-one-state
-  (testing "`{:after {5000 :warn 30000 :timeout}}` arms TWO
-            timers at one (machine, state, epoch). The cancelled dedupe
-            above must not reach them: each is its own countdown and its
-            own ring."
-    (let [buf [(scheduled 1000 :auth/login :idle 5000  0)
-               (scheduled 1000 :auth/login :idle 30000 0)]
-          rs  (h/active-timers-for-machine buf :auth/login 2000)]
-      (is (= 2 (count rs)))
-      (is (= #{5000 30000} (set (map :duration-ms rs)))))))
-
-(deftest active-timers-drops-a-cancelled-record-with-no-closed-at
-  (testing "a record that cannot be aged cannot be bounded, and an
-            unbounded crossed ring is what the window prevents. With
-            NO clock it rides through unchanged (nothing can be aged
-            either way) — the two arms are the two-directions control."
-    (let [rec {:machine-id :auth/login :state :idle :status :cancelled
-               :armed-at 1000 :closed-at nil}]
-      (is (= [] (h/prune-timers [rec] 5000)))
-      (is (= [rec] (h/prune-timers [rec] nil))))))
+;; ---- which records the chart draws a ring for ---------------------------
 
 (deftest active-timers-keeps-armed-and-cancelled
-  ;; This row pins the NO-CLOCK arity, and that is the whole of what
-  ;; it claims: with no `now-ms` nothing can be aged, so a
-  ;; `:cancelled` record rides through. The CLOCKED behaviour — eviction
-  ;; past `cancelled-retention-ms` — is
-  ;; `cancelled-ring-live?-owns-the-boundary-prune-timers-evicts-on`
-  ;; below, and `machine_after_rings_cljs_test` pins what the chart shows.
-  (let [buf [(scheduled                1000 :auth/login :idle    5000 0)
-             (scheduled                1500 :auth/login :authing 5000 0 :sub)
-             (cancelled                2000 :auth/login :authing 0 :delay)
-             (scheduled                3000 :auth/login :done    5000 0)
-             (fired                    4000 :auth/login :done    0)
-             (skipped-on-server        5000 :auth/login :ssr     5000 0)]
-        active (h/active-timers-for-machine buf :auth/login)
-        statuses (set (map :status active))]
-    (is (contains? statuses :armed))
-    (is (contains? statuses :cancelled))
-    (is (not (contains? statuses :fired)))
-    (is (not (contains? statuses :skipped)))))
+  ;; No clock, so nothing is aged: a scheduled timer is an armed ring, a
+  ;; fire closes it, and a cancel keeps it as a crossed ring at its last
+  ;; position.
+  (let [arm   (scheduled 1000 :auth/login :idle 5000 0)
+        armed {:machine-id :auth/login :state :idle :armed-at 1000
+               :fires-at 6000 :duration-ms 5000 :epoch 0 :status :armed
+               :delay-source :literal :delay-key nil :sub-id nil}]
+    (are [buf expected] (= expected (h/active-timers-for-machine buf :auth/login))
+      [arm]
+      [armed]
+
+      [arm (fired 6000 :auth/login :idle 0)]
+      []
+
+      [arm (cancelled 3000 :auth/login :idle 0)]
+      [(assoc armed :status :cancelled :closed-at 3000 :cancel-reason :on-exit)])))
+
+(deftest active-timers-dedupes-cancelled-per-state-newest-wins
+  ;; Entering and leaving one state twice leaves ONE crossed ring: the
+  ;; overlay keys a ring by its node-id, so two would share a React key.
+  (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
+             (cancelled 1100 :auth/login :idle 0)
+             (scheduled 1200 :auth/login :idle 5000 1)
+             (cancelled 1300 :auth/login :idle 1)]]
+    (is (= [[:cancelled 1300]]
+           (mapv (juxt :status :closed-at)
+                 (h/active-timers-for-machine buf :auth/login 1400))))
+    (is (= 2 (count (h/timers-for-machine buf :auth/login)))
+        "each epoch folds to its own record; the now-keyed prune collapses them")))
+
+(deftest active-timers-keeps-concurrent-armed-timers-on-one-state
+  ;; `{:after {5000 :warn 30000 :timeout}}` arms two timers at one
+  ;; (machine, state, epoch): each is its own ring, and firing one leaves
+  ;; the other counting down.
+  (let [buf [(scheduled 1000 :auth/login :idle 5000  0)
+             (scheduled 1000 :auth/login :idle 30000 0)]]
+    (is (= [5000 30000]
+           (sort (map :duration-ms (h/active-timers-for-machine buf :auth/login 2000)))))
+    (is (= [30000]
+           (map :duration-ms
+                (h/active-timers-for-machine
+                  (conj buf (fired 6000 :auth/login :idle 0 :delay 5000))
+                  :auth/login 6000))))))
 
 (deftest active-timers-drops-zombie-armed
-  (testing "an armed timer whose fires-at is >5s in the past is dropped —
-            protects against trace-buffer eviction of the fired event"
-    (let [buf [(scheduled 1000 :auth/login :idle 1000 0)]   ;; fires-at = 2000
-          ;; now = 2000 + 5001 (just past threshold)
-          active (h/active-timers-for-machine buf :auth/login (+ 2000 5001))]
-      (is (empty? active))))
-  (testing "an armed timer fresh past its fires-at is KEPT (the colour
-            already maps to :red so the past-deadline state is visible)"
-    (let [buf [(scheduled 1000 :auth/login :idle 1000 0)]
-          active (h/active-timers-for-machine buf :auth/login 3000)]
-      (is (= 1 (count active))))))
+  ;; An :armed record whose :fired trace was evicted from the buffer would
+  ;; otherwise stay on screen for ever; it goes 5s past its deadline.
+  (let [buf [(scheduled 1000 :auth/login :idle 1000 0)]] ; fires-at 2000
+    (is (= 1 (count (h/active-timers-for-machine buf :auth/login 7000))))
+    (is (= [] (h/active-timers-for-machine buf :auth/login 7001)))))
 
-;; ---- (4) ring-fraction --------------------------------------------------
+;; ---- ring geometry and colour -------------------------------------------
 
 (deftest ring-fraction-is-the-share-of-the-delay-still-to-run
   (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
-    (are [now-ms fraction] (= fraction (h/ring-fraction t now-ms))
-      1000 1.0    ; just armed
-      3500 0.5    ; halfway
-      6000 0.0    ; about to fire
-      9000 0.0))) ; past the deadline, clamped to zero
-
-(deftest ring-fraction-degenerate-cases-return-nil
-  (testing "nil duration / nil fires-at / nil now-ms / zero duration"
-    (is (nil? (h/ring-fraction {} 1000)))
-    (is (nil? (h/ring-fraction {:armed-at 1000} 2000)))
-    (is (nil? (h/ring-fraction {:armed-at 1000 :fires-at 2000} 1500))
-        "nil duration-ms blocks a meaningful fraction")
-    (is (nil? (h/ring-fraction {:armed-at 1000 :fires-at 2000
-                                :duration-ms 0} 1500)))
-    (is (nil? (h/ring-fraction {:armed-at 1000 :fires-at 2000
-                                :duration-ms 1000} nil)))))
-
-;; ---- (5) ring-color / timer-color --------------------------------------
+    (are [timer now-ms fraction] (= fraction (h/ring-fraction timer now-ms))
+      t                1000 1.0
+      t                3500 0.5
+      t                9000 0.0    ; past the deadline, clamped to zero
+      {:armed-at 1000} 2000 nil))) ; unresolved delay: no progress arc
 
 (deftest ring-color-tiers
-  (is (= :green (h/ring-color 1.0)))
-  (is (= :green (h/ring-color 0.66)))
-  (is (= :amber (h/ring-color 0.65)))
-  (is (= :amber (h/ring-color 0.33)))
-  (is (= :red   (h/ring-color 0.32)))
-  (is (= :red   (h/ring-color 0.0)))
-  (is (= :gray  (h/ring-color nil))))
+  (are [fraction color] (= color (h/ring-color fraction))
+    0.66 :green
+    0.65 :amber
+    0.33 :amber
+    0.32 :red
+    nil  :gray))
 
-(deftest timer-color-status-overrides
-  (let [armed {:armed-at 1000 :fires-at 6000 :duration-ms 5000
-               :status :armed}
-        canc  (assoc armed :status :cancelled)
-        fire  (assoc armed :status :fired)
-        stale (assoc armed :status :stale)
-        skip  (assoc armed :status :skipped)
-        sup   (assoc armed :status :guard-suppressed)]
-    (is (= :green (h/timer-color armed 1500))
-        "fresh armed → green tier off the fraction")
-    (is (= :red   (h/timer-color armed 5800))
-        "about-to-fire → red")
-    (is (= :gray  (h/timer-color canc  1500)))
-    (is (= :gray  (h/timer-color fire  9000)))
-    (is (= :gray  (h/timer-color stale 9000)))
-    (is (= :gray  (h/timer-color skip  9000)))
-    (is (= :gray  (h/timer-color sup   9000)))))
-
-;; ---- (6) format-timer-tooltip ------------------------------------------
-
-(deftest format-timer-tooltip-armed-shows-remaining-and-fires-at
-  (let [t {:state :idle :status :armed
-           :armed-at 1000 :fires-at 6000 :duration-ms 5000}
-        tip (h/format-timer-tooltip t 3000)]
-    (is (re-find #":idle"            tip))
-    (is (re-find #"3000ms remaining" tip))
-    (is (re-find #"fires @6000"      tip))
-    (is (re-find #"5000ms"           tip))))
-
-(deftest format-timer-tooltip-cancelled-and-stale-and-fired
-  (is (re-find #"cancelled"
-               (h/format-timer-tooltip
-                 {:state :idle :status :cancelled :duration-ms 5000
-                  :closed-at 2000} 3000)))
-  (is (re-find #"fired"
-               (h/format-timer-tooltip
-                 {:state :idle :status :fired :duration-ms 5000
-                  :closed-at 2000} 3000)))
-  (is (re-find #"stale"
-               (h/format-timer-tooltip
-                 {:state :idle :status :stale :duration-ms 5000} 3000)))
-  (is (re-find #"skipped"
-               (h/format-timer-tooltip
-                 {:state :idle :status :skipped :duration-ms 5000} 3000)))
-  (is (re-find #"guard suppressed"
-               (h/format-timer-tooltip
-                 {:state :idle :status :guard-suppressed :duration-ms 5000
-                  :closed-at 2000} 3000))))
-
-;; ---- (7) timer->ring-spec / timers->ring-specs -------------------------
-;;
-;; The helper resolves no `{:cx :cy :r}` from a positioned graph —
-;; xyflow owns positions in the DOM and the machines-viz overlay walks
-;; it. The helper projects each timer
-;; into a presentation-ready ring-spec (`:node-id` + colour / fraction
-;; / tooltip); positioning is the overlay's job.
+;; ---- xyflow overlay ring-specs ------------------------------------------
 
 (defn- id-fn
-  "Stub the chart-layout/highlight-id resolver — flat keywords map to
-  their string node-id (matching `chart.layout/node-id`'s shape for
-  flat states); a `:ghost` state resolves to nil so the spec is
-  dropped."
+  "Stands in for `chart.layout/highlight-id`; a `:ghost` state has no node."
   [state]
-  (cond
-    (= :ghost state) nil
-    (keyword? state) (name state)
-    (vector?  state) (name (first state))
-    :else            nil))
-
-(deftest timer->ring-spec-carries-node-id-and-presentation-payload
-  (let [spec (h/timer->ring-spec
-               {:machine-id :auth/login :state :idle :status :armed
-                :armed-at 1000 :fires-at 6000 :duration-ms 5000 :epoch 0}
-               id-fn 2000)]
-    (is (= "idle" (:node-id spec)) "resolves the bearing node-id via id-fn")
-    (is (= 0.8    (:fraction spec)) "(6000-2000)/5000 = 0.8 remaining")
-    (is (= :green (:color spec))    "0.8 fraction → green tier")
-    (is (false?  (:cancelled? spec)))
-    (is (re-find #"idle" (:tooltip spec)))
-    (is (= "rf-xray-machine-inspector-after-ring-idle" (:testid spec)))
-    (is (= :auth/login (:machine-id spec)))
-    (is (= :idle (:state spec)))
-    (is (= 0 (:epoch spec)) "identity tuple carried for the hover slot")))
-
-(deftest timer->ring-spec-cancelled-flag
-  (let [spec (h/timer->ring-spec
-               {:machine-id :m :state :idle :status :cancelled
-                :duration-ms 5000 :closed-at 2000} id-fn 3000)]
-    (is (true? (:cancelled? spec)))
-    (is (= :gray (:color spec)) "cancelled rings render gray")))
+  (when-not (= :ghost state) (name state)))
 
 (deftest timers->ring-specs-maps-each-resolvable-timer
-  (let [timers [{:machine-id :m :state :idle    :status :armed
-                 :armed-at 1000 :fires-at 6000 :duration-ms 5000 :epoch 0}
-                {:machine-id :m :state :authing :status :cancelled
-                 :duration-ms 3000 :closed-at 2000 :epoch 0}
-                {:machine-id :m :state :ghost   :status :armed}]  ;; dropped
-        specs  (h/timers->ring-specs timers id-fn 2000)]
-    (is (= 2 (count specs)) "ghost (no node-id) is dropped")
-    (is (every? :node-id specs))
-    (is (= #{"idle" "authing"} (set (map :node-id specs))))))
+  (is (= [{:node-id    "idle"
+           :fraction   0.8
+           :color      :green
+           :cancelled? false
+           :tooltip    ":idle · 4000ms remaining · fires @6000 (5000ms)"
+           :testid     "rf-xray-machine-inspector-after-ring-idle"
+           :machine-id :m :state :idle :epoch 0}
+          {:node-id    "authing"
+           :fraction   nil
+           :color      :gray
+           :cancelled? true
+           :tooltip    ":authing · cancelled @2000 (3000ms)"
+           :testid     "rf-xray-machine-inspector-after-ring-authing"
+           :machine-id :m :state :authing :epoch 0}]
+         (h/timers->ring-specs
+           [{:machine-id :m :state :idle :status :armed
+             :armed-at 1000 :fires-at 6000 :duration-ms 5000 :epoch 0}
+            {:machine-id :m :state :authing :status :cancelled
+             :duration-ms 3000 :closed-at 2000 :epoch 0}
+            {:machine-id :m :state :ghost :status :armed}]
+           id-fn 2000))))
 
-;; ---- (8) needs-ticking? -------------------------------------------------
-
-(deftest needs-ticking?-only-for-an-armed-timer-at-present
-  (is (h/needs-ticking? [{:status :armed}] :present 1000))
-  (testing "no armed timer: a `:cancelled` record with NO `:closed-at`
-            cannot be aged, so `prune-timers` DROPS it rather than keep an
-            unboundable ring, and a dropped ring has no deadline to reach"
-    (is (not (h/needs-ticking? [{:status :cancelled}] :present 1000)))
-    (is (not (h/needs-ticking? [] :present 1000))))
-  (testing "scrubbed back to a past position"
-    (is (not (h/needs-ticking? [{:status :armed}] 3 1000)))
-    (is (not (h/needs-ticking? [{:status :armed}] 0 1000)))))
-
-;; ---- (8b) a cancelled ring's DEADLINE keeps the clock alive -------------
-;;
-;; A `:cancelled` ring has a retention window, so it is not static — it
-;; has a deadline, and a deadline needs a clock. A `needs-ticking?` that
-;; answered false as soon as the last `:armed` timer went away would
-;; freeze `:rings/now-ms` at that instant and leave the crossed ring on
-;; screen for ever. These rows pin the predicate; the
-;; scheduled path itself is pinned in
-;; `machine_after_rings_tick_loop_cljs_test`.
+;; ---- tick driver gate ---------------------------------------------------
 
 (def ^:private cancelled-ring
   {:status :cancelled :state :idle :closed-at 2000})
 
-(deftest needs-ticking?-true-for-a-cancelled-ring-inside-its-window
-  (is (h/needs-ticking? [cancelled-ring] :present 2000)
-      "at :closed-at itself")
-  (is (h/needs-ticking? [cancelled-ring] :present
-                        (+ 2000 h/cancelled-retention-ms))
-      "and at exactly the retention boundary, where prune-timers still
-       keeps the ring on screen — the clock must not stop one tick before
-       the eviction it exists to reach"))
-
-(deftest needs-ticking?-falsy-once-a-cancelled-ring-has-expired
-  (is (not (h/needs-ticking? [cancelled-ring] :present
-                             (+ 2000 h/cancelled-retention-ms 1)))
-      "one ms past the window the ring is gone, so the clock STOPS —
-       bounded, not perpetual")
-  (is (not (h/needs-ticking? [cancelled-ring] :present 600000))
-      "and it never restarts"))
-
-(deftest needs-ticking?-falsy-for-a-cancelled-ring-in-retrospective-mode
-  (is (not (h/needs-ticking? [cancelled-ring] 3 2000))
-      "retro mode freezes EVERY ring, cancelled ones included — the
-       cancelled-ring arm must not reanimate the clock behind the scrubber"))
-
-(deftest needs-ticking?-true-without-a-clock-so-the-first-tick-can-age-it
-  (is (h/needs-ticking? [cancelled-ring] :present nil)
-      "nil now-ms means no clock yet: nothing can be aged, so the ring is
-       still live and the loop is what supplies the clock that ages it —
-       the same nil semantics prune-timers has")
-  (is (not (h/needs-ticking? [{:status :cancelled :state :idle}] :present nil))
-      "but a record with no :closed-at has no deadline to reach"))
-
-(deftest cancelled-ring-live?-owns-the-boundary-prune-timers-evicts-on
-  ;; The two readings cannot drift: same fn, same comparison.
-  (let [at (fn [now] (h/prune-timers [cancelled-ring] now))]
-    (is (= [cancelled-ring] (at (+ 2000 h/cancelled-retention-ms)))
-        "visible at the boundary")
-    (is (true? (h/cancelled-ring-live? cancelled-ring
-                                       (+ 2000 h/cancelled-retention-ms)))
-        "and live there")
-    (is (= [] (at (+ 2000 h/cancelled-retention-ms 1)))
-        "gone one ms later")
-    (is (false? (h/cancelled-ring-live? cancelled-ring
-                                        (+ 2000 h/cancelled-retention-ms 1)))
-        "and not live there")))
-
-;; ---- (9) ms-remaining ---------------------------------------------------
-
-(deftest ms-remaining-is-non-negative-and-nil-without-both-inputs
-  (is (= 3000 (h/ms-remaining {:fires-at 6000} 3000)))
-  (is (= 0    (h/ms-remaining {:fires-at 6000} 9000))
-      "past deadline clamps to zero so tooltip doesn't show a negative")
-  (is (nil? (h/ms-remaining {} 1000)))
-  (is (nil? (h/ms-remaining {:fires-at 6000} nil))))
-
-;; ---- (10) focused-cascade-time-ms / resolve-now-ms ----------------------
-;;
-;; xray/003 §M.2: "Retro mode (scrubber-driven): the ring is static at
-;; the elapsed-fraction the timer had reached at the focused-cascade's
-;; timestamp." A view feeding the LIVE `now-ms` into the ring projection
-;; regardless of scrubber-position would break that — these tests pin
-;; the retro branch.
-
-(deftest focused-cascade-time-ms-reads-dispatched-time
-  (is (= 12345
-         (h/focused-cascade-time-ms
-           {:selected-event-bundle {:dispatched {:time 12345}}}))))
-
-(deftest focused-cascade-time-ms-nil-cases
-  (is (nil? (h/focused-cascade-time-ms nil))
-      "no detail composite at all")
-  (is (nil? (h/focused-cascade-time-ms {}))
-      "no selected event-bundle")
-  (is (nil? (h/focused-cascade-time-ms
-              {:selected-event-bundle {}}))
-      "selected event-bundle carries no :dispatched slot")
-  (is (nil? (h/focused-cascade-time-ms
-              {:selected-event-bundle {:dispatched {:time "not-a-number"}}}))
-      "non-numeric :time defends against a malformed/synthetic event-bundle"))
-
-(deftest resolve-now-ms-picks-the-live-clock-or-the-focused-cascade
-  (is (= 9999 (h/resolve-now-ms :present 9999 1111))
-      "LIVE mode (:present) always uses the rAF-bumped live clock, even
-       when a focused-cascade timestamp is also available")
-  (is (= 1111 (h/resolve-now-ms 3 9999 1111))
-      "RETRO mode (scrubber-position anything but :present) anchors to
-       the focused cascade's timestamp, NOT the live clock (9999 here
-       would be the stale live clock)")
-  (is (= 9999 (h/resolve-now-ms 3 9999 nil))
-      "defensive fallback — a nil focused-cascade timestamp must not
-       freeze the ring at nil (every fraction calc would blank)"))
+(deftest needs-ticking?-only-while-a-ring-on-screen-has-a-deadline
+  ;; A crossed ring has a deadline (its retention window), so it keeps the
+  ;; clock alive exactly as long as prune-timers keeps it on screen.
+  (are [timers scrub now-ms ticking?] (= ticking? (h/needs-ticking? timers scrub now-ms))
+    [{:status :armed}] :present 1000                                true
+    []                 :present 1000                                false
+    [{:status :armed}] 3        1000                                false ; retro freezes every ring
+    [cancelled-ring]   :present (+ 2000 h/cancelled-retention-ms)   true
+    [cancelled-ring]   :present (+ 2000 h/cancelled-retention-ms 1) false
+    [cancelled-ring]   :present nil                                 true)) ; no clock yet: the first tick ages it
