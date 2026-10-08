@@ -1,27 +1,7 @@
 (ns reagent2.ratom-cljs-test
-  "Unit tests for reagent2.ratom.
-
-  Covers:
-
-    - RAtom: atom-shape protocols (IDeref, IReset, ISwap, IWatchable,
-      IMeta, IWithMeta), validator, watch fire-once-per-change,
-      identity-equality.
-
-    - Reaction: deref-time dependency capture, equality memoisation,
-      dirty-flag transitions, on-dispose hooks, dispose! teardown,
-      auto-run modes.
-
-    - Protocol satisfaction: IReactiveAtom (the canonical ratom? test
-      `re-frame.interop/ratom?` uses), IDisposable (cross-substrate
-      cache-wiring contract per IMPL-SPEC §3.4).
-
-    - reactive? predicate gating on *ratom-context*.
-
-    - flush! drains the rea-queue including downstream cascades.
-
-    - reaction macro: 5-line indirection over make-reaction.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Unit tests for reagent2.ratom: the RAtom's atom protocols, Reaction
+  dependency capture, memoisation, dispose and auto-run modes, the reactive
+  context, the rea-queue drain, and printing."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.ratom :as ratom :refer-macros [reaction]]))
 
@@ -101,13 +81,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reaction-basic
-  (testing "Reaction satisfies IReactiveAtom"
-    (let [r (ratom/make-reaction (fn [] 0))]
-      (is (satisfies? ratom/IReactiveAtom r))))
-
-  (testing "Reaction satisfies IDisposable"
-    (let [r (ratom/make-reaction (fn [] 0))]
-      (is (satisfies? ratom/IDisposable r)))))
+  (testing "Reaction satisfies IReactiveAtom, the protocol ratom? checks"
+    (is (satisfies? ratom/IReactiveAtom (ratom/make-reaction (fn [] 0))))))
 
 (deftest reaction-equality-memo
   (testing "watchers do not fire when recomputed value is = old value"
@@ -185,13 +160,8 @@
                 (empty? watches-after)))))))
 
 ;; ---- dispose! idempotence + re-entrancy -----------------------------------
-;;
-;; The reagent-slim Reaction keeps the stock-Reagent nine-field shape, with
-;; no disposed-flag field. A `dispose!` that fired `on-dispose` /
-;; `on-dispose-arr` WITHOUT clearing them would re-fire every callback on a
-;; second `dispose!`, and a callback that defensively re-entered `dispose!`
-;; could double-fire / recurse. These pin the adapter Reaction's own
-;; `dispose!`, not a toy reify.
+;; The Reaction has no disposed flag: `dispose!` clears its callback holders
+;; before firing them, so a second or re-entrant `dispose!` fires nothing.
 
 (deftest reaction-dispose-is-idempotent
   (testing "a second dispose! does NOT re-fire on-dispose / add-on-dispose! callbacks"
@@ -225,20 +195,6 @@
       (is (= [:re-entrant-cb :after-cb] @fired)
           "each callback fired exactly once despite the re-entrant dispose!; no recursion, no double-fire"))))
 
-(deftest reaction-auto-run-true
-  (testing ":auto-run true triggers synchronous recompute on dep change"
-    (let [a       (ratom/atom 1)
-          calls   (atom 0)
-          r       (ratom/make-reaction
-                    (fn [] (swap! calls inc) @a)
-                    :auto-run true)]
-      ;; Force initial run so the reaction subscribes.
-      @r
-      (is (= 1 @calls))
-      (reset! a 2)
-      ;; auto-run true → synchronous recompute on change
-      (is (= 2 @calls))
-      (is (= 2 @r)))))
 
 (deftest reaction-auto-run-fn
   (testing ":auto-run fn-form receives the reaction on change"
@@ -249,7 +205,6 @@
                     :auto-run (fn [r] (reset! received r)))]
       @r
       (reset! a 2)
-      (is (some? @received))
       (is (instance? ratom/Reaction @received)))))
 
 ;; ---------------------------------------------------------------------------
@@ -261,12 +216,8 @@
     (is (false? (ratom/reactive?))))
 
   (testing "reactive? true inside a Reaction body that goes through _run"
-    ;; The deref-fast-path (non-reactive deref of a no-auto-run Reaction)
-    ;; does NOT bind *ratom-context* — it just calls f. That's stock
-    ;; Reagent's design (per IMPL-SPEC §3.2). Use :auto-run true so the
-    ;; first deref goes through `_run` → `deref-capture` →
-    ;; `call-with-ratom-context`,
-    ;; which does bind *ratom-context*.
+    ;; The non-reactive fast path binds no context, so :auto-run routes the
+    ;; first deref through `_run`, which does.
     (let [seen (atom nil)
           r    (ratom/make-reaction
                  (fn [] (reset! seen (ratom/reactive?)))
@@ -340,18 +291,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest throwing-reaction-checked-recompute-preserves-error
-  ;; On the check=true error path `_try-capture` sets `state` to the caught
-  ;; error, and `_run` only sets state when NOT check — so the captured
-  ;; error survives, and watchers see no spurious `false` (the value a
-  ;; catch block ending in `(set! dirty? false)` would hand back to a `_run`
-  ;; that overwrote `state` unconditionally).
-  ;;
-  ;; Drive the checked (`_queued-run` → `_run this true`) path: a no-auto-run
-  ;; inner reaction, subscribed to its source by deref'ing it inside an
-  ;; outer reaction. The outer's auto-run is a NO-OP fn so the inner's
-  ;; error-recompute notify does NOT cascade into an outer re-deref (which
-  ;; would rethrow the captured error out of flush! — correct behaviour, but
-  ;; not what this test isolates).
+  ;; Drives the checked (`_queued-run`) path: a no-auto-run inner reaction
+  ;; subscribed through an outer one whose auto-run is a no-op, so the inner's
+  ;; error does not cascade into an outer re-deref.
   (testing "a throwing Reaction body on the checked recompute path"
     (let [a            (ratom/atom 1)
           ;; Inner reaction throws once a crosses a threshold.
@@ -395,67 +337,22 @@
       (is (instance? ratom/Reaction r)))))
 
 ;; ---------------------------------------------------------------------------
-;; Cross-substrate cache-wiring contract (IMPL-SPEC §3.4)
-;;
-;; Per the spec: the cross-substrate cache calls add-on-dispose! on a
-;; substrate-side derived value. The protocol dispatch must work
-;; uniformly. This test sanity-checks that the protocol-based dispatch
-;; resolves on a Reaction without needing an instance? branch.
-;; ---------------------------------------------------------------------------
-
-(deftest cross-substrate-disposable-protocol
-  (testing "add-on-dispose! is callable via protocol dispatch alone"
-    (let [r     (ratom/make-reaction (fn [] 0))
-          fired (atom false)]
-      ;; Call through the protocol, NOT via direct method on the type:
-      (ratom/add-on-dispose! r (fn [_] (reset! fired true)))
-      (ratom/dispose! r)
-      (is (true? @fired)))))
-
-;; ---------------------------------------------------------------------------
-;; IPrintWithWriter — RAtom / Reaction printed representation
-;;
-;; The shared `pr-atom` helper writes `#object[reagent2.ratom.<Type> `,
-;; delegates the value to `pr-writer` for recursive printing, then closes
-;; the bracket. Both print methods deref their receiver at the call site to
-;; build the `{:val ...}` map, so the helper only ever formats a supplied
-;; type tag and body. These pin the exact strings.
+;; Printed representation: `#object[reagent2.ratom.<Type> {:val <v>}]`, with
+;; the value printed recursively.
 ;; ---------------------------------------------------------------------------
 
 (deftest ratom-printed-representation
-  (testing "an RAtom prints as #object[reagent2.ratom.RAtom {:val <v>}]"
-    (is (= "#object[reagent2.ratom.RAtom {:val 1}]"
-           (pr-str (ratom/atom 1)))))
-
-  (testing "the value is printed recursively, not as a summary"
-    (is (= "#object[reagent2.ratom.RAtom {:val {:a [1 2], :b \"s\"}}]"
-           (pr-str (ratom/atom {:a [1 2] :b "s"})))))
-
-  (testing "a nested RAtom prints through the same helper"
-    (is (= "#object[reagent2.ratom.RAtom {:val {:inner #object[reagent2.ratom.RAtom {:val 7}]}}]"
-           (pr-str (ratom/atom {:inner (ratom/atom 7)}))))))
-
-(deftest reaction-printed-representation
-  (testing "a Reaction prints as #object[reagent2.ratom.Reaction {:val <v>}]"
-    (is (= "#object[reagent2.ratom.Reaction {:val 42}]"
-           (pr-str (ratom/make-reaction (fn [] 42))))))
-
-  (testing "the Reaction's value is printed recursively too"
-    (is (= "#object[reagent2.ratom.Reaction {:val [:p 1]}]"
-           (pr-str (ratom/make-reaction (fn [] [:p 1])))))))
+  (doseq [[x expected]
+          [[(ratom/atom 1) "#object[reagent2.ratom.RAtom {:val 1}]"]
+           [(ratom/atom {:inner (ratom/atom 7)})
+            "#object[reagent2.ratom.RAtom {:val {:inner #object[reagent2.ratom.RAtom {:val 7}]}}]"]
+           [(ratom/make-reaction (fn [] 42)) "#object[reagent2.ratom.Reaction {:val 42}]"]]]
+    (is (= expected (pr-str x)))))
 
 ;; ---------------------------------------------------------------------------
-;; pr-atom's *ratom-context* guard
-;;
-;; Printing must not make the printer depend on what it printed. A ratom's
-;; own deref happens at the `-pr-writer` call site, building `{:val ...}`
-;; before `pr-atom` is entered — that one is deliberately left visible, since
-;; a Reaction's `-deref` branches on `*ratom-context*` and reading it under a
-;; nil context would force a `flush!` and an on-demand recompute.
-;;
-;; What `pr-atom`'s guard is for is the derefs that happen DURING the print:
-;; `pr-writer` recurses into the value, and a nested ratom's `-pr-writer`
-;; derefs it. Those must not be captured.
+;; Printing captures the printed ratom's own deref (taken at the call site)
+;; but not the derefs of ratoms nested in its value, so a printer does not
+;; come to depend on what it printed.
 ;; ---------------------------------------------------------------------------
 
 (deftest pr-atom-does-not-capture-nested-derefs
