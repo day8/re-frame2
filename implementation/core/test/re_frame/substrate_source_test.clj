@@ -1,51 +1,18 @@
 (ns re-frame.substrate-source-test
-  "Substrate-internal `:source` values stamped at each
-  dispatch site, extending the closed `:ui / :frame-init / :unknown`
-  set:
+  "The `:dispatch-later` fx stamps `:source :fx-dispatch-later` on the deferred
+  dispatch's envelope (Spec 002 §`:source`, Spec-Schemas
+  §`:rf/dispatch-envelope`), so the Epoch panel labels the precise trigger
+  rather than an aggregate. The `:dispatch` fx's `:fx-dispatch` stamp is pinned
+  by `re-frame.cascade-envelope-propagation-test`; the machines artefact pins
+  `:after-timer`, `:machine-spawn` and `:always` in its own tests.
 
-  | `:source` value     | stamped by                | when                                                 |
-  |---------------------|---------------------------|------------------------------------------------------|
-  | `:fx-dispatch-later`| `:dispatch-later` fx handler| the `:dispatch-later` reserved fx fires after delay|
-
-  Per Spec 002 §`:source` / Spec-Schemas §`:rf/dispatch-envelope`, each
-  substrate dispatch site stamps the matching specific value so the
-  Epoch panel's DISPATCH step labels the precise trigger rather than
-  an aggregate (`:fx` / `:unknown`). The `:fx-dispatch` stamp the `:dispatch`
-  fx handler applies is pinned by `re-frame.cascade-envelope-propagation-test`.
-
-  The `:after-timer` and `:machine-spawn` paths live in the machines
-  artefact's own test files (see `machines_after_cljs_test.cljs` and
-  `machines_spawn_cljs_test.cljs`); the `:always` microstep trace
-  carries `:source :always` and is verified in
-  `machines_always_cljs_test.cljs`.
-
-  JVM-only — substrate fx-handler behaviour is platform-agnostic.
-
-  ## Posture split
-
-  The stamp this file is about is a PROPERTY OF THE DISPATCH ENVELOPE. Read
-  only off the `:rf.event/dispatched` trace, which emits nothing under
-  `-Dre-frame.debug=false`, every deftest here would fail under
-  `scripts/test-core-prod-gate.sh` while the thing being asserted is
-  production behaviour.
-
-  The case therefore carries an ALWAYS-ON probe rather than a guard: a
-  `:test/probe` fx running in the parent and in the deferred child captures
-  `(:envelope m)`, the production surface
-  `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot`
-  establishes. The `:source` / `:origin` claims are read off those envelopes and
-  hold in BOTH postures, across the `:dispatch-later` deferral.
-
-  What is left inside the `(when rf.interop/debug-enabled? …)` arms is the
-  narrower claim the trace owns: that `:source` is HOISTED to the trace
-  event's top level (Spec 009 §Core fields) while `:rf.event/origin` rides under
-  `:tags`. That is a trace-shape claim, not a propagation claim.
-
-  The `:dispatch-later` case takes its completion signal from the probe. A
-  promise delivered by the TRACE listener would never arrive under the gate,
-  so the case would burn its full 2s timeout before failing. The probe
-  delivers it in both postures."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The stamp is an envelope property, so an always-on `:test/probe` fx reads
+  `(:envelope m)` in the parent and in the deferred child, in both postures,
+  and also delivers the completion signal (a trace-delivered one would never
+  arrive under `-Dre-frame.debug=false`). Only the claim the trace owns, that
+  `:source` is hoisted to the dispatched event's top level (Spec 009 §Core
+  fields), sits in the dev arm."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -55,8 +22,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; ---- fixtures -------------------------------------------------------------
-
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
@@ -65,59 +30,38 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `init!` does not synthesise `:rf/default` and framework operations need a
+  ;; carried frame (EP-0002), so register it and pin it as the scope.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- :fx-dispatch-later stamp by the :dispatch-later fx handler ----------
-
 (deftest dispatch-later-fx-stamps-source-fx-dispatch-later
-  (testing ":dispatch-later fx stamps `:source :fx-dispatch-later` on the deferred dispatch"
-    (let [seen      (atom [])
-          envelopes (atom {})
-          ;; The completion signal rides the ALWAYS-ON probe, not
-          ;; the trace listener. Waiting on a trace under -Dre-frame.debug=false
-          ;; never returns, so the case would burn its whole 2s timeout
-          ;; before failing.
-          done      (promise)]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (rf/reg-fx :test/probe
-          (fn [m [level]]
-            (swap! envelopes assoc level (:envelope m))
-            (when (= :child level) (deliver done :seen))))
-        (rf/reg-event :test/parent
-          (fn [_ _]
-            {:fx [[:test/probe [:parent]]
-                  [:dispatch-later {:ms 1 :event [:test/child]}]]}))
-        (rf/reg-event :test/child
-          (fn [{:keys [db]} _] {:db db :fx [[:test/probe [:child]]]}))
-
-        (rf/dispatch-sync [:test/parent] {:source :ui})
-
-        (is (= :seen (deref done 2000 :timeout))
-            "the deferred :test/child dispatch fired")
-
-        ;; ---- ALWAYS-ON ---------------------------------------------------
-        (let [parent-env (:parent @envelopes)
-              child-env  (:child  @envelopes)]
-          (is (= :ui                (:source parent-env)))
-          (is (= :fx-dispatch-later (:source child-env))
-              ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch"))
-
-        ;; ---- dev arm ------------------------------------------------------
-        (when rf.interop/debug-enabled?
-          (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
-                parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
-                child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (= :ui                (:source parent-ev)))
-            (is (= :fx-dispatch-later (:source child-ev))
-                ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
+  (let [seen      (atom [])
+        envelopes (atom {})
+        done      (promise)]
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
+    (try
+      (rf/reg-fx :test/probe
+        (fn [m [level]]
+          (swap! envelopes assoc level (:envelope m))
+          (when (= :child level) (deliver done :seen))))
+      (rf/reg-event :test/parent
+        (fn [_ _]
+          {:fx [[:test/probe [:parent]]
+                [:dispatch-later {:ms 1 :event [:test/child]}]]}))
+      (rf/reg-event :test/child (fn [_ _] {:fx [[:test/probe [:child]]]}))
+      (rf/dispatch-sync [:test/parent] {:source :ui})
+      (is (= [:seen :ui :fx-dispatch-later]
+             [(deref done 2000 :timeout)
+              (:source (:parent @envelopes))
+              (:source (:child @envelopes))]))
+      (when rf.interop/debug-enabled?
+        (is (= {[:test/parent] :ui [:test/child] :fx-dispatch-later}
+               (-> (into {} (keep #(when (= :rf.event/dispatched (:operation %))
+                                     [(get-in % [:tags :rf.event/v]) (:source %)]))
+                         @seen)
+                   (select-keys [[:test/parent] [:test/child]])))))
+      (finally (rf/unregister-listener! :trace ::rec)))))
