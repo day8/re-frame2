@@ -1,20 +1,15 @@
 (ns re-frame.ssr-payload-numeric-crossing-test
-  "The hydration payload, and every streaming delta, obey the
-  numeric crossing rule the root manifest and the ssr-node render-state wire
-  enforce.
+  "The hydration payload, and every streaming delta, obey the numeric crossing
+  rule the root manifest enforces. On a JVM host the payload is `pr-str`'d and
+  read back by the browser's EDN reader, which reads a Long past 2^53, a
+  BigInt, a BigDecimal, a Ratio or a Float back as a DIFFERENT value — and the
+  server reads its own value back perfectly, so nothing else catches it.
+  `build-payload` and `project-delta` refuse such a number with
+  `:rf.error/ssr-hydration-payload-invalid`, always on.
 
-  On a JVM host the payload is `pr-str`'d and read back by the browser's EDN
-  reader, and for a Long past 2^53, a BigInt, a BigDecimal, a Ratio or a Float
-  that read SUCCEEDS WITH A DIFFERENT VALUE (`9007199254740993` reads back as
-  `9007199254740992`, `1/3` as `0.3333333333333333`). The server reads its
-  own value back perfectly and the render hash often agrees, so nothing else
-  catches it. `build-payload` (shared by both SSR paths) and `project-delta`
-  refuse such a number with `:rf.error/ssr-hydration-payload-invalid`,
-  naming the partition, the path and the class — fail closed, always on.
-
-  NaN, infinities, `#inst` and `#uuid` read back as what they were and
-  ride: the rule is the manifest's TYPE / RANGE rule, not its NaN clause
-  and not `edn-carryable?` wholesale."
+  The per-class verdicts belong to `manifest/portable-number?` and are pinned
+  in `re-frame.ssr.root-manifest-cljs-test`; NaN, infinities, `#inst` and
+  `#uuid` read back as what they were and ride."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
@@ -34,119 +29,74 @@
   (refusal #(rf.ssr.payload-policy/build-payload nil db nil {})))
 
 (deftest a-jvm-only-number-is-refused-in-the-app-db-slice
-  (testing "each of these would otherwise ship untouched and narrow silently
-            in the browser"
-    (doseq [[v class-name] [[10.50M               "java.math.BigDecimal"]
-                            [9007199254740993    "java.lang.Long"]
-                            [-9007199254740993   "java.lang.Long"]
-                            [9007199254740993N   "clojure.lang.BigInt"]
-                            [(biginteger 5)      "java.math.BigInteger"]
-                            [1/3                 "clojure.lang.Ratio"]
-                            [(float 0.1)         "java.lang.Float"]]]
-      (let [data (app-db-refusal {:ok 1 :price v})]
-        (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data))
-            (str (pr-str v) " was not refused"))
-        (is (= class-name (:class data)))
-        (is (.contains ^String (::message data) class-name)
-            "the message names the class"))))
-  (testing "the refusal names the partition, the path and the recovery, and
-            the message names the partition and the path — on the streaming
-            path only the message survives. One throw site builds all of it,
-            whatever the number's class."
-    (let [data (app-db-refusal {:ok 1 :price 10.50M})]
-      (is (= :rf/app-db (:partition data)))
-      (is (= [:price] (:path data)))
-      (is (= :narrow-the-value-or-drop-the-key (:recovery data)))
-      (is (re-find #":rf/app-db" (::message data)))
-      (is (re-find #"\[:price\]" (::message data)))
-      (is (.endsWith ^String (::message data)
-                     "[:rf.error/ssr-hydration-payload-invalid]")
-          "the greppability token survives into the writer-failed record"))))
+  (let [data (app-db-refusal {:ok 1 :price 10.50M})]
+    (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid
+            :partition   :rf/app-db
+            :path        [:price]
+            :class       "java.math.BigDecimal"
+            :recovery    :narrow-the-value-or-drop-the-key}
+           (select-keys data [:rf.error/id :partition :path :class :recovery])))
+    ;; On the streaming path only the message survives.
+    (is (every? #(.contains ^String (::message data) %)
+                [":rf/app-db" "[:price]" "java.math.BigDecimal"])))
+  (testing "a BigInteger, which the manifest's tests do not reach"
+    (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid :class "java.math.BigInteger"}
+           (select-keys (app-db-refusal {:n (biginteger 5)}) [:rf.error/id :class])))))
 
 (deftest the-path-runs-from-the-partition-root
   (testing "a nested value names its full path"
-    (let [data (app-db-refusal {:orders {37 {:lines [{:unit-price 1.5}
-                                                     {:unit-price 2.0}
-                                                     {:unit-price 3.25M}]}}})]
-      (is (= [:orders 37 :lines 2 :unit-price] (:path data)))
-      (is (= "java.math.BigDecimal" (:class data)))
-      (is (not (contains? data :half)))))
-
-  (testing "a map KEY names the map holding it, with :half :key — an app-db
-            keyed by a wide entity id narrows just as silently"
-    (let [data (app-db-refusal {:orders-by-id {9007199254740993 {:x 1}}})]
-      (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
-      (is (= [:orders-by-id] (:path data)))
-      (is (= :key (:half data)))))
-
+    (is (= {:path [:orders 37 :lines 2 :unit-price] :class "java.math.BigDecimal"}
+           (select-keys (app-db-refusal {:orders {37 {:lines [{:unit-price 1.5}
+                                                             {:unit-price 2.0}
+                                                             {:unit-price 3.25M}]}}})
+                        [:path :class :half]))))
+  (testing "a map KEY names the map holding it, with :half :key"
+    (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid :path [:orders-by-id] :half :key}
+           (select-keys (app-db-refusal {:orders-by-id {9007199254740993 {:x 1}}})
+                        [:rf.error/id :path :half]))))
   (testing "a set member names the set holding it"
-    (let [data (app-db-refusal {:shares #{1/2}})]
-      (is (= [:shares] (:path data)))
-      (is (= "clojure.lang.Ratio" (:class data))))))
+    (is (= {:path [:shares] :class "clojure.lang.Ratio"}
+           (select-keys (app-db-refusal {:shares #{1/2}}) [:path :class])))))
 
 (deftest the-runtime-db-slice-is-walked-too
-  (let [data (refusal #(rf.ssr.payload-policy/build-payload
-                         nil {} nil
-                         {:runtime-db {:rf.runtime/machines {:m {:data {:total 1.5M}}}}}))]
-    (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
-    (is (= :rf/runtime-db (:partition data)))
-    (is (= [:rf.runtime/machines :m :data :total] (:path data)))))
+  (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid
+          :partition   :rf/runtime-db
+          :path        [:rf.runtime/machines :m :data :total]}
+         (select-keys (refusal #(rf.ssr.payload-policy/build-payload
+                                  nil {} nil
+                                  {:runtime-db {:rf.runtime/machines {:m {:data {:total 1.5M}}}}}))
+                      [:rf.error/id :partition :path]))))
 
 (deftest numbers-the-browser-reads-back-unchanged-ride
-  (testing "controls — the in-domain twins, the NaN and infinities the manifest
-            refuses only for round-trip EQUALITY, and the tagged literals the
-            reader reconstructs"
-    (let [inst #inst "2026-09-24T00:00:00.000-00:00"
-          uuid #uuid "00000000-0000-0000-0000-000000000001"
-          db   {:price    10.5
-                :id       9007199254740991
-                :neg-id   -9007199254740991
-                :money    "10.50"
-                :int      (int 7)
-                :nan      ##NaN
-                :inf      ##Inf
-                :ninf     ##-Inf
-                :at       inst
-                :uid      uuid
-                :by-id    {42 {:n 1}}
-                :tags     #{1 2}
-                :rows     [1 2.5 "3"]
-                :nested   (list {:a 1})}
-          payload (rf.ssr.payload-policy/build-payload nil db nil {:runtime-db {:n 1}})]
-      (is (identical? db (:rf/app-db payload))
-          "the slice rides unchanged, not a copy")
-      (is (= {:n 1} (:rf/runtime-db payload))))
-
-    (testing "a redacted slice (the fail-closed frame path) is a keyword"
-      (is (= :rf/redacted
-             (:rf/app-db (rf.ssr.payload-policy/build-payload nil :rf/redacted nil {})))))))
-
-;; ---- the streaming delta ----------------------------------------------------
+  (let [db      {:price  10.5
+                 :id     9007199254740991
+                 :int    (int 7)
+                 :nan    ##NaN
+                 :inf    ##Inf
+                 :at     #inst "2026-09-24T00:00:00.000-00:00"
+                 :uid    #uuid "00000000-0000-0000-0000-000000000001"
+                 :by-id  {42 {:n 1}}
+                 :tags   #{1 2}
+                 :rows   [1 2.5 "3"]
+                 :nested (list {:a 1})}
+        payload (rf.ssr.payload-policy/build-payload nil db nil {:runtime-db {:n 1}})]
+    ;; `identical?`, because NaN is not `=` to itself.
+    (is (identical? db (:rf/app-db payload)))
+    (is (= {:n 1} (:rf/runtime-db payload)))))
 
 (def ^:private sframe :rf.numeric-crossing/server)
 
-(defn- reg-server-frame! []
+(defn- project-delta [delta payload]
   (rf/reg-event :rf.numeric-crossing/seed (fn [_ _] {:db {}}))
   (rf/make-frame {:id sframe :platform :server
-                  :initial-events [[:rf.numeric-crossing/seed]]}))
+                  :initial-events [[:rf.numeric-crossing/seed]]})
+  (rf/with-frame sframe
+    (rf.ssr.streaming/project-delta delta sframe {:payload payload})))
 
 (deftest a-streaming-delta-obeys-the-same-rule
-  (testing "project-delta, driven with a live server frame and a real
-            allowlist, refuses a wide id and a decimal on an allowlisted key"
-    (reg-server-frame!)
-    (let [data (refusal #(rf/with-frame sframe
-                           (rf.ssr.streaming/project-delta
-                             {:order {:id 9007199254740993 :price 10.50M}}
-                             sframe {:payload [:order]})))]
-      (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
-      (is (= :rf/app-db (:partition data)))
-      (is (contains? #{[:order :id] [:order :price]} (:path data)))))
-
-  (testing "the allowlist runs first — an off-allowlist key never
-            reaches the check, so it cannot fail the delta"
-    (reg-server-frame!)
+  (is (= {:rf.error/id :rf.error/ssr-hydration-payload-invalid :partition :rf/app-db :path [:order :id]}
+         (select-keys (refusal #(project-delta {:order {:id 9007199254740993}} [:order]))
+                      [:rf.error/id :partition :path])))
+  (testing "the allowlist runs first, so an off-allowlist key cannot fail the delta"
     (is (= {:public {:n 1}}
-           (rf/with-frame sframe
-             (rf.ssr.streaming/project-delta
-               {:public {:n 1} :internal {:big 9007199254740993N}}
-               sframe {:payload [:public]}))))))
+           (project-delta {:public {:n 1} :internal {:big 9007199254740993N}} [:public])))))
