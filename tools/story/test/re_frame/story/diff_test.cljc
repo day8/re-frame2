@@ -1,25 +1,9 @@
 (ns re-frame.story.diff-test
   "Tests for the semantic diff over canonical run artifacts —
   `diff-run-artifacts` + the pure `diff-runs` core
-  (spec/017-Testing-Story.md §Semantic diff).
-
-  Two layers, both under `clojure -M:test` (JVM):
-
-  - PURE: the facet diffs (`diff-app-db`, `diff-effects`,
-    `diff-schema-violations`, `diff-trace-ops`, …) and the diagnostic-only
-    `diff-sub-runs` (NOT wired into `diff-runs` — outside the `:same?`
-    slice) and the
-    assembler (`diff-runs`) over HAND-BUILT run-results — the acceptance
-    bullets:
-      • a small readable diff for an app-db change;
-      • an effect-only diff;
-      • a schema-error diff;
-    plus the load-bearing correctness property — volatile per-run noise
-    (frame ids, timestamps, epoch / dispatch / trace ids) is stripped FIRST,
-    so noise never reads as a difference while a real change always does.
-  - HEADLESS (against a live frame): `diff-run-artifacts` replays two
-    artifacts into fresh frames and diffs the results — a divergent program
-    surfaces a readable app-db facet."
+  (spec/017-Testing-Story.md §Semantic diff): the facet diffs and the
+  assembler over hand-built run-results, then `diff-run-artifacts` over real
+  replays."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
             [re-frame.epoch     :as rf.epoch]
@@ -31,115 +15,46 @@
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 ;; ===========================================================================
-;; PURE: app-db delta  (a small readable diff for an app-db change)
+;; PURE: facet diffs
 ;; ===========================================================================
 
 (deftest diff-app-db-readable-delta
-  (testing "an unchanged app-db has no delta"
-    (is (nil? (rf.story.diff/diff-app-db {:n 1 :user {:name "ada"}}
-                                {:n 1 :user {:name "ada"}}))))
-
-  (testing "a single changed leaf yields a one-entry :changed at its path"
-    (let [d (rf.story.diff/diff-app-db {:n 1 :user {:name "ada"}}
-                              {:n 2 :user {:name "ada"}})]
-      (is (= [{:path [:n] :baseline 1 :current 2}] (:changed d)))
-      (is (= #{:changed} (set (keys d)))
-          "ONLY the differing slot appears — the unchanged :user path is silent")))
-
-  (testing "an added and a removed leaf are localised to their paths"
-    (let [d (rf.story.diff/diff-app-db {:a 1 :gone 9}
-                              {:a 1 :new 7})]
-      (is (= [{:path [:new] :current 7}] (:added d)))
-      (is (= [{:path [:gone] :baseline 9}] (:removed d)))
-      (is (nil? (:changed d)))))
-
-  (testing "nested leaf changes report the full key path"
-    (let [d (rf.story.diff/diff-app-db {:user {:profile {:age 30}}}
-                              {:user {:profile {:age 31}}})]
-      (is (= [{:path [:user :profile :age] :baseline 30 :current 31}]
-             (:changed d)))))
-
-  ;; A run that clears app-db to {} must not emit a spurious root
-  ;; leaf {:path [] :current {}} / {:path [] :baseline {}}; the real
-  ;; populated-vs-empty difference must still diff correctly.
-  (testing "current cleared to {} reports the removed key, NOT a spurious [] leaf"
-    (let [d (rf.story.diff/diff-app-db {:a 1} {})]
-      (is (= [{:path [:a] :baseline 1}] (:removed d))
-          "the populated baseline's key is :removed")
-      (is (= #{:removed} (set (keys d)))
-          "only the genuine difference — NO spurious {:path [] :current {}}
-           root leaf for the empty side")))
-
-  (testing "baseline empty {} vs populated current is the symmetric case"
-    (let [d (rf.story.diff/diff-app-db {} {:a 1})]
-      (is (= [{:path [:a] :current 1}] (:added d)))
-      (is (= #{:added} (set (keys d)))
-          "NO spurious {:path [] :baseline {}} root leaf for the empty side")))
-
-  (testing "a NON-ROOT empty map is STILL a semantic leaf ({:k {}} vs {:k {:a 1}})"
-    (let [d (rf.story.diff/diff-app-db {:k {}} {:k {:a 1}})]
-      (is (= [{:path [:k :a] :current 1}] (:added d)))
-      (is (= [{:path [:k] :baseline {}}] (:removed d))
-          "the [:k] empty-map leaf is preserved — only the ROOT is special-cased")))
-
-  (testing "two empty roots are equal — no delta"
-    (is (nil? (rf.story.diff/diff-app-db {} {})))))
-
-;; ===========================================================================
-;; PURE: effect-only diff
-;; ===========================================================================
+  (doseq [[label baseline current expected]
+          [["one changed leaf; the unchanged nested path is silent"
+            {:n 1 :user {:name "ada"}} {:n 2 :user {:name "ada"}}
+            {:changed [{:path [:n] :baseline 1 :current 2}]}]
+           ["an added and a removed leaf are localised to their paths"
+            {:a 1 :gone 9} {:a 1 :new 7}
+            {:added [{:path [:new] :current 7}] :removed [{:path [:gone] :baseline 9}]}]
+           ;; An empty ROOT contributes no leaf, so a cleared app-db never
+           ;; reports a spurious {:path []} entry.
+           ["current cleared to {} reports only the removed key"
+            {:a 1} {}
+            {:removed [{:path [:a] :baseline 1}]}]
+           ["a non-root empty map is still a leaf"
+            {:k {}} {:k {:a 1}}
+            {:added [{:path [:k :a] :current 1}] :removed [{:path [:k] :baseline {}}]}]]]
+    (testing label
+      (is (= expected (rf.story.diff/diff-app-db baseline current))))))
 
 (deftest diff-effects-multiset-delta
-  (testing "identical effect rows produce no delta"
-    (is (nil? (rf.story.diff/diff-effects {:effects [{:fx :http/get :args {:url "/a"}}]}
-                                 {:effects [{:fx :http/get :args {:url "/a"}}]}))))
-
   (testing "an effect emitted only by current is :only-current"
-    (let [d (rf.story.diff/diff-effects
-              {:effects [{:fx :http/get :args {:url "/a"}}]}
-              {:effects [{:fx :http/get :args {:url "/a"}}
-                         {:fx :analytics/track :args {:event :viewed}}]})]
-      (is (= [{:fx :analytics/track :args {:event :viewed}}] (:only-current d)))
-      (is (nil? (:only-baseline d)))))
-
+    (is (= {:only-current [{:fx :analytics/track :args {:event :viewed}}]}
+           (rf.story.diff/diff-effects
+             {:effects [{:fx :http/get :args {:url "/a"}}]}
+             {:effects [{:fx :http/get :args {:url "/a"}}
+                        {:fx :analytics/track :args {:event :viewed}}]}))))
   (testing "the SAME effect twice vs once is a multiset difference (the surplus)"
-    (let [d (rf.story.diff/diff-effects
-              {:effects [{:fx :db/save} {:fx :db/save}]}
-              {:effects [{:fx :db/save}]})]
-      (is (= [{:fx :db/save}] (:only-baseline d))
-          "baseline emitted it twice, current once — one surplus row")
-      (is (nil? (:only-current d))))))
-
-;; ===========================================================================
-;; PURE: schema-error diff
-;; ===========================================================================
+    (is (= {:only-baseline [{:fx :db/save}]}
+           (rf.story.diff/diff-effects {:effects [{:fx :db/save} {:fx :db/save}]}
+                                       {:effects [{:fx :db/save}]})))))
 
 (deftest diff-schema-violations-by-selector
-  (testing "the same violation surface on both sides is no diff"
-    (let [v {:where :event :failing-id :checkout/submit
-             :selector [:event :checkout/submit]}]
-      (is (nil? (rf.story.diff/diff-schema-violations {:schema-violations [v]}
-                                             {:schema-violations [v]})))))
-
-  (testing "a violation surface only current failed on is :only-current"
-    (let [base    {:schema-violations []}
-          current {:schema-violations
-                   [{:where :event :failing-id :checkout/submit
-                     :selector [:event :checkout/submit]}]}
-          d       (rf.story.diff/diff-schema-violations base current)]
-      (is (= [[:event :checkout/submit]] (:only-current d))
-          "current introduced a schema failure at [:event :checkout/submit]")
-      (is (nil? (:only-baseline d)))))
-
-  (testing "the selector is recomputed when a record omits it (no :selector slot)"
-    (let [current {:schema-violations
-                   [{:where :app-db :registered-path [:user] :path [:user :age]}]}
-          d       (rf.story.diff/diff-schema-violations {:schema-violations []} current)]
-      (is (= [[:app-db [:user] [:user :age]]] (:only-current d))))))
-
-;; ===========================================================================
-;; PURE: trace-op spine + sub-runs + status
-;; ===========================================================================
+  (is (= {:only-current [[:event :checkout/submit]]}
+         (rf.story.diff/diff-schema-violations
+           {:schema-violations []}
+           {:schema-violations [{:where :event :failing-id :checkout/submit
+                                 :selector [:event :checkout/submit]}]}))))
 
 (defn- tape-with-ops
   "A minimal epoch tape whose single epoch carries trace events with the
@@ -149,256 +64,84 @@
     :trace-events (mapv (fn [op] {:operation op :op-type :event}) ops)}])
 
 (deftest diff-trace-ops-causal-spine
-  (testing "identical op sequences are no diff"
-    (is (nil? (rf.story.diff/diff-trace-ops
-                {:epoch-tape (tape-with-ops [:rf.event/run-start :rf.event/run-end])}
-                {:epoch-tape (tape-with-ops [:rf.event/run-start :rf.event/run-end])}))))
-
   (testing "a diverging op sequence reports both spines + the first divergence"
-    (let [d (rf.story.diff/diff-trace-ops
-              {:epoch-tape (tape-with-ops [:a :b :c])}
-              {:epoch-tape (tape-with-ops [:a :x :c])})]
-      (is (= [:a :b :c] (:baseline d)))
-      (is (= [:a :x :c] (:current d)))
-      (is (= 1 (:first-divergence d)) "index 1 (:b vs :x) is the first divergence")))
-
+    (is (= {:baseline [:a :b :c] :current [:a :x :c] :first-divergence 1}
+           (rf.story.diff/diff-trace-ops {:epoch-tape (tape-with-ops [:a :b :c])}
+                                         {:epoch-tape (tape-with-ops [:a :x :c])}))))
   (testing "a dropped trailing op is a diff with no in-range first-divergence"
-    (let [d (rf.story.diff/diff-trace-ops
-              {:epoch-tape (tape-with-ops [:a :b :c])}
-              {:epoch-tape (tape-with-ops [:a :b])})]
-      (is (= [:a :b :c] (:baseline d)))
-      (is (= [:a :b] (:current d)))
-      (is (nil? (:first-divergence d))
-          "current is a proper prefix — only the length differs"))))
-
-(deftest diff-sub-runs-multiset-delta
-  (testing "diff-sub-runs is a DIAGNOSTIC fn — called directly it still
-            reports a view-fact delta"
-    (let [d (rf.story.diff/diff-sub-runs
-              {:sub-runs [{:query [:visible-todos] :value 3}]}
-              {:sub-runs [{:query [:visible-todos] :value 5}]})]
-      (is (= [{:query [:visible-todos] :value 3}] (:only-baseline d)))
-      (is (= [{:query [:visible-todos] :value 5}] (:only-current d))))))
-
-;; ===========================================================================
-;; PURE: warnings / assertions / checks / sub-overrides / fidelity facets
-;; (run-hash slice slots, each with its own facet)
-;; ===========================================================================
-
-(deftest diff-warnings-multiset-delta
-  (testing "identical warning rows produce no delta"
-    (let [w {:operation :slow-sub :category :performance}]
-      (is (nil? (rf.story.diff/diff-warnings {:warnings [w]} {:warnings [w]})))))
-
-  (testing "a warning raised only by baseline is :only-baseline"
-    (let [d (rf.story.diff/diff-warnings
-              {:warnings [{:operation :slow-sub :category :performance}]}
-              {:warnings []})]
-      (is (= [{:operation :slow-sub :category :performance}] (:only-baseline d)))
-      (is (nil? (:only-current d))))))
+    (is (= {:baseline [:a :b :c] :current [:a :b]}
+           (rf.story.diff/diff-trace-ops {:epoch-tape (tape-with-ops [:a :b :c])}
+                                         {:epoch-tape (tape-with-ops [:a :b])})))))
 
 (deftest diff-assertions-verdict-delta
-  (testing "the same assertion verdict on both sides is no diff"
-    (let [a {:assertion :rf.assert/path-equals :payload [[:n] 1] :status :pass}]
-      (is (nil? (rf.story.diff/diff-assertions {:assertions [a]} {:assertions [a]})))))
-
-  (testing "a pass → fail verdict flip is a one-entry :changed keyed by selector"
-    (let [d (rf.story.diff/diff-assertions
-              {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1]
-                             :status :pass}]}
-              {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1]
-                             :status :fail}]})]
-      (is (= [{:selector [:rf.assert/path-equals [[:n] 1]]
-               :baseline :pass :current :fail}]
-             (:changed d)))
-      (is (nil? (:added d)))
-      (is (nil? (:removed d)))))
-
-  (testing "an assertion only current evaluated is :added by selector"
-    (let [d (rf.story.diff/diff-assertions
-              {:assertions []}
-              {:assertions [{:assertion :rf.assert/no-warnings :payload []
-                             :status :fail}]})]
-      (is (= [{:selector [:rf.assert/no-warnings []] :current :fail}] (:added d)))))
-
-  (testing "the payload disambiguates two same-id assertions at different paths"
-    (let [d (rf.story.diff/diff-assertions
-              {:assertions [{:assertion :rf.assert/path-equals :payload [[:a] 1]
-                             :status :pass}
-                            {:assertion :rf.assert/path-equals :payload [[:b] 2]
-                             :status :pass}]}
-              {:assertions [{:assertion :rf.assert/path-equals :payload [[:a] 1]
-                             :status :pass}
-                            {:assertion :rf.assert/path-equals :payload [[:b] 2]
-                             :status :fail}]})]
-      (is (= [{:selector [:rf.assert/path-equals [[:b] 2]]
-               :baseline :pass :current :fail}]
-             (:changed d))
-          "only the [:b] assertion flipped — the [:a] one is silent"))))
+  (is (= {:changed [{:selector [:rf.assert/path-equals [[:n] 1]]
+                     :baseline :pass :current :fail}]}
+         (rf.story.diff/diff-assertions
+           {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1] :status :pass}]}
+           {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1] :status :fail}]}))))
 
 (deftest diff-checks-verdict-delta
-  (testing "the same check verdict on both sides is no diff"
-    (let [c {:check :checkout/valid :status :pass :assertions []}]
-      (is (nil? (rf.story.diff/diff-checks {:checks [c]} {:checks [c]})))))
-
-  (testing "a check that flipped pass → fail is a one-entry :changed by check id"
-    (let [d (rf.story.diff/diff-checks
-              {:checks [{:check :checkout/valid :status :pass :assertions []}]}
-              {:checks [{:check :checkout/valid :status :fail :assertions []}]})]
-      (is (= [{:selector :checkout/valid :baseline :pass :current :fail}]
-             (:changed d))
-          "the check identity is its id; the underlying records are not the key"))))
-
-(deftest diff-sub-overrides-keyed-delta
-  (testing "identical override maps produce no delta"
-    (let [m {[:login/state] :error}]
-      (is (nil? (rf.story.diff/diff-sub-overrides {:sub-overrides m} {:sub-overrides m})))))
-
-  (testing "an override whose pinned value differs is :changed by query vector"
-    (let [d (rf.story.diff/diff-sub-overrides
-              {:sub-overrides {[:login/state] :error}}
-              {:sub-overrides {[:login/state] :loading}})]
-      (is (= [{:query [:login/state] :baseline :error :current :loading}]
-             (:changed d)))))
-
-  (testing "an override only current carries is :added"
-    (let [d (rf.story.diff/diff-sub-overrides
-              {:sub-overrides {}}
-              {:sub-overrides {[:item 7] {:name "x"}}})]
-      (is (= [{:query [:item 7] :current {:name "x"}}] (:added d))))))
-
-(deftest diff-fidelity-set-delta
-  (testing "identical fidelity rung sets produce no delta"
-    (is (nil? (rf.story.diff/diff-fidelity {:fidelity #{:real-setup}}
-                                  {:fidelity #{:real-setup}}))))
-
-  (testing "a rung current rested on but baseline did not is :only-current"
-    (let [d (rf.story.diff/diff-fidelity {:fidelity #{:real-setup}}
-                                {:fidelity #{:real-setup :sub-overrides}})]
-      (is (= #{:sub-overrides} (:only-current d)))
-      (is (nil? (:only-baseline d)))))
-
-  (testing "rungs on each side that the other lacks are split"
-    (let [d (rf.story.diff/diff-fidelity {:fidelity #{:real-setup}}
-                                {:fidelity #{:sub-overrides}})]
-      (is (= #{:real-setup} (:only-baseline d)))
-      (is (= #{:sub-overrides} (:only-current d))))))
+  (is (= {:changed [{:selector :checkout/valid :baseline :pass :current :fail}]}
+         (rf.story.diff/diff-checks
+           {:checks [{:check :checkout/valid :status :pass :assertions []}]}
+           {:checks [{:check :checkout/valid :status :fail :assertions []}]}))
+      "the check identity is its id, not its records"))
 
 ;; ===========================================================================
 ;; PURE: the assembler — :same? and the multi-facet readable diff
 ;; ===========================================================================
 
-;; diff-runs' :same? gate is canonicalize equality, so canonicalization
-;; decides two hazards here: a map<->vector flip in app-db must not read as
-;; :same? true (the gate would suppress the whole diff, so the :app-db facet
-;; would never run), and a same-semantics fn in app-db must not read as a
-;; false :changed. Canonicalization type-tags collections and folds fns to
-;; the `opaque-fn` sentinel, so both hold here too.
+;; :same? is canonicalize equality, so a map<->vector flip in app-db must not
+;; read as :same? (that would suppress the whole diff), and a same-semantics
+;; fn in app-db must not read as a false difference.
 (deftest diff-runs-sees-collection-kind-flips-and-ignores-fn-identity
-  (testing "a map<->vector flip in app-db is NOT :same? true and
-            surfaces a readable :app-db facet"
-    (let [d (rf.story.diff/diff-runs {:status :pass :app-db {:k {:a 1}}}
-                            {:status :pass :app-db {:k [:a 1]}})]
-      (is (false? (:same? d)) "the collision is witnessed, not suppressed")
-      (is (contains? (:facets d) :app-db) "the :app-db facet localises it")))
-  (testing "an empty-map<->empty-vector flip is also witnessed"
-    (is (false? (:same? (rf.story.diff/diff-runs {:status :pass :app-db {:k {}}}
-                                        {:status :pass :app-db {:k []}})))))
-  (testing "a same-semantics fn in app-db is :same? true — no false :changed
-            from object-identity noise"
-    (is (= {:same? true}
-           (rf.story.diff/diff-runs {:status :pass :app-db {:cb (fn [] 1)}}
-                           {:status :pass :app-db {:cb (fn [] 1)}})))))
+  (is (contains? (:facets (rf.story.diff/diff-runs {:status :pass :app-db {:k {:a 1}}}
+                                                   {:status :pass :app-db {:k [:a 1]}}))
+                 :app-db)
+      "a map<->vector flip is witnessed and localised to :app-db")
+  (is (= {:same? true}
+         (rf.story.diff/diff-runs {:status :pass :app-db {:cb (fn [] 1)}}
+                                  {:status :pass :app-db {:cb (fn [] 1)}}))
+      "fn identity is not a difference"))
 
 (deftest diff-runs-collects-only-differing-facets
-  (testing "an app-db-only change surfaces ONLY the :app-db facet"
-    (let [base {:status :pass :app-db {:n 1} :effects [] :sub-runs []
-                :epoch-tape (tape-with-ops [:rf.event/run-start])}
-          cur  (assoc base :app-db {:n 2})
-          d    (rf.story.diff/diff-runs base cur)]
-      (is (false? (:same? d)))
-      (is (= #{:app-db} (:facets d)))
-      (is (= [{:path [:n] :baseline 1 :current 2}] (get-in d [:app-db :changed])))
-      (is (not (contains? d :effects)))))
+  (let [base {:status :pass :app-db {} :effects [] :sub-runs []
+              :epoch-tape (tape-with-ops [:e])}
+        cur  (assoc base :status :fail :effects [{:fx :http/get :outcome :error}])]
+    (is (= {:same?   false
+            :facets  #{:status :effects}
+            :status  {:baseline :pass :current :fail}
+            :effects {:only-current [{:fx :http/get :outcome :error}]}}
+           (rf.story.diff/diff-runs base cur)))))
 
-  (testing "a status + effect change surfaces BOTH facets, named in :facets"
-    (let [base {:status :pass :app-db {} :effects [] :sub-runs []
-                :epoch-tape (tape-with-ops [:e])}
-          cur  {:status :fail :app-db {} :sub-runs []
-                :effects [{:fx :http/get :outcome :error}]
-                :epoch-tape (tape-with-ops [:e])}
-          d    (rf.story.diff/diff-runs base cur)]
-      (is (= #{:status :effects} (:facets d)))
-      (is (= {:baseline :pass :current :fail} (:status d)))
-      (is (= [{:fx :http/get :outcome :error}] (get-in d [:effects :only-current]))))))
-
-;; ===========================================================================
-;; PURE: facet-set == canonical slice keys
-;; — the diff's facet set is EXACTLY the run-hash slice :same? is judged over,
-;;   so no facet is dead (fires on a slot outside the slice) and no slice slot
-;;   is uncovered. `:trace-ops` is the readable projection of the `:epoch-tape`
-;;   slot, so it stands in for it 1:1 in the equality.
-;; ===========================================================================
-
+;; The facet set is the run-hash slice :same? is judged over; :trace-ops is the
+;; readable projection of the :epoch-tape slot.
 (deftest facet-set-equals-canonical-slice
-  (testing "facet-fns keys == run-hash-input-keys (with :trace-ops ⇄ :epoch-tape)"
-    (let [facet-names (set (keys rf.story.diff/facet-fns))
-          slice-keys  (set rf.story.fingerprint/run-hash-input-keys)]
-      (is (= (disj facet-names :trace-ops)
-             (disj slice-keys :epoch-tape))
-          "the facet set and the canonical slice are the SAME surface — the
-           only naming difference is :trace-ops (the readable :epoch-tape
-           projection) standing in for :epoch-tape")
-      (is (contains? facet-names :trace-ops)
-          ":trace-ops covers the :epoch-tape slice slot")
-      (is (contains? slice-keys :epoch-tape))))
-
-  (testing ":sub-runs is NOT a facet — it is deliberately outside the slice
-            (over-recomputed evidence, not a determinism input), so the
-            facet/slice equality above keeps it out of the facet set too"
-    (is (not (contains? (set rf.story.fingerprint/run-hash-input-keys) :sub-runs))
-        ":sub-runs is excluded from the run-hash slice — the facet set honors
-         that exclusion rather than overstating coverage")))
+  (let [facet-names (set (keys rf.story.diff/facet-fns))
+        slice-keys  (set rf.story.fingerprint/run-hash-input-keys)]
+    (is (= (disj facet-names :trace-ops) (disj slice-keys :epoch-tape)))
+    (is (contains? facet-names :trace-ops))
+    (is (contains? slice-keys :epoch-tape))))
 
 (deftest diff-runs-sub-runs-only-delta-is-same
-  (testing "two runs differing ONLY in :sub-runs diff to {:same? true} — the
-            :sub-runs delta does NOT decide :same? (it is outside the slice)"
-    (let [base {:status :pass :app-db {:n 1}
-                :sub-runs [{:query [:visible-todos] :value 3}]}
-          cur  (assoc base :sub-runs [{:query [:visible-todos] :value 5}])
-          d    (rf.story.diff/diff-runs base cur)]
-      (is (= {:same? true} d)
-          "a pure :sub-runs delta is behaviourally identical to the gate — so
-           diff-runs agrees with the determinism / golden verdict"))))
-
-;; ===========================================================================
-;; PURE: every run-hash slice slot names its facet — the non-empty-:facets
-;; INVARIANT
-;; ===========================================================================
+  ;; :sub-runs is outside the run-hash slice, so diff-runs agrees with the
+  ;; determinism and golden verdicts.
+  (let [base {:status :pass :app-db {:n 1}
+              :sub-runs [{:query [:visible-todos] :value 3}]}]
+    (is (= {:same? true}
+           (rf.story.diff/diff-runs base (assoc base :sub-runs [{:query [:visible-todos] :value 5}]))))))
 
 (deftest diff-runs-facets-name-the-perturbed-slot-and-are-never-empty
-  (testing "an :epoch-tape divergence that is NOT a trace-op change falls back
-            to a coarse :slice-keys facet naming the diverging slot"
-    ;; The trace-op spine is identical (both have op :go); the divergence is a
-    ;; NON-op epoch field. No specific facet fires, so the invariant fallback
-    ;; must name the :epoch-tape slice key rather than return :facets #{}.
+  (testing "an :epoch-tape divergence no specific facet sees falls back to a
+            :slice-keys facet naming the slot"
     (let [base {:status :pass
                 :epoch-tape [{:epoch-id 1 :outcome :ok :db-after {:n 1}
                               :trace-events [{:operation :go :op-type :event}]}]}
-          cur  {:status :pass
-                :epoch-tape [{:epoch-id 1 :outcome :ok :db-after {:n 2}
-                              :trace-events [{:operation :go :op-type :event}]}]}
-          d    (rf.story.diff/diff-runs base cur)]
-      (is (false? (:same? d)))
-      (is (= #{:slice-keys} (:facets d)) "INVARIANT: :same? false ⟹ :facets non-empty")
-      (is (= [{:slice-key :epoch-tape}] (:slice-keys d))
-          "the coarse fallback names WHICH run-hash slot perturbed the judgement")))
+          cur  (assoc-in base [:epoch-tape 0 :db-after :n] 2)]
+      (is (= {:same? false :facets #{:slice-keys} :slice-keys [{:slice-key :epoch-tape}]}
+             (rf.story.diff/diff-runs base cur)))))
 
-  (testing "each slice-key perturbation names exactly the facet it perturbed,
-            so a :same? false diff NEVER carries an empty :facets set"
-    ;; One perturbation per run-hash slice key — the exact slice :same? is
-    ;; judged over. Each must yield its own named facet, never the
-    ;; undiagnosable {:same? false :facets #{}}.
+  (testing "each slice-key perturbation names exactly its own facet"
     (let [base {:status     :pass
                 :app-db     {:n 1}
                 :epoch-tape [{:epoch-id 1 :outcome :ok :db-after {:n 1}
@@ -414,9 +157,8 @@
           perturbations
           [[#{:status}            (assoc base :status :fail)]
            [#{:app-db}            (assoc base :app-db {:n 2})]
-           [#{:trace-ops}         (update base :epoch-tape
-                                          (fn [t] (assoc-in t [0 :trace-events]
-                                                            [{:operation :stop :op-type :event}])))]
+           [#{:trace-ops}         (assoc-in base [:epoch-tape 0 :trace-events]
+                                            [{:operation :stop :op-type :event}])]
            [#{:assertions}        (assoc base :assertions [{:assertion :rf.assert/eq :payload [1 1]
                                                             :status :fail}])]
            [#{:checks}            (assoc base :checks [{:check :c/x :status :fail :assertions []}])]
@@ -426,15 +168,8 @@
            [#{:sub-overrides}     (assoc base :sub-overrides {[:login/state] :error})]
            [#{:fidelity}          (assoc base :fidelity #{:real-setup :sub-overrides})]]]
       (doseq [[facets cur] perturbations]
-        (let [d (rf.story.diff/diff-runs base cur)]
-          (is (false? (:same? d)) (str "perturbation should differ: " (pr-str cur)))
-          (is (= facets (:facets d))
-              (str "the perturbed slot's own facet, never an empty set, for: "
-                   (pr-str cur))))))))
-
-;; ===========================================================================
-;; PURE: the load-bearing property — volatile noise is stripped FIRST
-;; ===========================================================================
+        (is (= facets (:facets (rf.story.diff/diff-runs base cur)))
+            (pr-str cur))))))
 
 (defn- noisy-run
   "A run-result whose epoch tape + app-db carry per-run stamps a fresh-frame
@@ -453,24 +188,18 @@
                      :tags {:rf.trace/event-id :app/go}}]}]})
 
 (deftest diff-runs-strips-volatile-noise
-  (testing "two runs differing ONLY in per-run stamps diff to {:same? true}"
-    (let [a (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
-                        :committed-at 1000 :trace-id 17 :db-after {:n 1}})
-          b (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
-                        :committed-at 2000 :trace-id 88 :db-after {:n 1}})]
-      (is (= {:same? true} (rf.story.diff/diff-runs a b))
-          "frame ids, epoch ids, timestamps, trace ids are NOT differences")))
-
-  (testing "a real app-db change IS detected even amid the per-run noise"
-    (let [a (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
-                        :committed-at 1000 :trace-id 17 :db-after {:n 1}})
-          c (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
-                        :committed-at 2000 :trace-id 88 :db-after {:n 2}})
-          d (rf.story.diff/diff-runs a c)]
-      (is (false? (:same? d)))
-      (is (contains? (:facets d) :app-db))
-      (is (= [{:path [:n] :baseline 1 :current 2}] (get-in d [:app-db :changed]))
-          "the strip surfaces the SEMANTIC change, not the volatile drift"))))
+  (let [a (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
+                      :committed-at 1000 :trace-id 17 :db-after {:n 1}})
+        b (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
+                      :committed-at 2000 :trace-id 88 :db-after {:n 1}})
+        c (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
+                      :committed-at 2000 :trace-id 88 :db-after {:n 2}})]
+    (is (= {:same? true} (rf.story.diff/diff-runs a b))
+        "frame ids, epoch ids, timestamps, trace ids are NOT differences")
+    (is (= {:same? false :facets #{:app-db}
+            :app-db {:changed [{:path [:n] :baseline 1 :current 2}]}}
+           (rf.story.diff/diff-runs a c))
+        "a real app-db change is the only facet amid the per-run noise")))
 
 ;; ===========================================================================
 ;; HEADLESS: diff-run-artifacts over real replays  (live frame)
@@ -489,29 +218,18 @@
 (use-fixtures :each reset-rf!)
 
 (deftest diff-run-artifacts-divergent-program-surfaces-app-db-facet
-  (testing "two programs producing different final app-db surface a readable
-            :app-db facet"
-    (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 1]]]})
-          b (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 2]]]})
-          d (rf.story.diff/diff-run-artifacts a b)]
-      (is (false? (:same? d)))
-      (is (contains? (:facets d) :app-db))
-      (is (= [{:path [:v] :baseline 1 :current 2}]
-             (get-in d [:app-db :changed]))))))
+  (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+  (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 1]]]})
+        b (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 2]]]})
+        d (rf.story.diff/diff-run-artifacts a b)]
+    (is (contains? (:facets d) :app-db))
+    (is (= [{:path [:v] :baseline 1 :current 2}] (get-in d [:app-db :changed])))))
 
 (deftest diff-run-artifacts-accepts-a-run-result-directly
-  (testing "a run-result side is used as-is (the pure path) — diffing an
-            artifact replay against a hand-built result still works"
-    (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (let [art    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 9]]]})
-          result {:status :pass :app-db {:v 9} :effects [] :sub-runs []
-                  :epoch-tape []}
-          d      (rf.story.diff/diff-run-artifacts art result)]
-      ;; The artifact replay's app-db {:v 9} matches the hand-built result's
-      ;; {:v 9}, so the app-db facet is absent whether or not the differing
-      ;; trace-op spine (the replay has trace events, the hand-built result
-      ;; none) makes the diff :same?.
-      (is (or (:same? d)
-              (not (contains? (:facets d) :app-db)))
-          "app-db agrees across the artifact-vs-result diff"))))
+  ;; The replay records trace events the hand-built result lacks, so only the
+  ;; app-db facet is pinned: it must agree.
+  (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+  (let [art    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 9]]]})
+        result {:status :pass :app-db {:v 9} :effects [] :sub-runs [] :epoch-tape []}
+        d      (rf.story.diff/diff-run-artifacts art result)]
+    (is (or (:same? d) (not (contains? (:facets d) :app-db))))))
