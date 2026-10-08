@@ -1,38 +1,18 @@
 (ns re-frame.image-inline-registrar-parity-cljs-test
-  "An inline image `:reg-fx` / `:reg-cofx` / `:reg-event`
-  registration lowers through its kind's OWN registrar preparation, so it means
-  exactly what the same declaration means in `reg-*` (EP-0026 §Inline
-  Registration Grammar: the inline contract is exactly the registrar's
-  contract, neither a looser superset nor a stricter subset).
+  "An inline image `:reg-fx` / `:reg-cofx` / `:reg-event` registration lowers
+  through its kind's own registrar preparation, so it means exactly what the
+  same declaration means in `reg-*` (EP-0026 §Inline Registration Grammar).
+  Runtime readers look at the descriptor's top level, where `reg-*` puts the
+  authored metadata; a lowering that left it only under the nested `:metadata`
+  would run a `#{:client}` fx on `:server`, drop the `:sensitive`
+  classification egress redacts from, skip an event's declared
+  `:interceptors`, and skip the registration-time validators.
 
-  Every runtime reader looks at the descriptor's TOP LEVEL, where `reg-*` puts
-  the authored metadata. A lowering that returned only the runnable slots, or
-  overwrote the authored `:interceptors` with the wrapper-only chain, would
-  leave that metadata ONLY under the nested `:metadata`, so:
-
-    * an inline `{:platforms #{:client}}` fx / cofx would run on `:server`;
-    * an inline `{:sensitive …}` fx / cofx would carry no registration
-      classification, so the egress redaction derived from it would have
-      nothing to redact;
-    * an inline event's declared `:interceptors` guard would never run, and a
-      guard the image did not select would pass assembly's missing-reference
-      check;
-    * the registration-time validators (retired keys, malformed
-      classification, `:boundary?` without `:schema`, the interceptor-chain
-      shape, the cofx grade checks) would never run.
-
-  Every row pairs the inline declaration with a `reg-*` CONTROL carrying the
-  identical metadata, so what is pinned is PARITY with the registrar.
-
-  Platform rows ask `runs-on-platform?` with an EXPLICIT platform argument
-  instead of dispatching: the host's active platform is `:server` on the JVM
-  and `:client` in the node lane, so a \"was it skipped\" dispatch would be
-  right on one lane and inverted on the other.
-
-  `.cljc` ending `-cljs-test` — runs under `clojure -M:test` (JVM) and
-  `npm run test:cljs` (node CLJS)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  Rows pair the inline declaration with a `reg-*` control carrying the same
+  metadata. Platform rows pass the platform explicitly, because the host's own
+  platform is `:server` on the JVM and `:client` in the node lane."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.classification :as rf.classification]
             [re-frame.fx :as rf.fx]
@@ -43,9 +23,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; A clean runtime per test (registrar + source-store snapshot/restore), the
-;; plain-atom adapter so image frames are runnable, and no ambient frame — the
-;; end-to-end rows target an explicit `{:frame …}`.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter       rf.substrate.plain-atom/adapter
                                                :ambient-frame nil}))
@@ -58,17 +35,16 @@
          (ex-data e))))
 
 (defn- assemble-inline
-  "Seal a generation from ONE image carrying only `registrations` inline, over
-  an EMPTY descriptor pool — the REAL assembly path (inline lowering, reference
-  checks, sealing), with nothing from the live source store."
+  "Seal a generation from ONE image carrying only `registrations` inline,
+  over an empty descriptor pool."
   [registrations]
   (rf.image-assembly/assemble
     [(rf.image/image {:id :parity/inline :registrations registrations})]
     []))
 
 (defn- classification-under
-  "`registration-classification` read with `generation` bound — how the egress
-  chokepoint reads it while a frame's dispatch is in flight."
+  "`registration-classification` read with `generation` bound, as the egress
+  chokepoint reads it during a frame's dispatch."
   [generation kind id]
   (binding [rf.registrar/*generation* generation]
     (rf.classification/registration-classification kind id)))
@@ -76,10 +52,6 @@
 (def ^:private fx-body (fn [_ctx _args] nil))
 (def ^:private cofx-body (fn [] :v))
 (def ^:private event-body (fn [{:keys [db]} _] {:db db}))
-
-;; ===========================================================================
-;; 1. `:platforms` — read at the descriptor TOP LEVEL by `runs-on-platform?`
-;; ===========================================================================
 
 (deftest inline-fx-and-cofx-platforms-are-honoured
   (let [gen (assemble-inline
@@ -92,23 +64,15 @@
     (doseq [[kind inline-id any-id control-id]
             [[:fx   :parity/client-fx   :parity/any-fx   :parity/reg-client-fx]
              [:cofx :parity/client-cofx :parity/any-cofx :parity/reg-client-cofx]]]
-      (testing (str "inline " (name kind) " declared #{:client}")
-        (let [control (rf.registrar/lookup kind control-id)
-              inline  (rf.image-assembly/resolve-descriptor gen kind inline-id)]
-          (is (false? (rf.fx/runs-on-platform? control :server))
-              "control: the reg-* registration is refused on :server")
-          (is (false? (rf.fx/runs-on-platform? inline :server))
-              "the inline registration is refused on :server too")
-          (is (true? (rf.fx/runs-on-platform? inline :client))
-              "and still runs on :client")))
-      (testing (str "inline " (name kind) " with no :platforms runs everywhere")
-        (is (true? (rf.fx/runs-on-platform?
-                     (rf.image-assembly/resolve-descriptor gen kind any-id) :server))
-            "the default is #{:client :server}")))))
-
-;; ===========================================================================
-;; 2. `:sensitive` / `:large` — the registration classification egress reads
-;; ===========================================================================
+      (let [inline (rf.image-assembly/resolve-descriptor gen kind inline-id)]
+        ;; control on :server, inline on :server, inline on :client, no :platforms on :server
+        (is (= [false false true true]
+               [(rf.fx/runs-on-platform? (rf.registrar/lookup kind control-id) :server)
+                (rf.fx/runs-on-platform? inline :server)
+                (rf.fx/runs-on-platform? inline :client)
+                (rf.fx/runs-on-platform?
+                  (rf.image-assembly/resolve-descriptor gen kind any-id) :server)])
+            (str kind))))))
 
 (deftest inline-fx-and-cofx-classification-is-registered
   (let [cls {:sensitive [[:token]] :large [[:blob]]}
@@ -118,18 +82,10 @@
     (rf/reg-cofx :parity/reg-token-cofx cls cofx-body)
     (doseq [[kind inline-id control-id] [[:fx   :parity/token-fx   :parity/reg-token-fx]
                                          [:cofx :parity/token-cofx :parity/reg-token-cofx]]]
-      (testing (str "inline " (name kind) " classification")
-        (let [control (rf.classification/registration-classification kind control-id)]
-          (is (= [[:token]] (:sensitive control))
-              "control: reg-* derives the declared classification")
-          (is (= control (classification-under gen kind inline-id))
-              "the inline registration derives the SAME classification under
-               its frame's generation"))))))
-
-;; ===========================================================================
-;; 3. Inline event `:interceptors` — honoured, and checked by assembly against
-;;    the frame's OWN generation
-;; ===========================================================================
+      (let [control (rf.classification/registration-classification kind control-id)]
+        (is (= [[[:token]] control]
+               [(:sensitive control) (classification-under gen kind inline-id)])
+            (str kind ": the inline registration derives the control's classification"))))))
 
 (deftest inline-event-interceptors-run
   (let [ran (atom 0)]
@@ -146,61 +102,33 @@
                                                 {:interceptors [:parity/guard]}
                                                 (fn [{:keys [db]} _]
                                                   {:db (assoc db :inline true)})]]}})]})
-    (testing "control: the registered event runs its declared guard once"
+    (doseq [[event k] [[:parity/reg-guarded :registered] [:parity/inline-guarded :inline]]]
       (reset! ran 0)
-      (rf/dispatch-sync [:parity/reg-guarded] {:frame :parity/guarded-frame})
-      (is (= 1 @ran))
-      (is (true? (:registered (rf/app-db-value :parity/guarded-frame)))))
-    (testing "the inline event runs its declared guard once, then its handler"
-      (reset! ran 0)
-      (rf/dispatch-sync [:parity/inline-guarded] {:frame :parity/guarded-frame})
-      (is (= 1 @ran) "the declared guard ran")
-      (is (true? (:inline (rf/app-db-value :parity/guarded-frame)))
-          "and the handler still ran after it"))))
+      (rf/dispatch-sync [event] {:frame :parity/guarded-frame})
+      (is (= [1 true] [@ran (k (rf/app-db-value :parity/guarded-frame))])
+          (str event ": the declared guard ran once, then the handler")))))
 
 (deftest inline-event-lowered-chain-carries-the-authored-refs
+  ;; a framework :rf.interceptor/* ref is exempt from the image reference check
   (let [d (rf.image-assembly/resolve-descriptor
             (assemble-inline {:reg-event [[:parity/pathed
                                            {:interceptors [[:rf.interceptor/path [:x]]]}
                                            event-body]]})
             :event :parity/pathed)]
-    ;; A framework :rf.interceptor/* ref passes assembly with no interceptor
-    ;; selected (framework-provided, exempt from the image reference check) —
-    ;; the control for the missing-reference row: the reads below run on the
-    ;; sealed generation.
-    (testing "the authored ref leads the lowered chain, the wrapper stays at its tail"
-      (is (= [:rf.interceptor/path [:x]] (first (:interceptors d)))
-          "assembly sealed the generation, and the authored ref leads the chain")
-      (is (= 2 (count (:interceptors d))))
-      (is (true? (:rf/default? (peek (:interceptors d))))
-          "the :rf/event-handler wrapper is still the chain's tail"))))
+    (is (= [[:rf.interceptor/path [:x]] true 2]
+           [(first (:interceptors d)) (:rf/default? (peek (:interceptors d)))
+            (count (:interceptors d))])
+        "the authored ref leads the chain and the :rf/event-handler wrapper is its tail")))
 
 (deftest unselected-inline-guard-fails-assembly
-  (testing "an inline event naming an interceptor the image does not select
-            fails loud at assembly, naming the event and the missing ref"
-    (let [ed (error-data
-               #(assemble-inline {:reg-event [[:parity/needs-guard
-                                               {:interceptors [:parity/absent-guard]}
-                                               event-body]]}))]
-      (is (= :rf.error/image-missing-reference (:rf.error/id ed)))
-      (is (= :parity/needs-guard (:id ed)))
-      (is (= [:interceptor :parity/absent-guard] (:missing-reference ed)))))
-  (testing "the same through make-frame"
-    (is (= :rf.error/image-missing-reference
-           (:rf.error/id
-             (error-data
-               #(rf.live-frame/make-frame
-                  {:id     :parity/unguarded-frame
-                   :images [(rf.image/image
-                              {:id            :parity/unguarded
-                               :registrations {:reg-event [[:parity/needs-guard
-                                                            {:interceptors [:parity/absent-guard]}
-                                                            event-body]]}})]})))))))
-
-;; ===========================================================================
-;; 4. Registration-time validators — the inline path raises exactly what the
-;;    reg-* path raises for the identical declaration
-;; ===========================================================================
+  (is (= {:rf.error/id       :rf.error/image-missing-reference
+          :id                :parity/needs-guard
+          :missing-reference [:interceptor :parity/absent-guard]}
+         (select-keys (error-data
+                        #(assemble-inline {:reg-event [[:parity/needs-guard
+                                                        {:interceptors [:parity/absent-guard]}
+                                                        event-body]]}))
+                      [:rf.error/id :id :missing-reference]))))
 
 (def ^:private validator-rows
   "[label inline-registrations reg-*-control-thunk expected-error-id]"
@@ -259,11 +187,10 @@
 
 (deftest inline-registration-time-validators-match-reg-star
   (doseq [[label inline control expected] validator-rows]
-    (testing label
-      (is (= expected (:rf.error/id (error-data control)))
-          "control: the reg-* registration raises it")
-      (is (= expected (:rf.error/id (error-data #(assemble-inline inline))))
-          "the inline registration raises the SAME error at assembly"))))
+    (is (= [expected expected]
+           [(:rf.error/id (error-data control))
+            (:rf.error/id (error-data #(assemble-inline inline)))])
+        (str label ": the reg-* control and the inline registration raise it"))))
 
 (deftest inline-diagnostics-name-the-authored-id
   (doseq [[label inline id-key id]
@@ -281,13 +208,7 @@
            ["cofx grade"
             {:reg-cofx [[:parity/named-cofx {:provided? true} nil]]}
             :rf.cofx/id :parity/named-cofx]]]
-    (testing label
-      (is (= id (get (error-data #(assemble-inline inline)) id-key))
-          "the diagnostic names the author's registration, never a placeholder"))))
-
-;; ===========================================================================
-;; 5. What the lowering must PRESERVE
-;; ===========================================================================
+    (is (= id (get (error-data #(assemble-inline inline)) id-key)) label)))
 
 (deftest inline-lowering-preserves-the-runnable-shape
   (let [gen (assemble-inline
@@ -297,16 +218,12 @@
         ev  (rf.image-assembly/resolve-descriptor gen :event :parity/keep-ev)
         fx  (rf.image-assembly/resolve-descriptor gen :fx :parity/keep-fx)
         cfx (rf.image-assembly/resolve-descriptor gen :cofx :parity/keep-cofx)]
-    (testing "event: requires parsed, raw body + provenance kept, wrapper at the tail"
-      (is (= :rf.cofx/now (:id (first (:rf.cofx/requires-parsed ev)))))
-      (is (= event-body (:impl ev)))
-      (is (= [:reg-event :parity/keep-ev] (:rf.provenance/inline ev)))
-      (is (true? (:rf/default? (peek (:interceptors ev))))))
-    (testing "fx: the authored metadata is at the top level AND still nested"
-      (is (= fx-body (:handler-fn fx)))
-      (is (= [:audit] (:tags fx)))
-      (is (= [:audit] (get-in fx [:metadata :tags]))))
-    (testing "cofx: a generator-less provided fact lowers with its grade"
-      (is (nil? (:handler-fn cfx)))
-      (is (true? (:recordable? cfx)))
-      (is (true? (:provided? cfx))))))
+    (is (= [:rf.cofx/now event-body [:reg-event :parity/keep-ev] true]
+           [(:id (first (:rf.cofx/requires-parsed ev))) (:impl ev)
+            (:rf.provenance/inline ev) (:rf/default? (peek (:interceptors ev)))])
+        "event: requires parsed, raw body and provenance kept, wrapper at the tail")
+    (is (= [fx-body [:audit] [:audit]]
+           [(:handler-fn fx) (:tags fx) (get-in fx [:metadata :tags])])
+        "fx: the authored metadata is at the top level and still nested")
+    (is (= [nil true true] [(:handler-fn cfx) (:recordable? cfx) (:provided? cfx)])
+        "cofx: a generator-less provided fact lowers with its grade")))
