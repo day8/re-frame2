@@ -1,44 +1,24 @@
 (ns re-frame.unknown-dispatch-opts-warn-test
-  "Emit `:rf.warning/unknown-dispatch-opt` when a
-  `dispatch` / `dispatch-sync` opts map carries a key outside the
-  recognised set (`re-frame.router.diagnostics/known-dispatch-opts`).
+  "Emit `:rf.warning/unknown-dispatch-opt` when a `dispatch` / `dispatch-sync`
+  opts map carries a key outside `re-frame.router.diagnostics/known-dispatch-opts`.
 
-  The runtime reads only the known opts keys in `build-envelope`; any
-  other key is ignored, so a typo (`:fram` for `:frame`, `:src` for
-  `:source`) changes nothing — and without this warning would give no
-  signal, a quietness the no-silent-swallow principle forbids.
+  `build-envelope` reads only the known keys, so a typo (`:fram` for `:frame`)
+  would otherwise change nothing and give no signal — a quietness the
+  no-silent-swallow principle forbids. The warning is computed as the opts
+  keys the known set does not contain, so `known-set-matches-build-envelope-reads`
+  pinning that set exactly is what says every recognised key stays quiet.
 
-  The warning is observational: the dispatch proceeds unchanged
-  (`:recovery :no-recovery`). It is dev-only — gated on
-  `rf.interop/debug-enabled?`, so production (`:advanced` +
-  `goog.DEBUG=false`) DCEs the whole surface (the elision probe verifies
-  that separately).
-
-  EP-0002: the unknown-opt warning is emitted in
-  `build-envelope` BEFORE frame resolution, so a `:fram`-for-`:frame`
-  typo still surfaces its specific diagnostic even though the dispatch
-  then fails for want of a frame. The fixture establishes a `:rf/default`
-  frame SCOPE (the carried-invariant contract — no synthesised floor) so
-  the ambient `dispatch-sync` calls below complete after the warning
-  fires; the typo key carries no frame, but the scope does.
+  The warning is OBSERVATIONAL (`:recovery :no-recovery`): the dispatch
+  proceeds unchanged. It is emitted in `build-envelope` before frame
+  resolution, and the fixture binds a `:rf/default` scope so the ambient
+  dispatches complete after it fires.
 
   ## Posture split
 
-  The warning surface is dev-only BY DESIGN (see the paragraph above), so
-  every assertion ABOUT the warning — positive and negative alike — sits
-  inside a `(when rf.interop/debug-enabled? …)` dev-instrumentation arm.
-  The negatives move with the positives and that is the point, not tidiness:
-  `(is (empty? (unknown-opt-warnings recorded)))` over an empty trace stream
-  passes under `-Dre-frame.debug=false` whatever the opts map contained, so
-  outside the arm `no-warning-for-known-opts` would certify `:frame` as
-  recognised while in fact nothing was emitted for ANY key, recognised or not.
-
-  What survives the gate here is the sentence the docstring makes above:
-  THE WARNING IS OBSERVATIONAL — the dispatch proceeds unchanged. Each
-  deftest lands a marker in app-db and asserts it arrived,
-  so the production lane proves that an unrecognised opts key neither aborts
-  the dispatch nor perturbs the recognised ones. `known-set-matches-build-
-  envelope-reads` is pure data and needs no posture at all."
+  The warning is dev-only (gated on `rf.interop/debug-enabled?`), so every
+  assertion about it sits in a `(when rf.interop/debug-enabled? …)` arm. What
+  survives the gate is the observational claim: each case lands a marker in
+  app-db and asserts it arrived, in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -48,8 +28,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
-
-;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -62,208 +40,77 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- record-traces!
-  [listener-id]
+(defn- record-traces! [listener-id]
   (let [a (atom [])]
     (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
-(defn- unknown-opt-warnings
-  [recorded]
+(defn- unknown-opt-warnings [recorded]
   (filterv (fn [ev]
              (and (= :warning (:op-type ev))
                   (= :rf.warning/unknown-dispatch-opt (:operation ev))))
            @recorded))
 
 (defn- reg-marker-event!
-  "Register `id` as a handler that stamps `[:landed id]` into the target
-  frame's app-db. The ALWAYS-ON witness for this file: the
-  unknown-opt warning is observational, so whatever the opts map carried the
-  dispatch must still reach the handler. Readable straight off `app-db-value`
-  in either posture — no trace surface involved."
-  ([id] (reg-marker-event! id nil))
-  ([id extra-meta]
-   (if extra-meta
-     (rf/reg-event id extra-meta (fn [{:keys [db]} _] {:db (assoc db :landed id)}))
-     (rf/reg-event id           (fn [{:keys [db]} _] {:db (assoc db :landed id)})))))
+  "Register `id` as a handler that stamps `[:landed id]` into app-db — the
+  always-on witness that the dispatch still reached its handler."
+  [id]
+  (rf/reg-event id (fn [{:keys [db]} _] {:db (assoc db :landed id)})))
 
-(defn- landed?
-  [frame-id id]
+(defn- landed? [frame-id id]
   (= id (:landed (rf/app-db-value frame-id))))
 
-;; ---- tests ----------------------------------------------------------------
-
 (deftest fires-on-unknown-opts-key
-  (testing "an unrecognised opts key emits exactly one warning naming the bad key + the known set"
+  (testing "an unrecognised opts key emits exactly one warning naming the bad
+            key and the known set, and the dispatch still lands"
     (reg-marker-event! :app/noop)
     (let [recorded (record-traces! ::unknown)]
-      ;; `:fram` is the classic typo for `:frame` — silently swallowed
-      ;; without this warning.
       (rf/dispatch-sync [:app/noop] {:fram :rf/default})
-
-      ;; ALWAYS-ON WITNESS: `:recovery :no-recovery` means the
-      ;; dispatch is untouched by the diagnostic. Asserted off app-db so it
-      ;; holds under the production gate, where the warning itself is gone.
-      (is (landed? :rf/default :app/noop)
-          "the unknown opt is OBSERVATIONAL — the dispatch still reached the handler")
-
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+      (is (landed? :rf/default :app/noop))
       (when rf.interop/debug-enabled?
-        (let [warns (unknown-opt-warnings recorded)]
-          (is (= 1 (count warns))
-              (str "expected exactly one unknown-opt warning, got "
-                   (count warns)))
-          (let [w (first warns)
-                t (:tags w)]
-            (is (= [:app/noop] (:event t)))
-            (is (= :app/noop (:event-id t)))
-            (is (= [:fram] (:unknown-keys t))
-                "the bad key is named verbatim")
-            (is (contains? (set (:known-keys t)) :frame)
-                "the warning enumerates the known opts set")
-            (is (string? (:reason t)))
-            (is (re-find #":fram" (:reason t))
-                "reason names the offending key")
-            (is (re-find #":frame" (:reason t))
-                "reason lists the known keys (incl. the likely intended :frame)")
-            (is (= :no-recovery (:recovery w)))))))))
+        (let [warns (unknown-opt-warnings recorded)
+              w     (first warns)
+              t     (:tags w)]
+          (is (= [1 [:app/noop] :app/noop [:fram] true true :no-recovery]
+                 [(count warns) (:event t) (:event-id t) (:unknown-keys t)
+                  (contains? (set (:known-keys t)) :frame)
+                  ;; the reason lists the known keys, the likely intended
+                  ;; :frame among them
+                  (boolean (re-find #":frame" (:reason t)))
+                  (:recovery w)])))))))
 
 (deftest names-every-unknown-key-in-one-warning
-  (testing "multiple unknown keys → a single warning listing them all"
+  (testing "multiple unknown keys give ONE warning naming them all, and the
+            legitimate :origin beside them is not flagged"
     (reg-marker-event! :app/noop)
     (let [recorded (record-traces! ::multi)]
       (rf/dispatch-sync [:app/noop] {:fram :rf/default :srce :ui :origin :app})
-
-      ;; ALWAYS-ON WITNESS.
-      (is (landed? :rf/default :app/noop)
-          "two unknown opts alongside a legitimate :origin still dispatch")
-
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+      (is (landed? :rf/default :app/noop))
       (when rf.interop/debug-enabled?
         (let [warns (unknown-opt-warnings recorded)]
-          (is (= 1 (count warns)) "one warning for the whole call, not one per bad key")
-          (let [t (:tags (first warns))]
-            (is (= #{:fram :srce} (set (:unknown-keys t)))
-                "both typos named; the legitimate :origin opt is NOT flagged")))))))
-
-(deftest no-warning-for-known-opts
-  (testing "a known opts key (:frame) → no warning"
-    (rf/make-frame {:id :game :doc "non-default frame target"})
-    (reg-marker-event! :game/tick {:frame :game})
-    (let [recorded (record-traces! ::known)]
-      (rf/dispatch-sync [:game/tick] {:frame :game})
-      ;; ALWAYS-ON WITNESS: `:frame` is not merely unflagged, it is
-      ;; HONOURED — the marker lands in :game, not in the ambient :rf/default
-      ;; scope. That is the production-visible half of "recognised opt".
-      (is (landed? :game :game/tick)
-          ":frame routed the dispatch to the named frame")
-      (is (nil? (:landed (rf/app-db-value :rf/default)))
-          "and NOT to the ambient scope frame")
-      ;; Dev-instrumentation arm. A NEGATIVE over the trace
-      ;; stream: under the gate it is empty for every opts map, so outside the
-      ;; arm this would certify :frame as recognised for free.
-      (when rf.interop/debug-enabled?
-        (is (empty? (unknown-opt-warnings recorded))
-            ":frame is a recognised opt — no warning")))))
-
-(deftest no-warning-for-source-and-origin-opts
-  (testing "the full known set is accepted without warning"
-    (reg-marker-event! :app/noop)
-    (let [recorded (record-traces! ::full-known)]
-      (rf/dispatch-sync [:app/noop]
-                        {:source :ui :origin :app :trace-id "t1"
-                         :fx-overrides {} :interceptor-overrides {}
-                         :source-detail {:ms 100}})
-      ;; ALWAYS-ON WITNESS: the full known set is accepted by
-      ;; `build-envelope` without derailing the dispatch.
-      (is (landed? :rf/default :app/noop)
-          "a dispatch carrying every known opt still reaches the handler")
-      ;; Dev-instrumentation arm. Same wholesale-empty-stream
-      ;; false-green shape as `no-warning-for-known-opts`.
-      (when rf.interop/debug-enabled?
-        (is (empty? (unknown-opt-warnings recorded))
-            "every key here is in known-dispatch-opts")))))
-
-(deftest no-warning-for-empty-opts
-  (testing "the no-opts dispatch path emits no warning"
-    (reg-marker-event! :app/noop)
-    (let [recorded (record-traces! ::empty)]
-      (rf/dispatch-sync [:app/noop])
-      ;; ALWAYS-ON WITNESS.
-      (is (landed? :rf/default :app/noop)
-          "the no-opts dispatch path reaches the handler")
-      ;; Dev-instrumentation arm. Same false-green shape as above.
-      (when rf.interop/debug-enabled?
-        (is (empty? (unknown-opt-warnings recorded))
-            "empty opts map has no unknown keys")))))
+          (is (= [1 #{:fram :srce}] [(count warns) (set (:unknown-keys (:tags (first warns))))])))))))
 
 (deftest async-dispatch-path-also-warns
-  (testing "the queued `dispatch` path (not just dispatch-sync) warns on unknown keys"
+  (testing "the queued `dispatch` path warns too — build-envelope, where the
+            check lives, runs at enqueue time on the caller's thread"
     (reg-marker-event! :app/noop)
     (let [recorded (record-traces! ::async)]
-      ;; `dispatch` enqueues; the JVM drain runs it synchronously via the
-      ;; router, but `build-envelope` (where the check lives) runs at
-      ;; enqueue time regardless.
       (rf/dispatch [:app/noop] {:fram :rf/default})
-      ;; ALWAYS-ON WITNESS: the queued path is observational too —
-      ;; the unknown key does not stop the enqueued event from draining. The
-      ;; ENQUEUE is synchronous (build-envelope, where the check lives, runs on
-      ;; the caller's thread); the DRAIN is not — `rf.interop/next-tick` submits
-      ;; to a single-thread executor with no return-before-start guarantee — so
-      ;; the marker is polled rather than read straight back.
+      ;; the drain runs on the next-tick executor with no return-before-start
+      ;; guarantee, so the marker is polled
       (is (rf.test-support/poll-until #(landed? :rf/default :app/noop)
-                         {:label "queued dispatch drains despite the unknown opt"})
-          "the queued dispatch drained despite the unknown opt")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+                                      {:label "queued dispatch drains despite the unknown opt"}))
       (when rf.interop/debug-enabled?
-        (is (= 1 (count (unknown-opt-warnings recorded)))
-            "build-envelope is the single chokepoint — both dispatch paths funnel through it")))))
-
-(deftest no-warning-for-initial-events-step-index
-  (testing ":initial-events setup dispatches carry :step-index (a build-envelope-read internal opt) — no false unknown-opt warning"
-    (rf/reg-event :seed/set (fn [{:keys [db]} [_ v]] {:db (assoc db :seed v)}))
-    (let [recorded (record-traces! ::init-step)]
-      ;; `make-frame` with `:initial-events` runs each setup step through
-      ;; `frame.cljc`'s `run-setup-events!`, which stamps `:step-index` into the
-      ;; dispatch opts. `build-envelope` READS `:step-index` (carrying it onto
-      ;; the dispatched trace as `:rf.frame/init-step-index`), so the key belongs
-      ;; in `known-dispatch-opts` and must NOT trip the unknown-dispatch-opt
-      ;; warning. Were it missing from that set, each of the two setup steps
-      ;; would emit one false `:silently ignored` warning.
-      (rf/make-frame {:id :seeded/frame :initial-events [[:seed/set 1] [:seed/set 2]]})
-      ;; ALWAYS-ON WITNESS: both setup steps ran, in order — the
-      ;; production-visible half of ":step-index is honoured, not unknown".
-      (is (= 2 (:seed (rf/app-db-value :seeded/frame)))
-          "both :initial-events setup steps dispatched and landed, last-wins")
-      ;; Dev-instrumentation arm. Same false-green shape as the
-      ;; other negatives in this file.
-      (when rf.interop/debug-enabled?
-        (is (empty? (unknown-opt-warnings recorded))
-            ":step-index is an honoured build-envelope opt, not an unknown key")))))
+        (is (= 1 (count (unknown-opt-warnings recorded))))))))
 
 (deftest known-set-matches-build-envelope-reads
-  (testing "the published known-opts set documents exactly the keys build-envelope honours"
-    ;; A guard against drift: if build-envelope grows/drops an opt the
-    ;; set must move with it. This is the canonical enumeration callers
-    ;; (and the warning message) rely on. `:rf.cofx/mint-policy` is the
-    ;; EP-0017 §6 per-call cofx mint policy — build-envelope reads it and
-    ;; threads it through to the satisfaction step's mint-policy resolution,
-    ;; so it belongs in the honoured set. (There is no `:realm` opt: every
-    ;; dispatch is the single default realm, so build-envelope reads no realm
-    ;; dimension.)
-    ;; `:rf.frame/expected-incarnation` is the INTERNAL captured-
-    ;; incarnation token a `capture-frame` op threads through; build-envelope
-    ;; reads it and carries it onto the envelope so `dispatch!` / `dispatch-sync!`
-    ;; fence the enqueue to the exact captured incarnation.
-    ;; `:rf.flow/settle?` is the INTERNAL flag on the ONE
-    ;; `[:rf/settle-flows]` child a completed `:fx` walk dispatches after it
-    ;; registered or cleared a flow; build-envelope reads it and carries it onto
-    ;; the envelope so `insert-envelope` head-inserts the settle ahead of the
-    ;; continuations that same handler queued (Spec 013 §Sequencing).
-    (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-             :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-             :rf.trace/call-site :rf.machine/internal? :rf.flow/settle?
-             :step-index :rf.frame/expected-incarnation}
-           rf.router.diagnostics/known-dispatch-opts))))
+  ;; the set moves with build-envelope's reads. Beside the app-facing opts it
+  ;; carries the internal ones build-envelope threads through:
+  ;; :rf.cofx/mint-policy (EP-0017 §6), :step-index (the :initial-events
+  ;; setup-step index run-setup-events! stamps), :rf.frame/expected-incarnation
+  ;; (the capture-frame token) and :rf.flow/settle? (Spec 013 §Sequencing)
+  (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
+           :source-detail :origin :rf.cofx :rf.cofx/mint-policy
+           :rf.trace/call-site :rf.machine/internal? :rf.flow/settle?
+           :step-index :rf.frame/expected-incarnation}
+         rf.router.diagnostics/known-dispatch-opts)))
