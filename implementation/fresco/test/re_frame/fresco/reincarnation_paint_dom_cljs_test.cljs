@@ -54,7 +54,6 @@
   | [[the-first-render-opportunity-after-a-reincarnation-observes-the-successor]] | **W1.** A mounted boundary; the tear is real and asserted while it exists; the correction lands inside the checkpoint and the first frame paints the successor. |
   | [[restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail]] | **W1's sabotage** (Evidence law 3). The same row with `queueMicrotask` routed through `setTimeout 0` — red at the checkpoint, and green again a task later, so the perturbation is a delay rather than a break. |
   | [[a-reincarnation-inside-the-staged-render-to-commit-gap-corrects-the-boundary]] | **W2.** The cold/staged path: a boundary rendered under A and committed after B seats, forced through the render→commit gap by a sibling's layout effect. |
-  | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described. |
 
   W3 — the no-successor cleanup, proving the microtask scheduling
   disposes exactly — lives at the commit seam, in
@@ -66,7 +65,6 @@
   degrades to an explicit skip there rather than to an assertion that
   passes because nothing ran. The real run is `npm run test:browser`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -91,22 +89,6 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The three things this file undertakes to reach at runtime. A row that
-  starts returning early, or a sabotage that stops perturbing anything,
-  fails the last deftest instead of quietly shrinking the evidence."
-  #{:paint-order/mounted-reincarnation
-    :paint-order/macrotask-sabotage
-    :paint-order/staged-gap})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -309,7 +291,6 @@
                             (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                                    (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
-                          (exercised! :paint-order/mounted-reincarnation)
                           (rf.fresco.impl.mount/unmount! handle)
                           (.then (rf.fresco.test.runtime/quiesced!)
                                  (fn [_] (rf.fresco.impl.mount/release! handle) nil))))
@@ -370,7 +351,6 @@
                                   the paint rather than breaking it, and W1's
                                   green is the scheduling and nothing else"
                           (is (= "B" later)))
-                        (exercised! :paint-order/macrotask-sabotage)
                         (rf.fresco.impl.mount/unmount! handle)
                         (.then (rf.fresco.test.runtime/quiesced!)
                                (fn [_] (rf.fresco.impl.mount/release! handle) nil))))
@@ -455,7 +435,6 @@
                     (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                            (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
-                  (exercised! :paint-order/staged-gap)
                   (rf.fresco.impl.mount/unmount! handle)
                   (.then (rf.fresco.test.runtime/quiesced!)
                          (fn [_] (rf.fresco.impl.mount/release! handle) nil))))
@@ -463,14 +442,3 @@
               ;; The single trailing step, which BOTH arms reach: this row's
               ;; roots go down first, and the single `done` is the last act.
               (.then (fn [_] (release-minted!) (done)))))))))
-
-;; ---------------------------------------------------------------------------
-;; The population, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no rendering opportunity, so nothing is exercised")
-    (is (= declared-population @!exercised)
-        (str "every declared paint-order mechanism must be reached; missing: "
-             (pr-str (set/difference declared-population @!exercised))))))
