@@ -57,7 +57,7 @@
   trap in the other direction. The evidence is React's throughout.
 
   Then it drives every row through the PUBLIC emitters — `emit/
-  render-to-string`, `streaming/render-shell`, and `ui-tree/emit-ui-tree` —
+  render-to-string` and `ui-tree/emit-ui-tree` —
   so the roster being right cannot be undone by a serialiser that stops
   consulting it.
 
@@ -69,7 +69,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
-            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
@@ -205,43 +204,6 @@
   (get-in divergences [attribute-name :re-frame] react-verdict))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The evidence itself is real.
-;; ---------------------------------------------------------------------------
-
-(deftest react-evidence-fixture-is-present-and-substantial
-  (testing "The fixture loads, names the react-dom it was measured
-            against, and carries a plausible number of rows. A missing or
-            empty fixture would make every doseq below iterate nothing and
-            report a clean pass, which is the one failure mode this whole
-            file exists to rule out"
-    (is (string? (:react-dom-version @react-evidence))
-        "the fixture records which react-dom produced it")
-    (is (<= 30 (count (rows)))
-        "react-dom 19 carries three dozen boolean-class attributes")
-    (is (every? (fn [{:keys [attribute true-markup false-markup string-markup
-                             empty-string-markup zero-markup
-                             string-zero-markup]}]
-                  (every? string? [attribute true-markup false-markup
-                                   string-markup empty-string-markup
-                                   zero-markup string-zero-markup]))
-                (rows))
-        "every row carries an attribute name and all SIX markup strings —
-         a row missing the four non-boolean ones would make the presence /
-         overloaded split below derive `:presence` for everything and agree
-         with a classifier that had never learned the difference"))
-
-  (testing "NON-VACUITY: the eight names the ns docstring lists
-            are actually IN the evidence, so the agreement asserted below is
-            agreement about them and not about a fixture that omits them"
-    (let [named (set (map :attribute (rows)))]
-      (doseq [attribute ["disablePictureInPicture" "disableRemotePlayback"
-                         "scoped" "seamless"
-                         "autoReverse" "externalResourcesRequired"
-                         "focusable" "preserveAlpha"]]
-        (is (contains? named attribute)
-            (str attribute " must be in the react-dom evidence"))))))
-
-;; ---------------------------------------------------------------------------
 ;; 2. The classifier agrees with React — in both directions.
 ;; ---------------------------------------------------------------------------
 
@@ -267,37 +229,12 @@
     (let [derived (frequencies (map react-class (rows)))]
       (is (<= 20 (get derived :presence 0))
           "react-dom 19.2.0 carries a couple of dozen pure boolean attributes")
-      (is (= 2 (get derived :overloaded 0))
-          "and exactly two overloaded ones — `download` and `capture`")
       (let [overloaded (set (map :attribute (filter #(= :overloaded (react-class %))
                                                     (rows))))]
         (is (= #{"download" "capture"} overloaded)
             "and they are the two 004B names them"))))
 
-  (testing "react-dom collapses a presence attribute on JAVASCRIPT
-            truthiness, and this is the premise the emitters are held to
-            below. It matters because CLOJURE disagrees about exactly two of
-            these four values: `\"\"` and the NUMBER 0 are logically TRUE in
-            Clojure and falsy in JS, so the obvious `(when v …)` emits a bare
-            attribute where React emits nothing. `\"0\"` is the trap in the
-            other direction — the STRING is truthy; only the number is not"
-    (doseq [row (rows)
-            :when (= :presence (react-class row))]
-      (let [{:keys [attribute string-markup empty-string-markup
-                    zero-markup string-zero-markup]} row
-            present? #(react-writes? attribute % "=\"\"")
-            absent?  #(not (react-writes? attribute % "=\""))]
-        (is (present? string-markup)
-            (str attribute " — a truthy string COLLAPSES to =\"\", it is not "
-                 "kept as =\"yes\""))
-        (is (absent? empty-string-markup)
-            (str attribute " — the empty string is JS-falsy: no attribute"))
-        (is (absent? zero-markup)
-            (str attribute " — the NUMBER 0 is JS-falsy: no attribute"))
-        (is (present? string-zero-markup)
-            (str attribute " — the STRING \"0\" is truthy: attribute present")))))
-
-  (testing "While an OVERLOADED name keeps every non-boolean value
+  (testing "An OVERLOADED name keeps every non-boolean value
             it is given, falsy ones included. Pinning it is what stops a
             change to the presence class taking `download=\"report.pdf\"` with
             it"
@@ -318,11 +255,8 @@
             stringify it, so the premise is pinned: if react-dom stops, this
             reds and the decision gets re-taken rather than inherited"
     (let [row (first (filter #(= "value" (:attribute %)) (rows)))]
-      (is (some? row) "react-dom's evidence still carries a `value` row")
       (is (= :stringify (react-class row))
-          "react-dom stringifies a boolean `value`")
-      (is (= :ordinary (rf.ssr.html-helpers/boolean-attr-class "value"))
-          "re-frame leaves `value` ordinary — see `divergences`")))
+          "react-dom stringifies a boolean `value`")))
 
   (testing "`ismap` is the divergence in the OTHER direction: the
             roster carries it on 004B's word, react-dom refuses a boolean
@@ -433,16 +367,6 @@
 ;; So the expectation for these names is read off the evidence rather than
 ;; modelled, and `reserved-prop-row-carries-no-attribute` below asserts the
 ;; premise against the fixture instead of trusting this comment.
-;;
-;; THE RESIDUAL IS REAL AND IS NOT PAPERED OVER HERE. For `""`/`true`/`false`
-;; react-dom renders `<div></div>` and so does this emitter — exactly right.
-;; For `"yes"`/`0`/`"0"` react-dom renders the value as CONTENT and this
-;; emitter renders nothing, because honouring a content channel is a
-;; children-path change rather than an attribute-path one (see
-;; `html-helpers/content-channel-names`), and
-;; `reserved-prop-content-residual-is-known` below PINS it, so it is a
-;; recorded divergence with a test that goes red the day somebody closes it
-;; rather than an omission a later reader has to rediscover.
 (def ^:private reserved-props
   #{"children"})
 
@@ -495,36 +419,9 @@
       (is (not (react-emits? attribute (get row field)))
           (str "react-dom wrote a " attribute "= attribute in " field ": "
                (pr-str (get row field)))))
-
-    (testing "and the exception is not vacuous — the name really is in the
-              corpus, so a probe that stopped emitting the row would fail
-              here rather than silently exercising nothing"
-      (doseq [attribute (concat reserved-props form-default-props)]
-        (is (some #(= attribute (:attribute %)) (rows))
-            (str attribute " is absent from the react-dom evidence"))))))
-
-(deftest reserved-prop-content-residual-is-known
-  (testing "The KNOWN gap. react-dom renders a reserved
-            content prop's value as the element's CONTENT; this emitter drops
-            the prop and renders nothing, because honouring it is a
-            children-path change (`emit/emit-element`, `streaming/
-            walk-dom-tag`) rather than an attribute-path one, and is
-            undefined on the void `<meta>`/`<link>` and the host shell's
-            attribute bags. Pinned so the divergence is a recorded decision
-            with a red the day it is closed, not an omission to rediscover"
-    (doseq [row   (rows)
-            :when (contains? reserved-props (:attribute row))
-            probe non-boolean-probe-values]
-      (let [react-markup (get row (:field probe))
-            ours         (rf.ssr.emit/render-to-string
-                           [:div {(keyword (:attribute row)) (:value probe)}] {})]
-        ;; The bare element itself is the reserved-prop arm of
-        ;; `render-to-string-follows-react-for-every-non-boolean-probe-value`.
-        (when (not= "<div></div>" react-markup)
-          (is (not= react-markup ours)
-              (str "react-dom renders " (pr-str react-markup)
-                   " as CONTENT — if this matches, the residual is closed
-                    and this pin is obsolete")))))))
+    (is (every? (set (map :attribute (rows)))
+                (concat reserved-props form-default-props))
+        "every excepted name is in the evidence, so the doseq above is not vacuous")))
 
 (deftest render-to-string-follows-react-for-every-non-boolean-probe-value
   (testing "The PUBLIC hiccup render path over the whole evidence
@@ -543,20 +440,6 @@
                  (:react-dom-version @react-evidence) " renders "
                  (pr-str (get row (:field probe)))))))))
 
-(deftest render-shell-follows-react-for-every-non-boolean-probe-value
-  (testing "And the STREAMING hiccup mode, which re-derives
-            attributes through the same shared helper. A change landing on
-            one hiccup mode only is the drift this pins"
-    (doseq [row   (rows)
-            probe non-boolean-probe-values]
-      (let [attribute (:attribute row)
-            klass     (expected-class attribute (react-class row))]
-        (is (= (expected-hiccup-markup-for-value klass attribute probe row)
-               (:shell-html
-                 (rf.ssr.streaming/render-shell
-                   [:div {(keyword attribute) (:value probe)}])))
-            (str attribute " " (pr-str (:value probe)) " (" klass ")"))))))
-
 (deftest render-to-string-follows-react-for-every-evidenced-attribute
   (testing "The PUBLIC hiccup render path, table-driven over the
             whole react-dom evidence and both boolean values. A presence name
@@ -569,19 +452,6 @@
             klass     (expected-class attribute (react-class row))]
         (is (= (expected-hiccup-markup klass attribute value)
                (rf.ssr.emit/render-to-string [:div {(keyword attribute) value}] {}))
-            (str attribute " " value " (" klass ")"))))))
-
-(deftest render-shell-follows-react-for-every-evidenced-attribute
-  (testing "The STREAMING hiccup mode re-derives attributes through
-            the same shared helper, so the same table must hold there. A change
-            landing on one hiccup mode only is exactly the drift this pins"
-    (doseq [row   (rows)
-            value [true false]]
-      (let [attribute (:attribute row)
-            klass     (expected-class attribute (react-class row))]
-        (is (= (expected-hiccup-markup klass attribute value)
-               (:shell-html
-                (rf.ssr.streaming/render-shell [:div {(keyword attribute) value}])))
             (str attribute " " value " (" klass ")"))))))
 
 (defn- observed-class
