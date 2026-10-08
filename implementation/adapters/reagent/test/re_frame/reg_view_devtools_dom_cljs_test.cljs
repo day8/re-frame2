@@ -4,21 +4,13 @@
   reads it — off the committed fiber's `type` — rather than off the
   pre-mount fn property.
 
-  WHY THIS FILE EXISTS. Spec 006 §React DevTools support
-  item 1 is a claim about what a developer reads in the component tree,
-  and `(.-displayName (rf/view id))` is one step short of that: on the
-  Reagent path the thing React renders is a CLASS that Reagent's
-  `fn-to-class` machinery builds from the wrapped fn, so whether the
-  stamp survives into the tree is a property of that machinery, not of
-  the stamp. `reg-view-devtools-cljs-test` pins the stamp without
-  exercising the machinery; this file exercises it on the shipping
-  Reagent substrate. Its UIx counterpart is
+  Spec 006 §React DevTools support item 1 is a claim about the component
+  tree, and on the Reagent path React renders a CLASS that Reagent's
+  `fn-to-class` builds from the wrapped fn, so whether the stamp survives
+  is a property of that machinery. The UIx counterpart is
   `re-frame.adapter.react-shared-suite/assert-mounted-display-name-is-devtools-visible`.
-
-  Browser-only — a real `react-dom` commit is required before a fiber
-  exists to read. The `-dom-cljs-test` suffix opts this file into the
-  `:browser-test` build; `:node-test` loads it too (matches
-  `cljs-test$`) and the mount branch gates on `(browser?)`."
+  A fiber exists only after a real `react-dom` commit, so `:node-test`
+  loads this and exits early; `:browser-test` asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -66,9 +58,7 @@
       (is true ":node-test: no DOM — the :browser-test runner exercises this")
       (let [expected (rf.performance/entry-id view-id)
             names    (mount-and-read-names)]
-        (is (some #{expected} names)
+        (is (and (some #{expected} names) (not-any? #{(str ":" expected)} names))
             (str "the mounted component is named " (pr-str expected)
-                 " in the fiber tree; saw " (pr-str names)))
-        (is (not-any? #{(str ":" expected)} names)
-            (str "no colon-prefixed spelling survives anywhere above the "
-                 "rendered root; saw " (pr-str names)))))))
+                 " in the fiber tree, with no colon-prefixed spelling anywhere "
+                 "above the rendered root; saw " (pr-str names)))))))
