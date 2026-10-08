@@ -1,187 +1,28 @@
 (ns re-frame.http-abort-config-validation-test
-  "Spec 014 §`:abort-signal` (external) — `:abort-signal` and `:request-id`
-  are NOT mutually exclusive. A request may carry BOTH; each
-  attaches a cancellation source to the ONE managed request.
+  "Spec 014 §`:abort-signal` (external): `:abort-signal` and `:request-id` are
+  not mutually exclusive. Both attach a cancellation source to the one
+  managed request; the CLJS transport forwards the external signal into the
+  same framework-owned controller the `:request-id` path drives, and the
+  once-only `:finalised?` CAS yields exactly one terminal outcome whichever
+  source acts first. So no dispatch-site guard may reject the combination.
 
-  There is no dispatch-site guard rejecting the combination (such as a
-  thrown `:rf.error/http-bad-abort-config`) as an undefined simultaneous-
-  abort race, because that race is not real: the CLJS transport forwards an
-  external `:abort-signal` into the SAME framework-owned internal controller
-  the `:request-id` supersede/managed-abort path drives (the single signal
-  Fetch accepts is always the internal one), and the once-only `:finalised?`
-  CAS guarantees EXACTLY ONE terminal outcome regardless of which
-  cancellation source acts first. Abort wins by classification, not race
-  ordering (Spec 014 §Abort precedence). Such a guard would reject a
-  fully-defined, working configuration.
-
-  These tests pin that contract:
-
-   1. both-supplied does NOT throw (no `:rf.error/http-bad-abort-config`
-      ex-info, no throw at all) — the dual-source config is legal.
-   2. the once-only CAS yields AT MOST ONE terminal outcome with
-      both keys present, supersede-first: the superseded attempt's reply
-      is SUPPRESSED (no app target runs) and a `:rf.http/stale-suppressed`
-      trace records the supersession; the superseding attempt yields its
-      own single outcome. The user-abort-first order needs no row here:
-      the JVM ignores `:abort-signal`, so it is the plain managed-abort
-      path whose single `:reason :user` reply http_managed_test pins.
-
-  JVM caveat: `:abort-signal` is CLJS-only (the JVM transport ignores it
-  with a `:rf.http/cljs-only-key-ignored-on-jvm` degradation trace), so
-  these JVM tests drive cancellation through the portable `:request-id`
-  path while ALSO supplying `:abort-signal` — the exact dual-source shape
-  such a guard would reject — and assert it is accepted and
-  single-outcome."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
+  `:abort-signal` is CLJS-only and ignored on the JVM, so the supersede and
+  abort orderings here are the plain `:request-id` paths pinned elsewhere."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling])
-  (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
-           [java.net InetSocketAddress]
-           [java.util.concurrent CountDownLatch TimeUnit]))
-
-;; ---- per-test reset --------------------------------------------------------
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- helpers ---------------------------------------------------------------
-
-(defn- call-managed!
-  "Invoke `:rf.http/managed` via the public handler with the given full
-  args-map. Returns nil on success / no-throw, or the ex-info on a throw."
-  [args-map]
-  (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]}
-                                 args-map)
-       nil
-       (catch clojure.lang.ExceptionInfo e e)))
-
-(defn- await-condition!
-  ([pred] (await-condition! pred 5000))
-  ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (cond
-         (pred) true
-         (> (System/currentTimeMillis) deadline)
-         (throw (ex-info "timed out awaiting condition" {}))
-         :else (do (Thread/sleep 10) (recur)))))))
-
-(defn- start-blocking-server!
-  "Start an HttpServer whose handler blocks on `release` before answering
-  200, so the request stays in-flight while the test fires a cancellation."
-  [^CountDownLatch release]
-  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext server "/"
-                    (reify HttpHandler
-                      (handle [_ ex]
-                        (let [^HttpExchange ex ex
-                              bs (.getBytes "{\"ok\":true}" "UTF-8")]
-                          (.await release 30 TimeUnit/SECONDS)
-                          (-> ex .getResponseHeaders (.set "Content-Type" "application/json"))
-                          (try
-                            (.sendResponseHeaders ex 200 (long (count bs)))
-                            (with-open [os (.getResponseBody ex)]
-                              (.write os bs))
-                            (catch Throwable _ nil))))))
-    (.setExecutor server nil)
-    (.start server)
-    {:server server
-     :port   (.getPort (.getAddress server))}))
-
-(defn- stop-server! [{:keys [^HttpServer server]}]
-  (.stop server 0))
-
-;; a stand-in for an AbortController.signal handle — any non-nil value.
-;; On JVM `:abort-signal` is a no-op (CLJS-only); these tests only need it
-;; to be PRESENT + non-nil so the dual-source shape is exercised.
-(def ^:private signal-stub (Object.))
-(def ^:private base-request {:method :get :url "http://localhost/x"})
-
-;; ---- (1) both-supplied is LEGAL — must NOT throw ---------------------------
-
 (deftest both-abort-signal-and-request-id-accepted
-  (testing "supplying BOTH a non-nil :abort-signal AND a
-            non-nil :request-id is a legal configuration and MUST NOT throw
-            :rf.error/http-bad-abort-config"
-    (let [ex (call-managed! {:request      base-request
-                             :request-id   :article/load
-                             :abort-signal signal-stub
-                             :reply-to     [:no-op]})]
-      (is (nil? ex)
-          "the dual-source config is not rejected at the dispatch site: the call dispatches without throwing at all"))))
-
-;; ---- (2b) finalise order: supersede-first => suppressed + stale trace ------
-;;
-;; A fresh request with the SAME :request-id supersedes the prior one while
-;; the prior still carries BOTH keys. The superseded attempt's reply target
-;; MUST NOT run; a :rf.http/stale-suppressed trace records the supersession.
-;; The superseding attempt yields its own single outcome. No second reply
-;; lands for the superseded work — the once-only CAS holds across both keys.
-
-(deftest dual-source-supersede-first-suppresses-and-traces
-  (testing "with BOTH keys present on the prior request, a
-            same-:request-id supersede suppresses the prior reply (no app
-            target) + emits a :rf.http/stale-suppressed trace; the
-            superseding request yields exactly one outcome"
-    (let [release      (CountDownLatch. 1)
-          srv          (start-blocking-server! release)
-          prior-fired? (atom false)
-          fresh-ok?    (atom false)
-          stale-traces (atom [])
-          cb-id        ::q8vbna-stale]
-      (try
-        (rf.trace.tooling/register-listener! cb-id
-          (fn [ev]
-            (when (= :rf.http/stale-suppressed (:operation ev))
-              (swap! stale-traces conj ev))))
-        (rf/reg-event :search/prior
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request      {:url (str "http://127.0.0.1:" (:port srv) "/?stale")}
-                    :request-id   :dual
-                    :abort-signal signal-stub      ; BOTH keys on the prior
-                    :decode       :json
-                    :on-success   [:search/prior-reply]
-                    :on-failure   [:search/prior-reply]}]]}))
-        (rf/reg-event :search/fresh
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request      {:url (str "http://127.0.0.1:" (:port srv) "/?fresh")}
-                    :request-id   :dual
-                    :abort-signal signal-stub      ; BOTH keys on the fresh one too
-                    :decode       :json
-                    :on-success   [:search/fresh-ok]
-                    :on-failure   [:search/fresh-ok]}]]}))
-        (rf/reg-event :search/prior-reply (fn [_ _] (reset! prior-fired? true) {}))
-        (rf/reg-event :search/fresh-ok    (fn [_ _] (reset! fresh-ok?    true) {}))
-
-        (rf/dispatch-sync [:search/prior])
-        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)) 2000)
-        ;; Supersede with the same :request-id BEFORE the server answers.
-        (rf/dispatch-sync [:search/fresh])
-        ;; Release the server so the fresh request can complete.
-        (.countDown release)
-        ;; Wait for the fresh request's reply + the stale trace. Each wait throws
-        ;; on timeout, so it is the witness that the superseding request
-        ;; yielded its outcome and that the stale trace fired.
-        (await-condition! #(true? @fresh-ok?))
-        (await-condition! #(seq @stale-traces) 2000)
-        ;; Quiescence — prove the superseded attempt never dispatches a reply.
-        (Thread/sleep 150)
-
-        (is (false? @prior-fired?)
-            "the superseded request's reply target MUST NOT run (supersede-first wins)")
-        (let [ev   (first @stale-traces)
-              tags (:tags ev)]
-          (is (= :suppressed (:rf.reply/work-status tags))
-              "the suppressed work-status rides the stale trace")
-          (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
-              ":stale-reason names the supersession"))
-        (finally
-          (rf.trace.tooling/unregister-listener! cb-id)
-          (.countDown release)
-          (stop-server! srv))))))
+  (is (nil? (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]}
+                                                   {:request      {:method :get :url "http://localhost/x"}
+                                                    :request-id   :article/load
+                                                    :abort-signal (Object.)
+                                                    :reply-to     [:no-op]})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e)))
+      "the dual-source config dispatches without throwing"))
