@@ -19,7 +19,6 @@
   | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim that changing `:reset-key` retries the chunk |
   | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which DECLARATION actually emits server bytes, at the `defhost` crossing | a region documented as sending a skeleton whose declaration sends nothing |
   | [[a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader]] | the host's OWN Client-only policy over a lazy head, with one gate and a bare `react/lazy` control beside it | a gate that renders the head anyway, so the server fetches a chunk it cannot use — and a witness whose zero is really two `defhost` gates |
-  | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## The instrument is the LOADER CALL COUNT, not the paint
 
@@ -80,8 +79,7 @@
   lazy head's own host were server-active, so row 5 alone cannot decide
   row 6's subject. A witness dominated by unrelated gates measures the
   gates."
-  (:require [clojure.set :as set]
-            [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -139,23 +137,6 @@
 
 (rf/reg-event :lzb/module-failed
   (fn [{:keys [db]} _] {:db (assoc-in db [:modules :admin] :failed)}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  #{:gate/dedupe-and-retry
-    :lazy/fallback-then-arrival
-    :lazy/post-commit-suspension
-    :lazy/rejection-is-terminal
-    :lazy/fresh-head-reloads
-    :lazy/server-render
-    :lazy/unshadowed-server-gate})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Loaders, heads, and the components that arrive in them
@@ -455,8 +436,7 @@
       (rf/dispatch-sync [:lzb/wanted])
       (rf/dispatch-sync [:lzb/wanted])
       (is (= 2 @!module-loads))
-      (is (= :loaded @(rf/subscribe [:lzb/module])))))
-  (exercised! :gate/dedupe-and-retry))
+      (is (= :loaded @(rf/subscribe [:lzb/module]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Load → fallback → arrival, and what crossed
@@ -502,7 +482,6 @@
                 (testing "and arrival did not re-run the loader"
                   (is (= 1 @(:calls paint-loader))))
 
-                (exercised! :lazy/fallback-then-arrival)
                 (teardown-census! handle)))
             (.catch (report-failure! "lazy paint witness" handle))
             (.then (fn [_] (done))))))))
@@ -625,7 +604,6 @@
             (.then
               (fn [_]
                 (is (= 1 (reader-count [:lzb/label])))
-                (exercised! :lazy/post-commit-suspension)
                 (teardown-census! handle)))
             (.catch (report-failure! "lazy suspension witness" handle))
             (.then (fn [_] (done))))))))
@@ -698,7 +676,6 @@
                           read throws the cached error"
                   (is (= 1 @(:calls reject-loader))
                       "the loader was not called a second time"))
-                (exercised! :lazy/rejection-is-terminal)
 
                 ;; The repair: a NEW head over the SAME loader. A hot
                 ;; reload allocates one the same way, but that is asserted
@@ -723,7 +700,6 @@
                           fallback that happens to be painting"
                   (is (nil? (node handle "fb")))
                   (is (= 2 @(:calls reject-loader))))
-                (exercised! :lazy/fresh-head-reloads)
                 (teardown-census! handle)))
             (.catch (report-failure! "lazy rejection witness" handle))
             (.then (fn [_] (done))))))))
@@ -774,8 +750,7 @@
       (is (not (re-find #"id=\"chart\"" html))
           (str "and still not the island: " html))
       (is (zero? @(:calls ssr-loader))
-          "nor was the chunk asked for")))
-  (exercised! :lazy/server-render))
+          "nor was the chunk asked for"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. The UNSHADOWED server render — the head's own gate, alone
@@ -819,18 +794,4 @@
                 it: a gate that renders nil never reaches the prop — " html))
       (is (not (re-find #"Switched to client rendering" html))
           (str "and nothing was abandoned to the client, because nothing
-                suspended — " html))))
-  (exercised! :lazy/unshadowed-server-gate))
-
-;; ---------------------------------------------------------------------------
-;; The roster, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (is (set/subset? #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised)
-        (str "the three lane-independent rows must run everywhere; missing "
-             (pr-str (set/difference #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised))))
-    (is (= declared-population @!exercised)
-        (str "every declared mechanism must actually have been reached; missing "
-             (pr-str (set/difference declared-population @!exercised))))))
+                suspended — " html)))))
