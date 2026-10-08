@@ -4,165 +4,44 @@
 //
 //     node core/test/re_frame/bench/lane_cache_wiring.test.cjs
 //
-// THE DEFECT THIS PINS. A bench lane gives N programs ONE build id and lets
-// each merge its own `:init-fn` and `:output-dir` onto it through
-// `--config-merge`. shadow-cljs derives the build cache directory from the
-// build id ALONE — `<cache-root>/builds/<build-id>/<mode>`, fixed before any
-// `--config-merge` data is applied — so the arm is invisible to the cache key
-// and N different programs share ONE cache entry. A program that does not
-// clear that entry first runs a bundle it did not build. `lane_cache.cjs`,
-// beside this file, carries the fault class, the isolation that found the
-// carrier (`shadow-js/index.json.transit`) and the alternatives rejected with
-// reasons.
+// A bench lane gives several programs ONE build id, each merging its own
+// `:init-fn` and `:output-dir` through `--config-merge`. shadow-cljs keys the
+// build cache on the build id alone, so those programs share one cache entry, and
+// a program that does not clear it first runs a bundle it did not build. Both
+// builds exit 0 and the stale bundle fails only when a page executes it, so this
+// is a source-level gate. `lane_cache.cjs`, beside this file, carries the fault
+// class and the rejected alternatives.
 //
-// MEASURED:
+// THE ROSTER IS KEYED ON BUILD IDS, not on a directory: `SHARED_BUILD_IDS` is the
+// one declared list, and every rider of those ids is discovered by scanning the
+// implementation and bench trees, so a new rider is checked without an edit here.
+// An id with fewer than two riders fails `really is shared`, so deleting a lane
+// without its id is loud.
 //
-//     cold  -> b7's config-merge      204 files, 149 compiled, exit 0
-//     warm  -> ladder's config-merge  160 files,  11 compiled, exit 0
-//     cold  -> ladder's config-merge  160 files, 105 compiled, exit 0
+// A rider reaches a release build DIRECTLY (it spawns shadow-cljs's
+// `cli/runner.js` with `'release', BUILD, '--config-merge', …`) or through a DOOR
+// (a required local module that owns the spawn, called as
+// `shadowBuild({ mode: 'release', buildId: BUILD_ID, … })`). The door is resolved
+// through one level of local requires rather than named, so a second door is
+// found the day it lands.
 //
-// The two ladder bundles differ (`bfc7abfe…` against `fae4cd71…`, 649,134 B
-// against 649,245 B) and only the cold one runs. Loaded in headless Chromium
-// and left 3s to settle, the 11-compiled bundle raises
+// NOT COVERED: compile-mode riders (listed in the roster, not checked: every
+// measurement behind the rule was on release bundles), and a rider that neither
+// names the id nor reaches `runner.js` — `every clear is accounted for` catches
+// the half of that class that clears.
 //
-//     Cannot read properties of undefined (reading 'd')
+// THE FAIL-OPENS a naive scan admits: clearing one id and building another, and a
+// clear that survives only in a comment or only in a string. So the build id is
+// read from both sites and must be the same name, and each read runs over the
+// projection that can answer it: `code` (comments blanked) for the spawn side,
+// whose argv and require path are string literals, and `exec` (comments and
+// strings blanked) for the clear. The projection is not a parser: a mis-scan
+// blanks more than it should, which makes a check fire rather than pass, and an
+// unterminated string or comment fails the run against its file.
 //
-// before its entry executes, while the 105-compiled bundle raises nothing and
-// reaches its own application code. **Both builds exit 0**, which is the whole
-// reason this has to be a source-level gate: no build-time signal exists to
-// check, and the failure only appears when a page executes the bundle.
-//
-// WHY A GATE AND NOT JUST THE RULE. An invariant written down in
-// `lane_cache.cjs` and enforced nowhere lets drivers land armed, silently.
-//
-// ## Where the roster comes from, and why not a directory
-//
-// Discovering subjects with `readdirSync(__dirname)` would couple the gate to
-// the directory it happens to sit in rather than to the invariant it checks,
-// with two consequences:
-//
-//   * It sees only ONE lane, the one beside it, while the riders of a shared
-//     id spread across several trees.
-//   * It dies with its tree. Deleting that directory takes the gate with it,
-//     silently, taking the only enforcement of a rule whose violation exits 0
-//     twice and only shows up as a blank page.
-//
-// SO THE ROSTER IS KEYED ON THE BUILD IDS, which is the thing the invariant
-// is actually about. `SHARED_BUILD_IDS` below is an explicit, short, declared
-// list — the ids that more than one program rides. Everything else is
-// discovered: the riders of each id are found by scanning the tree, not by
-// being remembered.
-//
-// WHAT HAPPENS WHEN A RIDER IS ADDED AND NOTHING HERE IS UPDATED. It is picked
-// up automatically and checked, because riding the id means naming it, and
-// naming it is what discovery keys on. Nobody has to remember this file exists.
-// That is the property a `readdir` scan reaches for in too small a scope.
-//
-// AND WHEN AN ID STOPS BEING SHARED, this file goes RED rather than quiet: a
-// declared id with fewer than two riders fails `every declared shared build id
-// really is shared`. Deleting a lane is therefore a two-line change — the tree
-// and the entry here — and forgetting the second half is loud. A directory
-// scan cannot produce that failure.
-//
-// ## The two ways a program reaches a release build
-//
-// Discovery has to know both, because they look nothing alike in source:
-//
-//   DIRECT  the program spawns shadow-cljs's own `cli/runner.js` itself, with
-//           `'release', BUILD, '--config-merge', …` in the argv. Three riders
-//           of `fresco-bench`.
-//   DOOR    the program hands the build to a module that owns the spawn —
-//           `lane_build.cjs`, the fresco lane's one build door — as
-//           `shadowBuild({ mode: 'release', buildId: BUILD_ID, … })`. Most
-//           of `fresco-bench`.
-//
-// THE DOOR IS RESOLVED, NOT NAMED. A candidate counts as spawning shadow-cljs
-// if its own text names `runner.js`, or if any local `.cjs` it requires does.
-// So a second build door is discovered the day it lands, without an edit
-// here — the same reason the riders are discovered rather than listed.
-//
-// ## What this gate does NOT cover, said out loud
-//
-//   * COMPILE-MODE BUILDS. `<build-id>/<mode>` means `release` and `dev` are
-//     separate cache entries, and every measurement behind this rule was taken
-//     on `:advanced` release bundles. Compile-mode riders of a shared id are
-//     found by discovery and reported by name in `RIDERS BY LANE` below, but
-//     they are not held to the checks: widening the rule to a mode no evidence
-//     covers would be a guess wearing a gate's clothes.
-//   * A NEW RIDER THAT NEITHER NAMES THE ID NOR REACHES `runner.js`. A program
-//     that computes its build id from fragments, or shells out to shadow-cljs
-//     by some path with `runner.js` nowhere in it, is invisible here. The
-//     `every clear is accounted for` check below catches the half of that class
-//     that does the right thing and clears; the half that does not is the
-//     residual hole, and closing it needs a build-graph checker rather than a
-//     source scan. That trade is deliberate.
-//
-// ## The fail-opens a source scan invites, and what closes them
-//
-// Each hole below is a synthetic rider shape that a naive scan admits:
-//
-//   * DIFFERENT IDS. A rider calling `resetLaneBuildCache(IMPL, CLEAR_BUILD)`
-//     and building `RELEASE_BUILD`, with the two constants naming different
-//     builds, empties a cache nobody builds into and builds into a cache
-//     nobody cleared, which is the defect itself. A check that only rejects a
-//     string LITERAL sitting in the argv slot, and never reads either
-//     identifier back, admits it.
-//   * A COMMENT. A plain text search for the clear is satisfied by
-//     `resetLaneBuildCache(` appearing in a comment. That is the exact shape
-//     left behind when a refactor deletes the call and keeps the explanation.
-//   * A STRING. Blanking comments alone leaves string BODIES standing, so the
-//     same text in a log line or an error message stands in for the call
-//     exactly as a comment does: a rider whose only occurrences are
-//     `const POLICY = 'resetLaneBuildCache(IMPL, BUILD)'` and a template
-//     repeating it would pass all four checks, build-id comparison included,
-//     with nothing executable in the file. Comment text and string text are one
-//     fault wearing different delimiters, and closing either alone closes half
-//     a door.
-//
-// So the gate reads the build id out of BOTH sites and requires them to be the
-// same name, and each scan runs over the projection that can answer it:
-// discovery and the spawn-side reads keep string text, because the argv slot
-// and the `require` path ARE string literals in a correct driver; the clear
-// call and its build-id argument are read from executable text alone.
-//
-// TWO PROJECTIONS, NOT A JS PARSER, deliberately. `project` models line
-// comments, block comments and the three string forms; it does not model regex
-// literals or nested template interpolation. The failure direction is what
-// makes that acceptable: a mis-scan blanks MORE than it should, and blanked
-// text can only take away a call the checks are hunting for, so the assertion
-// FIRES. It also refuses outright on an unterminated string or block comment
-// rather than returning a plausible-looking result — and because discovery
-// runs over a whole tree rather than one directory, that refusal is REPORTED
-// AGAINST THE FILE and fails the run, never skipped past. A candidate this
-// scanner cannot read is a candidate it has not checked.
-//
-// WHAT THE SPLIT DOES NOT COVER, said out loud because an edge that is known
-// is an edge somebody can price. The spawn-side reads and the `require` path
-// have to read string text, since in a correct driver both ARE string
-// literals, so a string that happens to spell `'release', BUILD` is still
-// visible to them: a rider that clears one id, releases another, and carries
-// such a string ahead of its real spawn would be compared against the string.
-// That is camouflage, not the accident this gate exists to catch — a rider
-// arrives armed by omission — and pricing it out needs the scanner
-// to hand back string TOKENS rather than blanked spans. Left undone on
-// purpose: what this gate needs is lexical discrimination, not a parser.
-//
-// FIXTURES. `lane_cache_fixtures/` holds six drivers with known verdicts — for
-// each of the two rider shapes a correctly wired control and a mismatched-id
-// case, plus one whose clear is only a comment and one whose clear is only
-// string text — so the gate has a regression net of its own and cannot quietly
-// stop firing. They ride a real shared id and are rider-shaped in every
-// respect; discovery skips them ON PATH, and that skip is asserted rather than
-// assumed. They are read as TEXT and never executed.
-//
-// The fixtures stay IN the ESLint path rather than being ignored out of it, and
-// are held to the same rules as real driver source, because being faithful
-// driver source is the whole of their value — an ignore would let them drift
-// into shapes no driver could take. That constrains the two clear-less fixtures
-// in a way worth knowing: each requires `lane_cache.cjs` and binds nothing,
-// because a deleted clear that LEAVES its import binding behind is already
-// caught one gate earlier by `no-unused-vars`. The variant that binds nothing is
-// the one no linter can see, so it is the one this gate has to own.
+// FIXTURES. `lane_cache_fixtures/` holds six drivers with known verdicts, read as
+// text and never executed, so the gate cannot quietly stop firing. They stay in
+// the ESLint path, held to the rules real drivers are.
 //
 // Discovered by `npm run test:scripts`.
 
@@ -171,10 +50,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-// THE ANCHOR IS FOUND BY CONTENT, NOT BY COUNTING `..`. Walking up to
-// whichever directory holds `shadow-cljs.edn` and `package.json` means this
-// file can be moved without silently rescoping what it scans. A depth-counted
-// `path.resolve(__dirname, '..', '..', …)` would rescope it quietly.
+// Found by content (the directory holding shadow-cljs.edn and package.json), so
+// moving this file cannot silently rescope what it scans.
 function findImplRoot(from) {
   let dir = from;
   for (;;) {
@@ -383,7 +260,7 @@ for (const abs of CANDIDATE_PATHS) {
 
 const BUILDERS = CANDIDATES.filter((c) => reachesRunner(c));
 const RIDERS = BUILDERS.filter((c) => shapeOf(c) !== null);
-// Reported, not checked — see "What this gate does NOT cover" above.
+// Listed in the roster, not checked — see NOT COVERED above.
 const COMPILE_ONLY = BUILDERS.filter((c) => shapeOf(c) === null);
 
 const CHECKS = {
@@ -515,28 +392,18 @@ test('every clear of a shared id is accounted for (discovery has not drifted)', 
 });
 
 for (const rider of RIDERS) {
-  for (const check of Object.values(CHECKS)) {
-    test(`${rider.file} ${check.title}`, () => {
-      const failure = check.run(rider);
-      assert.ok(failure === null, failure);
-    });
-  }
+  test(`${rider.file} passes every wiring check`, () => {
+    const failures = Object.values(CHECKS).map((check) => check.run(rider)).filter((f) => f !== null);
+    assert.deepStrictEqual(failures, []);
+  });
 }
 
 // ## The gate's own regression net
 //
-// Each fixture is rider-shaped and carries the one check it must trip — or
-// null, for the correctly-wired controls. A gate that rejects valid wiring is
-// worse than one that admits invalid wiring, because everyone routes around
-// it, so the controls are not optional.
-//
-// Two of them trip `clearsFirst` for what looks like the same reason and is
-// not: one hides the call in a comment, the other in a string, and the
-// projections that catch them are different. Deleting either as a duplicate
-// re-opens the hole the other never covered. The `door_` pair is the same
-// argument one level up — the door reads its build id from a `buildId:`
-// property rather than an argv slot, so the comparison that covers the direct
-// riders does not cover it until this fixture says so.
+// Each fixture carries the one check it must trip, or null for the correctly
+// wired controls. The comment and string fixtures are not duplicates (different
+// projections catch them), and the door pair covers the `buildId:` read that the
+// direct pair does not.
 const FIXTURES = {
   'agreeing_ids_run.cjs': null,
   'door_agreeing_ids_run.cjs': null,
@@ -556,7 +423,7 @@ test('the fixture directory holds exactly the fixtures named here', () => {
 });
 
 for (const [file, expected] of Object.entries(FIXTURES)) {
-  test(`fixture ${file} is rider-shaped and outside discovery`, () => {
+  test(`fixture ${file} is rider-shaped, outside discovery, and trips exactly ${expected === null ? 'nothing' : expected}`, () => {
     const fixture = read(path.join(FIXTURE_DIR, file));
     assert.ok(reachesRunner(fixture), `${file} does not reach shadow-cljs, so its verdict proves nothing`);
     assert.ok(shapeOf(fixture) !== null, `${file} is not rider-shaped, so its verdict proves nothing`);
@@ -569,10 +436,6 @@ for (const [file, expected] of Object.entries(FIXTURES)) {
       !RIDERS.some((r) => r.file === fixture.file),
       `${file} was discovered as a real rider; fixtures must stay in ${path.basename(FIXTURE_DIR)}`
     );
-  });
-
-  test(`fixture ${file} trips exactly ${expected === null ? 'nothing' : expected}`, () => {
-    const fixture = read(path.join(FIXTURE_DIR, file));
     const fired = Object.entries(CHECKS)
       .filter(([, check]) => check.run(fixture) !== null)
       .map(([id]) => id);
@@ -586,16 +449,11 @@ for (const [file, expected] of Object.entries(FIXTURES)) {
   });
 }
 
-// The roster this run actually checked, printed so a reader of CI output can
-// see the scope rather than infer it from a count. A lane that vanishes from
-// this list without its id leaving SHARED_BUILD_IDS fails the `really is
-// shared` check above; a lane that vanishes WITH it is a deliberate deletion.
-test('RIDERS BY LANE', () => {
-  for (const id of SHARED_BUILD_IDS) {
-    const riders = RIDERS.filter((r) => lanesOf(r).includes(id));
-    console.log(`  ${id} — ${riders.length} release rider(s):`);
-    for (const r of riders) console.log(`      ${shapeOf(r).padEnd(6)} ${r.file}`);
-    const compile = COMPILE_ONLY.filter((r) => lanesOf(r).includes(id));
-    for (const r of compile) console.log(`      (compile-mode, not checked) ${r.file}`);
-  }
-});
+// The roster this run checked, printed so CI output shows the scope.
+for (const id of SHARED_BUILD_IDS) {
+  const riders = RIDERS.filter((r) => lanesOf(r).includes(id));
+  console.log(`  ${id} — ${riders.length} release rider(s):`);
+  for (const r of riders) console.log(`      ${shapeOf(r).padEnd(6)} ${r.file}`);
+  const compile = COMPILE_ONLY.filter((r) => lanesOf(r).includes(id));
+  for (const r of compile) console.log(`      (compile-mode, not checked) ${r.file}`);
+}
