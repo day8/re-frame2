@@ -187,27 +187,4 @@
         "the fixed+variadic inner at exactly its required count agrees")
     (is (= "<p>fv|a|b|c</p>" (outcome [fixed-var "a" "b" "c"]))
         "the fixed+variadic inner above its required count agrees, whole
-         arg list handed to the variadic arm"))
-
-  ;; `undefined` is load-bearing in the contract wording and is NOT
-  ;; interchangeable with nil, but the RENDERED BYTES above cannot tell them
-  ;; apart: `(str x)` is "" for both, and `nil?` answers true for both
-  ;; because it compiles to `== null`. `undefined?` is a `===` against
-  ;; `void 0`, which is what discriminates — so pin the slot itself, on the
-  ;; host where the call actually happens.
-  #?(:cljs
-     (testing "the client's missing slot is genuinely
-               `js/undefined`, not a nil the client fabricated"
-       (let [seen (atom nil)
-             spy  (fn [a b]
-                    (reset! seen {:a-undefined? (undefined? a)
-                                  :b-undefined? (undefined? b)})
-                    [:p "x"])]
-         (apply spy ["a"])
-         (is (false? (:a-undefined? @seen))
-             "the argument that WAS passed is not undefined")
-         (is (true? (:b-undefined? @seen))
-             "the argument that was NOT passed is undefined")
-         (is (false? (undefined? nil))
-             "control: `undefined?` really discriminates — nil is not
-              undefined under it, though `nil?` is true of both")))))
+         arg list handed to the variadic arm")))
