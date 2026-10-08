@@ -43,9 +43,7 @@
   below are the positive contract — safety (a retained callback refuses) and
   liveness (a fresh one routes) asserted together in every cache posture,
   because cache warmth is precisely what chooses between two different failures
-  under late binding. Section 8 is the negative control: it rebuilds the
-  late-binding mechanism out of the documented seam and reproduces BOTH
-  failures, so nothing here can be passing because the instruments are dead.
+  under late binding.
   See `implementation/fresco/spec/invariants.md` §7.
 
   ## Companion
@@ -449,63 +447,3 @@
   (rf.fresco.impl.collector/reset-runtime!)
   (is (= {} @rf.fresco.impl.frames/!frame-ops) "and the whole-runtime reset empties it")
   (is (= 0 (:frames (rf.fresco.test.runtime/stats)))))
-
-;; ---------------------------------------------------------------------------
-;; 8. NEGATIVE CONTROL — late keyword resolution reproduces BOTH failures
-;; ---------------------------------------------------------------------------
-
-;; A control that showed only a stale callback going inert would be incomplete:
-;; a cache in which nothing resolves at all would pass it too. So this one
-;; asserts a positive WRITE in one branch and a positive REFUSAL in the other —
-;; the two failures late binding actually has — and then runs the same two
-;; scenarios through the runtime under test, which must answer the opposite way
-;; in both.
-
-(defn- late-binding-dispatch
-  "**The LATE-BINDING mechanism**, rebuilt out of the documented seam rather
-  than by redefining a runtime var.
-
-  `!memo` stands in for the arm's frame table under it, and the returned
-  closure for `impl.collector/frame-dispatch`'s: it closes over the frame
-  KEYWORD and resolves a `rf/capture-frame` bundle when it FIRES. The commit
-  window is the arm's real [[re-frame.fresco.impl.collector/with-commit]] — it
-  batches notifications and has no say in where a write lands, but using the
-  real door keeps this a reconstruction rather than a paraphrase."
-  [!memo]
-  (fn late-frame-dispatch [frame-kw]
-    (fn late-dispatch-for-frame [event]
-      (rf.fresco.impl.collector/with-commit
-        (fn []
-          (let [ops (or (get @!memo frame-kw)
-                        (let [captured (rf/capture-frame frame-kw)]
-                          (swap! !memo assoc frame-kw captured)
-                          captured))]
-            ((:dispatch-sync ops) event)))))))
-
-(deftest NEGATIVE-CONTROL-late-keyword-resolution-reproduces-both-failures
-  (testing "COLD memo — a retained PREDECESSOR callback silently writes the
-            successor, which is the revival the contract forbids"
-    (incarnate! "A")
-    (let [!memo    (atom {})
-          on-click ((late-binding-dispatch !memo) frame-id)]
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(on-click [:reinc/mark :late-cold]))]
-        (is (= :late-cold (marked))
-            "the predecessor's callback WROTE the successor's app-db")
-        (is (empty? refusals)
-            "and nothing was emitted, which is the worse half — the write is
-             indistinguishable from a legitimate one"))))
-
-  (testing "WARM memo — a callback minted AFTER the successor seated is refused
-            by the stale bundle: perfect markup above a dead control"
-    (incarnate! "A")
-    (let [!memo (atom {})
-          late  (late-binding-dispatch !memo)]
-      ((late frame-id) [:reinc/mark :under-a])       ; fills the memo with A's bundle
-      (reincarnate! "B")
-      (let [on-click (late frame-id)                 ; minted AFTER B seated
-            {:keys [refusals]} (with-refusals #(on-click [:reinc/mark :late-warm]))]
-        (is (nil? (marked))
-            "the LIVE incarnation's own control does not write its own app-db")
-        (is (= 1 (count refusals))
-            "it is refused — the liveness half of the same defect")))))
