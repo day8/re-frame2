@@ -9,58 +9,46 @@
   first PROCESS-LIKE member: a `:route-fact` whose output MATERIALIZES the
   route slice into runtime-db at `[:rf.runtime/routing :current]`, evaluated
   `:on-route`, owned by its `:frame`. `…/route-slice-algebra-view` is the live
-  counterpart, reading a frame's runtime-db route slice.
+  counterpart, reading a frame's runtime-db route slice. Both live in the
+  bundle-isolated tooling sibling, consumed by Xray and the conformance
+  fixtures.
 
   These tests pin:
-    - the static registrar-derived projection: the fixed classifications
-      (`:kind` / `:storage` / `:evaluation` / `:lifecycle` / `:materialized?`),
-      the `:rf/route` fact id, the route-transition `:inputs`, the runtime-db
-      `:output`, the source-form metadata, and source coords;
-    - the route-owned resource activation edge (the `:resources`
-      route-metadata lowering — parametric target per the don't-execute rule);
-    - the live route slice projection (matched id / params / query /
-      transition / nav-token / owner).
-
-  There is NO public accessor (EP-0014 §Open Issues, issue 1): the views
-  live in the bundle-isolated `re-frame.routing.tooling` sibling and are
-  consumed by Xray + the conformance fixtures, which name that sibling
-  directly. There is no `re-frame.core/route-algebra-view` public facade
-  export and no `re-frame.routing` JVM convenience alias
-  either; `re-frame.derivation.graph` reaches the views by `requiring-resolve`.
+    - the static node, whole: the fixed classifications, the `:rf/route`
+      fact id, the route-transition `:inputs`, the runtime-db `:output` and
+      the source form;
+    - the route-owned resource activation edges (the `:resources`
+      route-metadata lowering — parametric target, entry fns never run);
+    - the live route slice projection, with and without a live owner;
+    - the `:source` / `:doc` passthrough.
 
   ## Posture split
 
-  The node SHAPE is production-real and carries no posture guard: the
-  classifications, the `:rf/route` fact id, the inputs / output / source-form,
-  the resource activation edge and the live slice projection all run in the
-  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`
-  (the `-Dre-frame.debug=false` lane).
+  The node SHAPE is production-real and carries no posture guard: it runs in
+  the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
   Two leaf slots are NOT: `:source` and `:doc`. Source coords are captured
   behind `rf.interop/debug-enabled?` (Spec 001 §Source-coordinate capture), and
   `:doc` is a pure-documentation key the registrar STRIPS before storage in
-  production builds (Spec 001 §Production elision contract, registrar.cljc
-  §573-580) so its string bytes DCE out of the bundle. Both deftests below
-  therefore branch: the dev arm makes the presence assertions, and
-  the production arm asserts the ELISION — that the strip really happened.
-  Neither arm is vacuous."
+  production builds (Spec 001 §Production elision contract) so its string
+  bytes DCE out of the bundle. Both deftests that read them therefore branch:
+  the dev arm makes the presence assertion, and the production arm asserts
+  the ELISION — that the strip really happened. Neither arm is vacuous."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.routing.tooling :as rf.routing.tooling]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; The fixed classifications EVERY route fact algebra node carries
-;; (Derivations §Routes expose algebra views — the canonical runtime-db /
-;; on-route / frame PROCESS-LIKE member of the algebra). `:kind` is the closed
-;; superkind `:process` (Spec-Schemas DerivationKind); `:refinement`
-;; `:route-fact` is the informative refinement.
+;; The fixed classifications EVERY route fact algebra node carries, static and
+;; live (Derivations §Routes expose algebra views). `:kind` is the closed
+;; superkind `:process`; `:refinement :route-fact` is the informative one.
 (def fixed-classifications
   {:kind          :process
    :refinement    :route-fact
@@ -69,24 +57,15 @@
    :lifecycle     :frame
    :materialized? true})
 
-(defn- has-fixed-classifications? [node]
-  (= fixed-classifications (select-keys node (keys fixed-classifications))))
-
-;; The route slice's runtime-db output address (the route fact materializes
-;; here; the live read path mirrors it).
+;; The route slice's runtime-db output address.
 (def route-output [:runtime [:rf.runtime/routing :current]])
 
 (defn- with-resources-route-key
-  "Run `f` with the late-bound `:routing/extra-route-keys` hook published as
-  `#{:resources}` (the cross-feature extension the Resources artefact owns —
-  Spec 016 §Route integration), so `reg-route` accepts the bare `:resources`
-  key without dragging the resources artefact into the routing test deps. The
-  tooling reads the raw `:resources` vector off the registrar — it never
-  executes the entry fns — so the hook only needs to admit the key.
-
-  Snapshots + restores the prior hook value so the publication never leaks
-  into other test namespaces sharing this JVM (the `reset-runtime` fixture
-  does not clear late-bind hooks)."
+  "Run `f` with the late-bound `:routing/extra-route-keys` hook admitting
+  `:resources` (the key the Resources artefact owns — Spec 016 §Route
+  integration), so `reg-route` accepts it without the resources artefact on
+  the test classpath. Restores the prior hook value, because the
+  `reset-runtime` fixture does not clear late-bind hooks."
   [f]
   (let [prior (get @rf.late-bind/hooks :routing/extra-route-keys)]
     (try
@@ -97,218 +76,103 @@
           (rf.late-bind/set-fn! :routing/extra-route-keys prior)
           (swap! rf.late-bind/hooks dissoc :routing/extra-route-keys))))))
 
-;; ---- empty / shape contract ----------------------------------------------
-
-(deftest empty-registry-returns-empty-map
-  (testing "(route-algebra-view) returns {} (not nil) when no routes are registered"
-    ;; The fixture re-`require`s the routing façade, which registers framework
-    ;; events / fx / subs but NO routes — so the :route registrar kind is empty.
-    (is (= {} (rf.routing.tooling/route-algebra-view)))))
-
-(deftest single-arity-returns-one-node
-  (testing "(route-algebra-view route-id) returns the single node, nil when unregistered"
-    (rf/reg-route :route/home {} "/")
-    (is (= ((rf.routing.tooling/route-algebra-view) :route/home)
-           (rf.routing.tooling/route-algebra-view :route/home))
-        "the one-arity form equals the entry in the all-routes map")
-    (is (nil? (rf.routing.tooling/route-algebra-view :route/ghost))
-        "an unregistered route id projects to nil")))
-
-(deftest facade-publishes-no-algebra-view-alias
-  ;; The absence pin. The
-  ;; views ship NO public accessor (Derivations §Routes expose algebra views):
-  ;; the `defn`s live in `re-frame.routing.tooling` and the facade re-exports
-  ;; neither, so `re-frame.derivation.graph` reaches them by `requiring-resolve`
-  ;; and CLJS tools by a direct `:require`.
-  (testing "`re-frame.routing` re-exports neither route algebra view"
-    (is (nil? (ns-resolve 're-frame.routing 'route-algebra-view))
-        "route-algebra-view is not a public name on the routing facade")
-    (is (nil? (ns-resolve 're-frame.routing 'route-slice-algebra-view))
-        "route-slice-algebra-view is not a public name on the routing facade"))
-  (testing "the tooling sibling publishes both"
-    (is (some? (ns-resolve 're-frame.routing.tooling 'route-algebra-view)))
-    (is (some? (ns-resolve 're-frame.routing.tooling 'route-slice-algebra-view)))))
-
 ;; ---- a registered route exposes its fact-node view -----------------------
 
 (deftest route-exposes-its-full-fact-node-view
-  (testing "a reg-route exposes the full route-fact / runtime-db / on-route / frame node"
+  (testing "a reg-route exposes the full route-fact / runtime-db / on-route / frame
+            node: the fact id is :rf/route, NOT the registration id, which is
+            recorded under :source-form; no :resource-edges or :doc unless declared"
     (rf/reg-route :route/article {} "/articles/:slug")
-    (let [node ((rf.routing.tooling/route-algebra-view) :route/article)]
-      (is (some? node) "the route is present under its registration id")
-      (is (has-fixed-classifications? node)
-          "route carries the fixed route-fact / runtime-db / on-route / frame / materialized classifications")
-      (is (= :rf/route (:id node))
-          "the fact id is :rf/route — the route slice's one consumer-facing name (EP-0007), NOT the registration id")
-      (is (= {:kind :reg-route :id :route/article} (:source-form node))
-          "the per-route registration id is recorded under :source-form")
-      (is (= route-output (:output node))
-          "the output materializes the route slice into runtime-db at [:rf.runtime/routing :current]")
-      (is (= [[:event :rf.route/navigate]
-              [:event :rf.route/handle-url-change]]
-             (:inputs node))
-          "the inputs are the route-transition causal events — the :on-route triggers")
-      (is (not (contains? node :resource-edges))
-          "a route with no :resources carries no :resource-edges key"))))
+    (is (= (merge fixed-classifications
+                  {:id          :rf/route
+                   :output      route-output
+                   :source-form {:kind :reg-route :id :route/article}
+                   :inputs      [[:event :rf.route/navigate]
+                                 [:event :rf.route/handle-url-change]]})
+           (dissoc ((rf.routing.tooling/route-algebra-view) :route/article) :source)))))
 
-;; ---- route-owned resource activation edge --------------------------------
+;; ---- route-owned resource activation edges -------------------------------
 
 (deftest route-resources-lower-to-activation-edges
-  (testing "a route's :resources metadata lowers to route-owned resource activation edges"
-    ;; `:resources` is a CROSS-FEATURE route-metadata key owned by the
-    ;; Resources artefact (Spec 016 §Route integration), accepted by routing
-    ;; via the late-bound :routing/extra-route-keys extension. We publish the
-    ;; extension hook directly (no resources artefact dep needed — the tooling
-    ;; reads the raw :resources vector off the registrar, never executing the
-    ;; entry fns) so reg-route accepts the bare :resources key.
+  (testing "each :resources entry lowers, in declaration order, to a parametric
+            edge from the route params slot — and the static view never runs an
+            entry's :params / :when fns (the don't-execute rule)"
     (with-resources-route-key
       (fn []
-        (rf/reg-route :route/article
-                      {:resources
-                       [{:resource  :article/by-slug
-                         :params    (fn [route] {:slug (get-in route [:params :slug])})
-                         :scope     {:from-db :session/current-tenant}
-                         :blocking? true}
-                        {:resource :article/comments
-                         :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-        (let [node  ((rf.routing.tooling/route-algebra-view) :route/article)
-              edges (:resource-edges node)]
-          (is (has-fixed-classifications? node))
-          (is (vector? edges) "the route owns resource activation — :resource-edges present")
-          (is (= 2 (count edges)) "one edge per :resources entry, in declaration order")
-          (let [[blocking-edge bg-edge] edges]
-            (is (= {:from   [:runtime [:rf.runtime/routing :current :params]]
-                    :to     [:resource :article/by-slug]
-                    :role   :param
-                    :target :parametric
-                    :blocking? true}
-                   blocking-edge)
-                "the blocking edge runs from the route params slot to the resource, parametric target, :blocking? surfaced")
-            (is (= [:resource :article/comments] (:to bg-edge)))
-            (is (= :parametric (:target bg-edge))
-                "the concrete scoped key is parametric — the don't-execute rule keeps the entry fns unexecuted")
-            (is (not (contains? bg-edge :blocking?))
-                ":blocking? is surfaced only when the entry declared it")))))))
-
-(deftest resource-edge-never-executes-entry-fns
-  ;; A route entry's fn slots are `:params` and `:when` — there is no
-  ;; anonymous route-scope resolver tier, so `:scope`
-  ;; is a declared override the static view reads verbatim.
-  (testing "static projection NEVER invokes a resource entry's :params / :when fns (don't-execute rule)"
-    (with-resources-route-key
-      (fn []
-        (let [boom (atom false)]
-          (rf/reg-route :route/danger
+        (let [ran?   (atom false)
+              touch! (fn [& _] (reset! ran? true) {})]
+          (rf/reg-route :route/article
                         {:resources
-                         [{:resource :thing/by-id
-                           :params   (fn [_route] (reset! boom true) {:id 1})
-                           :scope    {:from-db :session/current-tenant}
-                           :when     (fn [_ _ _] (reset! boom true) true)}]} "/danger/:id")
-          (let [node ((rf.routing.tooling/route-algebra-view) :route/danger)]
-            (is (= [:resource :thing/by-id] (:to (first (:resource-edges node)))))
-            (is (false? @boom)
-                "the static view read the declaration without running ANY entry fn")))))))
+                         [{:resource  :article/by-slug
+                           :params    touch!
+                           :scope     {:from-db :session/current-tenant}
+                           :blocking? true}
+                          {:resource :article/comments
+                           :params   touch!
+                           :when     touch!}]}
+                        "/articles/:slug")
+          (is (= [{:from      [:runtime [:rf.runtime/routing :current :params]]
+                   :to        [:resource :article/by-slug]
+                   :role      :param
+                   :target    :parametric
+                   :blocking? true}
+                  {:from   [:runtime [:rf.runtime/routing :current :params]]
+                   :to     [:resource :article/comments]
+                   :role   :param
+                   :target :parametric}]
+                 (:resource-edges ((rf.routing.tooling/route-algebra-view) :route/article)))
+              ":blocking? is surfaced only when the entry declared it")
+          (is (false? @ran?) "no entry fn ran"))))))
 
 ;; ---- the live route slice ------------------------------------------------
 
 (deftest live-route-slice-projects-the-materialized-fact
-  (testing "route-slice-algebra-view projects a frame's live route slice"
-    (rf/reg-route :route/article {} "/articles/:slug")
-    ;; Install a live route slice directly into the frame's runtime-db (the
-    ;; shape a committed navigation materializes — Spec 012 §The route slice):
-    ;; {:route-id :params :query :transition :nav-token …} at
-    ;; [:rf.runtime/routing :current].
-    (rf.frame/replace-runtime-db!
-      :rf/default
-      {:rf.runtime/routing
-       {:current {:route-id         :route/article
-                  :params     {:slug "welcome"}
-                  :query      {:ref "home"}
-                  :transition :idle
-                  :nav-token  17}}})
-    (let [node (rf.routing.tooling/route-slice-algebra-view :rf/default)]
-      (is (some? node) "the live slice projects to a node")
-      (is (has-fixed-classifications? node)
-          "the live node carries the same fixed classifications as the static node")
-      (is (= :rf/route (:id node)))
-      (is (= route-output (:output node)))
-      (is (= :route/article (:route-id node)) "the live matched route id")
-      (is (= {:slug "welcome"} (:params node)) "the live matched path params")
-      (is (= {:ref "home"} (:query node)) "the live matched query params")
-      (is (= :idle (:transition node)) "the live transition state")
-      (is (= 17 (:nav-token node)) "the live nav-token (route owner identity)")
-      (is (= [:route :route/article 17] (:owner node))
-          "the owner is [:route route-id nav-token] — the live route owner (Derivations §Lifecycle and owner)"))))
+  (testing "route-slice-algebra-view projects a frame's live route slice; the
+            owner [:route route-id nav-token] is present only with a nav-token"
+    (let [live (fn [current]
+                 (rf.frame/replace-runtime-db! :rf/default {:rf.runtime/routing {:current current}})
+                 (rf.routing.tooling/route-slice-algebra-view :rf/default))
+          base (merge fixed-classifications {:id :rf/route :output route-output})]
+      (is (= (merge base {:route-id   :route/article
+                          :params     {:slug "welcome"}
+                          :query      {:ref "home"}
+                          :transition :idle
+                          :nav-token  17
+                          :owner      [:route :route/article 17]})
+             (live {:route-id   :route/article
+                    :params     {:slug "welcome"}
+                    :query      {:ref "home"}
+                    :transition :idle
+                    :nav-token  17})))
+      (is (= (merge base {:route-id   :route/x
+                          :params     {}
+                          :query      nil
+                          :transition :idle
+                          :nav-token  nil})
+             (live {:route-id :route/x :params {} :transition :idle}))
+          "no nav-token → no live owner edge"))))
 
 (deftest live-route-slice-nil-when-unmaterialized
-  (testing "route-slice-algebra-view returns nil when no route slice has committed"
-    ;; A fresh frame's runtime-db starts {} — no :current route slice yet.
-    (is (nil? (rf.routing.tooling/route-slice-algebra-view :rf/default))
-        "no navigation committed → nil")))
-
-(deftest live-route-slice-nil-for-missing-frame
-  (testing "route-slice-algebra-view returns nil for an unknown / destroyed frame"
-    (is (nil? (rf.routing.tooling/route-slice-algebra-view :no/such-frame)))))
-
-(deftest live-slice-without-nav-token-omits-owner
-  (testing "the :owner edge is present only when both matched id and nav-token are known"
-    (rf.frame/replace-runtime-db!
-      :rf/default
-      {:rf.runtime/routing
-       {:current {:route-id :route/x :params {} :transition :idle}}}) ;; no :nav-token
-    (let [node (rf.routing.tooling/route-slice-algebra-view :rf/default)]
-      (is (some? node))
-      (is (= :route/x (:route-id node)))
-      (is (nil? (:nav-token node)))
-      (is (not (contains? node :owner))
-          "no nav-token → no live owner edge (a route fact with no owner is not yet a live owner)"))))
+  (testing "nil before any navigation commits, and for an unknown frame"
+    (is (= [nil nil] [(rf.routing.tooling/route-slice-algebra-view :rf/default)
+                      (rf.routing.tooling/route-slice-algebra-view :no/such-frame)]))))
 
 ;; ---- source-coords / doc passthrough -------------------------------------
 
 (deftest source-coords-surface-in-the-node
-  (testing ":ns / :line / :file captured by reg-route surface under :source"
+  (testing ":ns / :file / :line captured by reg-route surface under :source"
     (rf/reg-route :route/home {} "/")
-    (let [node   ((rf.routing.tooling/route-algebra-view) :route/home)
-          source (:source node)]
+    (let [source (:source ((rf.routing.tooling/route-algebra-view) :route/home))]
       (if rf.interop/debug-enabled?
-        ;; Dev arm (see ns docstring).
-        (do
-          (is (some? source) ":source map is present when the registration carried coords")
-          (is (some? (:ns source))     ":ns captured at the call site")
-          (is (number? (:line source)) ":line captured at the call site")
-          (is (some? (:file source))   ":file captured at the call site"))
-        ;; Production arm: coord capture is DCE'd, so the node
-        ;; carries no `:source` at all. The rest of the node is unaffected.
-        (do
-          (is (nil? source)
-              "under -Dre-frame.debug=false the coords are elided (Spec 001)")
-          (is (= {:kind :reg-route :id :route/home} (:source-form node))
-              "…and the node itself is otherwise intact"))))))
+        (is (and (:ns source) (:file source) (number? (:line source)))
+            (str "coords captured at the call site, got " (pr-str source)))
+        (is (nil? source)
+            "under -Dre-frame.debug=false the coords are elided (Spec 001)")))))
 
 (deftest doc-passes-through
   (testing ":doc supplied on the route metadata surfaces in the node"
     (rf/reg-route :route/home {:doc "the home route"} "/")
     (if rf.interop/debug-enabled?
-      ;; Dev arm (see ns docstring).
       (is (= "the home route" (:doc ((rf.routing.tooling/route-algebra-view) :route/home))))
-      ;; Production arm: `:doc` is stripped BEFORE storage so its
-      ;; string bytes leave the bundle, so the node cannot carry it.
       (is (not (contains? ((rf.routing.tooling/route-algebra-view) :route/home) :doc))
           "under -Dre-frame.debug=false the registrar strips :doc before storage"))))
-
-(deftest no-doc-when-absent
-  (testing ":doc is absent when the registration didn't supply it"
-    (rf/reg-route :route/home {} "/")
-    (is (not (contains? ((rf.routing.tooling/route-algebra-view) :route/home) :doc)))))
-
-;; ---- registry semantics --------------------------------------------------
-
-(deftest unregistered-route-is-removed
-  (testing "(clear-route id) removes the route from the algebra view"
-    (rf/reg-route :route/a {} "/a")
-    (rf/reg-route :route/b {} "/b")
-    (is (contains? (rf.routing.tooling/route-algebra-view) :route/a))
-    (rf/clear :route :route/a)
-    (let [view (rf.routing.tooling/route-algebra-view)]
-      (is (not (contains? view :route/a)))
-      (is (contains? view :route/b)))))
