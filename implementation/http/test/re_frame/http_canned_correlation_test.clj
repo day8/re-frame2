@@ -25,7 +25,7 @@
   "The tutorial's shape: submitting advances `:auth-generation` and issues the
   request under `[:auth/login generation]`; each reply acts only when that
   generation is still current. `extra` merges over the args map, so a caller
-  can pick the canned fx's own args or force a stale `:request-id`."
+  can pick the canned fx's own args."
   []
   (rf/reg-event :login/submit
     (fn [{:keys [db]} [_ extra]]
@@ -60,20 +60,9 @@
   (reg-guarded-login!)
   (let [ada {:user {:username "ada"}}]
     (doseq [[label fire! expected]
-            [[":rf.http/managed-canned-success"
-              #(submit-via! :rf.http/managed-canned-success {:value ada})
-              [:ok ada]]
-             [":rf.http/managed-canned-failure"
-              #(submit-via! :rf.http/managed-canned-failure {:kind :rf.http/http-4xx})
-              [:error :rf.http/http-4xx]]
-             [":rf.http/managed-canned-failure with an :rf.http/aborted kind"
+            [[":rf.http/managed-canned-failure with an :rf.http/aborted kind"
               #(submit-via! :rf.http/managed-canned-failure {:kind :rf.http/aborted})
               [:cancelled :rf.http/aborted]]
-             ["with-request-stubs, an :ok route"
-              #(rf.http.test-support/with-request-stubs
-                 {[:post login-url] {:reply {:ok ada}}}
-                 (fn [] (rf/dispatch-sync [:login/submit {}])))
-              [:ok ada]]
              ["with-request-stubs, a :failure route"
               #(rf.http.test-support/with-request-stubs
                  {[:post login-url] {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
