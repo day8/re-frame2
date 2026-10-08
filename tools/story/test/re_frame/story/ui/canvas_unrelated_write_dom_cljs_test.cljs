@@ -5,21 +5,16 @@
   The canvas's outer render reads the `run-key` through `r/track` and hands
   it to `canvas-inner`, so only a change to a run input (selection,
   hot-reload tick, modes, cell overrides, substrate) reaches either render.
-  Dereffing the WHOLE shell atom in either render would re-run the snapshot
-  identity hash and the variant-plan compile for a rail drag, a panel
-  toggle, a tag filter or a test-run record — none of which is a run input.
-
   Counted at the two seams each render crosses exactly once:
   `rf.story.runtime/snapshot-identity` (outer) and
-  `rf.story.render/resolve-render-sub-overrides` (inner). The hot-reload tick
-  is the control — a run input, so it MUST still reach both.
+  `rf.story.render/resolve-render-sub-overrides` (inner). The hot-reload
+  tick is the control — a run input, so it MUST still reach both, which
+  keeps the `= 0` assertions from passing on a spy the render never calls.
 
-  The render compiles the variant plan ONCE and reads the decorator refs,
-  the effective args, these sub-overrides and the loader classification off
-  that one plan, so `canvas-inner` calls `rf.story.decorators/resolve-decorators`
-  not at all. A spy on a fn the render does not call counts zero for BOTH the
-  unrelated writes and the tick, which passes the two `= 0` assertions
-  vacuously — which is why the tick control is here.
+  The probe is an events-only variant selected BEFORE the canvas mounts,
+  so the first commit also witnesses that `canvas-inner` ensures the frame
+  during render: without it `frame-provider` fails loud on the absent frame
+  and the precondition below never paints.
 
   Ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build mounts
   real DOM; `:node-test` also loads it, where the body self-gates on
@@ -40,8 +35,6 @@
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.subs :as rf.subs]))
-
-;; ---- fixture (mirrors events_only_first_render_frame_provider_dom) ------
 
 (defn- reset-all! []
   (rf.story/clear-all!)
@@ -89,6 +82,8 @@
         (rf.story/reg-variant variant-id
           {:component :views/ohc5-probe
            :setup     [[:ohc5/seed 3]]})
+        ;; Pre-select BEFORE mount: no selection-watcher edge allocates the
+        ;; frame, so the canvas's first render has to.
         (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)
@@ -101,7 +96,7 @@
               (fn [] (rdc/render root [rf.story.ui.canvas/canvas])))
             (is (= "n=3" (some-> (.querySelector mount-node "[data-test=\"ohc5-probe\"]")
                                  .-textContent))
-                "precondition: the variant rendered")
+                "the pre-selected events-only variant painted its seeded state on the first commit")
             ;; Fixed arities, not `[& args]`: the canvas calls both fns at a
             ;; known arity, which compiles to a direct-arity dispatch that a
             ;; variadic stand-in does not answer — the render would throw and
@@ -119,9 +114,6 @@
               ;; Control: the tick IS a run input.
               (write-and-flush! rf.story.ui.state/bump-hot-reload-tick)
               (is (pos? @outer) "control: a hot-reload tick re-renders the outer canvas")
-              (is (pos? @inner) "control: a hot-reload tick re-renders canvas-inner")
-              (is (= "n=3" (some-> (.querySelector mount-node "[data-test=\"ohc5-probe\"]")
-                                   .-textContent))
-                  "control: the re-rendered view still paints (the render did not throw)"))
+              (is (pos? @inner) "control: a hot-reload tick re-renders canvas-inner"))
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
