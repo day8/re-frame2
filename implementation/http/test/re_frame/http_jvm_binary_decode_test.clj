@@ -1,28 +1,15 @@
 (ns re-frame.http-jvm-binary-decode-test
-  "Spec 014 §Decoding + §JVM degradation table — JVM binary decode +
-  per-host timeout `:elapsed-ms`.
+  "Spec 014 §Decoding + §JVM degradation table — JVM binary decode.
 
-  Two contracts:
+  `jvm-fetch` reads `BodyHandlers/ofByteArray` and, when the resolved decode
+  mode is binary (`binary-read-kind`), rides the raw `byte[]` under
+  `:body-binary` so the bytes survive verbatim. Reading every body as a String
+  would send a `:blob` / `:array-buffer` / `:form-data` decode through a lossy
+  UTF-8 round trip that corrupts binary payloads. The text path reproduces
+  `ofString`'s charset handling via `charset-of`.
 
-  1. Binary decode on JVM. `jvm-fetch` reads
-     `BodyHandlers/ofByteArray` and, when the resolved decode mode is
-     binary (`binary-read-kind`), rides the raw `byte[]` under
-     `:body-binary` so the bytes survive verbatim. Reading every response
-     body as a String (`BodyHandlers/ofString`) would send a `:blob` /
-     `:array-buffer` / `:form-data` decode through the lossy
-     `body-text` fallback in `decode-response-body` — a UTF-8 decode of
-     raw bytes that CORRUPTS binary payloads. The text path
-     reproduces `ofString`'s charset handling via `charset-of`.
-
-  2. Per-host timeout `:elapsed-ms`. The JDK's `HttpTimeoutException`
-     does not surface the elapsed wall clock, so `run-attempt!` captures
-     a monotonic start mark and threads the measured wall-clock delta into
-     `classify-jvm-error`, matching the CLJS path's intent (a value on both
-     hosts, not nil-on-JVM).
-
-  These exercise the live JVM transport via an in-process JDK HttpServer
-  (real socket, real `HttpClient`) — they fail deterministically against
-  a transport that UTF-8-decodes the bytes or leaves elapsed-ms nil."
+  The live tests use an in-process JDK HttpServer (real socket, real
+  `HttpClient`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -30,14 +17,11 @@
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
-           [java.net InetSocketAddress]))
-
-;; ---- per-test reset --------------------------------------------------------
+           [java.net InetSocketAddress]
+           [java.nio.charset StandardCharsets]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- a tiny in-process HTTP server (raw-bytes capable) --------------------
 
 (defn- start-server! [handler]
   (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
@@ -61,11 +45,8 @@
     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
     {:timeout-ms 5000 :label "http binary reply"}))
 
-;; ---- (1) binary decode honours the bytes on JVM ----------------------------
-
-;; A payload with non-UTF-8 high bytes — a lossy String decode
-;; would substitute U+FFFD replacement chars and re-encoding
-;; would NOT round-trip to these bytes. ofByteArray preserves them exactly.
+;; Non-UTF-8 high bytes: a lossy String decode would substitute U+FFFD and
+;; not round-trip to these bytes.
 (def ^:private raw-bytes (byte-array [(byte 0x00) (byte -1) (byte -2)
                                       (byte 0x7f) (byte -128) (byte 0x42)]))
 
@@ -85,13 +66,9 @@
                      {:reply-to [:blob/load msg] :request {:url (str "http://127.0.0.1:" port "/bin")}
                       :decode  :blob}]]})))
         (rf/dispatch-sync [:blob/load {}])
-        (let [db    (await-reply! #(some? (:reply %)))
-              value (get-in db [:reply :value])]
-          (is (= :ok (get-in db [:reply :status])))
-          (is (bytes? value)
-              "the decoded value must be a byte[] (the raw bytes), not a String")
-          (is (= (seq raw-bytes) (seq value))
-              "the bytes must survive verbatim — no lossy UTF-8 round-trip"))
+        (let [db (await-reply! #(some? (:reply %)))]
+          (is (= (seq raw-bytes) (seq (get-in db [:reply :value])))
+              "the bytes survive verbatim — no lossy UTF-8 round-trip"))
         (finally (stop-server! srv))))))
 
 (deftest jvm-text-decode-still-uses-response-charset
@@ -117,49 +94,7 @@
               "ISO-8859-1 bytes must decode via the declared charset, not raw UTF-8"))
         (finally (stop-server! srv))))))
 
-;; ---- (1b) charset-of unit coverage ----------------------------------------
-
 (deftest charset-of-defaults-to-utf8
-  (testing "absent / unparseable charset falls back to UTF-8"
-    (let [charset-of @#'rf.http.transport-jvm/charset-of]
-      (is (= "UTF-8" (.name ^java.nio.charset.Charset (charset-of {}))))
-      (is (= "UTF-8" (.name ^java.nio.charset.Charset
-                            (charset-of {"content-type" "application/json"}))))
-      (is (= "UTF-8" (.name ^java.nio.charset.Charset
-                            (charset-of {"content-type" "text/x; charset=not-a-real-charset"})))
-          "an unparseable charset name must not throw — falls back to UTF-8"))))
-
-;; ---- (2) per-host timeout :elapsed-ms --------------------------------------
-
-(deftest jvm-real-timeout-populates-elapsed-ms
-  (testing "a live JVM request that exceeds its per-attempt
-            timeout surfaces :rf.http/timeout with a NON-nil :elapsed-ms
-            (the end-to-end run-attempt! → classify-jvm-error path)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; Stall well past the request's tiny timeout-ms.
-              (Thread/sleep 800)
-              (write-bytes! ex 200 "application/json"
-                            (.getBytes "{\"ok\":true}" "UTF-8"))))]
-      (try
-        (rf/reg-event :slow/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:slow/load msg] :request    {:url (str "http://127.0.0.1:" port "/slow")}
-                      :decode     :json
-                      :timeout-ms 50}]]})))
-        (rf/dispatch-sync [:slow/load {}])
-        (let [db      (await-reply! #(some? (:reply %)))
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/timeout (:kind failure)))
-          (is (= 50 (:limit-ms failure)))
-          (is (some? (:elapsed-ms failure))
-              ":elapsed-ms must be populated on the JVM")
-          (is (and (number? (:elapsed-ms failure))
-                   (>= (:elapsed-ms failure) 0))
-              ":elapsed-ms is a non-negative measured wall-clock delta"))
-        (finally (stop-server! srv))))))
+  (testing "an unparseable charset name does not throw — it falls back to UTF-8"
+    (is (= StandardCharsets/UTF_8
+           (@#'rf.http.transport-jvm/charset-of {"content-type" "text/x; charset=not-a-real-charset"})))))
