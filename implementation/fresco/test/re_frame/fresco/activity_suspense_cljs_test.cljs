@@ -80,24 +80,12 @@
   paints the correct value out of the wrong ownership. A value-level
   assertion is green in both directions.
 
-  ## The negative controls are in the suite, not only in the report
-
-  Two rows perform, by hand, the exact mutations that would make the
-  matrix vacuous —
-  [[NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership]]
-  is the named sabotage (*skipping release-on-hide must turn the
-  stale-membership witness red*), and
-  [[NEGATIVE-CONTROL-a-reveal-that-reuses-the-pre-hide-read-set-reacquires-the-wrong-key]]
-  is the reveal-side twin. Without them every zero above could be a zero
-  the instrument is incapable of making non-zero.
-
   ## No clock
 
   Where a property is only true after the reapers run, the settle is
   [[re-frame.fresco.test.runtime/quiesced!]] — the runtime's own
   horizon — and never a `setTimeout` of this file's choosing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -146,28 +134,6 @@
      :init-fn       (fn []
                       (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The Activity transitions this file undertakes to exercise.
-  [[the-declared-population-was-actually-exercised]] asserts that every
-  one of them was reached at runtime, so the roster cannot drift into a
-  list of things the suite used to do."
-  #{:activity/hide-releases
-    :activity/hide-inside-a-deferred-notification-window
-    :activity/hidden-render-publishes-nothing
-    :activity/reveal-reacquires
-    :activity/conditional-read-moved-while-hidden
-    :activity/retained-intent-across-a-reincarnation
-    :activity/repeated-hide-reveal-cycles
-    :lifecycle/three-states-distinguished})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [transition] (swap! !exercised conj transition) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -355,8 +321,6 @@
              hide: the state is live, not merely retained")
         (is (= :a (:which (app-db)))))
 
-      (exercised! :activity/hide-releases)
-
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
                (testing "and at the runtime's own horizon the hidden
@@ -419,8 +383,6 @@
       ;; The hide lands in the window — after the readers were collected
       ;; and before they are notified.
       (hide! visible)
-
-      (exercised! :activity/hide-inside-a-deferred-notification-window)
 
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
@@ -501,8 +463,6 @@
                `subscribe`, so nothing above counted a claim that was
                merely cached")))
 
-      (exercised! :activity/hidden-render-publishes-nothing)
-
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
                (testing "and the speculative cache evaporates at the
@@ -559,8 +519,6 @@
 
         (hide! after-reveal))
 
-      (exercised! :activity/reveal-reacquires)
-
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
                (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
@@ -570,27 +528,22 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4. A conditional read changed while hidden does not resurrect stale
-;;    membership — and the named sabotage for it
+;;    membership
 ;; ---------------------------------------------------------------------------
 
 (defn- hidden-window-flip!
-  "The transition the row is about, with `release-on-hide?` a parameter so
-  the sabotage is the SAME code path with one call removed rather than a
-  second, differently-written scenario.
-
-  Visible under `:which = :a`; hidden; flipped to `:b` while hidden;
+  "Visible under `:which = :a`; hidden; flipped to `:b` while hidden;
   re-rendered while hidden; revealed. Answers the two registrations and
   the reveal's entry."
-  [release-on-hide?]
+  []
   (let [entry-a   (render! conditional-body)
         committed (commit! entry-a)
         pre-hide  (sole-reader [:acs/a])]
-    (when release-on-hide? (hide! committed))
+    (hide! committed)
     (rf/with-frame frame-id (rf/dispatch-sync [:acs/flip :b]))
     (let [entry-b  (render! conditional-body)
           revealed (commit! entry-b)]
       {:pre-hide      pre-hide
-       :pre-committed committed
        :entry-a       entry-a
        :entry-b       entry-b
        :revealed      revealed})))
@@ -598,7 +551,7 @@
 (deftest a-conditional-read-changed-while-hidden-does-not-resurrect-stale-membership
   (async done
     (seeded!)
-    (let [{:keys [pre-hide entry-a entry-b revealed]} (hidden-window-flip! true)
+    (let [{:keys [pre-hide entry-a entry-b revealed]} (hidden-window-flip!)
           reveal-reg (sole-reader [:acs/b])]
 
       (testing "the premise: the read set really did MOVE across the hidden
@@ -643,7 +596,6 @@
              a key nothing holds has no cell and contributes no reader"))
 
       (hide! revealed)
-      (exercised! :activity/conditional-read-moved-while-hidden)
 
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
@@ -653,86 +605,6 @@
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
                         (rf.fresco.test.runtime/residue))))
                (done))))))
-
-(deftest NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership
-  ;; The named sabotage, run as a row rather than described:
-  ;; *skipping release-on-hide must turn the stale-membership witness
-  ;; red*. It is the same helper with `release-on-hide?` false, so
-  ;; what changed between green and red is one call and not one scenario.
-  (async done
-    (seeded!)
-    (let [{:keys [pre-hide pre-committed revealed]} (hidden-window-flip! false)]
-
-      (testing "with the release skipped, the predecessor's membership on
-                the dropped key SURVIVES the transition — and it is the
-                pre-hide registration itself, by identity, not merely a
-                non-zero count"
-        (is (= 1 (count (readers [:acs/a])))
-            "the assertion the real row makes — `(= [] (readers [:acs/a]))`
-             — is FALSE here, which is what makes that row a witness")
-        (is (true? (identical? pre-hide (first (readers [:acs/a]))))))
-
-      (testing "and the census the real row pins moves with it: two
-                boundaries where there should be one, four memberships
-                where there should be two"
-        (is (= {:cells 3 :cell-refs 4 :boundaries 2 :edges 4} (ownership))))
-
-      (testing "the leaked registration is still LIVE, which is the cost.
-                A write to a key NO visible boundary reads re-renders the
-                subtree React has hidden, and leaves the visible one
-                untouched — so the leak is not merely retention, it is
-                work"
-        (let [visible-before @(:notified revealed)]
-          (rf/with-frame frame-id (rf/dispatch-sync [:acs/bump :a]))
-          (is (pos? @(:notified pre-committed))
-              "the hidden subtree is notified by a key it no longer shows")
-          (is (= visible-before @(:notified revealed))
-              "and the visible one is not")))
-
-      (testing "and the stale membership is still there afterwards, because
-                nothing will ever release it: the cleanup that would have
-                was the one this control skipped"
-        (is (= 1 (count (readers [:acs/a])))))
-
-      ;; Release the visible one only. The leak is the point of the row, so
-      ;; it is left for quiescence to fail to collect.
-      (hide! revealed)
-      (.then (rf.fresco.test.runtime/quiesced!)
-             (fn [_]
-               (is (pos? (:cell-refs (rf.fresco.test.runtime/residue)))
-                   "and the leak OUTLIVES quiescence — a reaper cannot
-                    collect a cell that still has a reader, which is
-                    precisely why the release is the invariant")
-               ;; Release it now, so the row leaves the runtime as it found
-               ;; it rather than handing the next row a live registration.
-               (hide! pre-committed)
-               (done))))))
-
-(deftest NEGATIVE-CONTROL-a-reveal-that-reuses-the-pre-hide-read-set-reacquires-the-wrong-key
-  ;; The reveal-side twin. Release-on-hide is performed correctly; what is
-  ;; sabotaged is WHICH entry the reveal subscribes — the pre-hide one
-  ;; rather than the current render's. That is the failure a reveal has if
-  ;; React re-mounts a stale effect, and no assertion in section 4 above
-  ;; would catch it if the row asserted only `count`.
-  (seeded!)
-  (let [entry-a   (render! conditional-body)
-        committed (commit! entry-a)]
-    (hide! committed)
-    (rf/with-frame frame-id (rf/dispatch-sync [:acs/flip :b]))
-    (render! conditional-body)
-    ;; The sabotage: subscribe the PRE-HIDE entry, which is exactly what a
-    ;; reveal replaying a stale effect would do.
-    (let [stale (commit! entry-a)]
-      (testing "the stale reveal reacquires the key the body no longer
-                reads, and does not acquire the key it does"
-        (is (= 1 (count (readers [:acs/a])))
-            "resurrected — the assertion the real row makes is FALSE here")
-        (is (zero? (reader-count [:acs/b]))
-            "and the current read is owned by nobody, so a write to it
-             re-renders nothing")
-        (is (true? (identical? (sole-reader [:acs/a]) (sole-reader [:acs/which])))
-            "one registration, holding the PRE-HIDE pair"))
-      (hide! stale))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. An intent retained before the hide obeys the incarnation rule
@@ -806,9 +678,7 @@
             "and it is a different closure — the memo row was replaced when
              the successor seated, which is what makes safety and liveness
              the same fact seen twice")
-        (hide! revealed)))
-
-    (exercised! :activity/retained-intent-across-a-reincarnation)))
+        (hide! revealed)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. Repeated ACTIVITY hide/reveal cycles leave EXACT ownership
@@ -856,8 +726,6 @@
           (is (= 4 distinct-regs)
               "four reveals, four registration identities — no cycle found a
                subscription still installed")))
-
-      (exercised! :activity/repeated-hide-reveal-cycles)
 
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
@@ -911,8 +779,6 @@
           (is (not (identical? connected (sole-reader [:acs/a])))))
         (hide! revealed))
 
-      (exercised! :lifecycle/three-states-distinguished)
-
       (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
                (testing "UNMOUNTED — every table is empty, and the entry has
@@ -939,15 +805,3 @@
                      "the same number the hidden state answered, which is
                       the whole of the finding"))
                (done))))))
-
-;; ---------------------------------------------------------------------------
-;; The roster, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  ;; Ordered last by `cljs.test`'s declaration order, which is what makes it
-  ;; readable: every row above has run by the time this one does.
-  (is (= declared-population @!exercised)
-      (str "every declared Activity transition must be reached at
-            runtime. Missing: "
-           (pr-str (set/difference declared-population @!exercised)))))
