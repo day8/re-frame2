@@ -104,23 +104,16 @@
 
 ;; --- the focus-on-route recipe --------------------------------------------
 
-(defn pane-shown
-  "The routes' `:on-match` handler, as a plain fn so the structural row can
-  read what it returns without a browser.
-
-  It names `:root`, and that single key is what scopes the recipe:
-  the effect resolves its heading INSIDE this
-  application's own root, so a marked heading belonging to anything else
-  on the page cannot take the landing focus."
-  [_ _]
-  {:fx [[::focus-heading {:root     (str "#" root-id)
-                          :selector heading-selector}]]})
-
 (rf/reg-event ::pane-shown
   {:doc "The routes' `:on-match` — a navigation COMMITTED, so ask for focus
   to move to whichever pane is now on screen. Fire-and-forget, and never
-  taken on a navigation that was blocked or on an ordinary re-render."}
-  pane-shown)
+  taken on a navigation that was blocked or on an ordinary re-render. It
+  names `:root`, and that single key is what scopes the recipe: a marked
+  heading belonging to anything else on the page cannot take the landing
+  focus."}
+  (fn [_ _]
+    {:fx [[::focus-heading {:root     (str "#" root-id)
+                            :selector heading-selector}]]}))
 
 (rf/reg-fx ::focus-heading
   {:doc       "Move focus to the element `:selector` names WITHIN the element
@@ -371,24 +364,6 @@
                                (pr-str (ex-data e))))
                 nil))
       (.then (fn [_] (teardown! m extra frame-id) (done)))))
-
-;; ---------------------------------------------------------------------------
-;; The structural half — the recipe is SCOPED, and says so without a browser
-;; ---------------------------------------------------------------------------
-
-(deftest the-focus-recipe-names-a-root-and-not-the-document
-  (let [[fx-id args] (first (:fx (pane-shown {} [::pane-shown])))]
-    (testing "`:on-match` asks for exactly one effect, and it is the focus one"
-      (is (= 1 (count (:fx (pane-shown {} [::pane-shown])))))
-      (is (= ::focus-heading fx-id)))
-
-    (testing "the effect carries a ROOT scope alongside the selector"
-      (is (= (str "#" root-id) (:root args))
-          "without `:root` the effect resolves its selector against the
-           whole document and focuses the first marked heading on the page,
-           whoever it belongs to — the defect the browser rows below mount
-           a decoy to catch")
-      (is (= heading-selector (:selector args))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The deep link — a URL the browser is genuinely sitting on
