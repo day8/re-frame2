@@ -1,26 +1,7 @@
 (ns re-frame.ssr-teardown-corner-test
-  "Corner-matrix coverage for per-request frame teardown — composition,
-  idempotence, cross-frame isolation.
-
-  ## Why this lives next to `ssr_teardown_load_test.clj`
-
-  `ssr_teardown_load_test` proves the teardown contract HOLDS UNDER
-  LOAD (2000 requests, every side-channel returns to baseline). It
-  drives the documented per-request flow N times and asserts the
-  aggregate invariant. What it does NOT do is exercise each named
-  invariant on its own (`re-frame.ssr.request/on-frame-destroyed!`
-  drops pending-error-traces, request-slots and response-slots, releases
-  the hydration-payload claim, and is idempotent). The load test will
-  catch a regression in the aggregate, but the per-invariant tests are
-  the triage hooks — they name the failing dimension at first sight, not
-  via a heap-delta detective story.
-
-  ## Scope
-
-  Composition, cross-frame isolation and idempotence: one destroy of a
-  fully-populated frame A releases all four of its side-channels in one
-  call and leaves frame B's identically populated slots intact, and a
-  second destroy of A is a no-op."
+  "Per-request frame teardown, per invariant. `ssr_teardown_load_test` proves
+  the aggregate under load; this names the failing side-channel at first
+  sight."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -30,62 +11,29 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ===========================================================================
-;; Cross-frame isolation and idempotence — destroying A leaves B intact,
-;; and a second destroy of A is a no-op
-;; ===========================================================================
+(defn- held-slots
+  "Whether `fid` holds a request slot, a response slot, a pending-error-trace
+  buffer and a hydration-payload claim."
+  [fid]
+  [(some? (rf.ssr.request/get-request fid))
+   (contains? @rf.ssr.response/response-slots fid)
+   (contains? @rf.ssr.error-listener/pending-error-traces fid)
+   (some? (rf.ssr.install/installed-payload fid))])
 
 (deftest on-frame-destroyed-isolates-across-frames
-  (testing "One destroy of frame A releases every one of its four
-            side-channels — request slot, response slot, pending-error-trace
-            buffer and hydration-payload claim — in a single call, and MUST
-            NOT touch frame B's slots. Per Spec 011 §Request/Response
-            storage substrate —
-            'two simultaneous per-request frames carry independent
-            slots that cannot bleed into each other'. The side-
-            channel atoms are keyed by frame-id; the contract is that
-            the destroy hook touches ONLY the keyed entry, not any
-            other frame's entries."
+  (testing "one destroy releases all four of frame A's side-channels, leaves
+            frame B's intact (Spec 011 §Request/Response storage substrate),
+            and a second destroy of A is a clean no-op"
     (let [fid-a :rf.test/iso-frame-a
           fid-b :rf.test/iso-frame-b]
-      ;; Populate both frames identically.
       (doseq [fid [fid-a fid-b]]
-        (rf.ssr.request/set-request! fid {:uri (str "/" (name fid))
-                                   :request-method :get})
+        (rf.ssr.request/set-request! fid {:uri (str "/" (name fid)) :request-method :get})
         (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 200)))
         (swap! rf.ssr.error-listener/pending-error-traces
-               update fid (fnil conj [])
-               {:op-type :error :operation :rf.error/iso-probe})
+               update fid (fnil conj []) {:op-type :error :operation :rf.error/iso-probe})
         (swap! rf.ssr.install/installed-payloads
                assoc fid (rf.ssr.install/claim-record "digest-iso" :rf.test/root)))
-
-      ;; Destroy ONLY fid-a.
       (rf.ssr.request/on-frame-destroyed! fid-a)
-
-      ;; fid-a cleared.
-      (is (nil? (rf.ssr.request/get-request fid-a)))
-      (is (not (contains? @rf.ssr.response/response-slots fid-a)))
-      (is (not (contains? @rf.ssr.error-listener/pending-error-traces fid-a)))
-      (is (nil? (rf.ssr.install/installed-payload fid-a)))
-
-      ;; fid-b untouched.
-      (is (some? (rf.ssr.request/get-request fid-b))
-          "fid-b's request-slot survived fid-a's destroy")
-      (is (contains? @rf.ssr.response/response-slots fid-b)
-          "fid-b's response-slot survived fid-a's destroy")
-      (is (contains? @rf.ssr.error-listener/pending-error-traces fid-b)
-          "fid-b's pending-error-traces survived fid-a's destroy")
-      (is (some? (rf.ssr.install/installed-payload fid-b))
-          "fid-b's payload claim survived fid-a's destroy")
-
-      ;; Idempotence: the on-frame-destroyed! docstring promises a second
-      ;; call against the same frame-id sees the atoms already cleared and
-      ;; does nothing. A host adapter that invokes the hook twice (a
-      ;; defensive try/destroy AND a finally destroy) MUST NOT throw or
-      ;; corrupt state.
-      (is (nil? (rf.ssr.request/on-frame-destroyed! fid-a))
-          "second destroy returns nil cleanly")
-      (is (nil? (rf.ssr.request/get-request fid-a))
-          "request-slot still empty after second destroy")
-      (is (nil? (rf.ssr.install/installed-payload fid-a))
-          "payload claim still released after second destroy"))))
+      (is (= [false false false false] (held-slots fid-a)))
+      (is (= [true true true true] (held-slots fid-b)))
+      (is (nil? (rf.ssr.request/on-frame-destroyed! fid-a))))))
