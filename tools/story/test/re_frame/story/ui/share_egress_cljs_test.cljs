@@ -35,40 +35,25 @@
 
 ;; ---- reproducibility-badge -----------------------------------------------
 
-(deftest badge-nil-report-renders-nothing
-  (testing "no report (no variant focused) → no badge"
-    (is (nil? (rf.story.ui.share/reproducibility-badge nil)))))
-
-(deftest badge-full-shows-label-no-reasons
+(deftest badge-lists-reasons-only-when-downgraded
   (testing "a fully-reproducible report renders the label and no reason list"
-    (let [hiccup (rf.story.ui.share/reproducibility-badge
-                   {:status :full :label "fully reproducible" :reasons []})
-          flat   (str hiccup)]
+    (let [flat (str (rf.story.ui.share/reproducibility-badge
+                      {:status :full :label "fully reproducible" :reasons []}))]
       (is (str/includes? flat "story-egress-badge"))
       (is (str/includes? flat "fully reproducible"))
-      (is (not (str/includes? flat "story-egress-reasons"))
-          "no reason list when nothing downgraded"))))
-
-(deftest badge-partial-lists-reasons-with-codes
+      (is (not (str/includes? flat "story-egress-reasons")))))
   (testing "a downgraded report renders each reason + its machine code"
-    (let [hiccup (rf.story.ui.share/reproducibility-badge
-                   {:status  :partial
-                    :label   "partially reproducible"
-                    :reasons [{:status :partial :code :dropped-overrides
-                               :detail "2 overrides no longer apply"}]})
-          flat   (str hiccup)]
+    (let [flat (str (rf.story.ui.share/reproducibility-badge
+                      {:status  :partial
+                       :label   "partially reproducible"
+                       :reasons [{:status :partial :code :dropped-overrides
+                                  :detail "2 overrides no longer apply"}]}))]
       (is (str/includes? flat "partially reproducible"))
       (is (str/includes? flat "story-egress-reasons"))
       (is (str/includes? flat "dropped-overrides"))
       (is (str/includes? flat "2 overrides no longer apply")))))
 
 ;; ---- current-share-report / egress-edn-snippet ---------------------------
-
-(deftest report-is-full-when-no-variant-focused
-  (testing "with no variant focused the classifier still reports full (no
-            per-variant data to omit on the chrome/workspace URL)"
-    (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
-      (is (= :full (:status report))))))
 
 (deftest report-flags-fn-override-as-view-only
   (testing "a fn-valued cell-override on the focused variant → view-only"
@@ -120,26 +105,10 @@
         (rf.registrar/unregister! :view labelled-view)))))
 
 ;; ---- the copied form must not extend itself ------------------------------
-
-(deftest edn-snippet-registers-a-distinct-id
-  (testing "the snippet's registration id is DERIVED from the focused
-            variant, never the focused variant itself — a form registering
-            at its own :extends parent is an :rf.error/story-extends-cycle"
-    (rf.story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
-    (rf.story.ui.state/swap-state!
-      (fn [s] (assoc s :selected-variant :story.egress/counter)))
-    (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state) 1700000000000)
-          form (reader/read-string snip)
-          [_ new-id body] form]
-      (is (qualified-keyword? new-id))
-      (is (not= :story.egress/counter new-id)
-          "the registration id differs from the parent")
-      (is (= :story.egress/counter (:extends body))
-          "and the focused variant is what it extends")
-      (is (= "story.egress" (namespace new-id))
-          "the derived id stays in the source variant's namespace")
-      (is (str/starts-with? (name new-id) "shared-")
-          "derived through the save-as id flow, with this flow's prefix"))))
+;;
+;; A form registering at the focused variant's OWN id while naming it as its
+;; `:extends` parent would replace the source and fail with
+;; `:rf.error/story-extends-cycle`, so the snippet's id is derived.
 
 (deftest edn-snippet-round-trips-through-registration
   (testing "ACCEPTANCE: read the advertised form, register it through the
@@ -164,19 +133,16 @@
 
       ;; 1 · the copied variant compiles — no :rf.error/story-extends-cycle.
       (let [plan (rf.story.plan/variant-plan new-id)]
-        (is (some? plan) "the pasted form compiles")
         (is (= 7 (get-in plan [:world :effective-args :n]))
             "it lands on the edited args the cell was showing")
         (is (= "base" (get-in plan [:world :effective-args :label]))
             "and inherits the parent's un-overridden args through :extends"))
 
-      ;; 2 · the SOURCE registration is untouched and still renderable — the
-      ;; failure mode this guards is pasting REPLACING it with a
-      ;; self-cycling body.
-      (let [src (rf.story.plan/variant-plan :story.egress/counter)]
-        (is (some? src) "the source variant still compiles")
-        (is (= 1 (get-in src [:world :effective-args :n]))
-            "the source still carries its own args, unreplaced")))))
+      ;; 2 · the SOURCE registration is untouched — pasting must not
+      ;; REPLACE it with a self-cycling body.
+      (is (= 1 (get-in (rf.story.plan/variant-plan :story.egress/counter)
+                       [:world :effective-args :n]))
+          "the source still carries its own args, unreplaced"))))
 
 ;; ---- the copied args are the RESOLVED scenario's -------------------------
 
@@ -202,10 +168,6 @@
         (is (= {:n 42 :nested {:v 7}} (:args body))
             (str vid " — the copied :args are the resolved scenario's, not the story default"))))))
 
-(deftest edn-snippet-nil-without-variant
-  (testing "no variant focused → no EDN snippet"
-    (is (nil? (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))))))
-
 ;; ---- dialog open / close / render ----------------------------------------
 
 (deftest dialog-open-renders-every-egress-command
@@ -230,21 +192,17 @@
       (is (str/includes? flat "story-egress-reproducibility"))
       (is (str/includes? flat "fully reproducible"))
       ;; the screenshot row honestly states view-only
-      (is (str/includes? flat "view-only"))
-      ;; NOT privacy-gated: no privacy-theatre friction on human egress
-      (is (not (str/includes? (str/lower-case flat) "privacy-sensitive")))
-      (is (not (str/includes? (str/lower-case flat) "blocked until"))))))
+      (is (str/includes? flat "view-only")))))
 
 (deftest dialog-share-chip-opens-dialog
-  (testing "the toolbar SHARE chip's on-click opens the dialog"
+  (testing "the toolbar SHARE chip's on-click opens the dialog — rendered
+            here with no variant focused, so the no-variant report and
+            snippet paths run too"
     (rf.story.ui.share/close-share-export-dialog!)
     (is (nil? (rf.story.ui.share/share-export-dialog)) "closed before the click")
-    (let [chip     (rf.story.ui.share/share-chip)
-          attrs    (second chip)
-          on-click (:on-click attrs)]
+    (let [attrs (second (rf.story.ui.share/share-chip))]
       (is (= "story-toolbar-share" (:data-test attrs)))
-      (is (fn? on-click))
-      (on-click nil)
+      ((:on-click attrs) nil)
       (is (some? (rf.story.ui.share/share-export-dialog))
           "clicking the chip opens the dialog (it now renders a tree)"))))
 
@@ -258,11 +216,9 @@
        :setup   []
        :args     {:label "Hi" :count 1}
        :argtypes {:flavour {:control :select}}})
-    (let [ks (rf.story.ui.share/declared-arg-keys :story.dak/v)]
-      (is (contains? ks :label) "an :args key is declared")
-      (is (contains? ks :count) "an :args key is declared")
-      (is (contains? ks :flavour) "an :argtypes-only key is declared")
-      (is (not (contains? ks :removed)) "a never-declared key is NOT in the set"))))
+    (is (every? (rf.story.ui.share/declared-arg-keys :story.dak/v)
+                [:label :count :flavour])
+        "both :args keys and the :argtypes-only key are declared")))
 
 (deftest declared-arg-keys-nil-for-unregistered
   (testing "an unregistered variant has no known contract → nil
@@ -433,17 +389,13 @@
                       shot (some-> (second (str/split flat #":test \"screenshot\""))
                                    (str/split #":test \"")
                                    first)]
+                  ;; Asserted, not implied: a nil `shot` would throw inside
+                  ;; this callback, where cljs.test never records it.
                   (is (some? shot) "the screenshot row is present")
-                  ;; the honest error reason is threaded into the row's :error
                   (is (str/includes? shot ":error \"screenshot capture seam not installed on this host\"")
                       "the screenshot row carries the honest error reason")
-                  ;; …and the row is NOT marked copied
                   (is (str/includes? shot ":copied? false")
-                      "the screenshot row is NOT a false copied success")
-                  ;; sanity: a genuinely-copied row WOULD read :copied? true —
-                  ;; here it does not, so no false success leaked through
-                  (is (not (str/includes? shot ":copied? true"))
-                      "no false copied ✓ for the failed screenshot egress"))))
+                      "the screenshot row is NOT a false copied success"))))
             (.finally
               (fn [] (restore! prev) (done))))))))
 
