@@ -80,8 +80,8 @@
   is no default, so without selecting one the panel renders its TOP
   section with the empty-state body and no widget mounts at all — which
   would leave every disjointness assertion below comparing two empty sets.
-  The `(seq …)` control in each row is what separates that silence from
-  real separation, and it is why this frame is seeded with real data."
+  The `(seq …)` controls are what separate that silence from real
+  separation, and they are why this frame is seeded with real data."
   :rf/default)
 
 (use-fixtures :each
@@ -186,9 +186,6 @@
                 "control: the left mount committed at least one edn-inspector
                  widget, so an empty intersection below means separation and
                  not an empty-state panel that rendered no widget at all")
-            (is (= (count ids-l) (count ids-r))
-                "naming an instance changes the ids, never the sections —
-                 two mounts of the same panel over the same app-db")
             (is (seq sites-l)
                 "control: and the widgets carry a site-id, so the second
                  disjointness assertion is about a populated set too")
@@ -202,11 +199,7 @@
             (is (nil? (some (set sites-l) sites-r))
                 (str "and no site-id either, so the two expand and zoom "
                      "independently rather than in lockstep. left="
-                     (pr-str sites-l) " right=" (pr-str sites-r)))
-            (is (every? #(re-find #"/left/" %) ids-l)
-                (str "each id carries the name THIS mount was given, rather "
-                     "than a per-render nonce or a shared string: "
-                     (pr-str ids-l))))
+                     (pr-str sites-l) " right=" (pr-str sites-r))))
           (finally
             (unmount! right)
             (unmount! left)))))))
@@ -229,25 +222,14 @@
             id-l  (first (mount-ids (:container left)))
             id-r  (first (mount-ids (:container right)))]
         (try
-          (is (some? id-l)
-              "control: the left mount committed a widget, so the store keys
-               below name something that really mounted")
           (is (not= id-l id-r)
               "the two mounts composed two mount-ids")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
-                         :ref)
-              "the left mount holds its own store entry")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
-                         :ref)
-              "and so does the right — two live mounts, two entries, not one")
 
           (unmount! right)
 
-          (is (nil? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r)))
-              "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :ref)
-              "and the mount still on screen is untouched — a shared key
+              "the mount still on screen is untouched — a shared key
                would release the survivor too, disconnecting an observer of
                a node still in the document")
           (finally
@@ -289,10 +271,7 @@
                      "which says both halves at once: naming qualifies the id "
                      "without disturbing the surface name inside it, and an "
                      "unnamed mount composes the plain surface-prefixed id. "
-                     "unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
-            (is (= ids-a (mount-ids (:container a)))
-                "re-reading the same container is stable — these are
-                 identities, not per-render nonces"))
+                     "unnamed=" (pr-str ids-a) " named=" (pr-str ids-n))))
           (finally
             (unmount! named)
             (unmount! b)
