@@ -11,8 +11,8 @@
   `.getSuppressed` on the JVM, and through the
   `rfAdapterTeardownSecondaryErrors` array on CLJS, the same property the
   spine's own teardown uses."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -40,44 +40,30 @@
           (do (swap! rf.late-bind/hooks dissoc :fresco/drain-client-roots!)
               (rf.late-bind/invalidate-cache! :fresco/drain-client-roots!)))))))
 
+(defn- dispose-thrown [adapter drain!]
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! adapter)
+  (with-drain-hook drain!
+    #(try (rf.substrate.adapter/dispose-adapter!) nil
+          (catch #?(:clj Throwable :cljs :default) e e))))
+
 (deftest a-failing-drain-stays-primary-over-a-failing-disposer
-  (testing "both cleanup steps throw: the first failure is rethrown, the later one attached"
-    (let [drain-boom    (ex-info "client-root drain failed" {:step ::drain})
-          dispose-boom  (ex-info "adapter disposer failed" {:step ::dispose})
-          disposer-ran? (atom false)
-          adapter       (assoc rf.substrate.plain-atom/adapter
-                               :dispose-adapter! (fn []
-                                                   (reset! disposer-ran? true)
-                                                   (throw dispose-boom)))]
-      (rf.substrate.adapter/dispose-adapter!)
-      (rf.substrate.adapter/install-adapter! adapter)
-      (with-drain-hook
-        (fn [] (throw drain-boom))
-        (fn []
-          (let [thrown (try (rf.substrate.adapter/dispose-adapter!) nil
-                            (catch #?(:clj Throwable :cljs :default) e e))]
-            (is (true? @disposer-ran?)
-                "a throwing drain does not skip the adapter's own disposer")
-            (is (identical? drain-boom thrown)
-                "the drain's failure, the first, is the one the caller receives")
-            (is (= [dispose-boom] (secondary-failures thrown))
-                "the disposer's later failure rides on the primary as secondary evidence")
-            (is (nil? (rf.substrate.adapter/current-adapter))
-                "the install slot is cleared all the same")
-            (is (true? (rf.substrate.adapter/adapter-disposed?))
-                "and the disposed breadcrumb is set")))))))
+  (let [drain-boom    (ex-info "client-root drain failed" {:step ::drain})
+        dispose-boom  (ex-info "adapter disposer failed" {:step ::dispose})
+        disposer-ran? (atom false)
+        thrown        (dispose-thrown (assoc rf.substrate.plain-atom/adapter
+                                             :dispose-adapter! (fn []
+                                                                 (reset! disposer-ran? true)
+                                                                 (throw dispose-boom)))
+                                      (fn [] (throw drain-boom)))]
+    ;; The install slot is cleared and the disposed breadcrumb set all the same.
+    (is (= [true true [dispose-boom] nil true]
+           [@disposer-ran? (identical? drain-boom thrown) (secondary-failures thrown)
+            (rf.substrate.adapter/current-adapter) (rf.substrate.adapter/adapter-disposed?)]))))
 
 (deftest a-lone-failure-carries-no-secondary-evidence
-  (testing "only the disposer throws: it is rethrown unchanged, with nothing attached"
-    (let [dispose-boom (ex-info "adapter disposer failed" {:step ::dispose})
-          adapter      (assoc rf.substrate.plain-atom/adapter
-                              :dispose-adapter! (fn [] (throw dispose-boom)))]
-      (rf.substrate.adapter/dispose-adapter!)
-      (rf.substrate.adapter/install-adapter! adapter)
-      (with-drain-hook
-        (fn [] nil)
-        (fn []
-          (let [thrown (try (rf.substrate.adapter/dispose-adapter!) nil
-                            (catch #?(:clj Throwable :cljs :default) e e))]
-            (is (identical? dispose-boom thrown))
-            (is (= [] (secondary-failures thrown)))))))))
+  (let [dispose-boom (ex-info "adapter disposer failed" {:step ::dispose})
+        thrown       (dispose-thrown (assoc rf.substrate.plain-atom/adapter
+                                            :dispose-adapter! (fn [] (throw dispose-boom)))
+                                     (fn [] nil))]
+    (is (= [true []] [(identical? dispose-boom thrown) (secondary-failures thrown)]))))
