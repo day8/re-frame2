@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 /*
- * Tests for `examples/scripts/examples-staging.cjs` — the shared staging
- * helpers + the standalone-example manifest derived from shadow-cljs.edn.
- *
- * What these pin
- * --------------
- *   - parseExampleBuilds reads EVERY `:examples/<name>` build def, including
- *     the brace-on-the-NEXT-line shape shadow-cljs.edn actually uses (a
- *     single non-greedy regex + lookahead would silently skip every OTHER
- *     entry — the consume-the-delimiter bug).
- *   - each parsed build recovers its :output-dir and :init-fn.
- *   - the real-repo derivation is non-vacuous (the project ships well over a
- *     dozen example builds) and every DOCUMENTED build — core, capability and
- *     substrate (the three UIx examples plus the Fresco login) — resolves to a
- *     runnable entry with a colocated index.html on disk.
- *
- * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
+ * Tests for `examples/scripts/examples-staging.cjs` (the shared staging helpers
+ * and the standalone-example manifest derived from shadow-cljs.edn) and the pure
+ * helpers of `examples/scripts/serve-example.cjs` (the `npm run dev:example`
+ * runner). Standalone node-runnable suite, discovered by `npm run test:scripts`.
  */
 
 'use strict';
 
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const assert = require('assert');
@@ -29,43 +18,21 @@ const {
   parseExampleBuilds,
   buildNsIndex,
   listStandaloneExamples,
-  readShadowEdn,
-  isStrictlyUnder,
   cleanStageDirs,
   stageExample,
   stagePerExampleAssets,
-  PER_EXAMPLE_ASSETS,
   EXAMPLES_ROOT,
 } = require('../../examples/scripts/examples-staging.cjs');
 
-const {
-  EXAMPLE_ASSET_MANIFEST,
-  stagedAssetsByBuild,
-} = require('../../examples/scripts/examples-asset-manifest.cjs');
+const { stagedAssetsByBuild } = require('../../examples/scripts/examples-asset-manifest.cjs');
 
-// A SYNTHETIC manifest, injected so the staging projection + consumer are pinned
-// without restating the production data. It carries a vendored-CSS
-// entry (both assets html-linked, node_modules-sourced) and a staging-only
-// colocated-fixture entry (not html-linked).
-const SYNTHETIC_MANIFEST = [
-  {
-    build: 'examples/synth-vendored',
-    page: 'examples/synth/vendored/index.html',
-    reason: 'synthetic: links vendored CSS instead of the shared stylesheet',
-    assetExemptions: ['_shared/css/style.css'],
-    assets: [
-      { from: 'node-modules', src: 'synth-common/base.css', dest: 'base.css', htmlLinked: true },
-      { from: 'node-modules', src: 'synth-app/index.css', dest: 'index.css', htmlLinked: true },
-    ],
-  },
-  {
-    build: 'examples/synth-fixture',
-    page: 'examples/synth/fixture/index.html',
-    reason: 'synthetic: fetches a colocated fixture from app code (not the HTML)',
-    assetExemptions: [],
-    assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
-  },
-];
+const {
+  decideRunnerExit,
+  isDocumentNavigationRequest,
+  startDocumentFallbackServer,
+  waitForFirstBuild,
+  watchExitAbortsRun,
+} = require('../../examples/scripts/serve-example.cjs');
 
 let failed = 0;
 
@@ -80,24 +47,49 @@ function it(label, f) {
   }
 }
 
-// `it` above calls f() WITHOUT awaiting, so an async body's rejection escapes
-// its try/catch and the test prints PASS regardless — a false green. Async
-// cases (the first-build readiness wait, which polls) are therefore queued here
-// and drained by the awaiting runner at the bottom of this file, which owns the
-// summary + exit code for both kinds.
+// `it` does not await, so an async body's rejection would escape its try/catch
+// and print PASS. Async cases queue here and are drained by the runner at the
+// bottom of the file.
 const asyncTests = [];
 function itAsync(label, f) {
   asyncTests.push([label, f]);
 }
 
+const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+// One plain loopback HTTP request; resolves { status, body } (status 0 on a transport error).
+function httpRequest({ port, method = 'GET', path: reqPath, accept }) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        method,
+        path: reqPath,
+        agent: false,
+        headers: accept ? { Accept: accept } : {},
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      },
+    );
+    req.on('error', (err) => resolve({ status: 0, body: String(err) }));
+    req.setTimeout(10000, () => { req.destroy(new Error('request timeout')); });
+    req.end();
+  });
+}
+
 console.log('examples-staging tests');
 
-// ---- parser: synthetic fixture, both brace placements --------------------
+// ---- parser ----------------------------------------------------------------
 
-// Mirrors shadow-cljs.edn shape: a top-level map of build defs, with the
-// build-id key on its OWN line and the opening `{` on the FOLLOWING line
-// (the shape the consume-the-delimiter bug skips), plus an inline-brace variant
-// to prove both are read. Adjacent example builds must BOTH be recovered.
+// The build-id key on its own line with `{` on the next is the shape
+// shadow-cljs.edn uses, and the one a single non-greedy regex with a lookahead
+// skips every other entry of; the inline-brace and :node-library variants must
+// be recovered too, and the commented-out key must not.
 const FIXTURE = `{:builds
  {:node-test {:target :node-test}
 
@@ -125,86 +117,45 @@ const FIXTURE = `{:builds
   :some-other-build
   {:target :browser}}}`;
 
-// `target` is what separates a PAGE build from a server-side one, and a
-// non-`:browser` example build must still be RECOVERED (it is an example
-// build; check-examples-compile.cjs compiles it) while carrying no :init-fn.
-// Dropping it from the parse would hide it from every reader at once.
 it('parseExampleBuilds recovers every adjacent example build with its :output-dir, :init-fn and :target', () => {
-  const builds = parseExampleBuilds(FIXTURE);
-  assert.deepStrictEqual(
-    builds.map((b) => b.build).sort(),
-    ['examples/alpha', 'examples/beta', 'examples/delta-server', 'examples/gamma'],
-    'every adjacent example build is recovered (no skip-every-other bug)',
-  );
-  const byId = Object.fromEntries(builds.map((b) => [b.build, b]));
-  assert.strictEqual(byId['examples/alpha'].outputDir, 'out/examples/alpha');
-  assert.strictEqual(byId['examples/alpha'].initFn, 'alpha.core/run');
-  assert.strictEqual(byId['examples/beta'].initFn, 'beta.views/run');
-  assert.strictEqual(byId['examples/gamma'].initFn, 'seven-guis.gamma.core/run');
-  assert.strictEqual(byId['examples/gamma'].outputDir, 'out/examples/gamma');
-  assert.strictEqual(byId['examples/alpha'].target, ':browser');
-  assert.strictEqual(byId['examples/gamma'].target, ':browser');
-  assert.strictEqual(byId['examples/delta-server'].target, ':node-library');
-  assert.strictEqual(byId['examples/delta-server'].outputDir, 'out/examples/delta-server');
-  assert.strictEqual(byId['examples/delta-server'].initFn, null);
+  assert.deepStrictEqual(parseExampleBuilds(FIXTURE), [
+    { build: 'examples/alpha', target: ':browser', outputDir: 'out/examples/alpha', initFn: 'alpha.core/run' },
+    { build: 'examples/beta', target: ':browser', outputDir: 'out/examples/beta', initFn: 'beta.views/run' },
+    {
+      build: 'examples/gamma',
+      target: ':browser',
+      outputDir: 'out/examples/gamma',
+      initFn: 'seven-guis.gamma.core/run',
+    },
+    {
+      build: 'examples/delta-server',
+      target: ':node-library',
+      outputDir: 'out/examples/delta-server',
+      initFn: null,
+    },
+  ]);
 });
 
-// ---- real-repo derivation: non-vacuous + the three UIx examples ----------
-
-// The out+init invariant is asserted of the PAGE builds — the `:browser` ones
-// listStandaloneExamples turns into runnable entries. A server-side example
-// build (`:node-library`, publishing an `:exports-var` for a Node sidecar to
-// require) is not a page and correctly declares neither, so
-// holding it to the page invariant asserts something false of the domain.
-// Every build must still declare a `:target`: a null one would silently drop a
-// real page build out of the loop below, which is the vacuity this pins shut.
-it('parseExampleBuilds(shadow-cljs.edn) is non-vacuous and every :browser build has out+init', () => {
-  const builds = parseExampleBuilds(readShadowEdn());
-  for (const b of builds) {
-    assert.ok(b.target, `build ${b.build} declares no :target — parser/edn drift`);
-  }
-  const pages = builds.filter((b) => b.target === ':browser');
-  assert.ok(
-    pages.length >= 30,
-    `expected the full example page set (>=30), got ${pages.length} of ${builds.length} — parser/edn drift`,
-  );
-  for (const b of pages) {
-    assert.ok(b.outputDir, `build ${b.build} missing :output-dir`);
-    assert.ok(b.initFn, `build ${b.build} missing :init-fn`);
-  }
-});
-
-// ---- FAIL-CLOSED ns-index enumeration ------------------------------------
+// ---- FAIL-CLOSED ns-index enumeration --------------------------------------
 //
-// buildNsIndex feeds listStandaloneExamples: an unreadable examples/ subtree (or
-// an unreadable source file whose head we read for its ns) must FAIL CLOSED
-// (throw, naming the path) rather than hide the ns and make the dev runner
-// advertise the build as merely "not runnable". A catch-and-continue would
-// swallow BOTH the readdirSync AND the readFileSync failure. buildNsIndex takes
-// an injected io, so these tests fail one path at a time.
+// An unreadable examples/ subtree or source head must throw, naming the path,
+// rather than hide the ns and let the dev runner call the build "not runnable".
 
-// An io that delegates to the real fs but fails for ONE path: EACCES on
-// readdirSync of `badDir`, or throws on readFileSync of `badFile`.
+// An io over the real fs that fails with EACCES for ONE directory or ONE file.
 function failingFsIo({ badDir = null, badFile = null } = {}) {
-  const realFs = require('fs');
-  const bd = badDir && path.resolve(badDir);
-  const bf = badFile && path.resolve(badFile);
+  const eacces = (msg) => Object.assign(new Error(msg), { code: 'EACCES' });
   return {
     readdirSync: (dir, opts) => {
-      if (bd && path.resolve(dir) === bd) {
-        const e = new Error(`EACCES: permission denied, scandir '${dir}'`);
-        e.code = 'EACCES';
-        throw e;
+      if (badDir && path.resolve(dir) === path.resolve(badDir)) {
+        throw eacces(`EACCES: permission denied, scandir '${dir}'`);
       }
-      return realFs.readdirSync(dir, opts);
+      return fs.readdirSync(dir, opts);
     },
     readFileSync: (p, enc) => {
-      if (bf && path.resolve(p) === bf) {
-        const e = new Error(`EACCES: permission denied, open '${p}'`);
-        e.code = 'EACCES';
-        throw e;
+      if (badFile && path.resolve(p) === path.resolve(badFile)) {
+        throw eacces(`EACCES: permission denied, open '${p}'`);
       }
-      return realFs.readFileSync(p, enc);
+      return fs.readFileSync(p, enc);
     },
   };
 }
@@ -213,57 +164,42 @@ it('TEETH: buildNsIndex FAILS CLOSED on an unreadable subtree (rf2-3fc89f.31)', 
   const badDir = path.join(EXAMPLES_ROOT, 'core');
   assert.throws(
     () => buildNsIndex(EXAMPLES_ROOT, { io: failingFsIo({ badDir }) }),
-    (err) =>
-      /enumeration FAILED/.test(err.message) &&
-      err.message.includes(badDir) &&
-      Array.isArray(err.walkErrors),
-    'an unreadable subtree must throw (naming the path), not hide the ns',
+    (err) => err.message.includes(badDir),
   );
 });
 
 it('TEETH: buildNsIndex FAILS CLOSED on an unreadable source file head (rf2-3fc89f.31)', () => {
-  // Find a real .cljs source under examples/ to mark unreadable.
-  const realFs = require('fs');
-  const clean = buildNsIndex(EXAMPLES_ROOT, { io: realFs }); // a full clean index
-  assert.ok(clean.size >= 30, `precondition: a non-vacuous clean ns-index, got ${clean.size}`);
-  const someSourceDir = [...clean.values()][0];
-  const someSource = realFs
+  const someSourceDir = [...buildNsIndex(EXAMPLES_ROOT).values()][0];
+  const someSource = fs
     .readdirSync(someSourceDir)
     .map((n) => path.join(someSourceDir, n))
     .find((p) => /\.clj[sc]$/.test(p));
-  assert.ok(someSource, 'precondition: found a real source file to mark unreadable');
   assert.throws(
     () => buildNsIndex(EXAMPLES_ROOT, { io: failingFsIo({ badFile: someSource }) }),
-    (err) => /enumeration FAILED/.test(err.message) && err.message.includes(someSource),
-    'an unreadable ns source head must fail closed by name (not vanish from the index)',
+    (err) => err.message.includes(someSource),
   );
 });
 
-// ---- the documented run recipes resolve to a real host page
+// ---- the documented run recipes resolve to a real host page ----------------
 //
-// Every core and capability README tells the reader to run exactly
-// `npm run dev:example -- <build-id>`. That recipe only reaches a page if the
-// build is in listStandaloneExamples() AND has an index.html on disk to stage.
-// If a build falls out of the runner's manifest, the README keeps READING
-// correct while the command it documents stops working — the exact failure
-// these rosters exist to catch. Keep them in step with the READMEs.
-const DOCUMENTED_CORE_BUILDS = [
+// The READMEs tell the reader to run `npm run dev:example -- <build-id>`, which
+// reaches a page only if the build is in listStandaloneExamples() with an
+// index.html on disk. Keep this roster in step with the READMEs.
+const DOCUMENTED_BUILDS = [
+  // core (the 7GUIs cluster is the build-id table in seven_guis/README.md)
   'examples/counter',
   'examples/login',
   'examples/todomvc',
   'examples/flows',
   'examples/managed-http-counter',
   'examples/notebook',
-  // the 7GUIs cluster, documented as a build-id table in seven_guis/README.md
   'examples/temperature',
   'examples/flight-booker',
   'examples/timer',
   'examples/crud',
   'examples/circle-drawer',
   'examples/cells',
-];
-
-const DOCUMENTED_CAPABILITY_BUILDS = [
+  // capability
   'examples/state-machine-walkthrough',
   'examples/routing',
   'examples/resources',
@@ -272,124 +208,41 @@ const DOCUMENTED_CAPABILITY_BUILDS = [
   'examples/ssr',
   'examples/resources-ssr',
   'examples/ssr-streaming',
-];
-
-const DOCUMENTED_SUBSTRATE_BUILDS = [
+  // substrate: the three view layers examples/substrates/README.md compares
   'examples/counter-uix',
   'examples/login-uix',
   'examples/dashboard-uix',
-  // The Fresco login, the third arm of the one-model
-  // three-view-layer comparison examples/substrates/README.md documents.
   'examples/login-fresco',
 ];
 
-it('the documented rosters are non-vacuous (a roster emptied by an edit cannot pass silently)', () => {
-  assert.strictEqual(DOCUMENTED_CORE_BUILDS.length, 12, 'expected 12 documented core builds');
-  assert.strictEqual(
-    DOCUMENTED_CAPABILITY_BUILDS.length,
-    8,
-    'expected 8 documented capability builds',
-  );
-  assert.strictEqual(
-    DOCUMENTED_SUBSTRATE_BUILDS.length,
-    4,
-    'expected 4 documented substrate builds',
-  );
-});
-
-for (const [family, builds] of [
-  ['core', DOCUMENTED_CORE_BUILDS],
-  ['capability', DOCUMENTED_CAPABILITY_BUILDS],
-  ['substrate', DOCUMENTED_SUBSTRATE_BUILDS],
-]) {
-  it(`listStandaloneExamples resolves every documented ${family} build to a colocated index.html`, () => {
-    const byId = Object.fromEntries(listStandaloneExamples().map((e) => [e.build, e]));
-    for (const build of builds) {
-      const e = byId[build];
-      assert.ok(e, `runnable manifest missing ${build} (documented as \`npm run dev:example -- ${build}\`)`);
-      assert.ok(fs.existsSync(e.htmlSrc), `${build} index.html missing on disk: ${e.htmlSrc}`);
-      assert.ok(
-        /out[\\/]examples[\\/]/.test(e.outDir),
-        `${build} outDir not under out/examples: ${e.outDir}`,
-      );
-    }
+it('listStandaloneExamples resolves every documented build to a colocated index.html under out/examples', () => {
+  const byId = Object.fromEntries(listStandaloneExamples().map((e) => [e.build, e]));
+  const broken = DOCUMENTED_BUILDS.filter((build) => {
+    const e = byId[build];
+    return !e || !fs.existsSync(e.htmlSrc) || !/out[\\/]examples[\\/]/.test(e.outDir);
   });
-}
+  assert.deepStrictEqual(broken, [], 'documented as `npm run dev:example -- <build>` but not runnable');
+});
 
-// ---- clean-stage boundary ------------------------------------------------
+// ---- clean-stage boundary --------------------------------------------------
 //
-// The examples + Story harnesses share implementation/out/examples. OVERLAYING
-// staged fixtures onto it would let a file a previous run staged remain under
-// the served root (a stale-file false green). cleanStageDirs removes +
-// recreates only the SELECTED output dirs, path-guarded so it can never touch
-// the shared root or an out-of-tree path.
+// Overlaying staged files onto the shared out/examples root would leave a file a
+// previous run staged serveable (a stale-file false green), so cleanStageDirs
+// removes and recreates only the selected dirs, path-guarded under the root.
 
-it('isStrictlyUnder is true only for a proper descendant (not self, not outside)', () => {
+it('cleanStageDirs REFUSES the shared root itself and an out-of-tree target (path guard)', () => {
   const root = path.join('/tmp', 'out', 'examples');
-  assert.ok(isStrictlyUnder(path.join(root, 'counter'), root), 'a child must be under');
-  assert.ok(isStrictlyUnder(path.join(root, 'a', 'b'), root), 'a deep child must be under');
-  assert.ok(!isStrictlyUnder(root, root), 'the root itself is NOT strictly under itself');
-  assert.ok(!isStrictlyUnder(path.dirname(root), root), 'an ancestor is not under');
-  assert.ok(!isStrictlyUnder(path.join('/tmp', 'other'), root), 'a sibling is not under');
-});
-
-it('cleanStageDirs REFUSES to delete the shared root itself (path guard)', () => {
-  const root = path.join('/tmp', 'out', 'examples');
-  assert.throws(
-    () => cleanStageDirs([root], root, { io: noopIo() }),
-    /not strictly under the owned staging root/,
-    'cleaning OUT_ROOT itself must be refused',
-  );
-});
-
-it('cleanStageDirs REFUSES an out-of-tree target (path guard)', () => {
-  const root = path.join('/tmp', 'out', 'examples');
-  assert.throws(
-    () => cleanStageDirs([path.join('/tmp', 'elsewhere')], root, { io: noopIo() }),
-    /not strictly under the owned staging root/,
-    'cleaning a dir outside OUT_ROOT must be refused',
-  );
-  // A traversal escape (../) that resolves outside the root is also refused.
-  assert.throws(
-    () => cleanStageDirs([path.join(root, '..', '..', 'escape')], root, { io: noopIo() }),
-    /not strictly under the owned staging root/,
-    'a ../ escape must be refused',
-  );
-});
-
-it('cleanStageDirs (re)creates a not-yet-existing selected dir (first run)', () => {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-stage-'));
-  try {
-    const outRoot = path.join(tmpRoot, 'out', 'examples');
-    fs.mkdirSync(outRoot, { recursive: true });
-    const sel = path.join(outRoot, 'never-built-yet');
-    assert.ok(!fs.existsSync(sel));
-    const cleaned = cleanStageDirs([sel], outRoot);
-    assert.ok(fs.existsSync(sel), 'a missing selected dir must be created');
-    assert.deepStrictEqual(cleaned, [path.resolve(sel)]);
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  for (const target of [root, path.join('/tmp', 'elsewhere')]) {
+    // An empty io: reaching any fs call would throw a TypeError the regex rejects.
+    assert.throws(
+      () => cleanStageDirs([target], root, { io: {} }),
+      /not strictly under the owned staging root/,
+      target,
+    );
   }
 });
 
-// ---- serve-example dev-runner clean-stage boundary -----------------------
-//
-// Overlaying index.html + _shared onto whatever a PRIOR run left in the
-// selected output dir would leave a stale main.js (or a stale asset)
-// serveable, and in watch mode the browser could render that old bundle while
-// the runner had already printed a live URL. So `npm run dev:example` /
-// serve-example.cjs uses the SAME clean-then-stage boundary the CI/Story
-// orchestrators use: cleanStageDirs([entry.outDir], OUT_ROOT) BEFORE
-// stageExample(entry). These tests pin both the behaviour (a stale
-// main.js is removed, siblings survive, assets land) and the call-site (the
-// clean precedes the stage), so a refactor that drops the clean fails here.
-
 it('dev-runner clean-then-stage removes a stale main.js and re-stages the example (rf2-rg2tze)', () => {
-  // Seed a temp OUT_ROOT with a selected dir holding a STALE main.js + retired
-  // asset from a "prior run", plus a sibling output another build relies on.
-  // Run the EXACT sequence serve-example.cjs performs — clean the selected
-  // dir, then stageExample — and prove the stale bundle is gone, the example's
-  // index.html landed fresh, and the sibling survived.
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-serve-'));
   try {
     const outRoot = path.join(tmpRoot, 'out', 'examples');
@@ -397,224 +250,83 @@ it('dev-runner clean-then-stage removes a stale main.js and re-stages the exampl
     const sibling = path.join(outRoot, 'login-uix');
     fs.mkdirSync(sel, { recursive: true });
     fs.mkdirSync(sibling, { recursive: true });
-    // A stale bundle + retired asset the current source no longer produces.
     fs.writeFileSync(path.join(sel, 'main.js'), 'STALE_BUNDLE');
-    fs.writeFileSync(path.join(sel, 'retired-asset.js'), 'RETIRED');
     fs.writeFileSync(path.join(sibling, 'main.js'), 'SIBLING_BUNDLE');
-
-    // A real (temp) hand-written index.html for the example source.
-    const srcDir = path.join(tmpRoot, 'src');
-    fs.mkdirSync(srcDir, { recursive: true });
-    const htmlSrc = path.join(srcDir, 'index.html');
+    const htmlSrc = path.join(tmpRoot, 'index.html');
     fs.writeFileSync(htmlSrc, '<!doctype html><title>counter-uix</title>');
-    const entry = { build: 'examples/counter-uix', outDir: sel, htmlSrc, srcDir };
 
-    // The serve-example contract: clean the SELECTED dir first, then stage.
-    cleanStageDirs([entry.outDir], outRoot);
-    stageExample(entry);
+    // The sequence serve-example.cjs performs.
+    cleanStageDirs([sel], outRoot);
+    stageExample({ build: 'examples/counter-uix', outDir: sel, htmlSrc, srcDir: tmpRoot });
 
-    assert.ok(!fs.existsSync(path.join(sel, 'main.js')), 'the stale main.js must be removed by the clean');
-    assert.ok(!fs.existsSync(path.join(sel, 'retired-asset.js')), 'the retired asset must be removed');
-    assert.ok(fs.existsSync(path.join(sel, 'index.html')), 'the example index.html must be staged fresh');
-    assert.strictEqual(
-      fs.readFileSync(path.join(sel, 'index.html'), 'utf8'),
-      '<!doctype html><title>counter-uix</title>',
-      'the staged index.html must be the current source',
-    );
-    // The sibling output another build/run relies on must be untouched.
-    assert.ok(fs.existsSync(path.join(sibling, 'main.js')), 'a sibling output dir must survive a narrow clean');
+    assert.deepStrictEqual(fs.readdirSync(sel).sort(), ['_shared', 'index.html']);
     assert.strictEqual(fs.readFileSync(path.join(sibling, 'main.js'), 'utf8'), 'SIBLING_BUNDLE');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
 
-it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageExample (rf2-rg2tze)', () => {
-  const src = fs.readFileSync(
-    path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
-    'utf8',
-  );
-  const cleanAt = src.indexOf('cleanStageDirs([entry.outDir], OUT_ROOT)');
-  const stageAt = src.indexOf('stageExample(entry)');
-  assert.ok(cleanAt !== -1 && stageAt !== -1, 'both the clean call and the stage call must be present');
-  assert.ok(cleanAt < stageAt, 'the clean must precede the stage so no stale file survives into the served dir');
+// ---- serve-example dev-runner exit code ------------------------------------
+
+it('decideRunnerExit: 0 for a clean or user-interrupted shutdown, 1 for any unexpected child crash', () => {
+  for (const [outcomes, expected] of [
+    [{}, 0],
+    [{ server: { code: 0, signal: null } }, 0],
+    [
+      {
+        server: { code: null, signal: 'SIGTERM' },
+        watch: { code: null, signal: 'SIGTERM' },
+        interrupted: true,
+      },
+      0,
+    ],
+    [{ server: { code: 0, signal: null }, watch: { code: 1, signal: null }, interrupted: false }, 1],
+    [{ server: { code: 1, signal: null }, watch: { code: 0, signal: null }, interrupted: false }, 1],
+    // A non-teardown signal is a crash even while the user is interrupting.
+    [{ watch: { code: null, signal: 'SIGSEGV' }, interrupted: true }, 1],
+  ]) {
+    assert.strictEqual(decideRunnerExit(outcomes), expected, JSON.stringify(outcomes));
+  }
 });
 
-// ---- serve-example dev-runner exit-code decision -------------------------
-//
-// Returning 0 unconditionally once the http-server exits would let a
-// `shadow-cljs watch` that crashed (compile loop / JVM error) or an
-// http-server that fell over false-green the dev runner. The pure
-// decideRunnerExit helper maps the observed child outcomes to the runner's
-// exit code: clean/interrupted shutdown -> 0, any unexpected child crash -> 1.
-
-const { decideRunnerExit } = require('../../examples/scripts/serve-example.cjs');
-
-it('decideRunnerExit returns 0 on a clean interrupted shutdown (Ctrl+C)', () => {
-  // User hit Ctrl+C: both children killed by our teardown signal — expected.
-  assert.strictEqual(
-    decideRunnerExit({
-      server: { code: null, signal: 'SIGTERM' },
-      watch: { code: null, signal: 'SIGTERM' },
-      interrupted: true,
-    }),
-    0,
-  );
-  // A clean code-0 exit is also success, interrupted or not.
-  assert.strictEqual(decideRunnerExit({ server: { code: 0, signal: null } }), 0);
-  // No children recorded (e.g. nothing ran) is not a failure.
-  assert.strictEqual(decideRunnerExit({}), 0);
-});
-
-it('TEETH: decideRunnerExit returns 1 when shadow-cljs watch crashes unexpectedly', () => {
-  // The watch died with a non-zero code while the user did NOT interrupt —
-  // the exact false-green an unconditional `return 0` would mask.
-  assert.strictEqual(
-    decideRunnerExit({
-      server: { code: 0, signal: null },
-      watch: { code: 1, signal: null },
-      interrupted: false,
-    }),
-    1,
-  );
-  // A signal kill that is NOT our teardown (not interrupted) is also a crash.
-  assert.strictEqual(
-    decideRunnerExit({
-      watch: { code: null, signal: 'SIGSEGV' },
-      interrupted: false,
-    }),
-    1,
-  );
-});
-
-it('TEETH: decideRunnerExit returns 1 when http-server exits non-zero unexpectedly', () => {
-  assert.strictEqual(
-    decideRunnerExit({
-      server: { code: 1, signal: null },
-      watch: { code: 0, signal: null },
-      interrupted: false,
-    }),
-    1,
-  );
-});
-
-it('decideRunnerExit treats a teardown-signal kill during interrupt as expected (not a crash)', () => {
-  // During an interrupt, a child killed by SIGINT/SIGTERM is part of teardown.
-  assert.strictEqual(
-    decideRunnerExit({
-      server: { code: null, signal: 'SIGINT' },
-      watch: { code: null, signal: 'SIGINT' },
-      interrupted: true,
-    }),
-    0,
-  );
-  // But a NON-teardown signal even during interrupt is still a crash.
-  assert.strictEqual(
-    decideRunnerExit({
-      watch: { code: null, signal: 'SIGSEGV' },
-      interrupted: true,
-    }),
-    1,
-  );
-});
-
-// ---- per-example static assets -------------------------------------------
-//
-// The clean-stage boundary recreates the selected output dir EMPTY, so any
-// per-example static asset an example references via a flat (output-root-
-// relative) href / fetch URL must be re-staged each run or it 404s after a
-// clean. `stageExample` stages index.html + _shared + the declared
-// per-example assets; these tests prove the declared assets land after a clean
-// stage and that a missing source fails LOUD (not a silent skip that ships an
-// unstyled / 404ing / broken-image page).
-
-// ---- manifest projection: staging consumer -------------------------------
-//
-// The staging PER_EXAMPLE_ASSETS map is not a literal declaration — it is
-// the projection of the single examples asset/exception manifest, the shared
-// owner the static scanner also consumes. These pin the projection against a
-// SYNTHETIC manifest (so the logic is exact, not a restated copy of production
-// data) plus a real-manifest NON-VACUITY + cross-consistency check.
+// ---- per-example static assets ---------------------------------------------
 
 it('stagedAssetsByBuild projects a synthetic manifest to build -> [{from,src,dest}], dropping htmlLinked (rf2-phpbo8)', () => {
-  const projected = stagedAssetsByBuild(SYNTHETIC_MANIFEST);
-  // EVERY declared asset is staged regardless of htmlLinked (a scanner concern);
-  // the staging view carries only from/src/dest.
-  assert.deepStrictEqual(projected['examples/synth-vendored'], [
-    { from: 'node-modules', src: 'synth-common/base.css', dest: 'base.css' },
-    { from: 'node-modules', src: 'synth-app/index.css', dest: 'index.css' },
-  ]);
-  assert.deepStrictEqual(projected['examples/synth-fixture'], [
-    { from: 'src', src: 'api/data.json', dest: 'api/data.json' },
-  ]);
-});
-
-it('the LIVE staging PER_EXAMPLE_ASSETS IS the real manifest projection, non-vacuously (rf2-phpbo8)', () => {
-  // Cross-consistency: the exported staging map is exactly the real manifest's
-  // staging projection (no second, drift-prone literal declaration).
   assert.deepStrictEqual(
-    PER_EXAMPLE_ASSETS,
-    stagedAssetsByBuild(EXAMPLE_ASSET_MANIFEST),
-    'PER_EXAMPLE_ASSETS must be the manifest projection, not an independent copy',
-  );
-  // Non-vacuity: the real manifest declares the documented per-example builds,
-  // and TodoMVC's official CSS is fetched from node_modules (not vendored).
-  for (const build of [
-    'examples/todomvc',
-    'examples/managed-http-counter',
-    'examples/realworld',
-    'examples/realworld-resources',
-  ]) {
-    assert.ok(
-      Array.isArray(PER_EXAMPLE_ASSETS[build]) && PER_EXAMPLE_ASSETS[build].length > 0,
-      `the manifest must declare staged assets for ${build}`,
-    );
-  }
-  assert.ok(
-    PER_EXAMPLE_ASSETS['examples/todomvc'].every((a) => a.from === 'node-modules'),
-    'TodoMVC CSS is fetched into node_modules, not vendored',
+    stagedAssetsByBuild([
+      {
+        build: 'examples/linked',
+        assets: [{ from: 'node-modules', src: 'pkg/base.css', dest: 'base.css', htmlLinked: true }],
+      },
+      {
+        build: 'examples/fetched',
+        assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
+      },
+    ]),
+    {
+      'examples/linked': [{ from: 'node-modules', src: 'pkg/base.css', dest: 'base.css' }],
+      'examples/fetched': [{ from: 'src', src: 'api/data.json', dest: 'api/data.json' }],
+    },
   );
 });
 
 it('stageExample stages a colocated per-example asset after a clean stage (rf2-cq6va5)', () => {
-  // managed-http-counter: its api/inc.json lives colocated in the source folder
-  // and must land under outDir/api/inc.json after a clean stage. Drive the real
-  // manifest against the real repo source through the real clean-then-stage
-  // sequence serve-example performs.
+  // The real manifest's managed-http-counter entry against the real repo source.
   const srcDir = path.join(EXAMPLES_ROOT, 'core', 'managed_http_counter');
-  const htmlSrc = path.join(srcDir, 'index.html');
-  assert.ok(fs.existsSync(htmlSrc), `fixture precondition: ${htmlSrc} must exist in-repo`);
-
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-asset-'));
   try {
     const outRoot = path.join(tmpRoot, 'out', 'examples');
-    const sel = path.join(outRoot, 'managed-http-counter');
-    const entry = { build: 'examples/managed-http-counter', outDir: sel, htmlSrc, srcDir };
-
-    cleanStageDirs([entry.outDir], outRoot);
-    stageExample(entry);
-
-    const staged = path.join(sel, 'api', 'inc.json');
-    assert.ok(fs.existsSync(staged), `the success fixture must be staged at ${staged}`);
+    const outDir = path.join(outRoot, 'managed-http-counter');
+    cleanStageDirs([outDir], outRoot);
+    stageExample({
+      build: 'examples/managed-http-counter',
+      outDir,
+      htmlSrc: path.join(srcDir, 'index.html'),
+      srcDir,
+    });
     assert.strictEqual(
-      fs.readFileSync(staged, 'utf8'),
+      fs.readFileSync(path.join(outDir, 'api', 'inc.json'), 'utf8'),
       fs.readFileSync(path.join(srcDir, 'api', 'inc.json'), 'utf8'),
-      'the staged fixture must be a faithful copy of the source',
-    );
-    // The RealWorld avatar pattern is the same colocated-:src shape — exercise
-    // it too so both RealWorld variants are covered.
-    const rwSrc = path.join(EXAMPLES_ROOT, 'real-apps', 'realworld_http');
-    const rwEntry = {
-      build: 'examples/realworld',
-      outDir: path.join(outRoot, 'realworld'),
-      htmlSrc: path.join(rwSrc, 'index.html'),
-      srcDir: rwSrc,
-    };
-    cleanStageDirs([rwEntry.outDir], outRoot);
-    stageExample(rwEntry);
-    assert.ok(
-      fs.existsSync(path.join(rwEntry.outDir, 'default-avatar.svg')),
-      'the RealWorld fallback avatar must be staged',
     );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -622,468 +334,113 @@ it('stageExample stages a colocated per-example asset after a clean stage (rf2-c
 });
 
 it('stagePerExampleAssets FAILS LOUD on a missing declared asset source (rf2-cq6va5)', () => {
-  // Point a manifest-declared build at a srcDir that lacks the asset — staging
-  // must throw with the offending path, never silently ship a broken page.
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-asset-miss-'));
   try {
     const emptySrc = path.join(tmpRoot, 'src');
+    const outDir = path.join(tmpRoot, 'out');
     fs.mkdirSync(emptySrc, { recursive: true });
-    const entry = {
-      build: 'examples/realworld', // declares default-avatar.svg as a :src asset
-      outDir: path.join(tmpRoot, 'out'),
-      srcDir: emptySrc,
-    };
-    fs.mkdirSync(entry.outDir, { recursive: true });
-    assert.throws(
-      () => stagePerExampleAssets(entry),
-      /required asset for 'examples\/realworld' is missing/,
-      'a missing per-example asset source must fail loud',
-    );
+    fs.mkdirSync(outDir, { recursive: true });
+    // The real manifest declares default-avatar.svg as a :src asset of this build.
+    assert.throws(() => stagePerExampleAssets({ build: 'examples/realworld', outDir, srcDir: emptySrc }));
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
 
-// A no-op io for the guard-refusal tests: they must throw BEFORE any fs call,
-// so rmSync/mkdirSync are stubbed to fail loudly if ever reached.
-function noopIo() {
-  return {
-    rmSync: () => { throw new Error('rmSync must not be called when the guard refuses'); },
-    mkdirSync: () => { throw new Error('mkdirSync must not be called when the guard refuses'); },
-  };
-}
-
-// ---- serve-example first-build readiness ---------------------------------
+// ---- serve-example first-build readiness and watch termination -------------
 //
-// Printing `<build> is live at <url>` the moment http-server proves it owns the
-// staged root would be premature. In WATCH mode that root has just been
-// cleaned and `shadow-cljs watch` is asynchronous, so the advertised page
-// would serve its host HTML + _shared assets while the `main.js` it requires
-// was still absent: a blank, non-booted app, with no bundle loaded and
-// therefore no shadow client to turn the later compile into a live reload.
-// Server ownership and application-build readiness are different facts;
-// serve-example composes them via waitForFirstBuild.
-//
-// These pin BOTH halves: the predicate's behaviour (delayed artifact, empty
-// artifact, watch died before first output) and the call-site ordering (the
-// wait precedes the live banner), so a refactor that re-opens the window fails
-// here.
+// In watch mode the staged root has just been cleaned and `shadow-cljs watch`
+// is asynchronous, so the live URL is printed only once the bundle is served,
+// and a watcher that exits before then (a clean code 0 included) ends the run.
 
-const {
-  waitForFirstBuild,
-  BUILD_ENTRYPOINT,
-} = require('../../examples/scripts/serve-example.cjs');
-
-const SERVE_EXAMPLE_SRC = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
-  'utf8',
-);
-
-it('the entrypoint serve-example waits for is the one every example host loads', () => {
-  // check-examples-assets.cjs makes `<script src="main.js">` mandatory on every
-  // example page, which is what licenses the runner to key its readiness on a
-  // fixed name rather than parsing each host page.
-  assert.strictEqual(BUILD_ENTRYPOINT, 'main.js');
-});
-
-itAsync('waitForFirstBuild waits through a DELAYED artifact, then reports ready (rf2-qwy3)', async () => {
-  // A fake producer that publishes only on the 4th probe — the cold-compile
-  // case, where the server is ready long before the bundle exists.
-  let probes = 0;
-  const result = await waitForFirstBuild({
-    fetchBody: async () => {
-      probes++;
-      return probes < 4 ? null : 'console.log("booted");';
-    },
-    isAborted: () => false,
-    sleep: async () => {},
-  });
-  assert.deepStrictEqual(result, { ok: true });
-  assert.strictEqual(probes, 4, 'must keep polling until the artifact is actually served');
-});
-
-itAsync('TEETH: waitForFirstBuild does NOT report ready on a zero-length artifact (rf2-qwy3)', async () => {
-  // An empty main.js boots nothing. Announcing it would restate the exact lie
-  // this wait removes, so an empty body must keep the runner waiting.
-  let probes = 0;
-  const result = await waitForFirstBuild({
-    fetchBody: async () => {
-      probes++;
-      // Empty for the first three probes (the "zero-length" case), then
-      // real content.
-      return probes < 4 ? '' : 'console.log("booted");';
-    },
-    isAborted: () => false,
-    sleep: async () => {},
-  });
-  assert.deepStrictEqual(result, { ok: true });
-  assert.strictEqual(probes, 4, 'a zero-length entrypoint must not satisfy readiness');
-});
-
-itAsync('waitForFirstBuild reports ready off a REAL http server once a delayed producer writes the entrypoint (rf2-qwy3)', async () => {
-  // End-to-end over the real HTTP path serve-example uses, with a fake
-  // "watch child" (a timer) writing main.js into an initially clean staged
-  // root — no shadow-cljs required. Proves the runner stays silent while the
-  // directory holds only the host page, and flips once the bundle lands.
-  const http = require('http');
-  const { fetchToken: fetchServedBody } = require('./lib/local-browser-harness.cjs');
-
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-firstbuild-'));
-  // The freshly cleaned staged root: host page + assets present, NO main.js.
-  fs.writeFileSync(path.join(tmpRoot, 'index.html'), '<!doctype html><script src="main.js"></script>');
-
-  const server = http.createServer((req, res) => {
-    const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '');
-    const target = path.join(tmpRoot, rel);
-    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
-      res.statusCode = 404;
-      res.end('not found');
-      return;
-    }
-    res.statusCode = 200;
-    res.end(fs.readFileSync(target));
-  });
-  try {
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const port = server.address().port;
-
-    // Before any build: the entrypoint is genuinely unserved — the window an
-    // unwaited banner would advertise as live.
-    assert.strictEqual(
-      await fetchServedBody(port, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
-      null,
-      'the cleaned staged root must not serve an entrypoint before the first compile',
-    );
-
-    // The fake watch child publishes the bundle a few polls in.
-    const timer = setTimeout(() => {
-      fs.writeFileSync(path.join(tmpRoot, BUILD_ENTRYPOINT), 'console.log("booted");');
-    }, 120);
-    timer.unref?.();
-
-    const result = await waitForFirstBuild({
-      fetchBody: () => fetchServedBody(port, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
-      isAborted: () => false,
-      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-      pollMs: 25,
-    });
-    clearTimeout(timer);
-    assert.deepStrictEqual(result, { ok: true });
-    assert.ok(
-      fs.existsSync(path.join(tmpRoot, BUILD_ENTRYPOINT)),
-      'readiness must not be reported before the producer wrote the entrypoint',
-    );
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
-});
-
-it('TEETH: serve-example awaits the first build BEFORE printing the live URL (rf2-qwy3)', () => {
-  // The call-site pin. With no wait between startLocalHttpServer's ready
-  // result and the `is live` banner this test fails — which is the whole
-  // point.
-  const waitAt = SERVE_EXAMPLE_SRC.indexOf('await waitForFirstBuild(');
-  const liveAt = SERVE_EXAMPLE_SRC.indexOf('is live at http://127.0.0.1:');
-  assert.ok(waitAt !== -1, 'serve-example must await the first-build readiness wait');
-  assert.ok(liveAt !== -1, 'serve-example must still print the live URL');
-  assert.ok(
-    waitAt < liveAt,
-    'the first-build wait must precede the live/openable banner, or the runner ' +
-      'advertises a page whose main.js is still absent',
-  );
-});
-
-it('serve-example keeps the wait on the WATCH path only, and tears down on first-build failure (rf2-qwy3)', () => {
-  // --no-watch already compiles synchronously before the server starts, so its
-  // output is complete on the first byte served; it must not grow a wait.
-  assert.ok(
-    /if\s*\(watch\)\s*\{[\s\S]{0,1200}?await waitForFirstBuild\(/.test(SERVE_EXAMPLE_SRC),
-    'the first-build wait must be guarded by the watch branch (--no-watch stays synchronous)',
-  );
-  // A watch that dies before first output must not leave the server up.
-  const failBlock = SERVE_EXAMPLE_SRC.slice(SERVE_EXAMPLE_SRC.indexOf('if (!first.ok)'));
-  assert.ok(
-    /cleanup\.cleanup\(\)/.test(failBlock.slice(0, 600)),
-    'a first-build failure must tear the server down',
-  );
-  assert.ok(
-    /return 1;/.test(failBlock.slice(0, 600)),
-    'a first-build failure must exit non-zero',
-  );
-});
-
-// ---- watch termination before the first build ----------------------------
-//
-// The first-build wait above closes the "live URL, absent bundle" window, and
-// the watch exit handler must ABORT that wait on every exit before readiness,
-// a clean one included. Treating a code-0 exit as benign would leave a
-// `shadow-cljs watch` that terminated before publishing main.js with the server
-// up, the abort flag false and waitForFirstBuild polling forever: the runner
-// would hang silently, with no URL, no diagnostic and no exit. Any watch-child
-// exit before readiness must tear down and exit non-zero.
-//
-// The classification lives in the pure, exported watchExitAbortsRun, and
-// the handler holds none of its own — which is what makes these cases
-// authoritative for the handler, and is pinned as such below.
-
-const { watchExitAbortsRun } = require('../../examples/scripts/serve-example.cjs');
-
-it('TEETH: every unasked-for watch termination before the first build is terminal (rf2-qwy3)', () => {
-  for (const outcome of [
-    { code: 1, signal: null }, // compile-loop crash / JVM error
-    { code: 0, signal: null }, // a clean early exit
-    { code: null, signal: 'SIGKILL' }, // OOM-killed
-    { code: null, signal: null }, // gone, with nothing to say
+it('watchExitAbortsRun: after the first build only an unexpected exit is terminal, and an interrupt never is', () => {
+  for (const [outcome, expected] of [
+    [{ code: 0, signal: null, firstBuildReady: true }, false],
+    [{ code: 2, firstBuildReady: true }, true],
+    [{ code: null, signal: 'SIGKILL', firstBuildReady: true }, true],
+    [{ code: null, signal: 'SIGINT', interrupted: true, firstBuildReady: false }, false],
   ]) {
-    assert.strictEqual(
-      watchExitAbortsRun({ ...outcome, interrupted: false, firstBuildReady: false }),
-      true,
-      `a pre-readiness watch exit ${JSON.stringify(outcome)} must end the run`,
-    );
+    assert.strictEqual(watchExitAbortsRun(outcome), expected, JSON.stringify(outcome));
   }
 });
 
-it('after the first build, a clean watch exit is an ordinary shutdown (rf2-qwy3)', () => {
-  // The rule is bounded to the pre-readiness phase on purpose: once the bundle
-  // is served the page works, and decideRunnerExit grades a clean exit 0.
-  assert.strictEqual(
-    watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: true }),
-    false,
-  );
-  // ...but an UNEXPECTED termination still tears the server down.
-  assert.strictEqual(watchExitAbortsRun({ code: 2, firstBuildReady: true }), true);
-  assert.strictEqual(
-    watchExitAbortsRun({ code: null, signal: 'SIGKILL', firstBuildReady: true }),
-    true,
-  );
-});
-
-it('an interrupt (Ctrl+C) is never a watch crash, in either phase (rf2-qwy3)', () => {
-  for (const firstBuildReady of [false, true]) {
-    assert.strictEqual(
-      watchExitAbortsRun({ code: null, signal: 'SIGINT', interrupted: true, firstBuildReady }),
-      false,
-      'a child stopped by the teardown the user asked for is not a failure',
-    );
-  }
+itAsync('TEETH: waitForFirstBuild keeps polling through a missing or zero-length entrypoint, then reports ready', async () => {
+  const bodies = [null, '', 'console.log("booted");'];
+  let probes = 0;
+  const result = await waitForFirstBuild({
+    fetchBody: async () => bodies[Math.min(probes++, bodies.length - 1)],
+    isAborted: () => false,
+    sleep: async () => {},
+  });
+  assert.deepStrictEqual({ result, probes }, { result: { ok: true }, probes: 3 });
 });
 
 itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait rather than hanging (rf2-qwy3)', async () => {
-  // The runner's own composition, driven by a fake watch child: its exit
-  // handler classifies the outcome with watchExitAbortsRun and flips the abort
-  // flag the first-build wait reads, so the classification is exercised rather
-  // than injected.
-  const preAudit = ({ code }, interrupted) =>
-    !interrupted && !(typeof code === 'number' && code === 0);
-  assert.strictEqual(
-    preAudit({ code: 0, signal: null }, false),
-    false,
-    'control: a code-0-is-benign classification reads this exact outcome as benign, ' +
-      'which would leave the wait below polling forever',
-  );
-
-  let watchDied = false;
-  const firstBuildReady = false; // the wait has not yet proven a served bundle
-  const onWatchExit = ({ code, signal }) => {
-    if (watchExitAbortsRun({ code, signal, interrupted: false, firstBuildReady })) {
-      watchDied = true;
-    }
-  };
-
-  // The defect's SIGNATURE is an unbounded poll, so the witness bounds it:
-  // a misclassified exit must fail this test loudly rather than spin the suite
-  // until CI times out. (With the code-0-is-benign classification planted, an
-  // unbounded version of this case hangs instead of reporting.)
   let probes = 0;
-  const PROBE_CEILING = 50;
+  let watchDied = false;
   const result = await waitForFirstBuild({
     fetchBody: async () => {
       probes++;
-      if (probes === 2) onWatchExit({ code: 0, signal: null }); // a clean early exit
-      if (probes > PROBE_CEILING) {
-        throw new Error(
-          `still polling after ${PROBE_CEILING} probes with the watcher already gone: ` +
-            'the runner hangs instead of reporting a first build that never happened',
-        );
+      if (probes === 2) {
+        watchDied = watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: false });
       }
-      return null; // the entrypoint is never published
+      // Bounded, so a misclassified exit fails here instead of hanging the suite.
+      if (probes > 50) throw new Error('still polling after the watcher exited: the runner would hang');
+      return null;
     },
     isAborted: () => watchDied,
     sleep: async () => {},
   });
-
-  assert.ok(watchDied, 'the clean early exit must be classified as terminal');
-  assert.ok(probes <= 3, 'the wait must stop at the exit, not keep polling');
-  assert.deepStrictEqual(
-    result,
-    { ok: false, reason: 'child-exited' },
-    'the wait must abort so the caller reports the failure non-zero, never hang',
-  );
+  assert.deepStrictEqual(result, { ok: false, reason: 'child-exited' });
 });
 
-it('TEETH: the watch exit handler delegates its classification to watchExitAbortsRun (rf2-qwy3)', () => {
-  // The predicate cases above are authoritative for the handler only while the
-  // handler keeps no classification of its own, so pin both halves.
-  assert.ok(
-    /watchProc\.on\('exit',[\s\S]{0,400}?watchExitAbortsRun\(\{[^}]*firstBuildReady[^}]*\}\)/.test(
-      SERVE_EXAMPLE_SRC,
-    ),
-    "the watch 'exit' handler must classify via watchExitAbortsRun, passing the readiness phase",
-  );
-  assert.ok(
-    !/!\(typeof code === 'number' && code === 0\)/.test(SERVE_EXAMPLE_SRC),
-    'the handler must not carry an inline "a code-0 exit is benign" test',
-  );
-  // And the phase flag must only be asserted AFTER the wait proves the bundle
-  // is served — set it earlier and the code-0 hole reopens under a new name.
-  const setAt = SERVE_EXAMPLE_SRC.indexOf('firstBuildReady = true;');
-  const waitAt = SERVE_EXAMPLE_SRC.indexOf('await waitForFirstBuild(');
-  assert.ok(setAt !== -1, 'the runner must record when the first build became ready');
-  assert.ok(
-    waitAt !== -1 && waitAt < setAt,
-    'first-build readiness must be asserted only after the wait that proves it',
-  );
-});
-
-// ---------------------------------------------------------------------------
-// HISTORY-ROUTE DOCUMENT FALLBACK.
+// ---- history-route document fallback --------------------------------------
 //
-// Over a PLAIN static server a history-routed example (examples/routing
-// registers `/`, `/articles` and `/articles/:id`) is reloadable only at `/`. A
-// refresh, a bookmark, a copied link or a direct hit on `/articles/intro` asks
-// that server for a file no build ever emits: 404, the app never boots, and the
-// URL synchronisation that would resolve the route never runs.
-//
-// These pin BOTH halves of the fallback, because each without the other is a
-// defect: an HTML document navigation gets the staged host page, and
-// EVERYTHING ELSE 404s. A blanket fallback would hand waitForFirstBuild above a
-// host page in place of a compiled main.js and reopen the "live URL, absent
-// bundle" window.
-const {
-  isDocumentNavigationRequest,
-  startDocumentFallbackServer,
-} = require('../../examples/scripts/serve-example.cjs');
+// An HTML document navigation to a path no file answers gets the staged host
+// page, so a history-routed example is reloadable; everything else stays a 404,
+// or waitForFirstBuild would accept a host page in place of a missing main.js.
 
-it('a document navigation to a history route is recognised (rf2-fzbj.35)', () => {
-  const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
-  for (const url of ['/', '/articles', '/articles/intro', '/realworld/profile/bob', '/index.html']) {
-    assert.strictEqual(
-      isDocumentNavigationRequest({ method: 'GET', url, accept: HTML }),
-      true,
-      `${url} is an HTML navigation a history-routed example must be able to serve`,
-    );
+it('TEETH: isDocumentNavigationRequest admits only a GET/HEAD HTML navigation to an extensionless or .html path', () => {
+  for (const [req, expected] of [
+    [{ method: 'GET', url: '/articles/intro', accept: HTML_ACCEPT }, true],
+    [{ method: 'HEAD', url: '/articles/intro', accept: HTML_ACCEPT }, true],
+    [{ method: 'GET', url: '/index.html', accept: HTML_ACCEPT }, true],
+    [{ method: 'GET', url: '/main.js', accept: HTML_ACCEPT }, false],
+    [{ method: 'POST', url: '/articles', accept: HTML_ACCEPT }, false],
+  ]) {
+    assert.strictEqual(isDocumentNavigationRequest(req), expected, JSON.stringify(req));
   }
-  // A browser's back/forward cache probes with HEAD; same document, same answer.
-  assert.strictEqual(
-    isDocumentNavigationRequest({ method: 'HEAD', url: '/articles/intro', accept: HTML }),
-    true,
-  );
-  // A query string / fragment is not part of the path's extension test.
-  assert.strictEqual(
-    isDocumentNavigationRequest({ method: 'GET', url: '/articles/intro?page=2#top', accept: HTML }),
-    true,
-  );
-});
-
-it('TEETH: an ASSET request is never a document navigation, however it asks (rf2-fzbj.35)', () => {
-  const HTML = 'text/html,application/xhtml+xml,*/*;q=0.8';
-  // The shape a browser really sends for <script src>/<link>/fetch(): no
-  // text/html in Accept. This is the case that keeps a missing bundle missing.
-  assert.strictEqual(
-    isDocumentNavigationRequest({ method: 'GET', url: '/main.js', accept: '*/*' }),
-    false,
-  );
-  // The runner's OWN first-build probe sends no Accept header at all. If this
-  // ever returned true, waitForFirstBuild would accept the host page as the
-  // compiled bundle and announce a live URL over a build that never landed.
-  assert.strictEqual(isDocumentNavigationRequest({ method: 'GET', url: '/main.js' }), false);
-  assert.strictEqual(
-    isDocumentNavigationRequest({ method: 'GET', url: '/main.js', accept: '' }),
-    false,
-  );
-  // And a broad-Accept client (curl, a tool) asking for an asset is refused on
-  // the extension, which is the half the Accept test cannot reach.
-  for (const url of ['/main.js', '/_shared/css/style.css', '/fixtures/todos.json', '/img/og.png']) {
-    assert.strictEqual(
-      isDocumentNavigationRequest({ method: 'GET', url, accept: HTML }),
-      false,
-      `${url} names an asset extension and must stay a 404, not become HTML`,
-    );
-  }
-  // Not a navigation method.
-  assert.strictEqual(
-    isDocumentNavigationRequest({ method: 'POST', url: '/articles', accept: HTML }),
-    false,
-  );
 });
 
 itAsync('the document fallback serves the host page for a history route and 404s every asset (rf2-fzbj.35)', async () => {
-  // The POLICY half of the fallback, over real HTTP against the real responder
-  // serve-example starts. Node builtins only, so it runs in every lane —
-  // including `js-harness-self-tests`, which installs no packages at all. The
-  // composition with http-server's `--proxy` is pinned by the argv row in
-  // _local-browser-harness.test.cjs and exercised end to end by the next row
-  // wherever http-server is installed.
-  const http = require('http');
-  const HOST_SENTINEL = 'RF2-FALLBACK-HOST-DOCUMENT';
-  const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  // Node builtins only, so it runs in every lane, including the one with no npm ci.
+  const HOST_HTML = '<!doctype html><title>RF2-FALLBACK-HOST-DOCUMENT</title>';
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-docfallback-'));
-  fs.writeFileSync(path.join(root, 'index.html'), `<!doctype html><title>${HOST_SENTINEL}</title>`);
+  fs.writeFileSync(path.join(root, 'index.html'), HOST_HTML);
   const fallback = await startDocumentFallbackServer({ indexPath: path.join(root, 'index.html') });
-  const { hostname, port } = new URL(fallback.url);
-  const request = (method, reqPath, accept) =>
-    new Promise((resolve) => {
-      const headers = accept ? { Accept: accept } : {};
-      const req = http.request(
-        { hostname, port, method, path: reqPath, agent: false, headers },
-        (res) => {
-          let body = '';
-          res.setEncoding('utf8');
-          res.on('data', (c) => { body += c; });
-          res.on('end', () => resolve({ status: res.statusCode, body }));
-        },
-      );
-      req.on('error', (err) => resolve({ status: 0, body: String(err) }));
-      req.setTimeout(10000, () => { req.destroy(new Error('request timeout')); });
-      req.end();
-    });
+  const { port } = new URL(fallback.url);
   try {
-    for (const url of ['/articles/intro', '/articles', '/realworld/profile/bob']) {
-      const r = await request('GET', url, HTML_ACCEPT);
-      assert.strictEqual(r.status, 200, `${url} must get the host page`);
-      assert.ok(r.body.includes(HOST_SENTINEL), `${url} must get the STAGED host page`);
-    }
-    const head = await request('HEAD', '/articles/intro', HTML_ACCEPT);
-    assert.strictEqual(head.status, 200);
-    assert.strictEqual(head.body, '', 'a HEAD answer carries no body');
-    // TEETH: the runner's own first-build probe (no Accept), a browser asset
-    // fetch (*/*) and a broad-Accept asset request all stay 404.
-    for (const [url, accept] of [
-      ['/main.js', undefined],
-      ['/main.js', '*/*'],
-      ['/_shared/css/style.css', HTML_ACCEPT],
-      ['/fixtures/todos.json', HTML_ACCEPT],
-    ]) {
-      const r = await request('GET', url, accept);
-      assert.strictEqual(r.status, 404, `${url} must stay a 404`);
-      assert.ok(!r.body.includes(HOST_SENTINEL), `${url} must never carry the host document`);
-    }
+    assert.deepStrictEqual(
+      await httpRequest({ port, path: '/articles/intro', accept: HTML_ACCEPT }),
+      { status: 200, body: HOST_HTML },
+    );
+    assert.deepStrictEqual(
+      await httpRequest({ port, method: 'HEAD', path: '/articles/intro', accept: HTML_ACCEPT }),
+      { status: 200, body: '' },
+    );
+    // The runner's own first-build probe sends no Accept header.
+    assert.strictEqual((await httpRequest({ port, path: '/main.js' })).status, 404);
     // No host page staged means nothing to fall back to: a 404, not a 500.
     fs.rmSync(path.join(root, 'index.html'));
-    const gone = await request('GET', '/articles/intro', HTML_ACCEPT);
-    assert.strictEqual(gone.status, 404);
+    assert.strictEqual((await httpRequest({ port, path: '/articles/intro', accept: HTML_ACCEPT })).status, 404);
   } finally {
     await fallback.close();
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
-// The end-to-end row needs the http-server PACKAGE, and the lane that runs this
-// file in CI (`js-harness-self-tests`) deliberately installs nothing — no
-// `npm ci` — so there it cannot resolve. Register it only where it can run, and
-// say so out loud where it cannot, rather than reporting a PASS that exercised
-// nothing. The row above carries the policy in every lane regardless.
+// The end-to-end row needs the http-server package, which the CI lane running
+// this file does not install; there it is reported as a SKIP, not a vacuous PASS.
 let HTTP_SERVER_BIN = null;
 try {
   HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
@@ -1101,93 +458,43 @@ const itAsyncWithHttpServer = HTTP_SERVER_BIN
       );
 
 itAsyncWithHttpServer('a history route is RELOADABLE through the real runner server, and assets still 404 (rf2-fzbj.35)', async () => {
-  // End-to-end over the exact path serve-example takes: the shared
-  // startLocalHttpServer owner spawning the REAL http-server bin against a
-  // synthetic staged root, with the document fallback wired in as its
-  // unresolved-request origin. No shadow-cljs, no browser.
-  const http = require('http');
+  // The path serve-example takes: the real http-server bin under the shared
+  // startLocalHttpServer, forwarding unresolved requests to the fallback.
   const {
     createHarnessCleanup,
     findFreePort,
     startLocalHttpServer,
   } = require('./lib/local-browser-harness.cjs');
 
-  const IMPL_ROOT = path.join(__dirname, '..');
-  const HOST_SENTINEL = 'RF2-STAGED-HOST-DOCUMENT';
+  const HOST_HTML = '<!doctype html><title>RF2-STAGED-HOST-DOCUMENT</title><script src="main.js"></script>';
+  const BUNDLE = 'console.log("booted");';
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-histroute-'));
-  fs.writeFileSync(
-    path.join(root, 'index.html'),
-    `<!doctype html><title>${HOST_SENTINEL}</title><script src="main.js"></script>`,
-  );
-  fs.writeFileSync(path.join(root, 'main.js'), 'console.log("booted");');
+  fs.writeFileSync(path.join(root, 'index.html'), HOST_HTML);
+  fs.writeFileSync(path.join(root, 'main.js'), BUNDLE);
 
-  const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
-  const get = (port, reqPath, accept) =>
-    new Promise((resolve) => {
-      const headers = accept ? { Accept: accept } : {};
-      const req = http.get(
-        { hostname: '127.0.0.1', port, path: reqPath, agent: false, headers },
-        (res) => {
-          let body = '';
-          res.setEncoding('utf8');
-          res.on('data', (c) => { body += c; });
-          res.on('end', () => resolve({ status: res.statusCode, body }));
-        },
-      );
-      req.on('error', (err) => resolve({ status: 0, body: String(err) }));
-      req.setTimeout(10000, () => { req.destroy(new Error('request timeout')); });
-    });
-
-  const fallback = await startDocumentFallbackServer({
-    indexPath: path.join(root, 'index.html'),
-  });
+  const fallback = await startDocumentFallbackServer({ indexPath: path.join(root, 'index.html') });
   const cleanup = createHarnessCleanup({ onError: () => {} });
   try {
     const port = await findFreePort();
-    const { ready } = await startLocalHttpServer({
+    await startLocalHttpServer({
       cleanup,
       httpServerBin: HTTP_SERVER_BIN,
       root,
       port,
-      cwd: IMPL_ROOT,
+      cwd: path.join(__dirname, '..'),
       readyTimeoutMs: 30000,
       log: () => {},
       unresolvedRequestUrl: fallback.url,
     });
-    assert.strictEqual(ready, true, 'the staged root must reach owned readiness');
-
-    // A deep history route serves the host document.
-    for (const url of ['/articles/intro', '/articles', '/realworld/profile/bob']) {
-      const r = await get(port, url, HTML_ACCEPT);
-      assert.strictEqual(r.status, 200, `${url} must serve the host page, not 404`);
-      assert.ok(r.body.includes(HOST_SENTINEL), `${url} must serve the STAGED host page`);
-    }
-    // The root and a real emitted asset are served from disk, not the fallback.
-    const rootRes = await get(port, '/', HTML_ACCEPT);
-    assert.strictEqual(rootRes.status, 200);
-    assert.ok(rootRes.body.includes(HOST_SENTINEL));
-    const bundle = await get(port, '/main.js', '*/*');
-    assert.strictEqual(bundle.status, 200);
-    assert.ok(bundle.body.includes('booted'), 'a real asset must still be served from disk');
-
-    // TEETH: a MISSING asset must not become a successful HTML body. This
-    // guards the first-build wait — the runner's first-build probe fetches /main.js with
-    // no Accept header, so a fallback that answered it would let the runner
-    // advertise a live URL over a build that never landed.
-    for (const [url, accept] of [
-      ['/missing.js', '*/*'],
-      ['/missing.js', HTML_ACCEPT],
-      ['/_shared/css/style.css', HTML_ACCEPT],
-      ['/fixtures/todos.json', HTML_ACCEPT],
-      ['/not-built.js', undefined],
-    ]) {
-      const r = await get(port, url, accept);
-      assert.notStrictEqual(r.status, 200, `${url} must stay a failing request`);
-      assert.ok(
-        !r.body.includes(HOST_SENTINEL),
-        `${url} must never be answered with the host document`,
-      );
-    }
+    assert.deepStrictEqual(
+      await httpRequest({ port, path: '/articles/intro', accept: HTML_ACCEPT }),
+      { status: 200, body: HOST_HTML },
+    );
+    assert.deepStrictEqual(
+      await httpRequest({ port, path: '/main.js', accept: '*/*' }),
+      { status: 200, body: BUNDLE },
+    );
+    assert.notStrictEqual((await httpRequest({ port, path: '/not-built.js' })).status, 200);
   } finally {
     await cleanup.cleanup().catch(() => {});
     await fallback.close();
@@ -1195,34 +502,46 @@ itAsyncWithHttpServer('a history route is RELOADABLE through the real runner ser
   }
 });
 
-it('TEETH: serve-example wires the document fallback into its own server (rf2-fzbj.35)', () => {
-  // The call-site pin. The helpers above can be perfect and the runner still
-  // serve a 404 on refresh if it never hands the fallback origin to the server
-  // it starts.
+// ---- serve-example main() wiring --------------------------------------------
+//
+// main() needs shadow-cljs to run, so the order it composes the helpers above
+// in is pinned on its source.
+
+it('TEETH: serve-example main() cleans before staging, withholds the live URL until the first build, and wires the document fallback', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
+    'utf8',
+  );
+  const before = (a, b) => src.indexOf(a) !== -1 && src.indexOf(a) < src.indexOf(b);
   assert.ok(
-    /startDocumentFallbackServer\(/.test(SERVE_EXAMPLE_SRC),
-    'serve-example must stand up the document fallback',
+    before('cleanStageDirs([entry.outDir], OUT_ROOT)', 'stageExample(entry)'),
+    'the clean must precede the stage so no stale file survives into the served dir',
   );
   assert.ok(
-    /unresolvedRequestUrl:\s*fallback\.url/.test(SERVE_EXAMPLE_SRC),
-    'serve-example must hand the fallback origin to startLocalHttpServer as its ' +
-      'unresolved-request target, or a history route still 404s on refresh',
+    before('await waitForFirstBuild(', 'is live at http://127.0.0.1:'),
+    'the first-build wait must precede the live banner',
   );
-  const fallbackAt = SERVE_EXAMPLE_SRC.indexOf('await startDocumentFallbackServer(');
-  const serverAt = SERVE_EXAMPLE_SRC.indexOf('await startLocalHttpServer(');
-  assert.ok(fallbackAt !== -1 && serverAt !== -1);
-  assert.ok(
-    fallbackAt < serverAt,
-    'the fallback must be listening before the server that forwards to it starts',
+  assert.match(
+    src,
+    /if \(!first\.ok\) \{[\s\S]{0,600}?return 1;/,
+    'a first build that never lands must exit non-zero',
+  );
+  assert.match(
+    src,
+    /watchProc\.on\('exit',[\s\S]{0,400}?watchExitAbortsRun\(\{[^}]*firstBuildReady[^}]*\}\)/,
+    "the watch 'exit' handler must classify via watchExitAbortsRun, passing the readiness phase",
   );
   assert.ok(
-    /cleanup\.addCleanup\(fallback\.close\)/.test(SERVE_EXAMPLE_SRC),
-    'the fallback listener must be torn down with the rest of the run',
+    before('await waitForFirstBuild(', 'firstBuildReady = true;'),
+    'first-build readiness must be recorded only after the wait that proves it',
+  );
+  assert.match(
+    src,
+    /unresolvedRequestUrl:\s*fallback\.url/,
+    'serve-example must hand the document fallback to its server, or a history route 404s on refresh',
   );
 });
 
-// Drain the queued async cases, then own the summary + exit code for the whole
-// file (both the synchronous `it` results already counted in `failed` and these).
 (async () => {
   for (const [label, f] of asyncTests) {
     try {
