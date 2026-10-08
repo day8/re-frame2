@@ -1,37 +1,13 @@
 (ns re-frame.http-trace-emit-elision-prod-test
-  "Runtime production-elision coverage for the managed-HTTP trace surface.
+  "Runtime production elision of the managed-HTTP trace surface (Spec 009
+  §Production builds): under `:advanced` + `goog.DEBUG=false` a registered
+  listener observes no `:rf.http/*` event, while the host work behind the emit
+  still runs. `scripts/check-elision.cjs` greps the bundle for surviving keyword
+  literals; this pins the behaviour.
 
-  Per Spec 009 §Production builds, registered listeners observe no HTTP or
-  warning events from `re-frame.http.managed`. Companion to
-  the string-grep sentinel sweep in `scripts/check-elision.cjs`: the
-  grep catches keyword-literal survival in the bundle blob; this file
-  pins the BEHAVIOUR — under `:advanced` + `goog.DEBUG=false`, a
-  registered trace listener observes NO `:rf.http/*` /
-  `:rf.warning/*` events from the managed-HTTP surface.
-
-  Gating contract: each emit site sits inside `(when interop/debug-
-  enabled? ...)` AND the body of `trace/emit!` itself is gated. Under
-  prod-mode both gates constant-fold to false and the emit is a no-op.
-  The host call (e.g. `record-in-flight!`, `abort-on-actor-destroy`'s
-  swap!) still runs; only the trace fan-out elides.
-
-  Surfaces exercised:
-
-  - `:rf.http/aborted-on-actor-destroy`  (emitted by
-                                          `abort-on-actor-destroy`
-                                          when handles exist)
-  - `:rf.http/retry-attempt`              (Spec 014 §Retry — emit site
-                                          gated; we do not actually run
-                                          a request here, but require
-                                          `http-transport` so the
-                                          reachability graph includes
-                                          the gated body)
-
-  Naming convention: files ending in `-elision-prod-test.cljs` are
-  picked up ONLY by the `:browser-test-prod-elision` build. Running
-  under `goog.DEBUG=true` would FAIL — the trace surface delivers under
-  dev-mode (the dev contract the JVM
-  `http-managed` tests pin)."
+  Only the `:browser-test-prod-elision` build runs `-elision-prod-test.cljs`
+  files; under `goog.DEBUG=true` this test would fail, since the trace surface
+  delivers in dev."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -48,17 +24,13 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
-     :init-fn (fn []
-                ;; Defonce'd indexes need to be clean between tests so a
-                ;; leaked handle from one test doesn't influence another.
-                (rf.http.managed/clear-all-in-flight!))}))
-
-;; ---- helpers --------------------------------------------------------------
+     ;; the in-flight indexes are defonce'd; a handle leaked by one test must
+     ;; not reach the next
+     :init-fn (fn [] (rf.http.managed/clear-all-in-flight!))}))
 
 (defn- listener-fixture
-  "Install a recording trace listener, run `body-fn`, and return the
-  captured events vector. Records EVERY trace event so the test asserts
-  on `empty?` without filtering — any leak surfaces."
+  "Install a listener recording EVERY trace event, run `body-fn`, and return
+  what it saw, so any leak surfaces."
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "elision-prod-" (gensym)))]
@@ -71,15 +43,9 @@
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
-;; ---- :rf.http/aborted-on-actor-destroy elides under prod ----------------
-
 (deftest abort-on-actor-destroy-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production-elision: calling
-            `abort-on-actor-destroy` against an actor with in-flight
-            handles fires every handle's `:abort-fn` but emits NO
-            `:rf.http/aborted-on-actor-destroy` trace under `:advanced`
-            + `goog.DEBUG=false`. The host work (the abort-fn callback)
-            still runs; only the trace fan-out elides."
+  (testing "`abort-on-actor-destroy` fires every in-flight handle's `:abort-fn`
+            but emits no `:rf.http/aborted-on-actor-destroy` trace"
     (let [actor-id    :prod-elision/actor
           aborts-seen (atom 0)
           handle      {:abort-fn    (fn [_reason] (swap! aborts-seen inc))
@@ -93,6 +59,4 @@
       (is (= 1 @aborts-seen)
           ":abort-fn ran exactly once — host side-effect not elided")
       (is (empty? seen)
-          "no trace events delivered under :advanced + goog.DEBUG=false
-           — the :rf.http/aborted-on-actor-destroy emit body elided
-           while the abort callback still ran"))))
+          "no trace events delivered under :advanced + goog.DEBUG=false"))))
