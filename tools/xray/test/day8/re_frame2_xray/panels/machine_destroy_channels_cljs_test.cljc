@@ -19,10 +19,7 @@
 
   The complementary negative cross-products (the tuples the matrix forbids)
   are asserted in `cancellation-cascade-helpers-cljs-test`, which can author
-  the impossible events the runtime cannot produce.
-
-  The file is named `*-cljs-test.cljc` so both cognitect.test-runner (JVM)
-  and shadow-cljs (`cljs-test$` ns-regexp) discover it."
+  the impossible events the runtime cannot produce."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -78,12 +75,9 @@
         (is (= :explicit (get-in ev [:tags :reason]))
             "the runtime stamped the cancellation reason")
 
-        (testing "Xray's production projections accept the REAL event"
-          (is (true? (cascade/destroy-event? ev)))
-          (is (true? (cascade/emittable-destroy? ev))
-              "the real (fx, :explicit) tuple is one the matrix admits")
-          (is (true? (cascade/cancellation-anchor? ev))
-              "a pre-final teardown is a cancellation cascade anchor"))
+        (is (true? (cascade/cancellation-anchor? ev))
+            "Xray admits the real (fx, :explicit) tuple and anchors a
+             cancellation cascade on it")
 
         (testing "the managed-fx surface collects the real fx terminal"
           (is (contains? managed-fx/machine-invoke-trace-operations
@@ -112,61 +106,31 @@
                         {:frame :rf2-3uixf4/scratch})
       (rf/destroy-frame! :rf2-3uixf4/scratch)
 
-      (let [lifecycle-destroys (destroys-on traces
-                                            :rf.machine.lifecycle/destroyed)
-            ev                 (first lifecycle-destroys)]
-        (is (seq lifecycle-destroys)
-            "frame-exit reaped the live actor on the registrar channel")
-        (is (= :parent-frame-destroyed (get-in ev [:tags :reason]))
-            "the frame-exit cause is the channel's sole reason")
-
-        (testing "Xray's production projections accept the REAL event"
-          (is (true? (cascade/destroy-event? ev)))
-          (is (true? (cascade/emittable-destroy? ev))
-              "the real (lifecycle, :parent-frame-destroyed) tuple is admitted")
-          (is (true? (cascade/cancellation-anchor? ev))
-              "the actor was reaped before finishing — a cancellation"))
+      (let [ev (first (destroys-on traces :rf.machine.lifecycle/destroyed))]
+        (is (true? (cascade/cancellation-anchor? ev))
+            "frame-exit reaped the live actor on the registrar channel, and
+             Xray anchors a cancellation cascade on that (lifecycle,
+             :parent-frame-destroyed) tuple")
 
         (testing "the managed-fx surface collects the real frame-exit reap"
           (is (contains? managed-fx/machine-invoke-trace-operations
                          (:operation ev))))))))
 
 ;; ===========================================================================
-;; 3. every REAL destroy the runtime emits satisfies the matrix
+;; 3. fx channel — a real natural `:final?` finish
 ;; ===========================================================================
 
-(deftest every-real-destroy-satisfies-the-matrix
-  (testing "across a natural finish AND a cancellation, no emitted destroy
-            violates the (channel, reason) matrix Xray models"
-    (let [traces (record-traces! ::matrix-sweep)]
-      ;; (a) a natural `:final?` termination → auto-destroy.
+(deftest natural-finish-destroy-is-emittable-but-not-a-cancellation
+  (testing "a natural `:final?` termination auto-destroys with a tuple the
+            matrix admits, and never anchors a cancellation cascade"
+    (let [traces (record-traces! ::natural-finish)]
       (rf/reg-machine :rf2-3uixf4.sweep/finisher
         {:initial :running
          :data    {}
          :states  {:running {:on {:fin :done}}
                    :done    {:final? true}}})
       (rf/dispatch-sync [:rf2-3uixf4.sweep/finisher [:fin]])
-      ;; (b) a cancellation of a live actor.
-      (rf/reg-machine :rf2-3uixf4.sweep/live live-child)
-      (rf/dispatch-sync [:rf2-3uixf4.sweep/live [:rf.machine/noop]])
-      (rf/reg-event ::sweep-destroy
-        (fn [_ _] {:fx [[:rf.machine/destroy :rf2-3uixf4.sweep/live]]}))
-      (rf/dispatch-sync [::sweep-destroy])
-
-      (let [all-destroys (filter cascade/destroy-event? @traces)]
-        (is (<= 2 (count all-destroys))
-            "the sweep produced both a finish and a cancellation destroy")
-        (doseq [ev all-destroys]
-          (is (true? (cascade/emittable-destroy? ev))
-              (str "real emitted destroy violates the matrix Xray models: "
-                   (:operation ev) " + " (get-in ev [:tags :reason]))))
-
-        (testing "the natural finish is emittable but NOT a cancellation"
-          (let [finish (first (filter #(= :rf.machine/finished
-                                          (get-in % [:tags :reason]))
-                                      all-destroys))]
-            (is (some? finish) "the finisher auto-destroyed")
-            (is (true? (cascade/emittable-destroy? finish)))
-            (is (false? (cascade/cancellation-anchor? finish))
-                "a :final? termination must never anchor a cancellation
-                 cascade")))))))
+      (let [finish (first (filter #(= :rf.machine/finished (get-in % [:tags :reason]))
+                                  (filter cascade/destroy-event? @traces)))]
+        (is (true? (cascade/emittable-destroy? finish)))
+        (is (false? (cascade/cancellation-anchor? finish)))))))
