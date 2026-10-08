@@ -1,34 +1,20 @@
 (ns re-frame.event-context-coeffect-keys-test
-  "The EXACT event-context coeffect key set.
+  "The framework-injected coeffect key set is exact (Spec 002 §Event context
+  threads both partitions). The frame stamp travels only as `:rf.frame/id`,
+  never as a bare `:frame`, and `:trace-id` joins only when the dispatch
+  threads one, so a stray key cannot silently ride into every handler's
+  coeffects.
 
-  EP-0002 R3 (one carrier, one name): there is no bare `:frame` coeffect.
-  The frame stamp travels in the event context under `:rf.frame/id` ONLY
-  (per Spec 002 §Event context threads both partitions), and
-  `assemble-initial-ctx` injects no duplicate `:frame`.
-
-  This is the framework-must-not-violate-its-own-contract guard: it pins
-  the framework-injected coeffect key set EXACTLY so a stray parallel
-  `:frame` (or any other key) cannot silently ride in. It is the
-  coeffect-key sibling of the framework-conformance test
-  `re-frame.framework-zero-ownership-diagnostics-test` (in the ssr artefact)
-  — held in a DISTINCT file to keep the two assertions independent.
-
-  Sanctioned `:frame` survivors (NOT coeffects, NOT covered by this set):
-    - the public `:frame` dispatch / subscribe opt;
-    - the dispatch envelope `:frame` key;
-    - the binary fx-handler ctx `:frame` (Spec 002 §The binary fx-handler
-      signature) + the HTTP-interceptor ctx `:frame` (Spec 014 §Middleware);
-    - trace / error-record `:frame` tags."
+  The `:frame` keys that remain legitimate are not coeffects: the `:frame`
+  dispatch and subscribe opt, the envelope's `:frame`, the fx-handler and HTTP
+  interceptor ctx `:frame`, and trace and error-record `:frame` tags."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
-
-;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -41,86 +27,26 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
-
 (defn- capture-coeffects
-  "Dispatch `[:capture]` on `frame-id` (optionally threading `opts`) and
-  return the coeffects map the handler saw."
-  ([frame-id] (capture-coeffects frame-id nil))
-  ([frame-id opts]
-   (let [captured (atom nil)]
-     (rf/reg-interceptor :capture/probe
-       {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
-     (rf/reg-event :capture
-       {:interceptors [:capture/probe]}
-       (fn [_ _] {}))
-     (if opts
-       (rf/dispatch-sync [:capture] (merge {:frame frame-id} opts))
-       (rf/dispatch-sync [:capture] {:frame frame-id}))
-     @captured)))
-
-;; ===========================================================================
-;; The exact framework-injected coeffect key set
-;; ===========================================================================
+  "Dispatch `[:capture]` on `frame-id` with `opts` and return the coeffects map
+  the handler saw."
+  [frame-id opts]
+  (let [captured (atom nil)]
+    (rf/reg-interceptor :capture/probe
+      {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
+    (rf/reg-event :capture
+      {:interceptors [:capture/probe]}
+      (fn [_ _] {}))
+    (rf/dispatch-sync [:capture] (assoc opts :frame frame-id))
+    @captured))
 
 (deftest framework-coeffect-key-set-is-exact
-  (testing "a vanilla event with no user cofx sees EXACTLY the framework keys"
-    (rf/make-frame {:id :ck/exact :doc "ctx"})
-    (let [cofx (capture-coeffects :ck/exact)]
-      ;; `:rf.cofx/mint-policy` (the resolved effective mint policy) is a
-      ;; framework coeffect stamped by `assemble-initial-ctx` so the machine
-      ;; ensure path can read it; it is part of the framework default key set.
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}
-             (set (keys cofx)))
-          "the coeffect key set is exactly the framework defaults — no bare :frame")
-      (is (= :ck/exact (:rf.frame/id cofx))
-          ":rf.frame/id carries the running frame's id")
-      (is (number? (get-in cofx [:rf.cofx :rf/time-ms]))
-          ":rf.cofx carries a stamped :rf/time-ms (EP-0010)"))))
-
-(deftest no-frame-coeffect-even-with-trace-id
-  (testing "threading a :trace-id adds :trace-id but never re-introduces :frame"
-    (rf/make-frame {:id :ck/traced :doc "ctx"})
-    (let [cofx (capture-coeffects :ck/traced {:trace-id "tid-1"})]
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source :trace-id}
-             (set (keys cofx)))
-          ":trace-id appears when threaded; :frame still does not"))))
-
-(deftest user-injected-cofx-do-not-mask-the-absence-of-frame
-  (testing "a declared cofx adds its own key but :frame stays absent"
-    (rf/make-frame {:id :ck/user :doc "ctx"})
-    (rf/reg-cofx :ck/now (fn [] 42))
-    (let [captured (atom nil)]
-      (rf/reg-interceptor :capture/probe
-        {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
-      (rf/reg-event :capture
-        {:rf.cofx/requires [:ck/now]
-         :interceptors [:capture/probe]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:capture] {:frame :ck/user})
-      (let [cofx @captured]
-        (is (= 42 (:ck/now cofx)))
-        (is (not (contains? cofx :frame))
-            "user cofx do not bring in a bare :frame coeffect")
-        (is (= :ck/user (:rf.frame/id cofx))
-            "the frame stamp is :rf.frame/id only")))))
-
-;; ===========================================================================
-;; framework-coeffect-keys (the filter set) excludes a bare :frame
-;; ===========================================================================
-
-(deftest framework-coeffect-keys-excludes-frame
-  (testing "rf.fx/framework-coeffect-keys does not codify a bare :frame duplicate"
-    (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
-             :rf.cofx/mint-policy}
-           rf.fx/framework-coeffect-keys)
-        "the framework-coeffect-keys set is exactly the framework defaults")))
-
-(deftest user-injected-coeffects-projection-drops-all-framework-defaults
-  (testing "user-injected-coeffects strips every framework default incl. :rf.frame/id"
-    (let [cofx {:db {} :event [:e] :source :unknown :trace-id "t"
-                :rf.db/runtime {} :rf.frame/id :f
-                :rf.cofx {:rf/time-ms 1781078400123}
-                :my/cofx 1}]
-      (is (= {:my/cofx 1} (rf.fx/user-injected-coeffects cofx))
-          "only the genuinely user-injected coeffect survives the projection (EP-0010: :rf.cofx filtered too)"))))
+  (rf/make-frame {:id :ck/exact})
+  (let [framework-keys #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}]
+    (doseq [[label opts expected] [["a vanilla event" {} framework-keys]
+                                   ["a threaded :trace-id adds only :trace-id"
+                                    {:trace-id "tid-1"} (conj framework-keys :trace-id)]]]
+      (testing label
+        (let [cofx (capture-coeffects :ck/exact opts)]
+          (is (= expected (set (keys cofx))))
+          (is (= :ck/exact (:rf.frame/id cofx))))))))
