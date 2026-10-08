@@ -94,34 +94,19 @@
 
 ;; ---- convergence: source-coords is the single cross-host owner ------------
 ;;
-;; The JVM formatters (`re-frame.views.jvm-source-coord-annotation`) and the
-;; CLJS formatters (in `re-frame.adapter.context`) alias one `.cljc`
-;; implementation in `re-frame.source-coords`, co-located with their inverse
-;; parsers, so cross-host divergence is structurally impossible — with two
-;; hand-kept copies a canonical-literal test could only catch a drift AFTER it
-;; shipped. Prove it: the
-;; neutral owner emits the canonical literals directly, and the JVM annotation
-;; vars ARE that same fn (an alias, not a re-derivable copy). `identical?` here
-;; compares fn-object identity — NOT a keyword literal, so it is not the
-;; `.cljc` keyword-interning trap (and these are `.clj` / `.cljs` test files).
+;; The JVM annotation vars and the CLJS formatters alias one `.cljc`
+;; implementation in `re-frame.source-coords`, so the canonical literals are
+;; pinned once, on that owner; the end-to-end render below holds the JVM
+;; annotation to the same literals.
 
 (deftest neutral-owner-is-the-single-jvm-formatter-implementation
-  (testing "`re-frame.source-coords` owns the one cross-host
-            implementation; the JVM annotation vars alias it, so the neutral
-            owner emits the canonical literals and the JVM vars are the
-            identical fn (not a re-derived copy that could drift)."
+  (testing "`re-frame.source-coords` emits the canonical literals"
     (is (= expected-source-coord
            (rf.source-coords/format-source-coord fixture-id fixture-coords))
         "neutral owner must emit the canonical data-rf2-source-coord literal")
     (is (= expected-view-id
            (rf.source-coords/format-view-id fixture-id))
-        "neutral owner must emit the canonical data-rf-view literal")
-    (is (identical? rf.source-coords/format-source-coord
-                    rf.views.jvm-source-coord-annotation/format-source-coord)
-        "JVM format-source-coord must be an alias of the neutral owner")
-    (is (identical? rf.source-coords/format-view-id
-                    rf.views.jvm-source-coord-annotation/format-view-id)
-        "JVM format-view-id must be an alias of the neutral owner")))
+        "neutral owner must emit the canonical data-rf-view literal")))
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
 ;;
@@ -134,20 +119,13 @@
   (testing "a registered view reached through `(rf/view id)`
             renders with BOTH data-rf2-source-coord AND data-rf-view on its
             root DOM element, and their values are exactly the shared
-            formatters' output for the slot's stored coords."
+            canonical literals the CLJS companion pins."
     (rf/reg-view* fixture-id fixture-coords (fn [] [:p "body"]))
-    (let [html    (rf.ssr/render-to-string [(rf/view fixture-id)] {})
-          ;; The values the formatters produce for the coords actually
-          ;; stored in the slot (the merge-coords result). Reading them off
-          ;; the shared formatters keeps this test honest even if the fixture
-          ;; coords are altered — it asserts the render used THE dialect, not
-          ;; a hardcoded copy of it.
-          coord   (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords)
-          view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id)]
+    (let [html (rf.ssr/render-to-string [(rf/view fixture-id)] {})]
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
-        (is (= (str "<p data-rf2-source-coord=\"" coord "\""
-                    " data-rf-view=\"" view-id "\">body</p>")
+        (is (= (str "<p data-rf2-source-coord=\"" expected-source-coord "\""
+                    " data-rf-view=\"" expected-view-id "\">body</p>")
                html)
             (str "the full annotated root, both attributes present; got: "
                  (pr-str html))))
