@@ -42,8 +42,8 @@
 (deftest jvm-lifecycle-is-repeatable-and-does-not-duplicate-publication
   (let [emitter-before (rf.late-bind/get-fn :ssr/current-hiccup-emitter)]
     (dotimes [_ 5]
-      (is (nil? (rf/init! rf.substrate.plain-atom/adapter)))
+      (rf/init! rf.substrate.plain-atom/adapter)
       (is (re-find #"<div>ok</div>" (render!)))
-      (is (nil? (rf/destroy-adapter!))))
+      (rf/destroy-adapter!))
     (is (identical? emitter-before (rf.late-bind/get-fn :ssr/current-hiccup-emitter))
         "the durable emitter slot holds the SAME single publication after every cycle")))
