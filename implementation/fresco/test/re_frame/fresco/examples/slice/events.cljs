@@ -5,8 +5,7 @@
   in this namespace knows that a view substrate exists: it requires
   `re-frame.core` and [[re-frame.fresco.examples.slice.db]], and not the
   Fresco door. That is the point of the tier rather than an accident of
-  it — the whole of this file is L0, testable with `=` and a map, and
-  `re-frame.fresco.examples.slice.l0-cljs-test` does exactly that.
+  it — the whole of this file is L0, testable with `=` and a map.
 
   ## TWO event shapes, and the seam is not the author's choice
 
