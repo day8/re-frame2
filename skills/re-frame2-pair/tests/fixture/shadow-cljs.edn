@@ -32,7 +32,7 @@
 ;;
 ;; The nREPL port file lands at `.shadow-cljs/nrepl.port` (shadow-cljs
 ;; 3.x default cache-root); the hermetic orchestrator and re-frame2-pair-mcp's
-;; `read-port-from-fs` both probe that path plus the legacy
+;; `discover-port` both probe that path plus the legacy
 ;; `target/shadow-cljs/nrepl.port` and `.nrepl-port` fallbacks.
 {:deps true
  :nrepl {:port 0} ;; let shadow choose; re-frame2-pair reads the port file.

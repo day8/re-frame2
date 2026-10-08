@@ -104,7 +104,7 @@
   ;; once told the gate is off.
   (async done
     (let [forms (atom [])
-          prev  (raw-state/allow-raw-state-enabled?)
+          prev  (raw-state/raw-state-allowed?)
           idx   (fn [s] (first (keep-indexed #(when (str/includes? %2 s) %1) @forms)))]
       (raw-state/set-allow-raw-state! false)
       (-> (restore! forms true #js {:epoch-id "7"})

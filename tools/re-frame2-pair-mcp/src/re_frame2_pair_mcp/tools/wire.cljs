@@ -324,19 +324,12 @@
   `:examples/machine-epochs`), the pipeline's first step recorded the
   canonical alias, so every op — explicit-arg or sticky-default —
   resolves to the SAME canonical running id. An un-aliased id passes
-  through unchanged (so a typo still reaches the diagnostic ladder).
-
-  1-arity (`(arg-build args)`) is the no-`conn` entry — it SKIPS the
-  conn cache and falls straight through to the env-var default, for any
-  caller with no `conn` in scope. Production tool dispatch threads
-  `conn` and uses the 2-arity; the 1-arity is exercised directly by the
-  build-id cache tests."
-  ([args] (arg-build nil args))
-  ([conn args]
-   (->> (or (tool-args/->id-keyword (arg args :build))
-            (conn-resolved-build-id conn)
-            (default-build-id))
-        (canonicalize-via-alias conn))))
+  through unchanged (so a typo still reaches the diagnostic ladder)."
+  [conn args]
+  (->> (or (tool-args/->id-keyword (arg args :build))
+           (conn-resolved-build-id conn)
+           (default-build-id))
+       (canonicalize-via-alias conn)))
 
 (defn requested-build
   "The build-id this call would resolve to BEFORE the forgiving
@@ -384,16 +377,10 @@
       populated by a prior successful `discover-app`. Treating the cache
       as deliberate means a subsequent eval-cljs without `:build` routes
       to the resolved build instead of being auto-detect-rejected on a
-      multi-build workspace.
-
-  1-arity (`(arg-build-explicit? args)`) is the no-`conn` fallback —
-  it sees only the per-call arg. Kept symmetric with `arg-build`'s
-  no-`conn` arity; production dispatch threads `conn` and uses the
-  2-arity."
-  ([args] (arg-build-explicit? nil args))
-  ([conn args]
-   (or (some? (arg args :build))
-       (some? (conn-resolved-build-id conn)))))
+      multi-build workspace."
+  [conn args]
+  (or (some? (arg args :build))
+      (some? (conn-resolved-build-id conn))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-bounded marker detection.

@@ -82,7 +82,8 @@
   "Normalise the `signals` MCP arg into a vector of signal maps the
   runtime understands. Accepts:
 
-    - a JS array / CLJS vector of signal objects, OR
+    - a JS array of signal objects,
+    - a single JS signal object, OR
     - an EDN-encoded string (`\"[{:focus true} {:dom \\\"#c\\\"}]\"`).
 
   Each signal map is keywordised. Returns `nil` when the arg is absent /
@@ -97,11 +98,6 @@
     (array? raw)
     (let [v (js->clj raw :keywordize-keys true)]
       (when (sequential? v) (vec v)))
-
-    (vector? raw) raw
-    (sequential? raw) (vec raw)
-
-    (map? raw) [raw] ;; a single bare signal map — sugar for [signal]
 
     (string? raw)
     (let [trimmed (str/trim raw)]
@@ -122,7 +118,7 @@
 
 (defn parse-stop-arg
   "Normalise the `stop` MCP arg into the runtime stop-condition map.
-  Accepts a JS object, a CLJS map, or an EDN string. Recognised keys:
+  Accepts a JS object or an EDN string. Recognised keys:
   `:ms` (integer), `:changes` (integer), `:pred` (a filter map — compiled
   into the runtime predicate below). Unknown keys are dropped.
 
@@ -133,9 +129,8 @@
 
     - `[:ok {}]`   — absent `stop` (runtime applies its default
                      wall-clock window).
-    - `[:ok m]`    — a parsed EDN string, a CLJS map passed through, or
-                     a JS object keywordised — with only the recognised
-                     keys retained.
+    - `[:ok m]`    — a parsed EDN string or a JS object keywordised —
+                     with only the recognised keys retained.
 
   The failure shape `[:err :invalid-stop-edn]` is returned when a `stop`
   EDN STRING fails to `read-string`, OR reads cleanly but is not a map
@@ -147,7 +142,6 @@
   [raw]
   (cond
     (nil? raw)    [:ok {}]
-    (map? raw)    [:ok (select-keys raw [:ms :changes :pred])]
     (object? raw) (let [m (try (js->clj raw :keywordize-keys true)
                                (catch :default _ ::reader-fail))]
                     (if (map? m)

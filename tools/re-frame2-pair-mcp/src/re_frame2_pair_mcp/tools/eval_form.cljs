@@ -94,10 +94,10 @@
 
 (defn rt-let
   "Build an IR node for a `let` block. `bindings` is a flat seq of
-  alternating names (symbols) and value-forms; trailing `body-forms`
-  are wrapped in an implicit `do` if more than one is supplied."
-  [bindings & body-forms]
-  [::let (vec bindings) (vec body-forms)])
+  alternating names (symbols) and value-forms; `body` is the one form
+  the block evaluates to."
+  [bindings body]
+  [::let (vec bindings) body])
 
 (defn rt-raw
   "Wrap a raw CLJS source string so `emit` inlines it verbatim instead
@@ -122,7 +122,7 @@
   lookup, so the argument the runtime fn receives is whatever those
   evaluate to rather than the datum it was printed from. Worse, a value
   that happens to be shaped like one of this DSL's own tagged vectors is
-  recognised by `emit-arg` as IR and its payload spliced in as raw
+  recognised by `emit` as IR and its payload spliced in as raw
   source.
 
   That is invisible for internally-composed arguments, whose shapes the
@@ -141,30 +141,6 @@
 (defn- node? [x]
   (and (vector? x)
        (#{::call ::call* ::let ::raw ::quote} (first x))))
-
-(declare emit)
-
-(defn- emit-arg
-  "Render a single arg / binding-value to source. DSL nodes recurse;
-  collections of nodes recurse element-wise; everything else
-  (strings, keywords, numbers, scalar maps, scalar vectors, …) is
-  `pr-str`'d as an EDN literal.
-
-  Without the collection-recursion arm, a mixed
-  data-and-nodes vector like `(rt-call 'foo [bar (rt-raw \"x\")])`
-  would `pr-str` the whole vector including the `[::raw \"x\"]` IR
-  node, producing garbage source. The recursion lets callers mix
-  scalar data with IR nodes naturally; pure-scalar collections
-  still go through `pr-str` unchanged (no contains-node walk →
-  same byte-for-byte output)."
-  [v]
-  (cond
-    (node? v)   (emit v)
-    (and (vector? v) (some node? v))
-    (str "[" (str/join " " (map emit-arg v)) "]")
-    (and (list? v) (some node? v))
-    (str "(" (str/join " " (map emit-arg v)) ")")
-    :else       (pr-str v)))
 
 (defn- emit-name [n]
   ;; Binding names must be symbols — they appear verbatim in the source
@@ -203,15 +179,10 @@
                      :name     (pr-str n)})))
   (name n))
 
-(defn- emit-body [forms]
-  (case (count forms)
-    0 "nil"
-    1 (emit-arg (first forms))
-    (str "(do " (str/join " " (map emit-arg forms)) ")")))
-
 (defn emit
-  "Render an IR node to a CLJS source string. The single recursion
-  point for the DSL — every tool's eval form passes through here."
+  "Render an IR node to a CLJS source string, and any other value — an
+  arg or binding value — as its EDN print. The single recursion point for
+  the DSL — every tool's eval form passes through here."
   [form]
   (cond
     (not (node? form))
@@ -223,7 +194,7 @@
         ::raw  (let [[_ s] form] s)
 
         ;; The literal-data path. `pr-str` the payload and
-        ;; STOP: no `emit-arg` recursion, because a caller-supplied
+        ;; STOP: no `emit` recursion, because a caller-supplied
         ;; value that wears one of this DSL's tags is payload rather
         ;; than IR, and walking it would hand back the raw-source
         ;; splice this node exists to close.
@@ -232,7 +203,7 @@
         ::call (let [[_ sym args] form]
                  (str "(" runtime-ns "/" (name sym)
                       (when (seq args)
-                        (apply str (for [a args] (str " " (emit-arg a)))))
+                        (apply str (for [a args] (str " " (emit a)))))
                       ")"))
 
         ::call* (let [[_ qsym args] form]
@@ -241,16 +212,16 @@
                   ;; name, a string prints verbatim.
                   (str "(" (str qsym)
                        (when (seq args)
-                         (apply str (for [a args] (str " " (emit-arg a)))))
+                         (apply str (for [a args] (str " " (emit a)))))
                        ")"))
 
-        ::let (let [[_ bindings body-forms] form
+        ::let (let [[_ bindings body] form
                     pairs (partition 2 bindings)]
                 (str "(let ["
                      (str/join
                        " "
                        (for [[n v] pairs]
-                         (str (emit-name n) " " (emit-arg v))))
+                         (str (emit-name n) " " (emit v))))
                      "] "
-                     (emit-body body-forms)
+                     (emit body)
                      ")"))))))

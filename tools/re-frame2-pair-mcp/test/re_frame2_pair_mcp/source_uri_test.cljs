@@ -48,10 +48,10 @@
 (defn- with-editor [editor f]
   (let [prior (config/get-editor)]
     (try
-      (config/set-editor! editor)
+      (reset! config/editor editor)
       (f)
       (finally
-        (config/set-editor! prior)))))
+        (reset! config/editor prior)))))
 
 (deftest pipeline-respects-live-editor
   ;; The pipeline decorates after every per-kind arm, reading the editor

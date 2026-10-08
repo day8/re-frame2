@@ -67,9 +67,8 @@
   "Build the per-poll eval form: sample the signal-set against the frame,
   then apply the compiled predicate to the positional sample map. Returns
   `{:held? bool :sample {...} :t <ms>}`. `pred-src` is the predicate fn
-  source (from `record/pred-source`); when nil the form reports
-  `:held? false` every tick (a no-predicate watch can only time out — the
-  refusal is enforced at the tool boundary, so this is defensive).
+  source (from `record/pred-source`); the tool refuses a watch without
+  one before building this form.
 
   `egress-opts` (the rendered `egress-opts-edn` map naming the
   `:rf.egress/*` profile) rides as the 3rd `sample-signals` arg so each
@@ -95,9 +94,7 @@
       (ef/rt-let
         ['r       sample-call
          'sample  (ef/rt-raw "(:sample r)")
-         'held?   (ef/rt-raw (if pred-src
-                               (str "(boolean (" pred-src " sample))")
-                               "false"))]
+         'held?   (ef/rt-raw (str "(boolean (" pred-src " sample))"))]
         ;; `sample-signals` fails CLOSED with an
         ;; `:ambiguous-frame` refusal (`:ok? false`) when a frame-policy
         ;; signal can't resolve a frame under the off-box gate. Propagate

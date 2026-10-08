@@ -18,13 +18,12 @@
 
 (deftest instructions-answered-before-connection
   ;; No port is configured here, so reaching `ensure-connection!` would
-  ;; answer :nrepl-port-not-found and record a discovery attempt.
+  ;; answer :nrepl-port-not-found.
   (async done
     (-> (server/handle-call-for-tests {} "get-re-frame2-pair-instructions" #js {} nil)
         (.then (fn [result]
                  (let [snap (server/session-state-snapshot)]
                    (is (true? (:ok? (tu/extract-edn result))))
-                   (is (false? (:discovered? snap)))
-                   (is (nil? (:discovery-error snap))))))
+                   (is (false? (:discovered? snap))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))

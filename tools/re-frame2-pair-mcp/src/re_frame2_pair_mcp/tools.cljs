@@ -28,11 +28,8 @@
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]))
 
-;; Re-export the descriptor catalogue + JS-shape builder. Tests
-;; (`list_subscriptions_test.cljs`, `typical_tokens_test.cljs`) and
-;; `server.cljs` consume these names off the façade ns, so they resolve
-;; here as well as in `tools/descriptors`.
-(def tool-descriptors descriptors/tool-descriptors)
+;; Re-export the JS-shape descriptor builder: `server.cljs` serves
+;; `tools/list` from it off the façade ns.
 (def tool-descriptors-js descriptors/tool-descriptors-js)
 
 ;; Re-export the registry's closed-world predicate onto the façade so

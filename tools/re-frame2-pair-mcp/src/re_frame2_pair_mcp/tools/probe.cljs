@@ -637,8 +637,9 @@
          "(`shadow-cljs watch <build>`) before eval'ing.")
 
     (= 1 (count running))
-    ;; Shouldn't reach here (a single running build is auto-selected),
-    ;; but keep the branch explicit.
+    ;; `resolve-build!` auto-selects a sole running build, so one running
+    ;; build reaches here from `resolve-and-preflight!`: the build asked
+    ;; for is not it, or it has no re-frame2-pair runtime.
     (str "pass --build=" (build-arg-form (first running)) " or set SHADOW_CLJS_BUILD_ID.")
 
     :else

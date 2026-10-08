@@ -21,10 +21,9 @@
   ## Configuration surface
 
   Hosts pick the editor once at server start via the
-  `RE_FRAME2_PAIR_MCP_EDITOR` env var (read at namespace load) or
-  programmatically via `set-editor!`. The env-var path is the
-  expected onboarding flow — an MCP launcher script that already
-  wires `SHADOW_CLJS_BUILD_ID` adds one line:
+  `RE_FRAME2_PAIR_MCP_EDITOR` env var (read at namespace load) — an MCP
+  launcher script that already wires `SHADOW_CLJS_BUILD_ID` adds one
+  line:
 
       RE_FRAME2_PAIR_MCP_EDITOR=cursor
 
@@ -53,13 +52,6 @@
          `re-frame.source-coords.editor-uri/editor-uri`)."}
   editor
   (atom (or env-editor :vscode)))
-
-(defn set-editor!
-  "Replace re-frame2-pair-mcp's 'Open in editor' preference. `nil` resets to
-  `:vscode`. Returns nothing — call for side-effect."
-  [e]
-  (reset! editor (or e :vscode))
-  nil)
 
 (defn get-editor
   "Return the current editor preference. Read by the wire-pipeline's

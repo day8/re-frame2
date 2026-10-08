@@ -153,18 +153,12 @@
 
   Both knobs default off-box-safe per the Tool-Pair §Direct-read privacy
   posture contract — large slots elide, sensitive slots redact, unless the
-  caller opts in explicitly.
-
-  Single-arity form applies the off-box-safe default (`include-sensitive?`
-  false ⇒ `:rf.egress/off-box-tool`) so call-sites that don't reveal
-  sensitive data needn't spell it out."
-  ([include-large?]
-   (egress-opts-edn include-large? false))
-  ([include-large? include-sensitive?]
-   (pr-str (cond-> {:rf.egress/profile
-                    (rf.mcp-base.egress/mcp-tool-profile include-sensitive?)}
-             include-large?
-             (assoc rf.mcp-base.vocab/include-large-opt true)))))
+  caller opts in explicitly."
+  [include-large? include-sensitive?]
+  (pr-str (cond-> {:rf.egress/profile
+                   (rf.mcp-base.egress/mcp-tool-profile include-sensitive?)}
+            include-large?
+            (assoc rf.mcp-base.vocab/include-large-opt true))))
 
 (defn project-sub-value-src
   "CLJS source for a fn that projects ONE sub-cache entry's `:value` slot

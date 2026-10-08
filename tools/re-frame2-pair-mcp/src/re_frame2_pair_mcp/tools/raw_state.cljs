@@ -77,11 +77,6 @@
   [enabled?]
   (reset! allow-raw-state? (boolean enabled?)))
 
-(defn allow-raw-state-enabled?
-  "Read the current gate state. Exposed for tests + server-side logging."
-  []
-  @allow-raw-state?)
-
 (defn raw-state-allowed?
   "Single intention-naming predicate.
 

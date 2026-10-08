@@ -53,7 +53,7 @@
 (def ^:private err? tu/error?)
 
 (defn- with-raw-gate! [enabled? body-fn]
-  (let [prev (raw-state/allow-raw-state-enabled?)]
+  (let [prev (raw-state/raw-state-allowed?)]
     (raw-state/set-allow-raw-state! enabled?)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
