@@ -1,22 +1,9 @@
 (ns re-frame.ssr-streaming-hydration-egress-test
-  "Streaming per-subtree hydration DELTAS obey the same
-  allowlist-first-then-`:rf.egress/ssr-hydration`-project boundary the final
-  `__rf_payload` does (EP-0015 §14).
-
-  A streaming delta is browser-delivered hydration state — it arrives in the
-  stream BEFORE the final payload and the client merges it into the live
-  app-db. `subtree-delta` computes it as the raw changed/new top-level keys
-  each mapped to the FULL after-db value. Serialized directly as
-  `(pr-str delta)`, a continuation mutating `:secret` would stream
-  `{:secret …}` even when the handler `:payload` allowlist named only public
-  keys, and a frame-sensitive child under an allowed changed key would ride
-  raw.
-
-  `re-frame.ssr.streaming/project-delta` is the guard — the pure helper the Ring
-  adapter calls before serialising the delta script. This pins it directly
-  (sensitive-child redaction + the empty-delta short-circuit)
-  AND the streaming final-payload's app-db projection through the actual
-  `build-final-payload` path."
+  "Streaming hydration deltas and the streaming final payload obey the
+  allowlist-first-then-`:rf.egress/ssr-hydration`-project boundary
+  (EP-0015 §14): a delta is browser-delivered hydration state too.
+  `project-delta` is the pure guard the Ring adapter runs before it
+  serialises a delta script."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.privacy :as rf.privacy]
@@ -28,15 +15,8 @@
 (def ^:private sframe :rf.uc3cs4/server)
 
 (defn- reg-sensitive-server-frame!
-  "Register a server frame whose classification marks [:session :token]
-  sensitive and seed its app-db with a sensitive child + public siblings.
-
-  The durable `:session :token` app-db path is classified through a
-  COMMIT-PLANE `:sensitive` effect returned by the frame's init event
-  alongside `:db` (EP-0025 §How it works / §Examples). The effect writes the
-  path into the per-frame `[:rf.runtime/elision]` registry the
-  `:rf.egress/ssr-hydration` egress walk reads; there is no frame-config
-  `:sensitive {:app-db}` durable annotation."
+  "A server frame that classifies `[:session :token]` sensitive through the
+  commit-plane `:sensitive` effect (EP-0025), seeded with `db`."
   [db]
   (rf/reg-event :rf.uc3cs4/seed
     (fn [_ [_ v]]
@@ -45,50 +25,39 @@
   (rf/make-frame {:id sframe :platform       :server
                   :initial-events [[:rf.uc3cs4/seed db]]}))
 
-;; ---- project-delta: allowlist + projection on the streaming delta ---------
-
 (deftest whole-app-db-delta-still-redacts-sensitive-child
   (testing ":rf.ssr.payload/whole-app-db keeps every changed key in the delta
             but STILL redacts a frame-sensitive child"
     (reg-sensitive-server-frame! {})
-    (let [raw-delta {:session {:token "secret-jwt" :user "bob"}
-                     :secret  {:api-key "x"}}
-          projected (rf/with-frame sframe
-                      (rf.ssr.streaming/project-delta
-                        raw-delta sframe {:payload :rf.ssr.payload/whole-app-db}))]
-      (is (= rf.privacy/redacted-sentinel (get-in projected [:session :token])))
-      (is (contains? projected :secret)
-          "whole-app-db keeps the changed :secret key (no allowlist filtering)")
-      (is (not (.contains (pr-str projected) "secret-jwt"))))))
+    (is (= {:session {:token rf.privacy/redacted-sentinel :user "bob"}
+            :secret  {:api-key "x"}}
+           (rf/with-frame sframe
+             (rf.ssr.streaming/project-delta
+               {:session {:token "secret-jwt" :user "bob"}
+                :secret  {:api-key "x"}}
+               sframe {:payload :rf.ssr.payload/whole-app-db}))))))
 
 (deftest empty-and-all-dropped-deltas-short-circuit
   (testing "an empty delta, and a delta whose every changed key is
             off-allowlist, both project to {} so the host emits no delta script"
     (reg-sensitive-server-frame! {})
     (rf/with-frame sframe
-      (is (= {} (rf.ssr.streaming/project-delta {} sframe {:payload [:public]}))
-          "empty delta → {}")
+      (is (= {} (rf.ssr.streaming/project-delta {} sframe {:payload [:public]})))
       (is (= {} (rf.ssr.streaming/project-delta {:secret {:k 1}} sframe {:payload [:public]}))
-          "all-off-allowlist delta → {} (no :rf/redacted scalar)"))))
-
-;; ---- the streaming final payload: build-final-payload's :rf/app-db ---------
+          "no :rf/redacted scalar for an all-dropped delta"))))
 
 (deftest streaming-final-payload-redacts-sensitive-app-db-child
-  (testing "build-final-payload's :rf/app-db runs the allowlisted slice through
-            the ssr-hydration projection so a frame-sensitive child redacts in
-            the final __rf_payload"
+  (testing "build-final-payload allowlists :rf/app-db, then projects it, so a
+            frame-sensitive child redacts in the final __rf_payload"
     (reg-sensitive-server-frame!
       {:session {:token "secret-jwt-final" :user "carol"}
        :public  {:page :home}
        :secrets {:api-key "internal"}})
     (let [payload (rf/with-frame sframe
                     (rf.ssr.streaming/build-final-payload
-                      sframe "h1" {:version 1 :payload [:session :public]}))
-          db      (:rf/app-db payload)]
-      (is (= rf.privacy/redacted-sentinel (get-in db [:session :token]))
-          "the frame-sensitive :token redacts in the streaming final payload")
-      (is (= "carol" (get-in db [:session :user])))
-      (is (= {:page :home} (:public db)))
-      (is (not (contains? db :secrets)) ":secrets (unlisted) omitted by allowlist")
+                      sframe "h1" {:version 1 :payload [:session :public]}))]
+      (is (= {:session {:token rf.privacy/redacted-sentinel :user "carol"}
+              :public  {:page :home}}
+             (:rf/app-db payload)))
       (is (not (.contains (pr-str payload) "secret-jwt-final"))
-          "no raw token survives in the streaming final payload"))))
+          "no raw token survives anywhere in the payload"))))
