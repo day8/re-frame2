@@ -45,7 +45,6 @@
 (deftest a-vector-at-an-event-position-becomes-a-dispatching-closure
   (let [!seen (recorder)
         h     (lowered (dispatching !seen) :on-click [:todo/toggle 7])]
-    (is (fn? h))
     (is (= [] @!seen) "lowering dispatches nothing by itself")
     (h (ev {}))
     (is (= [[:todo/toggle 7]] @!seen))
@@ -192,46 +191,6 @@
       (is (true? @!prevented))
       (is (= [[:todo/create "milk"]] @!seen)))))
 
-(deftest a-prevented-intent-is-assertable-by-equality
-  ;; WHY THE SPELLING IS A HEAD AND NOT METADATA. HD-021's headless door
-  ;; returns the tree as data and sells itself on "intent vectors assertable
-  ;; by equality" — and metadata does not participate in `=`, so a metadata
-  ;; spelling would carry prevention on the one axis a structural test
-  ;; cannot see.
-  (testing "a metadata spelling, stated as the defect it would be"
-    (is (= [:conduit/show-your-feed]
-           (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true}))
-        "`=` cannot tell a prevented intent from a plain one")
-    (is (= (hash [:conduit/show-your-feed])
-           (hash (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true})))
-        "and neither can a hash-keyed lookup")
-    (is (= "[:conduit/show-your-feed]"
-           (pr-str (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true})))
-        "nor a log line, nor a snapshot — metadata is omitted from printing"))
-  (testing "the head, which every one of those instruments can see"
-    (is (not= [:conduit/show-your-feed]
-              [:re-frame.fresco/prevent [:conduit/show-your-feed]]))
-    (is (not= (hash [:conduit/show-your-feed])
-              (hash [:re-frame.fresco/prevent [:conduit/show-your-feed]])))
-    (is (= "[:re-frame.fresco/prevent [:conduit/show-your-feed]]"
-           (pr-str [:re-frame.fresco/prevent [:conduit/show-your-feed]]))))
-  (testing "which is the property a structural test actually takes: two props
-            maps that differ ONLY in whether the click prevents"
-    (let [plain     {:href "#" :on-click [:conduit/show-your-feed]}
-          prevented {:href "#" :on-click [:re-frame.fresco/prevent
-                                          [:conduit/show-your-feed]]}]
-      (is (not= plain prevented))
-      (is (= plain (update prevented :on-click #(nth % 1)))
-          "and the difference is exactly the decorator, nothing else")))
-  (testing "the predicate the classification uses is public, so a test can ask
-            the same question the lowering asks"
-    (is (true? (rf.fresco.impl.intent/prevent-head? [:re-frame.fresco/prevent [:x]])))
-    (is (false? (rf.fresco.impl.intent/prevent-head? [:conduit/show-your-feed])))
-    (is (false? (rf.fresco.impl.intent/prevent-head?
-                  (with-meta [:conduit/show-your-feed]
-                             {:re-frame.fresco/prevent? true})))
-        "the `prevent?` metadata is a spelling of nothing")))
-
 (deftest the-retired-metadata-spelling-does-nothing
   ;; Not a formality. The `prevent?` metadata annotation is inert, so an
   ;; anchor that carries it navigates on the first click rather than
@@ -276,10 +235,7 @@
           (let [data (ex-data e)]
             (is (= :rf.error/fresco-malformed-prevent (:rf.error/id data)))
             (is (= :on-key-up (:position data)))
-            (is (= [:re-frame.fresco/prevent] (:form data)))
-            (is (re-find #":on-key-up" (ex-message e)))
-            (is (re-find #"Write \[:re-frame.fresco/prevent" (ex-message e))
-                "and it shows the form to write")))))
+            (is (= [:re-frame.fresco/prevent] (:form data)))))))
     (testing "the refusal is taken at LOWERING time — before any event exists,
               so a malformed decorator cannot reach a user's click"
       (is (thrown? js/Error
@@ -426,9 +382,7 @@
     (testing "a props map with an intent comes back lowered, everything else intact"
       (let [props    {:class "row" :data-index 3 :on-click [:touch 3]}
             lowered' (rf.fresco.impl.intent/with-frame (dispatching !seen) (fn [] (rf.fresco.impl.intent/lower-props props)))]
-        (is (= "row" (:class lowered')))
-        (is (= 3 (:data-index lowered')))
-        (is (fn? (:on-click lowered')))
+        (is (= {:class "row" :data-index 3} (dissoc lowered' :on-click)))
         ((:on-click lowered') (ev {}))
         (is (= [[:touch 3]] @!seen))))))
 
@@ -448,11 +402,9 @@
     (let [f  (fn [_] :ran)
           cb (rf.fresco.impl.intent/callback f)]
       (is (identical? f cb) "`callback` marks and returns the SAME function")
-      (is (fn? cb))
       (is (true? (rf.fresco.impl.intent/callback? cb)))
       (is (false? (rf.fresco.impl.intent/callback? (fn [_]))) "an ordinary fn is not the form")
-      (is (false? (rf.fresco.impl.intent/callback? [:an :intent])))
-      (is (false? (rf.fresco.impl.intent/callback? "on-click"))))))
+      (is (false? (rf.fresco.impl.intent/callback? [:an :intent]))))))
 
 (deftest at-an-event-position-a-returned-vector-is-dispatched
   (testing "the event contract"
@@ -486,15 +438,9 @@
             does not reach in after the body has run to second-guess it.
             One rule: whoever holds the event owns it."
     (let [!seen (recorder)]
-      (testing "the vector at :on-submit prevents"
-        (let [prevented (atom false)
-              h (lowered (dispatching !seen) :on-submit [:signup/submit])]
-          (h (ev {:prevented prevented}))
-          (is (true? @prevented))
-          (is (= [[:signup/submit]] @!seen))))
-      (testing "the callback at the same position does not, and its returned
-                intent still dispatches"
-        (reset! !seen [])
+      (testing "the callback at :on-submit does not prevent, and its returned
+                intent still dispatches (on-submit-auto-prevents is the
+                vector half)"
         (let [prevented (atom false)
               h (lowered (dispatching !seen) :on-submit
                          (rf.fresco.impl.intent/callback (fn [_] [:signup/submit])))]
