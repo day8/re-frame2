@@ -53,13 +53,9 @@
             (when interop/debug-enabled? ...) branch."
     (rf/reg-view* :rf.prod-elision-test/no-attr
                   (fn [] [:span "hi"]))
-    (let [render (rf/view :rf.prod-elision-test/no-attr)
-          out    (render)]
-      (is (vector? out))
-      (is (= :span (first out))
-          "root tag preserved")
-      (is (nil? (root-attr out))
-          "NO data-rf2-source-coord on the rendered root — elision contract holds"))))
+    (let [out ((rf/view :rf.prod-elision-test/no-attr))]
+      (is (= [true :span nil] [(vector? out) (first out) (root-attr out)])
+          "root tag preserved, and NO data-rf2-source-coord on the rendered root — elision contract holds"))))
 
 (deftest reg-view-with-attrs-has-no-source-coord-under-prod
   (testing "Even with an existing attrs map on the root, the wrapper does
@@ -67,15 +63,11 @@
             pass through; no extra key is added."
     (rf/reg-view* :rf.prod-elision-test/with-attrs
                   (fn [] [:div {:class "card" :id "x"} "body"]))
-    (let [render (rf/view :rf.prod-elision-test/with-attrs)
-          out    (render)
-          attrs  (second out)]
-      (is (= :div (first out)))
-      (is (map? attrs))
-      (is (= "card" (:class attrs)) "user :class preserved")
-      (is (= "x"    (:id    attrs)) "user :id preserved")
-      (is (nil? (:data-rf2-source-coord attrs))
-          "NO data-rf2-source-coord merged in — elision contract holds"))))
+    (let [out   ((rf/view :rf.prod-elision-test/with-attrs))
+          attrs (second out)]
+      (is (= [:div "card" "x" nil]
+             [(first out) (:class attrs) (:id attrs) (:data-rf2-source-coord attrs)])
+          "user :class and :id preserved, and NO data-rf2-source-coord merged in — elision contract holds"))))
 
 (deftest reg-view-form-2-inner-output-has-no-source-coord-under-prod
   (testing "Form-2 render fns also elide annotation under prod-mode:
@@ -84,14 +76,10 @@
       (fn []
         (fn inner-render []
           [:section.f2 "form-2 body"])))
-    (let [wrapper (rf/view :rf.prod-elision-test/form-2)
-          out     (wrapper)]
-      (is (fn? out) "outer wrapper returns a fn (Form-2 shape preserved)")
-      (let [inner-out (out)]
-        (is (vector? inner-out) "inner fn returns hiccup")
-        (is (= :section.f2 (first inner-out)))
-        (is (nil? (root-attr inner-out))
-            "NO data-rf2-source-coord on inner output — elision held through Form-2")))))
+    ;; Calling the outer wrapper's return throws unless Form-2 survived.
+    (let [inner-out (((rf/view :rf.prod-elision-test/form-2)))]
+      (is (= [true :section.f2 nil] [(vector? inner-out) (first inner-out) (root-attr inner-out)])
+          "the inner fn returns hiccup with NO data-rf2-source-coord — elision held through Form-2"))))
 
 (deftest source-coord-literal-absent-from-rendered-output
   (testing "Defensive cross-check: scanning the rendered hiccup for the
