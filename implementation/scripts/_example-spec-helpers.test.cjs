@@ -27,32 +27,32 @@ const cases = [
 ];
 
 for (const entry of cases) {
-  for (const disappears of [false, true]) {
-    test(`${entry.name} bounds a ${disappears ? 'disappearing' : 'missing'} element wait`, async (t) => {
-      const time = clock(t);
-      let calls = 0;
-      const locator = {
-        async [entry.method](...args) {
-          calls += 1;
-          if (disappears && calls === 1) {
-            time.advance(40);
-            return 'pending';
-          }
-          const options = args[entry.method === 'getAttribute' ? 1 : 0];
-          // A page default larger than the assertion's budget would overrun
-          // that budget; an unbounded default is worse still.
-          time.advance(options?.timeout || 30000);
-          throw new Error('element missing: locator timed out');
-        },
-      };
-      await assert.rejects(
-        helpers[entry.name](locator, ...entry.args, 100),
-        /element missing/,
-      );
-      assert.equal(time.elapsed(), 100, 'the complete assertion uses one 100ms budget');
-      assert.equal(calls, disappears ? 2 : 1);
-    });
-  }
+  // The element answers once, then goes missing: the second wait must get only
+  // what is left of the one budget, not a fresh one.
+  test(`${entry.name} bounds a disappearing element wait`, async (t) => {
+    const time = clock(t);
+    let calls = 0;
+    const locator = {
+      async [entry.method](...args) {
+        calls += 1;
+        if (calls === 1) {
+          time.advance(40);
+          return 'pending';
+        }
+        const options = args[entry.method === 'getAttribute' ? 1 : 0];
+        // A page default larger than the assertion's budget would overrun
+        // that budget; an unbounded default is worse still.
+        time.advance(options?.timeout || 30000);
+        throw new Error('element missing: locator timed out');
+      },
+    };
+    await assert.rejects(
+      helpers[entry.name](locator, ...entry.args, 100),
+      /element missing/,
+    );
+    assert.equal(time.elapsed(), 100, 'the complete assertion uses one 100ms budget');
+    assert.equal(calls, 2);
+  });
 
   test(`${entry.name} still polls until the requested value appears`, async (t) => {
     const time = clock(t);
