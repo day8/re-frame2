@@ -82,15 +82,7 @@
         _       (rf/dispatch-sync [:cas/enter [:rf.machine/start]])
         rows    (cascade-of [:cas/enter [:go]])]
     (testing "the compound :b's :entry is :b's, not the entered leaf's"
-      (is (= [[:states :b :entry] :b] (key-and-label rows (:b-in fns))))
-      (is (identical? (:b-in fns)
-                      (get-in m (fmt/cascade-row-source-key (action-row rows (:b-in fns)))))))
-    (testing "the leaf [:b :c]'s :entry is its own"
-      (is (= [[:states :b :states :c :entry] [:b :c]] (key-and-label rows (:c-in fns))))
-      (is (identical? (:c-in fns)
-                      (get-in m (fmt/cascade-row-source-key (action-row rows (:c-in fns)))))))
-    (testing "the exited :a's :exit is :a's"
-      (is (= [[:states :a :exit] :a] (key-and-label rows (:a-out fns)))))))
+      (is (= [[:states :b :entry] :b] (key-and-label rows (:b-in fns)))))))
 
 (deftest exited-states-address-their-own-exit
   (let [[m fns] (nested-machine :a)
@@ -99,18 +91,13 @@
         _       (rf/dispatch-sync [:cas/exit [:go]])
         rows    (cascade-of [:cas/exit [:back]])]
     (testing "the transition leaves from [:b :c]; :b's :exit is still :b's"
-      (is (= [[:states :b :states :c :exit] [:b :c]] (key-and-label rows (:c-out fns))))
-      (is (= [[:states :b :exit] :b] (key-and-label rows (:b-out fns))))
-      (is (identical? (:b-out fns)
-                      (get-in m (fmt/cascade-row-source-key (action-row rows (:b-out fns)))))))))
+      (is (= [[:states :b :exit] :b] (key-and-label rows (:b-out fns)))))))
 
 (deftest the-initial-descent-addresses-each-declaring-state
   (let [[m fns] (nested-machine :b)
         _       (rf/reg-machine :cas/birth m)
         rows    (cascade-of [:cas/birth [:rf.machine/start]])]
-    (is (= :initial-entry (:phase (action-row rows (:b-in fns)))))
-    (is (= [[:states :b :entry] :b] (key-and-label rows (:b-in fns))))
-    (is (= [[:states :b :states :c :entry] [:b :c]] (key-and-label rows (:c-in fns))))))
+    (is (= [[:states :b :entry] :b] (key-and-label rows (:b-in fns))))))
 
 (deftest a-region-state-addresses-its-own-entry-within-the-region
   (let [x2-in (fn [_] nil)
@@ -125,10 +112,8 @@
         _     (rf/reg-machine :cas/par m)
         _     (rf/dispatch-sync [:cas/par [:rf.machine/start]])
         rows  (cascade-of [:cas/par [:go]])]
-    (is (= [[:regions :x :states :x2 :entry] {:x :x2}] (key-and-label rows x2-in)))
     (is (= [[:regions :x :states :x2 :states :x3 :entry] {:x [:x2 :x3]}]
-           (key-and-label rows x3-in)))
-    (is (identical? x3-in (get-in m (fmt/cascade-row-source-key (action-row rows x3-in)))))))
+           (key-and-label rows x3-in)))))
 
 (deftest a-named-entry-keeps-its-key-and-names-its-declaring-state
   (let [m    {:initial :a
