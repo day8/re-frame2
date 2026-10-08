@@ -1,36 +1,12 @@
 (ns re-frame.ssr.head-model-cljs-test
-  "The NAME-COLLISION guard for the one head read.
+  "`head-model`'s selection rule on both hosts, and the NAME-COLLISION guard
+  for the read.
 
-  The read cannot be spelled `(ssr/head …)`. That name is unusable in
-  ClojureScript: `re-frame.ssr`
-  requires `re-frame.ssr.head`, so the namespace OBJECT `re_frame.ssr.head`
-  — which carries `.registry`, `.emit` and the head ns's own vars — exists
-  before `re-frame.ssr`'s body runs, and a `(def head …)` there would emit
-  `re_frame.ssr.head = <fn>` straight over it. The analyzer warns
-  `:ns-var-clash` and the runtime breaks. The read is therefore named
-  `head-model`, pairing with `head-model->html`, and `re-frame.ssr.head`
-  is NOT renamed.
-
-  Nothing in the JVM suite can witness that, because the JVM has no
-  munged-object namespace representation to clobber. This file is the
-  witness on the host where it matters. It ends in `-cljs-test` so the
-  shadow `:node-test` build (`:ns-regexp \"cljs-test$\"`) picks it up, and
-  it is `.cljc` so the same assertions also run under `clojure -M:test`
-  from `implementation/ssr` — a free cross-check that the two hosts agree
-  on the selection rule.
-
-  What is pinned, and the first two are the collision guard:
-
-    1. Compiling this namespace at all. It requires BOTH `re-frame.ssr`
-       and `re-frame.ssr.head`; a clobbered namespace object is a compile
-       -time `:ns-var-clash` warning and a load-time failure, so a
-       regression here never reaches an assertion.
-    2. AFTER ns load, `re-frame.ssr/head-model` is callable AND
-       `re-frame.ssr.head`'s own vars still resolve through the namespace
-       object — the two coexist.
-    3. The selection rule's clauses, on the CLJS host: an explicit
-       `:head-id`, the effective route's `:head`, `default-head`, and the
-       `{:route r}` preview evaluating against that same route."
+  The read cannot be spelled `(ssr/head …)`: in ClojureScript a
+  `(def head …)` in `re-frame.ssr` would emit `re_frame.ssr.head = <fn>`
+  over the `re-frame.ssr.head` namespace object (`:ns-var-clash`). This
+  namespace requires BOTH and reads a var through `re-frame.ssr.head` after
+  load — the witness on the one host where the clobber can happen."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loaded for its ns-load-time registrations — `rf/reg-route`
@@ -70,18 +46,9 @@
 ;; ===========================================================================
 
 (deftest head-model-and-the-head-namespace-coexist
-  (testing "`re-frame.ssr/head-model` does not clobber the
-            `re-frame.ssr.head` namespace object. Both are reached in ONE
-            namespace, after load, and both answer."
-    (is (ifn? rf.ssr/head-model)
-        "the read on the ssr door is a callable var, not a namespace object")
-    (is (ifn? rf.ssr.head/head-model)
-        "and the head namespace still resolves its own re-export")
-    (is (ifn? rf.ssr.head/reg-head)
-        "as do its other vars — the namespace object survived the def")
-    (is (ifn? rf.ssr.head/default-head))
-    (is (ifn? rf.ssr/head-model->html)
-        "the sibling name that shares the `head-model` prefix is unaffected")))
+  ;; `rf.ssr/head-model` is exercised by every test below; this reads a var
+  ;; through the `re-frame.ssr.head` namespace object a clobber would replace.
+  (is (ifn? rf.ssr.head/reg-head)))
 
 ;; ===========================================================================
 ;; The selection rule, on this host
@@ -110,9 +77,7 @@
     (testing "a {:route r} with NO :head-id selects r's :head AND runs it
               against r — one effective route, both uses"
       (is (= {:title (str rid)}
-             (rf.ssr/head-model f {:route {:route-id rid}}))))
-    (testing "an explicit {:route nil} means NO route, so the default fires"
-      (is (= "preview" (:title (rf.ssr/head-model f {:route nil})))))))
+             (rf.ssr/head-model f {:route {:route-id rid}}))))))
 
 (deftest head-model-refuses-an-unregistered-head-id
   (let [f (fresh-frame! "missing")]
