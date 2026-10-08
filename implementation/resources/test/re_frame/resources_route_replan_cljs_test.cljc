@@ -1,39 +1,18 @@
 (ns re-frame.resources-route-replan-cljs-test
-  "`[:rf.route/replan-resources {:cause …}]`, the RESOURCES half:
-  same-token reconciliation through the ONE canonical planner
+  "`[:rf.route/replan-resources {:cause …}]`, the RESOURCES half: same-token
+  reconciliation through the one canonical planner
   (`re-frame.resources.route/route-resource-plan` in plan mode `:replan`,
-  published as `:routing/on-route-replan`), driven END TO END through routing
-  on a URL-owning frame.
+  published as `:routing/on-route-replan`), driven end to end through routing
+  on a URL-owning frame (Spec 016 §Route-plan replan — same-token
+  reconciliation). Retained identities keep their owner, their in-flight work
+  and issue no request; new ones are ensured under the caller cause verbatim;
+  dropped ones lose the route owner and only that, by a same-owner subset
+  release; the durable plan and blocking slots equal the new plan, an empty
+  one clearing both. A failing replan ensures nothing, releases the whole
+  owner and installs `:plan-cause :replan` with the nav-token present.
 
-  What is pinned here, and only here (Spec 016 §Route-plan replan — same-token
-  reconciliation):
-
-    - A → B same-route scope change: the unchanged identity is RETAINED with no
-      request (the work ledger, not only the entry); the B identities are
-      ensured + owned with the caller cause VERBATIM; the A-only identities lose
-      the route owner and ONLY the owner (the entry survives); the durable plan /
-      blocking slots equal the newly materialized plan; the token is unchanged.
-    - unresolved → resolved REPAIR on a composed route: the inherited parent
-      read is ensured, the slice error is cleared, exact membership is stored.
-    - a FAILING replan: no partial ensure; the standing owner gone from EVERY
-      prior identity (the whole-owner release); both slots cleared; `:error`
-      installed with `:plan-cause :replan` and the nav-token PRESENT.
-    - a conditional occurrence ENTERING and LEAVING the plan — the leave is a
-      same-owner SUBSET release naming only the dropped identity.
-    - retained in-flight work keeps its owner and is not aborted.
-    - an EMPTY next plan clears both slots (the activation commit's `cond->`
-      trap: a fresh token has no old slot, the replan's token does).
-    - the `:rf.resource.internal/release-owner-identities` primitive itself: only the
-      named identities, only this owner, no abort while another owner remains.
-
-  The routing-side contract (the request gate, the unconditional slot writes
-  against a stub plan, the absence of every navigation effect) is
-  `re-frame.routing-replan-test`; the flagship receipt is the RealWorld
-  acceptance test; the corpus row is the `ep-0037-replan-*` fixtures.
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex; Shadow's `:node-test` build via `cljs-test$`. The
-  `-cljs-test` suffix is load-bearing."
+  The routing-side contract is `re-frame.routing-replan-test`; the corpus rows
+  are the `ep-0037-replan-*` fixtures."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -58,21 +37,20 @@
 ;; ---- fixture --------------------------------------------------------------
 
 (def ^:private requests
-  "Every managed-HTTP request lowered during a test, in order — the ledger the
-  'no second request' assertions read."
+  "Every managed-HTTP request lowered during a test, in order."
   (atom []))
 
 (def ^:private extra-admitted?
-  "The conditional occurrence's admission switch. `:when` receives the route and
-  the reserved ctx — never app-db — so a test-owned atom is the honest way to
-  make an occurrence enter and leave the plan between two replans."
+  "The conditional occurrence's admission switch: `:when` receives the route and
+  the reserved ctx, never app-db, so a test-owned atom makes an occurrence enter
+  and leave the plan between two replans."
   (atom false))
 
 (defn- init!
-  "Per-test setup: a URL-owning default frame, the late-bound routing
-  integration, the viewer resolver, four resources (two viewer-scoped through
-  the resolver, two global), a parent shell + a leaf under it, a conditional
-  route, and the login / logout events that move the resolver's input."
+  "A URL-owning frame with routing integration, the viewer resolver, four
+  resources (two viewer-scoped, two global), a parent shell with a leaf under
+  it, a route whose only occurrence is conditional, and login / logout events
+  that move the resolver's input."
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "replan suite default app frame."})
@@ -99,7 +77,6 @@
   (rf/reg-resource :t/extra
     {:scope :rf.scope/global :params-schema [:map]}
     (fn [_ _] {:request {:method :get :url "/extra"}}))
-  ;; the parent shell owns the viewer-scoped shell read; the leaf inherits it
   (rf/reg-route :t/shell
     {:resources [{:resource :t/shell :blocking? true}]} "/")
   (rf/reg-route :t/docs
@@ -111,7 +88,6 @@
                  {:resource :t/global :blocking? true}
                  {:resource :t/extra
                   :when     (fn [_route _ctx] @extra-admitted?)}]} "/docs/:page")
-  ;; a route whose ONLY occurrence is conditional — the empty-next-plan case
   (rf/reg-route :t/cond
     {:resources [{:resource  :t/global
                   :blocking? true
@@ -155,8 +131,7 @@
 (defn- request-count [] (count @requests))
 
 (defn- settle-loaded!
-  "Drive the just-ensured entry at `k` to :loaded by dispatching the internal
-  success reply for its current work."
+  "Drive the just-ensured entry at `k` to :loaded."
   [k data]
   (let [e (entry k)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -169,8 +144,7 @@
   (rf/dispatch-sync [:rf.route/replan-resources {:cause cause}]))
 
 (defn- record-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  event whose `:operation` is in `ops`, in capture order."
+  "Run `body-fn`; return every trace event whose `:operation` is in `ops`."
   [ops body-fn]
   (let [seen (atom [])
         k    ::replan-recorder]
@@ -180,301 +154,225 @@
          (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-(defn- op [traces operation]
-  (first (filter #(= operation (:operation %)) traces)))
+(defn- op-tags [traces operation]
+  (:tags (first (filter #(= operation (:operation %)) traces))))
+
+(defn- plan-counts [tags]
+  (select-keys tags [:plan-cause :ensured :kept :removed]))
+
+(defn- navigate-to-docs-as! [user]
+  (rf/dispatch-sync [:t/login user])
+  (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}]))
 
 ;; ===========================================================================
-;; 1. A → B same-route scope change
+;; A → B same-route scope change
 ;; ===========================================================================
 
 (deftest replan-a-to-b-scope-change-reconciles-under-the-same-owner
-  (rf/dispatch-sync [:t/login "ann"])
-  (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}])
-  (let [tok      (token)
-        own      (route-owner)
+  (navigate-to-docs-as! "ann")
+  (let [tok       (token)
+        own       (route-owner)
         ann-shell (shell-key "ann")
         ann-docs  (docs-key "ann" "intro")
         bob-shell (shell-key "bob")
         bob-docs  (docs-key "bob" "intro")]
-    (is (= (by-id ann-shell ann-docs global-key) (plan-slot))
-        "the activation recorded the three-identity plan under the token")
-    ;; settle everything so the retained identity is genuinely reusable (own
-    ;; usable data) and the counters below are unambiguous
+    (is (= (by-id ann-shell ann-docs global-key) (plan-slot)) "FIXTURE — the activation's three-identity plan")
+    ;; settled, so the retained identity is genuinely reusable
     (settle-loaded! ann-shell {:s 1})
     (settle-loaded! ann-docs  {:d 1})
     (settle-loaded! global-key {:g 1})
-    (is (= :idle (:transition (slice))))
+    (is (= :idle (:transition (slice))) "FIXTURE — everything settled")
     (let [n      (request-count)
           traces (record-traces! #{:rf.resource/route-plan :rf.resource/owner-released}
                    (fn []
-                     ;; the principal switch: an app-db write, NO navigation
+                     ;; the principal switch: an app-db write, no navigation
                      (rf/dispatch-sync [:t/login "bob"])
                      (replan! [:account-switch])))]
-      (testing "UNCHANGED identities are retained with NO request — the work ledger says so"
-        (is (= 2 (- (request-count) n))
-            "exactly two requests were lowered — bob's shell and bob's docs; the global read was NOT re-issued")
-        (is (every? (fn [args] (not= "/global" (get-in args [:request :url])))
-                    (drop n @requests))
-            "…and neither of them targets the retained global identity")
-        (is (owned? global-key) "the retained identity keeps the route owner")
-        (is (= :loaded (:status (entry global-key)))))
-      (testing "the B identities are ensured + owned, with the caller cause VERBATIM"
-        (is (owned? bob-shell))
-        (is (owned? bob-docs))
-        (is (= :loading (:status (entry bob-shell))))
-        (is (= [[:account-switch]] (:causes (work-record bob-shell))))
-        (is (= [[:account-switch]] (:causes (work-record bob-docs)))))
-      (testing "the A-only identities lose the owner — and ONLY the owner"
-        (is (some? (entry ann-shell)) "the entry survives (GC decides its fate, not the replan)")
-        (is (some? (entry ann-docs)))
-        (is (not (owned? ann-shell)))
-        (is (not (owned? ann-docs)))
-        (is (= :loaded (:status (entry ann-shell))) "…with its data intact"))
-      (testing "the durable slots equal the newly materialized plan; the token is unchanged"
-        (is (= tok (token)))
-        (is (= own (route-owner)))
-        (is (= (by-id bob-shell bob-docs global-key) (plan-slot)))
-        (is (= (by-id bob-shell) (blocking-slot))
-            "the blocking shell is pending under bob; the global read already has usable data")
-        (is (= :loading (:transition (slice))))
-        (is (nil? (:error (slice)))))
-      (testing "the trace evidence: ONE planner row, discriminated, with the exact partition"
-        (let [tags (:tags (op traces :rf.resource/route-plan))]
-          (is (= :replan (:plan-cause tags)))
-          (is (= [:account-switch] (:replan-cause tags)))
-          (is (= tok (:nav-token tags)) "the nav-token is PRESENT on a replan row")
-          (is (= [:t/shell :t/docs] (:branch tags)))
-          (is (= 2 (:ensured tags)))
-          (is (= 1 (:kept tags)))
-          (is (= 2 (:removed tags)))
-          (is (= [global-key] (:kept-identities tags)))
-          (is (= #{ann-shell ann-docs} (set (:removed-identities tags)))))
-        (let [tags (:tags (op traces :rf.resource/owner-released))]
-          (is (= own (:owner tags)) "the SAME owner was released — from a subset")
-          (is (= #{ann-shell ann-docs} (set (:released tags)))
-              "…naming exactly the dropped identities, by scoped key"))))))
+      (is (= [["/docs/intro" "/shell"] true :loaded]
+             [(sort (map #(get-in % [:request :url]) (drop n @requests))) (owned? global-key)
+              (:status (entry global-key))])
+          "only bob's two reads are requested; the retained global keeps its owner and data, unrequested")
+      (is (= [true true :loading [[:account-switch]] [[:account-switch]]]
+             [(owned? bob-shell) (owned? bob-docs) (:status (entry bob-shell))
+              (:causes (work-record bob-shell)) (:causes (work-record bob-docs))])
+          "the B identities are ensured and owned under the caller cause verbatim")
+      (is (= [false false :loaded :loaded]
+             [(owned? ann-shell) (owned? ann-docs) (:status (entry ann-shell)) (:status (entry ann-docs))])
+          "the A-only identities lose the owner and only the owner")
+      (is (= [tok own (by-id bob-shell bob-docs global-key) (by-id bob-shell) :loading nil]
+             [(token) (route-owner) (plan-slot) (blocking-slot) (:transition (slice)) (:error (slice))])
+          "the slots equal the new plan (the global read already has data, so only bob's shell blocks) under the same token")
+      (let [tags (op-tags traces :rf.resource/route-plan)]
+        (is (= [{:plan-cause :replan :ensured 2 :kept 1 :removed 2} [:account-switch] tok [:t/shell :t/docs]
+                [global-key] #{ann-shell ann-docs}]
+               [(plan-counts tags) (:replan-cause tags) (:nav-token tags) (:branch tags)
+                (:kept-identities tags) (set (:removed-identities tags))])
+            "one planner row, discriminated as a replan with the nav-token present, carries the exact partition"))
+      (is (= [own #{ann-shell ann-docs}]
+             ((juxt :owner (comp set :released)) (op-tags traces :rf.resource/owner-released)))
+          "the SAME owner is released from exactly the dropped identities, by scoped key"))))
 
 ;; ===========================================================================
-;; 2. unresolved → resolved REPAIR on a composed route
+;; unresolved → resolved repair on a composed route
 ;; ===========================================================================
 
 (deftest replan-repairs-an-unresolved-scope-plan-on-a-composed-route
-  ;; no login: the viewer resolver yields nil, so the parent shell's spec scope
-  ;; fails closed and the WHOLE plan fails at activation
+  ;; no login: the parent shell's spec scope fails closed, so the whole
+  ;; activation plan fails
   (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}])
   (let [tok (token)]
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-    (is (nil? (:plan-cause (:error (slice)))) "an ACTIVATION failure carries no plan-cause")
-    (is (= :error (:transition (slice))))
-    (is (not (has-plan-slot?)) "a failed activation writes no plan slot")
-    (is (empty? (entries)) "no entry under any scope — no partial ensure")
+    (is (= [:rf.error/resource-route-plan nil :error false nil]
+           [(:rf.error/id (:error (slice))) (:plan-cause (:error (slice))) (:transition (slice))
+            (has-plan-slot?) (seq (entries))])
+        "an activation failure carries no plan-cause, writes no plan slot and ensures nothing")
     (rf/dispatch-sync [:t/login "ann"])
     (let [n      (request-count)
           traces (record-traces! #{:rf.resource/route-plan} #(replan! [:session-restore]))]
-      (is (= tok (token)) "no navigation — the same token")
-      (is (owned? (shell-key "ann")) "the INHERITED parent read is ensured under the route owner")
-      (is (owned? (docs-key "ann" "intro")))
-      (is (owned? global-key))
-      (is (= 3 (- (request-count) n)))
-      (is (= (by-id (shell-key "ann") (docs-key "ann" "intro") global-key) (plan-slot))
-          "exact membership is stored")
-      (is (= (by-id (shell-key "ann") global-key) (blocking-slot))
-          "both blocking requirements are pending")
-      (is (nil? (:error (slice))) "the planning error is REPAIRED")
-      (is (= :loading (:transition (slice))))
-      (let [tags (:tags (op traces :rf.resource/route-plan))]
-        (is (= :replan (:plan-cause tags)))
-        (is (= 3 (:ensured tags)))
-        (is (= 0 (:kept tags)))
-        (is (= 0 (:removed tags)) "there was no prior plan to drop from")))
+      (is (= [tok true true true 3]
+             [(token) (owned? (shell-key "ann")) (owned? (docs-key "ann" "intro")) (owned? global-key)
+              (- (request-count) n)])
+          "under the same token the inherited parent read and both leaf reads are ensured and owned")
+      (is (= [(by-id (shell-key "ann") (docs-key "ann" "intro") global-key) (by-id (shell-key "ann") global-key)
+              nil :loading]
+             [(plan-slot) (blocking-slot) (:error (slice)) (:transition (slice))])
+          "exact membership is stored, both blocking reads pending, and the planning error repaired")
+      (is (= {:plan-cause :replan :ensured 3 :kept 0 :removed 0}
+             (plan-counts (op-tags traces :rf.resource/route-plan)))
+          "there was no prior plan to keep or drop from"))
     (settle-loaded! (shell-key "ann") {})
     (settle-loaded! global-key {})
     (is (= :idle (:transition (slice))) "readiness lands as the blocking reads settle")))
 
 ;; ===========================================================================
-;; 3. a FAILING replan — no partial ensure, whole-owner release, slots cleared
+;; a failing replan
 ;; ===========================================================================
 
 (deftest failing-replan-releases-the-whole-owner-and-clears-the-slots
-  (rf/dispatch-sync [:t/login "ann"])
-  (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}])
+  (navigate-to-docs-as! "ann")
   (let [tok       (token)
         own       (route-owner)
         ann-shell (shell-key "ann")
         ann-docs  (docs-key "ann" "intro")
         ks        [ann-shell ann-docs global-key]]
-    (is (every? owned? ks))
-    (is (every? live? ks) "everything is in flight")
-    (is (= 3 (count (entries))))
-    ;; the identity input goes transiently UNRESOLVED (a logout with no route
-    ;; change) — the shell's spec scope now fails closed
+    (is (= [true true 3] [(every? owned? ks) (every? live? ks) (count (entries))])
+        "FIXTURE — everything owned and in flight")
+    ;; the identity input goes transiently unresolved, with no route change
     (rf/dispatch-sync [:t/logout])
     (let [n      (request-count)
           traces (record-traces! #{:rf.resource/route-plan :rf.resource/owner-released}
                                  #(replan! [:logout]))]
-      (testing "no partial ensure"
-        (is (= n (request-count)) "no request was lowered")
-        (is (= 3 (count (entries))) "no entry was created"))
-      (testing "the standing owner is released from EVERY prior identity (deliberately destructive)"
-        (is (every? #(not (owned? %)) ks))
-        (is (every? #(some? (entry %)) ks) "the entries themselves survive")
-        (is (nil? (owner-index own)) "the owner-index row is gone")
-        (is (every? #(not (live? %)) ks) "orphaned in-flight work is abort-requested — no other owner needed it")
-        (let [tags (:tags (op traces :rf.resource/owner-released))]
-          (is (= own (:owner tags)))
-          (is (= (set ks) (set (:released tags))))))
-      (testing "both slots are cleared and the failure is installed on the slice"
-        (is (not (has-plan-slot?)))
-        (is (not (has-blocking-slot?)))
-        (is (= tok (token)) "the token itself stays — this is a committed failed REPLAN")
-        (is (= :error (:transition (slice))))
-        (let [err (:error (slice))]
-          (is (= :rf.error/resource-route-plan (:rf.error/id err)))
-          (is (= :replan (:plan-cause err)))
-          (is (= [:logout] (:replan-cause err)) "the caller cause rides under :replan-cause …")
-          (is (= tok (:nav-token err)) "… the nav-token is PRESENT …")
-          (is (= :t/shell (:resource-id err)) "… and the first failing contributor is named")))
-      (testing "the planner row reports the atomicity rule directly"
-        (let [tags (:tags (op traces :rf.resource/route-plan))]
-          (is (true? (:plan-error tags)))
-          (is (= :replan (:plan-cause tags)))
-          (is (= 0 (:ensured tags)))
-          (is (= 0 (:kept tags)))
-          (is (= 3 (:removed tags)))
-          (is (= [] (:identities tags))))))
-    (testing "…and a later resolution + replan repairs it from scratch"
-      (rf/dispatch-sync [:t/login "ann"])
-      (replan! [:session-restore])
-      (is (nil? (:error (slice))))
-      (is (= :loading (:transition (slice))))
-      (is (every? owned? ks))
-      (is (= (by-id ann-shell ann-docs global-key) (plan-slot))))))
+      (is (= [n 3] [(request-count) (count (entries))]) "no partial ensure")
+      (is (= [true true nil true [own (set ks)]]
+             [(not-any? owned? ks) (every? #(some? (entry %)) ks) (owner-index own) (not-any? live? ks)
+              ((juxt :owner (comp set :released)) (op-tags traces :rf.resource/owner-released))])
+          "the standing owner is released from every prior identity (the entries survive) and its orphaned work abort-requested")
+      (is (= [false false tok :error]
+             [(has-plan-slot?) (has-blocking-slot?) (token) (:transition (slice))])
+          "both slots are cleared on the token of a committed failed replan")
+      (is (= [:rf.error/resource-route-plan :replan [:logout] tok :t/shell]
+             ((juxt :rf.error/id :plan-cause :replan-cause :nav-token :resource-id) (:error (slice))))
+          "the error carries the plan cause, the caller cause, the nav-token and the first failing contributor")
+      (let [tags (op-tags traces :rf.resource/route-plan)]
+        (is (= [true {:plan-cause :replan :ensured 0 :kept 0 :removed 3} []]
+               [(:plan-error tags) (plan-counts tags) (:identities tags)])
+            "the planner row reports the atomicity rule")))
+    (rf/dispatch-sync [:t/login "ann"])
+    (replan! [:session-restore])
+    (is (= [nil :loading true (by-id ann-shell ann-docs global-key)]
+           [(:error (slice)) (:transition (slice)) (every? owned? ks) (plan-slot)])
+        "a later resolution and replan repairs it from scratch")))
 
 ;; ===========================================================================
-;; 4. a conditional occurrence ENTERING and LEAVING the plan (subset release)
+;; a conditional occurrence entering and leaving the plan
 ;; ===========================================================================
 
 (deftest replan-admits-and-drops-a-conditional-occurrence-with-a-subset-release
-  (rf/dispatch-sync [:t/login "ann"])
-  (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}])
+  (navigate-to-docs-as! "ann")
   (let [tok  (token)
-        base (by-id (shell-key "ann") (docs-key "ann" "intro") global-key)]
-    (is (= base (plan-slot)))
-    (is (nil? (entry extra-key)) "the conditional occurrence is not admitted yet")
-    (testing "ENTERING: the newly admitted occurrence is ensured + owned + recorded"
-      (reset! extra-admitted? true)
-      (replan! [:flag-on])
-      (is (owned? extra-key))
-      (is (= [[:flag-on]] (:causes (work-record extra-key))))
-      (is (= (assoc base (rf.resources.state/key-id extra-key) extra-key) (plan-slot)))
-      (is (= tok (token))))
-    (testing "LEAVING: a same-owner SUBSET release names ONLY the dropped identity"
-      (reset! extra-admitted? false)
-      (let [n      (request-count)
-            traces (record-traces! #{:rf.resource/owner-released :rf.resource/route-plan}
-                                   #(replan! [:flag-off]))]
-        (is (= n (request-count)) "kept identities are adopted, not re-requested")
-        (is (not (owned? extra-key)) "the dropped occurrence lost the owner")
-        (is (some? (entry extra-key)) "…but its entry survives")
-        (is (every? owned? [(shell-key "ann") (docs-key "ann" "intro") global-key])
-            "every kept identity keeps the owner — the release was a SUBSET")
-        (is (every? live? [(shell-key "ann") (docs-key "ann" "intro") global-key])
-            "…and their in-flight work was never orphaned")
-        (is (= base (plan-slot)))
-        (is (= tok (token)))
-        (is (= [extra-key] (:released (:tags (op traces :rf.resource/owner-released)))))
-        (let [tags (:tags (op traces :rf.resource/route-plan))]
-          (is (= 3 (:kept tags)))
-          (is (= 1 (:removed tags)))
-          (is (= [extra-key] (:removed-identities tags))))))))
+        kept [(shell-key "ann") (docs-key "ann" "intro") global-key]
+        base (apply by-id kept)]
+    (is (= [base nil] [(plan-slot) (entry extra-key)]) "FIXTURE — the conditional occurrence is not admitted yet")
+    (reset! extra-admitted? true)
+    (replan! [:flag-on])
+    (is (= [true [[:flag-on]] (assoc base (rf.resources.state/key-id extra-key) extra-key) tok]
+           [(owned? extra-key) (:causes (work-record extra-key)) (plan-slot) (token)])
+        "ENTERING: the admitted occurrence is ensured, owned and recorded")
+    (reset! extra-admitted? false)
+    (let [n      (request-count)
+          traces (record-traces! #{:rf.resource/owner-released :rf.resource/route-plan}
+                                 #(replan! [:flag-off]))
+          tags   (op-tags traces :rf.resource/route-plan)]
+      (is (= [n false true true true base tok]
+             [(request-count) (owned? extra-key) (some? (entry extra-key)) (every? owned? kept) (every? live? kept)
+              (plan-slot) (token)])
+          "LEAVING: the dropped occurrence loses the owner, its entry surviving; the kept ones keep owner and live work, unrequested")
+      (is (= [[extra-key] 3 1 [extra-key]]
+             [(:released (op-tags traces :rf.resource/owner-released)) (:kept tags) (:removed tags)
+              (:removed-identities tags)])
+          "a same-owner SUBSET release names only the dropped identity"))))
 
 ;; ===========================================================================
-;; 5. retained in-flight work keeps its owner and is not aborted
+;; retained in-flight work, and an empty next plan
 ;; ===========================================================================
 
 (deftest replan-keeps-retained-in-flight-work-owned-and-unaborted
-  (rf/dispatch-sync [:t/login "ann"])
-  (rf/dispatch-sync [:rf.route/navigate {:to :t/docs :params {:page "intro"}}])
+  (navigate-to-docs-as! "ann")
   (let [ks     [(shell-key "ann") (docs-key "ann" "intro") global-key]
         n      (request-count)
         wids   (mapv #(:current-work (entry %)) ks)
         traces (record-traces! #{:rf.resource/route-plan :rf.resource/owner-released}
                                #(replan! [:no-change]))]
-    (is (= n (request-count)) "no request — every identity is retained and ADOPTED")
-    (is (every? owned? ks))
-    (is (= wids (mapv #(:current-work (entry %)) ks)) "the same in-flight attempts")
-    (is (every? live? ks) "…still live — none abort-requested")
-    (is (nil? (op traces :rf.resource/owner-released)) "nothing was dropped, so no release fx at all")
-    (let [tags (:tags (op traces :rf.resource/route-plan))]
-      (is (= 3 (:kept tags)))
-      (is (= 0 (:ensured tags)))
-      (is (= 0 (:removed tags)))
-      (is (= :replan (:plan-cause tags))))
-    (is (= (apply by-id ks) (plan-slot)))
-    (is (= (by-id (shell-key "ann") global-key) (blocking-slot)))
-    (is (= :loading (:transition (slice))))))
-
-;; ===========================================================================
-;; 6. an EMPTY next plan clears both slots (the cond-> trap)
-;; ===========================================================================
+    (is (= [n true wids true nil]
+           [(request-count) (every? owned? ks) (mapv #(:current-work (entry %)) ks) (every? live? ks)
+            (op-tags traces :rf.resource/owner-released)])
+        "every identity is adopted: no request, the same live attempts, and no release fx at all")
+    (is (= [{:plan-cause :replan :ensured 0 :kept 3 :removed 0}
+            (apply by-id ks) (by-id (shell-key "ann") global-key) :loading]
+           [(plan-counts (op-tags traces :rf.resource/route-plan)) (plan-slot) (blocking-slot) (:transition (slice))]))))
 
 (deftest replan-to-an-empty-plan-clears-both-slots
+  ;; a fresh activation token has no old slot to clear, a replan's token does
   (reset! extra-admitted? true)
   (rf/dispatch-sync [:rf.route/navigate {:to :t/cond}])
   (let [tok (token)]
-    (is (= (by-id global-key) (plan-slot)))
-    (is (= (by-id global-key) (blocking-slot)))
-    (is (= :loading (:transition (slice))))
+    (is (= [(by-id global-key) (by-id global-key) :loading] [(plan-slot) (blocking-slot) (:transition (slice))])
+        "FIXTURE — the conditional occurrence is planned and blocking")
     (reset! extra-admitted? false)
     (let [traces (record-traces! #{:rf.resource/owner-released} #(replan! [:flag-off]))]
-      (is (= tok (token)))
-      (is (not (has-plan-slot?)) "the plan slot is REMOVED — not left holding the prior identity")
-      (is (not (has-blocking-slot?)) "the blocking slot is REMOVED")
-      (is (not (owned? global-key)) "the only identity lost the owner")
-      (is (some? (entry global-key)))
-      (is (= :idle (:transition (slice))) "nothing blocking → :idle")
-      (is (nil? (:error (slice))))
-      (is (= [global-key] (:released (:tags (op traces :rf.resource/owner-released))))))))
+      (is (= [tok false false false true :idle nil [global-key]]
+             [(token) (has-plan-slot?) (has-blocking-slot?) (owned? global-key) (some? (entry global-key))
+              (:transition (slice)) (:error (slice)) (:released (op-tags traces :rf.resource/owner-released))])
+          "both slots are REMOVED, the only identity loses the owner, and nothing blocking means :idle"))))
 
 ;; ===========================================================================
-;; 7. the :rf.resource.internal/release-owner-identities primitive
+;; the :rf.resource.internal/release-owner-identities primitive
 ;; ===========================================================================
 
 (deftest release-owner-identities-releases-only-the-named-identities-and-only-this-owner
-  (let [A  [:app :a]
-        B  [:app :b]
-        k1 global-key
-        k2 extra-key]
+  (let [A   [:app :a]
+        B   [:app :b]
+        k1  global-key
+        k2  extra-key
+        rel #(record-traces! #{:rf.resource/owner-released}
+                             (fn [] (rf/dispatch-sync [:rf.resource.internal/release-owner-identities
+                                                       {:owner A :identities (by-id %)}])))]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/global :params {} :owner A :cause [:a1]}])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/extra  :params {} :owner A :cause [:a2]}])
     ;; B joins k1's in-flight work
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/global :params {} :owner B :cause [:b1]}])
-    (is (= #{A B} (:active-owners (entry k1))))
-    (is (= #{A} (:active-owners (entry k2))))
-    (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (owner-index A)))
-    (testing "only the NAMED identity, only THIS owner, and no abort while another owner remains"
-      (let [traces (record-traces! #{:rf.resource/owner-released}
-                     #(rf/dispatch-sync [:rf.resource.internal/release-owner-identities
-                                         {:owner A :identities (by-id k1)}]))]
-        (is (= #{B} (:active-owners (entry k1))) "A released from k1; B survives")
-        (is (= #{A} (:active-owners (entry k2))) "A still owns k2 — it was not named")
-        (is (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k1)))
-            "k1's in-flight work is NOT aborted — B still needs it")
-        (is (= #{(rf.resources.state/key-id k2)} (owner-index A)) "the owner-index drops only k1")
-        (let [tags (:tags (op traces :rf.resource/owner-released))]
-          (is (= A (:owner tags)))
-          (is (= [k1] (:released tags)))
-          (is (= [] (:aborted tags))))))
-    (testing "an identity the owner does not hold is a no-op"
-      (rf/dispatch-sync [:rf.resource.internal/release-owner-identities {:owner A :identities (by-id k1)}])
-      (is (= #{B} (:active-owners (entry k1))))
-      (is (= #{(rf.resources.state/key-id k2)} (owner-index A))))
-    (testing "releasing the LAST owner from an in-flight identity aborts it and drops the index row"
-      (let [traces (record-traces! #{:rf.resource/owner-released}
-                     #(rf/dispatch-sync [:rf.resource.internal/release-owner-identities
-                                         {:owner A :identities (by-id k2)}]))]
-        (is (empty? (:active-owners (entry k2))))
-        (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k2))))
-            "orphaned → abort-requested")
-        (is (nil? (owner-index A)) "A's index row is gone once it holds nothing")
-        (is (= [(:current-work (entry k2))] (:aborted (:tags (op traces :rf.resource/owner-released)))))))))
+    (is (= [#{A B} #{A} #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)}]
+           [(:active-owners (entry k1)) (:active-owners (entry k2)) (owner-index A)])
+        "FIXTURE")
+    (let [traces (rel k1)]
+      (is (= [#{B} #{A} true #{(rf.resources.state/key-id k2)} [A [k1] []]]
+             [(:active-owners (entry k1)) (:active-owners (entry k2)) (live? k1) (owner-index A)
+              ((juxt :owner :released :aborted) (op-tags traces :rf.resource/owner-released))])
+          "only the named identity, only this owner, and no abort while B still needs it"))
+    (rel k1)
+    (is (= [#{B} #{(rf.resources.state/key-id k2)}] [(:active-owners (entry k1)) (owner-index A)])
+        "an identity the owner does not hold is a no-op")
+    (let [traces (rel k2)]
+      (is (= [true false nil [(:current-work (entry k2))]]
+             [(empty? (:active-owners (entry k2))) (live? k2) (owner-index A)
+              (:aborted (op-tags traces :rf.resource/owner-released))])
+          "releasing the LAST owner aborts the in-flight identity and drops the index row"))))
