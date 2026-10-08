@@ -6,14 +6,10 @@
   update-later, hydrate-once / update-later, unmount idempotence and the
   `dispose-adapter!` drain — is `re-frame.adapter.uix-client-root-dom-cljs-test`.
 
-  WHY THE NODE HALF IS SHAPED DIFFERENTLY FROM REAGENT'S. The Reagent twin
-  (`re-frame.adapter-client-root-cljs-test`) pins the call sequence by
-  `with-redefs`-ing `reagent.dom.client`'s four fns. The React-hook spine
-  mounts through the `react-dom/client` MODULE directly — a JS namespace,
-  not a Var — so there is nothing to rebind, and the constructor-count
-  proofs are read off the DOM in the browser twin instead.
-
-  ns ends in `-cljs-test` so shadow-cljs's `:node-test` build picks it up."
+  The Reagent twin spies on `reagent.dom.client` with `with-redefs`; the
+  React-hook spine mounts through the `react-dom/client` MODULE, which has no
+  Vars to rebind, so the constructor-count proofs are read off the DOM in the
+  browser twin instead."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as React]
@@ -31,15 +27,11 @@
             there is no `document` to touch, which is the whole point of the
             `defonce` boot idiom"
     (let [h (rf.adapter.uix/client-root)]
-      (is (some? h) "client-root returns a handle")
-      (is (not (identical? h (rf.adapter.uix/client-root)))
-          "each call allocates its own handle — there is no process-global
-           registry of handles or mount points")))
-  (testing "an inert handle's unmount! is a no-op returning nil"
+      (is (= [true false] [(some? h) (identical? h (rf.adapter.uix/client-root))])
+          "client-root returns a handle, and each call allocates its own — there is no process-global registry")))
+  (testing "an inert handle's unmount! is a no-op returning nil, however many times it is called"
     (let [h (rf.adapter.uix/client-root)]
-      (is (nil? (rf.adapter.uix/unmount! h)))
-      (is (nil? (rf.adapter.uix/unmount! h))
-          "and stays a no-op however many times it is called"))))
+      (is (= [nil nil] [(rf.adapter.uix/unmount! h) (rf.adapter.uix/unmount! h)])))))
 
 ;; ---- 2. the element-slot guard rides the trio path ------------------------
 
@@ -53,18 +45,13 @@
       (let [h      (rf.adapter.uix/client-root)
             thrown (try (rf.adapter.uix/render! h tree nil) nil
                         (catch :default e e))]
-        (is (some? thrown) (str label " is rejected on the client-root path"))
-        (when thrown
-          (let [data (ex-data thrown)]
-            (is (= :rf.error/hiccup-on-element-render-slot (:rf.error/id data))
-                ":rf.error/id names the canonical error discriminator")
-            (is (str/includes? (ex-message thrown)
-                               "[:rf.error/hiccup-on-element-render-slot]")
-                "the message carries the greppability token")
-            (is (not (re-find #"xyzzy" (pr-str data)))
-                "EP-0015: no tree content leaked into the ex-data")))
-        (is (nil? (rf.adapter.uix/unmount! h))
-            "the refused render left the handle inert — nothing to release"))))
+        (is (= [:rf.error/hiccup-on-element-render-slot true false nil]
+               [(:rf.error/id (ex-data thrown))
+                (str/includes? (str (ex-message thrown)) "[:rf.error/hiccup-on-element-render-slot]")
+                (boolean (re-find #"xyzzy" (pr-str (ex-data thrown))))
+                (rf.adapter.uix/unmount! h)])
+            (str label " is rejected with the canonical id and greppable message, no tree"
+                 " content in the ex-data (EP-0015), and the handle left inert")))))
   (testing "a legitimate React element passes the guard"
     ;; The positive leg stops at the guard: mounting needs a real container,
     ;; which the browser twin supplies.
