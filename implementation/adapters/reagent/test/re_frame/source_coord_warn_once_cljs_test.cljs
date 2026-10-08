@@ -8,18 +8,9 @@
      console on re-render) and MUST NOT inject the attribute in
      these cases.'
 
-  The attribute-emission path is tested in
-  `source_coord_dom_cljs_test` (Fragment-root exempt, interop-root
-  exempt, attribute-format shape); this file pins the
-  WARNING-FIRES-ONLY-ONCE contract — the warn-once-per-id semantic.
-
-  Mechanism: `re-frame.views/warn-non-dom-root!` (private) consults a
-  process-wide `defonce` set `warned-non-dom-roots`. First call for an
-  id `swap!`s the id into the set and emits `js/console.warn`;
-  subsequent calls for the same id are silenced. The atom is a
-  `defonce` so the first warning per id sticks for the lifetime of
-  the JS process — re-rendering the same view repeatedly emits the
-  warning exactly ONCE."
+  `source_coord_dom_cljs_test` pins the attribute side; this file pins the
+  warning: `re-frame.views/warn-non-dom-root!` records each id in a
+  process-wide `defonce` set, so each test uses its own ids."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [reagent.core :as r]
@@ -54,37 +45,16 @@
 ;; ---- Fragment root: warning fires exactly once per id ---------------------
 
 (deftest fragment-root-warn-fires-once-across-multiple-renders
-  (testing "A Fragment-headed reg-view'd component renders without the
-            data-rf2-source-coord attribute (covered by
-            source_coord_dom_cljs_test) and
-            ALSO emits the documented warning EXACTLY ONCE — the
-            second through fifth re-render do NOT re-emit. Per Spec
-            006 §Documented exemption: 'one-shot warning per id (so
-            the developer learns the pair-tool footgun without
-            spamming the console on re-render)'.
-
-            Note: the warned-set is a `defonce` atom in re-frame.views,
-            so the first warning across the whole test process sticks
-            per-id. We use a unique id per test to avoid cross-test
-            contamination."
-    ;; Unique id — the warned-non-dom-roots set is process-wide
-    ;; defonce, so a different id per test is the safe shape.
+  (testing "a Fragment-headed view emits the documented warning EXACTLY ONCE
+            across five renders"
     (rf/reg-view* :rf.warn-once-test/fragment-multi
                   (fn [] [:<> [:p "a"] [:p "b"]]))
     (let [render   (rf/view :rf.warn-once-test/fragment-multi)
           warnings (with-captured-console-warn
-                     (fn []
-                       ;; Render 5 times — the warning must fire on
-                       ;; the FIRST render and stay silent on the
-                       ;; subsequent four.
-                       (dotimes [_ 5] (render))))]
-      (is (= 1 (count warnings))
-          (str "expected EXACTLY ONE warning across 5 renders of the "
-               "Fragment-rooted view; got " (count warnings) ": "
-               (pr-str warnings)))
-      (is (str/includes? (first warnings)
-                         "rf.warn-once-test/fragment-multi")
-          "the single warning names the offending view-id"))))
+                     (fn [] (dotimes [_ 5] (render))))]
+      (is (= [1 true] [(count warnings)
+                       (str/includes? (str (first warnings)) "rf.warn-once-test/fragment-multi")])
+          (str "exactly one warning, naming the view-id; got " (pr-str warnings))))))
 
 ;; ---- Per-id silencing is independent across ids --------------------------
 
@@ -98,21 +68,16 @@
                   (fn [] [:<> [:p "b"]]))
     (let [warnings (with-captured-console-warn
                      (fn []
-                       ;; Render each twice. Each id should warn once
-                       ;; — total 2 warnings, not 1 (per-id silencing,
-                       ;; not global), not 4 (one-shot, not per-render).
+                       ;; 2 warnings: not 1 (a global gate), not 4 (per render).
                        (let [render-a (rf/view :rf.warn-once-test/fragment-id-a)
                              render-b (rf/view :rf.warn-once-test/fragment-id-b)]
                          (render-a) (render-b)
                          (render-a) (render-b))))]
-      (is (= 2 (count warnings))
-          (str "expected EXACTLY TWO warnings (one per id) across 4 "
-               "renders; got " (count warnings) ": "
-               (pr-str warnings)))
-      (is (some #(str/includes? % "fragment-id-a") warnings)
-          "id-a's warning fired")
-      (is (some #(str/includes? % "fragment-id-b") warnings)
-          "id-b's warning fired"))))
+      (is (= [2 true true]
+             [(count warnings)
+              (boolean (some #(str/includes? % "fragment-id-a") warnings))
+              (boolean (some #(str/includes? % "fragment-id-b") warnings))])
+          (str "one warning per id across 4 renders; got " (pr-str warnings))))))
 
 ;; ---- Form-3 class root: preserve identity + warn -------------------------
 
@@ -133,9 +98,8 @@
                        (fn []
                          (dotimes [_ 3]
                            (swap! outputs conj (render)))))]
-        (is (every? #(identical? klass %) @outputs)
-            "the walker returns the exact create-class constructor — no Form-2 wrapper")
-        (is (= 1 (count warnings))
-            "the unannotatable Form-3 root emits exactly one warning per view id")
-        (is (str/includes? (first warnings) "form-3-class-root")
-            "the warning names the registered Form-3 view")))))
+        (is (= [true 1 true]
+               [(every? #(identical? klass %) @outputs)
+                (count warnings)
+                (str/includes? (str (first warnings)) "form-3-class-root")])
+            "the walker returns the exact create-class constructor every time — no Form-2 wrapper — and the unannotatable root warns once, naming the view")))))
