@@ -2,58 +2,24 @@
   "The Static Machines selection + per-machine sub-mode RESTORE across a
   reload, driven through the real production boot path.
 
-  ## The property these tests pin
+  `panel/install!` calls `persistence/hydrate!` from
+  `registry/register-xray-handlers!` — orchestrator time, before
+  `mount/ensure-xray-frame!` registers `:rf/xray`. `dispatch` does not
+  queue an event for a frame that does not exist yet: an unguarded
+  hydrate is refused with a promoted `:rf.error/frame-destroyed` and
+  dropped, so the selection never restores and every dev page load logs
+  a console error. `hydrate!` therefore guards on the frame, and
+  `mount.cljs`'s `::hydrate-static-machines` first-mount hook lands the
+  restore. These tests boot through `register-xray-handlers!` +
+  `ensure-xray-frame!` and never call `hydrate!` themselves.
 
-  `static/machines/panel.cljs`'s `install!` calls
-  `persistence/hydrate!`, which dispatches
-  `:rf.xray.static.machines/hydrate` at `{:frame :rf/xray}`. But
-  `install!` runs from `registry/register-xray-handlers!` —
-  ORCHESTRATOR time, well before `mount/ensure-xray-frame!` registers
-  the `:rf/xray` frame. `dispatch` does NOT queue an event aimed at a
-  not-yet-registered frame and replay it once the frame appears: an
-  unguarded dispatch is refused with a promoted
-  `:rf.error/frame-destroyed` and DROPPED.
+  The error listener is a TEST observer on the always-on error channel,
+  not an Xray listener.
 
-  Two things would follow, and both are asserted below:
-
-    1. The persisted selection would never reach app-db, so the
-       operator's last-inspected machine would silently fail to restore
-       on every reload — a real state loss, not just log noise.
-    2. Every Xray-preloaded dev page load would emit exactly one
-       promoted refusal to the console.
-
-  So `hydrate!` carries the frame guard its two siblings
-  (`views.resizable-table/hydrate!`, `frame-switcher/hydrate!`)
-  carry, and `mount.cljs` registers a `::hydrate-static-machines`
-  first-mount hook — the seam that knows the frame exists.
-
-  ## Why these tests drive `ensure-xray-frame!`
-
-  `persistence_cljs_test.cljs` is comprehensive on the localStorage
-  round-trip but never calls `hydrate!` — it tests `save!`/`load`
-  directly. A defect in the seam BETWEEN a correct round-trip and the
-  boot sequence is invisible to it, and a test that calls `hydrate!` by
-  hand would route around it the same way. These tests therefore go through
-  `registry/register-xray-handlers!` + `mount/ensure-xray-frame!` — the
-  same walk a real page load performs — and never call `hydrate!`
-  themselves.
-
-  ## The error listener is a TEST observer, not an Xray listener
-
-  `rf.error-emit/register-error-listener!` below is registered BY THE TEST
-  to observe the always-on error channel, the same way the framework's
-  own `*_conformance` suites use it. It is emphatically NOT Xray
-  registering an `:errors` listener: Xray does not
-  populate that registry (it rides the dev-only trace axis), and nothing
-  here changes Xray's production posture. The observer exists so the
-  console-error regression has a cheap node-test lever instead of only
-  the expensive browser gate.
-
-  Node-test has no jsdom, so this ns installs the same minimal in-memory
-  `js/window.localStorage` stub `init_filter_reset_cljs_test` uses. The
-  stub is what lets a test SEED a prior session's choices pre-boot and
-  then assert they survive into app-db."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  Node-test has no jsdom, so this ns installs a minimal in-memory
+  `js/window.localStorage` stub, which lets a test seed a prior session's
+  choices before boot."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [day8.re-frame2-xray.config :as config]
@@ -105,20 +71,13 @@
 ;; boot harness
 ;; -------------------------------------------------------------------------
 
-(defn- register-handlers!
-  "Orchestrator time ONLY — the phase in which `panel/install!` (and so
-  its eager `hydrate!` call) runs. Deliberately stops short of
-  `ensure-xray-frame!` so the tests can observe this phase on its own."
-  []
-  (registry/register-xray-handlers!))
-
 (defn- boot!
-  "The full production boot: register the handlers, then run
+  "The full production boot: register the handlers (orchestrator time,
+  where `panel/install!`'s eager `hydrate!` runs), then
   `ensure-xray-frame!`, which registers `:rf/xray` and walks the
-  first-mount hook table. Never calls `hydrate!` directly — landing the
-  restore is precisely what is under test."
+  first-mount hook table."
   []
-  (register-handlers!)
+  (registry/register-xray-handlers!)
   (mount/ensure-xray-frame!))
 
 (defn- frame-sub [q]
@@ -149,119 +108,26 @@
 (def ^:private prior-sub-modes {:checkout.flow/payment :sim
                                 :auth/login            :instances})
 
-(defn- seed-prior-session! []
+;; -------------------------------------------------------------------------
+;; tests
+;; -------------------------------------------------------------------------
+
+(deftest persisted-slots-restore-on-boot-without-a-refusal
   (persistence/save-selected-id! prior-selection)
-  (persistence/save-sub-mode-by-id! prior-sub-modes))
-
-;; -------------------------------------------------------------------------
-;; (1) THE ACCEPTANCE — the persisted selection restores after a reload
-;; -------------------------------------------------------------------------
-
-(deftest persisted-selection-restores-after-reload
-  (testing "a machine selected in a prior session is the
-            selected machine after the next boot. A refused and dropped
-            hydrate would bring this slot up nil on every reload — a
-            user-visible loss."
-    (seed-prior-session!)
-    ;; Precondition asserted against localStorage, NOT a pre-boot
-    ;; subscribe: subscribing before `:rf/xray` exists is itself a
-    ;; recover-but-emit `:rf.error/frame-destroyed`, which would put a
-    ;; refusal of our own making on the channel the tests below observe.
-    (is (= prior-selection (persistence/load-selected-id))
-        "precondition: the prior session's choice is in storage, and no
-         frame exists yet to have hydrated it")
+  (persistence/save-sub-mode-by-id! prior-sub-modes)
+  (let [seen (capture-errors!)]
     (boot!)
-    (is (= prior-selection
-           (frame-sub [:rf.xray.static.machines/selected-id]))
-        "the prior session's selection IS restored on the real production
-         boot path — WITHOUT the test calling hydrate! itself")))
+    (is (= [prior-selection prior-sub-modes]
+           [(frame-sub [:rf.xray.static.machines/selected-id])
+            (frame-sub [:rf.xray.static.machines/sub-mode-by-id])])
+        "both slots restore on the production boot path")
+    (is (empty? (hydrate-refusals @seen))
+        "and neither the orchestrator-time hydrate nor the first-mount hook
+         emitted a frame-destroyed refusal")))
 
-(deftest persisted-sub-mode-map-restores-after-reload
-  (testing "the per-machine sub-mode map restores with the
-            selection; both slots ride the one hydrate event"
-    (seed-prior-session!)
-    (boot!)
-    (is (= prior-sub-modes
-           (frame-sub [:rf.xray.static.machines/sub-mode-by-id]))
-        "the whole {machine-id sub-mode} map is restored")
-    (is (= :sim
-           (frame-sub [:rf.xray.static.machines/sub-mode
-                       :checkout.flow/payment]))
-        "the effective sub-mode for the restored machine resolves to the
-         persisted :sim, not the :topology default")))
-
-(deftest restore-survives-a-second-boot
-  (testing "the hook is re-entrant: a second
-            `ensure-xray-frame!` for the same frame-id (the popout! path)
-            leaves the restored slots intact"
-    (seed-prior-session!)
-    (boot!)
-    (mount/ensure-xray-frame!)
-    (is (= prior-selection
-           (frame-sub [:rf.xray.static.machines/selected-id]))
-        "selection unchanged by the second call")
-    (is (= prior-sub-modes
-           (frame-sub [:rf.xray.static.machines/sub-mode-by-id]))
-        "sub-mode map unchanged by the second call")))
-
-;; -------------------------------------------------------------------------
-;; (2) THE CONSOLE ERROR — boot emits no frame-destroyed refusal
-;; -------------------------------------------------------------------------
-
-(deftest orchestrator-time-install-emits-no-refusal
-  (testing "registering the Xray handlers BEFORE any frame
-            exists must not emit a promoted `:rf.error/frame-destroyed` —
-            an unguarded hydrate would emit one per Xray-preloaded dev page
-            load."
-    (seed-prior-session!)
-    (let [seen (capture-errors!)]
-      (register-handlers!)
-      (is (empty? (hydrate-refusals @seen))
-          "no frame-destroyed refusal attributable to the Static Machines
-           hydrate — the frame guard makes the pre-mount call a clean
-           no-op instead of a dropped dispatch"))))
-
-(deftest full-boot-emits-no-refusal
-  (testing "and the same holds across the whole boot, so the
-            refusal is not merely moved to the first-mount hook"
-    (seed-prior-session!)
-    (let [seen (capture-errors!)]
-      (boot!)
-      (is (empty? (hydrate-refusals @seen))
-          "no frame-destroyed refusal anywhere in the boot sequence")
-      (is (= prior-selection
-             (frame-sub [:rf.xray.static.machines/selected-id]))
-          "and the restore still landed — silence here is not the dispatch
-           having been deleted"))))
-
-;; -------------------------------------------------------------------------
-;; (3) the empty-storage case stays quiet
-;; -------------------------------------------------------------------------
-
-(deftest nothing-persisted-boots-clean-and-quiet
-  (testing "a first-ever load (both slots empty) leaves the
-            slots at their registry defaults and dispatches nothing. Xray
-            inspects the trace ring it would otherwise be writing a
-            no-op boot event into."
-    (is (nil? (persistence/load-selected-id))
-        "precondition: the fixture cleared the selection slot")
-    (let [seen (capture-errors!)]
-      (boot!)
-      (is (nil? (frame-sub [:rf.xray.static.machines/selected-id]))
-          "no selection — registry default")
-      (is (= {} (frame-sub [:rf.xray.static.machines/sub-mode-by-id]))
-          "no sub-modes — registry default empty map")
-      (is (empty? (hydrate-refusals @seen))
-          "and nothing was refused"))))
-
+;; The guard is `either slot has content`, not `selection is present`.
 (deftest sub-mode-only-slot-still-restores
-  (testing "the two slots are independent: a persisted
-            sub-mode map with NO selection still hydrates (the guard is
-            `either slot has content`, not `selection is present`)"
-    (persistence/save-sub-mode-by-id! prior-sub-modes)
-    (boot!)
-    (is (nil? (frame-sub [:rf.xray.static.machines/selected-id]))
-        "no selection was persisted, so none is restored")
-    (is (= prior-sub-modes
-           (frame-sub [:rf.xray.static.machines/sub-mode-by-id]))
-        "the sub-mode map restores on its own")))
+  (persistence/save-sub-mode-by-id! prior-sub-modes)
+  (boot!)
+  (is (= prior-sub-modes
+         (frame-sub [:rf.xray.static.machines/sub-mode-by-id]))))
