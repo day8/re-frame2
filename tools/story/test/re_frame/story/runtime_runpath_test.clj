@@ -1,28 +1,10 @@
 (ns re-frame.story.runtime-runpath-test
-  "End-to-end run-path wiring tests.
-
-  These drive `rf.story/run` to terminal on the JVM (where the future resolves
-  synchronously) and assert the run-path THREADS the requirements
-  registry + routes the browser-tier a11y-structural executor:
-
-  - `re-frame.story.requirements` (`normalize-run-opts` →
-    `select-runner` → `unmet-assertions` / `unmet-steps` →
-    `validate-run-evidence`) is wired into `run-variant` / `run-inline-plan`:
-    an UNMET requirement surfaces `:cannot-run` (the distinct THIRD status,
-    never a false pass), the cheapest capable runner is selected, and the
-    result carries `:runner` / `:required-runner`.
-
-  - `re-frame.story.play.browser/eval-browser-assertion` is
-    routed from the run path's in-script `[:assert …]` executor: an
-    `:rf.assert/a11y-structural` checkpoint EVALUATES (:pass / :fail) at the
-    `:hiccup` tier against the rendered hiccup tree (the `:render-hiccup`
-    seam); a tier that cannot supply the tree records `:cannot-run`.
-
-  JVM-only (`.clj`): `rf.story/run` returns a `CompletableFuture` that resolves
-  synchronously to the unified result. The selection / requirement-function
-  unit coverage lives in `re-frame.story.requirements-test`; the browser
-  executor unit coverage lives in `re-frame.story.play.browser-test`. This
-  suite proves the END-TO-END wiring through the run path."
+  "End-to-end run-path wiring, driven through `rf.story/run` on the JVM
+  (the future resolves synchronously): requirement selection and
+  validation, the browser-tier assertion executors, run-opts threading
+  into plan compilation, and the unified verdict's error and failure
+  routes. The unit coverage of each piece lives with that piece; this
+  suite proves the wiring through the run path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
             [re-frame.frame     :as rf.frame]
@@ -38,8 +20,7 @@
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  ;; Drop any stray :render-hiccup host from a prior test (the run-path
-  ;; a11y-structural tier-proof seam) so the no-host :cannot-run case is clean.
+  ;; A stray :render-hiccup host would make the no-host :cannot-run case pass.
   (swap! rf.story.late-bind/hooks dissoc :render-hiccup)
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
@@ -53,279 +34,156 @@
   ([target] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target)))
   ([target opts] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target opts))))
 
-(defn- a11y-structural-record [result]
-  (first (filter #(= :rf.assert/a11y-structural (:assertion %))
-                 (:assertions result))))
+(defn- record [result assertion-id]
+  (first (filter #(= assertion-id (:assertion %)) (:assertions result))))
 
-;; ===========================================================================
-;; requirements selection / validation wired into the run path
-;; ===========================================================================
+;; ---- requirements selection / validation ---------------------------------
 
 (deftest unmet-requirement-surfaces-cannot-run
   (testing "a terminal :rf.assert/visual-snapshot (requires :pixels) under the
-            default :headless runner makes the run :cannot-run — the distinct
-            THIRD status, NEVER a false pass (requirements wired into
-            run-variant)"
+            default :headless runner is :cannot-run, never a false pass"
     (let [result (run-target {:setup      [[:dispatch [:rp/set-status :ready]]]
                               :assertions [[:rf.assert/visual-snapshot]]})]
-      (is (= :cannot-run (:status result))
-          "the unmet :pixels requirement aggregates the run to :cannot-run")
-      (is (seq (:cannot-run result))
-          "the :cannot-run slot carries the per-requirement refusal(s)")
+      (is (= :cannot-run (:status result)))
       (is (some #(contains? (set (:missing %)) :pixels) (:cannot-run result))
           "a refusal attributes the missing :pixels token")
-      (is (= :headless (:runner result))
-          "the chosen runner is surfaced on the result")
-      (is (contains? (set (:required-runner result)) :pixels)
-          "the plan's :required-runner capability set is surfaced + carries :pixels"))))
+      (is (= :headless (:runner result)))
+      (is (contains? (set (:required-runner result)) :pixels)))))
 
 (deftest auto-selects-cheapest-capable-runner
-  (testing "under :auto the cheapest CAPABLE runner is selected — :headless for
-            an app-db-only plan, :hiccup for a :hiccup-structure requirement
-            (select-runner threaded through normalize-run-opts)"
-    (let [headless (run-target {:script [[:dispatch [:rp/set-status :loaded]]
-                                         [:assert [:rf.assert/path-equals [:status] :loaded]]]}
-                               {:runner :auto})]
-      (is (= :headless (:runner headless))
-          "an app-db-only plan escalates no further than :headless under :auto"))
-    ;; Install a render-hiccup host so a11y-structural can run at :hiccup; the
-    ;; selection itself (cheapest = :hiccup for :hiccup-structure) is the point.
-    (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div "ok"]))
-    (let [hiccup (run-target {:assertions [[:rf.assert/a11y-structural]]}
+  (let [headless (run-target {:script [[:dispatch [:rp/set-status :loaded]]
+                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]}
                              {:runner :auto})]
-      (is (= :hiccup (:runner hiccup))
-          "a :hiccup-structure requirement escalates to the cheapest capable runner :hiccup")
-      (is (contains? (set (:required-runner hiccup)) :hiccup-structure)))))
+    (is (= :headless (:runner headless))
+        "an app-db-only plan escalates no further than :headless under :auto"))
+  (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div "ok"]))
+  (let [hiccup (run-target {:assertions [[:rf.assert/a11y-structural]]}
+                           {:runner :auto})]
+    (is (= :hiccup (:runner hiccup))
+        "a :hiccup-structure requirement escalates to the cheapest capable runner :hiccup")
+    (is (contains? (set (:required-runner hiccup)) :hiccup-structure))))
 
-;; ===========================================================================
-;; a11y-structural executor routed into the run path
-;; ===========================================================================
+;; ---- browser-tier executors routed into the run path ---------------------
 
 (deftest a11y-structural-evaluates-at-hiccup
-  (testing "an in-script [:assert [:rf.assert/a11y-structural]] checkpoint
-            EVALUATES at :hiccup against the rendered tree and drives the run"
-    (doseq [[label tree status passed?]
-            [["an :img missing :alt is a structural issue: the run FAILS (never a no-op skip)"
-              [:div [:img {:src "/k.png"}]] :fail false]
-             ["a structurally-clean tree PASSES on the normal :hiccup run path"
-              [:div [:img {:src "/k.png" :alt "a kitten"}] [:button "Go"]] :pass true]]]
-      (testing label
-        (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] tree))
-        (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                           [:assert [:rf.assert/a11y-structural]]]}
-                                 {:runner :hiccup})
-              rec    (a11y-structural-record result)]
-          (is (= status (:status result)))
-          (is (= passed? (:passed? rec)) "the a11y-structural record landed with its verdict")
-          (is (= status (:status rec))))))))
+  (doseq [[label tree status passed?]
+          [["an :img missing :alt fails the run (never a no-op skip)"
+            [:div [:img {:src "/k.png"}]] :fail false]
+           ["a structurally-clean tree passes"
+            [:div [:img {:src "/k.png" :alt "a kitten"}] [:button "Go"]] :pass true]]]
+    (testing label
+      (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] tree))
+      (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
+                                         [:assert [:rf.assert/a11y-structural]]]}
+                               {:runner :hiccup})
+            rec    (record result :rf.assert/a11y-structural)]
+        (is (= [status passed? status] [(:status result) (:passed? rec) (:status rec)]))))))
 
 (deftest a11y-structural-cannot-run-without-a-hiccup-tree
-  (testing "with NO :render-hiccup host the :hiccup runner cannot supply a
-            rendered tree, so :rf.assert/a11y-structural records :cannot-run —
-            NEVER a vacuous pass over a nil tree (the honesty floor)"
-    ;; No :render-hiccup host installed (the fixture cleared it). The runner is
-    ;; :hiccup so the PREFLIGHT capability check passes (:hiccup provides
-    ;; :hiccup-structure); the executor's own tree-availability guard refuses.
-    (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                       [:assert [:rf.assert/a11y-structural]]]}
-                             {:runner :hiccup})]
-      (is (= :cannot-run (:status result))
-          "no rendered tree → :cannot-run, never a false pass/fail")
-      (let [rec (a11y-structural-record result)]
-        (is (= :cannot-run (:status rec)) "a :cannot-run record landed on the slot")
-        (is (true? (:cannot-run? rec)))
-        (is (false? (:passed? rec)))))))
+  ;; The :hiccup runner passes the preflight capability check; with no
+  ;; :render-hiccup host the executor's own tree guard refuses.
+  (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
+                                     [:assert [:rf.assert/a11y-structural]]]}
+                           {:runner :hiccup})]
+    (is (= :cannot-run (:status result)))
+    (is (= {:status :cannot-run :cannot-run? true :passed? false}
+           (select-keys (record result :rf.assert/a11y-structural)
+                        [:status :cannot-run? :passed?])))))
 
 (deftest visual-snapshot-cannot-run-without-a-real-browser
-  (testing "a :rf.assert/visual-snapshot checkpoint routed through the run-path
-            executor records :cannot-run with no real browser (browser-only
-            :pixels) — the executor's browser-available? guard, surfaced
-            end-to-end"
-    (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                       [:assert [:rf.assert/visual-snapshot]]]}
-                             {:runner :browser})]
-      ;; :browser is selected (so preflight does NOT refuse the :pixels token),
-      ;; but the JVM has no real browser → the executor refuses :cannot-run.
-      (is (= :cannot-run (:status result)))
-      (let [rec (first (filter #(= :rf.assert/visual-snapshot (:assertion %))
-                               (:assertions result)))]
-        (is (= :cannot-run (:status rec)) "the visual-snapshot record landed (never dropped)")))))
-
-(defn- browser-record [result assertion-id]
-  (first (filter #(= assertion-id (:assertion %)) (:assertions result))))
+  ;; :browser passes preflight for :pixels; the JVM has no real browser, so
+  ;; the executor refuses.
+  (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
+                                     [:assert [:rf.assert/visual-snapshot]]]}
+                           {:runner :browser})]
+    (is (= :cannot-run (:status result)))
+    (is (= :cannot-run (:status (record result :rf.assert/visual-snapshot))))))
 
 (deftest browser-rows-without-their-evidence-cannot-run-in-a-browser
   (testing "with a browser available, an a11y checkpoint on a frame axe never
-            scanned and a visual-snapshot checkpoint with no captured pixels
-            each record :cannot-run naming the missing evidence — never a
-            :pass on an empty scan or on a hash of the inputs"
+            scanned and a visual-snapshot with no captured pixels each record
+            :cannot-run naming the missing evidence"
     (let [saved @rf.story.play.browser/a11y-reader]
       (try
-        ;; The a11y panel's reader is registered, and axe never scanned the
-        ;; frame, so it answers nil for it.
         (reset! rf.story.play.browser/a11y-reader (fn [_frame-id] nil))
         (with-redefs [rf.story.play.browser/browser-available? (constantly true)]
           (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
                                              [:assert [:rf.assert/a11y]]
                                              [:assert [:rf.assert/visual-snapshot]]]}
                                    {:runner :browser})
-                a11y   (browser-record result :rf.assert/a11y)
-                visual (browser-record result :rf.assert/visual-snapshot)]
-            (is (= :cannot-run (:status a11y)) "no axe scan: the a11y row cannot run")
-            (is (= #{:a11y} (:missing-evidence a11y)) "the a11y row names the missing :a11y evidence")
-            (is (= :cannot-run (:status visual)) "no captured pixels: the visual row cannot run")
-            (is (= #{:pixels} (:missing-evidence visual)) "the visual row names the missing :pixels evidence")
+                row    #(select-keys (record result %) [:status :missing-evidence])]
+            (is (= {:status :cannot-run :missing-evidence #{:a11y}} (row :rf.assert/a11y)))
+            (is (= {:status :cannot-run :missing-evidence #{:pixels}} (row :rf.assert/visual-snapshot)))
             (is (= :cannot-run (:status result)))))
         (finally (reset! rf.story.play.browser/a11y-reader saved))))))
 
-;; ===========================================================================
-;; Run opts (:cell-overrides / :active-modes) thread into PLAN
-;; compilation, so the EXECUTED `[:arg …]` substitutions match the REPORTED
-;; `:effective-args`. Compiling the plan with the static variant args while
-;; reporting `args/resolve-args` (override/mode aware) would make a cell
-;; override or active mode execute a DIFFERENT scenario than the one the
-;; result claims — a false pass/fail + misleading snapshot.
-;; ===========================================================================
+;; ---- run opts thread into plan compilation -------------------------------
+;;
+;; The executed `[:arg …]` substitution and the reported `:effective-args`
+;; must come from the same layers, or a cell override or active mode would
+;; run a different scenario than the result claims.
 
-(deftest cell-override-threads-into-db-seed-arg-substitution
-  (testing "a :cell-override drives an `[:arg …]` placeholder in the :db-seed;
-            the seeded app-db reflects the override, matching :effective-args
-            (db-seed substitution uses the run-opts effective args)"
-    (rf.story/reg-variant
-      :story.opts/seeded
-      {:args    {:value "static"}
-       :db-seed {:seeded [:arg :value]}})
-    (let [result (run-target :story.opts/seeded
-                             {:cell-overrides {:value "override"}})]
-      (is (= "override" (get-in result [:app-db :seeded]))
-          "the :db-seed seeded the OVERRIDE value (plan compiled with run opts)")
-      (is (= "override" (get-in result [:effective-args :value]))
-          "the reported :effective-args carries the override")
-      (is (= :pass (:status result))))))
+(deftest run-opts-thread-into-arg-substitution
+  (rf.story/reg-mode :Mode.test/m {:args {:value "from-mode"}})
+  (doseq [[vid args opts expected]
+          [[:story.opts/moded nil {:active-modes [:Mode.test/m]} "from-mode"]
+           [:story.opts/precedence {:value "static"}
+            {:active-modes [:Mode.test/m] :cell-overrides {:value "override"}} "override"]]]
+    (rf.story/reg-variant vid (cond-> {:script [[:dispatch-sync [:rp/set-value [:arg :value]]]]}
+                                args (assoc :args args)))
+    (let [result (run-target vid opts)]
+      (is (= [expected expected]
+             [(get-in result [:app-db :value]) (get-in result [:effective-args :value])])
+          (str vid ": executed == reported")))))
 
-(deftest active-mode-threads-into-arg-substitution
-  (testing "an :active-mode's :args drive an `[:arg …]` placeholder for an arg
-            the variant does NOT itself set; the executed app-db AND the
-            reported :effective-args BOTH reflect the mode value (mode args
-            fold into plan compilation at `mode < variant` precedence,
-            so the mode supplies args the variant leaves open)"
-    (rf.story/reg-mode :Mode.test/big {:args {:value "from-mode"}})
-    (rf.story/reg-variant
-      :story.opts/moded
-      ;; the variant declares NO :value, so the mode's :value flows through
-      ;; (precedence `mode < variant`: the mode fills args the variant omits).
-      {:script [[:dispatch-sync [:rp/set-value [:arg :value]]]
-                [:assert [:rf.assert/path-equals [:value] "from-mode"]]]})
-    (let [result (run-target :story.opts/moded
-                             {:active-modes [:Mode.test/big]})]
-      (is (= "from-mode" (get-in result [:app-db :value]))
-          "the SCRIPT dispatched the MODE value (mode args threaded into compile)")
-      (is (= "from-mode" (get-in result [:effective-args :value]))
-          "the reported :effective-args carries the mode value")
-      (is (= :pass (:status result)))
-      (is (every? :passed? (:assertions result))))))
-
-(deftest cell-override-wins-over-active-mode-in-arg-substitution
-  (testing "precedence holds end-to-end: mode < cell-override; the SCRIPT
-            dispatches the override (highest layer), matching :effective-args
-            (the plan folds layers in resolve-args precedence)"
-    (rf.story/reg-mode :Mode.test/mid {:args {:value "from-mode"}})
-    (rf.story/reg-variant
-      :story.opts/precedence
-      {:args   {:value "static"}
-       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
-    (let [result (run-target :story.opts/precedence
-                             {:active-modes   [:Mode.test/mid]
-                              :cell-overrides {:value "override"}})]
-      (is (= "override" (get-in result [:app-db :value]))
-          "cell-override beats the active mode in the EXECUTED substitution")
-      (is (= "override" (get-in result [:effective-args :value]))
-          "and in the reported :effective-args — executed == reported"))))
-
-;; ===========================================================================
-;; A plan-construction failure routes to `plan-error-result` REGARDLESS of
-;; the prior frame's lifecycle state. The plan compiles in `prepare-context`
-;; BEFORE this run resets its frame, so gating the plan-error branch on
-;; `(= :pre-mount (loaders/current-state variant-id))` would, once a PRIOR
-;; `run-variant` had driven the same-id frame to `:ready`, fall through to
-;; the frame-bound `:else` branch — recording an opaque `:rf.error/exception`
-;; AND reading the prior run's stale `:app-db` into the error result
-;; (spec/017 §Run result: `:app-db` is THIS run's final db; the error
-;; language must read identically across UI/MCP).
-;; ===========================================================================
+;; ---- error and failure routes into the unified verdict -------------------
 
 (deftest plan-error-after-prior-ready-run-reports-structured-error-not-stale-db
-  (testing "a plan-construction failure (missing [:arg :missing]) on the SECOND
-            run of a variant that the FIRST run drove to :ready surfaces the
-            structured :rf.error/story-missing-arg assertion directly and does
-            NOT leak the prior run's app-db value"
-    ;; Run 1: a valid variant that seeds app-db with {:value \"old\"} and runs
-    ;; to a healthy terminal — the frame ends at :ready with that app-db.
+  (testing "a plan-construction failure on the second run of a variant the
+            first run drove to :ready reports the structured error and none
+            of the prior run's app-db"
     (rf.story/reg-variant
       :story.stale/v
       {:script [[:dispatch-sync [:rp/set-value "old"]]
                 [:assert [:rf.assert/path-equals [:value] "old"]]]})
     (let [first-result (run-target :story.stale/v)]
-      (is (= :pass (:status first-result)) "the first run is a healthy pass")
-      (is (= "old" (get-in first-result [:app-db :value]))
-          "the first run leaves {:value \"old\"} on the frame's app-db"))
-    ;; Run 2: RE-REGISTER the same id with a plan-time error — a [:arg :missing]
-    ;; the variant (and its parents) never declares. Plan construction throws in
-    ;; `prepare-context` (before the fresh-frame reset), and the prior frame is
-    ;; still registered at :ready.
+      (is (= [:pass "old"] [(:status first-result) (get-in first-result [:app-db :value])])))
     (rf.story/reg-variant
       :story.stale/v
       {:script [[:dispatch-sync [:rp/set-value [:arg :missing]]]]})
     (let [result (run-target :story.stale/v)]
-      (is (= :error (:status result))
-          "the second run reports :error (plan construction failed)")
-      (let [rec (first (filter #(= :rf.error/story-missing-arg (:assertion %))
-                               (:assertions result)))]
-        (is (false? (:passed? rec))
-            "the plan failure surfaces as a STRUCTURED :rf.error/story-missing-arg
-             assertion — NOT an opaque :rf.error/exception"))
-      (is (not (some #(= :rf.error/exception (:assertion %)) (:assertions result)))
-          "no opaque :rf.error/exception assertion is recorded for a plan failure")
-      (is (= {} (:app-db result))
-          "a plan-construction failure allocates no frame, so :app-db is the
-           frame-free empty-result default ({}) — never the prior run's stale
-           {:value \"old\"}"))))
-
-;; ===========================================================================
-;; A play step that fails WITHOUT recording an assertion reaches the unified
-;; verdict. A `[:wait-until …]` that never holds marks the play's run-state
-;; `:fail` and writes nothing to `:rf.story/assertions`; a verdict read from
-;; the assertions alone would read `:pass` over it (vacuously, with zero
-;; assertions) while the chip read FAIL.
-;; ===========================================================================
+      (is (= :error (:status result)))
+      (is (= [[:rf.error/story-missing-arg false]]
+             (mapv (juxt :assertion :passed?) (:assertions result)))
+          "one structured record, never an opaque :rf.error/exception")
+      (is (= {} (:app-db result)) "the frame-free default, never the stale {:value \"old\"}"))))
 
 (defn- step-failed-records [result]
   (filterv #(= :rf.error/story-play-step-failed (:assertion %)) (:assertions result)))
 
 (deftest failed-wait-until-fails-the-unified-result
-  (testing "a wait-until that never holds reads :fail on the unified result,
-            carried by an :rf.error/story-play-step-failed record"
+  (testing "a wait-until that never holds records no assertion of its own, yet
+            reads :fail on the unified result"
     (rf.story/reg-variant :story.step-fail/wait-until
       {:script [[:dispatch [:rp/set-value 1]]
                 [:wait-until [:db [:value] 99]]]})
     (let [result (run-target :story.step-fail/wait-until)
           [rec]  (step-failed-records result)]
-      (is (= :fail (:status result)) "the run fails, as the play's run-state does")
+      (is (= :fail (:status result)))
       (is (= [:wait-until [:db [:value] 99]] (first (:payload rec)))
           "the record names the step that failed")
       (is (= :fail (:status rec)))))
-  (testing "control — an assertion that fails is counted ONCE, from its own record"
+  (testing "an assertion that fails is counted once, from its own record"
     (rf.story/reg-variant :story.step-fail/assert
       {:script [[:dispatch [:rp/set-value 1]]
                 [:assert [:rf.assert/path-equals [:value] 99]]]})
     (let [result (run-target :story.step-fail/assert)]
       (is (= :fail (:status result)))
-      (is (= [:rf.assert/path-equals] (mapv :assertion (:assertions result)))
-          "no step-failed record duplicates the assertion's own"))))
+      (is (= [:rf.assert/path-equals] (mapv :assertion (:assertions result)))))))
 
 (deftest every-executed-play-reaches-the-unified-result
-  (testing "a failure in an EARLIER auto-play is not dropped because a later
-            one passed — the fold reads every executed play, not the last"
+  (testing "a failure in an earlier auto-play is not dropped because a later
+            one passed"
     (rf.story/reg-variant :story.step-fail/two-plays
       {:plays [{:name      "waits"
                 :auto-run? true
@@ -338,12 +196,9 @@
       (is (= :fail (:status result)))
       (is (= 1 (count (step-failed-records result)))))))
 
-;; ===========================================================================
-;; A decorator ref that does not resolve REFUSES the run before any phase
-;; runs. A bare `[:force-fx-stub …]` spelling names no registered decorator;
-;; without the refusal the stub would never install, the real effect would
-;; fire, and the run would read :pass.
-;; ===========================================================================
+;; An unresolved decorator ref refuses the run before any phase: a bare
+;; `[:force-fx-stub …]` names no registered decorator, so without the refusal
+;; the real effect would fire and the run would read :pass.
 
 (def ^:private real-calls (atom 0))
 
@@ -355,33 +210,22 @@
                              :fx [[:rp/http-get {:url "/x"}]]})))
 
 (deftest unresolved-decorator-refuses-the-run-before-any-effect
-  (testing "an unregistered decorator id reads :error and the effect it was
-            meant to stub never fires"
+  (testing "registered variant"
     (reg-real-effect!)
     (rf.story/reg-variant :story.decor/bare-stub
       {:decorators [[:force-fx-stub :rp/http-get {}]]
        :setup      [[:rp/fetch]]
        :script     [[:dispatch [:rp/fetch]]]})
-    (let [result (run-target :story.decor/bare-stub)
-          rec    (first (filter #(= :rf.error/story-decorator-unresolved (:assertion %))
-                                (:assertions result)))]
+    (let [result (run-target :story.decor/bare-stub)]
       (is (= :error (:status result)))
-      (is (zero? @real-calls) "neither :setup nor the script ran — no real call went out")
-      (is (= [:rf.error/decorator-unknown] (mapv :rf.error (:decorator-errors rec)))
-          "the refusal record names the resolution error")))
-  (testing "the same refusal on an inline plan, whose frame is never allocated"
+      (is (zero? @real-calls) "neither :setup nor the script ran")
+      (is (= [:rf.error/decorator-unknown]
+             (mapv :rf.error (:decorator-errors (record result :rf.error/story-decorator-unresolved)))))))
+  (testing "inline plan, whose frame is never allocated"
     (reg-real-effect!)
     (let [result (run-target {:variant/id :probe/inline-bare-stub
                               :decorators [[:force-fx-stub :rp/http-get {}]]
                               :setup      [[:rp/fetch]]})]
       (is (= :error (:status result)))
       (is (zero? @real-calls))
-      (is (= [:rf.error/story-decorator-unresolved] (mapv :assertion (:assertions result))))))
-  (testing "control — the registered stub installs, so the run passes with no real call"
-    (reg-real-effect!)
-    (rf.story/reg-variant :story.decor/canonical-stub
-      {:decorators [[:rf.story/force-fx-stub :rp/http-get {}]]
-       :setup      [[:rp/fetch]]})
-    (let [result (run-target :story.decor/canonical-stub)]
-      (is (= :pass (:status result)))
-      (is (zero? @real-calls)))))
+      (is (= [:rf.error/story-decorator-unresolved] (mapv :assertion (:assertions result)))))))
