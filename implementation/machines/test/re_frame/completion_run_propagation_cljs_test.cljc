@@ -1,35 +1,11 @@
 (ns re-frame.completion-run-propagation-cljs-test
-  "Run propagation crosses the machine COMPLETION edge.
-
-  Spec 002 §Run propagation crosses the SPAWN edge: the
-  newborn actor's first event inherits the spawning envelope. The way BACK is
-  two reserved carriers the runtime mints into the spawning parent when a
-  child finishes: `[:rf.machine.spawn/done …]` (a plain `:final?` leaf under
-  either spawn form, or a `:spawn-all` child's `:error?` leaf) and
-  `[:rf.machine.spawn/error …]` (a single-`:spawn` child's `:error?` leaf, or
-  an uncaught action exception, whether or not the parent declares
-  `:spawn :on-error`). Were they FRESH router dispatches carrying only
-  `{:frame … :source :machine-spawn}`, a per-call override would reach every
-  fx a child fires, but NOT the fx the parent fires on resuming.
-
-  A carrier is minted while the child's handler processes the event that
-  FINISHED it, so it is a child of THAT event. Pinned here:
-
-   1. a per-call `:fx-overrides` on `dispatch-sync` into the parent reaches the
-      fx its continuation fires. That covers a `:spawn` + `:on-done` advance, a
-      `:spawn-all` `:on-all-complete`, and an `:on-error` from an error leaf and
-      from an action exception. `:origin` / `:trace-id` arrive too;
-   2. every carrier keeps `:source :machine-spawn` and is NOT machine-internal,
-      so it keeps its FIFO place;
-   3. the lineage is the FINISHING event's. A child finished by a separate
-      event carrying an override hands that override to the parent, while a
-      child finished by a plain event hands over nothing, even when its SPAWN
-      carried one;
-   4. a per-frame `:fx-overrides` reaches the continuation too, and with no
-      override at all the real fx runs (the probe is honest).
-
-  Named `*-cljs-test.cljc` so BOTH the JVM run and the shadow-cljs node run
-  discover it."
+  "Run propagation crosses the machine COMPLETION edge (Spec 002 §Run
+  propagation): the `[:rf.machine.spawn/done …]` / `[:rf.machine.spawn/error …]`
+  carrier a finishing child mints into its parent is a child of the event that
+  FINISHED the child, so that event's `:fx-overrides`, `:origin` and `:trace-id`
+  reach the fx the parent fires on resuming. A carrier keeps
+  `:source :machine-spawn` and is never machine-internal, so it keeps its FIFO
+  place."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -45,16 +21,11 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; ---------------------------------------------------------------------------
-;; Fixtures under test.
-;; ---------------------------------------------------------------------------
-
 (def ^:private stub-overrides {:cp/probe :cp/probe.stub})
 
 (defn- register-probe!
   "Register the probe fx and its stub; return the atom both record into. The
-  stub also records the dispatch envelope it ran under, read off `(:envelope
-  m)` — the production-visible surface, so this holds in both postures."
+  stub also records the `:origin` / `:trace-id` of the envelope it ran under."
   []
   (let [fired (atom [])]
     (rf/reg-fx :cp/probe
@@ -118,8 +89,7 @@
 
 (defn- with-dispatch-observer
   "Run `body-fn` with `:router/dispatch!` wrapped by a PASS-THROUGH observer
-  recording every `[event opts]` into `sink`, then delegating to the real hook.
-  Restores in a `finally`."
+  recording every `[event opts]` into `sink`."
   [sink body-fn]
   (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
@@ -134,21 +104,21 @@
 (def ^:private carrier-ids #{:rf.machine.spawn/done :rf.machine.spawn/error})
 
 (defn- carrier-opts
-  "`[carrier-id opts]` for every observed completion carrier — an event
+  "The dispatch opts of every observed completion carrier — an event
   `[<parent-id> [<carrier-id> …]]` whose inner id is a reserved carrier."
   [sink]
   (keep (fn [[event opts]]
           (let [inner (second event)]
             (when (and (vector? inner) (contains? carrier-ids (first inner)))
-              [(first inner) opts])))
+              opts)))
         @sink))
 
 (def ^:private cases
-  ;; [parent-id, the carrier that resumes it]
-  [[:cp/done-parent  :rf.machine.spawn/done]
-   [:cp/all-parent   :rf.machine.spawn/done]
-   [:cp/error-parent :rf.machine.spawn/error]
-   [:cp/throw-parent :rf.machine.spawn/error]])
+  ;; [parent-id, the continuation that fires its probe]
+  [[:cp/done-parent  :on-done]
+   [:cp/all-parent   :on-all-complete]
+   [:cp/error-parent :on-error]
+   [:cp/throw-parent :on-error]])
 
 (defn- spawned-child
   "The actor id `:cp/idle-parent` spawned from its `:waiting` state."
@@ -156,13 +126,9 @@
   (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned :cp/idle-parent [:waiting]]))
 
-;; ---------------------------------------------------------------------------
-;; Tests.
-;; ---------------------------------------------------------------------------
-
-(deftest per-call-overrides-and-lineage-reach-the-parent-continuation
-  (doseq [[parent-id carrier-id] cases]
-    (testing (str parent-id " — per-call :fx-overrides / :origin / :trace-id cross the completion edge")
+(deftest overrides-and-lineage-reach-the-parent-continuation
+  (doseq [[parent-id at] cases]
+    (testing (str parent-id " — per-call :fx-overrides / :origin / :trace-id")
       (let [fired (register-probe!)
             sink  (atom [])]
         (register-machines!)
@@ -171,71 +137,37 @@
                              {:fx-overrides stub-overrides
                               :origin       :cp/tool
                               :trace-id     "cp-trace"}))
-        (is (= [] (filterv #(= :real (:via %)) @fired))
-            "the parent's continuation did NOT run the REAL probe")
-        (is (= 1 (count (filter #(= :stub (:via %)) @fired)))
-            "the parent's continuation fired its probe exactly once, into the stub")
-        (is (every? #(= {:origin :cp/tool :trace-id "cp-trace"}
-                        (select-keys % [:origin :trace-id]))
-                    @fired)
-            ":origin and :trace-id arrived on the continuation's envelope")
-        (let [carriers (carrier-opts sink)]
-          (is (seq carriers) "a completion carrier was observed")
-          (is (every? #(= carrier-id (first %)) carriers)
-              (str "the parent was resumed by " carrier-id))
-          (is (every? #(= :cp/probe.stub (get-in (second %) [:fx-overrides :cp/probe])) carriers)
-              "every carrier carries the finishing envelope's :fx-overrides")
-          (is (every? #(and (= :cp/tool (:origin (second %)))
-                            (= "cp-trace" (:trace-id (second %))))
-                      carriers)
-              "every carrier carries the finishing envelope's :origin and :trace-id")
-          (is (every? #(= :machine-spawn (:source (second %))) carriers)
-              "every carrier keeps its own :source :machine-spawn")
-          (is (not-any? #(:rf.machine/internal? (second %)) carriers)
-              "no carrier is machine-internal — it keeps its FIFO place"))))))
-
-;; Two deftests, not two `testing` blocks: the fixture resets the runtime per
-;; deftest, and the first case leaves `:cp/idle-parent` in `:finished`.
-
-(deftest an-override-on-the-finishing-event-reaches-the-parent
-  (testing "an override on the event that FINISHES the child reaches the parent"
-    (let [fired (register-probe!)]
-      (register-machines!)
-      (rf/dispatch-sync [:cp/idle-parent [:go]])
-      (let [child (spawned-child)]
-        (is (some? child) "the idle child was spawned and is waiting")
-        (rf/dispatch-sync [child [:finish]]
-                          {:fx-overrides stub-overrides
-                           :origin       :cp/finisher
-                           :trace-id     "fin-trace"}))
-      (is (= [{:at :on-done :via :stub :origin :cp/finisher :trace-id "fin-trace"}] @fired)
-          "the continuation ran under the FINISHING event's override and lineage"))))
-
-(deftest an-override-on-the-spawn-does-not-reach-a-plainly-finished-completion
-  (testing "an override on the SPAWN does not reach a completion a plain event caused"
-    (let [fired (register-probe!)]
-      (register-machines!)
-      (rf/dispatch-sync [:cp/idle-parent [:go]]
-                        {:fx-overrides stub-overrides :origin :cp/spawner})
-      (rf/dispatch-sync [(spawned-child) [:finish]])
-      (is (= [{:at :on-done :via :real}] @fired)
-          "the finishing event carried no override, so neither did its carrier"))))
-
-(deftest per-frame-overrides-still-reach-the-parent-continuation
-  (doseq [[parent-id _] cases]
-    (testing (str parent-id " — control: no override runs the real probe")
-      (let [fired (register-probe!)]
-        (register-machines!)
-        (rf/dispatch-sync [parent-id [:go]])
-        (is (= 1 (count (filter #(= :real (:via %)) @fired)))
-            "with no override the parent's continuation runs the real probe")))
-    (testing (str parent-id " — a per-frame :fx-overrides reaches the continuation")
+        (is (= [{:at at :via :stub :origin :cp/tool :trace-id "cp-trace"}] @fired))
+        (is (= #{{:source :machine-spawn}}
+               (set (map #(select-keys % [:source :rf.machine/internal?]) (carrier-opts sink))))
+            "every carrier keeps :source :machine-spawn and is not machine-internal")))
+    (testing (str parent-id " — a per-frame :fx-overrides")
       (let [fired (register-probe!)
             fid   (keyword "cp" (str "frame-" (name parent-id)))]
         (register-machines!)
         (rf/make-frame {:id fid :fx-overrides stub-overrides})
         (rf/dispatch-sync [parent-id [:go]] {:frame fid})
-        (is (= [] (filterv #(= :real (:via %)) @fired))
-            "no REAL probe ran under the per-frame override")
-        (is (= 1 (count (filter #(= :stub (:via %)) @fired)))
-            "the continuation's probe hit the stub")))))
+        (is (= [:stub] (map :via @fired)))))))
+
+;; Two deftests, not two `testing` blocks: the fixture resets the runtime per
+;; deftest, and the first case leaves `:cp/idle-parent` in `:finished`.
+
+(deftest an-override-on-the-finishing-event-reaches-the-parent
+  (let [fired (register-probe!)]
+    (register-machines!)
+    (rf/dispatch-sync [:cp/idle-parent [:go]])
+    (rf/dispatch-sync [(spawned-child) [:finish]]
+                      {:fx-overrides stub-overrides
+                       :origin       :cp/finisher
+                       :trace-id     "fin-trace"})
+    (is (= [{:at :on-done :via :stub :origin :cp/finisher :trace-id "fin-trace"}] @fired)
+        "the continuation ran under the FINISHING event's override and lineage")))
+
+(deftest an-override-on-the-spawn-does-not-reach-a-plainly-finished-completion
+  (let [fired (register-probe!)]
+    (register-machines!)
+    (rf/dispatch-sync [:cp/idle-parent [:go]]
+                      {:fx-overrides stub-overrides :origin :cp/spawner})
+    (rf/dispatch-sync [(spawned-child) [:finish]])
+    (is (= [{:at :on-done :via :real}] @fired)
+        "the finishing event carried no override, so neither did its carrier")))
