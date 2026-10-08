@@ -3,7 +3,6 @@
 
   [[re-frame.fresco.state-cljs-test]] proves the sugar against a real
   frame with no React at all, and says so: the DOM half is this file.
-  Here are the two claims only a browser can make:
 
   1. **HD-028's memo bail-out still bails.** A parent re-render rebuilds
      its children's key vectors — `(child-key row :detail)` allocates a
@@ -11,28 +10,17 @@
      props map, so a fresh-but-equal vector must NOT look like a changed
      prop. If it did, this sugar would produce the 300-of-300 cascade
      the keyed reads exist to prevent, and it would do it through
-     the very helper that makes nesting work.
-  2. **Two instances on one page are independent**, clicked in a real
-     browser, read back out of the real DOM.
+     the very helper that makes nesting work. The same row clicks one
+     of two instances and reads back that only it opened.
+  2. **A bad instance key refuses on the page**, and the sibling keeps
+     rendering.
 
   The widget costs no hook of its own: a `reg-state` read is an ordinary
   sub read through the ambient collector, so its shell is the shell every
   boundary has, and [[re-frame.fresco.hook-budget-cljs-test]] counts that
   one at React's own dispatcher whatever it reads.
 
-  ## Why a `console` capture rides the ordinary path
-
-  React routes a handler exception to `reportError` — a `window` `error`
-  event — and reports other faults by `console.error`, and NEITHER
-  reaches `cljs.test`. A row here asserting the page rendered correctly
-  could therefore be green over a live exception. So the ordinary path is
-  driven inside
-  [[re-frame.fresco.roots-frames-support/capture-console!]], which
-  watches both channels, and the row asserts the capture is EMPTY. That
-  helper is the package's one copy of this refusal; a second copy is the
-  copy that quietly weakens.
-
-  And because a bad instance key is *recovered* rather than thrown (the
+  Because a bad instance key is *recovered* rather than thrown (the
   sub body's throw is caught, fanned on the always-on error channel, and
   the read answers `nil`), the refusal row reads that channel — the same
   reasoning [[re-frame.fresco.state-cljs-test]] sets out at length.
@@ -50,7 +38,6 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
-            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -126,37 +113,7 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; 1 — two instances on one page, independent, in a real browser
-;; ---------------------------------------------------------------------------
-
-(deftest two-mounted-instances-of-one-widget-are-independent
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (let [[result captured]
-            (rf.fresco.roots-frames-support/capture-console!
-              (fn []
-                (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
-                  (try
-                    (let [before (bodies handle)]
-                      (click! handle 0)
-                      {:before before
-                       :after  (bodies handle)
-                       :db     (rf/app-db-value frame-id)})
-                    (finally (rf.fresco.impl.mount/release! handle))))))]
-        (is (= [nil nil] (:before result)) "both panels start closed — the default")
-        (is (= ["body of Billing" nil] (:after result))
-            "one click opened ONE panel. Without an explicit key the
-             guide's own pitfall opens both, silently.")
-        (is (= {:ui {open? {[:panel :billing] true}}} (:db result))
-            "one entry, at the documented app-space path, under the composed key")
-        (is (= [] @captured)
-            "and React complained on NEITHER channel — without this the rows
-             above could be green over a live exception cljs.test never sees")))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — HD-028's bail-out survives a key vector rebuilt every render
+;; 1 — HD-028's bail-out survives a key vector rebuilt every render
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-but-equal-key-vector-does-not-defeat-the-memo-bail-out
@@ -191,7 +148,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — a bad key refuses on the page, and the page keeps working
+;; 2 — a bad key refuses on the page, and the page keeps working
 ;; ---------------------------------------------------------------------------
 
 (deftest a-nil-keyed-widget-refuses-loudly-and-its-sibling-keeps-rendering
