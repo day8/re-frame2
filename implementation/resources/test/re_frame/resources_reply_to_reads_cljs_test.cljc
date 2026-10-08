@@ -1,63 +1,23 @@
 (ns re-frame.resources-reply-to-reads-cljs-test
-  "Read completion continuations — call-site `:reply-to` on `:rf.resource/ensure`
-  / `:rf.resource/refetch` (EP-0016 D1 applied to reads; Spec 016
-  §Read completion continuations).
-
-  A read the runtime causes gets the SAME acceptance-keyed, exactly-once,
-  stale-suppressed completion continuation a mutation does. These JVM+CLJS unit
-  tests pin the load-bearing semantics:
-
-    1. accepted fetch — an ensure with `:reply-to` fires the target ONCE on the
-       accepted success reply, carrying the canonical reply map PLUS the
-       top-level read facts (resource id, params, scope, `:resource/key`,
-       `:cache-hit? false`) and the work identity;
-    2. fresh-skip CACHE HIT — a fresh `:loaded` entry serves the cached value and
-       the continuation dispatches IMMEDIATELY, `:cache-hit? true`, no reply
-       needed;
-    3. JOIN-IN-FLIGHT — two ensures sharing one in-flight work record each supply
-       their own `:reply-to`; the ONE accepted terminal reply fans out to BOTH
-       targets exactly once;
-    4. SUPERSESSION — a stale REPLY that no longer correlates with the live entry
-       NEVER fires the continuation (suppression is mandatory), but a superseded
-       ATTEMPT HANDS its `:reply-to` to its successor, which delivers it exactly
-       once from the fresher attempt (the hand-over goes through
-       `add-reply-target`, so a refetch repeating the same target still fires
-       once);
-    5. failure — an accepted terminal failure fires the continuation with
-       `:status :error` (so a machine learns the read it caused failed);
-    6. the `:rf.resource/replied` trace mirrors `:rf.mutation/replied`;
-    7. INFINITE feed — the fresh-skip cache-hit path and the async
-       page-succeeded fetch path deliver the SAME `:value` shape (the merged
-       `:rf.resource/items` list), never the raw page vector (cache-hit) vs a
-       single decoded page (fetch); the merged value flattens EVERY accumulated
-       page on both paths.
-
-  Harness: the `:rf.http/managed` fx is overridden with a capturing stub; the
-  reply is replayed explicitly via `reply-success!` / `reply-failure!` (the real
-  3-element internal reply event the live transport produces), so the reply
-  handlers + the accepted-reply fan-out run end-to-end. The continuation targets
-  are ordinary app events recording the appended reply."
+  "Read completion continuations: a call-site `:reply-to` on
+  `:rf.resource/ensure` / `:rf.resource/refetch` fires once per accepted
+  terminal reply (or at once on a fresh cache hit), fans out to joined
+  targets, is handed over to a superseding attempt, and is never fired by a
+  stale reply (Spec 016 §Read completion continuations)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* events +
-   ;; subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
-   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
-   ;; production HTTP fx surface (so the transport feature probe resolves); the
-   ;; actual fetch is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
    [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-;; ---- capturing transport + continuation-recording fixture ------------------
 
 (def ^:private last-managed-args (atom nil))
 (def ^:private replied (atom []))
@@ -66,13 +26,7 @@
   (reset! last-managed-args nil)
   (reset! replied [])
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  ;; capture host-side timer arming so the fresh-skip / success handlers'
-  ;; emission does not fire a real wall-clock timer.
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
-  ;; the continuation target — an ordinary app event recording the FULL event
-  ;; vector (so static-arg preservation + the appended reply are both
-  ;; observable). Every test's `:reply-to` names it (distinguished by a static
-  ;; tag arg where a test fans out to two targets).
   (rf/reg-event :test/read-replied (fn [_ event] (swap! replied conj event) {}))
   (f))
 
@@ -81,8 +35,6 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
-
-;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
@@ -94,46 +46,123 @@
 (defn- reply-failure!
   [args failure] (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
-(defn- article-spec
-  ([] (article-spec {}))
-  ([overrides]
-   (merge {:scope         :rf.scope/global
-           :params-schema [:map [:slug :string]]
-           :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
-          overrides)))
+(def ^:private article-spec
+  {:scope         :rf.scope/global
+   :params-schema [:map [:slug :string]]
+   :tags          (fn [{:keys [slug]} _data] #{[:article slug]})})
 
 (def ^:private article-request
   (fn [{:keys [slug]} _ctx] {:request {:method :get :url (str "/api/articles/" slug)}}))
 
-;; ---- infinite-feed helpers ------------------------------------------------
-;;
-;; An infinite feed's page reply settles through `page-succeeded-handler` (the
-;; async fetch path), while a fresh-skip second ensure serves cache through the
-;; `ensure-load` fresh-skip branch. Section 7 pins that BOTH deliver the SAME
-;; `:reply-to` `:value` SHAPE — the MERGED / flattened `:rf.resource/items`
-;; list — rather than the raw page vector (cache-hit) vs a single decoded page
-;; (fetch). Pages are ENVELOPED (`{:items [...] :page-info {...}}`) with a
-;; `:page->items` accessor so the merged list is unambiguously distinct from
-;; both the raw page vector and any single page.
+(def ^:private rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"}))
 
-(def ^:private feed-next
-  (fn [last-page _all-pages] (get-in last-page [:page-info :next])))
+(defn- ensure-article!
+  ([owner] (ensure-article! owner nil))
+  ([owner reply-to]
+   (rf/dispatch-sync [:rf.resource/ensure
+                      (cond-> {:resource :rr/article :scope :rf.scope/global
+                               :params {:slug "w"} :owner owner}
+                        reply-to (assoc :reply-to reply-to))])))
 
-(defn- feed-page
-  "An enveloped page: `:items` + a `:page-info` next cursor (nil ⇒ terminal)."
-  [items next-c]
+(defn- replies [] (mapv peek @replied))
+
+(deftest reply-to-fires-on-accepted-fetch-and-carries-read-facts
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a] [:test/read-replied])
+  (is (= [] @replied) "nothing fires before the read settles")
+  (reply-success! @last-managed-args {:title "Welcome"}
+                  {:rf.cofx {:rf/time-ms 1781078400777}})
+  (is (= 1 (count @replied)))
+  (let [[ev-id reply] (first @replied)]
+    (is (= :test/read-replied ev-id))
+    (is (= {:status :ok :value {:title "Welcome"} :resource :rr/article :params {:slug "w"}
+            :scope :rf.scope/global :resource/key rkey :cache-hit? false
+            :rf.reply/work-kind :resource :rf.frame/id :rf/default :completed-at 1781078400777}
+           (select-keys reply [:status :value :resource :params :scope :resource/key :cache-hit?
+                               :rf.reply/work-kind :rf.frame/id :completed-at])))
+    (is (some? (:rf.reply/work-id reply)))))
+
+(deftest reply-to-cache-hit-dispatches-immediately
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a])
+  (reply-success! @last-managed-args {:title "Cached"})
+  (reset! last-managed-args nil)
+  (ensure-article! [:view :b] [:test/read-replied])
+  (is (nil? @last-managed-args) "no request was lowered")
+  (is (= [{:status :ok :cache-hit? true :value {:title "Cached"} :resource/key rkey}]
+         (mapv #(select-keys % [:status :cache-hit? :value :resource/key]) (replies))))
+  (is (some? (:rf.reply/work-id (first (replies))))))
+
+(deftest reply-to-join-in-flight-fans-out-exactly-once
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a] [:test/read-replied :a])
+  (let [args @last-managed-args]
+    (ensure-article! [:view :b] [:test/read-replied :b])
+    (is (= args @last-managed-args) "the second ensure joined the in-flight request")
+    (reply-success! args {:title "Shared"})
+    (is (= #{[:a :ok {:title "Shared"}] [:b :ok {:title "Shared"}]}
+           (set (map (fn [[_ tag reply]] [tag (:status reply) (:value reply)]) @replied))))
+    (is (= 2 (count @replied)))))
+
+(deftest reply-to-superseded-attempt-hands-continuation-to-successor
+  ;; The stale reply delivers nothing; the continuation arrives from the
+  ;; fresher attempt, which carries no :reply-to of its own.
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a] [:test/read-replied])
+  (let [gen1-args @last-managed-args]
+    (rf/dispatch-sync [:rf.resource/refetch
+                       {:resource :rr/article :scope :rf.scope/global :params {:slug "w"}}])
+    (is (= 2 (:generation (entry rkey))))
+    (reply-success! gen1-args {:title "stale"})
+    (is (= [] @replied))
+    (reply-success! @last-managed-args {:title "fresh"})
+    (is (= [{:status :ok :value {:title "fresh"}}]
+           (mapv #(select-keys % [:status :value]) (replies))))))
+
+(deftest reply-to-superseded-hand-over-dedupes-a-repeated-target
+  ;; A refetch repeating the superseded read's target still fires once.
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a] [:test/read-replied])
+  (rf/dispatch-sync [:rf.resource/refetch
+                     {:resource :rr/article :scope :rf.scope/global
+                      :params {:slug "w"}
+                      :reply-to [:test/read-replied]}])
+  (reply-success! @last-managed-args {:title "fresh"})
+  (is (= 1 (count @replied))))
+
+(deftest reply-to-fires-on-accepted-failure
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a] [:test/read-replied])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (is (= [{:status :error :error {:kind :rf.http/http-5xx :status 503} :cache-hit? false}]
+         (mapv #(select-keys % [:status :error :cache-hit?]) (replies)))))
+
+(deftest replied-trace-emitted-for-accepted-reply
+  (rf/reg-resource :rr/article article-spec article-request)
+  (let [seen (atom [])]
+    (rf.trace.tooling/register-listener!
+      ::replied (fn [ev] (when (= :rf.resource/replied (:operation ev)) (swap! seen conj ev))))
+    (try
+      (ensure-article! [:view :a] [:test/read-replied])
+      (reply-success! @last-managed-args {:title "Welcome"})
+      (finally (rf.trace.tooling/unregister-listener! ::replied)))
+    (is (= 1 (count @seen)))
+    (let [tags (:tags (first @seen))]
+      (is (= {:status :ok :cache-hit? false} (select-keys tags [:status :cache-hit?])))
+      (is (seq (:targets tags))))))
+
+;; ---- infinite feed: the :value is the merged items list on every path -------
+
+(defn- feed-page [items next-c]
   {:items items :page-info {:next next-c}})
 
-(defn- feed-spec
-  ([] (feed-spec {}))
-  ([overrides]
-   (merge {:scope           :rf.scope/global
-           :infinite        true
-           :params-schema   [:map [:filter :keyword]]
-           :next-page-param feed-next
-           :page->items     :items
-           :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})}
-          overrides)))
+(def ^:private feed-spec
+  {:scope           :rf.scope/global
+   :infinite        true
+   :params-schema   [:map [:filter :keyword]]
+   :next-page-param (fn [last-page _all-pages] (get-in last-page [:page-info :next]))
+   :page->items     :items
+   :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})})
 
 (def ^:private feed-request
   (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
@@ -141,338 +170,39 @@
                :params (cond-> {:filter filter :page-index page-index}
                          page-param (assoc :cursor page-param))}}))
 
-(defn- feed-key [resource]
-  (rf.resources.state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
-
-(defn- ensure-feed!
-  ([resource owner] (ensure-feed! resource owner nil))
-  ([resource owner reply-to]
-   (rf/dispatch-sync [:rf.resource/ensure
-                      (cond-> {:resource resource :scope :rf.scope/global
-                               :params {:filter :recent} :owner owner}
-                        reply-to (assoc :reply-to reply-to))])))
-
-(defn- load-more-feed! [resource]
-  (rf/dispatch-sync [:rf.resource/load-more
-                     {:resource resource :scope :rf.scope/global
-                      :params {:filter :recent} :cause [:user :feed/load-more]}]))
-
-(defn- record-replied-traces!
-  "Return the vector of every `:rf.resource/replied` trace emitted while running
-  `body-fn`."
-  [body-fn]
-  (let [seen (atom [])
-        k    ::replied-trace-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.resource/replied (:operation ev))
-                   (swap! seen conj ev))))
-    (try (body-fn)
-         (finally (rf.trace.tooling/unregister-listener! k)))
-    @seen))
-
-;; ===========================================================================
-;; 1. Accepted fetch — the continuation fires once, carrying the read facts
-;; ===========================================================================
-
-(deftest reply-to-fires-on-accepted-fetch-and-carries-read-facts
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})
-        completed-at 1781078400777]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]
-                        :reply-to [:test/read-replied]}])
-    (testing "no continuation before the read settles"
-      (is (= 0 (count @replied))))
-    (reply-success! @last-managed-args {:title "Welcome"}
-                    {:rf.cofx {:rf/time-ms completed-at}})
-    (testing "the continuation fired exactly once on the accepted reply"
-      (is (= 1 (count @replied))))
-    (testing "the appended reply map carries the canonical fields + read facts"
-      (let [[ev-id reply] (first @replied)]
-        (is (= :test/read-replied ev-id))
-        (is (= :ok (:status reply)))
-        (is (= {:title "Welcome"} (:value reply)) "decoded result rides as :value")
-        (is (= :rr/article (:resource reply)))
-        (is (= {:slug "w"} (:params reply)))
-        (is (= :rf.scope/global (:scope reply)))
-        (is (= rkey (:resource/key reply)))
-        (is (false? (:cache-hit? reply)) "a fetched settle is not a cache hit")
-        (is (= :resource (:rf.reply/work-kind reply)))
-        (is (some? (:rf.reply/work-id reply)))
-        (is (= :rf/default (:rf.frame/id reply)))
-        (is (= completed-at (:completed-at reply)) "EP-0010 causal completion time")))))
-
-;; ===========================================================================
-;; 2. Fresh-skip cache hit — the continuation dispatches IMMEDIATELY
-;; ===========================================================================
-
-(deftest reply-to-cache-hit-dispatches-immediately
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
-    ;; first: load + settle so the entry is fresh :loaded (no :stale-after-ms →
-    ;; never time-stale → a later ensure is a fresh-skip cache hit).
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "Cached"})
-    (reset! last-managed-args nil)
-    (is (= :loaded (:status (entry rkey))) "entry is settled :loaded")
-    ;; second ensure — a fresh-skip cache hit with a call-site :reply-to
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :b]
-                        :reply-to [:test/read-replied]}])
-    (testing "the continuation dispatched IMMEDIATELY — no reply/fetch needed"
-      (is (nil? @last-managed-args) "no new transport request was lowered")
-      (is (= 1 (count @replied))))
-    (testing "the immediate reply is :ok, :cache-hit? true, cached value as :value"
-      (let [[_ reply] (first @replied)]
-        (is (= :ok (:status reply)))
-        (is (true? (:cache-hit? reply)))
-        (is (= {:title "Cached"} (:value reply)))
-        (is (= rkey (:resource/key reply)))
-        (is (some? (:rf.reply/work-id reply)) "cache-hit derives a work id from the entry generation")))))
-
-;; ===========================================================================
-;; 3. Join-in-flight — one accepted reply fans out to every joined target once
-;; ===========================================================================
-
-(deftest reply-to-join-in-flight-fans-out-exactly-once
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
-    ;; first ensure kicks off the load (owner A, target tagged :a)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]
-                        :reply-to [:test/read-replied :a]}])
-    (let [args @last-managed-args
-          wid  (:current-work (entry rkey))]
-      ;; second ensure JOINS the in-flight work (owner B, target tagged :b) —
-      ;; same scoped key, not force-new → dedupe/join, no new request.
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :rr/article :scope :rf.scope/global
-                          :params {:slug "w"} :owner [:view :b]
-                          :reply-to [:test/read-replied :b]}])
-      (testing "the second ensure joined (no new transport request)"
-        (is (= args @last-managed-args) "still the same in-flight args"))
-      (testing "both targets recorded on the ONE shared work record"
-        (let [rec (rf.resources.work-ledger/get-record (runtime-db) wid)]
-          (is (= 2 (count (:reply-targets rec))))))
-      ;; ONE success reply settles the shared work
-      (reply-success! args {:title "Shared"})
-      (testing "the reply fanned out to BOTH targets exactly once each"
-        (is (= 2 (count @replied)))
-        (let [tags (set (map second @replied))]
-          (is (= #{:a :b} tags) "both :a and :b fired"))
-        (doseq [[_ _ reply] @replied]
-          (is (= :ok (:status reply)))
-          (is (= {:title "Shared"} (:value reply))))))))
-
-;; ===========================================================================
-;; 4. Supersession — the stale REPLY delivers nothing, but the superseded
-;;    ATTEMPT hands its continuation to its successor
-;; ===========================================================================
-;;
-;; Spec 016 §Read completion continuations: "a superseded attempt hands its
-;; continuation to its successor". The stale reply itself delivers nothing:
-;; stale suppression is mandatory, and the continuation arrives from the
-;; FRESHER attempt, never from the superseded one, so it can never carry data
-;; older than the target expects.
-
-(deftest reply-to-superseded-attempt-hands-continuation-to-successor
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
-    ;; gen-1 ensure carries a :reply-to
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]
-                        :reply-to [:test/read-replied]}])
-    (let [gen1-args @last-managed-args
-          gen1-work (:current-work (entry rkey))]
-      ;; a forced refetch supersedes gen-1 with gen-2. gen-2 carries NO
-      ;; `:reply-to` of its own, so the ONLY target in play is the handed-over
-      ;; one — if it arrives, it arrived by the hand-over and nothing else.
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :rr/article :scope :rf.scope/global
-                          :params {:slug "w"}}])
-      (is (= 2 (:generation (entry rkey))) "gen-2 is now the live work")
-      (testing "the superseded attempt HANDED its target over, rather than copying it"
-        (let [gen2-work (:current-work (entry rkey))]
-          (is (= 1 (count (:reply-targets
-                            (rf.resources.work-ledger/get-record (runtime-db) gen2-work))))
-              "the successor record carries the handed-over continuation")
-          (is (nil? (:reply-targets
-                      (rf.resources.work-ledger/get-record (runtime-db) gen1-work)))
-              "and the superseded row no longer advertises a target it can never deliver")))
-      (testing "the STALE gen-1 reply fires nothing (stale suppression)"
-        (reply-success! gen1-args {:title "stale"})
-        (is (= 0 (count @replied)) "a superseded reply delivers nothing"))
-      (testing "the live gen-2 reply DELIVERS the handed-over continuation exactly once"
-        (reply-success! @last-managed-args {:title "fresh"})
-        (is (= 1 (count @replied)) "the continuation arrived from the fresher attempt")
-        (let [[_ reply] (first @replied)]
-          (is (= :ok (:status reply)))
-          (is (= {:title "fresh"} (:value reply))
-              "carrying the SUCCESSOR's data — never the superseded attempt's"))))))
-
-(deftest reply-to-superseded-hand-over-dedupes-a-repeated-target
-  ;; The hand-over goes through `add-reply-target` — the ONE dedupe definition —
-  ;; rather than concatenating onto the successor's own seed. A refetch that
-  ;; repeats the superseded read's target must still fire EXACTLY ONCE off the
-  ;; one settle; a naive concat would record it twice and fan out twice,
-  ;; breaking the exactly-once guarantee the delivery rule promises.
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]
-                        :reply-to [:test/read-replied]}])
-    ;; the forced refetch repeats the SAME target
-    (rf/dispatch-sync [:rf.resource/refetch
-                       {:resource :rr/article :scope :rf.scope/global
-                        :params {:slug "w"}
-                        :reply-to [:test/read-replied]}])
-    (testing "the repeated target is recorded ONCE on the successor, not twice"
-      (is (= 1 (count (:reply-targets
-                        (rf.resources.work-ledger/get-record
-                          (runtime-db) (:current-work (entry rkey))))))))
-    (testing "and it fires exactly once off the one settle"
-      (reply-success! @last-managed-args {:title "fresh"})
-      (is (= 1 (count @replied))))))
-
-;; ===========================================================================
-;; 5. Failure — an accepted terminal failure fires the continuation (:error)
-;; ===========================================================================
-
-(deftest reply-to-fires-on-accepted-failure
-  (rf/reg-resource :rr/article (article-spec) article-request)
+(defn- ensure-feed! [owner reply-to]
   (rf/dispatch-sync [:rf.resource/ensure
-                     {:resource :rr/article :scope :rf.scope/global
-                      :params {:slug "w"} :owner [:view :a]
-                      :reply-to [:test/read-replied]}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-  (testing "the continuation fired once with :status :error and the envelope"
-    (is (= 1 (count @replied)))
-    (let [[_ reply] (first @replied)]
-      (is (= :error (:status reply)))
-      (is (= {:kind :rf.http/http-5xx :status 503} (:error reply)))
-      (is (false? (:cache-hit? reply))))))
-
-;; ===========================================================================
-;; 6. Trace — :rf.resource/replied mirrors :rf.mutation/replied
-;; ===========================================================================
-
-(deftest replied-trace-emitted-for-accepted-not-for-stale
-  (rf/reg-resource :rr/article (article-spec) article-request)
-  (testing "an accepted reply emits :rf.resource/replied carrying the targets + status"
-    (let [traces (record-replied-traces!
-                   (fn []
-                     (rf/dispatch-sync [:rf.resource/ensure
-                                        {:resource :rr/article :scope :rf.scope/global
-                                         :params {:slug "w"} :owner [:view :a]
-                                         :reply-to [:test/read-replied]}])
-                     (reply-success! @last-managed-args {:title "Welcome"})))]
-      (is (= 1 (count traces)))
-      (let [tags (:tags (first traces))]
-        (is (= :ok (:status tags)))
-        (is (false? (:cache-hit? tags)))
-        (is (seq (:targets tags))))))
-  (testing "a stale/superseded reply emits NO :rf.resource/replied"
-    (reset! replied [])
-    (let [traces (record-replied-traces!
-                   (fn []
-                     (rf/dispatch-sync [:rf.resource/ensure
-                                        {:resource :rr/article :scope :rf.scope/global
-                                         :params {:slug "s"} :owner [:view :b]
-                                         :reply-to [:test/read-replied]}])
-                     (let [gen1 @last-managed-args]
-                       (rf/dispatch-sync [:rf.resource/refetch
-                                          {:resource :rr/article :scope :rf.scope/global
-                                           :params {:slug "s"}}])
-                       (reply-success! gen1 {:title "stale"}))))]
-      (is (= 0 (count traces)) "suppressed reply emits no replied trace"))))
-
-;; ===========================================================================
-;; 7. INFINITE feed — cache-hit and async fetch deliver the IDENTICAL :value
-;;    SHAPE (the merged items list), NOT page-vector (cache-hit) vs single
-;;    page (fetch).
-;; ===========================================================================
-
-(deftest infinite-reply-to-cache-hit-and-fetch-value-shape-identical
-  ;; The headline adversarial test: a single terminal enveloped page settles
-  ;; through the async page-succeeded path, then a fresh-skip ensure serves the
-  ;; SAME feed from cache. BOTH `:reply-to` `:value`s MUST be the merged items
-  ;; list — never the raw page vector (a map inside a vector) nor a single page
-  ;; (a bare map). Because both observe the identical feed state, the values
-  ;; are byte-identical (the shape must not depend on how the read settled).
-  (rf/reg-resource :cf/feed (feed-spec) feed-request)
-  (let [rkey  (feed-key :cf/feed)
-        pg    (feed-page [{:id 1} {:id 2}] nil)          ;; terminal (nil next)
-        items [{:id 1} {:id 2}]]                         ;; the merged / flattened list
-    ;; ---- async FETCH path: ensure page-0 with :reply-to, settle it --------
-    (ensure-feed! :cf/feed [:view :a] [:test/read-replied])
-    (is (= 0 (count @replied)) "no continuation before page-0 settles")
-    (is (= :rf.resource.internal/page-succeeded (first (:on-success @last-managed-args)))
-        "an infinite ensure addresses the PAGE reply handler")
-    (reply-success! @last-managed-args pg)
-    (is (= 1 (count @replied)) "the fetch continuation fired once on the page-0 settle")
-    (let [[_ fetch-reply] (first @replied)
-          fetch-value     (:value fetch-reply)]
-      (is (= :loaded (:status (entry rkey))) "feed settled :loaded")
-      (is (false? (:cache-hit? fetch-reply)) "an async page settle is not a cache hit")
-      (testing "the FETCH :value is the merged items list — not a single page, not the page vector"
-        (is (= items fetch-value)))
-      ;; ---- fresh-skip CACHE-HIT path: a second ensure serves cache ---------
-      (reset! last-managed-args nil)
-      (reset! replied [])
-      (ensure-feed! :cf/feed [:view :b] [:test/read-replied])
-      (is (nil? @last-managed-args) "fresh loaded feed served from cache — no new fetch")
-      (is (= 1 (count @replied)) "the cache-hit continuation dispatched immediately")
-      (let [[_ hit-reply] (first @replied)
-            hit-value     (:value hit-reply)]
-        (is (true? (:cache-hit? hit-reply)) "a fresh-skip is a cache hit")
-        (testing "the CACHE-HIT :value is the merged items list — not the raw page vector"
-          (is (= items hit-value)))
-        (testing "cache-hit and fetch deliver the IDENTICAL :value"
-          (is (= fetch-value hit-value)
-              "an infinite-feed :reply-to :value must not depend on cache-hit vs fetch"))))))
+                     (cond-> {:resource :cm/feed :scope :rf.scope/global
+                              :params {:filter :recent} :owner owner}
+                       reply-to (assoc :reply-to reply-to))]))
 
 (deftest infinite-reply-to-value-spans-all-pages-both-paths
-  ;; Strengthens the shape contract across a MULTI-page feed: the merged
-  ;; `:value` flattens EVERY accumulated page (not just page-0). A refetch's
-  ;; page-0 settle (async, window-preserving R6) and a fresh-skip cache hit
-  ;; both observe the full 2-page feed and deliver the same merged list.
-  (rf/reg-resource :cm/feed (feed-spec) feed-request)
-  (let [rkey     (feed-key :cm/feed)
-        page-0   (feed-page [{:id 1}] "c1")
-        page-1   (feed-page [{:id 2} {:id 3}] nil)       ;; terminal after page-1
+  ;; The page fetch path, the fresh-skip cache hit and a window-preserving
+  ;; refetch all deliver the merged items list, never a raw page or page vector.
+  (rf/reg-resource :cm/feed feed-spec feed-request)
+  (let [page-0 (feed-page [{:id 1}] "c1")
+        page-1 (feed-page [{:id 2} {:id 3}] nil)
         all-items [{:id 1} {:id 2} {:id 3}]]
-    ;; build a 2-page feed (ensure page-0 + one load-more) — no reply-to here
-    (ensure-feed! :cm/feed [:view :a] nil)
+    (ensure-feed! [:view :a] [:test/read-replied])
     (reply-success! @last-managed-args page-0)
-    (load-more-feed! :cm/feed)
+    (is (= [{:value [{:id 1}] :cache-hit? false}]
+           (mapv #(select-keys % [:value :cache-hit?]) (replies))))
+    (rf/dispatch-sync [:rf.resource/load-more
+                       {:resource :cm/feed :scope :rf.scope/global
+                        :params {:filter :recent} :cause [:user :feed/load-more]}])
     (reply-success! @last-managed-args page-1)
-    (is (= [page-0 page-1] (:data (entry rkey))) "2-page feed accumulated")
-    ;; ---- fresh-skip CACHE-HIT on the 2-page feed --------------------------
     (reset! last-managed-args nil)
     (reset! replied [])
-    (ensure-feed! :cm/feed [:view :b] [:test/read-replied])
-    (is (nil? @last-managed-args) "fresh 2-page feed served from cache")
-    (let [[_ hit-reply] (first @replied)]
-      (testing "the cache-hit :value spans BOTH pages (merged across the feed)"
-        (is (= all-items (:value hit-reply)))))
-    ;; ---- async REFETCH page-0 settle on the same 2-page feed --------------
+    (ensure-feed! [:view :b] [:test/read-replied])
+    (is (nil? @last-managed-args) "served from cache")
+    (is (= [{:value all-items :cache-hit? true}]
+           (mapv #(select-keys % [:value :cache-hit?]) (replies))))
     (reset! replied [])
     (rf/dispatch-sync [:rf.resource/refetch
                        {:resource :cm/feed :scope :rf.scope/global
                         :params {:filter :recent} :cause [:test :refresh]
                         :reply-to [:test/read-replied]}])
-    (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-        "the refetch fetches page-0 (window preserved)")
-    (reply-success! @last-managed-args page-0)              ;; same page-0 content
-    (is (= 1 (count @replied)) "the refetch continuation fired at the page-0 settle")
-    (let [[_ refetch-reply] (first @replied)]
-      (is (false? (:cache-hit? refetch-reply)) "a refetch settle is not a cache hit")
-      (testing "the refetch page-0 :value ALSO spans both pages (R6 window preserved)"
-        (is (= all-items (:value refetch-reply)))))))
+    (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args)))))
+    (reply-success! @last-managed-args page-0)
+    (is (= [{:value all-items :cache-hit? false}]
+           (mapv #(select-keys % [:value :cache-hit?]) (replies))))))
