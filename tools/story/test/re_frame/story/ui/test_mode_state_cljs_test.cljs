@@ -25,64 +25,40 @@
 ;; ---- select-step! race guard ---------------------------------------------
 
 (deftest select-step-noops-while-running
-  (testing "select-step! must no-op when the variant's slot
-            carries :running? true. Concurrent restore against the
-            frame being reset by run-variant-pane! would corrupt the
-            scrubber state on resolve (store-result! writes a fresh
-            :epoch-ids slice; :selected-step would silently index a
-            different epoch)."
+  (testing "select-step! no-ops while a re-run is in flight: store-result!
+            writes a fresh :epoch-ids slice on resolve, so a restore now
+            would land on the frame being reset and :selected-step would
+            index a different epoch"
     (let [variant-id :story.unit/race
-          epoch-ids  [:epoch/a :epoch/b :epoch/c]
           restored   (atom [])]
       (swap! rf.story.ui.test-mode.state/results-atom assoc variant-id
-             {:running?  true
-              :epoch-ids epoch-ids})
+             {:running? true :epoch-ids [:epoch/a :epoch/b :epoch/c]})
       (with-redefs [rf/restore-epoch! (fn [vid eid]
                                        (swap! restored conj [vid eid]))]
         (rf.story.ui.test-mode.state/select-step! variant-id 1))
-      (is (= [] @restored)
-          "rf/restore-epoch! is not called while :running? is true")
-      (is (nil? (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step]))
-          ":selected-step is NOT mutated while :running? is true — preserving
-           the prior scrubber position so the post-resolve render is
-           consistent"))))
+      (is (= [] @restored))
+      (is (nil? (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step]))))))
 
 (deftest select-step-fires-when-not-running
-  (testing "sanity: the guard is conditional on :running? — when the slot
-            is idle (:running? falsy), select-step! restores the epoch and
-            stamps :selected-step"
-    (let [variant-id :story.unit/idle
-          epoch-ids  [:epoch/a :epoch/b :epoch/c]
-          restored   (atom [])]
-      (swap! rf.story.ui.test-mode.state/results-atom assoc variant-id
-             {:running?  false
-              :epoch-ids epoch-ids})
-      (with-redefs [rf/restore-epoch! (fn [vid eid]
-                                       (swap! restored conj [vid eid]))]
-        (rf.story.ui.test-mode.state/select-step! variant-id 1))
-      (is (= [[variant-id :epoch/b]] @restored)
-          "the idle path still calls restore-epoch against the targeted slot")
-      (is (= 1 (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step]))
-          ":selected-step is stamped to the requested index"))))
+  (let [variant-id :story.unit/idle
+        restored   (atom [])]
+    (swap! rf.story.ui.test-mode.state/results-atom assoc variant-id
+           {:running? false :epoch-ids [:epoch/a :epoch/b :epoch/c]})
+    (with-redefs [rf/restore-epoch! (fn [vid eid]
+                                     (swap! restored conj [vid eid]))]
+      (rf.story.ui.test-mode.state/select-step! variant-id 1))
+    (is (= [[variant-id :epoch/b]] @restored))
+    (is (= 1 (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step])))))
 
 ;; ---- toggle-expanded! keyed by row-key -----------------------------------
 
+;; Add k1, add k2, toggle k1 again: only #{k2} survives if both the add and
+;; the remove work. View consumers pass assertion-row's :row-key.
 (deftest toggle-expanded-uses-row-key
-  (testing "toggle-expanded! threads its key (a string row-key
-            in normal use, but any value) straight into the :expanded set.
-            View consumers pass assertion-row's :row-key — see the JVM
-            test pinning row-key = :label in re-frame.story-ui-test."
-    (let [variant-id :story.unit/expand]
-      (rf.story.ui.test-mode.state/toggle-expanded! variant-id ":rf.assert/path-equals [[:count] 1]")
-      (is (= #{":rf.assert/path-equals [[:count] 1]"}
-             (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :expanded]))
-          "first toggle inserts the row-key")
-      (rf.story.ui.test-mode.state/toggle-expanded! variant-id ":rf.assert/path-equals [[:count] 2]")
-      (is (= #{":rf.assert/path-equals [[:count] 1]"
-               ":rf.assert/path-equals [[:count] 2]"}
-             (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :expanded]))
-          "second toggle with a different key adds to the set")
-      (rf.story.ui.test-mode.state/toggle-expanded! variant-id ":rf.assert/path-equals [[:count] 1]")
-      (is (= #{":rf.assert/path-equals [[:count] 2]"}
-             (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :expanded]))
-          "toggling an already-present key removes it"))))
+  (let [variant-id :story.unit/expand
+        k1         ":rf.assert/path-equals [[:count] 1]"
+        k2         ":rf.assert/path-equals [[:count] 2]"]
+    (rf.story.ui.test-mode.state/toggle-expanded! variant-id k1)
+    (rf.story.ui.test-mode.state/toggle-expanded! variant-id k2)
+    (rf.story.ui.test-mode.state/toggle-expanded! variant-id k1)
+    (is (= #{k2} (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :expanded])))))
