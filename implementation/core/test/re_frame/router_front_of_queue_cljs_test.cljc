@@ -1,140 +1,49 @@
 (ns re-frame.router-front-of-queue-cljs-test
-  "Per Spec 005 §Level 4 — machine-internal continuation
-  events insert at the FRONT of the per-frame router queue, while
-  ordinary (external) dispatches stay plain-FIFO at the back.
+  "Router queue order (Spec 005 §Level 4): a dispatch flagged
+  `:rf.machine/internal?` leap-frogs already-queued external events, flagged
+  siblings keeping source order, while unflagged dispatches stay FIFO at the
+  back. Front insertion changes order only: each leap-frogged event is still
+  its own dequeued event with its own `:rf.event/run-start`. The flag is set
+  explicitly on `re-frame.router/dispatch!` here; the machines artefact covers
+  it end to end in `re-frame.machine-front-of-queue-cljs-test`.
 
-  This file pins the ROUTER-LEVEL mechanism in core, independent of the
-  machines artefact: the marking flag is `:rf.machine/internal?`, which
-  `re-frame.machines` stamps onto machine-originated child dispatches
-  (covered end-to-end in
-  `re-frame.machine-front-of-queue-cljs-test` in the machines artefact). Here
-  we drive `re-frame.router/dispatch!` directly (the fn-form; call-site
-  capture is irrelevant to queue-order semantics) with the flag set
-  explicitly so the queue-insertion semantics are tested in isolation:
-
-    1. a flagged dispatch leap-frogs an already-queued external event;
-    2. an unflagged dispatch (even one targeting the same handler) stays
-       FIFO at the back;
-    3. sibling flagged dispatches preserve source order at the front;
-    4. each leap-frogged event is still its own dequeued event (its own
-       handler cascade / epoch) — front-of-queue changes ORDER, not
-       granularity.
-
-  Deterministic harness: everything runs inside ONE `dispatch-sync`
-  drain. The seed handler issues its child dispatches in its body; they
-  enqueue onto the in-progress sync drain (no async drain is scheduled
-  while `:in-sync-drain?` holds), then the sync drain pops them in queue
-  order. Run-order is recorded into an atom by each handler.
-
-  EP-0002: the top-level seed dispatch carries an explicit
-  `{:frame :rf/default}` (the shared fixture registers `:rf/default` as
-  an ordinary frame). The CHILD `dispatch!` calls inside the seed handler
-  inherit the handler's frame binding, so they need no explicit frame —
-  only the rootless top-level seed does (the carried-invariant contract:
-  no synthesised default floor).
-
-  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
-  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
-  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Dual-target `.cljc`: the JVM runner selects `-test$` and Shadow's
+  `:node-test` build selects `cljs-test$`, so the `-cljs-test` suffix is what
+  makes it run on both."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; ---------------------------------------------------------------------------
-;; ## Posture split
-;;
-;; The LEAP-FROG ITSELF is production behaviour and is asserted without a
-;; posture guard: `@run-log` records the order handlers actually ran in,
-;; straight off the handlers, with no channel involved. That is what this file
-;; is about and it runs under `scripts/test-core-prod-gate.sh` as written.
-;;
-;; The `:rf.event/run-start` epoch assertions are a claim about the trace
-;; stream — "one per dequeued event, none collapsed by the front-insertion" —
-;; and sit verbatim inside a `(when rf.interop/debug-enabled? …)` arm.
-;; Their always-on partner is the `@run-log` assertion directly
-;; above them in the same body, which pins the same order from the handler
-;; side.
-;; ---------------------------------------------------------------------------
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private run-log (atom []))
-
-(defn- log! [k] (swap! run-log conj k))
-
-(defn- reg-marker
-  "Register a no-op event handler that records its id into `run-log`."
-  [id]
-  (rf/reg-event id (fn [_ _] (log! id) {})))
-
-;; ---- (2) unflagged dispatch stays FIFO (origin, not target) ---------------
-
-(deftest external-dispatch-stays-fifo
-  (testing "an unflagged dispatch stays at the BACK even when queued after
-   an external event — plain FIFO; the cut is origin, not target"
-    (reset! run-log [])
-    (reg-marker :ext)
-    (reg-marker :plain)
+(deftest machine-internal-dispatches-leapfrog-the-fifo-queue
+  ;; One dispatch-sync drain: the seed's child dispatches enqueue onto it,
+  ;; then dequeue in queue order.
+  (let [run-log (atom [])
+        seen    (atom [])]
+    (doseq [id [:ext :plain :c1 :c2]]
+      (rf/reg-event id (fn [_ _] (swap! run-log conj id) {})))
     (rf/reg-event :seed
       (fn [_ _]
-        (log! :seed)
+        (swap! run-log conj :seed)
         (rf.router/dispatch! [:ext] {})
-        (rf.router/dispatch! [:plain] {}) ;; NOT machine-internal
-        {}))
-    (rf/dispatch-sync [:seed] {:frame :rf/default})
-    (is (= [:seed :ext :plain] @run-log)
-        "both unflagged dispatches ran in arrival order (no leap-frog)")))
-
-;; ---- (1), (3) + (4) sibling machine-internal dispatches leap-frog the queued
-;;          external event in source order, and each runs its own full handler
-;;          cascade (its own :run-start), not collapsed ---------------------
-
-(defn- run-starts-of
-  "Filter recorded trace events down to per-event :rf.event/run-start
-  markers, returning their event-ids in order. The marker's `:operation`
-  is top-level; the correlated event-id rides under `:tags`."
-  [evs]
-  (->> evs
-       (filter #(= :rf.event/run-start (:operation %)))
-       (mapv #(:rf.trace/event-id (:tags %)))))
-
-(deftest each-leapfrogged-event-is-its-own-epoch
-  (testing "front-of-queue changes order only — each dequeued event
-   (machine-internal or not) still runs as its own event with its own
-   handler cascade / :run-start (Spec 002 §Drain versus event)"
-    (reset! run-log [])
-    (reg-marker :ext)
-    (reg-marker :c1)
-    (reg-marker :c2)
-    (rf/reg-event :seed
-      (fn [_ _]
-        (log! :seed)
-        (rf.router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:plain] {})
         (rf.router/dispatch! [:c1] {:rf.machine/internal? true})
         (rf.router/dispatch! [:c2] {:rf.machine/internal? true})
         {}))
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::epoch-rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (rf/dispatch-sync [:seed] {:frame :rf/default})
-        (finally (rf/unregister-listener! :trace ::epoch-rec)))
-      ;; Run order reflects the leap-frog. Each machine-internal dispatch
-      ;; front-inserts onto the head of the EXISTING queue, so the net head
-      ;; order is [:c1 :c2 ...], not the reversed [:c2 :c1 ...].
-      (is (= [:seed :c1 :c2 :ext] @run-log)
-          ":c1 before :c2 (source order) at the front, both ahead of :ext")
-      ;; Dev-instrumentation arm (see ns header §Posture split).
-      ;; One :run-start per dequeued event — four distinct events, none
-      ;; collapsed by the front-insertion. The always-on partner is the
-      ;; `@run-log` assertion directly above.
-      (when rf.interop/debug-enabled?
-        (let [starts (run-starts-of @seen)]
-          (is (= 4 (count starts))
-              "one :run-start per dequeued event — no collapse")
-          (is (= [:seed :c1 :c2 :ext] starts)
-              ":run-start order matches the dequeue (leap-frogged) order"))))))
+    (rf/register-listener! :trace ::run-starts (fn [ev] (swap! seen conj ev)))
+    (try
+      (rf/dispatch-sync [:seed] {:frame :rf/default})
+      (finally (rf/unregister-listener! :trace ::run-starts)))
+    (is (= [:seed :c1 :c2 :ext :plain] @run-log)
+        "flagged dispatches run first in source order; unflagged ones stay FIFO behind them")
+    (when rf.interop/debug-enabled?
+      (is (= [:seed :c1 :c2 :ext :plain]
+             (->> @seen
+                  (filter #(= :rf.event/run-start (:operation %)))
+                  (mapv #(:rf.trace/event-id (:tags %)))))
+          "one :rf.event/run-start per dequeued event, none collapsed"))))
