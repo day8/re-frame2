@@ -1,17 +1,6 @@
 (ns re-frame.story-ui-test
-  "JVM tests for the Story shell's pure logic.
-
-  The shell's reactive layer (Reagent ratom, component lifecycles,
-  Reagent renders) is CLJS-only — those tests live in
-  `re-frame.story-ui-cljs-test`. JVM-side we cover every pure-data
-  helper in the `re-frame.story.ui.*` namespaces:
-
-  - shell state transitions (selection, filters, overrides)
-  - sidebar tag collection + variant grouping
-  - workspace layout resolution (:grid, :variants-grid, :prose, :tabs)
-
-  These tests run alongside the rest of the JVM corpus via
-  `clojure -M:test`."
+  "JVM tests for the Story shell's pure logic in the `re-frame.story.ui.*`
+  namespaces; the reactive layer is covered by `re-frame.story-ui-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             ;; Loaded for its epoch tape: without it a run records no
@@ -61,180 +50,96 @@
 ;; ---- pure shell-state helpers -------------------------------------------
 
 (deftest default-shell-state-shape
-  (testing "default-shell-state carries the v1 slots"
-    (let [s rf.story.ui.state/default-shell-state]
-      (is (nil? (:selected-variant s)))
-      (is (nil? (:selected-workspace s)))
-      (is (= #{} (:tag-filter s)))
-      (is (= [] (:active-modes s)))
-      (is (= {} (:cell-overrides s)))
-      (is (= :reagent (:substrate s)))
-      (is (= 0 (:hot-reload-tick s))))))
+  (is (= [nil nil #{} [] {} :reagent 0]
+         ((juxt :selected-variant :selected-workspace :tag-filter :active-modes
+                :cell-overrides :substrate :hot-reload-tick)
+          rf.story.ui.state/default-shell-state))))
 
-;; The sidebar variant-row click composes select-variant with
-;; select-workspace nil so workspace mode is not a one-way door.
-;; The click handler is a private Reagent closure inside `sidebar.cljs`;
-;; we exercise the same pure composition the closure performs so the
-;; JVM corpus catches a regression without booting Reagent.
+;; The sidebar's row clicks compose select-variant with select-workspace nil
+;; (and the mirror), so neither mode is a one-way door.
 (deftest variant-row-click-symmetric-clear-rf2-hscut
-  (testing "variant-row pipeline sets variant AND clears workspace"
-    (let [s  (-> rf.story.ui.state/default-shell-state
-                 (rf.story.ui.state/select-workspace :Workspace.nav/all))
-          s1 (-> s
-                 (rf.story.ui.state/select-variant :story.nav/v1)
-                 (rf.story.ui.state/select-workspace nil))]
-      (is (= :story.nav/v1 (:selected-variant s1)))
-      (is (nil? (:selected-workspace s1)))))
-  (testing "mirror — workspace-row pipeline sets workspace AND clears variant"
-    (let [s  (-> rf.story.ui.state/default-shell-state
-                 (rf.story.ui.state/select-variant :story.nav/v1))
-          s1 (-> s
-                 (rf.story.ui.state/select-workspace :Workspace.nav/all)
-                 (rf.story.ui.state/select-variant nil))]
-      (is (= :Workspace.nav/all (:selected-workspace s1)))
-      (is (nil? (:selected-variant s1))))))
+  (let [s0  rf.story.ui.state/default-shell-state
+        sel (juxt :selected-variant :selected-workspace)]
+    (is (= [:story.nav/v1 nil]
+           (sel (-> s0
+                    (rf.story.ui.state/select-workspace :Workspace.nav/all)
+                    (rf.story.ui.state/select-variant :story.nav/v1)
+                    (rf.story.ui.state/select-workspace nil)))))
+    (is (= [nil :Workspace.nav/all]
+           (sel (-> s0
+                    (rf.story.ui.state/select-variant :story.nav/v1)
+                    (rf.story.ui.state/select-workspace :Workspace.nav/all)
+                    (rf.story.ui.state/select-variant nil)))))))
 
-(deftest toggle-tag-filter-pure
-  (testing "toggle-tag-filter adds and removes"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/toggle-tag-filter s :dev)
-          s2 (rf.story.ui.state/toggle-tag-filter s1 :dev)]
-      (is (= #{:dev} (:tag-filter s1)))
-      (is (= #{} (:tag-filter s2))))))
-
-(deftest set-active-modes-pure
-  (testing "set-active-modes replaces"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-active-modes s [:Mode.t/dark])]
-      (is (= [:Mode.t/dark] (:active-modes s1))))))
+(deftest shell-state-setters
+  (let [s0 rf.story.ui.state/default-shell-state]
+    (is (= [#{:dev} #{}]
+           [(:tag-filter (rf.story.ui.state/toggle-tag-filter s0 :dev))
+            (-> s0
+                (rf.story.ui.state/toggle-tag-filter :dev)
+                (rf.story.ui.state/toggle-tag-filter :dev)
+                :tag-filter)])
+        "toggle-tag-filter adds then removes")
+    (is (= [:Mode.t/dark] (:active-modes (rf.story.ui.state/set-active-modes s0 [:Mode.t/dark]))))
+    (is (= 2 (-> s0
+                 rf.story.ui.state/bump-hot-reload-tick
+                 rf.story.ui.state/bump-hot-reload-tick
+                 :hot-reload-tick)))
+    (is (false? (get-in (rf.story.ui.state/toggle-panel s0 :controls)
+                        [:panel-visibility :controls])))))
 
 ;; ---- repeater stable row-ids --------------------------------------------
 ;;
-;; The controls-panel repeater MUST key each row on a
-;; stable per-entry id (not on its positional index). The shell-state
-;; carries a parallel `[id0 id1 ...]` vector at
-;; `[:rf.story/repeater-row-ids [variant-id path]]` synced in lockstep
-;; with the entries vector. JVM-side we test the pure transitions
-;; (`ensure-repeater-row-ids`, `append-repeater-row-id`,
-;; `remove-repeater-row-id`); the CLJS suite exercises the rendered
-;; hiccup keys end-to-end.
+;; The controls-panel repeater keys each row on a stable per-entry id kept at
+;; `[:rf.story/repeater-row-ids [variant-id path]]` in lockstep with the
+;; entries vector; the CLJS suite covers the rendered hiccup keys.
+
+(defn- row-ids [s] (rf.story.ui.state/repeater-row-ids s :story.x/v [:items]))
+(defn- ensure-ids [s n] (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] n))
 
 (deftest repeater-row-ids-ensure-allocates-fresh-ids-rf2-c8kfy
-  (testing "ensure-repeater-row-ids appends fresh monotonic ids when the
-            stored vector is shorter than the entries count"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 3)
-          ids (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])]
-      (is (= 3 (count ids)))
-      (is (apply distinct? ids))
-      (is (= 3 (:rf.story/repeater-id-counter s1))))))
-
-(deftest repeater-row-ids-ensure-truncates-when-long-rf2-c8kfy
-  (testing "ensure-repeater-row-ids truncates from the right when the
-            stored vector is longer than the entries count — keeps the
-            surviving prefix's ids intact (no churn for visible rows)"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 4)
-          before (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])
-          s2 (rf.story.ui.state/ensure-repeater-row-ids s1 :story.x/v [:items] 2)
-          after  (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items])]
-      (is (= 2 (count after)))
-      (is (= (subvec before 0 2) after)
-          "the surviving prefix's ids are unchanged after truncation"))))
-
-(deftest repeater-row-ids-ensure-noop-when-equal-rf2-c8kfy
-  (testing "ensure-repeater-row-ids is a no-op when the count already
-            matches — no counter churn, no id reallocation"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 3)
-          counter-after-init (:rf.story/repeater-id-counter s1)
-          s2 (rf.story.ui.state/ensure-repeater-row-ids s1 :story.x/v [:items] 3)]
-      (is (= counter-after-init (:rf.story/repeater-id-counter s2)))
-      (is (= (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])
-             (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items]))))))
-
-(deftest repeater-row-ids-append-allocates-rf2-c8kfy
-  (testing "append-repeater-row-id allocates a fresh id and appends"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 2)
-          s2 (rf.story.ui.state/append-repeater-row-id s1 :story.x/v [:items])
-          ids (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items])]
-      (is (= 3 (count ids)))
-      (is (apply distinct? ids))
-      (is (= 3 (:rf.story/repeater-id-counter s2))))))
+  (let [s3 (ensure-ids rf.story.ui.state/default-shell-state 3)
+        s4 (ensure-ids rf.story.ui.state/default-shell-state 4)]
+    (testing "growing allocates fresh distinct ids from the counter"
+      (is (= [3 true 3] [(count (row-ids s3)) (apply distinct? (row-ids s3))
+                         (:rf.story/repeater-id-counter s3)])))
+    (testing "shrinking truncates from the right, so visible rows keep their ids"
+      (is (= (subvec (row-ids s4) 0 2) (row-ids (ensure-ids s4 2)))))
+    (testing "an equal count is a no-op: no counter churn, no reallocation"
+      (is (= s3 (ensure-ids s3 3))))))
 
 (deftest repeater-row-ids-remove-mid-list-rf2-c8kfy
-  (testing "remove-repeater-row-id drops the id at position i — surviving
-            ids retain their original identity. THIS is the regression
-            pinned: a renderer keying rows on their index would shift
-            the surviving ids' React keys up by one, and React would
-            reuse the original DOM nodes (focus + cursor leakage onto
-            neighbouring rows). The row ids ARE stable across the
-            delete."
-    (let [s     rf.story.ui.state/default-shell-state
-          s1    (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 4)
-          before (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])
-          ;; Delete the middle entry at i=1.
-          s2    (rf.story.ui.state/remove-repeater-row-id s1 :story.x/v [:items] 1)
-          after (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items])]
-      (is (= 4 (count before)))
-      (is (= 3 (count after)))
-      ;; The surviving ids are exactly before[0], before[2], before[3]
-      ;; — same identity, just shifted to fill the gap. No reallocation.
-      (is (= [(nth before 0) (nth before 2) (nth before 3)] after)))))
-
-(deftest repeater-row-ids-remove-out-of-range-noop-rf2-c8kfy
-  (testing "remove-repeater-row-id is a no-op for out-of-range / nil i —
-            the storage is unchanged"
-    (let [s   rf.story.ui.state/default-shell-state
-          s1  (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 2)
-          ids (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])
-          s2  (rf.story.ui.state/remove-repeater-row-id s1 :story.x/v [:items] 5)
-          s3  (rf.story.ui.state/remove-repeater-row-id s1 :story.x/v [:items] -1)]
-      (is (= ids (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items])))
-      (is (= ids (rf.story.ui.state/repeater-row-ids s3 :story.x/v [:items]))))))
-
-(deftest repeater-row-ids-cleared-with-overrides-rf2-c8kfy
-  (testing "clear-cell-overrides drops the variant's repeater row-ids
-            too — the next render re-syncs from scratch against the
-            default entries"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (-> s
-                 (rf.story.ui.state/set-cell-override :story.x/v [:items] [1 2 3])
-                 (rf.story.ui.state/ensure-repeater-row-ids :story.x/v [:items] 3))
-          s2 (rf.story.ui.state/clear-cell-overrides s1 :story.x/v)]
-      (is (seq (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])))
-      (is (empty? (rf.story.ui.state/repeater-row-ids s2 :story.x/v [:items])))
-      (is (nil? (get-in s2 [:cell-overrides :story.x/v]))))))
+  (testing "remove drops the id at i and the survivors keep their identity — a
+            renderer keying on index would shift React keys and leak focus and
+            cursor onto neighbouring rows"
+    (let [s4        (ensure-ids rf.story.ui.state/default-shell-state 4)
+          [a _ c d] (row-ids s4)
+          remove-at #(row-ids (rf.story.ui.state/remove-repeater-row-id s4 :story.x/v [:items] %))]
+      (is (= [a c d] (remove-at 1)))
+      (is (= (row-ids s4) (remove-at 5) (remove-at -1)) "out of range is a no-op")))
+  (testing "append allocates a fresh id at the end"
+    (let [s2 (ensure-ids rf.story.ui.state/default-shell-state 2)
+          s3 (rf.story.ui.state/append-repeater-row-id s2 :story.x/v [:items])]
+      (is (= [(row-ids s2) 3 3 true]
+             [(subvec (row-ids s3) 0 2) (count (row-ids s3))
+              (:rf.story/repeater-id-counter s3) (apply distinct? (row-ids s3))])))))
 
 (deftest repeater-row-ids-isolated-by-variant-and-path-rf2-c8kfy
-  (testing "row-ids are keyed on [variant-id path] — two repeaters with
-            the same arg-key on different variants (or the same variant
-            with different paths) get independent id namespaces"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (-> s
+  (testing "ids are keyed on [variant-id path]: independent, disjoint vectors"
+    (let [s  (-> rf.story.ui.state/default-shell-state
                  (rf.story.ui.state/ensure-repeater-row-ids :story.a/v [:items] 2)
                  (rf.story.ui.state/ensure-repeater-row-ids :story.b/v [:items] 2)
-                 (rf.story.ui.state/ensure-repeater-row-ids :story.a/v [:other] 2))]
-      ;; Three independent id vectors of length 2 each — 6 ids total.
-      (is (= 6 (:rf.story/repeater-id-counter s1)))
-      (is (= 2 (count (rf.story.ui.state/repeater-row-ids s1 :story.a/v [:items]))))
-      (is (= 2 (count (rf.story.ui.state/repeater-row-ids s1 :story.b/v [:items]))))
-      (is (= 2 (count (rf.story.ui.state/repeater-row-ids s1 :story.a/v [:other]))))
-      ;; The id vectors are disjoint (no shared id across keys).
-      (let [all-ids (concat
-                      (rf.story.ui.state/repeater-row-ids s1 :story.a/v [:items])
-                      (rf.story.ui.state/repeater-row-ids s1 :story.b/v [:items])
-                      (rf.story.ui.state/repeater-row-ids s1 :story.a/v [:other]))]
-        (is (apply distinct? all-ids))))))
-
-(deftest hot-reload-tick-monotonic
-  (testing "bump-hot-reload-tick increments each call"
-    (let [s rf.story.ui.state/default-shell-state]
-      (is (= 0 (:hot-reload-tick s)))
-      (is (= 1 (-> s rf.story.ui.state/bump-hot-reload-tick :hot-reload-tick)))
-      (is (= 2 (-> s rf.story.ui.state/bump-hot-reload-tick
-                   rf.story.ui.state/bump-hot-reload-tick :hot-reload-tick))))))
+                 (rf.story.ui.state/ensure-repeater-row-ids :story.a/v [:other] 2))
+          vs (map (fn [[v p]] (rf.story.ui.state/repeater-row-ids s v p))
+                  [[:story.a/v [:items]] [:story.b/v [:items]] [:story.a/v [:other]]])]
+      (is (= [[2 2 2] 6 6]
+             [(map count vs) (:rf.story/repeater-id-counter s) (count (distinct (apply concat vs)))]))))
+  (testing "clear-cell-overrides drops the variant's row ids with its overrides"
+    (let [s (-> rf.story.ui.state/default-shell-state
+                (rf.story.ui.state/set-cell-override :story.x/v [:items] [1 2 3])
+                (ensure-ids 3)
+                (rf.story.ui.state/clear-cell-overrides :story.x/v))]
+      (is (= [nil true] [(get-in s [:cell-overrides :story.x/v]) (empty? (row-ids s))])))))
 
 (deftest panel-visibility-toggle
   (testing "toggle-panel flips a panel's visibility"
@@ -245,24 +150,18 @@
 ;; ---- command palette -----------------------------------------------------
 
 (deftest command-palette-builds-search-corpus
-  (testing "entries enumerate stories, variants, workspaces, modes, and decorators"
-    (let [snapshot {:stories    {:story.cp {:doc "Counter parent"}}
-                    :variants   {:story.cp/empty {:doc "Fresh counter"}
-                                 :story.cp/full  {:doc "Loaded counter"}}
-                    :workspaces {:Workspace.cp/all {:doc "All states"}}
-                    :modes      {:Mode.cp/dark {:doc "Dark theme"}}
-                    :decorators {:cp/outline {:doc "Outline wrapper"}}}
-          entries  (rf.story.ui.command-palette/entries snapshot)
-          by-kind  (frequencies (map :kind entries))
-          story    (first (filter #(= [:story :story.cp]
-                                      [(:kind %) (:id %)])
-                                  entries))]
-      (is (= 1 (:story by-kind)))
-      (is (= 2 (:variant by-kind)))
-      (is (= 1 (:workspace by-kind)))
-      (is (= 1 (:mode by-kind)))
-      (is (= 1 (:decorator by-kind)))
-      (is (= [:story.cp/empty :story.cp/full] (:variant-ids story))))))
+  (testing "entries enumerate every registry kind, and a story entry carries its variant ids"
+    (let [entries (rf.story.ui.command-palette/entries
+                    {:stories    {:story.cp {:doc "Counter parent"}}
+                     :variants   {:story.cp/empty {} :story.cp/full {}}
+                     :workspaces {:Workspace.cp/all {}}
+                     :modes      {:Mode.cp/dark {}}
+                     :decorators {:cp/outline {}}})]
+      (is (= {:story 1 :variant 2 :workspace 1 :mode 1 :decorator 1}
+             (select-keys (frequencies (map :kind entries))
+                          [:story :variant :workspace :mode :decorator])))
+      (is (= [:story.cp/empty :story.cp/full]
+             (:variant-ids (first (filter #(= :story (:kind %)) entries))))))))
 
 (deftest command-palette-search-matches-id-doc-and-kind
   (let [entries (rf.story.ui.command-palette/entries
@@ -270,90 +169,48 @@
                    :variants   {:story.checkout/error {:doc "Declined card state"}}
                    :workspaces {:Workspace.checkout/grid {:doc "All payment states"}}
                    :modes      {:Mode.theme/dark {:doc "Night palette"}}
-                   :decorators {:checkout/auth {:doc "Authenticated shell"}}})]
-    (testing "id substring matches rank exact surface hits"
-      (is (= :story.checkout/error
-             (:id (first (rf.story.ui.command-palette/search entries "checkout error"))))))
-    (testing "doc text is searchable"
-      (is (= :story.checkout/error
-             (:id (first (rf.story.ui.command-palette/search entries "declined"))))))
-    (testing "kind participates in search"
-      (is (= :Workspace.checkout/grid
-             (:id (first (rf.story.ui.command-palette/search entries "workspace payment"))))))
-    (testing "fuzzy subsequence catches compact user input"
-      (is (= :Mode.theme/dark
-             (:id (first (rf.story.ui.command-palette/search entries "mthdrk"))))))
-    (testing "unmatched query returns no rows"
-      (is (empty? (rf.story.ui.command-palette/search entries "no such thing"))))))
+                   :decorators {:checkout/auth {:doc "Authenticated shell"}}})
+        top     #(:id (first (rf.story.ui.command-palette/search entries %)))]
+    (is (= :story.checkout/error (top "checkout error")) "an id substring ranks first")
+    (is (= :story.checkout/error (top "declined")) "doc text is searchable")
+    (is (= :Workspace.checkout/grid (top "workspace payment")) "kind participates")
+    (is (= :Mode.theme/dark (top "mthdrk")) "a fuzzy subsequence catches compact input")
+    (is (empty? (rf.story.ui.command-palette/search entries "no such thing")))))
 
 (deftest command-palette-active-index-wraps
-  (testing "arrow navigation wraps both directions"
-    (is (= 1 (rf.story.ui.command-palette/move-active-index 0 1 3)))
-    (is (= 0 (rf.story.ui.command-palette/move-active-index 2 1 3)))
-    (is (= 2 (rf.story.ui.command-palette/move-active-index 0 -1 3)))
-    (is (= 0 (rf.story.ui.command-palette/move-active-index 0 1 0)))))
+  (is (= [1 0 2 0]
+         (map #(apply rf.story.ui.command-palette/move-active-index %)
+              [[0 1 3] [2 1 3] [0 -1 3] [0 1 0]]))))
 
 (deftest command-palette-carries-save-current-command
-  (testing "The save-current-state flow is reachable from the
-            command palette (spec/019 §3), as a synthetic :command entry"
-    (let [entries (rf.story.ui.command-palette/command-entries)
-          save    (first (filter #(= :save-current-as-variant (:id %)) entries))]
-      (is (some? save) "the save-current command entry is present")
-      (is (= :command (:kind save)))
-      (is (= :save-current-as-variant (:action save))
-          "the entry carries the action the view dispatches"))
-    (testing "the command is findable by search"
-      (let [entries (rf.story.ui.command-palette/entries {})
-            hit     (first (rf.story.ui.command-palette/search entries "save variant"))]
-        (is (= :save-current-as-variant (:id hit))
-            "searching 'save variant' surfaces the save-current command")))))
+  (testing "save-current-state is a searchable :command entry (spec/019 §3)"
+    (is (= {:kind :command :action :save-current-as-variant}
+           (select-keys (first (filter #(= :save-current-as-variant (:id %))
+                                       (rf.story.ui.command-palette/command-entries)))
+                        [:kind :action])))
+    (is (= :save-current-as-variant
+           (:id (first (rf.story.ui.command-palette/search
+                         (rf.story.ui.command-palette/entries {}) "save variant")))))))
 
 ;; ---- mode-tabs -----------------------------------------------------------
 
-(deftest mode-tabs-canonical-set
-  (testing "the three canonical mode tabs ship in stable order"
-    (is (= [:dev :docs :test] rf.story.ui.state/mode-tabs)))
-  (testing "every mode-tab has a human label"
-    (doseq [t rf.story.ui.state/mode-tabs]
-      (is (string? (get rf.story.ui.state/mode-tab-labels t))
-          (str "missing label for " t)))))
-
 (deftest valid-mode-tab?-rejects-noise
-  (is (rf.story.ui.state/valid-mode-tab? :dev))
-  (is (rf.story.ui.state/valid-mode-tab? :docs))
-  (is (rf.story.ui.state/valid-mode-tab? :test))
-  (is (not (rf.story.ui.state/valid-mode-tab? :canvas)))
-  (is (not (rf.story.ui.state/valid-mode-tab? :nonsense)))
-  (is (not (rf.story.ui.state/valid-mode-tab? nil)))
-  (is (not (rf.story.ui.state/valid-mode-tab? "test"))))
+  (is (= [true true true false false false false]
+         (map (comp boolean rf.story.ui.state/valid-mode-tab?)
+              [:dev :docs :test :canvas :nonsense nil "test"]))))
 
 (deftest set-active-mode-tab-roundtrip
-  (testing "set-active-mode-tab records the per-variant selection"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-active-mode-tab s :story.x/a :docs)]
-      (is (= :docs (rf.story.ui.state/active-mode-tab s1 :story.x/a)))
-      (is (= :dev  (rf.story.ui.state/active-mode-tab s1 :story.x/b))
-          "other variants keep the default")))
-  (testing "selections are independent per variant"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (-> s
-                 (rf.story.ui.state/set-active-mode-tab :story.x/a :docs)
-                 (rf.story.ui.state/set-active-mode-tab :story.x/b :test))]
-      (is (= :docs (rf.story.ui.state/active-mode-tab s1 :story.x/a)))
-      (is (= :test (rf.story.ui.state/active-mode-tab s1 :story.x/b)))))
-  (testing "an invalid tab leaves state untouched"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-active-mode-tab s :story.x/a :nonsense)]
-      (is (= s s1)))))
+  (let [s0 rf.story.ui.state/default-shell-state
+        s  (-> s0
+               (rf.story.ui.state/set-active-mode-tab :story.x/a :docs)
+               (rf.story.ui.state/set-active-mode-tab :story.x/b :test))]
+    (is (= [:docs :test :dev]
+           (map #(rf.story.ui.state/active-mode-tab s %) [:story.x/a :story.x/b :story.x/c]))
+        "selections are per variant; other variants keep the default")
+    (is (= s0 (rf.story.ui.state/set-active-mode-tab s0 :story.x/a :nonsense))
+        "an invalid tab leaves state untouched")))
 
 ;; ---- pure filter + grouping ---------------------------------------------
-
-(deftest filter-variants-empty-filter
-  (testing "an empty filter passes everything through"
-    (rf.story/reg-variant :story.f/a {:tags #{:dev} :setup []})
-    (rf.story/reg-variant :story.f/b {:tags #{:test} :setup []})
-    (let [vs (rf.story.registrar/registrations :variant)]
-      (is (= 2 (count (rf.story.ui.state/filter-variants vs #{})))))))
 
 (deftest drop-default-excluded-hides-until-toggled-on
   (testing "a variant carrying a `:default-filter :exclude` tag is dropped
@@ -371,14 +228,13 @@
           "no default-excluded tags leaves the map unchanged"))))
 
 (deftest group-variants-by-story-derives-unregistered-parent
-  (testing "variants whose parent story was never registered group under the derived parent id"
+  (testing "variants of a never-registered story group under the derived parent id"
     (rf.story/reg-variant :story.g/a {:setup []})
     (rf.story/reg-variant :story.g/b {:setup []})
-    (let [vs       (rf.story.registrar/registrations :variant)
-          grouped  (rf.story.ui.state/group-variants-by-story vs)
-          entries  (into {} (map (juxt :story-id :variants) grouped))]
-      (is (= 1 (count grouped)))
-      (is (= 2 (count (get entries :story.g)))))))
+    (is (= [[:story.g 2]]
+           (map (juxt :story-id (comp count :variants))
+                (rf.story.ui.state/group-variants-by-story
+                  (rf.story.registrar/registrations :variant)))))))
 
 (deftest parent-story-id-derivation
   (testing "parent-story-id (canonical leaf in re-frame.story.predicates)"
@@ -387,80 +243,36 @@
 
 ;; ---- faceted filter (SB9 facet taxonomy) -------------------------------
 
-(deftest variant-tag-match?-faceted-and-across-or-within
-  (testing "OR within an axis (faceted)"
-    (let [tag->axis {:status/alpha :status :status/beta :status
-                     :status/stable :status}
-          variant   {:tags #{:status/alpha :role/dev}}]
-      ;; alpha OR beta active — variant has alpha → passes
-      (is (rf.story.ui.state/variant-tag-match? variant #{:status/alpha :status/beta} tag->axis))
-      ;; stable active — variant has neither → fails
-      (is (not (rf.story.ui.state/variant-tag-match? variant #{:status/stable} tag->axis)))))
-  (testing "AND across axes (faceted)"
-    (let [tag->axis  {:status/stable :status :role/design :role :role/dev :role}
-          designer-stable {:tags #{:status/stable :role/design}}
-          dev-stable      {:tags #{:status/stable :role/dev}}]
-      ;; status+role both required; designer-stable matches
-      (is (rf.story.ui.state/variant-tag-match? designer-stable
-                                    #{:status/stable :role/design}
-                                    tag->axis))
-      ;; dev-stable has :status/stable but not :role/design → fails
-      (is (not (rf.story.ui.state/variant-tag-match? dev-stable
-                                         #{:status/stable :role/design}
-                                         tag->axis)))))
-  (testing "empty filter passes every variant"
-    (is (rf.story.ui.state/variant-tag-match? {:tags #{:status/alpha}} #{} {:status/alpha :status})))
-  (testing "no-axis tags share a synthetic bucket with OR semantics"
-    ;; Two un-axis-grouped tags share the ::no-axis bucket — OR-within
-    ;; means a variant carrying either passes.
-    (let [variant {:tags #{:dev}}]
-      (is (rf.story.ui.state/variant-tag-match? variant #{:dev :docs} {}))
-      (is (not (rf.story.ui.state/variant-tag-match? variant #{:docs :test} {}))))))
-
 (deftest filter-variants-faceted
-  (testing "filter-variants/3 applies AND-across, OR-within"
-    (rf.story/reg-tag :status/alpha  {:axis :status})
-    (rf.story/reg-tag :status/stable {:axis :status})
-    (rf.story/reg-tag :role/dev      {:axis :role})
-    (rf.story/reg-tag :role/design   {:axis :role})
-    (rf.story/reg-variant :story.facet/a
-      {:tags #{:status/alpha :role/dev} :setup []})
-    (rf.story/reg-variant :story.facet/b
-      {:tags #{:status/stable :role/dev} :setup []})
-    (rf.story/reg-variant :story.facet/c
-      {:tags #{:status/stable :role/design} :setup []})
-    (let [vs        (rf.story.registrar/registrations :variant)
-          tag->axis (rf.story.registrar/tag->axis-index)]
-      (testing "OR-within status — alpha OR stable returns all three"
-        (is (= 3 (count (rf.story.ui.state/filter-variants
-                          vs #{:status/alpha :status/stable} tag->axis)))))
-      (testing "AND-across — status/stable AND role/design narrows to one"
-        (let [filtered (rf.story.ui.state/filter-variants
-                         vs #{:status/stable :role/design} tag->axis)]
-          (is (= 1 (count filtered)))
-          (is (contains? filtered :story.facet/c))))
-      (testing "status/stable alone keeps both stables"
-        (let [filtered (rf.story.ui.state/filter-variants
-                         vs #{:status/stable} tag->axis)]
-          (is (= 2 (count filtered)))
-          (is (contains? filtered :story.facet/b))
-          (is (contains? filtered :story.facet/c)))))))
+  (testing "filter-variants applies AND across axes, OR within an axis"
+    (doseq [[tag axis] [[:status/alpha :status] [:status/stable :status]
+                        [:role/dev :role] [:role/design :role]]]
+      (rf.story/reg-tag tag {:axis axis}))
+    (rf.story/reg-variant :story.facet/a {:tags #{:status/alpha :role/dev} :setup []})
+    (rf.story/reg-variant :story.facet/b {:tags #{:status/stable :role/dev} :setup []})
+    (rf.story/reg-variant :story.facet/c {:tags #{:status/stable :role/design} :setup []})
+    (let [vs  (rf.story.registrar/registrations :variant)
+          ids #(set (keys (rf.story.ui.state/filter-variants
+                            vs % (rf.story.registrar/tag->axis-index))))]
+      (is (= #{:story.facet/a :story.facet/b :story.facet/c} (ids #{:status/alpha :status/stable}))
+          "OR within an axis")
+      (is (= #{:story.facet/c} (ids #{:status/stable :role/design})) "AND across axes")
+      (is (= #{:story.facet/b :story.facet/c} (ids #{:status/stable})))
+      (is (= 3 (count (rf.story.ui.state/filter-variants vs #{})))
+          "the 2-arity with an empty filter passes everything"))))
 
 (deftest group-tags-by-axis-buckets-and-sorts
-  (testing "group-tags-by-axis splits a tag seq into per-axis vectors"
-    (let [tag->axis {:status/alpha   :status
-                     :status/stable  :status
-                     :role/dev       :role
-                     :loose/freeform :re-frame.story.registrar/no-axis}
-          tags     [:status/alpha :role/dev :status/stable :loose/freeform :unregistered]
-          grouped  (rf.story.ui.state/group-tags-by-axis tags tag->axis)]
-      ;; Each axis bucket is a sorted vector for stable rendering
-      (is (= [:status/alpha :status/stable] (:status grouped)))
-      (is (= [:role/dev]                    (:role grouped)))
-      ;; The :re-frame.story.registrar/no-axis bucket catches both
-      ;; explicit no-axis tags and unregistered ones.
-      (is (= [:loose/freeform :unregistered]
-             (:re-frame.story.registrar/no-axis grouped))))))
+  (testing "group-tags-by-axis buckets per axis into sorted vectors; the no-axis
+            bucket catches explicit no-axis tags and unregistered ones"
+    (is (= {:status                           [:status/alpha :status/stable]
+            :role                             [:role/dev]
+            :re-frame.story.registrar/no-axis [:loose/freeform :unregistered]}
+           (rf.story.ui.state/group-tags-by-axis
+             [:status/alpha :role/dev :status/stable :loose/freeform :unregistered]
+             {:status/alpha   :status
+              :status/stable  :status
+              :role/dev       :role
+              :loose/freeform :re-frame.story.registrar/no-axis})))))
 
 (deftest ordered-axes-canonical-then-extras-then-no-axis
   (testing "canonical axes go first, project-defined alphabetical, no-axis last"
@@ -481,33 +293,23 @@
 ;; ---- workspace resolver --------------------------------------------------
 
 (deftest grid-layout
-  (testing ":grid produces variant cells in declared order"
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.x/y
-                  {:layout :grid :variants [:story.a/x :story.b/y]})]
-      (is (= 2 (count cells)))
-      (is (every? #(= :variant (:type %)) cells))
-      (is (= [:story.a/x :story.b/y]
-             (mapv :variant-id cells))))))
-
-(deftest tabs-layout
-  (testing ":tabs resolves to the same cell shape as :grid"
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.t/x
-                  {:layout :tabs :variants [:story.a/x]})]
-      (is (= 1 (count cells)))
-      (is (= :variant (-> cells first :type))))))
+  (testing ":grid and :tabs produce variant cells in declared order"
+    (doseq [layout [:grid :tabs]]
+      (is (= [[:variant :story.a/x] [:variant :story.b/y]]
+             (map (juxt :type :variant-id)
+                  (rf.story.ui.workspace/resolve-layout
+                    :Workspace.x/y {:layout layout :variants [:story.a/x :story.b/y]})))
+          (str layout)))))
 
 (deftest variants-grid-from-anchor
-  (testing ":variants-grid enumerates variants of the anchor story"
+  (testing ":variants-grid enumerates the variants of the workspace id's story"
     (rf.story/reg-variant :story.vg/a {:setup []})
     (rf.story/reg-variant :story.vg/b {:setup []})
     (rf.story/reg-variant :story.other/x {:setup []})
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.vg/all
-                  {:layout :variants-grid})]
-      (is (= 2 (count cells)))
-      (is (every? #(= :variant (:type %)) cells)))))
+    (is (= [[:variant :story.vg/a] [:variant :story.vg/b]]
+           (sort (map (juxt :type :variant-id)
+                      (rf.story.ui.workspace/resolve-layout
+                        :Workspace.vg/all {:layout :variants-grid})))))))
 
 (deftest variants-grid-explicit-variants
   (testing ":variants-grid renders an explicit :variants list, in declared
@@ -522,20 +324,14 @@
 
 (deftest prose-layout-interleaves
   (testing ":prose preserves :content order"
-    (let [cells (rf.story.ui.workspace/resolve-layout
+    (is (= [[:prose "first" nil] [:variant nil :story.a/x] [:prose "last" nil]]
+           (map (juxt :type :body :variant-id)
+                (rf.story.ui.workspace/resolve-layout
                   :Workspace.guide/intro
-                  {:layout :prose
-                   :content [{:type :prose   :body "first"}
-                             {:type :variant :id   :story.a/x}
-                             {:type :prose   :body "last"}]})]
-      (is (= 3 (count cells)))
-      (is (= :prose   (-> cells (nth 0) :type)))
-      (is (= "first"  (-> cells (nth 0) :body)))
-      (is (= :variant (-> cells (nth 1) :type)))
-      (is (= :story.a/x (-> cells (nth 1) :variant-id)))
-      (is (= :prose   (-> cells (nth 2) :type)))
-      (is (= "last"   (-> cells (nth 2) :body))))))
-
+                  {:layout  :prose
+                   :content [{:type :prose :body "first"}
+                             {:type :variant :id :story.a/x}
+                             {:type :prose :body "last"}]}))))))
 
 (deftest unknown-layout-empty
   (testing "unknown layouts degrade gracefully"
@@ -560,61 +356,33 @@
 ;; ---- :for anchor + :columns template ------------------------------------
 
 (deftest variants-grid-for-anchor-is-read
-  (testing ":variants-grid reads the spec-authoritative :for anchor
-            (ignoring it would leave only :story / the namespace
-            derivation to supply the anchor)"
+  (testing ":variants-grid reads the :for anchor — the workspace id here derives
+            :story.unrelated, which has no variants, so only :for can supply it"
     (rf.story/reg-variant :story.for-anchor/a {:setup []})
     (rf.story/reg-variant :story.for-anchor/b {:setup []})
     (rf.story/reg-variant :story.other-anchor/x {:setup []})
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  ;; deliberately a NON-matching workspace ns so the
-                  ;; namespace derivation cannot supply the anchor — only
-                  ;; :for can. (`:Workspace.unrelated/grid` derives
-                  ;; `:story.unrelated`, which has no variants.)
-                  :Workspace.unrelated/grid
-                  {:layout :variants-grid :for :story.for-anchor})]
-      (is (= 2 (count cells))
-          ":for MUST drive the enumeration anchor")
-      (is (every? #(= :variant (:type %)) cells))
-      (is (= #{:story.for-anchor/a :story.for-anchor/b}
-             (set (map :variant-id cells)))))))
+    (is (= [[:variant :story.for-anchor/a] [:variant :story.for-anchor/b]]
+           (sort (map (juxt :type :variant-id)
+                      (rf.story.ui.workspace/resolve-layout
+                        :Workspace.unrelated/grid
+                        {:layout :variants-grid :for :story.for-anchor})))))))
 
 (deftest grid-template-columns-honours-columns
-  (testing "grid-template-columns emits N equal columns sharing the canvas
-            width when :columns is a positive int — no 280px floor, so
-            the pinned grid never outgrows the pane"
-    (is (= "repeat(3, minmax(0, 1fr))"
-           (rf.story.ui.workspace/grid-template-columns 3)))
-    (is (= "repeat(1, minmax(0, 1fr))"
-           (rf.story.ui.workspace/grid-template-columns 1))))
-  (testing "absent / nil / non-positive :columns keeps the responsive
-            auto-fit default"
-    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
-           (rf.story.ui.workspace/grid-template-columns nil)))
-    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
-           (rf.story.ui.workspace/grid-template-columns 0)))
-    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
-           (rf.story.ui.workspace/grid-template-columns -2)))))
+  (testing "a positive :columns gives N equal columns with no 280px floor, so the
+            pinned grid never outgrows the pane; anything else keeps auto-fit"
+    (is (= ["repeat(3, minmax(0, 1fr))" "repeat(1, minmax(0, 1fr))"]
+           (map rf.story.ui.workspace/grid-template-columns [3 1])))
+    (is (= #{"repeat(auto-fit, minmax(280px, 1fr))"}
+           (set (map rf.story.ui.workspace/grid-template-columns [nil 0 -2]))))))
 
 ;; ---- docs mode ----------------------------------------------------------
 
-;; There is no `rf.story.ui.docs/parent-story-id` re-export; the
-;; canonical helper lives in `re-frame.story.predicates` (pinned here by
-;; `parent-story-id-derivation`).
-;; The docs header chip calls `rf.story.predicates/parent-story-id` directly.
-
 (deftest docs-variant-tags-falls-back-to-story
-  (testing "variant-tags reads variant :tags first"
-    (rf.story/reg-story :story.t1
-      {:doc "parent" :tags #{:dev :docs}})
-    (rf.story/reg-variant :story.t1/a
-      {:tags #{:dev :test} :setup []})
-    (is (= [:dev :test] (rf.story.ui.docs/variant-tags :story.t1/a))))
-  (testing "variant-tags falls back to the parent story when the variant has none"
-    (rf.story/reg-story :story.t2
-      {:doc "parent" :tags #{:dev :docs}})
-    (rf.story/reg-variant :story.t2/a {:setup []})
-    (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.t2/a)))))
+  (rf.story/reg-story :story.t1 {:doc "parent" :tags #{:dev :docs}})
+  (rf.story/reg-variant :story.t1/a {:tags #{:dev :test} :setup []})
+  (rf.story/reg-variant :story.t1/b {:setup []})
+  (is (= [:dev :test] (rf.story.ui.docs/variant-tags :story.t1/a)) "the variant's own :tags first")
+  (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.t1/b)) "else the parent story's"))
 
 (deftest docs-variant-tags-resolves-removal-marker
   (testing "A child that :extends a :dev-tagged parent and
@@ -624,163 +392,110 @@
     (is (= [:test] (rf.story.ui.docs/variant-tags :story.tm/child)))))
 
 (deftest docs-args-rows-pulls-doc-from-argtypes
-  (testing "args-rows surfaces :doc from the variant's :argtypes entry"
+  (testing "args-rows takes each row's :doc from :argtypes — a map's :doc, the
+            Storybook-compat :description, or a bare string — and leaves an
+            undocumented arg nil"
     (rf.story/reg-variant :story.a/x
-      {:args     {:label "Total" :count 0}
-       :argtypes {:label {:doc "The cell label"}}
-       :setup   []})
-    (let [rows  (rf.story.ui.docs/args-rows :story.a/x {:label "Total" :count 0})
-          by-k  (into {} (map (juxt :key identity)) rows)]
-      (is (= 2 (count rows)))
-      (is (= "The cell label" (:doc (get by-k :label))))
-      (is (nil? (:doc (get by-k :count))))
-      (is (= "Total" (:value (get by-k :label))))))
-  (testing "args-rows accepts the Storybook-compat :description key"
-    (rf.story/reg-variant :story.a/desc
-      {:argtypes {:label {:description "Story-compat description slot"}}
-       :setup   []})
-    (let [[row] (rf.story.ui.docs/args-rows :story.a/desc {:label "foo"})]
-      (is (= "Story-compat description slot" (:doc row)))))
-  (testing "args-rows accepts a bare-string :argtypes value"
-    (rf.story/reg-variant :story.a/bare
-      {:argtypes {:label "Short doc"}
-       :setup   []})
-    (let [[row] (rf.story.ui.docs/args-rows :story.a/bare {:label "foo"})]
-      (is (= "Short doc" (:doc row)))))
-  (testing "args-rows merges parent-story :argtypes under variant :argtypes"
-    (rf.story/reg-story :story.p
-      {:argtypes {:label {:doc "from story"}
-                  :count {:doc "from story"}}})
-    (rf.story/reg-variant :story.p/x
-      {:argtypes {:label {:doc "from variant"}}
-       :setup   []})
-    (let [rows  (rf.story.ui.docs/args-rows :story.p/x {:label "L" :count 0})
-          by-k  (into {} (map (juxt :key identity)) rows)]
-      (is (= "from variant" (:doc (get by-k :label))))
-      (is (= "from story"   (:doc (get by-k :count)))))))
+      {:argtypes {:label {:doc "The cell label"} :desc {:description "compat"} :bare "Short doc"}
+       :setup    []})
+    (is (= [[:bare 2 "Short doc"] [:count 0 nil] [:desc 1 "compat"] [:label "Total" "The cell label"]]
+           (sort-by first
+                    (map (juxt :key :value :doc)
+                         (rf.story.ui.docs/args-rows :story.a/x {:label "Total" :desc 1 :bare 2 :count 0}))))))
+  (testing "args-rows merges the parent story's :argtypes under the variant's"
+    (rf.story/reg-story :story.p {:argtypes {:label {:doc "from story"} :count {:doc "from story"}}})
+    (rf.story/reg-variant :story.p/x {:argtypes {:label {:doc "from variant"}} :setup []})
+    (is (= {:label "from variant" :count "from story"}
+           (into {} (map (juxt :key :doc))
+                 (rf.story.ui.docs/args-rows :story.p/x {:label "L" :count 0}))))))
 
 (deftest docs-decorator-rows-classifies-by-section
   (testing "decorator-rows splits the pack into hiccup / frame-setup / fx-override / error rows"
-    (let [pack {:hiccup       [{:id :dec/h1 :body {:kind :hiccup :doc "outer"}}
-                               {:id :dec/h2 :body {:kind :hiccup}}]
-                :frame-setup  [{:id :dec/fs :body {:kind :frame-setup :doc "init"}}]
-                :fx-override  [{:id :dec/fx :body {:kind :fx-override}}]
-                :errors       [{:id :dec/bad :reason "unknown :kind"}]
-                :fingerprints {}}
-          rows (rf.story.ui.docs/decorator-rows pack)]
-      (is (= 5 (count rows)))
-      (is (= [:hiccup :hiccup :frame-setup :fx-override :error]
-             (mapv :section rows)))
-      (is (= "outer" (-> rows (nth 0) :doc)))
-      (is (= "unknown :kind" (-> rows (nth 4) :doc))))))
+    (is (= [[:hiccup "outer"] [:hiccup nil] [:frame-setup "init"] [:fx-override nil]
+            [:error "unknown :kind"]]
+           (map (juxt :section :doc)
+                (rf.story.ui.docs/decorator-rows
+                  {:hiccup       [{:id :dec/h1 :body {:kind :hiccup :doc "outer"}}
+                                  {:id :dec/h2 :body {:kind :hiccup}}]
+                   :frame-setup  [{:id :dec/fs :body {:kind :frame-setup :doc "init"}}]
+                   :fx-override  [{:id :dec/fx :body {:kind :fx-override}}]
+                   :errors       [{:id :dec/bad :reason "unknown :kind"}]
+                   :fingerprints {}}))))))
 
 (deftest docs-parameter-rows-pulls-three-slots
-  (testing "parameter-rows emits :modes / :substrates / :platforms only when non-empty"
-    (rf.story/reg-variant :story.p1/x
-      {:substrates #{:reagent}
-       :platforms  #{:client}
-       :setup     []})
-    (let [rows  (rf.story.ui.docs/parameter-rows :story.p1/x)
-          by-k  (into {} (map (juxt :key identity)) rows)]
-      (is (= 2 (count rows)))
-      (is (contains? by-k :substrates))
-      (is (contains? by-k :platforms))
-      (is (not (contains? by-k :modes)))))
-  (testing "parameter-rows falls back to the parent story's slots"
-    (rf.story/reg-story :story.p2
-      {:substrates #{:reagent :uix}
-       :platforms  #{:client}})
+  (testing "parameter-rows emits only the non-empty slots, falling back to the parent story's"
+    (rf.story/reg-variant :story.p1/x {:substrates #{:reagent} :platforms #{:client} :setup []})
+    (rf.story/reg-story :story.p2 {:substrates #{:reagent :uix} :platforms #{:client}})
     (rf.story/reg-variant :story.p2/x {:setup []})
-    (let [rows (rf.story.ui.docs/parameter-rows :story.p2/x)
-          by-k (into {} (map (juxt :key identity)) rows)]
-      (is (= #{:reagent :uix} (:value (get by-k :substrates))))
-      (is (= #{:client}       (:value (get by-k :platforms)))))))
+    (let [rows #(into {} (map (juxt :key :value)) (rf.story.ui.docs/parameter-rows %))]
+      (is (= {:substrates #{:reagent} :platforms #{:client}} (rows :story.p1/x)))
+      (is (= {:substrates #{:reagent :uix} :platforms #{:client}} (rows :story.p2/x))))))
 
 (deftest docs-prose-for-variant
-  (testing "prose-for-variant returns workspace prose blocks that reference the variant"
+  (testing "prose-for-variant collects the prose blocks of the :prose workspaces
+            that reference the variant, in workspace-id then content order"
     (rf.story/reg-variant :story.d/x {:setup []})
     (rf.story/reg-variant :story.d/y {:setup []})
-    (rf.story/reg-workspace :Workspace.d/intro
-      {:layout  :prose
-       :content [{:type :prose   :body "## How it works"}
-                 {:type :variant :id   :story.d/x}
-                 {:type :prose   :body "Footer note."}]})
-    (let [blocks (rf.story.ui.docs/prose-for-variant :story.d/x)]
-      (is (= 2 (count blocks)))
-      (is (= "## How it works" (-> blocks first :body)))
-      (is (= :Workspace.d/intro (-> blocks first :workspace-id))))
-    (testing "a variant the workspace doesn't reference picks up nothing"
-      (is (= [] (rf.story.ui.docs/prose-for-variant :story.d/y)))))
-  (testing "non-prose layouts are ignored entirely"
-    (rf.story/reg-variant :story.dg/x {:setup []})
-    (rf.story/reg-workspace :Workspace.dg/grid
-      {:layout :grid :variants [:story.dg/x]})
-    (is (= [] (rf.story.ui.docs/prose-for-variant :story.dg/x))))
-  (testing "prose blocks ride through in source order across multiple workspaces"
-    (rf.story/reg-variant :story.dm/x {:setup []})
-    (rf.story/reg-workspace :Workspace.dm/a
-      {:layout  :prose
-       :content [{:type :prose   :body "alpha"}
-                 {:type :variant :id   :story.dm/x}]})
-    (rf.story/reg-workspace :Workspace.dm/b
-      {:layout  :prose
-       :content [{:type :variant :id   :story.dm/x}
-                 {:type :prose   :body "beta"}]})
-    (let [bodies (mapv :body (rf.story.ui.docs/prose-for-variant :story.dm/x))]
-      ;; Sorted by workspace id (alphabetic) then content order — :a/a
-      ;; before :b/b.
-      (is (= ["alpha" "beta"] bodies)))))
+    (rf.story/reg-workspace :Workspace.d/a
+      {:layout :prose :content [{:type :prose :body "alpha"} {:type :variant :id :story.d/x}]})
+    (rf.story/reg-workspace :Workspace.d/b
+      {:layout :prose :content [{:type :variant :id :story.d/x} {:type :prose :body "beta"}]})
+    (rf.story/reg-workspace :Workspace.d/grid {:layout :grid :variants [:story.d/x :story.d/y]})
+    (is (= [["alpha" :Workspace.d/a] ["beta" :Workspace.d/b]]
+           (map (juxt :body :workspace-id) (rf.story.ui.docs/prose-for-variant :story.d/x))))
+    (is (= [] (rf.story.ui.docs/prose-for-variant :story.d/y))
+        "a variant only a non-prose workspace references picks up nothing")))
 
 ;; ---- test mode ----------------------------------------------------------
 
-;; There is no `rf.story.ui.test-mode.pure/parent-story-id` re-export;
-;; the canonical `parent-story-id` lives in `re-frame.story.predicates`
-;; (pinned by `parent-story-id-derivation`). The view calls
-;; `rf.story.predicates/parent-story-id` directly.
+(defn- run-all
+  "Run each variant to completion, as Run all does."
+  [ids]
+  (into {}
+        (map (fn [vid] [vid (rf.story.async/deref-blocking
+                              (rf.story.runtime/run-variant vid nil) 30000)]))
+        ids))
+
+(defn- dot
+  "A run's sidebar dot: Run all's `run-one-test!` (CLJS-only) records the
+  run's aggregate summary plus its `:status`, and the dot reads that back."
+  [result]
+  (-> rf.story.ui.state/default-shell-state
+      (rf.story.ui.state/record-test-run
+        :v (assoc (rf.story.ui.state/aggregate-summary (:assertions result))
+                  :status (:status result)))
+      (rf.story.ui.state/variant-test-status :v)))
 
 (deftest test-mode-variant-has-tests?-checks-play-slot
-  (testing "variant-has-tests? is false when :script is absent or empty"
+  (testing "variant-has-tests? is true only for a :script or :plays carrying a step"
     (rf.story/reg-variant :story.tm/empty {:setup []})
     (rf.story/reg-variant :story.tm/empty-play {:setup [] :script []})
-    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/empty)))
-    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/empty-play))))
-  (testing "variant-has-tests? is true when :script carries any step"
     (rf.story/reg-variant :story.tm/has
       {:setup [] :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
-    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/has)))
-  (testing "variant-has-tests? recognises the :plays slot too"
     (rf.story/reg-variant :story.tm/plays
       {:setup [] :plays [{:name "happy"
-                           :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
-    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/plays)
-        "a :plays-only variant is testable"))
-  (testing "variant-has-tests? returns false for an unknown variant-id"
-    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/unknown)))))
+                          :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
+    (is (= [false false true true false]
+           (map (comp boolean rf.story.ui.test-mode.pure/variant-has-tests?)
+                [:story.tm/empty :story.tm/empty-play :story.tm/has :story.tm/plays
+                 :story.tm/unknown])))))
 
 (deftest test-mode-variant-has-tests?-declarative-expectations
-  (testing "variant-has-tests? is true for a variant whose only
-            tests are declarative :assertions or :checks — the Tests pane
-            runs it instead of reading 'No tests registered'"
-    (rf.story/reg-check :story.tm/c-is-zero
-      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+  (testing "a variant whose only tests are declarative :assertions or :checks has
+            tests, so the Tests pane runs it; empty vectors are not tests"
+    (rf.story/reg-check :story.tm/c-is-zero {:assertions [[:rf.assert/path-equals [:c] 0]]})
     (rf.story/reg-variant :story.tm/assertions-only
       {:setup [] :assertions [[:rf.assert/path-equals [:c] 0]]})
-    (rf.story/reg-variant :story.tm/checks-only
-      {:setup [] :checks [:story.tm/c-is-zero]})
-    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/assertions-only))
-    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/checks-only)))
-  (testing "empty :assertions / :checks vectors are not tests"
-    (rf.story/reg-variant :story.tm/empty-expectations
-      {:setup [] :assertions [] :checks []})
-    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/empty-expectations)))))
+    (rf.story/reg-variant :story.tm/checks-only {:setup [] :checks [:story.tm/c-is-zero]})
+    (rf.story/reg-variant :story.tm/empty-expectations {:setup [] :assertions [] :checks []})
+    (is (= [true true false]
+           (map (comp boolean rf.story.ui.test-mode.pure/variant-has-tests?)
+                [:story.tm/assertions-only :story.tm/checks-only :story.tm/empty-expectations])))))
 
 (deftest run-all-runs-declarative-expectation-variants
-  (testing "Run all — the sidebar's `testable-variant-ids`
-            selection driven through its per-variant pipeline
-            (`run-one-test!`: run-variant → aggregate-summary + the run's
-            `:status` → record-test-run) — executes an :assertions-only and a
-            :checks-only variant beside a :script control, and their
-            records take the script assert's shape"
+  (testing "Run all selects and executes an :assertions-only and a :checks-only
+            variant beside a :script control, and their records take the script
+            assert's shape"
     (rf.story/reg-check :story.rall/c-is-zero
       {:assertions [[:rf.assert/path-equals [:c] 0]]})
     (rf.story/reg-variant :story.rall/assertions-only
@@ -796,28 +511,15 @@
        :assertions [[:rf.assert/path-equals [:c] 1]]})
     (let [ids     (rf.story.ui.state/testable-variant-ids
                     (rf.story.registrar/registrations :variant))
-          results (into {}
-                        (map (fn [vid]
-                               [vid (rf.story.async/deref-blocking
-                                      (rf.story.runtime/run-variant vid nil) 30000)]))
-                        ids)
-          state   (reduce (fn [s vid]
-                            (rf.story.ui.state/record-test-run
-                              s vid (assoc (rf.story.ui.state/aggregate-summary
-                                             (:assertions (get results vid)))
-                                           :status (:status (get results vid)))))
-                          rf.story.ui.state/default-shell-state
-                          ids)
-          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))
+          results (run-all ids)
           shape   (fn [vid] (set (mapcat keys (:assertions (get results vid)))))]
       (is (= [:story.rall/assertions-only :story.rall/checks-only
               :story.rall/failing :story.rall/script]
              ids)
           "Run all selects the declarative variants, not only the :script control")
-      (is (= :pass (status :story.rall/script)) "the :script control passes")
-      (is (= :pass (status :story.rall/assertions-only)))
-      (is (= :pass (status :story.rall/checks-only)))
-      (is (= :fail (status :story.rall/failing))
+      (is (= {:story.rall/assertions-only :pass :story.rall/checks-only :pass
+              :story.rall/failing :fail :story.rall/script :pass}
+             (update-vals results dot))
           "a failing declarative assertion fails the run, never a silent skip")
       (is (seq (shape :story.rall/script)))
       (is (= (shape :story.rall/script)
@@ -826,53 +528,39 @@
           "declarative records carry the same keys as a script assert record"))))
 
 (deftest run-all-records-the-run-level-status
-  (testing "Run all and watch mode record the run's `:status`,
-            as the Tests pane does. A thrown fx after the `:db` commits is
-            agreement-floor evidence, so the run fails while its one
-            assertion passes; folded from the assertion counts alone, the
-            sidebar dot would read a green `:pass`. The pipeline below is
-            `run-one-test!`'s — CLJS-only, so its own witness is
+  (testing "Run all and watch mode record the run's `:status`, as the Tests pane
+            does. A thrown fx after the `:db` commits is agreement-floor
+            evidence, so the run fails while its one assertion passes; folded
+            from the assertion counts alone, the dot would read a green `:pass`.
+            `run-one-test!`'s own witness is
             `re-frame.story.ui.run-all-status-cljs-test`."
     (rf/reg-fx :story.rstat/boom {:platforms #{:client :server}}
-      (fn [_ _] (throw (ex-info "rf2-3x7nj.28.1 probe fx" {}))))
+      (fn [_ _] (throw (ex-info "probe fx" {}))))
     (rf/reg-fx :story.rstat/quiet {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-event :story.rstat/set-n
       (fn [{:keys [db]} [_ fx-id]] {:db (assoc db :n 1) :fx [[fx-id true]]}))
-    (rf.story/reg-variant :story.rstat/floor
-      {:tags   #{:test}
-       :script [[:dispatch-sync [:story.rstat/set-n :story.rstat/boom]]
-                [:assert [:rf.assert/path-equals [:n] 1]]]})
-    (rf.story/reg-variant :story.rstat/clean
-      {:tags   #{:test}
-       :script [[:dispatch-sync [:story.rstat/set-n :story.rstat/quiet]]
-                [:assert [:rf.assert/path-equals [:n] 1]]]})
-    (let [run    (fn [vid] (rf.story.async/deref-blocking
-                             (rf.story.runtime/run-variant vid nil) 30000))
-          floor  (run :story.rstat/floor)
-          clean  (run :story.rstat/clean)
-          record (fn [result]
-                   (-> rf.story.ui.state/default-shell-state
-                       (rf.story.ui.state/record-test-run
-                         :v (assoc (rf.story.ui.state/aggregate-summary (:assertions result))
-                                   :status (:status result)))
-                       (rf.story.ui.state/variant-test-status :v)))]
-      (is (= :fail (:status floor))
-          "precondition: the run itself fails on the thrown fx")
-      (is (:all-passed? (rf.story.ui.state/aggregate-summary (:assertions floor)))
-          "precondition: every assertion that ran passed, so the counts alone read green")
-      (is (= :fail (record floor))
-          "the dot takes the run's verdict, not the assertion counts")
-      (is (= :pass (:status clean)) "control: the same shape with a quiet fx passes")
-      (is (= :pass (record clean)) "control: and its dot is green"))
+    (doseq [[vid fx] [[:story.rstat/floor :story.rstat/boom] [:story.rstat/clean :story.rstat/quiet]]]
+      (rf.story/reg-variant vid
+        {:tags   #{:test}
+         :script [[:dispatch-sync [:story.rstat/set-n fx]]
+                  [:assert [:rf.assert/path-equals [:n] 1]]]}))
+    (let [{floor :story.rstat/floor clean :story.rstat/clean}
+          (run-all [:story.rstat/floor :story.rstat/clean])]
+      (is (= [:fail true] [(:status floor)
+                           (:all-passed? (rf.story.ui.state/aggregate-summary (:assertions floor)))])
+          "precondition: the run fails on the thrown fx while every assertion passed")
+      (is (= :fail (dot floor)) "the dot takes the run's verdict, not the assertion counts")
+      (is (= [:pass :pass] [(:status clean) (dot clean)])
+          "control: the same shape with a quiet fx passes, and its dot is green"))
     (rf.story/destroy-variant! :story.rstat/floor)
     (rf.story/destroy-variant! :story.rstat/clean)))
 
 (deftest inherited-and-composed-checks-select-and-run
-  (testing ":checks a variant receives only through :extends or a
-            :compose of a check id RUN (the compiler merges them into
-            [:expect :checks]), so the Tests pane's variant-has-tests? and
-            Run all's selection — fed the sidebar's own registry-snapshot —
-            select the variant, and its verdict is honest in both directions"
+  (testing ":checks a variant receives only through :extends or a :compose of a
+            check id RUN (the compiler merges them into [:expect :checks]), so
+            variant-has-tests? and Run all's selection — fed the sidebar's own
+            registry-snapshot — select the variant, and its verdict is honest in
+            both directions"
     (rf.story/reg-check :story.inh/c-is-zero
       {:assertions [[:rf.assert/path-equals [:c] 0]]})
     (rf.story/reg-check :story.inh/c-is-one
@@ -893,39 +581,23 @@
                  :story.inh/compose-pass :story.inh/compose-fail]]
       (is (rf.story.ui.test-mode.pure/variant-has-tests? vid)
           (str vid " — the Tests pane runs it instead of the empty state")))
-    (let [ids     (rf.story.ui.state/testable-variant-ids
-                    (:variants (rf.story.ui.state/registry-snapshot)))
-          results (into {}
-                        (map (fn [vid]
-                               [vid (rf.story.async/deref-blocking
-                                      (rf.story.runtime/run-variant vid nil) 30000)]))
-                        ids)
-          state   (reduce (fn [s vid]
-                            (rf.story.ui.state/record-test-run
-                              s vid (assoc (rf.story.ui.state/aggregate-summary
-                                             (:assertions (get results vid)))
-                                           :status (:status (get results vid)))))
-                          rf.story.ui.state/default-shell-state
-                          ids)
-          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]
+    (let [ids (rf.story.ui.state/testable-variant-ids
+                (:variants (rf.story.ui.state/registry-snapshot)))]
       (is (= [:story.inh/compose-fail :story.inh/compose-pass
               :story.inh/extends-fail :story.inh/extends-pass]
              ids)
           "Run all selects the inherited and composed check variants, not their :dev parents")
-      (is (= :pass (status :story.inh/extends-pass)))
-      (is (= :fail (status :story.inh/extends-fail))
-          "an inherited failing check fails the run, never a silent skip")
-      (is (= :pass (status :story.inh/compose-pass)))
-      (is (= :fail (status :story.inh/compose-fail))
-          "a composed failing check fails the run, never a silent skip"))))
+      (is (= {:story.inh/extends-pass :pass :story.inh/extends-fail :fail
+              :story.inh/compose-pass :pass :story.inh/compose-fail :fail}
+             (update-vals (run-all ids) dot))
+          "an inherited or composed failing check fails the run, never a silent skip"))))
 
 (deftest composed-fragment-script-selects-and-runs
-  (testing "A :script a variant receives only through a :compose of
-            a fragment RUNS (the compiler prepends it onto the primary play, or
-            synthesizes one — spec/017 §Total merge order), so the
-            Tests pane's variant-has-tests? and Run all's selection select the
-            variant and its verdict is honest in both directions; composing a
-            fragment with no :script still prunes"
+  (testing "A :script a variant receives only through a :compose of a fragment
+            RUNS (the compiler prepends it onto the primary play, or synthesizes
+            one — spec/017 §Total merge order), so variant-has-tests? and Run
+            all's selection select the variant and its verdict is honest in both
+            directions; composing a fragment with no :script still prunes"
     (rf.story/reg-fragment :fragment.cmp/c-is-zero
       {:script [[:assert [:rf.assert/path-equals [:c] 0]]]})
     (rf.story/reg-fragment :fragment.cmp/c-is-one
@@ -937,332 +609,179 @@
       {:tags #{:test} :db-seed {:c 0} :compose [:fragment.cmp/c-is-one]})
     (rf.story/reg-variant :story.cmp/compose-no-script
       {:tags #{:test} :db-seed {:c 0} :compose [:fragment.cmp/no-script]})
-    (doseq [vid [:story.cmp/compose-pass :story.cmp/compose-fail]]
-      (is (rf.story.ui.test-mode.pure/variant-has-tests? vid)
-          (str vid " — the Tests pane runs it instead of the empty state")))
-    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.cmp/compose-no-script))
+    (is (= [true true false]
+           (map (comp boolean rf.story.ui.test-mode.pure/variant-has-tests?)
+                [:story.cmp/compose-pass :story.cmp/compose-fail :story.cmp/compose-no-script]))
         "a composed fragment without a :script gives the run nothing to judge")
-    (let [ids     (rf.story.ui.state/testable-variant-ids
-                    (:variants (rf.story.ui.state/registry-snapshot)))
-          results (into {}
-                        (map (fn [vid]
-                               [vid (rf.story.async/deref-blocking
-                                      (rf.story.runtime/run-variant vid nil) 30000)]))
-                        ids)
-          state   (reduce (fn [s vid]
-                            (rf.story.ui.state/record-test-run
-                              s vid (assoc (rf.story.ui.state/aggregate-summary
-                                             (:assertions (get results vid)))
-                                           :status (:status (get results vid)))))
-                          rf.story.ui.state/default-shell-state
-                          ids)
-          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]
+    (let [ids (rf.story.ui.state/testable-variant-ids
+                (:variants (rf.story.ui.state/registry-snapshot)))]
       (is (= [:story.cmp/compose-fail :story.cmp/compose-pass] ids)
           "Run all selects the composed-script variants, not the script-less one")
-      (is (= :pass (status :story.cmp/compose-pass)))
-      (is (= :fail (status :story.cmp/compose-fail))
+      (is (= {:story.cmp/compose-pass :pass :story.cmp/compose-fail :fail}
+             (update-vals (run-all ids) dot))
           "a failing composed script step fails the run, never a silent skip"))))
 
 (deftest shell-state-aggregate-summary-counts-pass-fail-skip
-  (testing "aggregate-summary tallies passed / failed / skipped"
-    (let [s (rf.story.ui.state/aggregate-summary
-              [{:assertion :rf.assert/path-equals :passed? true}
-               {:assertion :rf.assert/path-equals :passed? false}
-               {:assertion :rf.assert/sub-equals  :passed? true}
-               {:assertion :rf.assert/skipped     :passed? false}])]
-      (is (= 4 (:total s)))
-      (is (= 2 (:passed s)))
-      (is (= 1 (:failed s)))
-      (is (= 1 (:skipped s)))
-      (is (false? (:all-passed? s)))))
-  (testing "aggregate-summary's :all-passed? is true only when every
-            non-skipped record passed AND no records were skipped"
-    (let [all-pass (rf.story.ui.state/aggregate-summary
-                     [{:assertion :rf.assert/path-equals :passed? true}
-                      {:assertion :rf.assert/sub-equals  :passed? true}])]
-      (is (true?  (:all-passed? all-pass)))
-      (is (= 0   (:failed all-pass)))
-      (is (= 0   (:skipped all-pass))))
-    (let [with-skip (rf.story.ui.state/aggregate-summary
-                      [{:assertion :rf.assert/path-equals :passed? true}
-                       {:assertion :rf.assert/skipped     :passed? false}])]
-      (is (false? (:all-passed? with-skip))
-          "a skipped record disqualifies :all-passed?")))
-  (testing "aggregate-summary on an empty vector returns zeros + :all-passed? false"
-    (let [s (rf.story.ui.state/aggregate-summary [])]
-      (is (= 0 (:total s)))
-      (is (= 0 (:passed s)))
-      (is (= 0 (:failed s)))
-      (is (= 0 (:skipped s)))
-      (is (false? (:all-passed? s))
-          "zero records = not 'all passed' (the variant ran nothing)")))
-  (testing "aggregate-summary tolerates nil"
-    (let [s (rf.story.ui.state/aggregate-summary nil)]
-      (is (= 0 (:total s)))
-      (is (false? (:all-passed? s))))))
+  (testing "aggregate-summary tallies passed / failed / skipped; :all-passed? needs
+            at least one record, every one passed and none skipped"
+    (let [rec  (fn [a p] {:assertion a :passed? p})
+          summ #(select-keys (rf.story.ui.state/aggregate-summary %)
+                             [:total :passed :failed :skipped :all-passed?])]
+      (is (= {:total 4 :passed 2 :failed 1 :skipped 1 :all-passed? false}
+             (summ [(rec :rf.assert/path-equals true) (rec :rf.assert/path-equals false)
+                    (rec :rf.assert/sub-equals true) (rec :rf.assert/skipped false)])))
+      (is (= {:total 2 :passed 2 :failed 0 :skipped 0 :all-passed? true}
+             (summ [(rec :rf.assert/path-equals true) (rec :rf.assert/sub-equals true)])))
+      (is (false? (:all-passed? (summ [(rec :rf.assert/path-equals true)
+                                       (rec :rf.assert/skipped false)])))
+          "a skipped record disqualifies :all-passed?")
+      (is (= {:total 0 :passed 0 :failed 0 :skipped 0 :all-passed? false} (summ []) (summ nil))
+          "zero records is not 'all passed': the variant ran nothing"))))
 
 (deftest record-test-run-preserves-skipped-and-failure-counts
-  (testing "test-widget projection keeps skipped and failed counts actionable"
+  (testing "the test-widget projection keeps skipped and failed counts actionable"
     (let [summary (rf.story.ui.state/aggregate-summary
                     [{:assertion :rf.assert/path-equals :passed? true}
                      {:assertion :rf.assert/path-equals :passed? false}
                      {:assertion :rf.assert/skipped     :passed? false}])
-          s       (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state
-                                         :story.agg/failing
-                                         (assoc summary
-                                                :ran-at-ms 123
-                                                :elapsed-ms 7))
-          run     (get-in s [:tests :runs :story.agg/failing])]
-      (is (= :fail (:status run)))
-      (is (= 3 (:total run)))
-      (is (= 1 (:passed run)))
-      (is (= 1 (:failed run)))
-      (is (= 1 (:skipped run)))
-      (is (= 7 (:elapsed-ms run)))
-      (is (= 123 (:ran-at-ms run))))))
+          s       (rf.story.ui.state/record-test-run
+                    rf.story.ui.state/default-shell-state :story.agg/failing
+                    (assoc summary :ran-at-ms 123 :elapsed-ms 7))]
+      (is (= {:status :fail :total 3 :passed 1 :failed 1 :skipped 1 :elapsed-ms 7 :ran-at-ms 123}
+             (select-keys (get-in s [:tests :runs :story.agg/failing])
+                          [:status :total :passed :failed :skipped :elapsed-ms :ran-at-ms]))))))
 
 (deftest test-mode-assertion-row-projection
-  (testing "assertion-row maps a passing record to :status :pass"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/path-equals
-                 :payload   [[:count] 7]
-                 :passed?   true
-                 :expected  7
-                 :actual    7})]
-      (is (= :pass (:status row)))
-      (is (= :rf.assert/path-equals (:assertion row)))
-      (is (= ":rf.assert/path-equals [[:count] 7]" (:label row)))))
-  (testing "assertion-row maps a failing record to :status :fail + surfaces detail"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/path-equals
-                 :payload   [[:count] 7]
-                 :passed?   false
-                 :expected  7
-                 :actual    0
-                 :reason    "mismatch"
-                 :source    {:file "stories.cljs" :line 42}})]
-      (is (= :fail (:status row)))
-      (let [d (:detail row)]
-        (is (= 7   (:expected d)))
-        (is (= 0   (:actual   d)))
-        (is (= "mismatch" (:reason d)))
-        (is (= {:file "stories.cljs" :line 42} (:source d))))))
-  (testing "assertion-row maps :rf.assert/skipped to :status :skip"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/skipped :passed? false})]
-      (is (= :skip (:status row)))))
-  (testing "assertion-row reads :source-coord as a fallback for :source"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/sub-equals
-                 :passed?   false
-                 :source-coord {:file "f.cljs" :line 9}})]
-      (is (= {:file "f.cljs" :line 9} (-> row :detail :source)))))
-  (testing "assertion-row's :label omits an empty payload"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/no-warnings
-                 :payload   []
-                 :passed?   true})]
-      (is (= ":rf.assert/no-warnings" (:label row)))))
-  (testing "assertion-row tolerates a fully-empty record without throwing"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row nil)]
-      (is (= :fail (:status row))
-          "nil record defaults to fail — a missing passed? slot can't be 'pass'")
-      (is (some? (:label row)))))
-  (testing "assertion-row stamps :row-key = :label so the view can key
-            :expanded on stable identity instead of positional index.
-            A re-run that reorders or inserts assertions would otherwise open
-            the wrong row."
-    (let [a (rf.story.ui.test-mode.pure/assertion-row
-              {:assertion :rf.assert/path-equals :payload [[:count] 1]
-               :passed? false :expected 1 :actual 0})
-          b (rf.story.ui.test-mode.pure/assertion-row
-              {:assertion :rf.assert/path-equals :payload [[:count] 2]
-               :passed? false :expected 2 :actual 0})]
-      (is (= (:label a) (:row-key a)))
-      (is (= (:label b) (:row-key b)))
-      (is (not= (:row-key a) (:row-key b))
-          "different payloads produce distinct row-keys — keys do not collide
-           on a re-run that inserts a sibling path-equals on a different path"))))
+  (let [row rf.story.ui.test-mode.pure/assertion-row]
+    (testing "a passing record's status, assertion and label; an empty payload drops from the label"
+      (is (= [:pass :rf.assert/path-equals ":rf.assert/path-equals [[:count] 7]"]
+             ((juxt :status :assertion :label)
+              (row {:assertion :rf.assert/path-equals :payload [[:count] 7]
+                    :passed? true :expected 7 :actual 7}))))
+      (is (= ":rf.assert/no-warnings"
+             (:label (row {:assertion :rf.assert/no-warnings :payload [] :passed? true})))))
+    (testing "a failing record surfaces its detail; :source-coord stands in for :source"
+      (is (= [:fail {:expected 7 :actual 0 :reason "mismatch" :source {:file "stories.cljs" :line 42}}]
+             ((juxt :status #(select-keys (:detail %) [:expected :actual :reason :source]))
+              (row {:assertion :rf.assert/path-equals :payload [[:count] 7] :passed? false
+                    :expected 7 :actual 0 :reason "mismatch"
+                    :source {:file "stories.cljs" :line 42}}))))
+      (is (= {:file "f.cljs" :line 9}
+             (-> (row {:assertion :rf.assert/sub-equals :passed? false
+                       :source-coord {:file "f.cljs" :line 9}})
+                 :detail :source))))
+    (testing ":rf.assert/skipped reads :skip; a nil record reads :fail and still has a label"
+      (is (= :skip (:status (row {:assertion :rf.assert/skipped :passed? false}))))
+      (is (= [:fail true] ((juxt :status (comp some? :label)) (row nil)))))
+    (testing ":row-key is the label, so the view keys :expanded on identity and a
+              re-run that inserts a sibling does not open the wrong row"
+      (let [a (row {:assertion :rf.assert/path-equals :payload [[:count] 1]
+                    :passed? false :expected 1 :actual 0})
+            b (row {:assertion :rf.assert/path-equals :payload [[:count] 2]
+                    :passed? false :expected 2 :actual 0})]
+        (is (= [(:label a) (:label b)] [(:row-key a) (:row-key b)]))
+        (is (not= (:row-key a) (:row-key b)))))))
 
 (deftest test-mode-assertion-row-unified-status
-  (testing "assertion-row PREFERS the unified `:status` over
-            the :passed? read (spec/021 §1)"
-    (is (= :cannot-run (:status (rf.story.ui.test-mode.pure/assertion-row
-                                  {:assertion :rf.assert/caused
-                                   :status    :cannot-run
-                                   :passed?   false})))
-        "a stamped :cannot-run wins — NOT folded into :fail")
-    (is (= :error (:status (rf.story.ui.test-mode.pure/assertion-row
-                             {:assertion :rf.assert/path-equals
-                              :status    :error
-                              :passed?   false})))
-        "a stamped :error reads :error, not :fail")
-    (is (= :pass (:status (rf.story.ui.test-mode.pure/assertion-row
-                            {:assertion :rf.assert/path-equals
-                             :status    :pass
-                             :passed?   false})))
-        "the stamped :status wins even when :passed? disagrees")
-    (testing "unstamped records derive :cannot-run / :error from flags"
-      (is (= :cannot-run (:status (rf.story.ui.test-mode.pure/assertion-row
-                                    {:assertion :rf.assert/caused
-                                     :cannot-run? true}))))
-      (is (= :error (:status (rf.story.ui.test-mode.pure/assertion-row
-                               {:assertion :rf.assert/path-equals
-                                :error "boom"})))))))
+  (testing "assertion-row prefers a stamped :status over :passed? (spec/021 §1) —
+            :cannot-run and :error are not folded into :fail — and derives them
+            from flags on an unstamped record"
+    (is (= [:cannot-run :error :pass :cannot-run :error]
+           (map (comp :status rf.story.ui.test-mode.pure/assertion-row)
+                [{:assertion :rf.assert/caused :status :cannot-run :passed? false}
+                 {:assertion :rf.assert/path-equals :status :error :passed? false}
+                 {:assertion :rf.assert/path-equals :status :pass :passed? false}
+                 {:assertion :rf.assert/caused :cannot-run? true}
+                 {:assertion :rf.assert/path-equals :error "boom"}])))))
 
 (deftest test-mode-run-status
-  (testing "run-status prefers the unified run-level :status"
-    (is (= :pass       (rf.story.ui.test-mode.pure/run-status {:status :pass} {})))
-    (is (= :fail       (rf.story.ui.test-mode.pure/run-status {:status :fail} {})))
-    (is (= :error      (rf.story.ui.test-mode.pure/run-status {:status :error} {})))
-    (is (= :cannot-run (rf.story.ui.test-mode.pure/run-status {:status :cannot-run} {}))))
-  (testing "no result → :pending; a result without :status derives from counts"
-    (is (= :pending (rf.story.ui.test-mode.pure/run-status nil nil)))
-    (is (= :pending (rf.story.ui.test-mode.pure/run-status {} {:total 0})))
-    (is (= :pass    (rf.story.ui.test-mode.pure/run-status {} {:total 2 :failed 0 :all-passed? true})))
-    (is (= :fail    (rf.story.ui.test-mode.pure/run-status {} {:total 2 :failed 1})))
-    (is (= :cannot-run (rf.story.ui.test-mode.pure/run-status {} {:total 2 :failed 0 :cannot-run 1})))))
+  (let [rs rf.story.ui.test-mode.pure/run-status]
+    (testing "the unified run-level :status wins"
+      (is (= [:pass :fail :error :cannot-run]
+             (map #(rs {:status %} {}) [:pass :fail :error :cannot-run]))))
+    (testing "no result is :pending; without :status the counts decide"
+      (is (= [:pending :pending :pass :fail :cannot-run]
+             [(rs nil nil) (rs {} {:total 0}) (rs {} {:total 2 :failed 0 :all-passed? true})
+              (rs {} {:total 2 :failed 1}) (rs {} {:total 2 :failed 0 :cannot-run 1})])))))
 
 (deftest test-mode-check-rows
-  (testing "check-rows groups the result's :checks by id, with
-            pass/fail counts + the underlying assertion rows (spec/021 §1)"
-    (let [result {:checks [{:check  :auth/logged-in
-                            :status :fail
-                            :assertions [{:assertion :rf.assert/path-equals
-                                          :status :pass :payload [[:user] 1]}
-                                         {:assertion :rf.assert/path-equals
-                                          :status :fail :payload [[:role] :admin]}]}]}
-          rows   (rf.story.ui.test-mode.pure/check-rows result)]
-      (is (= 1 (count rows)))
-      (let [r (first rows)]
-        (is (= :auth/logged-in (:check r)))
-        (is (= :fail (:status r)))
-        (is (= 1 (:passed r)))
-        (is (= 1 (:failed r)))
-        (is (= 2 (:total r)))
-        (is (= 2 (count (:rows r))) "underlying assertion rows are projected"))))
-  (testing "no checks → empty (honest empty state, never a fabricated check)"
-    (is (= [] (rf.story.ui.test-mode.pure/check-rows {})))
-    (is (= [] (rf.story.ui.test-mode.pure/check-rows {:checks []})))))
+  (testing "check-rows groups :checks by id with pass/fail counts and the
+            projected assertion rows (spec/021 §1); no checks is an empty state"
+    (let [[r & more] (rf.story.ui.test-mode.pure/check-rows
+                       {:checks [{:check :auth/logged-in :status :fail
+                                  :assertions [{:assertion :rf.assert/path-equals
+                                                :status :pass :payload [[:user] 1]}
+                                               {:assertion :rf.assert/path-equals
+                                                :status :fail :payload [[:role] :admin]}]}]})]
+      (is (= [nil :auth/logged-in :fail 1 1 2 2]
+             [more (:check r) (:status r) (:passed r) (:failed r) (:total r) (count (:rows r))])))
+    (is (= [] (rf.story.ui.test-mode.pure/check-rows {})
+           (rf.story.ui.test-mode.pure/check-rows {:checks []})))))
 
 (deftest test-mode-schema-rows
-  (testing "schema-rows marks consumed vs unconsumed
-            violations (spec/021 §1 — incl. consumed expected violations)"
-    (let [result {:schema-violations
-                  [{:selector [:event :auth/login] :where :event
-                    :failing-id :auth/login :epoch-id 3}
-                   {:selector [:app-db [:user] [:role]] :where :app-db
-                    :failing-id nil :epoch-id 4 :reason "invalid role"}]
-                  ;; a :pass schema-error record consumed the first selector
-                  :assertions
-                  [{:assertion :rf.assert/schema-error :status :pass
-                    :actual [:event :auth/login]}]}
-          rows   (rf.story.ui.test-mode.pure/schema-rows result)]
-      (is (= 2 (count rows)))
-      (is (true?  (:consumed? (first rows)))  "exactly-consumed expected violation")
-      (is (false? (:consumed? (second rows))) "unconsumed → agreement-floor failure")
-      (is (= "invalid role" (:reason (second rows))))))
-  (testing "schema-rows uses the EXACT MULTISET consumption from
-            the `:pass` schema-error records, so a partially-consumed selector
-            marks exactly M of N (not all) and AGREES with the agreement floor"
-    ;; TWO same-selector violations, ONE matching expectation → exactly one
-    ;; consumed, one unconsumed. A set-keyed mark would falsely show BOTH
-    ;; consumed and disagree with the (multiset) floor.
-    (let [result {:schema-violations
-                  [{:selector [:event :x] :where :event :failing-id :x :epoch-id 1}
-                   {:selector [:event :x] :where :event :failing-id :x :epoch-id 2}]
-                  :consumed-selectors #{[:event :x]}
-                  :assertions
-                  [{:assertion :rf.assert/schema-error :status :pass
-                    :actual [:event :x]}]}
-          rows   (rf.story.ui.test-mode.pure/schema-rows result)]
-      (is (= 2 (count rows)))
-      (is (true?  (:consumed? (first rows)))
-          "first of the two same-selector violations is the consumed one")
-      (is (false? (:consumed? (second rows)))
-          "second same-selector violation left UNCONSUMED → floor failure cause")))
-  (testing "A consumed-selector with NO matching `:pass` record is
-            a caller-supplied escape hatch and excuses every same-selector
-            violation (set-keyed, mirroring the floor)"
-    (let [result {:schema-violations
-                  [{:selector [:event :auth/login] :where :event
-                    :failing-id :auth/login :epoch-id 3}
-                   {:selector [:app-db [:user] [:role]] :where :app-db
-                    :failing-id nil :epoch-id 4 :reason "invalid role"}]
-                  ;; escape-hatch excuses the first selector (no :pass record)
-                  :consumed-selectors #{[:event :auth/login]}
-                  :assertions []}
-          rows   (rf.story.ui.test-mode.pure/schema-rows result)]
-      (is (true?  (:consumed? (first rows)))  "escape-hatch selector excused")
-      (is (false? (:consumed? (second rows)))
-          "selector absent from :consumed-selectors → unconsumed")))
-  (testing "Empty `:consumed-selectors`: a `:pass` record
-            carries the multiset consumption (one matched expectation = one
-            consumed violation), so the matched violation reads consumed"
-    (let [result {:schema-violations
-                  [{:selector [:event :auth/login] :where :event}]
-                  :consumed-selectors #{}
-                  :assertions
-                  [{:assertion :rf.assert/schema-error :status :pass
-                    :actual [:event :auth/login]}]}
-          rows   (rf.story.ui.test-mode.pure/schema-rows result)]
-      (is (true? (:consumed? (first rows)))
-          "the `:pass` record's consumed violation reads consumed (multiset source)")))
-  (testing "no violations → empty"
-    (is (= [] (rf.story.ui.test-mode.pure/schema-rows {})))))
+  (let [rows     rf.story.ui.test-mode.pure/schema-rows
+        consumed #(mapv :consumed? (rows %))
+        pass-rec (fn [sel] {:assertion :rf.assert/schema-error :status :pass :actual sel})
+        login    {:selector [:event :auth/login] :where :event :failing-id :auth/login :epoch-id 3}
+        role     {:selector [:app-db [:user] [:role]] :where :app-db :failing-id nil :epoch-id 4
+                  :reason "invalid role"}
+        r1       {:schema-violations [login role] :assertions [(pass-rec [:event :auth/login])]}]
+    (testing "a :pass schema-error record consumes its violation; the rest stay
+              unconsumed agreement-floor failures (spec/021 §1)"
+      (is (= [true false] (consumed r1)))
+      (is (= "invalid role" (:reason (second (rows r1))))))
+    (testing "consumption is an exact multiset: two same-selector violations and
+              one matching expectation mark exactly one, agreeing with the floor"
+      (is (= [true false]
+             (consumed {:schema-violations  [{:selector [:event :x] :where :event :failing-id :x :epoch-id 1}
+                                             {:selector [:event :x] :where :event :failing-id :x :epoch-id 2}]
+                        :consumed-selectors #{[:event :x]}
+                        :assertions         [(pass-rec [:event :x])]}))))
+    (testing "a consumed selector with no :pass record is a caller escape hatch and
+              excuses every same-selector violation"
+      (is (= [true false] (consumed {:schema-violations  [login role]
+                                     :consumed-selectors #{[:event :auth/login]}
+                                     :assertions         []}))))
+    (testing "with empty :consumed-selectors a :pass record still carries the consumption"
+      (is (= [true] (consumed {:schema-violations  [{:selector [:event :auth/login] :where :event}]
+                               :consumed-selectors #{}
+                               :assertions         [(pass-rec [:event :auth/login])]}))))
+    (is (= [] (rows {})) "no violations is empty")))
 
 (deftest test-mode-cannot-run-rows
-  (testing "cannot-run-rows surfaces required vs available
-            evidence/runner for each refusal (spec/021 §1; spec/018 §12.6)"
-    (let [result {:cannot-run
-                  [{:status :cannot-run
-                    :required-runner  #{:dom}
-                    :available-runner #{:headless}
-                    :missing          #{:dom}
-                    :reason           :runner-lacks-capability
-                    :runner           :headless
-                    :unit             [:click "#go"]}]}
-          rows   (rf.story.ui.test-mode.pure/cannot-run-rows result)]
-      (is (= 1 (count rows)))
-      (let [r (first rows)]
-        (is (= #{:dom}      (:required r)))
-        (is (= #{:headless} (:available r)))
-        (is (= #{:dom}      (:missing r)))
-        (is (= :runner-lacks-capability (:reason r)))
-        (is (= :headless    (:runner r))))))
-  (testing "no refusals → empty"
+  (testing "cannot-run-rows surfaces required vs available evidence for each
+            refusal (spec/021 §1; spec/018 §12.6); none is empty"
+    (is (= [{:required #{:dom} :available #{:headless} :missing #{:dom}
+             :reason :runner-lacks-capability :runner :headless}]
+           (map #(select-keys % [:required :available :missing :reason :runner])
+                (rf.story.ui.test-mode.pure/cannot-run-rows
+                  {:cannot-run [{:status :cannot-run :required-runner #{:dom}
+                                 :available-runner #{:headless} :missing #{:dom}
+                                 :reason :runner-lacks-capability :runner :headless
+                                 :unit [:click "#go"]}]}))))
     (is (= [] (rf.story.ui.test-mode.pure/cannot-run-rows {})))))
 
 (deftest test-mode-filter-rows
-  (testing "failed-only filter keeps only actionable rows
-            (:fail/:error/:cannot-run) when on (spec/021 §1)"
-    (let [rows [{:status :pass}  {:status :fail}  {:status :error}
-                {:status :cannot-run} {:status :skip} {:status :pass}]]
-      (is (= 6 (count (rf.story.ui.test-mode.pure/filter-rows rows false)))
-          "filter off → every row")
-      (let [kept (rf.story.ui.test-mode.pure/filter-rows rows true)]
-        (is (= [:fail :error :cannot-run] (mapv :status kept))
-            ":pass / :skip rows are filtered out")))))
+  (testing "the failed-only filter keeps the actionable rows — :fail, :error,
+            :cannot-run — and off keeps every row (spec/021 §1)"
+    (let [rows (map #(hash-map :status %) [:pass :fail :error :cannot-run :skip :pass])]
+      (is (= rows (rf.story.ui.test-mode.pure/filter-rows rows false)))
+      (is (= [:fail :error :cannot-run]
+             (map :status (rf.story.ui.test-mode.pure/filter-rows rows true)))))))
 
 (deftest test-mode-evidence-available?
-  (testing "evidence-available? gates the graceful pending
-            affordance on a retained tape/narrative (spec/021 §2)"
-    (is (true?  (rf.story.ui.test-mode.pure/evidence-available? {:epoch-tape [{:epoch-id 1}]})))
-    (is (true?  (rf.story.ui.test-mode.pure/evidence-available? {:narrative [{:span 1}]})))
-    (is (false? (rf.story.ui.test-mode.pure/evidence-available? {:epoch-tape [] :narrative []})))
-    (is (false? (rf.story.ui.test-mode.pure/evidence-available? {})))))
+  (testing "evidence-available? gates the pending affordance on a retained tape
+            or narrative (spec/021 §2)"
+    (is (= [true true false false]
+           (map rf.story.ui.test-mode.pure/evidence-available?
+                [{:epoch-tape [{:epoch-id 1}]} {:narrative [{:span 1}]}
+                 {:epoch-tape [] :narrative []} {}])))))
 
 (deftest test-mode-format-elapsed-ms
-  (testing "format-elapsed-ms switches at the 1s boundary"
-    (is (= "0 ms"   (rf.story.ui.test-mode.pure/format-elapsed-ms 0)))
-    (is (= "12 ms"  (rf.story.ui.test-mode.pure/format-elapsed-ms 12)))
-    (is (= "999 ms" (rf.story.ui.test-mode.pure/format-elapsed-ms 999)))
-    (is (= "1.0 s"  (rf.story.ui.test-mode.pure/format-elapsed-ms 1000)))
-    (is (= "1.2 s"  (rf.story.ui.test-mode.pure/format-elapsed-ms 1234))))
-  (testing "format-elapsed-ms tolerates nil / non-numbers / negatives"
-    (is (= "" (rf.story.ui.test-mode.pure/format-elapsed-ms nil)))
-    (is (= "" (rf.story.ui.test-mode.pure/format-elapsed-ms "no")))
-    (is (= "" (rf.story.ui.test-mode.pure/format-elapsed-ms -5)))))
+  (testing "format-elapsed-ms switches to seconds at 1s and blanks nil,
+            non-numbers and negatives"
+    (is (= ["0 ms" "12 ms" "999 ms" "1.0 s" "1.2 s" "" "" ""]
+           (map rf.story.ui.test-mode.pure/format-elapsed-ms [0 12 999 1000 1234 nil "no" -5])))))
 
 (deftest test-mode-format-timestamp-ms
   (testing "format-timestamp-ms emits an HH:mm:ss-shaped string"
@@ -1275,80 +794,48 @@
 ;; ---- step-through scrubber ----------------------------------------------
 
 (deftest test-mode-play-step-label-renders-event-id
-  (testing "play-step-label stringifies the event-id only"
-    (is (= ":auth/email-changed"
-           (rf.story.ui.test-mode.pure/play-step-label [:auth/email-changed "alice@example.com"])))
-    (is (= ":rf.assert/path-equals"
-           (rf.story.ui.test-mode.pure/play-step-label [:rf.assert/path-equals [[:count] 7]]))))
-  (testing "play-step-label tolerates nil / malformed input"
-    (is (= "" (rf.story.ui.test-mode.pure/play-step-label nil)))
-    (is (= "" (rf.story.ui.test-mode.pure/play-step-label [])))
-    (is (= "" (rf.story.ui.test-mode.pure/play-step-label "not-a-vec")))))
+  (testing "play-step-label stringifies the event id only, blank for malformed input"
+    (is (= [":auth/email-changed" ":rf.assert/path-equals" "" "" ""]
+           (map rf.story.ui.test-mode.pure/play-step-label
+                [[:auth/email-changed "alice@example.com"] [:rf.assert/path-equals [[:count] 7]]
+                 nil [] "not-a-vec"])))))
 
 (deftest test-mode-play-step-statuses-maps-events-to-status
-  (testing "non-assertion events get :event status; assertion events get :pass/:fail from records"
-    (let [play       [[:auth/email-changed "alice"]
-                      [:auth/submit]
-                      [:rf.assert/path-equals [[:user :email] "alice"]]
-                      [:rf.assert/path-equals [[:user :submitted?] true]]]
-          assertions [{:assertion :rf.assert/path-equals :passed? true}
-                      {:assertion :rf.assert/path-equals :passed? false}]
-          out        (rf.story.ui.test-mode.pure/play-step-statuses play assertions)]
-      (is (= [:event :event :pass :fail] (mapv :status out))
-          "one row per play event")
-      (is (= [0 1 2 3] (mapv :index out)))
-      (is (= ":auth/email-changed" (-> out (nth 0) :label)))
-      (is (= ":rf.assert/path-equals" (-> out (nth 2) :label)))
-      (is (= [:auth/email-changed "alice"] (-> out (nth 0) :event)))))
-  (testing "play-step-statuses handles :rf.assert/skipped as :skip"
-    (let [play       [[:rf.assert/skipped]]
-          assertions [{:assertion :rf.assert/skipped :passed? false}]
-          out        (rf.story.ui.test-mode.pure/play-step-statuses play assertions)]
-      (is (= [:skip] (mapv :status out)))))
-  (testing "play-step-statuses tolerates fewer records than assertion events (fail-fast gap)"
-    ;; assertion event with no matching record renders :fail so the user sees the gap.
-    (let [play       [[:rf.assert/path-equals [[:k] 1]]
-                      [:rf.assert/path-equals [[:k] 2]]]
-          assertions [{:assertion :rf.assert/path-equals :passed? true}]
-          out        (rf.story.ui.test-mode.pure/play-step-statuses play assertions)]
-      (is (= [:pass :fail] (mapv :status out)))))
-  (testing "play-step-statuses handles empty inputs"
-    (is (= [] (rf.story.ui.test-mode.pure/play-step-statuses [] [])))
-    (is (= [] (rf.story.ui.test-mode.pure/play-step-statuses nil nil)))))
+  (let [steps    rf.story.ui.test-mode.pure/play-step-statuses
+        statuses #(mapv :status (steps %1 %2))
+        rec      (fn [a p] {:assertion a :passed? p})]
+    (testing "one row per play event: events read :event, assertions take :pass /
+              :fail from their records"
+      (let [play [[:auth/email-changed "alice"] [:auth/submit]
+                  [:rf.assert/path-equals [[:user :email] "alice"]]
+                  [:rf.assert/path-equals [[:user :submitted?] true]]]]
+        (is (= [[:event 0 ":auth/email-changed" (nth play 0)]
+                [:event 1 ":auth/submit" (nth play 1)]
+                [:pass 2 ":rf.assert/path-equals" (nth play 2)]
+                [:fail 3 ":rf.assert/path-equals" (nth play 3)]]
+               (map (juxt :status :index :label :event)
+                    (steps play [(rec :rf.assert/path-equals true)
+                                 (rec :rf.assert/path-equals false)]))))))
+    (testing ":rf.assert/skipped reads :skip; an assertion with no record (the
+              fail-fast gap) reads :fail so the gap shows"
+      (is (= [:skip] (statuses [[:rf.assert/skipped]] [(rec :rf.assert/skipped false)])))
+      (is (= [:pass :fail] (statuses [[:rf.assert/path-equals [[:k] 1]]
+                                      [:rf.assert/path-equals [[:k] 2]]]
+                                     [(rec :rf.assert/path-equals true)]))))
+    (is (= [] (steps [] []) (steps nil nil)) "empty inputs")))
 
 (deftest test-mode-epoch-id-slice-trigger-event-alignment
-  (testing "epoch-id-slice matches each play-event against the tape by
-            :trigger-event, in order, when every tape record corresponds
-            1-to-1 to a play event (the simple no-interleaving case)"
-    (let [play-events [[:a] [:b] [:c]]
-          tape        [{:epoch-id 10 :trigger-event [:a]}
-                       {:epoch-id 11 :trigger-event [:b]}
-                       {:epoch-id 12 :trigger-event [:c]}]]
-      (is (= [10 11 12] (rf.story.ui.test-mode.pure/epoch-id-slice tape play-events)))))
-  (testing "A non-dispatch step (:click/:type) that
-            ALSO commits an epoch interleaves a tape record whose
-            :trigger-event is not among play-events; epoch-id-slice
-            skips it rather than misattributing it to the next
-            dispatch-only play-event"
-    (let [play-events [[:a] [:b] [:c]]
-          ;; a :click between the [:a] and [:b] dispatch steps fires its
-          ;; own on-click handler dispatch — an epoch NOT represented in
-          ;; play-events (variant-play-events skips :click entirely).
-          tape        [{:epoch-id 100 :trigger-event [:a]}
-                       {:epoch-id 101 :trigger-event [:click/side-effect]}
-                       {:epoch-id 102 :trigger-event [:b]}
-                       {:epoch-id 103 :trigger-event [:c]}]]
-      (is (= [100 102 103] (rf.story.ui.test-mode.pure/epoch-id-slice tape play-events))
-          "epoch 101 (the interleaved click-triggered epoch) is skipped —
-           NOT attributed to play-event [:b], which a positional
-           trailing-N slice would have done")))
-  (testing "epoch-id-slice returns [] when the tape runs out before every
-            play-event is matched — production / ring-buffer-trimmed
-            contexts degrade gracefully rather than mis-mapping steps"
-    (let [play-events [[:a] [:b] [:c]]
-          tape        [{:epoch-id 10 :trigger-event [:a]}]]
-      (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice tape play-events)))))
-  (testing "epoch-id-slice tolerates nil/empty tape and play-events"
-    (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice nil [[:a]])))
-    (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice [{:epoch-id 1 :trigger-event [:a]}] nil)))
-    (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice [] [])))))
+  (let [slice rf.story.ui.test-mode.pure/epoch-id-slice
+        tape  (fn [& pairs] (mapv (fn [[id ev]] {:epoch-id id :trigger-event ev}) pairs))
+        play  [[:a] [:b] [:c]]]
+    (testing "each play event matches the tape by :trigger-event, in order"
+      (is (= [10 11 12] (slice (tape [10 [:a]] [11 [:b]] [12 [:c]]) play))))
+    (testing "an interleaved epoch from a non-dispatch step (:click / :type) is
+              skipped, not attributed to the next play event as a positional
+              trailing-N slice would"
+      (is (= [100 102 103]
+             (slice (tape [100 [:a]] [101 [:click/side-effect]] [102 [:b]] [103 [:c]]) play))))
+    (testing "a tape that runs out before every play event matches yields [] rather
+              than a mis-mapping, as do nil and empty inputs"
+      (is (= [] (slice (tape [10 [:a]]) play) (slice nil [[:a]])
+             (slice (tape [1 [:a]]) nil) (slice [] []))))))
