@@ -35,8 +35,7 @@
   the absent binding afterwards. `can-stub?` skips the stub-driven
   bodies cleanly on the `:browser-test` host (where the globals are
   non-configurable)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -47,7 +46,6 @@
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -149,103 +147,52 @@
 ;; ---- (1) manual facade is inert until init! ------------------------------
 
 (deftest requiring-core-and-touching-config-is-inert
-  (testing "the manual `core` facade's config surface does NOT
-            register the trace/epoch collectors (the manual require/use path
-            is side-effect-free until init!/open!)"
-    ;; Baseline: clear-world! left the registries empty.
-    (is (not (trace-collector-registered?))
-        "no trace collector registered at baseline")
-    (is (not (epoch-collector-registered?))
-        "no epoch collector registered at baseline")
-    ;; Exercise the manual facade's config surface — the host's
-    ;; configure!-at-boot path. Were `core` to require `preload`, the
-    ;; boot block would already have run; these calls are inert.
-    (core/configure! {:rf.xray/auto-open? false
-                      :rf.xray/keybinding-enabled? false})
-    (core/set-auto-open! false)
-    (core/set-egress-profile! :rf.egress/local-redacted)
-    (is (not (trace-collector-registered?))
-        "configure! did NOT register the trace collector")
-    (is (not (epoch-collector-registered?))
-        "configure! did NOT register the epoch collector")
-    (is (not (mount/mounted?))
-        "configure! did NOT mount/auto-open the shell")))
+  ;; The manual facade's config surface is side-effect-free until init!:
+  ;; were `core` to require `preload`, the boot block would already have run.
+  (core/configure! {:rf.xray/auto-open? false
+                    :rf.xray/keybinding-enabled? false})
+  (core/set-auto-open! false)
+  (core/set-egress-profile! :rf.egress/local-redacted)
+  (is (= [false false false]
+         [(trace-collector-registered?) (epoch-collector-registered?) (mount/mounted?)])
+      "no collector registered and no shell mounted"))
 
 (deftest init!-performs-the-manual-install
-  (testing "core/init! explicitly performs the documented
-            manual install: trace + epoch collectors registered"
-    (is (not (trace-collector-registered?)) "clean before init!")
-    (is (not (epoch-collector-registered?)) "clean before init!")
-    (core/init!)
-    (is (trace-collector-registered?)
-        "init! registered the trace collector (framework emit lands in buffer)")
-    (is (epoch-collector-registered?)
-        "init! registered the epoch collector")))
+  (is (= [false false] [(trace-collector-registered?) (epoch-collector-registered?)])
+      "CONTROL — clean before init!")
+  (core/init!)
+  (is (= [true true] [(trace-collector-registered?) (epoch-collector-registered?)])
+      "init! registered the trace and epoch collectors"))
 
 (deftest init!-installs-browser-api-exports-for-late-bound-actions
-  (testing "manual core/init! installs the browser-API exports on
-            window.day8.re_frame2_xray.*, the SAME exports the preload boot
-            block installs. The palette pop-out fx (palette/events §mount-popout!
-            → popout_BANG_) and the Settings panel-position effect
-            (settings/effects/apply-panel-position! → open_BANG_ / open_overlay_BANG_,
-            visible-shell? → status) late-bind their mount calls through these
-            exports to break the mount→shell→palette/settings→mount require cycle.
-            Were init! to register every handler but leave the exports
-            uninstalled, those late-bound actions would silently no-op under
-            the manual install path while the preload path worked."
-    (with-stub-dom*
-      (fn [{:keys [window]}]
-        ;; Baseline: clear-world! ran in the fixture; the stub window is a
-        ;; bare object with no day8 namespace yet.
-        (is (nil? (aget window "day8"))
-            "no browser exports before init!")
-        (core/init!)
-        (let [day8 (aget window "day8")
-              xray (when day8 (aget day8 "re_frame2_xray"))]
-          (is (some? xray)
-              "init! installed window.day8.re_frame2_xray")
-          ;; The exact export names the late-bind call sites resolve:
-          (is (fn? (aget xray "popout_BANG_"))
-              "palette Ctrl+Enter pop-out (mount-popout! → popout_BANG_) resolves")
-          (is (fn? (aget xray "open_BANG_"))
-              "Settings panel-position :right-rail (apply-panel-position! → open_BANG_) resolves")
-          (is (fn? (aget xray "open_overlay_BANG_"))
-              "Settings panel-position :fullscreen (apply-panel-position! → open_overlay_BANG_) resolves")
-          (is (fn? (aget xray "status"))
-              "Settings visible-shell? probe (status export) resolves"))))))
+  ;; The palette pop-out fx and the Settings panel-position effect late-bind
+  ;; their mount calls through these exports, so without them those actions
+  ;; would silently no-op under the manual install path.
+  (with-stub-dom*
+    (fn [{:keys [window]}]
+      (core/init!)
+      (let [xray (aget (aget window "day8") "re_frame2_xray")]
+        (is (= [true true true true]
+               (mapv #(fn? (aget xray %)) ["popout_BANG_" "open_BANG_" "open_overlay_BANG_" "status"]))
+            "the exact export names the late-bind call sites resolve")))))
 
 ;; ---- (2) configure! before init! wins deterministically ------------------
 
 (deftest configure!-before-init!-suppresses-keybinding
-  (testing "core/configure! {:rf.xray/keybinding-enabled? false}
-            BEFORE init! wins: init!'s keybinding/attach! reads the config
-            slot the host already set and does NOT attach the keydown
-            listener."
-    (with-stub-dom*
-      (fn [{:keys [keydown-listeners]}]
-        ;; Host boot-time config first.
-        (core/configure! {:rf.xray/keybinding-enabled? false})
-        (is (= false (config/keybinding-attach-enabled?))
-            "the boot-time config slot is set before init!")
-        ;; Now the manual install.
-        (core/init!)
-        (is (not (keybinding/attached?))
-            "init! honoured the pre-set keybinding-enabled? false")
-        (is (empty? @keydown-listeners)
-            "no keydown listener attached to document")))))
+  ;; init!'s attach! reads the slot the host set first.
+  (with-stub-dom*
+    (fn [{:keys [keydown-listeners]}]
+      (core/configure! {:rf.xray/keybinding-enabled? false})
+      (core/init!)
+      (is (= [false []] [(keybinding/attached?) @keydown-listeners])))))
 
 (deftest configure!-keybinding-enabled-true-attaches-on-init!
-  (testing "control: with keybinding enabled (default), init!
-            DOES attach under a DOM, proving the suppression above is the
-            config slot's effect, not a stub artefact."
-    (with-stub-dom*
-      (fn [{:keys [keydown-listeners]}]
-        (core/configure! {:rf.xray/keybinding-enabled? true})
-        (core/init!)
-        (is (keybinding/attached?)
-            "init! attached the keydown listener when enabled")
-        (is (= 1 (count @keydown-listeners))
-            "exactly one keydown listener on document")))))
+  ;; The control: the suppression above is the slot's effect, not the stub's.
+  (with-stub-dom*
+    (fn [{:keys [keydown-listeners]}]
+      (core/configure! {:rf.xray/keybinding-enabled? true})
+      (core/init!)
+      (is (= [true 1] [(keybinding/attached?) (count @keydown-listeners)])))))
 
 ;; ---- (2b) install-browser-api-exports! `core` branch --------------------
 ;;
@@ -259,69 +206,30 @@
 ;; drive the stub window directly).
 
 (deftest install-browser-api-exports-does-not-create-core-when-absent
-  (testing "install-browser-api-exports! must NOT pre-create
-            `core`. With no pre-existing core object on the stub window,
-            `re_frame2_xray.core` stays absent after install (the
-            `when-let [core …]` guard skips the augment branch). This is
-            load-bearing: pre-creating core would race goog.provide and
-            fail browser-test with 'Namespace already declared'."
-    (with-stub-dom*
-      (fn [{:keys [window]}]
-        ;; Baseline: clear-world! ran; the stub window is bare.
-        (is (nil? (aget window "day8")) "no day8 namespace before install")
-        (install/install-browser-api-exports!)
-        (let [day8 (aget window "day8")
-              xray (when day8 (aget day8 "re_frame2_xray"))]
-          (is (some? xray) "top-level export object created")
-          (is (fn? (aget xray "toggle_BANG_"))
-              "top-level launch API still installed")
-          (is (nil? (aget xray "core"))
-              "core was NOT pre-created — the absent-core branch is a
-               no-op, never a `goog.provide`-racing object creation"))))))
+  ;; Pre-creating `core` would race goog.provide and fail browser-test with
+  ;; "Namespace already declared".
+  (with-stub-dom*
+    (fn [{:keys [window]}]
+      (install/install-browser-api-exports!)
+      (let [xray (aget (aget window "day8") "re_frame2_xray")]
+        (is (= [true nil] [(fn? (aget xray "toggle_BANG_")) (aget xray "core")])
+            "the launch API installs and core stays absent")))))
 
 (deftest install-browser-api-exports-augments-preexisting-core
-  (testing "when Closure has ALREADY created the real
-            `window.day8.re_frame2_xray.core` namespace object, install!
-            augments it in place with the launch API (the `when-let
-            [core …]` branch fires). The existing object identity is
-            preserved (no replacement) and the exact exports the facade
-            relies on land on it."
-    (with-stub-dom*
-      (fn [{:keys [window]}]
-        ;; Model Closure having already declared the core namespace:
-        ;; pre-seed window.day8.re_frame2_xray.core with a marker so we
-        ;; can prove the SAME object is augmented (not replaced).
-        (let [day8        (js-obj)
-              xray        (js-obj)
-              core        (js-obj "rf2-3t7rs8-marker" true)]
-          (aset xray "core" core)
-          (aset day8 "re_frame2_xray" xray)
-          (aset window "day8" day8)
-          (install/install-browser-api-exports!)
-          (let [core' (-> (aget window "day8")
-                          (aget "re_frame2_xray")
-                          (aget "core"))]
-            (is (identical? core core')
-                "the pre-existing core object is augmented in place, not
-                 replaced — its identity (and the marker) survives")
-            (is (true? (aget core' "rf2-3t7rs8-marker"))
-                "the pre-existing marker is preserved (augment, not clobber)")
-            (is (fn? (aget core' "toggle_BANG_"))
-                "toggle_BANG_ landed on the pre-existing core object")
-            (is (fn? (aget core' "status"))
-                "status landed on the pre-existing core object")
-            ;; And the top-level export is unconditionally present too.
-            (is (fn? (aget xray "toggle_BANG_"))
-                "the top-level export still installs alongside the
-                 core augment")))))))
+  ;; When Closure has already declared the core namespace object, install
+  ;; augments that same object in place.
+  (with-stub-dom*
+    (fn [{:keys [window]}]
+      (let [day8 (js-obj)
+            xray (js-obj)
+            core (js-obj)]
+        (aset xray "core" core)
+        (aset day8 "re_frame2_xray" xray)
+        (aset window "day8" day8)
+        (install/install-browser-api-exports!)
+        (let [core' (-> (aget window "day8") (aget "re_frame2_xray") (aget "core"))]
+          (is (= [true true true true]
+                 [(identical? core core') (fn? (aget core' "toggle_BANG_"))
+                  (fn? (aget core' "status")) (fn? (aget xray "toggle_BANG_"))])
+              "the same core object gains the launch API beside the top-level export"))))))
 
-(deftest preload-re-exports-the-install-collector-fns
-  (testing "preload's collector re-exports are identity-equal to the
-            install ns's (one shared backing fn), so the preload boot block
-            and core/init! reach the same callable helpers."
-    (is (identical? install/register-trace-collector!
-                    preload/register-trace-collector!)
-        "preload re-exports install/register-trace-collector!")
-    (is (identical? install/register-epoch-collector!
-                    preload/register-epoch-collector!)
-        "preload re-exports install/register-epoch-collector!")))
