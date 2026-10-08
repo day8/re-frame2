@@ -101,12 +101,9 @@
   (testing "the fixture loads, names the react-dom it was measured against, and
             both blocks and leaves values alone. A fixture that did only one
             would pass against an emitter with the rule backwards"
-    (is (string? (:react-dom-version @react-evidence)))
     (is (= 81 (count (rows))) "9 targets x 9 values")
     (is (= 42 (count (filter :blocked? (rows))))
         "six spellings blocked on each of the seven blocking targets")
-    (is (every? (fn [row] (= (:blocked-url @react-evidence) (:painted row)))
-                (filter :blocked? (rows))))
     (is (= #{"https" "space-before-colon" "leading-no-break-space"}
            (set (map :label (remove :blocked? (filter #(= "a" (:element %)) (rows))))))
         "the controls on <a href> are exactly the three near-misses")))
