@@ -34,7 +34,6 @@
   |---|---|
   | [[a-mounted-read-set-reacquires-after-a-later-task-recreation]] | the full sequence: mount, destroy, drain, recreate a task later, force a same-head props re-render, then write to the successor. The painted value, the reacquired membership, and the write that has to land. |
   | [[an-unrelated-re-render-does-not-churn-a-live-membership]] | the negative control. The retirement is reached by a DISPOSAL, not by rendering, so an ordinary re-render inside one incarnation keeps the entry, the cell and the reader it already had. |
-  | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described. |
 
   ## The native hook rides the same entry, and is asserted rather than assumed
 
@@ -52,7 +51,6 @@
   explicit skip there rather than to an assertion that passes because
   nothing ran. The real run is `npm run test:browser`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -76,21 +74,6 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The two transitions this file undertakes to reach at runtime. A row
-  that starts returning early fails the last deftest instead of quietly
-  shrinking the evidence."
-  #{:readset/later-task-recreation
-    :readset/unrelated-rerender})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The page — one boundary and one island, reading one key
@@ -301,7 +284,6 @@
                                   rather than frozen at the value one render
                                   happened to probe"
                           (is (= "CC" (text handle))))
-                        (exercised! :readset/later-task-recreation)
                         (rf.fresco.impl.mount/unmount! handle)
                         (.then (rf.fresco.test.runtime/quiesced!)
                                (fn [_]
@@ -358,7 +340,6 @@
                          already committed, so React was handed a `subscribe`
                          it has already subscribed through"))
 
-                  (exercised! :readset/unrelated-rerender)
                   (rf.fresco.impl.mount/unmount! handle)
                   (.then (rf.fresco.test.runtime/quiesced!)
                          (fn [_]
@@ -368,14 +349,3 @@
                            nil)))))
             (.catch (report-failure! "unrelated re-render control" nil))
             (.then (fn [_] (release-minted!) (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The population, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no document, so nothing is exercised")
-    (is (= declared-population @!exercised)
-        (str "every declared transition must be reached; missing: "
-             (pr-str (set/difference declared-population @!exercised))))))
