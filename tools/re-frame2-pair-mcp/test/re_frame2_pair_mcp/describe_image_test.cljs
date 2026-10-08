@@ -1,32 +1,13 @@
 (ns re-frame2-pair-mcp.describe-image-test
-  "Unit tests for the describe-image tool — the EP-0023
-  Use-Case 7 read over a frame's resolved image generation.
-
-  The tool is a thin wrapper over the runtime `describe-image` fn: it emits
-  the `(re-frame2-pair.runtime/describe-image <opts>)` form (threading the
-  optional `:frame` / `:include-ns?` opts) and shapes the response. Here we
-  stub `cljs-eval-value` to return a representative generation summary and
-  pin:
-
-    - the emitted form calls the runtime describe-image fn with the right opts;
-    - the summary shape (frame / images / kinds / requires / counts /
-      registrations) rides through to the wire envelope unchanged;
-    - a non-map runtime return degrades to a structured error;
-    - the descriptor is registered with the optional :frame / :include-ns args.
-
-  The runtime `describe-image` composition (the generation projection) is
-  exercised by the runtime preload tests.
-
-  ## Stub lifetime — fixture-scoped
-
-  Each test installs its `cljs-eval-value` stub via a bare `set!`; a
-  `use-fixtures :each :after` step restores the pristine original. See
-  orient_test for the race this closes."
+  "Unit tests for the describe-image tool — the EP-0023 Use-Case 7 read
+  over a frame's resolved image generation. The tool emits
+  `(re-frame2-pair.runtime/describe-image <opts>)` and forwards the
+  runtime's envelope through `probe/map-envelope-result`, whose arms the
+  conformance corpus pins; the descriptor is held by `check:descriptors`."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
-            [clojure.string :as str]
+            [cljs.reader]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.describe-image :as di]))
 
 (def ^:private pristine-eval nrepl/cljs-eval-value)
@@ -39,135 +20,36 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-(def ^:private args-js tu/args->js)
-(def ^:private read-result-text tu/extract-edn)
-(def ^:private err? tu/error?)
-
-(defn- find-descriptor [name]
-  (some #(when (= name (:name %)) %) tools/tool-descriptors))
-
-(def ^:private sample-generation
-  {:ok?      true
-   :frame    :main
-   :images   [:app/img]
-   :kinds    [:event :sub]
-   :counts   {:event 12 :sub 8}})
-
-(def ^:private sample-with-ns
-  (assoc sample-generation
-         :registrations {[:event :user/login] {:source :registered :ns "my.app.user"}
-                         [:sub   :current-user] {:source :registered :ns "my.app.subs"}}))
-
 (defn- stub-eval!
-  "Install a `cljs-eval-value` stub via a bare `set!` (cleanup is the
-  `:after` fixture's job). Records the emitted (non-probe) form into
-  `captured*` (may be nil) and resolves it with `canned`. Probe-aware."
+  "Answer the preload probe directly; record every other form into
+  `captured*` and answer it with `canned`."
   [captured* canned]
   (let [respond (fn [form]
                   (if (and (string? form) (re-find #"__re_frame2_pair_runtime" form))
                     (js/Promise.resolve true)
-                    (do (when captured* (reset! captured* form))
+                    (do (reset! captured* form)
                         (js/Promise.resolve canned))))]
     (set! nrepl/cljs-eval-value
           (fn
             ([_c _b form] (respond form))
             ([_c _b form _o] (respond form))))))
 
-;; ---------------------------------------------------------------------------
-;; Descriptor wire-up.
-;; ---------------------------------------------------------------------------
-
-(deftest describe-image-descriptor-present
-  (let [d (find-descriptor "describe-image")]
-    (is (some? d) "descriptor exists")
-    (is (string? (:description d)))
-    (is (integer? (:typicalTokens d)))
-    (is (pos? (:typicalTokens d)))
-    (let [{:keys [required properties]} (:inputSchema d)]
-      (is (= [] (vec required)) "no required args (frame defaults to operating)")
-      (is (contains? properties :frame))
-      (is (contains? properties :include-ns)))))
-
-;; ---------------------------------------------------------------------------
-;; Form composition.
-;; ---------------------------------------------------------------------------
-
-(deftest emits-the-describe-image-runtime-form-no-frame
+(deftest emits-the-describe-image-runtime-form
+  ;; Omitted opts stay out of the form, so the runtime resolves the
+  ;; operating frame; `include-ns` coerces to the runtime's :include-ns?.
   (async done
-    (let [captured (atom nil)]
-      (stub-eval! captured sample-generation)
-      (-> (di/describe-image-tool (fresh-conn) (args-js {}))
-          (.then (fn [_]
-                   (is (str/includes? @captured "re-frame2-pair.runtime/describe-image")
-                       "emits the runtime describe-image call")
-                   (is (not (str/includes? @captured ":frame"))
-                       "no :frame threaded when omitted (operating frame)")
-                   (is (not (str/includes? @captured ":include-ns?"))
-                       "no :include-ns? threaded when omitted")
-                   (done)))))))
-
-(deftest emits-frame-and-include-ns-opts
-  (async done
-    (let [captured (atom nil)]
-      (stub-eval! captured sample-with-ns)
-      (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main" :include-ns "true"}))
-          (.then (fn [_]
-                   (is (str/includes? @captured ":frame :main")
-                       "the frame-id is threaded into the opts map")
-                   (is (str/includes? @captured ":include-ns? true")
-                       "include-ns coerces to the runtime's :include-ns? opt")
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Response shape.
-;; ---------------------------------------------------------------------------
-
-(deftest include-ns-surfaces-per-registration-coordinates
-  (async done
-    (stub-eval! nil sample-with-ns)
-    (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main" :include-ns "true"}))
-        (.then (fn [r]
-                 (let [edn (read-result-text r)]
-                   (is (= {:source :registered :ns "my.app.user"}
-                          (get-in edn [:registrations [:event :user/login]]))
-                       "each selected (kind, id) carries its provenance coordinate"))
-                 (done))))))
-
-(def ^:private no-generation-summary
-  ;; A frame configured with NO :images runs no composed image (EP-0024 — the
-  ;; no-generation contract). The runtime's describe-image guards the
-  ;; rf/frame-generation fail-loud for that case and returns this graceful
-  ;; summary instead of letting the read throw. It must ride through the wire
-  ;; as a successful, empty-image envelope (NOT a degraded error).
-  {:ok?            true
-   :frame          :main
-   :images         []
-   :kinds          []
-   :counts         {}
-   :no-generation? true})
-
-(deftest no-generation-frame-rides-through-as-ok
-  (async done
-    (stub-eval! nil no-generation-summary)
-    (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main"}))
-        (.then (fn [r]
-                 (is (not (err? r))
-                     "an imageless frame is not a read error — it runs no image")
-                 (let [edn (read-result-text r)]
-                   (is (true? (:ok? edn)))
-                   (is (= :main (:frame edn)))
-                   (is (true? (:no-generation? edn))
-                       "the no-generation? flag tells the agent the frame runs no composed image")
-                   (is (= [] (:images edn)) "no images on an imageless frame")
-                   (is (= [] (:kinds edn)))
-                   (is (= {} (:counts edn))))
-                 (done))))))
-
-(deftest non-map-return-degrades-to-error
-  (async done
-    (stub-eval! nil 42)
-    (-> (di/describe-image-tool (fresh-conn) (args-js {}))
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :unexpected-shape (:reason (read-result-text r))))
-                 (done))))))
+    (-> (reduce
+          (fn [p [args expected]]
+            (.then p (fn [_]
+                       (let [captured (atom nil)]
+                         (stub-eval! captured {:ok? true :frame :main :images [] :kinds [] :counts {}})
+                         (.then (di/describe-image-tool (fresh-conn) (tu/args->js args))
+                                (fn [_]
+                                  (is (= expected (cljs.reader/read-string @captured))
+                                      (pr-str args))))))))
+          (js/Promise.resolve nil)
+          [[{} '(re-frame2-pair.runtime/describe-image {})]
+           [{:frame ":main" :include-ns "true"}
+            '(re-frame2-pair.runtime/describe-image {:frame :main :include-ns? true})]])
+        (.catch (fn [e] (is false (str "drive rejected: " e))))
+        (.then (fn [_] (done))))))
