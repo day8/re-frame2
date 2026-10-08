@@ -107,7 +107,9 @@
         (let [warning-tags (:tags (first warning-traces))]
           (is (contains? (set (:unknown-keys warning-tags)) :rf.world/inputs)
               "the unsupported key is named as an unrecognised opt")
-          (is (re-find #":rf.cofx" (:reason warning-tags))
+          ;; The reason always lists every known opt, `:rf.cofx` among them,
+          ;; so only the hint's own wording proves the did-you-mean.
+          (is (re-find #"did you mean `:rf\.cofx`\?" (:reason warning-tags))
               "the warning message appends a did-you-mean naming `:rf.cofx` as the replacement"))))))
 
 (deftest live-event-coeffects-carry-no-rf-world-inputs-flat-delivery
