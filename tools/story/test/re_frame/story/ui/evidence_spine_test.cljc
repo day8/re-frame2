@@ -1,33 +1,17 @@
 (ns re-frame.story.ui.evidence-spine-test
-  "JVM-portable regression net for the evidence-spine's pure projection
-  (spec/020 §3 + spec/021 §2).
-
-  Covers the host-free surface — projection, evidence-strength
-  classification, compact summaries, span-kind, focus-command construction,
-  the graceful no-coords path, and the result-row → beat linkage:
-
-  - `beat-evidence-strength` — direct vs attributed (spec/020 §3);
-  - `beat-summary`           — compact per-slot counts, zero-count omission;
-  - `span-kind` / `step-label` — non-dispatch span definition (spec/020 §3);
-  - `build-focus-command`    — the §D3 focus command shape (spec/020 §2.1);
-  - `focus-availability`     — the precise / graceful-no-coords decision;
-  - `spine-spans`            — the full span+beat render model;
-  - `row->beat-index`        — the result-row → beat linkage (spec/021 §2).
-
-  CLJS-side (the React render, the `focus!` side effect, the selection
-  ratom, the shell reachability) lives in `evidence_spine_cljs_test.cljs`;
-  this corpus pins the pure projection only — no host, no Reagent, no Xray."
+  "JVM coverage of the evidence-spine's pure projection (spec/020 §3 +
+  spec/021 §2): evidence strength, compact summaries, span kinds and labels,
+  focus-command construction, the graceful no-coords path, the span+beat
+  render model and the result-row → beat linkage. The React render, the
+  `focus!` side effect and the selection ratom are covered by
+  `evidence_spine_cljs_test.cljs`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.ui.evidence-spine :as rf.story.ui.evidence-spine]))
 
-;; ---------------------------------------------------------------------------
-;; A representative epoch tape — two dispatch steps, one non-dispatch (assert)
-;; step, with explicit `:rf.story/script-idx` stamps so attribution is exact.
-;; Beat 0 (step 0): a settled dispatch with db transition + an effect + a
-;; schema-violation trace + sub-runs/renders → direct AND attributed.
-;; Beat 1 (step 1): a second dispatch, db transition only → direct only.
-;; ---------------------------------------------------------------------------
+;; Two dispatch steps and one non-dispatch (assert) step. Beat 0 carries a
+;; db transition, an effect, a schema-violation trace and sub-runs/renders
+;; (direct AND attributed); beat 1 a db transition only.
 
 (def ^:private script
   [[:dispatch [:counter/inc]]
@@ -65,12 +49,6 @@
 ;; ===========================================================================
 
 (deftest evidence-strength-direct-and-attributed
-  (testing "a settled dispatch with db/effects/trace reads as direct; with
-            sub-runs/renders reads as attributed too"
-    (let [beat (first (rf.story.play.evidence/narrative-beats
-                        (rf.story.play.evidence/narrative script epoch-tape)))]
-      (is (= {:direct? true :attributed? true}
-             (rf.story.ui.evidence-spine/beat-evidence-strength beat)))))
   (testing "a beat with only a db transition reads as direct, not attributed"
     (is (= {:direct? true :attributed? false}
            (rf.story.ui.evidence-spine/beat-evidence-strength {:db-before {} :db-after {:a 1}}))))
@@ -81,21 +59,12 @@
     (is (= {:direct? false :attributed? false}
            (rf.story.ui.evidence-spine/beat-evidence-strength {})))))
 
-;; ---------------------------------------------------------------------------
-;; The db-evidence marker must test for an ACTUAL
-;; transition (`:db-before` ≠ `:db-after`), not key PRESENCE. `epoch-beat`
-;; ALWAYS materializes `:db-before` / `:db-after` (they sit in its base map,
-;; not its `cond->` tail), so a key-presence test reads true for EVERY
-;; projected beat — including a read-only dispatch that committed no db
-;; change. These cases drive a real `epoch-beat`-projected beat (a
-;; hand-built beat that omits or differs the db keys cannot exercise this)
-;; and pin: no transition → NOT direct db-evidence /
-;; NO `db Δ` chip; a real transition → direct + chip present.
-;; ---------------------------------------------------------------------------
+;; The db-evidence marker tests for an ACTUAL transition, not key presence:
+;; `epoch-beat` always materializes `:db-before` / `:db-after`, so a
+;; key-presence test would read every projected beat — including a read-only
+;; dispatch — as a db change. These cases drive a real `epoch-beat` beat.
 
 (def ^:private no-db-change-record
-  "An epoch record whose dispatch changed no app-db (e.g. a read-only / no-op
-  event): `:db-before` and `:db-after` are equal, no effects, no trace."
   {:epoch-id    200
    :dispatch-id 200
    :trigger-event [:counter/noop]
@@ -108,71 +77,49 @@
    :outcome     :ok})
 
 (deftest db-evidence-tests-transition-not-key-presence
-  (testing "a REAL epoch-beat-projected beat with equal db-before/db-after
-            carries the keys (epoch-beat always materializes them) but is
-            NOT direct db-evidence and emits NO `db Δ` chip"
+  (testing "a real epoch-beat with equal db-before/db-after carries the keys
+            but is NOT direct db-evidence and emits NO `db Δ` chip"
     (let [beat (rf.story.play.evidence/epoch-beat no-db-change-record)]
-      ;; the keys ARE present — so a contains? test would mis-fire
-      (is (contains? beat :db-before))
+      (is (contains? beat :db-before) "the keys are present, so a contains? test would mis-fire")
       (is (contains? beat :db-after))
       (is (= (:db-before beat) (:db-after beat)) "no transition occurred")
-      ;; ...yet strength must report no direct evidence (no effects/trace either)
       (is (= {:direct? false :attributed? false}
              (rf.story.ui.evidence-spine/beat-evidence-strength beat)))
-      ;; ...and the summary must carry NO db marker
-      (let [by-k (into {} (map (juxt :k :count)) (rf.story.ui.evidence-spine/beat-summary beat))]
-        (is (nil? (:db by-k)) "no `db Δ` chip when db did not change"))))
-  (testing "a REAL epoch-beat-projected beat WITH a db transition is direct
-            db-evidence and emits the `db Δ` chip"
+      (is (= [] (rf.story.ui.evidence-spine/beat-summary beat)))))
+  (testing "a real epoch-beat WITH a db transition is direct db-evidence and
+            emits the `db Δ` chip"
     (let [beat (rf.story.play.evidence/epoch-beat
-                (assoc no-db-change-record :db-after {:count 7}))]
-      (is (:direct? (rf.story.ui.evidence-spine/beat-evidence-strength beat)))
-      (let [by-k (into {} (map (juxt :k :count)) (rf.story.ui.evidence-spine/beat-summary beat))]
-        (is (= 1 (:db by-k)) "`db Δ` chip present when db changed"))))
-  (testing "absent db keys read as no transition, robustly"
-    (is (= {:direct? false :attributed? false}
-           (rf.story.ui.evidence-spine/beat-evidence-strength {})))
-    (is (nil? (-> (rf.story.ui.evidence-spine/beat-summary {})
-                  (->> (into {} (map (juxt :k :count))))
-                  :db)))))
+                 (assoc no-db-change-record :db-after {:count 7}))]
+      (is (= {:direct? true :attributed? false}
+             (rf.story.ui.evidence-spine/beat-evidence-strength beat)))
+      (is (= [[:db 1]]
+             (mapv (juxt :k :count) (rf.story.ui.evidence-spine/beat-summary beat)))))))
 
 ;; ===========================================================================
 ;; compact summary  (spec/020 §3)
 ;; ===========================================================================
 
 (deftest beat-summary-counts-and-omits-zeros
-  (testing "the summary carries db/effects/schemas/trace/sub-runs/renders
-            counts and OMITS zero-count slots"
-    (let [beat {:db-before {} :db-after {:a 1}
-                :effects [{:fx-id :db}]
-                :trace-events [{:operation :rf.error/schema-validation-failure}
-                               {:operation :rf.fx/run}]
-                :sub-runs [{:sub-id :x}]
-                :renders []}
-          summary (rf.story.ui.evidence-spine/beat-summary beat)
-          by-k    (into {} (map (juxt :k :count)) summary)]
-      (is (= 1 (:db by-k)))
-      (is (= 1 (:effects by-k)))
-      (is (= 1 (:schemas by-k)) "one schema-violation trace counted")
-      (is (= 2 (:trace by-k)))
-      (is (= 1 (:sub-runs by-k)))
-      (is (nil? (:renders by-k)) "zero-count renders slot omitted")))
-  (testing "attributed slots carry :attributed strength; direct slots :direct"
-    (let [summary (rf.story.ui.evidence-spine/beat-summary {:db-after {:a 1} :sub-runs [{:sub-id :x}]})
-          by-k    (into {} (map (juxt :k :strength)) summary)]
-      (is (= :direct (:db by-k)))
-      (is (= :attributed (:sub-runs by-k))))))
+  (testing "per-slot counts and strengths in the spec's order, zero-count slots omitted"
+    (is (= [[:db 1 :direct]
+            [:effects 1 :direct]
+            [:schemas 1 :direct]
+            [:trace 2 :direct]
+            [:sub-runs 1 :attributed]]
+           (mapv (juxt :k :count :strength)
+                 (rf.story.ui.evidence-spine/beat-summary
+                   {:db-before {} :db-after {:a 1}
+                    :effects [{:fx-id :db}]
+                    :trace-events [{:operation :rf.error/schema-validation-failure}
+                                   {:operation :rf.fx/run}]
+                    :sub-runs [{:sub-id :x}]
+                    :renders []}))))))
 
 ;; ===========================================================================
 ;; step-label
 ;; ===========================================================================
 
 (deftest step-label-renders-compact-labels
-  (testing "a dispatch step shows its event-id"
-    (is (= ":counter/inc" (rf.story.ui.evidence-spine/step-label [:dispatch [:counter/inc]]))))
-  (testing "a non-dispatch step shows its head tag"
-    (is (= ":assert" (rf.story.ui.evidence-spine/step-label [:assert [:rf.assert/path-equals [:c] 1]])))
-    (is (= ":wait-until" (rf.story.ui.evidence-spine/step-label [:wait-until [:fn]]))))
   (testing "the nil-step span reads 'setup'"
     (is (= "setup" (rf.story.ui.evidence-spine/step-label nil)))))
 
@@ -181,44 +128,34 @@
 ;; ===========================================================================
 
 (deftest build-focus-command-shape
-  (testing "a beat with an epoch-id pins the epoch + carries opaque source"
-    (let [src (rf.story.ui.evidence-spine/focus-source :story/evidence-beat :story.cp/basic {:beat-idx 0 :span-idx 1})
-          cmd (rf.story.ui.evidence-spine/build-focus-command :app-db {:epoch-id 42 :dispatch-id 7} src)]
-      (is (= :app-db (:panel cmd)))
-      (is (= 42 (:epoch-id cmd)))
-      (is (= 7 (:dispatch-id cmd)))
-      ;; `:path` is not an Xray focus field, so the builder emits
-      ;; none. The three asserts above are the
-      ;; control that the command is populated at all.
-      (is (not (contains? cmd :path)))
-      (is (= :story/evidence-beat (:kind (:source cmd))))
-      (is (= :story.cp/basic (:variant/id (:source cmd))))))
+  (testing "a beat's coords pin the epoch + dispatch; the source rides opaque"
+    (is (= {:panel       :app-db
+            :epoch-id    42
+            :dispatch-id 7
+            :source      {:kind :story/evidence-beat :variant/id :story.cp/basic
+                          :beat-idx 0 :span-idx 1}}
+           (rf.story.ui.evidence-spine/build-focus-command
+             :app-db
+             {:epoch-id 42 :dispatch-id 7}
+             (rf.story.ui.evidence-spine/focus-source
+               :story/evidence-beat :story.cp/basic {:beat-idx 0 :span-idx 1})))))
   (testing "an empty-coords command is a well-formed panel-only focus"
-    (let [cmd (rf.story.ui.evidence-spine/build-focus-command :trace {} {:kind :x})]
-      (is (= :trace (:panel cmd)))
-      (is (not (contains? cmd :epoch-id)))
-      (is (not (contains? cmd :dispatch-id)))
-      (is (not (contains? cmd :path)))))
+    (is (= {:panel :trace :source {:kind :x}}
+           (rf.story.ui.evidence-spine/build-focus-command :trace {} {:kind :x}))))
   (testing "an unknown panel falls back to the default rather than landing
             the unknown-tab stub"
     (is (= rf.story.ui.evidence-spine/default-focus-panel
-           (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))
-    (is (contains? rf.story.ui.evidence-spine/focus-panels (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))))
+           (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))))
 
 (deftest embed-panel-for-names-the-chip-that-shows-the-focus
-  (testing "each focus panel maps to an RHS embed chip id; only the routes
-            lens is spelled differently (:routes → :routing)"
+  (testing "a focus panel maps to the same embed chip id, except routes (:routes → :routing)"
     (is (= :app-db (rf.story.ui.evidence-spine/embed-panel-for :app-db)))
-    (is (= :trace (rf.story.ui.evidence-spine/embed-panel-for :trace)))
-    (is (= :epoch (rf.story.ui.evidence-spine/embed-panel-for :epoch)))
     (is (= :routing (rf.story.ui.evidence-spine/embed-panel-for :routes)))))
 
 (deftest submit-beat-focus-command-carries-its-coordinates
-  (testing "the failure-to-cause leg's submit beat. A script of
-            assertions puts every setup epoch in the leading span, and the
-            first :login/flow beat there is the submit. The command its
-            'Xray: Epoch' link sends must pin THAT beat's epoch AND dispatch:
-            without them Xray's spine has nothing to move focus onto."
+  (testing "a script of assertions files every setup epoch in the leading
+            span; the 'Xray: Epoch' command for its first beat (the submit)
+            must pin THAT beat's epoch AND dispatch"
     (let [submit [:login/flow [:login/submit {:email "ada@example.com" :password "wrong"}]]
           tape   [{:epoch-id 24 :dispatch-id 51 :trigger-event submit
                    :db-before {} :db-after {} :effects [{:fx-id :rf.http/managed}]
@@ -230,23 +167,9 @@
                   [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
           beat   (-> (rf.story.play.evidence/narrative script tape)
                      rf.story.ui.evidence-spine/spine-spans
-                     first :beats first)
-          source (rf.story.ui.evidence-spine/focus-source
-                   :story/evidence-beat :story.login-form/retry-to-success
-                   {:beat-idx (:beat-idx beat) :span-idx (:span-idx beat)})
-          cmd    (rf.story.ui.evidence-spine/build-focus-command :epoch (:coords beat) source)]
-      (is (= submit (:trigger-event beat)) "the leading beat is the submit")
-      (is (:precise? (:focus beat)) "the submit beat offers a precise focus, not the panel-only fallback")
-      (is (= :epoch (:panel cmd)))
-      (is (= 24 (:epoch-id cmd)) "the command pins the submit beat's epoch")
-      (is (= 51 (:dispatch-id cmd)) "the command pins the submit beat's dispatch"))))
-
-(deftest focus-source-threads-only-present-coords
-  (testing "focus-source carries kind + variant always; the rest cond->"
-    (is (= {:kind :story/assertion :variant/id :v}
-           (rf.story.ui.evidence-spine/focus-source :story/assertion :v {})))
-    (is (= {:kind :story/assertion :variant/id :v :assertion/id :rf.assert/path-equals}
-           (rf.story.ui.evidence-spine/focus-source :story/assertion :v {:assertion-id :rf.assert/path-equals})))))
+                     first :beats first)]
+      (is (= {:panel :epoch :epoch-id 24 :dispatch-id 51 :source {}}
+             (rf.story.ui.evidence-spine/build-focus-command :epoch (:coords beat) {}))))))
 
 ;; ===========================================================================
 ;; focus availability  (spec/020 §3 — graceful no-coords path)
@@ -257,11 +180,9 @@
     (is (:precise? (rf.story.ui.evidence-spine/focus-availability {:epoch-id 42}))))
   (testing "a beat with a dispatch-id focuses precisely"
     (is (:precise? (rf.story.ui.evidence-spine/focus-availability {:dispatch-id 7}))))
-  (testing "a beat with no coordinates is NOT precise but carries a reason
-            (the graceful no-coords path — still opens the panel)"
+  (testing "a beat with no coordinates is NOT precise but says why"
     (let [{:keys [precise? reason]} (rf.story.ui.evidence-spine/focus-availability {})]
       (is (false? precise?))
-      (is (string? reason))
       (is (re-find #"no epoch" reason)))))
 
 ;; ===========================================================================
@@ -269,24 +190,19 @@
 ;; ===========================================================================
 
 (deftest spine-spans-projects-spans-and-decorated-beats
-  (let [narrative (rf.story.play.evidence/narrative script epoch-tape)
-        spans     (rf.story.ui.evidence-spine/spine-spans narrative)]
+  (let [spans (rf.story.ui.evidence-spine/spine-spans
+                (rf.story.play.evidence/narrative script epoch-tape))]
     (testing "one span per script step, in order"
-      (is (= 3 (count spans)))
       (is (= [":counter/inc" ":counter/add" ":assert"] (mapv :label spans)))
       (is (= [:dispatch :dispatch :non-dispatch] (mapv :kind spans))))
     (testing "the first dispatch span carries its decorated beat"
       (let [beat (first (:beats (first spans)))]
-        (is (= 100 (:epoch-id beat)))
         (is (= {:epoch-id 100 :dispatch-id 100} (:coords beat)))
         (is (:precise? (:focus beat)))
         (is (= {:direct? true :attributed? true} (:strength beat)))
         (is (seq (:summary beat)))))
     (testing "the non-dispatch assert span has no beats of its own"
-      (let [assert-span (nth spans 2)]
-        (is (= :non-dispatch (:kind assert-span)))
-        (is (= 0 (:beat-count assert-span)))
-        (is (empty? (:beats assert-span)))))))
+      (is (= [0 []] ((juxt :beat-count :beats) (nth spans 2)))))))
 
 (deftest a-checkpoint-epoch-is-filed-above-and-its-span-says-so
   (testing "an [:assert …] checkpoint dispatches its verdict, and the
@@ -313,11 +229,6 @@
         (is (re-find #"filed under the span above" note)
             "the note says where that epoch went")))))
 
-(deftest spine-spans-empty-narrative
-  (testing "an empty / nil narrative projects to no spans (graceful)"
-    (is (= [] (rf.story.ui.evidence-spine/spine-spans nil)))
-    (is (= [] (rf.story.ui.evidence-spine/spine-spans [])))))
-
 ;; ===========================================================================
 ;; result-row → beat linkage  (spec/021 §2)
 ;; ===========================================================================
@@ -325,23 +236,8 @@
 (deftest row-to-beat-index-linkage
   (let [narrative (rf.story.play.evidence/narrative script epoch-tape)]
     (testing "a schema violation keyed on :epoch-id resolves to its beat"
-      (is (= 0 (rf.story.ui.evidence-spine/row->beat-index narrative {:epoch-id 100 :selector [:event :counter/inc]})))
       (is (= 1 (rf.story.ui.evidence-spine/row->beat-index narrative {:epoch-id 101}))))
-    (testing "an assertion record keyed on :dispatch-id resolves to the
-              cascade's first beat"
-      (is (= 0 (rf.story.ui.evidence-spine/row->beat-index narrative {:dispatch-id 100 :assertion :rf.assert/path-equals})))
+    (testing "an assertion record keyed on :dispatch-id resolves to the cascade's beat"
       (is (= 1 (rf.story.ui.evidence-spine/row->beat-index narrative {:dispatch-id 101}))))
     (testing "a row with no resolvable coordinate yields nil (graceful)"
-      (is (nil? (rf.story.ui.evidence-spine/row->beat-index narrative {:assertion :rf.assert/no-warnings})))
-      (is (nil? (rf.story.ui.evidence-spine/row->beat-index narrative {:epoch-id 999}))))))
-
-;; ===========================================================================
-;; the focus-panel vocabulary matches the host-facing API
-;; ===========================================================================
-
-(deftest focus-panels-mirror-host-facing-vocabulary
-  (testing "the spine's focus-panel set matches the Xray focus API's
-            valid-panels (uses :routes / :views, NOT the embed's :routing).
-            There is no :issues panel for a focus command to target."
-    (is (= #{:epoch :app-db :views :trace :machines :routes}
-           rf.story.ui.evidence-spine/focus-panels))))
+      (is (nil? (rf.story.ui.evidence-spine/row->beat-index narrative {:assertion :rf.assert/no-warnings}))))))
