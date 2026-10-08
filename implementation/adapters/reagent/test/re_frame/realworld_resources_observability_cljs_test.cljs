@@ -98,15 +98,12 @@
             registration uses (the routing row below fails if the id or
             the profile does not resolve)"
     (let [entries (:errors app/observability)]
-      (is (= [:errors] (keys app/observability))
-          "the policy declares the :errors stream and nothing else")
-      (is (= 1 (count entries))
-          "exactly one sink entry — the example teaches one monitor")
-      (let [entry (first entries)]
-        (is (= :rf.egress/off-box-observability (:rf.egress/profile entry))
-            "and it is the off-box boundary — this record leaves the box for a
-             hosted monitor, which is the profile that decides how much of it
-             survives projection")))))
+      (is (= [[:errors] 1 :rf.egress/off-box-observability]
+             [(keys app/observability) (count entries) (:rf.egress/profile (first entries))])
+          "the policy declares the :errors stream and nothing else, with exactly
+           one sink entry (the example teaches one monitor) at the off-box
+           boundary — this record leaves the box for a hosted monitor, which is
+           the profile that decides how much of it survives projection"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. the policy routes, and the record arrives already projected
@@ -125,17 +122,10 @@
       (reg-throwing-event! ::routed)
       (drive-failure! ::routed)
 
-      (is (= 1 (count @seen))
-          "the declared sink fired exactly once")
       (let [r (first @seen)]
-        (is (= :rf.observe/error (:kind r))
-            "the record is a canonical :rf.observe/error")
-        (is (= ::routed (:frame r))
-            "it names the frame it failed in — the context worth having at 3am")
-        (is (= :rf.error/handler-exception (:error r))
-            "the canonical discriminator a sink branches on")
-        (is (= ::boom (:event-id r))
-            "and the event that was in flight")
+        (is (= [1 :rf.observe/error ::routed :rf.error/handler-exception ::boom]
+               [(count @seen) (:kind r) (:frame r) (:error r) (:event-id r)])
+            "the declared sink fired exactly once with a canonical :rf.observe/error naming the frame it failed in, the :error discriminator a sink branches on, and the event in flight")
         ;; The load-bearing assertion: the sink did no scrubbing, and the token
         ;; is redacted anyway, because the runtime projected the record under
         ;; the frame's classification before handing it over.
