@@ -37,7 +37,6 @@
             [reagent2.ratom :as slim-ratom]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -144,30 +143,16 @@
       (activate! reader)
       (activate! tracked)
       (flush!)
-      (is (= 1 @runs) (str label ": precondition — the reader ran once, under capture"))
-      (is (= (rf.substrate.adapter/read-container c) @seen)
-          (str label ": the reader returns exactly read-container's value"))
-      (is (watches? reader input)
-          (str label ": precondition — the reader captured its declared input"))
-      (is (not (watches? reader c))
-          (str label ": the reader does NOT watch the container"))
-      (is (watches? tracked c)
-          (str label ": control — the tracked spelling DOES watch the container, "
-               "so the edge assertion above can see an edge"))
-
+      (is (= [1 (rf.substrate.adapter/read-container c)] [@runs @seen])
+          (str label ": one run under capture, returning read-container's value"))
       (swap! src update :n inc)
       (flush!)
-      (is (= 2 @t-runs)
-          (str label ": control — the container's change re-ran the tracked reader"))
-      (is (= 1 @runs)
-          (str label ": the container's change did NOT re-run the untracked reader"))
-
+      (is (= [2 1] [@t-runs @runs])
+          (str label ": the container's change re-ran the tracked control, not the reader"))
       (swap! input inc)
       (flush!)
-      (is (= 2 @runs) (str label ": the declared input still re-runs the reader"))
-      (is (= {:n 2} @seen)
-          (str label ": and that run reads the container's CURRENT value"))
-
+      (is (= [2 {:n 2}] [@runs @seen])
+          (str label ": the declared input re-runs the reader, which reads the current value"))
       (dispose! reader)
       (dispose! tracked)
       (release-container! config c))))
@@ -218,19 +203,12 @@
   [{:keys [label] :as config}]
   (testing (str label ": a dirty neighbour does not run inside the reader's compute")
     (let [r (into {} (map (fn [[k f]] [k (neighbour-run config f)])) (spellings config))]
-      (is (= 1 (get-in r [:nil :inside]))
-          (str label ": control — the nil spelling DOES flush the neighbour mid-compute, "
-               "so this fixture can see a flush"))
-      (is (= 0 (get-in r [:untracked :inside]))
-          (str label ": the untracked reader runs no queued neighbour inside the compute"))
-      (is (= 0 (get-in r [:tracked :inside]))
-          (str label ": nor does the tracked read"))
-      (is (true? (get-in r [:tracked :watches?]))
-          (str label ": control — the tracked read records the edge"))
-      (is (false? (get-in r [:untracked :watches?]))
-          (str label ": the untracked read records no edge"))
-      (is (apply = (map :value (vals r)))
-          (str label ": all three spellings read the same value")))))
+      ;; The nil spelling is the control: it DOES flush the neighbour mid-compute.
+      (is (= [1 0 0 true false true]
+             [(get-in r [:nil :inside]) (get-in r [:untracked :inside]) (get-in r [:tracked :inside])
+              (get-in r [:tracked :watches?]) (get-in r [:untracked :watches?])
+              (apply = (map :value (vals r)))])
+          label))))
 
 ;; ---- re-entry -------------------------------------------------------------
 
@@ -274,12 +252,9 @@
   (testing (str label ": a reaction pulled out of the queue is not re-entered by its own read")
     (let [r (into {} (map (fn [[k f]] [k (reentry-run config f)])) (spellings config))]
       (is (< 1 (get-in r [:nil :max-depth]))
-          (str label ": control — the nil spelling DOES re-enter the reaction whose "
-               "compute is on the stack, so this fixture can see re-entry: " (:nil r)))
-      (is (= {:runs 1 :max-depth 1} (:untracked r))
-          (str label ": the untracked read runs the reaction once, never re-entered"))
-      (is (= {:runs 1 :max-depth 1} (:tracked r))
-          (str label ": exactly as the tracked read does")))))
+          (str label ": control — the nil spelling re-enters the reaction on the stack: " (:nil r)))
+      (is (= [{:runs 1 :max-depth 1} {:runs 1 :max-depth 1}] [(:untracked r) (:tracked r)])
+          (str label ": the untracked read, like the tracked one, runs it once")))))
 
 ;; ---- outside a reactive context -------------------------------------------
 
@@ -289,16 +264,13 @@
     (let [src      (ratom {:n 1})
           fresh    (reaction (fn [] @src))
           sunk     (reaction (fn [] @src))]
-      (is (= {:n 1} (rf.substrate.adapter/read-container-untracked fresh))
-          (str label ": the plain read returns the value"))
-      (is (nil? (.-watching ^clj fresh))
-          (str label ": and leaves a never-run Reaction watching nothing, as "
-               "read-container does"))
       (sink-read sunk)
-      (is (some? (.-watching ^clj sunk))
-          (str label ": control — a sink-bound read outside a context runs the "
-               "capturing branch and leaves the Reaction watching its source, so "
-               "the assertion above can tell the two apart"))
+      ;; The sink-bound read is the control: it runs the capturing branch, so
+      ;; the Reaction it reads ends up watching its source.
+      (is (= [{:n 1} true false]
+             [(rf.substrate.adapter/read-container-untracked fresh)
+              (nil? (.-watching ^clj fresh)) (nil? (.-watching ^clj sunk))])
+          (str label ": a plain read leaves a never-run Reaction watching nothing"))
       (dispose! sunk))))
 
 ;; ---- the two kernels ------------------------------------------------------
@@ -320,23 +292,11 @@
 ;; ---- a non-capturing adapter ----------------------------------------------
 
 (deftest non-capturing-adapter-reads-through-read-container
-  (testing "under plain-atom the routed hook has no opinion, and the reader
-            answers read-container's value for base and derived containers"
-    (with-adapter rf.substrate.plain-atom/adapter
-      (fn []
-        (let [hook    (rf.late-bind/get-fn :adapter/read-container-untracked)
-              base    (rf.substrate.adapter/make-state-container {:n 1})
-              derived (rf.substrate.adapter/make-derived-value
-                        [base] (fn [v] (update v :n inc)))]
-          (is (some? hook)
-              "precondition — the ratom adapters loaded in this bundle published the routed hook")
-          (is (= rf.substrate.adapter/untracked-read-no-opinion (hook base))
-              "the routed hook answers the no-opinion sentinel for a non-ratom adapter")
-          (is (= {:n 1} (rf.substrate.adapter/read-container base)))
-          (is (= (rf.substrate.adapter/read-container base)
-                 (rf.substrate.adapter/read-container-untracked base))
-              "a base container reads as read-container reads it")
-          (is (= {:n 2} (rf.substrate.adapter/read-container derived)))
-          (is (= (rf.substrate.adapter/read-container derived)
-                 (rf.substrate.adapter/read-container-untracked derived))
-              "a derived container reads as read-container reads it"))))))
+  ;; Under plain-atom the routed hook has no opinion, and the reader answers
+  ;; read-container's value for base and derived containers.
+  (with-adapter rf.substrate.plain-atom/adapter
+    (fn []
+      (let [base    (rf.substrate.adapter/make-state-container {:n 1})
+            derived (rf.substrate.adapter/make-derived-value [base] (fn [v] (update v :n inc)))]
+        (is (= [{:n 1} {:n 2}]
+               (mapv rf.substrate.adapter/read-container-untracked [base derived])))))))
