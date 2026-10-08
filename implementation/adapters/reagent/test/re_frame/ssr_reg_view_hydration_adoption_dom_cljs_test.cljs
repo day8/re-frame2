@@ -1,51 +1,23 @@
 (ns re-frame.ssr-reg-view-hydration-adoption-dom-cljs-test
-  "Does a REGISTERED view's server markup hydrate as a clean
-  ADOPTION in a dev build?
+  "A REGISTERED view's server markup hydrates as a clean ADOPTION in a dev
+  build. The dev Reagent client render stamps both `data-rf2-source-coord`
+  and `data-rf-view` on a registered view's root, and annotation happens at
+  the reg-view registration boundary on both hosts, so the JVM's server
+  markup carries the same two attributes; React judges whether that
+  byte-match adopts cleanly. (Production elides the annotations on both
+  hosts.)
 
-  ## The divergence this pins shut
+  The harness runs twice, as in
+  `re-frame.ssr-keyword-child-hydration-dom-cljs-test`: over the annotated
+  bytes React must hydrate SILENTLY and adopt the exact server node; over
+  unannotated bytes it must COMPLAIN. That red control is what licenses the
+  green, since an empty complaint list alone could also mean a broken
+  capture. On React 18.3 / 19.2 an attribute-only mismatch warns without
+  replacing the node, so the arms differ by the complaint and by the
+  annotations on the live node.
 
-  In a DEV build the Reagent CLIENT render of a registered view stamps
-  BOTH `data-rf2-source-coord` and `data-rf-view` on the view's root DOM
-  element. A JVM SSR emitter that stamped NEITHER on a callable-head view
-  (the shape isomorphic pages use) would produce server markup that
-  cannot byte-match the dev client render: React would report a hydration
-  mismatch, leave the adopted node's attributes unpatched and degrade the
-  page's `no-flash / adopt existing DOM` property in dev. (Production
-  elides the annotations on both hosts, so the divergence would be
-  dev-only.)
-
-  Annotation happens at the reg-view REGISTRATION boundary on both
-  hosts, so a server render of a registered view emits the SAME two
-  attributes the client stamps. This file makes React the judge of whether
-  that byte-match actually produces a clean adoption.
-
-  ## The vacuity lever (twin run)
-
-  The same harness runs TWICE, mirroring the sibling
-  `re-frame.ssr-keyword-child-hydration-dom-cljs-test`:
-
-    - GREEN — over the bytes the JVM emitter produces (root carries
-      BOTH annotations, values computed via the SHARED formatters so the
-      fixture is the real dialect): React hydrates SILENTLY, the exact
-      server node is adopted (`identical?` + `isConnected`), and both
-      attributes are present on the live node.
-    - RED — over unannotated bytes
-      (root carries NEITHER annotation): React must COMPLAIN. This is the
-      permanently-executable red that licenses the green: without it, an
-      empty-complaints result could mean `adopts cleanly` OR `the capture
-      is broken`, and those are indistinguishable.
-
-  On React
-  18.3 / 19.2 an attribute-only mismatch WARNS and is left unpatched but
-  does NOT replace the node — so node identity survives in BOTH arms, and
-  the differentiator is the presence of a hydration complaint plus whether
-  the live node ended up carrying the annotations.
-
-  The `-dom-cljs-test` suffix opts this file into the `:browser-test`
-  build; `:node-test` loads it too (matches `cljs-test$`) where
-  `js/document` is absent and every test gates on `(browser?)` and exits
-  early. A node-only run is VACUOUS by construction — `npm run
-  test:browser` is where it asserts."
+  `:node-test` loads this too and every test exits early without
+  `js/document`; `npm run test:browser` is where it asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as React]
@@ -97,12 +69,13 @@
   and report — all captured BEFORE unmount / container teardown, so the
   teardown-sensitive readings (`:connected?`, the attributes) are honest:
 
-    {:complaints [str …]   ;; hydration-relevant console output
-     :node       <div.card> ;; the root element ref (attributes survive detach)
-     :text       \"…\"       ;; textContent while mounted
-     :view-attr  \"…\"       ;; data-rf-view on the live node
-     :coord-attr \"…\"       ;; data-rf2-source-coord on the live node
-     :connected? bool}      ;; node.isConnected while mounted"
+    {:complaints  [str …]   ;; hydration-relevant console output
+     :server-node <div.card> ;; the root element as parsed, before hydration
+     :node        <div.card> ;; the root element after hydration
+     :text        \"…\"       ;; textContent while mounted
+     :view-attr   \"…\"       ;; data-rf-view on the live node
+     :coord-attr  \"…\"       ;; data-rf2-source-coord on the live node
+     :connected?  bool}      ;; node.isConnected while mounted"
   [server-html tree]
   (let [container  (.createElement js/document "div")
         complaints (atom [])
@@ -116,8 +89,9 @@
     (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
     (set! (.-error js/console) record!)
     (set! (.-warn js/console) record!)
-    (let [act-fn (get-act)
-          root   (atom nil)]
+    (let [act-fn      (get-act)
+          root        (atom nil)
+          server-node (.querySelector container "div.card")]
       (try
         (act-fn
           (fn []
@@ -134,7 +108,7 @@
               coord-attr (some-> node (.getAttribute "data-rf2-source-coord"))
               connected? (boolean (some-> node .-isConnected))]
           (act-fn (fn [] (some-> @root .unmount)))
-          {:complaints @complaints :node node :text text
+          {:complaints @complaints :server-node server-node :node node :text text
            :view-attr view-attr :coord-attr coord-attr :connected? connected?})
         (finally
           (set! (.-error js/console) orig-error)
@@ -176,71 +150,17 @@
   (if-not (browser?)
     (is true "skipped under node — no js/document; npm run test:browser asserts")
     (testing "the server markup a registered view emits
-              (root carries both annotations) hydrates SILENTLY, and both
-              attributes are present on the live node after hydration."
-      (let [{:keys [complaints node text view-attr coord-attr connected?]}
+              (root carries both annotations) hydrates SILENTLY, adopting
+              the server node, which keeps both attributes."
+      (let [{:keys [complaints server-node node text view-attr coord-attr connected?]}
             (hydrate-over (annotated-server-html)
                           [(rf/view test-view-id) "revenue"])]
         (is (empty? (hydration-complaints complaints))
             (str "React complained about hydrating the reg-view's own "
                  "server markup: " (pr-str (hydration-complaints complaints))))
-        (is (some? node) "the root div.card exists after hydration")
-        (is (true? connected?) "the adopted node was in the document while mounted")
-        (is (= expected-view view-attr)
-            "the live node carries the view-id annotation (client stamped it,
-             and it matched the server ⇒ clean adoption)")
-        (is (= expected-coord coord-attr)
-            "the live node carries the source-coord annotation")
-        (is (= "revenue" text)
-            "the intended text survives hydration — not blanked / rewritten")))))
-
-;; A second GREEN run that proves NODE IDENTITY survives (adoption, not
-;; replacement) by keeping the SAME container across the capture and the
-;; hydrate — the sibling seam test's `identical?` + `isConnected` pattern.
-(deftest reg-view-adoption-preserves-server-node-identity
-  (if-not (browser?)
-    (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (testing "the exact server node object is still the mounted
-              one after hydration (adoption); it is not minted afresh."
-      (let [container  (.createElement js/document "div")
-            complaints (atom [])
-            orig-error (.-error js/console)
-            orig-warn  (.-warn js/console)
-            record!    (fn [& a] (swap! complaints conj
-                                        (str/join " " (map #(str %) a))))]
-        (set! (.-innerHTML container) (annotated-server-html))
-        (.appendChild (.-body js/document) container)
-        (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-        (set! (.-error js/console) record!)
-        (set! (.-warn js/console) record!)
-        (let [server-node (.querySelector container "div.card")
-              act-fn      (get-act)
-              root        (atom nil)]
-          (try
-            (act-fn
-              (fn []
-                (reset! root
-                        (react-dom-client/hydrateRoot
-                          container
-                          (r/as-element
-                            [rf/frame-provider {:frame test-frame}
-                             [(rf/view test-view-id) "revenue"]])
-                          #js {:onRecoverableError
-                               (fn [err _i] (record! "onRecoverableError" err))}))))
-            (let [after-node (.querySelector container "div.card")]
-              (is (identical? server-node after-node)
-                  "hydrate-root ADOPTED the server node — the SAME object is
-                   mounted (a replacement would mint a fresh node)")
-              (is (.-isConnected server-node)
-                  "the retained server node is still connected")
-              (is (empty? (hydration-complaints @complaints))
-                  (str "adoption was clean — no hydration complaint: "
-                       (pr-str (hydration-complaints @complaints)))))
-            (act-fn (fn [] (some-> @root .unmount)))
-            (finally
-              (set! (.-error js/console) orig-error)
-              (set! (.-warn js/console) orig-warn)
-              (.remove container))))))))
+        (is (= [true true expected-view expected-coord "revenue"]
+               [(identical? server-node node) connected? view-attr coord-attr text])
+            "hydration ADOPTED the server node (the same object, connected while mounted; a replacement would mint a fresh one), and it carries both annotations and the intended text")))))
 
 ;; ---------------------------------------------------------------------------
 ;; RED — unannotated bytes make React complain (the red control)
@@ -252,9 +172,7 @@
     (testing "THE RED CONTROL: the SAME harness over unannotated bytes (root
               carries NEITHER annotation) must make React complain, because
               the dev client render stamps both attributes and the server has
-              them on neither. This is what licenses the green assertions
-              above — without it an empty-complaints result could mean either
-              `adopts cleanly` or `the capture is broken`."
+              them on neither."
       (let [{:keys [complaints node]}
             (hydrate-over pre-fix-server-html
                           [(rf/view test-view-id) "revenue"])]
