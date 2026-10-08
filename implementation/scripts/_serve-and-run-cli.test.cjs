@@ -2,27 +2,9 @@
 'use strict';
 
 /*
- * CLI-option contract for serve-and-run-browser-tests.cjs.
- *
- * The two production browser gates (test:browser-prod-elision,
- * test:browser-schemas-boundary-prod) call the shared runner directly with
- * strict `--root` / `--port` options, rather than through wrapper launchers
- * that set BROWSER_TEST_ROOT / BROWSER_TEST_PORT before spawning an inner
- * serve-and-run-browser-tests.cjs — an extra Node process per gate.
- *
- * This suite pins the STRICT half of that contract — the error paths the two
- * gates' happy-path browser runs don't exercise. Each spawns the real runner
- * (shell-free, under this node binary) with a bad option set and asserts it
- * fails FAST and CLEARLY, before any http-server is launched:
- *
- *   - an unknown flag is rejected,
- *   - a `--port` that is not a 1..65535 integer is rejected,
- *   - a flag missing its value is rejected,
- *   - a CLI `--root` cannot bypass the path policy (an out-of-tree
- *     root is refused, just as $BROWSER_TEST_ROOT would be).
- *
- * These all fail at module load (option parse / enforcePolicy), so the suite
- * is cheap: no build, no server, no browser. Discovered by `npm run test:scripts`.
+ * The strict CLI option contract of serve-and-run-browser-tests.cjs, which the
+ * production browser gates call directly: a bad option fails fast at option parse
+ * or path policy, before any server starts. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
@@ -59,40 +41,20 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
-test('an unknown option fails fast with a clear message (rf2-hmgwk2)', () => {
-  const { status, out } = runWith(['--frobnicate']);
-  assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
-  assert.match(out, /Unknown option/, `stderr should name the unknown option: ${out}`);
-});
-
-test('a non-integer or out-of-range --port fails fast with a clear message (rf2-hmgwk2)', () => {
-  for (const bad of ['abc', '0', '65536', '-1']) {
-    const { status, out } = runWith(['--port', bad]);
-    assert.notEqual(status, 0, `expected non-zero exit for --port ${bad}; got ${status}`);
-    assert.match(out, /--port must be an integer in 1\.\.65535/, `--port ${bad}: ${out}`);
-  }
-});
-
-test('a --root with no value fails fast (rf2-hmgwk2)', () => {
-  const { status, out } = runWith(['--root']);
-  assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
-  assert.match(out, /--root requires a value/, out);
-});
-
-test('a CLI --root cannot bypass the path policy (rf2-hmgwk2 / rf2-o38lb)', () => {
-  // An out-of-tree root must be refused by enforcePolicy exactly as a
-  // BROWSER_TEST_ROOT env override would be — the CLI is not an escape hatch.
-  // Process-scoped name: a FIXED machine-global path is shared by every
-  // concurrent worktree on the box, and the policy this asserts is about
-  // the path being out-of-tree, not about its spelling.
+test('bad CLI options fail fast with a clear message, and --root cannot bypass the path policy (rf2-hmgwk2)', () => {
   const outOfTree = path.join(os.tmpdir(), `rf2-hmgwk2-out-of-tree-${process.pid}`);
-  const { status, out } = runWith(['--root', outOfTree]);
-  assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
-  assert.match(
-    out,
-    /outside the approved roots/,
-    `an out-of-tree --root must be refused by the path policy: ${out}`,
-  );
+  for (const [args, message] of [
+    [['--frobnicate'], /Unknown option/],
+    [['--port', 'abc'], /--port must be an integer in 1\.\.65535/],
+    [['--port', '0'], /--port must be an integer in 1\.\.65535/],
+    [['--port', '65536'], /--port must be an integer in 1\.\.65535/],
+    [['--root'], /--root requires a value/],
+    [['--root', outOfTree], /outside the approved roots/],
+  ]) {
+    const { status, out } = runWith(args);
+    assert.notEqual(status, 0, `${args.join(' ')}: expected non-zero exit; got ${status}`);
+    assert.match(out, message, `${args.join(' ')}: ${out}`);
+  }
 });
 
 let failed = 0;
