@@ -525,8 +525,7 @@ Every `:before` and `:after` runs inside a guard.
     cleanup belongs in `:after`, and an `:after` that assumes the handler set
     `[:effects :db]` will itself throw.
 
-Errors collect on the context: the first under `:rf/interceptor-error`, all of them
-under `:rf/interceptor-errors`, so Xray and Story can show each one. A throw anywhere
+The first error is recorded on the context under `:rf/interceptor-error`. A throw anywhere
 means the event installs nothing: app-db is unchanged and no `:fx` runs. The reported
 error names the source:
 
