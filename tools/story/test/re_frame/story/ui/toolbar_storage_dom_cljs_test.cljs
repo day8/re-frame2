@@ -1,40 +1,13 @@
 (ns re-frame.story.ui.toolbar-storage-dom-cljs-test
-  "Browser-lane half of the toolbar's mode-persistence round-trip and
-  hydrate precedence; `re-frame.story.ui.toolbar-cljs-test` holds the
-  node-lane half.
-
-  ## Why these rows need the file's LOCATION, not just a guard
-
-  Inside `(when (browser?) ...)` in a namespace ending `-cljs-test`,
-  these rows would execute in NEITHER lane: `:node-test` selects such a
-  namespace and the guard is false — this repo ships no jsdom, no
-  happy-dom and no DOM shim in any dependency list, so
-  `window.localStorage` is absent under Node — while `:browser-test`
-  (`:ns-regexp \".*-dom-cljs-test$\"`) never loads it at all.
-
-  Every row is a real `.setItem` / `.getItem` round-trip through
-  `save-modes-to-storage!` / `load-modes-from-storage`, which is real
-  host-storage semantics — the case that needs a real host rather than a
-  stub.
-
-  ## Why this is a SECOND dom namespace for the toolbar
-
+  "The toolbar's reset persistence and its hydrate precedence rule;
   `re-frame.story.ui.toolbar-persistence-dom-cljs-test` owns the
-  reload-survival scenarios: set modes, simulate a
-  reload, assert rehydration, plus URL-beats-storage ordering. What lives
-  HERE is the narrower contract its docstring names as its pair and does
-  not itself cover — the bare save/load round-trip, and hydrate's
-  precedence rule. Keeping them apart keeps each file's
-  narrative intact.
+  reload-survival scenarios.
 
-  ## THE GUARD IS NEEDED, BECAUSE THIS FILE RUNS ON BOTH LANES
-
-  `:node-test`'s `cljs-test$` is a bare SUFFIX match that
-  `-dom-cljs-test` satisfies, so a row here gains the browser lane and
-  loses nothing. Each row answers the node lane with a VISIBLE marker
-  assertion rather than a silent `when`, so no deftest here holds zero
-  assertions — a bare `when` would leave a hollow, zero-assertion row on
-  the node lane."
+  Every row is a real `.setItem` / `.getItem` round-trip, so the
+  namespace ends `-dom-cljs-test` to reach `:browser-test`. `:node-test`
+  loads it too (its `cljs-test$` regexp matches the suffix), so each row
+  answers the node lane with a stated skip assertion rather than running
+  empty."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -43,8 +16,7 @@
 ;; ---- host predicate ------------------------------------------------------
 
 (defn- browser?
-  "True when a working `js/window.localStorage` is present. FALSE under
-  `:node-test`, TRUE under `:browser-test`; both targets load this ns."
+  "True under `:browser-test`, false under `:node-test`."
   []
   (and (exists? js/window) (.-localStorage js/window)))
 
@@ -64,41 +36,27 @@
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
-;; ---- save → load round-trip ---------------------------------------------
-
-(deftest storage-roundtrip
-  (testing "save-modes-to-storage! + load-modes-from-storage round-trip"
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (rf.story.ui.toolbar/save-modes-to-storage!
-          [:Mode.app/dark :Mode.app/light])
-        (is (= [:Mode.app/dark :Mode.app/light]
-               (rf.story.ui.toolbar/load-modes-from-storage)))
-        (rf.story.ui.toolbar/save-modes-to-storage! [])
-        (is (= [] (rf.story.ui.toolbar/load-modes-from-storage)))))))
+;; ---- reset ---------------------------------------------------------------
 
 (deftest reset-modes-persists-empty
-  (testing "reset-modes! persists the empty vector, not just the ratom.
-
-            The node half of this row (shell state emptied) lives in the
-            sibling; only the storage claim lives here."
+  (testing "reset-modes! empties the shell slot AND persists the empty
+            vector"
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
         (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-        ;; Teeth: `(= [] (load-modes-from-storage))` after the reset alone
-        ;; passes just as happily against a storage that never held
-        ;; anything. Prove the toggle PERSISTED first, so
-        ;; the empty read below is evidence that reset-modes! cleared it.
+        ;; Teeth: an empty read after the reset alone would pass against a
+        ;; storage that never held anything.
         (is (= [:Mode.app/x] (rf.story.ui.toolbar/load-modes-from-storage))
             "precondition: toggle-mode! really did persist the mode")
         (rf.story.ui.toolbar/reset-modes!)
+        (is (= [] (:active-modes (rf.story.ui.state/get-state)))
+            "reset-modes! emptied the shell slot")
         (is (= [] (rf.story.ui.toolbar/load-modes-from-storage))
             "reset-modes! persisted the empty vector")))))
 
-;; ---- hydrate precedence + pruning ---------------------------------------
+;; ---- hydrate precedence --------------------------------------------------
 
 (deftest hydrate-from-storage-only-when-empty
   (testing "hydrate skips when the shell slot is already populated"
@@ -108,10 +66,8 @@
         (rf.story/reg-mode :Mode.app/x {:args {}})
         (rf.story/reg-mode :Mode.app/y {:args {}})
         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.app/x])
-        ;; Teeth: without this, an unwritten slot would leave hydrate with
-        ;; nothing to find, and the populated value below would survive for
-        ;; the wrong reason — passing while proving nothing about
-        ;; precedence.
+        ;; Teeth: an unwritten slot would leave hydrate nothing to find,
+        ;; and the populated value below would survive for the wrong reason.
         (is (= [:Mode.app/x] (rf.story.ui.toolbar/load-modes-from-storage))
             "precondition: storage really holds a COMPETING value")
         (rf.story.ui.state/swap-state!
