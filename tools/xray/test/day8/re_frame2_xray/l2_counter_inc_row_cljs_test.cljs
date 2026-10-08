@@ -90,22 +90,10 @@
 ;; ---- 1. a counter-inc epoch surfaces as an L2 row ------------------------
 
 (deftest counter-inc-epoch-surfaces-as-l2-row
-  (testing "a clean :counter/inc epoch surfaces as exactly
-            one visible L2 cascade row carrying the event vector"
-    (let [rows (visible-l2-rows (counter-inc-trace-events))]
-      (is (= 1 (count rows))
-          "the counter-inc cascade is NOT dropped from the L2 list")
-      (let [c (first rows)]
-        (is (= [:counter/inc] (:event c))
-            ":event slot holds the dispatched event vector")
-        (is (= frame-below (:frame c))
-            "the cascade is attributed to the :below frame")
-        (is (= dispatch-id-8 (:dispatch-id c))
-            "the cascade carries the epoch's dispatch-id (eid 8)")
-        (is (true? (shell/event-bundle-has-event? c))
-            "event-bundle-has-event? is true — the L2 filter keeps the row")
-        (is (false? (shell/ungrouped-event-bundle? c))
-            "the row is a real cascade, not the :ungrouped pseudo-bucket")))))
+  (is (= [[[:counter/inc] frame-below dispatch-id-8]]
+         (mapv (juxt :event :frame :dispatch-id) (visible-l2-rows (counter-inc-trace-events))))
+      "a clean :counter/inc epoch is exactly one visible L2 row, on its frame
+       and dispatch-id"))
 
 ;; ---- 2. contrast: a mis-attributed orphan folds in ----------------------
 ;;
@@ -120,20 +108,13 @@
 ;; itself.
 
 (deftest orphan-sharing-the-dispatch-id-folds-into-the-cascade
-  (testing "with the leading orphan :frame/created sharing the epoch's
-            dispatch-id, the cascade still resolves one visible L2 row —
-            the orphan rides in :other, :event is still populated"
-    (let [events (into [(orphan-frame-created-event)]
-                       (counter-inc-trace-events))
-          rows   (visible-l2-rows events)]
-      (is (= 1 (count rows))
-          "still exactly one visible L2 row (orphan folds into the cascade)")
-      (let [c (first rows)]
-        (is (= [:counter/inc] (:event c))
-            ":event slot is still the dispatched event vector")
-        (is (some (fn [ev] (= :rf.frame/created (:operation ev)))
-                  (:other c))
-            "the orphan :rf.frame/created lands in the cascade's :other slot")))))
+  ;; A leading :frame/created sharing the epoch's dispatch-id rides in the
+  ;; cascade's :other slot rather than costing it its row.
+  (let [rows (visible-l2-rows (into [(orphan-frame-created-event)]
+                                    (counter-inc-trace-events)))]
+    (is (= [[:counter/inc]] (mapv :event rows)))
+    (is (some (fn [ev] (= :rf.frame/created (:operation ev)))
+              (:other (first rows))))))
 
 ;; ---- 3. The classifier: a frame-lifecycle-ONLY group is the only drop --
 ;;
