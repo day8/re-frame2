@@ -1,73 +1,12 @@
 (ns re-frame.ssr-sub-exception-two-frame-attribution-test
-  "The two-server-frame attribution proof for the ALWAYS-ON error-emit
-  projection path, exercised through a reactive subscription that throws
-  under production hardening.
+  "A reactive sub that throws under production hardening fails closed to 500
+  on its OWN frame's response, through the always-on error axis, with a
+  sibling server frame live and untouched.
 
-  Context. Per-frame attribution routes solely by `[:tags :frame]`, with
-  no single-frame fallback. The neighbouring suites reach that routing
-  through other emit sites:
-
-    - `ssr_error_two_frame_attribution_test` drives TWO server frames
-      through `:rf.error/schema-validation-failure` on the DEV-only
-      `error-projection-listener` path, and through a throwing HANDLER on
-      the always-on path, in both directions.
-    - `ssr_error_projector_substrate_test` exercises the ALWAYS-ON
-      `error-emit-projection-listener`, but with a SINGLE frame — so it
-      cannot catch a per-frame mis-attribution.
-
-  The production-survivable channel for 500-class errors is the always-on
-  `error-emit-projection-listener` (the one that fires under
-  `-Dre-frame.debug=false` per Spec 011 §Substrate). This suite proves the
-  canonical concurrent shape — >1 live server frame, an exception in one —
-  on that path. Without it, a change to
-  `error-emit-projection-listener`'s frame-routing could introduce a
-  single-frame fallback on the PRODUCTION path with every other test
-  green.
-
-  The vehicle is a reactive subscription that throws: it routes through
-  the always-on `error-emit/dispatch-on-error!` substrate
-  (subs/memo.cljc), so under `with-redefs [interop/debug-enabled? false]`
-  (the production-hardening posture) a sub-throw in ONE of two live
-  server frames must:
-
-    1. fail-closed to a 500 on THAT frame's response accumulator, and
-    2. leave the SIBLING frame's response untouched (no cross-frame
-       bleed) — provable only with >1 server frame live, the exact shape
-       a single-frame fallback cannot handle.
-
-  The 500 body a sub-exception projects is the default projector's
-  fall-through arm, the locked four keys with no `:details`; that shape is
-  pinned by `re-frame.ssr-end-to-end-test`.
-
-  ## SCOPE — core/accumulator layer ONLY
-
-  IMPORTANT: this suite drives `(rf/subscribe-once …)` FIRST — which runs
-  the sub body SYNCHRONOUSLY and buffers the projected status — and reads
-  `(ssr/get-response …)` AFTER. That is the INVERSE of the reference Ring
-  handler order, which reads `get-response` ONCE *before* the render walk
-  (the walk being where a reactive sub actually throws). So this suite
-  proves the listener / accumulator / per-frame-attribution layer is
-  correct, but it does NOT — and must not be read as — proof that the
-  fail-closed 500 reaches the WIRE. That is a false-confidence trap: an
-  adapter that reads the (empty) buffer before the render that fills it
-  ships a silent 200 for a render-time sub-throw with every assertion
-  here green.
-
-  The WIRE/end-to-end fail-closed contract is pinned by the handler-level
-  tripwire `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring
-  artefact), which drives a render-time throwing sub through the REAL
-  read-then-render handler order and asserts a non-200 on the wire. Do not
-  extend THIS suite to cover the wire path — the layering split is
-  deliberate (this = core attribution; that = adapter wire ordering).
-
-  Companion suites:
-    - `ssr_error_two_frame_attribution_test`     — two-frame, DEV path.
-    - `ssr_error_projector_substrate_test`       — always-on path, single frame.
-    - `re-frame.trace-test`                      — the core sub-exception emit site.
-    - `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring) — the
-      WIRE-level fail-closed tripwire that this suite's inverse ordering
-      cannot prove."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  This drives the sub before reading `get-response`, the inverse of the Ring
+  handler's order, so it proves the attribution layer and not the wire; the
+  wire contract is `re-frame.ssr.ring-rendertime-sub-failclosed-test`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
@@ -75,72 +14,18 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-(def ^:private frame-a :ssr/sub-req-a)
-(def ^:private frame-b :ssr/sub-req-b)
-
-(defn- register-subs! []
-  ;; A subscription that throws while computing. The reactive sub-run
-  ;; catch (subs/memo.cljc) recovers the value to nil but
-  ;; routes `:rf.error/sub-exception` through the ALWAYS-ON
-  ;; error-emit/dispatch-on-error! substrate — frame-attributed by the
-  ;; running frame's id, the `[:tags :frame]` the projection listener
-  ;; routes on.
-  (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
-  ;; A clean subscription — the sibling frame derefs this and must NOT be
-  ;; tainted by frame-a's throw.
-  (rf/reg-sub :clean-sub (fn [_db _] :ok)))
-
-(defn- make-server-frame [frame-id]
-  ;; An EXPLICIT `:id` so the two frames carry STABLE, named ids (an
-  ;; id-less `make-frame` gensyms an anonymous one). Returns the ID — these
-  ;; tests read the per-frame response accumulator by id. Both are
-  ;; `:platform :server` so `error-projector/server-frame?`
-  ;; recognises them. The default projector maps `:rf.error/sub-exception`
-  ;; → 500 (Spec 011 §Default projector).
+(defn- server-frame [frame-id]
   (rf/make-frame {:id frame-id :platform :server
-                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                             :dev-error-detail? false}})
+                  :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}})
   frame-id)
 
-;; ===========================================================================
-;; Two live server frames, production hardening — a sub-throw in frame-a
-;;     stamps 500 on frame-a ONLY; frame-b stays 200.
-;; ===========================================================================
-
 (deftest two-server-frames-sub-exception-fails-closed-on-emitting-frame-only
-  (testing "Under `interop/debug-enabled? = false`
-            (production hardening), a reactive subscription that throws in
-            frame-a routes `:rf.error/sub-exception` through the ALWAYS-ON
-            error-emit substrate → the default projector stamps 500 on
-            frame-a's response accumulator. frame-b (which derefs a clean
-            sub) stays at the default 200. With >1 server frame live this
-            can only succeed if the trace carries the emitting frame's
-            `:frame`; a single-frame fallback would no-op, shipping a
-            silent 200 for the broken render."
-    (register-subs!)
-    (let [fa (make-server-frame frame-a)
-          fb (make-server-frame frame-b)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        ;; Both frames are live registered server frames — the exact
-        ;; >1-server-frame shape a single-frame fallback cannot handle.
-        ;; frame-a derefs the throwing sub; frame-b derefs the clean one.
-        ;;
-        ;; NOTE THE ORDERING: subscribe-once (runs the sub,
-        ;; buffers the status) THEN get-response. This is the INVERSE of
-        ;; the Ring handler (get-response-then-render). It proves the core
-        ;; attribution layer, NOT the wire. The wire fail-closed contract
-        ;; lives in `ring-rendertime-sub-failclosed-test`.
-        (rf/subscribe-once [:throwing-sub] {:frame fa})
-        (rf/subscribe-once [:clean-sub] {:frame fb})
-
-        (is (= 500 (:status (rf.ssr/get-response fa)))
-            "frame-a's sub-exception fails closed to 500 on frame-a's
-             response — the always-on substrate carried the projection
-             under the disabled dev gate (the dev-only trace path is
-             elided here), and the `:frame` stamp routed it to the
-             emitting frame even with a sibling server frame live")
-        (is (= 200 (:status (rf.ssr/get-response fb)))
-            "frame-b's response stays at the default 200 — frame-a's
-             sub-throw did not bleed onto the sibling. A single-frame
-             fallback would no-op with >1 server frame, masking the
-             per-frame contract this asserts")))))
+  (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
+  (rf/reg-sub :clean-sub (fn [_db _] :ok))
+  (let [fa (server-frame :ssr/sub-req-a)
+        fb (server-frame :ssr/sub-req-b)]
+    (with-redefs [rf.interop/debug-enabled? false]
+      (rf/subscribe-once [:throwing-sub] {:frame fa})
+      (rf/subscribe-once [:clean-sub] {:frame fb})
+      (is (= [500 200] [(:status (rf.ssr/get-response fa))
+                        (:status (rf.ssr/get-response fb))])))))
