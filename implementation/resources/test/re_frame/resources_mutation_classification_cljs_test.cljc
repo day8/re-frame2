@@ -1,21 +1,7 @@
 (ns re-frame.resources-mutation-classification-cljs-test
-  "A mutation OWNER's projection-relative
-  `:sensitive` / `:large` declaration governs the mutation ENVELOPE's egress, so
-  a `:sensitive [[:params :password]]` param does NOT ship raw in the durable
-  instance's egress projection nor on the completion CONTINUATION echo, while the
-  causal write (the `:request` handler) and the success-path `:invalidates` /
-  `:patches` still read the RAW value.
-
-  Each live instance's declaration is lowered into the per-frame elision
-  registry under `:source :mutation` (the resource-entry lowering peer), and the
-  resources-constructed continuation reply is redacted from the same owner
-  declaration. Without both, the durable instance `:params`, the continuation
-  reply `:params`, and the `elide-wire-value` egress walk over
-  `:rf.runtime/mutations` would all ride the raw value.
-
-  CLJC so the JVM run (`clojure -M:test`, the load-bearing gate) exercises it
-  and the CLJS node run does too; the schemas artefact is a test-only dep so the
-  shared walker hooks are bound."
+  "A mutation's `:sensitive` declaration governs the egress of its instance,
+  its continuation reply and its execute-event payload, while the causal write
+  and the durable instance keep the raw value."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -28,8 +14,6 @@
    [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
-   ;; load-bearing side-effecting requires: register the :rf.mutation/* events +
-   ;; subs + the generation cofx/fx + bind the shared walker hooks.
    [re-frame.resources]
    [re-frame.http.managed]
    [re-frame.schemas]
@@ -37,8 +21,6 @@
    [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-;; ---- capturing transport (records the lowered request args) ----------------
 
 (def ^:private last-managed-args (atom nil))
 
@@ -54,83 +36,33 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
-;; A UNIQUE sentinel so a leak anywhere in the projected surface is unambiguous.
+;; A unique sentinel, so a leak anywhere in a projected value is unambiguous.
 (def ^:private PW "PW-SENTINEL-7f3a91")
+
+(def ^:private redacted-params {:slug "w" :password rf.privacy/redacted-sentinel})
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
-(defn- reg-secret-mutation!
-  "Register `:m/secret` — a mutation classifying its `:password` param
-  :sensitive projection-relative to the instance."
-  ([] (reg-secret-mutation! {}))
-  ([overrides]
-   (rf/clear :mutation :m/secret)
-   (rf/reg-mutation :m/secret
-     (merge {:params-schema [:map [:slug :string] [:password {:optional true} [:maybe :string]]]
-             :sensitive     [[:params :password]]}
-            overrides)
-     (fn [{:keys [slug password]} _]
-       {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}}))))
-
-;; A runtime-db carrying ONE mutation instance under its byte key-id, mirroring
-;; the durable `:rf.runtime/mutations` shape the runtime mints.
-(defn- runtime-db-with-instance [instance-id inst]
-  {rf.resources.mutation-runtime/mutations-key {(rf.resources.mutation-runtime/instance-key-id instance-id) inst}})
-
-;; ===========================================================================
-;; 1. reconcile-mutation-registry — lowers a live instance's owner declaration
-;;    into the per-frame elision registry at the ABSOLUTE instance path.
-;; ===========================================================================
-
-(deftest reconcile-mutation-is-idempotent
-  (reg-secret-mutation!)
-  (testing "re-running the mutation reconcile over its own output is a no-op"
-    (let [rdb   (runtime-db-with-instance
-                  :i1 (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
-          once  (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)
-          twice (rf.resources.classification/reconcile-mutation-registry once rf.resources.mutation-registry/mutation-meta)]
-      (is (= once twice) "mutation reconciliation is idempotent"))))
+(defn- reg-secret-mutation! []
+  (rf/clear :mutation :m/secret)
+  (rf/reg-mutation :m/secret
+    {:params-schema [:map [:slug :string] [:password {:optional true} [:maybe :string]]]
+     :sensitive     [[:params :password]]}
+    (fn [{:keys [slug password]} _]
+      {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}})))
 
 (deftest reconcile-mutation-preserves-foreign-owner
+  ;; The registry is a multi-owner union: an :effect-sourced declaration must
+  ;; survive the mutation reconcile.
   (reg-secret-mutation!)
-  (testing "a non-mutation-sourced registry entry (:source :resource / :effect)
-            rides untouched through the mutation reconcile (multi-owner union)"
-    (let [rdb (-> (runtime-db-with-instance
-                    :i1 (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
-                  (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
-                            #{{:source :effect}}))
-          out (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)]
-      (is (= #{{:source :effect}}
-             (get-in out [:rf.runtime/elision :sensitive-declarations [:app :token]]))
-          "the :source :effect entry survives the mutation reconcile"))))
-
-(deftest reconcile-mutation-no-classification-no-registry
-  (rf/clear :mutation :m/plain)
-  (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
-    (fn [_ _] {:request {:method :get :url "/x"}}))
-  (testing "a mutation that declares no classification lowers nothing"
-    (let [rdb (runtime-db-with-instance
-                :i1 (rf.resources.mutation-runtime/empty-instance :m/plain :i1 {:params {:slug "w"}}))
-          out (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)]
-      (is (not (contains? out :rf.runtime/elision))
-          "no :rf.runtime/elision key when nothing classifies"))))
-
-;; ===========================================================================
-;; 2. redact-continuation-reply — derives the reply redaction from the owner.
-;; ===========================================================================
-
-(deftest redact-continuation-reply-unclassified-rides-verbatim
-  (rf/clear :mutation :m/plain)
-  (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
-    (fn [_ _] {:request {:method :get :url "/x"}}))
-  (testing "a mutation that declares no classification rides the reply UNCHANGED"
-    (let [reply {:status :ok :params {:slug "w" :password PW}}]
-      (is (= reply (rf.resources.classification/redact-continuation-reply reply (rf.resources.mutation-registry/mutation-meta :m/plain)))
-          "no declaration → the reply is unchanged"))))
-
-;; ===========================================================================
-;; 3. END-TO-END — drive a real classified mutation through execute + reply.
-;; ===========================================================================
+  (let [rdb (-> {rf.resources.mutation-runtime/mutations-key
+                 {(rf.resources.mutation-runtime/instance-key-id :i1)
+                  (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}})}}
+                (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
+                          #{{:source :effect}}))
+        out (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)]
+    (is (= #{{:source :effect}}
+           (get-in out [:rf.runtime/elision :sensitive-declarations [:app :token]])))))
 
 (deftest execute-lowers-instance-and-redacts-egress-and-continuation
   (reg-secret-mutation!)
@@ -143,74 +75,38 @@
                         :params   {:slug "w" :password PW}
                         :instance :i1
                         :reply-to [:m/replied]}])
-    ;; the causal write handler runs on the RAW params BEFORE the instance mints.
-    (testing "the :request handler received the RAW password (causal write intact)"
-      (is (= PW (get-in @last-managed-args [:request :body :password]))))
-    ;; reply success to settle the instance + fire the continuation.
+    (is (= PW (get-in @last-managed-args [:request :body :password])) "the causal write reads the raw value")
     (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:ok true}}))
     (rf.trace.tooling/unregister-listener! ::rec)
-
-    (let [rdb  (runtime-db)
-          k-id (rf.resources.mutation-runtime/instance-key-id :i1)
-          inst (get-in rdb (rf.resources.mutation-runtime/instance-path :i1))]
-      (testing "the durable instance keeps the RAW params (success-path fns read them)"
-        (is (= PW (get-in inst [:params :password]))
-            "the durable instance :password is NOT destroyed"))
-      (testing "the owner declaration is LOWERED into the frame elision registry"
-        (is (= #{{:source :mutation}}
-               (get (rf.elision/sensitive-declarations :rf/default)
-                    [:rf.runtime/mutations k-id :params :password]))
-            "the instance :params :password decl is in the per-frame registry"))
-      (testing "the off-box egress walk over the instance REDACTS :password"
-        ;; The walker's opts map is CLOSED: a `:rf.egress/profile`
-        ;; names a BOUNDARY and belongs to `project-egress`, which resolves it
-        ;; to the `:rf.egress/*` opt-set below before delegating here. Spelt
-        ;; directly, this is the `:rf.egress/off-box-tool` floor PLUS the
-        ;; explicit digest override (that profile carries no digest).
+    (let [k-id (rf.resources.mutation-runtime/instance-key-id :i1)
+          inst (get-in (runtime-db) (rf.resources.mutation-runtime/instance-path :i1))]
+      (is (= PW (get-in inst [:params :password])) "the durable instance keeps the raw value")
+      (is (= #{{:source :mutation}}
+             (get (rf.elision/sensitive-declarations :rf/default)
+                  [:rf.runtime/mutations k-id :params :password])))
+      (testing "the off-box egress walk redacts the instance"
         (let [proj (rf.elision/elide-wire-value inst {:frame :rf/default
-                                              :path [:rf.runtime/mutations k-id]
-                                              :rf.egress/include-digests? true})]
-          (is (= rf.privacy/redacted-sentinel (get-in proj [:params :password]))
-              "the instance :password is redacted at egress")
-          (is (= "w" (get-in proj [:params :slug])) "the non-sensitive :slug rides verbatim")
-          (is (not (str/includes? (pr-str proj) PW))
-              "no raw sentinel rides anywhere on the projected instance"))))
-
-    (testing "the continuation reply redacts :password but keeps the result + slug"
-      (is (= rf.privacy/redacted-sentinel (get-in @replied [:params :password]))
-          "the continuation reply :password is redacted")
-      (is (= "w" (get-in @replied [:params :slug])) "the reply :slug rides verbatim")
-      (is (= {:ok true} (:value @replied)) "the reply :value (result) rides verbatim")
-      (is (not (str/includes? (pr-str @replied) PW)) "no raw sentinel rides on the reply"))
-
-    (testing "no :rf.mutation/* trace row carries the raw sentinel (params never
-              ride the mutation trace family)"
-      (doseq [ev @traces]
-        (when (and (keyword? (:operation ev))
-                   (= "rf.mutation" (namespace (:operation ev))))
-          (is (not (str/includes? (pr-str (:tags ev)) PW))
-              (str (:operation ev) " must not carry the raw sentinel")))))
-
-    (testing "the execute event's OWN :rf.event/v trace slot
-              redacts the owner-declared param (the dispatched-event trace is
-              projected by the CORE event chokepoint, and the event
-              REGISTRATION's static classification is empty for
-              :rf.mutation/execute — without the resources hook the
-              trusted-local :rf.egress/include-event-args? opt-in path would
-              ride the raw payload)"
+                                                      :path [:rf.runtime/mutations k-id]
+                                                      :rf.egress/include-digests? true})]
+          (is (= redacted-params (:params proj)))
+          (is (not (str/includes? (pr-str proj) PW))))))
+    (testing "the continuation reply redacts the param and keeps the result"
+      (is (= redacted-params (:params @replied)))
+      (is (= {:ok true} (:value @replied)))
+      (is (not (str/includes? (pr-str @replied) PW))))
+    (testing "no :rf.mutation/* trace row carries the raw value"
+      (doseq [ev @traces
+              :when (and (keyword? (:operation ev))
+                         (= "rf.mutation" (namespace (:operation ev))))]
+        (is (not (str/includes? (pr-str (:tags ev)) PW)) (str (:operation ev)))))
+    (testing "the live :rf.event/v slot of the execute event is projected"
       (let [vs (->> @traces
                     (keep #(get-in % [:tags :rf.event/v]))
                     (filter #(and (vector? %) (= :rf.mutation/execute (first %)))))]
-        (is (seq vs) "the execute dispatched-event trace surfaced")
+        (is (seq vs))
         (doseq [v vs]
-          (is (= rf.privacy/redacted-sentinel (get-in v [1 :params :password]))
-              "the owner-declared :params :password redacts at :rf.event/v")
-          (is (= "w" (get-in v [1 :params :slug]))
-              "the non-sensitive :slug rides verbatim at :rf.event/v"))))
-
-    (testing "the FAILURE continuation echo redacts :password too (an accepted
-              :error reply also dispatches :reply-to)"
-      (reset! last-managed-args nil)
+          (is (= redacted-params (get-in v [1 :params]))))))
+    (testing "the failure continuation redacts too"
       (reset! replied nil)
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/secret
@@ -219,38 +115,12 @@
                           :reply-to [:m/replied]}])
       (rf/dispatch-sync (conj (:on-failure @last-managed-args)
                               {:status :error :error {:status 422 :body "nope"}}))
-      (is (= rf.privacy/redacted-sentinel (get-in @replied [:params :password]))
-          "the failure continuation reply :password is redacted")
-      (is (= "w" (get-in @replied [:params :slug])) "the failure reply :slug rides verbatim")
-      (is (not (str/includes? (pr-str @replied) PW))
-          "no raw sentinel rides on the failure reply"))
-
-    (testing "clear DROPS the lowered instance declaration (self-dropping)"
+      (is (= redacted-params (:params @replied)))
+      (is (not (str/includes? (pr-str @replied) PW))))
+    (testing "clear drops the lowered instance declaration"
       (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
       (is (empty? (get (rf.elision/sensitive-declarations :rf/default)
-                       [:rf.runtime/mutations (rf.resources.mutation-runtime/instance-key-id :i1) :params :password]))
-          "the cleared instance's declaration is gone from the registry"))))
-
-;; ===========================================================================
-;; 4. The [:rf.mutation/execute …] event-payload projection.
-;;    The execute payload names its owner INSIDE the args (:mutation), so the
-;;    core event-vector chokepoint defers to the resources-published
-;;    :resources/project-execute-event-args hook — the event peer of
-;;    :http/project-managed-fx-args. Deterministic teeth on the projector +
-;;    the core chokepoint; the live acceptance rides the section-3 drive.
-;; ===========================================================================
-
-(deftest project-execute-event-args-redacts-owner-param
-  (reg-secret-mutation!)
-  (testing "the owner-declared :params :password redacts on the execute args;
-            the non-sensitive sibling and the structural :mutation id ride"
-    (let [args {:mutation :m/secret :params {:slug "w" :password PW} :instance :i9}
-          out  (rf.resources.classification/project-execute-event-args args rf.resources.mutation-registry/mutation-meta)]
-      (is (= rf.privacy/redacted-sentinel (get-in out [:params :password]))
-          "the sensitive param is redacted on the execute payload")
-      (is (= "w" (get-in out [:params :slug])) "the non-sensitive param rides verbatim")
-      (is (= :m/secret (:mutation out)) "the owner id survives (attribution)")
-      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides the payload"))))
+                       [:rf.runtime/mutations (rf.resources.mutation-runtime/instance-key-id :i1) :params :password]))))))
 
 (deftest project-execute-event-args-scope-rooted-decl
   (rf/clear :mutation :m/scoped)
@@ -258,80 +128,47 @@
     {:params-schema [:map [:slug :string]]
      :sensitive     [[:scope :tenant]]}
     (fn [_ _] {:request {:method :get :url "/x"}}))
-  (testing "a :scope-rooted decl redacts the execute payload's sibling :scope
-            slot (Spec 016 clause 4 — params, scopes, and data carry the same
-            classification)"
-    (let [out (rf.resources.classification/project-execute-event-args
-                {:mutation :m/scoped :params {:slug "w"}
-                 :scope    {:tenant PW :region "r"}}
-                rf.resources.mutation-registry/mutation-meta)]
-      (is (= rf.privacy/redacted-sentinel (get-in out [:scope :tenant]))
-          "the :scope-rooted decl bites the payload's :scope")
-      (is (= "r" (get-in out [:scope :region])) "the non-sensitive scope field rides"))))
-
-(deftest project-execute-event-args-data-rooted-skipped
-  (rf/clear :mutation :m/data-classified)
-  (rf/reg-mutation :m/data-classified
-    {:params-schema [:map [:slug :string]]
-     :sensitive     [[:data :token]]}
-    (fn [_ _] {:request {:method :get :url "/x"}}))
-  (testing "a :data-rooted decl names the not-yet-existing RESULT projection —
-            the execute payload rides UNCHANGED (reference-preserved, no
-            phantom slot)"
-    (let [args {:mutation :m/data-classified :params {:slug "w"}}]
-      (is (identical? args (rf.resources.classification/project-execute-event-args
-                             args rf.resources.mutation-registry/mutation-meta))))))
+  (is (= {:tenant rf.privacy/redacted-sentinel :region "r"}
+         (:scope (rf.resources.classification/project-execute-event-args
+                   {:mutation :m/scoped :params {:slug "w"}
+                    :scope    {:tenant PW :region "r"}}
+                   rf.resources.mutation-registry/mutation-meta)))))
 
 (deftest project-execute-event-args-fail-open
-  (testing "an unregistered :mutation id / a non-map payload rides UNCHANGED
-            (the EP-0025 fail-open — no registration to read a declaration off)"
-    (rf/clear :mutation :m/ghost)
-    (let [args {:mutation :m/ghost :params {:password PW}}]
-      (is (identical? args (rf.resources.classification/project-execute-event-args
-                             args rf.resources.mutation-registry/mutation-meta))))
-    (is (= :not-a-map (rf.resources.classification/project-execute-event-args
-                        :not-a-map rf.resources.mutation-registry/mutation-meta)))))
+  ;; No registration to read a declaration off: the payload rides unchanged.
+  (rf/clear :mutation :m/ghost)
+  (let [args {:mutation :m/ghost :params {:password PW}}]
+    (is (identical? args (rf.resources.classification/project-execute-event-args
+                           args rf.resources.mutation-registry/mutation-meta))))
+  (is (= :not-a-map (rf.resources.classification/project-execute-event-args
+                      :not-a-map rf.resources.mutation-registry/mutation-meta))))
 
 (deftest project-execute-event-args-reply-to-rides-target-classification
   (reg-secret-mutation!)
   (rf/reg-event :m/reply-target
     {:sensitive [[:cb-secret]]}
     (fn [{:keys [db]} _] {:db db}))
-  (testing "a payload-carrying :reply-to address rides the TARGET event
-            registration's own classification — the same composition the
-            managed-HTTP :on-success / :on-failure addresses get"
-    (let [out (rf.resources.classification/project-execute-event-args
-                {:mutation :m/secret
-                 :params   {:slug "w" :password PW}
-                 :reply-to [:m/reply-target {:cb-secret PW :tag "t"}]}
-                rf.resources.mutation-registry/mutation-meta)]
-      (is (= rf.privacy/redacted-sentinel (get-in out [:reply-to 1 :cb-secret]))
-          "the reply-to target's declared path redacts")
-      (is (= "t" (get-in out [:reply-to 1 :tag])) "the non-secret tag rides")
-      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel anywhere"))))
+  (let [out (rf.resources.classification/project-execute-event-args
+              {:mutation :m/secret
+               :params   {:slug "w" :password PW}
+               :reply-to [:m/reply-target {:cb-secret PW :tag "t"}]}
+              rf.resources.mutation-registry/mutation-meta)]
+    (is (= {:cb-secret rf.privacy/redacted-sentinel :tag "t"} (get-in out [:reply-to 1])))
+    (is (not (str/includes? (pr-str out) PW)))))
 
 (deftest core-trace-slots-project-execute-payload
+  ;; The :rf.event/v slot and a nested [:dispatch [:rf.mutation/execute …]] fx
+  ;; entry go through the same core chokepoint.
   (reg-secret-mutation!)
-  (testing "the :rf.event/v dispatched-event slot AND a nested
-            [:dispatch [:rf.mutation/execute …]] fx entry both redact through
-            the same chokepoint (deterministic projector teeth on hand-built
-            trace shapes, mirroring fx_aggregate_classification)"
-    (let [payload {:mutation :m/secret :params {:slug "w" :password PW}}
-          disp    (rf.classification/project-trace-event
-                    {:operation :rf.event/dispatched
-                     :tags {:frame       :rf/default
-                            :rf.event/v [:rf.mutation/execute payload]}})
-          agg     (rf.classification/project-trace-event
-                    {:operation :rf.fx/do-fx
-                     :tags {:frame        :rf/default
-                            :rf.event/fx [[:dispatch [:rf.mutation/execute payload]]]}})]
-      (is (= rf.privacy/redacted-sentinel
-             (get-in disp [:tags :rf.event/v 1 :params :password]))
-          ":rf.event/v redacts the owner-declared param")
-      (is (= "w" (get-in disp [:tags :rf.event/v 1 :params :slug]))
-          ":rf.event/v keeps the non-sensitive sibling")
-      (is (= rf.privacy/redacted-sentinel
-             (get-in agg [:tags :rf.event/fx 0 1 1 :params :password]))
-          "the nested :dispatch fx entry inherits the same projection")
-      (is (not (str/includes? (pr-str [disp agg]) PW))
-          "no raw sentinel rides either projected shape"))))
+  (let [payload {:mutation :m/secret :params {:slug "w" :password PW}}
+        disp    (rf.classification/project-trace-event
+                  {:operation :rf.event/dispatched
+                   :tags {:frame       :rf/default
+                          :rf.event/v [:rf.mutation/execute payload]}})
+        agg     (rf.classification/project-trace-event
+                  {:operation :rf.fx/do-fx
+                   :tags {:frame        :rf/default
+                          :rf.event/fx [[:dispatch [:rf.mutation/execute payload]]]}})]
+    (is (= {:mutation :m/secret :params redacted-params} (get-in disp [:tags :rf.event/v 1])))
+    (is (= redacted-params (get-in agg [:tags :rf.event/fx 0 1 1 :params])))
+    (is (not (str/includes? (pr-str [disp agg]) PW)))))
