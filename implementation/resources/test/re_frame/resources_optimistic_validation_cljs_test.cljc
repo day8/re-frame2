@@ -1,29 +1,8 @@
 (ns re-frame.resources-optimistic-validation-cljs-test
-  "EP-0019 — the optimistic-mutation VALIDATION SUITE.
-
-  It exercises the EP-0019 §Validation plan laws that the APPLY and SETTLE
-  suites do not already pin. Each `deftest` below is one numbered law; the
-  docstring of each names the EP case.
-
-  Cases 1-4, 10 and 13 are pinned by `resources-optimistic-apply-cljs-test`
-  and `resources-optimistic-settle-cljs-test`, so they are not restated
-  here. Cases 5 and 9 are pinned by this suite alone. Cases 6, 7,
-  8 (settle), 11, and the Rider-1 `:optimistic?` sub flag are the laws this
-  suite ADDS:
-
-    6.  a STALE / superseded reply discards its inverse and never rolls back —
-        the newer generation owns the entry;
-    7.  two concurrent optimistic writes on the same entry each record their own
-        inverse + revision and compose deterministically per the conflict rule;
-    8.  `:optimistic-tags` rolls back each tag-matched entry INDEPENDENTLY (one
-        restored, one conflicted → invalidated, in a single settle);
-    11. `:reply-to` fires exactly once, after settle, for the accepted reply only
-        — the optimistic apply dispatches no continuation;
-    +   the Rider-1 `:optimistic?` derived sub flag — true between phase 1.5 and
-        settle, false for a pessimistic / settled write.
-
-  The transport is a capturing stub; replies are synthesised by dispatching the
-  captured `:on-success` / `:on-failure` internal reply event."
+  "Optimistic-mutation laws beyond apply and settle: :on-conflict :force, stale
+  replies, concurrent writes, per-entry tag rollback, fail-closed :from-db
+  targets, :reply-to timing, trace evidence, the :optimistic? sub flag and
+  malformed optimistic plans."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -31,8 +10,6 @@
    [re-frame.core :as rf]
    [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* +
-   ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.registrar :as rf.registrar]
@@ -43,8 +20,6 @@
    [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
@@ -69,12 +44,9 @@
        :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
-;; ---- helpers ---------------------------------------------------------------
-
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
-;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
+;; :rf.runtime/mutations is keyed on the instance id's CEDN-1 byte key-id.
 (defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
@@ -84,8 +56,15 @@
 (defn- reply-failure! [args failure]
   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
+(def ^:private http-500 {:kind :rf.http/http-5xx :status 500})
+
 (def ^:private article-key
   (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
+
+(def ^:private article-owned
+  {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]})
+
+(defn- count-of [scoped-key] (get-in (entry scoped-key) [:data :article :favoritesCount]))
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -111,19 +90,18 @@
 (def ^:private favorite-plan-request
   (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
 
+(defn- populating [plan]
+  (assoc plan :populates (fn [{:keys [slug]} result]
+                           {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                            result})))
+
+(defn- execute! [mutation instance-id & {:as extra}]
+  (rf/dispatch-sync [:rf.mutation/execute (merge {:mutation mutation :params {:slug "w"}
+                                                  :instance instance-id}
+                                                 extra)]))
+
 (defn- mutation-state [instance-id]
   @(rf/subscribe [:rf/mutation {:instance instance-id}]))
-
-(defn- trace-of
-  "Run `body-fn`; return the LAST trace event with `op` (its top-level data map;
-  facets ride under `:tags`), or nil."
-  [op body-fn]
-  (let [seen (atom [])
-        k    ::recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= op (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
-    (:tags (last @seen))))
 
 (defn- traces-of
   "Run `body-fn`; return `{op -> last-event-tags}` for each op in `ops`."
@@ -137,170 +115,87 @@
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-(defn- competing-authoritative-write!
-  "Simulate a CONCURRENT authoritative write landing on the article key between
-  the in-flight mutation's optimistic apply and its reply — a SECOND mutation's
-  `:populates` seeds the entry with a NEWER server value, which bumps the entry's
-  `:revision` (`populate-entry`), exactly the move the conflict check catches. The
-  original in-flight mutation's captured reply args are saved + restored, so the
-  test can reply against them afterward."
-  [value]
+(defn- trace-of [op body-fn] (get (traces-of [op] body-fn) op))
+
+(defn- populate-write!
+  "A second mutation's :populates lands `value` on `resource`'s key while the
+  mutation under test is in flight, moving the entry's :revision. The saved
+  in-flight args are restored afterwards for the test to reply against."
+  [resource params value]
   (let [saved @last-managed-args]
     (rf/reg-mutation :m/competing
       {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :populates (fn [{:keys [slug]} result]
-                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                     result})}
-      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/competing :params {:slug "w"}
+       :params-schema [:map]
+       :populates (fn [_p result] {{:resource resource :params params :scope :rf.scope/global} result})}
+      (fn [_p _] {:request {:method :put :url "/competing"}}))
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/competing :params params
                                              :instance :competing}])
     (reply-success! @last-managed-args value)
     (reset! last-managed-args saved)))
 
-;; ===========================================================================
-;; CASE 5 — :on-conflict :force restores the inverse even on conflict (warning).
-;; ===========================================================================
-
 (deftest case-05-force-restores-stale-inverse-with-a-warning
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
   (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force) favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
+  (execute! :m/favorite :f1)
+  (populate-write! :r/article {:slug "w"} {:article {:favorited false :favoritesCount 100}})
   (let [traces (traces-of [:rf.mutation/optimistic-rolled-back
                            :rf.warning/optimistic-force-clobber]
-                 #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
-        rb     (:rf.mutation/optimistic-rolled-back traces)
-        warn   (:rf.warning/optimistic-force-clobber traces)]
-    (testing ":force RESTORED the recorded (stale) inverse (9) despite the conflict"
-      (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
-    (testing "the trace marks the key restored AND conflicted; the warning fired"
-      (is (= [article-key] (:restored rb)))
-      (is (= [article-key] (:conflicted rb)))
-      (is (= :force (:on-conflict rb)))
-      (is (some? warn))
-      (is (= [article-key] (:forced-keys warn))))))
-
-;; ===========================================================================
-;; CASE 6 — a STALE / superseded reply discards its inverse and NEVER rolls back;
-;;          the newer generation's apply owns the entry.
-;;
-;; A re-execute under the SAME instance mints a NEW generation + work id and a
-;; FRESH optimistic apply (re-snapshotting the entry as the optimistic value).
-;; The FIRST execute's reply is now STALE (its work id ≠ the instance's
-;; :current-work) and MUST be suppressed — its recorded inverse is never
-;; replayed, so it cannot clobber the newer apply's value.
-;; ===========================================================================
+                 #(reply-failure! @last-managed-args http-500))]
+    (is (= 9 (count-of article-key)) ":force restored the recorded inverse despite the conflict")
+    (is (= {:restored [article-key] :conflicted [article-key] :on-conflict :force}
+           (select-keys (:rf.mutation/optimistic-rolled-back traces) [:restored :conflicted :on-conflict])))
+    (is (= [article-key] (:forced-keys (:rf.warning/optimistic-force-clobber traces))))))
 
 (deftest case-06-stale-superseded-reply-discards-its-inverse
+  ;; A re-execute under the same instance re-applies (10 -> 11); the first
+  ;; execute's reply is now stale, and replaying its inverse would write 9.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
   (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-  ;; FIRST execute — its optimistic apply takes count 9 -> 10; capture its reply.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (let [stale-args @last-managed-args
-        gen-1      (:generation (instance :f1))]
-    (is (= 10 (get-in (entry article-key) [:data :article :favoritesCount])))
+  (execute! :m/favorite :f1)
+  (let [stale-args @last-managed-args]
     (reset! last-managed-args nil)
-    ;; RE-EXECUTE under the same instance — a NEW generation, a NEW work id, and a
-    ;; FRESH optimistic apply (10 -> 11), re-snapshotting the entry as the
-    ;; current (optimistic) value. The first execute's reply is now superseded.
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-    (let [gen-2 (:generation (instance :f1))]
-      (is (not= gen-1 gen-2) "the re-execute minted a new generation")
-      (is (= 11 (get-in (entry article-key) [:data :article :favoritesCount]))
-          "the newer apply owns the entry (10 -> 11)")
-      (testing "delivering the STALE first reply is SUPPRESSED — no rollback"
-        (let [stale-tr (trace-of :rf.mutation/stale-suppressed
-                         (fn []
-                           ;; deliver the first (now stale) reply as a FAILURE — were its
-                           ;; inverse replayed it would clobber the newer value back to 9.
-                           (reply-failure! stale-args {:kind :rf.http/http-5xx :status 500})))]
-          (is (some? stale-tr) "the superseded reply was stale-suppressed")
-          (is (= 11 (get-in (entry article-key) [:data :article :favoritesCount]))
-              "the stale inverse was DISCARDED — the newer generation still owns the entry")
-          (is (= :pending (:status (instance :f1)))
-              "the live (newer) instance was untouched by the stale reply"))))))
-
-;; ===========================================================================
-;; CASE 7 — two concurrent optimistic writes on the SAME entry each record their
-;;          own inverse + revision; the later commit and the earlier rollback
-;;          compose deterministically per the conflict rule.
-;;
-;; Two DISTINCT instances (:a then :b) both optimistically increment the same
-;; entry. Each records its own snapshot-inverse at the revision it observed.
-;; :b commits authoritatively (server truth wins), moving the revision; :a then
-;; FAILS — its recorded inverse is now stale (the revision moved past :a's
-;; baseline), so :a's rollback DEFERS to the read path (:invalidate), never
-;; clobbering :b's committed value.
-;; ===========================================================================
+    (execute! :m/favorite :f1)
+    (is (= 11 (count-of article-key)) "the newer apply owns the entry")
+    (let [stale-tr (trace-of :rf.mutation/stale-suppressed #(reply-failure! stale-args http-500))]
+      (is (some? stale-tr) "the superseded reply was stale-suppressed")
+      (is (= [11 :pending] [(count-of article-key) (:status (instance :f1))])
+          "its inverse was discarded and the live instance untouched"))))
 
 (deftest case-07-two-concurrent-optimistic-writes-compose-deterministically
+  ;; :b commits authoritatively, moving the revision past :a's baseline, so
+  ;; :a's failure defers to the read path rather than restoring its stale 9.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favoritesCount 9}})
+  (own-loaded! article-owned {:article {:favoritesCount 9}})
   (rf/reg-mutation :m/inc
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :optimistic (fn [{:keys [slug]}]
-                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                    (fn [a] (update-in a [:article :favoritesCount] inc))})
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (populating
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :optimistic (fn [{:keys [slug]}]
+                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                      (fn [a] (update-in a [:article :favoritesCount] inc))})})
     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/inc")}}))
-  ;; write :a applies (9 -> 10); capture its reply args.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/inc :params {:slug "w"} :instance :a}])
+  (execute! :m/inc :a)
   (let [a-args @last-managed-args
         a-inv  (first (:rollback (patch-summary :a)))]
     (reset! last-managed-args nil)
-    ;; write :b applies on top (10 -> 11); capture its reply args.
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/inc :params {:slug "w"} :instance :b}])
+    (execute! :m/inc :b)
     (let [b-args @last-managed-args
           b-inv  (first (:rollback (patch-summary :b)))]
-      (testing "each write recorded its OWN inverse at the revision it observed"
-        (is (some? a-inv))
-        (is (some? b-inv))
-        (is (not= (:revision a-inv) (:revision b-inv))
-            ":b observed a later revision than :a (the apply ledger stacks in order)")
-        (is (= 9 (get-in (:before a-inv) [:data :article :favoritesCount]))
-            ":a's recorded :before is the pre-:a value (9)")
-        (is (= 10 (get-in (:before b-inv) [:data :article :favoritesCount]))
-            ":b's recorded :before is the post-:a optimistic value (10)"))
-      ;; :b COMMITS authoritatively — the server returns 50, moving the revision.
+      (is (not= (:revision a-inv) (:revision b-inv)) "each write recorded the revision it observed")
+      (is (= [9 10] (map #(get-in (:before %) [:data :article :favoritesCount]) [a-inv b-inv]))
+          ":b's recorded :before is :a's optimistic value")
       (reply-success! b-args {:article {:favoritesCount 50}})
-      (is (= 50 (get-in (entry article-key) [:data :article :favoritesCount]))
-          ":b committed authoritatively")
-      (is (= :success (:status (instance :b))))
-      ;; :a now FAILS — its inverse (9) is stale (the revision moved past :a's
-      ;; baseline when :b committed), so its rollback DEFERS to the read path.
+      (is (= 50 (count-of article-key)) ":b committed authoritatively")
       (rf/reg-fx :rf.resource/refetch (fn [_ _] nil))
-      (let [rb (trace-of :rf.mutation/optimistic-rolled-back
-                 #(reply-failure! a-args {:kind :rf.http/http-5xx :status 500}))]
-        (testing ":a's stale inverse (9) did NOT clobber :b's committed value (50)"
-          (is (not= 9 (get-in (entry article-key) [:data :article :favoritesCount])))
-          (is (= [article-key] (:conflicted rb))
-              ":a's rollback saw the moved revision as a conflict")
-          (is (= :invalidate (:on-conflict rb))
-              "the contested rollback deferred to the read path, never restored 9"))
-        (testing ":a settled :error (terminal), :b stayed :success"
-          (is (= :error (:status (instance :a))))
-          (is (= :success (:status (instance :b)))))))))
+      (let [rb (trace-of :rf.mutation/optimistic-rolled-back #(reply-failure! a-args http-500))]
+        (is (not= 9 (count-of article-key)) ":a's stale inverse did not clobber :b's value")
+        (is (= {:conflicted [article-key] :on-conflict :invalidate}
+               (select-keys rb [:conflicted :on-conflict])))
+        (is (= [:error :success] [(:status (instance :a)) (:status (instance :b))]))))))
 
-;; ===========================================================================
-;; CASE 8 — :optimistic-tags patches every tag-matched entry across scopes; each
-;;          matched entry ROLLS BACK INDEPENDENTLY (one restored, one conflicted
-;;          → invalidated, in a single settle).
-;; ===========================================================================
-
-(deftest case-08-optimistic-tags-rolls-back-each-matched-entry-independently
-  ;; A DETAIL and a FEED entry, each carrying its OWN disjoint tag so a conflict
-  ;; invalidation of one cannot cross-stale the other (tag overlap is a separate,
-  ;; correct effect — this case isolates the per-key DISPOSITION). The
-  ;; :optimistic-tags plan carries TWO descriptors (one per tag) so both are
-  ;; patched optimistically; a competing write then moves ONLY the feed.
+(defn- reg-article-and-feed! []
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
@@ -311,64 +206,37 @@
      :params-schema [:map]
      :tags (fn [_p _] #{[:feed-w]})}
     (fn [_p _] {:request {:method :get :url "/feed"}}))
-  (let [feed-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})]
-    (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-                 {:article {:favorited false}})
-    (own-loaded! {:resource :r/feed :scope :rf.scope/global :params {} :owner [:v :f]}
-                 {:items 1})
-    (let [detail-before (entry article-key)]
-      (rf/reg-mutation :m/favorite-everywhere
-        {:scope :rf.scope/global
-         :params-schema [:map [:slug :string]]
-         ;; TWO descriptors, disjoint tags — both matched entries are patched.
-         :optimistic-tags (fn [{:keys [slug]}]
-                            [{:scope :rf.scope/global :tags #{[:article slug]}
-                              :patch (fn [d] (assoc d :touched true))}
-                             {:scope :rf.scope/global :tags #{[:feed-w]}
-                              :patch (fn [d] (assoc d :touched true))}])}
-        (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}}))
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite-everywhere
-                                               :params {:slug "w"} :instance :fe1}])
-      (testing "BOTH tag-matched entries were optimistically patched + each recorded an inverse"
-        (is (= true (get-in (entry article-key) [:data :touched])))
-        (is (= true (get-in (entry feed-key) [:data :touched])))
-        (is (= #{article-key feed-key}
-               (set (map :resource/key (:rollback (patch-summary :fe1)))))))
-      ;; a competing authoritative write moves ONLY the FEED entry's revision (a
-      ;; populate of the feed key) — so on rollback the DETAIL is unmoved
-      ;; (restores) while the FEED is conflicted (invalidates), each disposed
-      ;; INDEPENDENTLY. The feed's conflict recovery is keyed by its EXACT
-      ;; carried :resource/key, so it cannot cross-stale the restore.
-      (let [saved @last-managed-args]
-        (rf/reg-mutation :m/touch-feed
-          {:scope :rf.scope/global
-           :params-schema [:map]
-           :populates (fn [_p result]
-                        {{:resource :r/feed :params {} :scope :rf.scope/global} result})}
-          (fn [_p _] {:request {:method :put :url "/feed"}}))
-        (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf}])
-        (reply-success! @last-managed-args {:items 99 :server true})
-        (reset! last-managed-args saved))
-      (rf/reg-fx :rf.resource/refetch (fn [_ _] nil))
-      (let [traces (traces-of [:rf.mutation/optimistic-rolled-back :rf.resource/invalidated]
-                     #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
-            rb     (:rf.mutation/optimistic-rolled-back traces)]
-        (testing "the UNMOVED detail entry was RESTORED verbatim"
-          (is (nil? (get-in (entry article-key) [:data :touched])) "detail un-touched (restored)")
-          (is (= detail-before (entry article-key)) "detail restored to its exact :before")
-          (is (contains? (set (:restored rb)) article-key)))
-        (testing "the MOVED feed entry was NOT restored — it conflicted + invalidated"
-          (is (= 99 (get-in (entry feed-key) [:data :items]))
-              "the stale feed inverse did NOT clobber the moved entry (99)")
-          (is (contains? (set (:conflicted rb)) feed-key))
-          (is (contains? (set (:refetched rb)) feed-key)))
-        (testing "the two matched entries were disposed INDEPENDENTLY in one settle"
-          (is (= #{article-key} (set (:restored rb))))
-          (is (= #{feed-key} (set (:conflicted rb)))))))))
+  (own-loaded! article-owned {:article {:favorited false}})
+  (own-loaded! {:resource :r/feed :scope :rf.scope/global :params {} :owner [:v :f]} {:items 1}))
 
-;; ===========================================================================
-;; CASE 9 — a {:from-db …} optimistic target that resolves nil is fail-closed.
-;; ===========================================================================
+(def ^:private feed-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {}))
+
+(defn- touched [scoped-key] (get-in (entry scoped-key) [:data :touched]))
+
+(deftest case-08-optimistic-tags-rolls-back-each-matched-entry-independently
+  ;; Disjoint tags, so a conflict on one entry cannot cross-stale the other; a
+  ;; competing write then moves only the feed.
+  (reg-article-and-feed!)
+  (let [detail-before (entry article-key)]
+    (rf/reg-mutation :m/favorite-everywhere
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :optimistic-tags (fn [{:keys [slug]}]
+                          [{:scope :rf.scope/global :tags #{[:article slug]}
+                            :patch (fn [d] (assoc d :touched true))}
+                           {:scope :rf.scope/global :tags #{[:feed-w]}
+                            :patch (fn [d] (assoc d :touched true))}])}
+      (fn [_ _] {:request {:method :post :url "/fav"}}))
+    (execute! :m/favorite-everywhere :fe1)
+    (is (= [true true] [(touched article-key) (touched feed-key)]) "both matched entries patched")
+    (populate-write! :r/feed {} {:items 99 :server true})
+    (rf/reg-fx :rf.resource/refetch (fn [_ _] nil))
+    (let [rb (trace-of :rf.mutation/optimistic-rolled-back #(reply-failure! @last-managed-args http-500))]
+      (is (= detail-before (entry article-key)) "the unmoved detail restored to its exact :before")
+      (is (= 99 (get-in (entry feed-key) [:data :items])) "the moved feed was not restored")
+      (is (= {:restored [article-key] :conflicted [feed-key] :refetched [feed-key]}
+             (select-keys rb [:restored :conflicted :refetched]))
+          "each entry disposed independently in one settle"))))
 
 (deftest case-09-from-db-target-resolving-nil-is-fail-closed
   (rf/reg-resource :r/feed
@@ -383,244 +251,92 @@
                    {{:resource :r/feed :params {} :scope {:from-db :t/session}}
                     (fn [d] (assoc d :touched true))})}
     (fn [_p _] {:request {:method :post :url "/feed/touch"}}))
-  ;; NO :t/login — the {:from-db :t/session} resolver returns nil.
+  ;; no :t/login, so {:from-db :t/session} resolves nil
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf1}])
-  (testing "no entry was written (fail-closed drop, never an implicit global)"
-    (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})))))
-  (testing "the dropped target is recorded as :target-unresolved; no inverse"
-    (is (= [:t/session] (:target-unresolved (patch-summary :tf1))))
-    (is (empty? (:rollback (patch-summary :tf1))))))
-
-;; ===========================================================================
-;; CASE 11 — :reply-to fires ONCE, after settle, for the accepted reply only —
-;;           the optimistic apply dispatches NO continuation.
-;; ===========================================================================
-
-(def ^:private replied (atom []))
+  (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})))
+      "no entry written under an implicit global")
+  (is (= [[:t/session] true] ((juxt :target-unresolved (comp empty? :rollback)) (patch-summary :tf1)))
+      "the dropped target is recorded as unresolved, with no inverse"))
 
 (deftest case-11-reply-to-fires-once-after-settle-not-on-the-apply
-  (reset! replied [])
-  (rf/reg-event :test/replied (fn [_ event] (swap! replied conj event) {}))
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite
-    (assoc favorite-plan
-           :populates (fn [{:keys [slug]} result]
-                        {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result}))
-    favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"}
-                                           :instance :f1 :reply-to [:test/replied]}])
-  (testing "the optimistic apply landed but dispatched NO continuation (apply is not a reply)"
-    (is (= true (get-in (entry article-key) [:data :article :favorited])))
-    (is (= 0 (count @replied)) "no :reply-to before settle"))
-  (reply-success! @last-managed-args {:article {:favorited true :favoritesCount 42}})
-  (testing "the continuation fired EXACTLY once, after settle, for the accepted reply"
-    (is (= 1 (count @replied)))
-    (let [[ev-id reply] (first @replied)]
-      (is (= :test/replied ev-id))
-      (is (= :ok (:status reply)))
-      (is (= :f1 (:instance reply))))))
+  (let [replied (atom [])]
+    (rf/reg-event :test/replied (fn [_ event] (swap! replied conj event) {}))
+    (reg-article-resource!)
+    (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
+    (rf/reg-mutation :m/favorite (populating favorite-plan) favorite-plan-request)
+    (execute! :m/favorite :f1 :reply-to [:test/replied])
+    (is (= [true []] [(get-in (entry article-key) [:data :article :favorited]) @replied])
+        "the apply landed and dispatched no continuation")
+    (reply-success! @last-managed-args {:article {:favorited true :favoritesCount 42}})
+    (is (= [[:test/replied :ok :f1]]
+           (mapv (fn [[ev-id reply]] [ev-id (:status reply) (:instance reply)]) @replied))
+        "the continuation fired exactly once, after settle")))
 
-;; ===========================================================================
-;; CASE 12 — trace evidence: optimistic-applied / rolled-back / reconciled carry
-;;           snapshot id, per-key revision, conflict/restore disposition; the
-;;           instance row's :patch-summary slots are filled.
-;; ===========================================================================
-
-(deftest case-12-trace-evidence-and-patch-summary-slots-are-filled
+(deftest case-12-optimistic-applied-trace-carries-snapshot-and-revisions
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
   (let [rev-before (:revision (entry article-key))]
     (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-    (testing "optimistic-applied carries the snapshot id + per-key revision + forward op"
-      (let [applied (trace-of :rf.mutation/optimistic-applied
-                      #(rf/dispatch-sync [:rf.mutation/execute
-                                          {:mutation :m/favorite :params {:slug "w"} :instance :f1}]))]
-        (is (some? (:snapshot-id applied)))
-        (is (= [article-key] (:affected-keys applied)))
-        (is (= [{:resource/key article-key :revision rev-before :forward :patch}]
-               (:revisions applied)))))
-    (testing "the pending instance row's :patch-summary slots are filled (snapshot-id + rollback)"
-      (let [ps (patch-summary :f1)]
-        (is (some? (:snapshot-id ps)))
-        (is (= 1 (count (:rollback ps))))))
-    (testing "rolled-back carries the per-key restored disposition"
-      (let [rb (trace-of :rf.mutation/optimistic-rolled-back
-                 #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))]
-        (is (some? (:snapshot-id rb)))
-        (is (= [{:resource/key article-key :restored true :conflict false}]
-               (:dispositions rb)))))))
-
-;; ===========================================================================
-;; RIDER 1 — the :optimistic? derived sub flag on :rf/mutation.
-;; ===========================================================================
+    (let [applied (trace-of :rf.mutation/optimistic-applied #(execute! :m/favorite :f1))]
+      (is (some? (:snapshot-id applied)))
+      (is (= {:affected-keys [article-key]
+              :revisions [{:resource/key article-key :revision rev-before :forward :patch}]}
+             (select-keys applied [:affected-keys :revisions]))))))
 
 (deftest rider1-optimistic-flag-true-between-apply-and-settle
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite
-    (assoc favorite-plan
-           :populates (fn [{:keys [slug]} result]
-                        {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result}))
-    favorite-plan-request)
-  (testing "an idle (no-instance) state is :optimistic? false"
-    (is (= false (:optimistic? (mutation-state :f1)))))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (testing ":optimistic? is TRUE between the apply (phase 1.5) and settle"
-    (let [s (mutation-state :f1)]
-      (is (= true (:optimistic? s)))
-      (is (= true (:pending? s)) "still pending-aware — the view shows the optimistic value")))
-  (reply-success! @last-managed-args {:article {:favorited true :favoritesCount 42}})
-  (testing ":optimistic? is FALSE after settle (the value is now authoritative)"
-    (let [s (mutation-state :f1)]
-      (is (= false (:optimistic? s)))
-      (is (= true (:success? s))))))
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/favorite (populating favorite-plan) favorite-plan-request)
+  (let [idle    (mutation-state :f1)
+        _       (execute! :m/favorite :f1)
+        pending (mutation-state :f1)
+        _       (reply-success! @last-managed-args {:article {:favorited true :favoritesCount 42}})
+        settled (mutation-state :f1)]
+    (is (= [false [true true] [false true]]
+           [(:optimistic? idle)
+            ((juxt :optimistic? :pending?) pending)
+            ((juxt :optimistic? :success?) settled)])
+        ":optimistic? is true only between the apply and the settle")))
 
 (deftest rider1-optimistic-flag-false-after-opt-out
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false}})
+  (own-loaded! article-owned {:article {:favorited false}})
   (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-  ;; {:optimistic? false} forces the pessimistic path — no apply, so no flag.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"}
-                                           :instance :f1 :optimistic? false}])
-  (testing "an opted-out call is :optimistic? false (no apply ran)"
-    (is (= true (:pending? (mutation-state :f1))))
-    (is (= false (:optimistic? (mutation-state :f1))))))
-
-;; ===========================================================================
-;; A MALFORMED :optimistic-tags descriptor is warn-and-skipped, never an
-;; abort. The optimistic paint is reversible
-;; best-effort; a typo in the descriptor must NOT nuke the authoritative write
-;; (which is strictly worse than :invalidates, settled post-write). The
-;; well-formed descriptors in the SAME plan still apply.
-;; ===========================================================================
+  (execute! :m/favorite :f1 :optimistic? false)
+  (is (= [true false] ((juxt :pending? :optimistic?) (mutation-state :f1)))))
 
 (deftest malformed-optimistic-tags-descriptor-does-not-block-the-write
-  (rf/reg-resource :r/article
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (rf/reg-resource :r/feed
-    {:scope :rf.scope/global
-     :params-schema [:map]
-     :tags (fn [_p _] #{[:feed-w]})}
-    (fn [_p _] {:request {:method :get :url "/feed"}}))
-  (let [feed-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})]
-    (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-                 {:article {:favorited false}})
-    (own-loaded! {:resource :r/feed :scope :rf.scope/global :params {} :owner [:v :f]}
-                 {:items 1})
-    (testing "a descriptor with a missing :patch does NOT abort — the request still lowers"
-      (rf/reg-mutation :m/bad-patch
-        {:scope :rf.scope/global
-         :params-schema [:map [:slug :string]]
-         ;; FIRST descriptor is malformed (no :patch); SECOND is well-formed.
-         :optimistic-tags (fn [{:keys [slug]}]
-                            [{:scope :rf.scope/global :tags #{[:article slug]}}
-                             {:scope :rf.scope/global :tags #{[:feed-w]}
-                              :patch (fn [d] (assoc d :touched true))}])}
-        (fn [_p _] {:request {:method :post :url "/fav"}}))
-      (let [warn (trace-of :rf.warning/optimistic-tags-descriptor-skipped
-                   #(rf/dispatch-sync [:rf.mutation/execute
-                                       {:mutation :m/bad-patch :params {:slug "w"}
-                                        :instance :bp1}]))]
-        (is (= :pending (:status (instance :bp1)))
-            "the write lowered — the malformed descriptor did NOT abort the event")
-        (is (some? @last-managed-args) "the request reached the transport")
-        (is (some? warn) "a dev-visible warning was emitted for the skipped descriptor")
-        (is (= :m/bad-patch (some-> warn :mutation))
-            "the warning names the offending mutation")
-        (is (string? (:reason warn)) "the warning carries a dev-readable reason")
-        (testing "the WELL-FORMED descriptor in the same plan still applied"
-          (is (= true (get-in (entry feed-key) [:data :touched]))))
-        (testing "the malformed descriptor's tag was skipped (no patch to apply)"
-          (is (nil? (get-in (entry article-key) [:data :touched]))))))
+  ;; A tags descriptor is a best-effort broadcast, so a malformed one is
+  ;; warn-and-skipped and the authoritative write still lowers.
+  (reg-article-and-feed!)
+  (testing "a descriptor with no :patch is skipped; its well-formed sibling applies"
+    (rf/reg-mutation :m/bad-patch
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :optimistic-tags (fn [{:keys [slug]}]
+                          [{:scope :rf.scope/global :tags #{[:article slug]}}
+                           {:scope :rf.scope/global :tags #{[:feed-w]}
+                            :patch (fn [d] (assoc d :touched true))}])}
+      (fn [_p _] {:request {:method :post :url "/fav"}}))
+    (let [warn (trace-of :rf.warning/optimistic-tags-descriptor-skipped #(execute! :m/bad-patch :bp1))]
+      (is (= [:pending true] [(:status (instance :bp1)) (some? @last-managed-args)]) "the write lowered")
+      (is (= :m/bad-patch (:mutation warn)) "the warning names the mutation")
+      (is (= [nil true] [(touched article-key) (touched feed-key)]))))
+  (doseq [[id descriptors] [[:m/bad-tags [{:scope :rf.scope/global :tags :not-a-coll
+                                            :patch (fn [d] (assoc d :touched2 true))}]]
+                            [:m/bad-shape [:not-a-map]]]]
     (reset! last-managed-args nil)
-    (testing "a descriptor with a non-collection :tags also warn-and-skips"
-      (rf/reg-mutation :m/bad-tags
-        {:scope :rf.scope/global
-         :params-schema [:map [:slug :string]]
-         :optimistic-tags (fn [_p]
-                            [{:scope :rf.scope/global :tags :not-a-coll
-                              :patch (fn [d] (assoc d :touched2 true))}])}
-        (fn [_p _] {:request {:method :post :url "/fav2"}}))
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-tags :params {:slug "w"}
-                                               :instance :bt1}])
-      (is (= :pending (:status (instance :bt1)))
-          "a non-collection :tags descriptor did NOT abort the write")
-      (is (some? @last-managed-args) "the request reached the transport"))
-    (reset! last-managed-args nil)
-    (testing "a non-map descriptor entry in the vector also warn-and-skips, write still lowers"
-      (rf/reg-mutation :m/bad-shape
-        {:scope :rf.scope/global
-         :params-schema [:map [:slug :string]]
-         :optimistic-tags (fn [_p] [:not-a-map])}
-        (fn [_p _] {:request {:method :post :url "/fav3"}}))
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-shape :params {:slug "w"}
-                                               :instance :bs1}])
-      (is (= :pending (:status (instance :bs1)))
-          "a non-map descriptor entry did NOT abort the write")
-      (is (some? @last-managed-args) "the request reached the transport"))))
-
-;; ===========================================================================
-;; An `:optimistic` EXACT target written as the `[id params]` VECTOR.
-;;
-;; The write is refused at phase 1.5, before the request lowers and before any
-;; instance row is committed: zero requests, `:idle` afterwards, and nothing
-;; minted. "Nothing was minted" is a truthful reading rather than a half-built
-;; one: an instance minted and left `:pending` with no request behind it would
-;; be a write that reports itself in flight forever.
-;;
-;; Observing no partial cache mutation cannot tell a refusal from a genuinely
-;; SILENT no-op, so this test also reads the refusal's reason
-;; (`:rf.error/mutation-invalid-target`, catalogued at spec/009 with
-;; `:recovery :fix-mutation-target` and the `:arm` / `:target` facets). The
-;; reason is not legible on stdout, because per Spec 009 §Observability
-;; channels a listener is the only ALWAYS-ON channel and the router CAPTURES a
-;; handler throw rather than re-throwing it to `dispatch-sync`'s caller. An
-;; unowned promoted record ALSO reaches the browser console, but that is a
-;; fallback, not a channel, and none of its three conditions holds here — it
-;; needs a dev build, a browser host (this is the Node lane, no `js/document`)
-;; and nothing to have ROUTED the record, whereas the listener this suite
-;; installs owns it (as would the record's frame routing it to a registered
-;; `:observability :errors` sink, which is equally absent here). The always-on
-;; axis is the one that holds in dev AND in prod.
-;;
-;; So this test asserts the readable half on the always-on `:errors` axis,
-;; which is where a refusal is legible in dev AND in a production build. The
-;; `nil?`/`:idle` rows below are deliberately kept alongside it: they are the
-;; hollow half, and they survive a plant that deletes the signal entirely.
-;;
-;; NOTE the deliberate asymmetry with the `:optimistic-tags` case directly
-;; above, which warn-and-SKIPS. Tags are a best-effort broadcast that may match
-;; zero keys, so a malformed descriptor writes nothing under a wrong identity
-;; and must not nuke the authoritative write. An EXACT target is an assertion
-;; of cache identity, and the pre-write `:strict` policy whole-arm-rejects it
-;; precisely because no server write has landed yet — the cost of refusing is a
-;; fixed source defect, not a stranded commit.
-;; ===========================================================================
+    (rf/reg-mutation id
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :optimistic-tags (fn [_p] descriptors)}
+      (fn [_p _] {:request {:method :post :url "/fav2"}}))
+    (execute! id id)
+    (is (= [:pending true] [(:status (instance id)) (some? @last-managed-args)]) (str id))))
 
 (defn- record-error-records!
-  "Run `body-fn` with an `:errors` listener installed; return the vector of every
-  always-on error record fanned during it (capture order).
-
-  The `:errors` stream — not stdout, not the dev trace — is where a framework
-  REFUSAL is legible: per Spec 009 §Observability channels a listener is the
-  only ALWAYS-ON channel, so a category that fans a record here is loud in dev
-  AND in a production build, while a category that fans nothing is invisible
-  everywhere. (There is ALSO a browser-console fallback, but it is not the
-  always-on contract and cannot fire here: it needs a dev build, a browser
-  host — this suite is the Node lane, no `js/document` — and nothing to have
-  ROUTED the record, whereas the listener below owns it, as a frame's
-  registered `:observability :errors` sink would.) Sibling of the same-named
-  helper in `resources-mutation-cljs-test`."
+  "Run `body-fn` with an always-on `:errors` listener installed; return every
+  error record fanned during it."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
@@ -629,72 +345,30 @@
          (finally (rf.error-emit/unregister-error-listener! k)))
     @seen))
 
-(def ^:private favorite-plan-vector-target
-  "`favorite-plan`, with its ONE exact target respelled as the `[id params]`
-  VECTOR — the internal storage shape, never a public input (EP-0016 Rider 2 /
-  Spec 016 §Map-form exact resource targets)."
-  {:scope :rf.scope/global
-   :params-schema [:map [:slug :string]]
-   :optimistic (fn [{:keys [slug]}]
-                 {[:r/article {:slug slug}]
-                  (fn [a] (update-in a [:article :favoritesCount] inc))})})
-
 (deftest vector-shaped-optimistic-target-refuses-readably
+  ;; An exact target is an assertion of cache identity, so the [id params]
+  ;; vector spelling is refused before the request lowers or an instance is
+  ;; minted (unlike a tags descriptor, which warn-and-skips). The cache-state
+  ;; rows alone cannot tell a refusal from a silent no-op, so the always-on
+  ;; error record is read too.
   (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/fav-vector favorite-plan-vector-target favorite-plan-request)
-  (let [recs (record-error-records!
-               #(rf/dispatch-sync [:rf.mutation/execute
-                                   {:mutation :m/fav-vector :params {:slug "w"}
-                                    :instance :fv1}]))
-        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
-
-    (testing "the write ABORTED at phase 1.5 — nothing minted, nothing sent"
-      (is (nil? @last-managed-args) "no write reached the transport")
-      (is (nil? (instance :fv1)) "no instance row was minted")
-      (is (= :idle (:status (mutation-state :fv1)))
-          "the passive read answers :idle — byte-identical to never having written"))
-
-    (testing "and NO optimistic paint landed under a guessed identity"
-      (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))
-          "the cache still carries the pre-write value")
-      (is (nil? (entry [:r/article {:slug "w"}]))
-          "and the vector was NOT taken as a cache key of its own"))
-
-    ;; ---- the half the cache-state assertions cannot make ---------------
-    (testing "the refusal is READABLE — the runtime did not stay silent"
-      (is (some? rec)
-          ":rf.mutation/execute fanned an always-on error record")
-      (is (= :rf.mutation/execute (:event-id rec)))
-      (let [data (ex-data (:exception rec))]
-        (is (= :rf.error/mutation-invalid-target (:rf.error/id data))
-            "the canonical catalogued category, not a bare host throw")
-        (is (= :optimistic (:arm data))
-            "the refusal NAMES the offending arm")
-        (is (= :fix-mutation-target (:recovery data))
-            "and carries the catalogued recovery disposition")
-        (is (str/includes? (str (:target data)) ":r/article")
-            "and quotes the target the caller actually typed"))
-      (let [msg (str (some-> (:exception rec) ex-message))]
-        (is (str/includes? msg ":resource")
-            "the human message names the map form the caller should have used")
-        (is (str/includes? msg "mutation-invalid-target")
-            "and is tagged with the catalogued id"))))
-
-  (testing "the SAME plan spelled as the map form lowers and paints — so the
-            rejection above is a refusal of the SHAPE, not a dead arm"
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/fav-map
-      {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :optimistic (fn [{:keys [slug]}]
-                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                      (fn [a] (update-in a [:article :favoritesCount] inc))})}
-      favorite-plan-request)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/fav-map :params {:slug "w"}
-                                             :instance :fm1}])
-    (is (some? @last-managed-args) "the request reached the transport")
-    (is (= :pending (:status (instance :fm1))))
-    (is (= 10 (get-in (entry article-key) [:data :article :favoritesCount]))
-        "the optimistic paint landed")))
+  (own-loaded! article-owned {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/fav-vector
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :optimistic (fn [{:keys [slug]}]
+                   {[:r/article {:slug slug}]
+                    (fn [a] (update-in a [:article :favoritesCount] inc))})}
+    favorite-plan-request)
+  (let [recs (record-error-records! #(execute! :m/fav-vector :fv1))
+        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))
+        data (ex-data (:exception rec))]
+    (is (= [nil nil :idle] [@last-managed-args (instance :fv1) (:status (mutation-state :fv1))])
+        "nothing sent, no instance minted, the passive read answers :idle")
+    (is (= [9 nil] [(count-of article-key) (entry [:r/article {:slug "w"}])])
+        "no paint under a guessed identity, and the vector is not a cache key of its own")
+    (is (= :rf.mutation/execute (:event-id rec)) "an always-on error record was fanned")
+    (is (= {:rf.error/id :rf.error/mutation-invalid-target :arm :optimistic
+            :recovery :fix-mutation-target}
+           (select-keys data [:rf.error/id :arm :recovery])))
+    (is (str/includes? (str (:target data)) ":r/article") "it quotes the target as typed")))
