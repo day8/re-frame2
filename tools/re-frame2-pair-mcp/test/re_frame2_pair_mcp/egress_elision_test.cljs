@@ -1,97 +1,36 @@
 (ns re-frame2-pair-mcp.egress-elision-test
-  "Regression tests for the app-db egress-redaction contract — same
-  privacy class across two pull-mode tools, one shared mechanism.
+  "Form-level pins for off-box redaction on the pull-mode tools.
 
-  ## What is guarded
-
-  Two pull-mode tools must NOT ship raw slices of a live app's state
-  off-box; they route through the same redaction that snapshot /
-  get-path use:
-
-    - `trace-window` / `watch-epochs` egress whole epoch records carrying
-      `:db-before` / `:db-after` (and `:trigger-event` / `:trace-events`)
-      app-db snapshots — a declared-sensitive slot must NOT ride off-box
-      verbatim; the pull-mode ring routes through the framework's
-      `re-frame.core/project-egress` egress projection (the single
-      normative record-level egress door; core.cljc
-      names the per-slot hand-walk an anti-pattern \"one missed `mapv
-      project-egress` away from a leak\"). A record reaches the epoch
-      projector behind that door by its stamped `:kind :rf/epoch-record`,
-      so GUARD G3 refuses an UNSTAMPED record rather than let the door
-      bare-walk it — see `projects-each-record?` below.
-    - `list-subscriptions :include-values` ships each sub's current
-      `:value` (deref) — a value over a declared-sensitive app-db slot
-      must not leak. A sub-cache value is NOT an epoch record, so its
-      egress routes through the same `re-frame.core/project-egress`
-      walker `snapshot`'s `:sub-cache` slice uses (the two read the same
-      reactive cache source).
-
-  ## What these tests pin
-
-  The redaction runs SERVER-SIDE inside the eval form the tool ships
-  over nREPL — `project-egress` reads the live
-  `[:rf.runtime/elision]` runtime-db registry, which only exists app-side. A unit
-  test can't run them (no live app), so these tests assert the
-  FORM-LEVEL contract: the epoch eval forms map the egress page through
-  `re-frame.core/project-egress` under `:rf.egress/off-box-tool` on every
-  path — with the `--allow-sensitive-reads` gate ON and
-  `:include-sensitive true` they still project, threading
-  `:rf.egress/include-sensitive? true` over that floor — and the
-  list-subscriptions eval form wraps each sub `:value` through
-  `re-frame.core/project-egress`, naming `:rf.egress/off-box-tool` with
-  the gate OFF (the published-build default) and `:rf.egress/local-raw`
-  with the gate ON and `:include-sensitive true`.
-
-  Plus an end-to-end shape check via the stub harness: an
-  already-redacted record (what the live projection would produce)
-  survives the client-side wire-pipeline with its `:rf/redacted`
-  sentinel intact.
-
-  Live end-to-end coverage (a real shadow-cljs runtime running the
-  projection) is the cross-server conformance harness's job; the
-  framework conformance file `epoch_mcp_egress_conformance_test.clj`
-  pins `project-egress`'s semantics directly."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
-            [cljs.reader :as reader]
+  Redaction runs app-side, inside the eval form each tool ships over
+  nREPL: `re-frame.core/project-egress` reads the frame's runtime-db
+  elision registry, which exists only in the live app. So these tests
+  capture the form the real tool sends and assert that every egressed
+  value crosses the door under the right `:rf.egress/*` boundary, with
+  the `--allow-sensitive-reads` gate off (the default) and on. What the
+  door does with those opts is pinned in `implementation/core`."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
-            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
+            [re-frame2-pair-mcp.tools.list-subscriptions :as ls]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.record :as record]
+            [re-frame2-pair-mcp.tools.snapshot :as snap]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]
-            [re-frame2-pair-mcp.tools.list-subscriptions :as ls]
-            [re-frame2-pair-mcp.tools.snapshot :as snap]
-            [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
-;; ---------------------------------------------------------------------------
-;; Gate state is process-global (an atom in raw-state.cljs). Reset to the
-;; published-build default (OFF) after every test so ordering can't leak.
-;; ---------------------------------------------------------------------------
-
+;; The gate and the in-flight raw-state signal map are process-global.
 (use-fixtures :each
-  {:before (fn []
-             ;; The signal-runtime! in-flight map is process-global; clear
-             ;; it so a test issues its own `configure-raw-state!`
-             ;; round-trip rather than sharing a prior test's still-pending
-             ;; one (snapshot / record / watch-until issue signal-runtime!).
-             (raw-state/reset-runtime-signal-cache!))
+  {:before (fn [] (raw-state/reset-runtime-signal-cache!))
    :after  (fn []
              (raw-state/set-allow-raw-state! false)
              (raw-state/reset-runtime-signal-cache!))})
 
-;; ---------------------------------------------------------------------------
-;; Form-capturing stub. The probe form (substring `__re_frame2_pair_runtime`)
-;; resolves truthy so `ensure-runtime!` passes; `configure-raw-state!` (the
-;; raw-state signal) resolves nil; every other eval form is the tool's
-;; SLICE form — captured into `forms` and answered with `canned`.
-;; ---------------------------------------------------------------------------
-
 (defn- with-capture!
-  "Run `body-fn` with a stub `cljs-eval-value` that captures every
-  non-probe / non-signal form into the `forms` atom and answers the
-  slice form with `canned`. Returns the Promise from `body-fn`."
+  "Run `body-fn` against a stub runtime that passes the probe, accepts the
+  raw-state signal, and answers every other form with `canned`, recording
+  it in `forms`."
   [forms canned body-fn]
   (let [orig nrepl/cljs-eval-value
         answer (fn [form-str]
@@ -113,654 +52,168 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
-(defn- slice-form
-  "The first captured non-probe/non-signal form — the slice eval the
-  tool ships to read + redact the egress payload."
-  [forms]
-  (first @forms))
+(defn- form-of
+  "Promise of the first form `tool` ships for `args` with the
+  sensitive-reads gate at `gate?`."
+  [gate? tool canned args]
+  (raw-state/set-allow-raw-state! gate?)
+  (let [forms (atom [])]
+    (-> (with-capture! forms canned (fn [] (tool nil (tu/args->js args))))
+        (.then (fn [_] (first @forms))))))
 
-(defn- projects-each-record?
-  "True when `src` maps its egress page through the GUARDED door.
+(defn- check-forms
+  "Run each `[label gate? tool canned args has lacks]` row in turn: the form
+  the tool ships must contain every `has` needle and no `lacks` needle."
+  [rows done]
+  (-> (reduce (fn [p [label gate? tool canned args has lacks]]
+                (-> p
+                    (.then (fn [_] (form-of gate? tool canned args)))
+                    (.then (fn [form]
+                             (doseq [n has]
+                               (is (str/includes? form n) (str label ": missing " n)))
+                             (doseq [n lacks]
+                               (is (not (str/includes? form n)) (str label ": carries " n)))))))
+              (js/Promise.resolve nil)
+              rows)
+      (.catch (fn [e] (is false (str "tool call failed: " e))))
+      (.then (fn [_] (done)))))
 
-  Pins BOTH halves at once, because either alone is satisfiable by a
-  form that leaks:
+;; ---------------------------------------------------------------------------
+;; Epoch records. `:include-sensitive` is two-key (launch gate AND per-call
+;; arg) and threads THROUGH the door, lifting only the app-db sensitive
+;; axis; it is never a raw bypass, and the gate alone changes nothing.
+;; ---------------------------------------------------------------------------
 
-  1. GUARD G3 — the `mapv` fn literal checks `(= :rf/epoch-record
-     (:kind r#))` and throws `:rf.error/pair-mcp-unstamped-epoch-record`
-     BEFORE the door call. Without it an UNSTAMPED record (an app whose
-     `re-frame.epoch.assembly` predates the `:kind` stamp) would fall
-     through `project-egress` to the kindless bare-value walk, which starts
-     at `:path []` and so cannot match any app-db classification against a
-     `:db-after`-prefixed slot — the page would ship RAW.
-  2. the door itself — each record reaches
-     `re-frame.core/project-egress` with the egress opts threaded in by
-     the fn literal (a bare 1-arity call could not name the profile).
+(def ^:private off-box "{:rf.egress/profile :rf.egress/off-box-tool}")
 
-  One helper so every epoch-egress tool (trace-window / watch-epochs /
-  snapshot `:epochs`) pins the same contract rather than a bare name."
-  [src]
-  (and (str/includes? src "mapv (fn [r#] (when-not (= :rf/epoch-record (:kind r#))")
-       (str/includes? src ":rf.error/pair-mcp-unstamped-epoch-record")
-       (str/includes? src "(re-frame.core/project-egress r# {:rf.egress/profile")))
+(def ^:private off-box+sensitive
+  "{:rf.egress/profile :rf.egress/off-box-tool :rf.egress/include-sensitive? true}")
 
-;; The slice form for the epoch tools — runtime returns a ready map for
-;; trace-window's let-body / watch-epochs' epochs-since wrapper. Shape is
-;; irrelevant to the form-contract assertions (we read the captured form,
-;; not the response); we hand back an empty-ish epoch result so the tool
-;; resolves cleanly.
+(defn- projected
+  "Needles proving each record is checked for its `:kind :rf/epoch-record`
+  stamp (GUARD G3: the door would bare-walk an unstamped record from
+  `:path []` and ship it raw) and then reaches the door with exactly `opts`."
+  [opts]
+  ["mapv (fn [r#] (when-not (= :rf/epoch-record (:kind r#))"
+   ":rf.error/pair-mcp-unstamped-epoch-record"
+   (str "(re-frame.core/project-egress r# " opts ")")])
+
 (def ^:private epoch-canned
-  {:epochs        []
-   :matches       []
-   :id-aged-out?  false
-   :requested-id  nil
-   :head-id       nil
-   :next-id       nil
-   :history-count 0
-   :since-count   0
-   :remaining     0})
+  {:epochs [] :matches [] :id-aged-out? false :requested-id nil :head-id nil
+   :next-id nil :history-count 0 :since-count 0 :remaining 0})
 
-;; ===========================================================================
-;; trace-window epoch :db-* egress
-;; ===========================================================================
+(deftest epoch-records-cross-the-guarded-door
+  (async done
+    (check-forms
+      [["trace-window, gate off" false tw/trace-window-tool epoch-canned
+        {:ms 1000} (projected off-box)]
+       ["trace-window, gate on alone" true tw/trace-window-tool epoch-canned
+        {:ms 1000} (projected off-box)]
+       ["trace-window, gate on + include-sensitive" true tw/trace-window-tool epoch-canned
+        {:ms 1000 :include-sensitive true} (projected off-box+sensitive)]
+       ["watch-epochs, gate off" false we/watch-epochs-tool epoch-canned
+        {:pred {:event-id :auth/sign-in}} (projected off-box)]
+       ["watch-epochs, gate on alone" true we/watch-epochs-tool epoch-canned
+        {} (projected off-box)]
+       ["watch-epochs, gate on + include-sensitive" true we/watch-epochs-tool epoch-canned
+        {:include-sensitive true} (projected off-box+sensitive)]]
+      done)))
 
-(deftest trace-window-gate-off-projects-records
-  (testing "gate OFF (default): the slice form maps the egress page through project-egress"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (tw/trace-window-tool nil (tu/args->js {:ms 1000}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (some? form) "the tool shipped a slice eval form")
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "gate-off MUST route the egress page through project-egress")
-                       (is (projects-each-record? form)
-                           "every record in the page is projected via a fn literal threading the egress opts")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "Pair-MCP is an off-box tool wire; the page projects under :rf.egress/off-box-tool")
-                       (done)))))))))
+;; ---------------------------------------------------------------------------
+;; snapshot. The client-side scrub only drops whole sensitive epochs, so the
+;; `:epochs` slice crosses the same guarded door. `:app-db` walks whole and
+;; `:sub-cache` per entry, threading each entry's query-v so a route read sub
+;; re-seeds at its storage position; the runtime-db `:machines` slice is
+;; redacted whole unless the sensitive opt-in is given.
+;; ---------------------------------------------------------------------------
 
-(deftest trace-window-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool"
-    ;; `:include-sensitive true` is NOT a raw bypass. It routes THROUGH
-    ;; `project-egress` as the `:rf.egress/include-sensitive? true` egress opt
-    ;; (app-db sensitive axis only), composed OVER the off-box-tool profile
-    ;; floor. fx-args / runtime-db / large slots stay fail-closed because
-    ;; we do NOT pass their opts.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (tw/trace-window-tool nil (tu/args->js {:ms 1000 :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "include-sensitive STILL routes through project-egress — never a raw bypass")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.egress/include-sensitive? true")
-                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
-                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
-                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.egress/include-large?"))
-                           "large axis is NOT lifted by include-sensitive (orthogonal)")
-                       (done)))))))))
+(def ^:private snapshot-canned
+  {:value {:rf/default {:app-db {} :epochs []}} :elided-count 0 :tool-frames-excluded []})
 
-(deftest trace-window-gate-on-default-still-projects
-  (testing "gate ON but include-sensitive omitted (default false): records STILL projected"
-    ;; The opt-in is two-key: launch flag AND per-call include-sensitive.
-    ;; The flag alone does not flip the per-call default — a forgetful
-    ;; caller still gets redaction.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (tw/trace-window-tool nil (tu/args->js {:ms 1000}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "gate-on alone (no per-call opt-in) still projects — fail-safe default")
-                       (done)))))))))
+(defn- full-epochs
+  "snapshot args expanding the `:epochs` slice. `:frames` / `:include`
+  arrive as JSON arrays over MCP."
+  [extra]
+  (merge {:frames #js [":rf/default"] :include #js ["epochs"] :mode "full"} extra))
 
-;; ===========================================================================
-;; watch-epochs epoch record egress
-;; ===========================================================================
+(deftest snapshot-slices-cross-the-door
+  (async done
+    (check-forms
+      [["gate off" false snap/snapshot-tool snapshot-canned (full-epochs {})
+        (into (projected off-box)
+              ["snapshot-state {:frames [:rf/default], :include [:epochs]}"
+               "(update fmap :app-db f)"
+               "(re-frame.core/project-egress v (assoc opts :query-v qv))"
+               "(assoc fmap :machines :rf/redacted)"])]
+       ["gate on alone" true snap/snapshot-tool snapshot-canned (full-epochs {})
+        (projected off-box)]
+       ["gate on + include-sensitive" true snap/snapshot-tool snapshot-canned
+        (full-epochs {:include-sensitive true})
+        (projected off-box+sensitive)
+        [":machines :rf/redacted"]]
+       ["gate on + elision false" true snap/snapshot-tool snapshot-canned
+        (full-epochs {:include #js ["app-db" "sub-cache" "epochs"] :elision false})
+        (conj (projected off-box) ":rf.egress/include-large? true")]]
+      done)))
 
-(deftest watch-epochs-gate-off-projects-records
-  (testing "gate OFF (default): watch-epochs maps the matched-page through project-egress"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (we/watch-epochs-tool nil (tu/args->js {:pred {:event-id :auth/sign-in}}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (projects-each-record? form)
-                           "gate-off MUST route the egress page through project-egress (fn literal threading opts)")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "watch-epochs is an off-box tool wire; the page projects under :rf.egress/off-box-tool")
-                       (done)))))))))
+(deftest snapshot-default-scope-names-the-tool-frames-it-dropped
+  (async done
+    (check-forms
+      [["default :app scope" false snap/snapshot-tool snapshot-canned
+        {:include #js ["app-db"]}
+        [":tool-frames-excluded (filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"]]
+       ["frames all" false snap/snapshot-tool snapshot-canned
+        {:frames "all" :include #js ["app-db"]}
+        [":tool-frames-excluded []"]]]
+      done)))
 
-(deftest watch-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (we/watch-epochs-tool nil (tu/args->js {:include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "include-sensitive STILL routes through project-egress — never a raw bypass")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.egress/include-sensitive? true")
-                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
-                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
-                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.egress/include-large?"))
-                           "large axis is NOT lifted by include-sensitive (orthogonal)")
-                       (done)))))))))
-
-(deftest watch-epochs-gate-on-default-still-projects
-  (testing "gate ON but include-sensitive omitted (default false): records STILL projected"
-    ;; The two-key opt-in fail-safe, the watch-epochs SIBLING of
-    ;; `trace-window-gate-on-default-still-projects` /
-    ;; `snapshot-epochs-gate-on-default-still-projects`. The opt-in is
-    ;; TWO-KEY (epoch_egress.cljs): the launch flag --allow-sensitive-reads
-    ;; ALONE does NOT flip the per-call default. watch_epochs.cljs computes
-    ;; `incl? (if (raw-state-allowed?) (parse-bool-arg ... :include-sensitive)
-    ;; false)` — gate-ON + omitted arg ⇒ parse-bool-arg false ⇒ incl? false
-    ;; ⇒ project? true. A regression that flipped the per-call default to
-    ;; true under the gate (e.g. `incl? (raw-state-allowed?)`, the plausible
-    ;; "the flag IS the opt-in" misreading) would leak raw epoch state on
-    ;; EVERY poll once an operator launched with the flag for ONE deliberate
-    ;; read. This guards the watch-epochs gate-ON omitted-arg case
-    ;; symmetrically with trace-window.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms epoch-canned
-              (fn [] (we/watch-epochs-tool nil (tu/args->js {}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (projects-each-record? form)
-                           "gate-on alone (no per-call opt-in) still projects — fail-safe default")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "still the off-box-tool boundary under the gate without the opt-in")
-                       (done)))))))))
-
-;; ===========================================================================
-;; list-subscriptions :include-values sub :value egress
-;; ===========================================================================
+;; ---------------------------------------------------------------------------
+;; Sampled values: list-subscriptions `:include-values`, record and
+;; watch-until samples. A bare `:elision false` only overlays the large
+;; inclusion on the off-box-tool floor; only the two-key sensitive opt-in
+;; names local-raw, and even then the door is called.
+;; ---------------------------------------------------------------------------
 
 (def ^:private sub-cache-canned
-  {:ok?   true
-   :frame :rf/default
-   :count 1
-   :subs  [{:query-v ["auth-token"] :value "raw-from-runtime" :ref-count 1}]})
-
-(deftest list-subscriptions-gate-off-elides-values
-  (testing "gate OFF + include-values: the slice form projects each sub :value through project-egress, redacting"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms sub-cache-canned
-              (fn [] (ls/list-subscriptions-tool nil (tu/args->js {:include-values true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "gate-off + include-values MUST route each sub :value through the door")
-                       (is (str/includes? form ":value")
-                           "the per-sub :value slot is the elision target")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "gate-off names the off-box tool boundary ⇒ sensitive sub values redact")
-                       (done)))))))))
-
-(deftest list-subscriptions-no-include-values-no-elision-wrap
-  (testing "include-values FALSE (default): query-vectors only — no :value ships, so no walker wrap"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms {:ok? true :frame :rf/default :count 0 :subs []}
-              (fn [] (ls/list-subscriptions-tool nil (tu/args->js {}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (not (str/includes? form "re-frame.core/project-egress"))
-                           "no values egress ⇒ no projection wrap (the cheap what's-subscribed read)")
-                       (is (str/includes? form "sub-cache-info")
-                           "still routes through the reactive sub-cache reader")
-                       (done)))))))))
-
-(deftest list-subscriptions-form-threads-frame-and-include-values
-  (testing "the args reach the runtime reader, the walker reads the pinned frame's registry, and only a listing is walked"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms sub-cache-canned
-              (fn [] (ls/list-subscriptions-tool
-                       nil (tu/args->js {:frame "app/other" :include-values true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "/sub-cache-info {:frame :app/other, :include-values? true})")
-                           "the frame and :include-values? reach sub-cache-info")
-                       (is (str/includes? form "(merge {:frame :app/other :query-v (:query-v entry)}")
-                           "each value projects against the pinned frame")
-                       (is (str/includes? form "(if (and (map? res) (vector? (:subs res)))")
-                           "a refusal map passes through unwalked")
-                       (done)))))))))
-
-(deftest list-subscriptions-gate-on-include-sensitive-passes-raw
-  (testing "gate ON + include-values + include-sensitive true: walker passes declared-sensitive values raw"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms sub-cache-canned
-              (fn [] (ls/list-subscriptions-tool
-                       nil (tu/args->js {:include-values true :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so sub values pass raw")
-                       (done)))))))))
-
-(deftest list-subscriptions-gate-on-elision-false-still-redacts-sensitive
-  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive opt-in) STILL
-  ;; walks — large content passes (`include-large? true`) but a
-  ;; declared-sensitive value redacts. `:elision false` must NOT bypass
-  ;; the walker entirely, which would let a caller pull declared-sensitive
-  ;; sub values off-box WITHOUT the per-call `:include-sensitive true`
-  ;; opt-in — collapsing EP-0015's two-key sensitive gate.
-  (testing "gate ON + include-values + elision false (no sensitive opt-in): STILL walks, sensitive redacts"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms sub-cache-canned
-              (fn [] (ls/list-subscriptions-tool
-                       nil (tu/args->js {:include-values true :elision false}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "bare :elision false MUST still project — no sensitive bypass")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "the boundary stays off-box-tool, so sensitive sub values redact")
-                       (is (str/includes? form ":rf.egress/include-large? true")
-                           ":elision false overlays include-large? true — large content passes")
-                       (done)))))))))
-
-(deftest list-subscriptions-gate-on-full-raw-opt-in-names-local-raw
-  ;; The deliberate full-raw local opt-in (`:elision false`
-  ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw` rather
-  ;; than skipping the door. Under that boundary the projection is the
-  ;; identity, so the values still ship raw — but the call is there.
-  (testing "gate ON + include-values + elision false + include-sensitive true: names the trusted-local boundary"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms sub-cache-canned
-              (fn [] (ls/list-subscriptions-tool
-                       nil (tu/args->js {:include-values true :elision false :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "the door is called even under the full-raw opt-in")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                           "full-raw opt-in (elision false + include-sensitive true) names local-raw")
-                       (done)))))))))
-
-;; ===========================================================================
-;; End-to-end shape — an already-redacted record (what the live walker
-;; produces) survives the client wire-pipeline with the sentinel intact.
-;; ===========================================================================
-
-(deftest trace-window-preserves-redacted-sentinel-through-pipeline
-  (testing "a :db-after carrying :rf/redacted (post-walker) survives diff-encode/dedup to the wire"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [;; What the live walker would hand back: the sensitive slot
-            ;; is already the :rf/redacted sentinel.
-            redacted-rec {:epoch-id    :e1
-                          :event-id    :auth/sign-in
-                          :committed-at 100
-                          :db-before   {:auth {:password :rf/redacted}}
-                          :db-after    {:auth {:password :rf/redacted}}}
-            canned       (assoc epoch-canned
-                                :epochs [redacted-rec]
-                                :head-id :e1
-                                :history-count 1)
-            forms        (atom [])]
-        (-> (with-capture! forms canned
-              ;; :epochs-mode full so :db-after isn't diff-collapsed —
-              ;; we want to read the sentinel straight off the wire.
-              (fn [] (tw/trace-window-tool
-                       nil (tu/args->js {:ms 60000 :epochs-mode "full" :dedup false}))))
-            (.then (fn [result]
-                     (let [edn    (tu/extract-edn result)
-                           epoch  (first (:epochs edn))]
-                       (is (true? (:ok? edn)))
-                       (is (= 1 (:count edn)))
-                       (is (= :rf/redacted (get-in epoch [:db-after :auth :password]))
-                           "the redacted sentinel rides the wire — no raw secret")
-                       (is (= :rf/redacted (get-in epoch [:db-before :auth :password])))
-                       (done)))))))))
-
-;; ===========================================================================
-;; snapshot :epochs slice raw :db-* egress
-;; ===========================================================================
-;;
-;; The snapshot eval form must redact the :epochs slice too, not just
-;; :app-db / :sub-cache. The client scrub merely DROPS whole sensitive
-;; epochs, so a schema-declared-sensitive SLOT inside a NON-sensitive
-;; epoch's :db-before / :db-after would leak off-box in :full mode under
-;; the gate-OFF default. The :epochs slice routes through
-;; project-egress (the same projection trace-window / watch-epochs
-;; use), gated by the include-sensitive two-key opt-in.
-
-;; The snapshot eval form returns {:value <snap> :elided-count N
-;; :tool-frames-excluded []}. The slice content is irrelevant to the
-;; form-contract assertions (we read the captured form, not the response);
-;; hand back an empty per-frame snap so the client pipeline resolves
-;; cleanly.
-(def ^:private snapshot-canned
-  {:value                 {:rf/default {:app-db {} :epochs []}}
-   :elided-count          0
-   :tool-frames-excluded  []})
-
-(deftest snapshot-epochs-gate-off-projects-records
-  (testing "gate OFF (default): the snapshot :epochs slice is mapped through project-egress"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms snapshot-canned
-              ;; mode "full" expands the :epochs slice — the leak path.
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
-                                                           :include #js ["epochs"]
-                                                           :mode "full"}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (some? form) "the tool shipped a snapshot eval form")
-                       (is (str/includes? form "snapshot-state {:frames [:rf/default], :include [:epochs]}")
-                           "control: the named frame and slice reached the form, so the scope is explicit")
-                       (is (projects-each-record? form)
-                           "gate-off MUST route the :epochs slice through project-egress (fn literal threading opts)")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "the snapshot :epochs slice projects under :rf.egress/off-box-tool")
-                       (is (str/includes? form ":epochs")
-                           "the :epochs slot is the projection target")
-                       (done)))))))))
-
-(deftest snapshot-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
-                                                           :include #js ["epochs"]
-                                                           :mode "full"
-                                                           :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "include-sensitive STILL routes the :epochs slice through project-egress")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.egress/include-sensitive? true")
-                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
-                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
-                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
-                       (done)))))))))
-
-(deftest snapshot-epochs-gate-on-default-still-projects
-  (testing "gate ON but include-sensitive omitted (default false): :epochs STILL projected"
-    ;; Two-key opt-in: the launch flag alone does not flip the per-call
-    ;; default — a forgetful caller still gets redaction.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
-                                                           :include #js ["epochs"]
-                                                           :mode "full"}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (projects-each-record? form)
-                           "gate-on alone (no per-call opt-in) still projects :epochs — fail-safe default")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "still the off-box-tool boundary under the gate without the opt-in")
-                       (done)))))))))
-
-(deftest snapshot-epochs-projection-independent-of-elision-toggle
-  (testing "gate ON + elision false STILL projects :epochs AND still walks :app-db/:sub-cache"
-    ;; The :epochs projection is gated by include-sensitive (incl?), NOT by
-    ;; the large-elision toggle (elision?). Turning elision off must not
-    ;; re-open the epoch leak.
-    ;;
-    ;; And a BARE `:elision false` (no sensitive opt-in) must ALSO keep
-    ;; walking the `:app-db` / `:sub-cache` slices (fail-closed): large
-    ;; content passes but a declared-sensitive slot redacts. `:elision
-    ;; false` must NOT suppress the per-slot walker, which would leak
-    ;; sensitive `:app-db` / `:sub-cache` slots off-box.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
-                                                           :include #js ["app-db" "sub-cache" "epochs"]
-                                                           :mode "full"
-                                                           :elision false}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (projects-each-record? form)
-                           "elision false (incl? still false) MUST still project :epochs")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           ":epochs still projects under the off-box-tool boundary with elision off")
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "bare :elision false MUST still project :app-db/:sub-cache — no sensitive bypass")
-                       (is (str/includes? form ":rf.egress/include-large? true")
-                           ":elision false overlays include-large? true — large content passes")
-                       (done)))))))))
-
-;; ---------------------------------------------------------------------------
-;; snapshot slice arms — `:app-db` walks whole, `:sub-cache` walks per
-;; entry, `:machines` (runtime-db state) is substituted whole rather than
-;; walked, and the default `:app` scope piggybacks the reserved tool
-;; frames it dropped.
-;; ---------------------------------------------------------------------------
-
-(defn- snapshot-slice-form
-  "Promise of the slice form the real `snapshot-tool` ships for `args`.
-  `:frames` / `:include` arrive as JSON arrays over MCP, so pass `#js [...]`:
-  an EDN string is not parsed and falls back to the default scope."
-  [args]
-  (let [forms (atom [])]
-    (-> (with-capture! forms snapshot-canned
-          (fn [] (snap/snapshot-tool nil (tu/args->js args))))
-        (.then (fn [_] (slice-form forms))))))
-
-(deftest snapshot-form-walks-app-db-whole-and-sub-cache-per-entry
-  (async done
-    (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:frames "all" :include #js ["app-db" "sub-cache"]})
-        (.then (fn [form]
-                 (is (str/includes? form "(update fmap :app-db f)")
-                     ":app-db walks whole through the door")
-                 (is (str/includes? form "(re-frame.core/project-egress v (assoc opts :query-v qv))")
-                     ":sub-cache walks per entry, threading each entry's query-v")
-                 (done))))))
-
-(deftest snapshot-form-redacts-machines-unless-sensitive-opt-in
-  (async done
-    (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:frames "all" :include #js ["app-db" "machines"]})
-        (.then (fn [form]
-                 (is (str/includes? form "(assoc fmap :machines :rf/redacted)")
-                     "gate OFF ⇒ the runtime-db :machines slice redacts whole")
-                 (raw-state/set-allow-raw-state! true)
-                 (snapshot-slice-form {:frames "all" :include #js ["app-db" "machines"]
-                                       :include-sensitive true})))
-        (.then (fn [form]
-                 (is (not (str/includes? form ":machines :rf/redacted"))
-                     "gate ON + include-sensitive ⇒ :machines ships")
-                 (done))))))
-
-(deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
-  (async done
-    (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:include #js ["app-db"]})
-        (.then (fn [form]
-                 (is (str/includes? form ":tool-frames-excluded (filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))")
-                     "the default :app scope names the tool frames it dropped")
-                 (snapshot-slice-form {:frames "all" :include #js ["app-db"]})))
-        (.then (fn [form]
-                 (is (str/includes? form ":tool-frames-excluded []")
-                     "frames all ⇒ nothing was dropped")
-                 (snapshot-slice-form {:frames #js [":rf/xray"] :include #js ["app-db"]})))
-        (.then (fn [form]
-                 (is (str/includes? form "snapshot-state {:frames [:rf/xray],")
-                     "control: the named frame reached the form, so the scope is explicit")
-                 (is (str/includes? form ":tool-frames-excluded []")
-                     "an explicit frame vector ⇒ nothing was dropped")
-                 (done))))))
-
-;; ===========================================================================
-;; record / watch-until raw :app-db & :sub signal egress
-;; ===========================================================================
-;;
-;; record (read back via read-recording) and watch-until sample {:app-db
-;; [path]} / {:sub [query-v]} signals and ship the SAMPLED VALUES back to
-;; the model. Each routes the value through project-egress behind a
-;; raw-state gate, so a declared-sensitive slot redacts off-box under the
-;; gate-OFF default. They thread an elision-opts map (gate + per-call
-;; posture) into the runtime sampler via :elide-opts (record) / the 3rd
-;; sample-signals arg (watch-until), and issue signal-runtime! before
-;; sampling — parity with get-path / read-sub / snapshot.
+  {:ok? true :frame :rf/default :count 1
+   :subs [{:query-v ["auth-token"] :value "raw-from-runtime" :ref-count 1}]})
 
 (def ^:private record-canned
   {:ok? true :recording-id "rec-x" :signals [{:app-db [:auth :token]}]
    :frame :rf/default :stop {:ms 30000}})
 
-(deftest record-gate-off-threads-elision-opts
-  (testing "gate OFF (default): start-recording! carries :elide-opts with include-sensitive? false"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms record-canned
-              (fn [] (record/record-tool nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
-                                                           :stop "{:ms 1000}"}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (some? form) "the tool shipped a start-recording! form")
-                       (is (str/includes? form ":elide-opts")
-                           "gate-off MUST thread :elide-opts so the sampler redacts off-box egress")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "gate-off names the off-box tool boundary ⇒ sensitive samples redact")
-                       (done)))))))))
+(def ^:private poll-canned {:held? true :sample {0 :rf/redacted} :t 1})
 
-(deftest record-gate-on-include-sensitive-passes-raw
-  (testing "gate ON + include-sensitive true: :elide-opts names :rf.egress/local-raw (raw samples)"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms record-canned
-              (fn [] (record/record-tool nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
-                                                           :stop "{:ms 1000}"
-                                                           :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so samples pass raw")
-                       (done)))))))))
-
-(deftest watch-until-gate-off-threads-elision-opts
-  (testing "gate OFF (default): the poll form threads the named boundary into sample-signals"
-    (async done
-      (raw-state/set-allow-raw-state! false)
-      (let [forms (atom [])]
-        (-> (with-capture! forms {:held? true :sample {0 :rf/redacted} :t 1}
-              (fn [] (watch-until/watch-until-tool
-                       nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
-                                         :pred #js {:signal 0 :changed true}}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (some? form) "the tool shipped a poll form")
-                       (is (str/includes? form "re-frame2-pair.runtime/sample-signals")
-                           "the poll samples server-side")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                           "gate-off names the off-box tool boundary ⇒ sensitive :sample values redact")
-                       (done)))))))))
-
-(deftest watch-until-gate-on-include-sensitive-passes-raw
-  (testing "gate ON + include-sensitive true: the poll form names :rf.egress/local-raw (raw :sample)"
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms {:held? true :sample {0 "secret-xyz"} :t 1}
-              (fn [] (watch-until/watch-until-tool
-                       nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
-                                         :pred #js {:signal 0 :changed true}
-                                         :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so :sample values pass raw")
-                       (done)))))))))
-
-;; ===========================================================================
-;; epoch egress names the :rf.egress/off-box-tool profile
-;; ===========================================================================
-;;
-;; Pair-MCP is an OFF-BOX TOOL WIRE (epoch records cross to an external
-;; agent). Per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10) the
-;; epoch egress MUST name `:rf.egress/off-box-tool`, NOT lean on the
-;; epoch projector's `:rf.egress/off-box-observability` default (the same
-;; redact/elide floor and the same no-digest floor; the profile is named
-;; because it IS the tool boundary). The
-;; profile lives in `egress-opts-edn`, so every epoch egress caller that
-;; threads through it (trace-window / watch-epochs / snapshot :epochs /
-;; dispatch :trace / :settle) inherits it.
-;;
-;; These unit tests pin the helper directly — they PARSE the emitted EDN
-;; (not just substring it) so the assertion is the actual data shape. What
-;; the named profile RESOLVES to is pinned where the table lives,
-;; `implementation/core`.
-
-(defn- parse-opts
-  "Read `egress-opts-edn`'s rendered EDN string back into a data map."
-  [incl?]
-  (reader/read-string (egress/egress-opts-edn incl?)))
-
-(deftest egress-opts-default-path-names-off-box-tool
-  (testing "the DEFAULT (no sensitive opt-in) egress opts name :rf.egress/off-box-tool"
-    (let [opts (parse-opts false)]
-      (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
-          "the default epoch egress path names the off-box-tool boundary — NOT the epoch projector's observability default")
-      ;; The default path carries ONLY the profile — no app-db sensitive
-      ;; opt-in, and none of the orthogonal raw axes.
-      (is (= {:rf.egress/profile :rf.egress/off-box-tool} opts)
-          "default path = bare off-box-tool profile, no :include-* overrides")
-      (is (not (contains? opts :rf.egress/include-sensitive?))
-          "the default path never opts the app-db sensitive axis back in"))))
-
-(deftest egress-opts-include-sensitive-composes-over-off-box-tool
-  (testing "the sensitive opt-in path STILL names off-box-tool, with :rf.egress/include-sensitive? true on top"
-    (let [opts (parse-opts true)]
-      (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
-          "the trusted-local sensitive opt-in is STILL the off-box-tool boundary (it is never the observability default)")
-      (is (true? (:rf.egress/include-sensitive? opts))
-          "the app-db sensitive axis is threaded as an override ON TOP of the off-box-tool floor")
-      ;; ONLY the app-db sensitive axis is lifted — the orthogonal axes stay
-      ;; at the profile floor (fail-closed).
-      (is (not (contains? opts :rf.egress/include-large?))
-          "include-sensitive never lifts the large axis (orthogonal — stays at the off-box-tool floor)")
-      (is (not (contains? opts :rf.egress/include-fx-args?))
-          "include-sensitive never lifts fx-args (orthogonal)")
-      (is (not (contains? opts :rf.egress/include-runtime-db?))
-          "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
+(deftest sampled-values-cross-the-door-under-the-named-boundary
+  (async done
+    (check-forms
+      [["list-subscriptions, gate off" false ls/list-subscriptions-tool sub-cache-canned
+        {:frame "app/other" :include-values true}
+        ["/sub-cache-info {:frame :app/other, :include-values? true})"
+         "(merge {:frame :app/other :query-v (:query-v entry)}"
+         "re-frame.core/project-egress"
+         ":rf.egress/profile :rf.egress/off-box-tool"
+         "(if (and (map? res) (vector? (:subs res)))"]]
+       ["list-subscriptions, gate on + elision false" true ls/list-subscriptions-tool sub-cache-canned
+        {:include-values true :elision false}
+        ["re-frame.core/project-egress"
+         ":rf.egress/profile :rf.egress/off-box-tool"
+         ":rf.egress/include-large? true"]]
+       ["list-subscriptions, gate on + elision false + include-sensitive" true
+        ls/list-subscriptions-tool sub-cache-canned
+        {:include-values true :elision false :include-sensitive true}
+        ["re-frame.core/project-egress" ":rf.egress/profile :rf.egress/local-raw"]]
+       ["record, gate off" false record/record-tool record-canned
+        {:signals "[{:app-db [:auth :token]}]" :stop "{:ms 1000}"}
+        [":elide-opts" ":rf.egress/profile :rf.egress/off-box-tool"]]
+       ["record, gate on + include-sensitive" true record/record-tool record-canned
+        {:signals "[{:app-db [:auth :token]}]" :stop "{:ms 1000}" :include-sensitive true}
+        [":rf.egress/profile :rf.egress/local-raw"]]
+       ["watch-until, gate off" false watch-until/watch-until-tool poll-canned
+        {:signals "[{:app-db [:auth :token]}]" :pred #js {:signal 0 :changed true}}
+        ["re-frame2-pair.runtime/sample-signals" ":rf.egress/profile :rf.egress/off-box-tool"]]
+       ["watch-until, gate on + include-sensitive" true watch-until/watch-until-tool poll-canned
+        {:signals "[{:app-db [:auth :token]}]" :pred #js {:signal 0 :changed true}
+         :include-sensitive true}
+        [":rf.egress/profile :rf.egress/local-raw"]]]
+      done)))
