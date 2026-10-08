@@ -1,36 +1,22 @@
 (ns re-frame.image-framework-base-cljs-test
-  "The FRAMEWORK BASE beneath an explicit `:images`
-  composition, pinned over explicit synthetic descriptor pools.
+  "The framework base beneath an explicit `:images` composition, over
+  synthetic descriptor pools. The framework's feature handlers register with no
+  `:rf.provenance/ns`, so no `:select-ns` can reach them; assembly layers every
+  framework-owned registration (nil provenance, id under the reserved `:rf`
+  root, plus the `:route/link` view) beneath the app images as the pseudo-image
+  `:rf/framework`, minus the protected standards.
 
-  An explicit image selects by `:rf.provenance/ns`, and the framework's own
-  feature handlers register through the fn-alias path with NO provenance, so
-  no `:select-ns` can reach `:rf.route/navigate`,
-  `:rf.http/managed`, `:rf/resource` or core's own `:rf/time-ms` — and none of
-  them is a protected standard. So assembly layers every
-  loaded framework-owned registration (nil provenance, id under the reserved
-  `:rf` root, plus the `:route/link` view) BENEATH the app images under the
-  reserved pseudo-image id `:rf/framework`, minus the protected standards.
-
-  Pinned here: membership (including the `:rfx` / `:rf2.*` prefix trap and the
-  one id outside the root), the isolation control (an app's nil-provenance id
-  outside the root stays invisible), later-image shadowing reported against
-  `:rf/framework`, the lone-anonymous-image edge, the replaceable-default
-  carrier union on the inline-override path, standards untouched, the
-  default image untouched, and `:rf.gen/images` untouched.
-
-  The live-store, producer-derived half (the real routing / http / resources /
-  machines / core registrations) is
-  `re-frame.image-framework-base-features-cljs-test`.
-
-  `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  The inline rows need the event and fx lowering publishers, so their
+  namespaces are required. The producer-derived half, over the real feature
+  registrations, is `re-frame.image-framework-base-features-cljs-test`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.image          :as rf.image]
-            [re-frame.image-assembly :as rf.image-assembly]))
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.events]
+            [re-frame.fx]))
 
-;; The standard registry and the generation cache are process state. Clear both
-;; per case, and put the standards back afterwards so a later namespace still
-;; sees the ones the framework registered at load.
+;; put the load-time standards back so later namespaces still see them
 (use-fixtures :each
   (fn [t]
     (let [standards @rf.image-assembly/standard-registry]
@@ -82,142 +68,111 @@
    (fw-desc :event :route/link        ::event-route-link)
    (reg-desc "other.lib" :fx :rf.lib/provenanced ::provenanced)])
 
-;; ===========================================================================
-;; 1. Membership — what the base carries into an explicit composition
-;; ===========================================================================
-
 (deftest explicit-composition-resolves-the-framework-base
-  (let [gen (rf.image-assembly/assemble [app-image] pool)]
-    (testing "framework-owned registrations resolve in an explicit generation"
-      (is (= ::navigate   (handler-of gen :event :rf.route/navigate)) ":rf.<x>/* id")
-      (is (= ::time-ms    (handler-of gen :cofx :rf/time-ms)) ":rf/* id")
-      (is (= ::route-link (handler-of gen :view :route/link))
-          "the one public framework id outside the reserved root"))
-    (testing "the app's own selection is unaffected"
-      (is (= ::app-boot (handler-of gen :event :app/boot))))
-    (testing "isolation control: nothing outside framework ownership rides the base"
-      (is (nil? (handler-of gen :event :app/programmatic))
-          "an app's nil-provenance registration outside the root stays unselectable")
-      (is (nil? (handler-of gen :fx :rfx/effect)) ":rfx is not the :rf root")
-      (is (nil? (handler-of gen :fx :rf2.tools/effect)) ":rf2.* is not the :rf root")
-      (is (nil? (handler-of gen :event :route/link)) ":route/link is framework-owned as a :view only")
-      (is (nil? (handler-of gen :fx :rf.lib/provenanced))
-          "a PROVENANCED reserved-root registration is ordinary namespace-authored
-           code — reachable by selecting its namespace, never through the base"))
-    (testing "the base is not an image: :rf.gen/images stays the user's composition"
-      (is (= [app-image] (:rf.gen/images gen))))
-    (testing "nothing overrode anything, so nothing is reported"
-      (is (= [] (:rf.gen/shadows gen))))))
+  (let [gen (rf.image-assembly/assemble [app-image] pool)
+        resolve-all (fn [rows] (mapv (fn [[kind id]] (handler-of gen kind id)) rows))]
+    (is (= [::navigate ::time-ms ::route-link ::app-boot]
+           (resolve-all [[:event :rf.route/navigate] [:cofx :rf/time-ms]
+                         [:view :route/link] [:event :app/boot]]))
+        ":rf.<x>/* and :rf/* ids, the :route/link view, and the app's own selection")
+    ;; an app's nil-provenance id outside the root, the :rfx and :rf2.* prefix
+    ;; traps, :route/link as an event, and a provenanced reserved-root id
+    (is (= [nil nil nil nil nil]
+           (resolve-all [[:event :app/programmatic] [:fx :rfx/effect]
+                         [:fx :rf2.tools/effect] [:event :route/link]
+                         [:fx :rf.lib/provenanced]])))
+    (is (= [[app-image] []] [(:rf.gen/images gen) (:rf.gen/shadows gen)])
+        "the base is not an image, and nothing was shadowed")))
 
 (deftest the-default-image-is-unchanged
   (let [gen (rf.image-assembly/assemble-default pool)]
-    (is (= ::navigate (handler-of gen :event :rf.route/navigate)))
-    (is (= ::app-programmatic (handler-of gen :event :app/programmatic))
-        "the default image projects the WHOLE pool")
-    (is (= [] (:rf.gen/shadows gen))
-        "the default image has no base layer, so no :rf/framework shadow")))
-
-;; ===========================================================================
-;; 2. Later images shadow the base — reported against :rf/framework
-;; ===========================================================================
+    (is (= [::navigate ::app-programmatic []]
+           [(handler-of gen :event :rf.route/navigate)
+            (handler-of gen :event :app/programmatic)
+            (:rf.gen/shadows gen)])
+        "the whole pool, with no :rf/framework layer to shadow")))
 
 (def ^:private stub-push (fn [_ctx _url] :stubbed))
 
 (deftest a-provenanced-app-override-wins-over-the-framework-default
-  (let [pool (conj pool
-                   (fw-desc :event :rf.route/entry-denied ::fw-denied
-                            {:rf/framework-default? true}))]
-    (testing "with no override selected, the framework default resolves"
-      (let [gen (rf.image-assembly/assemble [app-image] pool)]
-        (is (= ::fw-denied (handler-of gen :event :rf.route/entry-denied)))
-        (is (= [] (:rf.gen/shadows gen)))))
-    (testing "an app image selecting its own registration wins, and the chain
-              names the FINAL winner for every loser"
-      (let [pool      (conj pool (reg-desc "app.auth" :event :rf.route/entry-denied ::app-denied))
-            deny-stub (fn [{:keys [db]} _] {:db db})
-            doubles   (rf.image/image {:id :test/doubles
-                                       :registrations {:reg-event [[:rf.route/entry-denied deny-stub]]}})
-            gen       (rf.image-assembly/assemble [app-image] pool)
-            chained   (rf.image-assembly/assemble [app-image doubles] pool)]
-        (is (= ::app-denied (handler-of gen :event :rf.route/entry-denied)))
-        (is (= [{:registration [:event :rf.route/entry-denied]
-                 :image        :rf/framework
-                 :shadowed-by  :app/main}]
-               (:rf.gen/shadows gen)))
-        (is (= [{:registration [:event :rf.route/entry-denied]
-                 :image        :rf/framework
-                 :shadowed-by  :test/doubles}
-                {:registration [:event :rf.route/entry-denied]
-                 :image        :app/main
-                 :shadowed-by  :test/doubles}]
-               (:rf.gen/shadows chained)))))))
+  (let [pool      (conj pool
+                        (fw-desc :event :rf.route/entry-denied ::fw-denied
+                                 {:rf/framework-default? true}))
+        bare      (rf.image-assembly/assemble [app-image] pool)
+        pool      (conj pool (reg-desc "app.auth" :event :rf.route/entry-denied ::app-denied))
+        doubles   (rf.image/image {:id :test/doubles
+                                   :registrations {:reg-event [[:rf.route/entry-denied
+                                                                (fn [{:keys [db]} _] {:db db})]]}})
+        gen       (rf.image-assembly/assemble [app-image] pool)
+        chained   (rf.image-assembly/assemble [app-image doubles] pool)]
+    (is (= [::fw-denied []] [(handler-of bare :event :rf.route/entry-denied)
+                             (:rf.gen/shadows bare)])
+        "with no override selected, the framework default resolves")
+    (is (= [::app-denied [{:registration [:event :rf.route/entry-denied]
+                           :image        :rf/framework
+                           :shadowed-by  :app/main}]]
+           [(handler-of gen :event :rf.route/entry-denied) (:rf.gen/shadows gen)]))
+    (is (= [{:registration [:event :rf.route/entry-denied]
+             :image        :rf/framework
+             :shadowed-by  :test/doubles}
+            {:registration [:event :rf.route/entry-denied]
+             :image        :app/main
+             :shadowed-by  :test/doubles}]
+           (:rf.gen/shadows chained))
+        "a chain names the final winner for every loser")))
 
 (deftest a-lone-anonymous-image-overrides-without-a-degenerate-report
-  (testing "the ordinary stub idiom — one anonymous image inlining a framework
-            effect — assembles, wins, and records no entry naming a nil image"
-    (let [pool (conj pool (fw-desc :fx :rf.nav/push-url ::real-push))
-          anon (rf.image/image {:registrations {:reg-fx [[:rf.nav/push-url stub-push]]}})
-          gen  (rf.image-assembly/assemble [anon] pool)]
-      (is (= stub-push (handler-of gen :fx :rf.nav/push-url)))
-      (is (= ::navigate (handler-of gen :event :rf.route/navigate))
-          "the rest of the base is still there")
-      (is (= [] (:rf.gen/shadows gen))))))
-
-;; ===========================================================================
-;; 3. Replaceable-default carrier classification rides an INLINE override
-;; ===========================================================================
+  ;; the ordinary stub idiom: one anonymous image inlining a framework effect
+  (let [pool (conj pool (fw-desc :fx :rf.nav/push-url ::real-push))
+        anon (rf.image/image {:registrations {:reg-fx [[:rf.nav/push-url stub-push]]}})
+        gen  (rf.image-assembly/assemble [anon] pool)]
+    (is (= [stub-push ::navigate []]
+           [(handler-of gen :fx :rf.nav/push-url)
+            (handler-of gen :event :rf.route/navigate)
+            (:rf.gen/shadows gen)])
+        "it wins, the rest of the base stays, and no entry names a nil image")))
 
 (deftest an-inline-override-keeps-the-framework-default-carriers
   (let [fw-default (fw-desc :event :rf.route/entry-denied ::fw-denied
                             {:rf/framework-default? true
                              :sensitive             [[:requested-url]]})
         pool       (conj pool fw-default)
-        handler    (fn [{:keys [db]} _] {:db db})]
-    (testing "an inline override replaces BEHAVIOUR; the framework's own
-              :sensitive carriers ride across, unioned with its own"
-      (let [auth (rf.image/image {:id :app/auth
-                                  :registrations {:reg-event [[:rf.route/entry-denied
-                                                               {:sensitive [[:note]]}
-                                                               handler]]}})
-            gen  (rf.image-assembly/assemble [app-image auth] pool)
-            d    (rf.image-assembly/resolve-descriptor gen :event :rf.route/entry-denied)]
-        (is (= handler (:impl d)) "the override is the winner")
-        (is (= [[:requested-url] [:note]] (:sensitive d)))))
-    (testing "a provenanced override that already carries the union (retained at
-              registration) passes through untouched — the identical descriptor"
-      (let [app-d (assoc (reg-desc "app.auth" :event :rf.route/entry-denied ::app-denied)
-                         :sensitive [[:requested-url]])
-            gen   (rf.image-assembly/assemble [app-image] (conj pool app-d))]
-        (is (identical? app-d (rf.image-assembly/resolve-descriptor
-                                gen :event :rf.route/entry-denied)))))
-    (testing "a shadowed base registration that is NOT a replaceable default
-              carries nothing across"
-      (let [pool    (conj pool (fw-desc :fx :rf.nav/push-url ::real-push
-                                        {:sensitive [[:url]]}))
-            doubles (rf.image/image {:id :test/doubles
-                                     :registrations {:reg-fx [[:rf.nav/push-url stub-push]]}})
-            gen     (rf.image-assembly/assemble [app-image doubles] pool)]
-        (is (nil? (:sensitive (rf.image-assembly/resolve-descriptor
-                                gen :fx :rf.nav/push-url))))))))
-
-;; ===========================================================================
-;; 4. Standards are untouched
-;; ===========================================================================
+        handler    (fn [{:keys [db]} _] {:db db})
+        auth       (rf.image/image {:id :app/auth
+                                    :registrations {:reg-event [[:rf.route/entry-denied
+                                                                 {:sensitive [[:note]]}
+                                                                 handler]]}})
+        d          (rf.image-assembly/resolve-descriptor
+                     (rf.image-assembly/assemble [app-image auth] pool)
+                     :event :rf.route/entry-denied)]
+    (is (= [handler [[:requested-url] [:note]]] [(:impl d) (:sensitive d)])
+        "the override replaces behaviour; the framework's carriers ride across, then its own")
+    (let [app-d (assoc (reg-desc "app.auth" :event :rf.route/entry-denied ::app-denied)
+                       :sensitive [[:requested-url]])
+          gen   (rf.image-assembly/assemble [app-image] (conj pool app-d))]
+      (is (identical? app-d (rf.image-assembly/resolve-descriptor
+                              gen :event :rf.route/entry-denied))
+          "a provenanced override already carrying the union passes through untouched"))
+    (let [pool    (conj pool (fw-desc :fx :rf.nav/push-url ::real-push
+                                      {:sensitive [[:url]]}))
+          doubles (rf.image/image {:id :test/doubles
+                                   :registrations {:reg-fx [[:rf.nav/push-url stub-push]]}})
+          gen     (rf.image-assembly/assemble [app-image doubles] pool)]
+      (is (nil? (:sensitive (rf.image-assembly/resolve-descriptor
+                              gen :fx :rf.nav/push-url)))
+          "a shadowed base registration that is not a replaceable default carries nothing"))))
 
 (def ^:private std-set-db (fn [_ _] :standard))
 
 (deftest standards-stay-protected-and-outside-the-base
   (rf.image-assembly/register-standard! :event :rf/set-db {:handler-fn std-set-db})
-  (let [;; the framework dual-registers a standard into the ordinary registrar
-        ;; too, so the pool carries its nil-provenance copy
-        pool (conj pool (fw-desc :event :rf/set-db ::registrar-copy))]
-    (testing "the registrar copy of a standard never enters the base — no
-              spurious standard collision, and the standard itself resolves"
-      (let [gen (rf.image-assembly/assemble [app-image] pool)]
-        (is (= std-set-db (handler-of gen :event :rf/set-db)))
-        (is (= [] (:rf.gen/shadows gen)))))
-    (testing "an app image colliding with a standard fails loud"
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (err-id #(rf.image-assembly/assemble
-                        [app-image]
-                        (conj pool (reg-desc "app.core" :event :rf/set-db ::app-set-db)))))))))
+  ;; the framework also registers a standard into the ordinary registrar, so the
+  ;; pool carries its nil-provenance copy
+  (let [pool (conj pool (fw-desc :event :rf/set-db ::registrar-copy))
+        gen  (rf.image-assembly/assemble [app-image] pool)]
+    (is (= [std-set-db []] [(handler-of gen :event :rf/set-db) (:rf.gen/shadows gen)])
+        "the registrar copy never enters the base, so no spurious collision")
+    (is (= :rf.error/image-standard-replacement-forbidden
+           (err-id #(rf.image-assembly/assemble
+                      [app-image]
+                      (conj pool (reg-desc "app.core" :event :rf/set-db ::app-set-db))))))))
