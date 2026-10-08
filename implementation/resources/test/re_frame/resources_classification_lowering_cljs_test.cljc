@@ -1,22 +1,13 @@
 (ns re-frame.resources-classification-lowering-cljs-test
-  "EP-0025 §subsystems — resources LOWER their projection-relative
-  classification into the per-frame elision registry under `:source :resource`,
-  PER INSTANCE, mirroring the machines / routing standard model. Per Spec 015
-  §Subsystem projection-relative classification / Spec 016 §Runtime-subsystem
-  graduation.
-
-  THE CONTRACT under test: a registry-reading consumer (Xray 'what is
-  classified', an MCP registry view, the SSR registry-projection defence-in-
-  depth) SEES resource classification at the entry's absolute runtime-db path —
-  it is not applied ONLY at the family-private project-data / project-params
-  projectors. The reconciliation is PURE over the runtime-db value, idempotent,
-  value-independent, and self-dropping (an evicted entry's declarations vanish).
-
-  CLJC so the JVM run (`clojure -M:test`, the load-bearing gate) exercises it;
-  the schemas artefact is a test-only dep, so the shared walker hooks are bound."
+  "Resources lower their projection-relative classification into the per-frame
+  elision registry under `:source :resource`, per instance, at the entry's
+  absolute runtime-db path (Spec 015 §Subsystem projection-relative
+  classification, Spec 016 §Runtime-subsystem graduation), so a generic
+  registry reader sees it. The reconcile is pure over the runtime-db value,
+  idempotent, and self-dropping: an evicted entry's declarations vanish."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
@@ -33,8 +24,6 @@
   (rf.test-support/make-reset-runtime-fixture
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
-
-;; ---- helpers --------------------------------------------------------------
 
 (defn- reg!
   [id overrides]
@@ -53,153 +42,87 @@
                                                                         :data (:data e))]))
                                        entries)}})
 
+(defn- reconcile [runtime-db]
+  (rf.resources.classification/reconcile-registry runtime-db rf.resources.registry/resource-meta))
+
+(defn- evict-and-reconcile [runtime-db]
+  (reconcile (assoc-in runtime-db [rf.resources.state/resources-key :entries] {})))
+
 (defn- sensitive-decls [runtime-db]
   (get-in runtime-db [:rf.runtime/elision :sensitive-declarations]))
 
-(defn- large-decls [runtime-db]
-  (get-in runtime-db [:rf.runtime/elision :declarations]))
-
-;; ===========================================================================
-;; 1. reconcile-registry lowers a resource's :data / :params declarations into
-;;    the per-frame elision registry at the entry's ABSOLUTE runtime-db path.
-;; ===========================================================================
+(def ^:private resource-owner #{{:source :resource}})
 
 (deftest reconcile-lowers-data-and-params-declarations
   (reg! :profile/card {:sensitive [[:data :ssn] [:params :account-id]]
                        :large     [[:data :avatar-bytes]]
                        :params-schema [:map [:account-id :string] [:slug :string]]})
-  (testing "an entry's resource :sensitive / :large declarations are LOWERED
-            into the per-frame elision registry under :source :resource, rooted
-            at the entry's absolute runtime-db path (a generic registry reader
-            SEES them)"
-    (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card
-                                             {:account-id "a-1" :slug "x"})
-          k-id    (rf.resources.state/key-id k)
-          rdb     (runtime-db-with {k {:data {:ssn "x" :avatar-bytes "y"}}})
-          out     (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)
-          sens    (sensitive-decls out)
-          large   (large-decls out)
-          data-pre  [:rf.runtime/resources :entries k-id :data]
-          key-pre   [:rf.runtime/resources :entries k-id :resource/key]]
-      ;; :data-rooted sensitive → absolute entry :data path
-      (is (= #{{:source :resource}} (get sens (conj data-pre :ssn)))
-          "the :data :ssn declaration is lowered at the absolute entry data path")
-      ;; :params-rooted sensitive → the scoped-key params component (index 2)
-      (is (= #{{:source :resource}} (get sens (conj key-pre 2 :account-id)))
-          "the :params :account-id declaration is lowered at the scoped-key params index")
-      ;; :data-rooted large → absolute entry :data path
-      (is (= #{{:source :resource}} (get large (conj data-pre :avatar-bytes)))
-          "the :data :avatar-bytes declaration is lowered as a large declaration"))))
+  (let [k        (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card
+                                                         {:account-id "a-1" :slug "x"})
+        k-id     (rf.resources.state/key-id k)
+        out      (reconcile (runtime-db-with {k {:data {:ssn "x" :avatar-bytes "y"}}}))
+        data-pre [:rf.runtime/resources :entries k-id :data]]
+    ;; a :params-rooted path lands on the scoped key's params component (index 2)
+    (is (= [resource-owner resource-owner resource-owner]
+           [(get (sensitive-decls out) (conj data-pre :ssn))
+            (get (sensitive-decls out) [:rf.runtime/resources :entries k-id :resource/key 2 :account-id])
+            (get-in out [:rf.runtime/elision :declarations (conj data-pre :avatar-bytes)])])
+        "each declaration is lowered at the entry's absolute path")))
 
 (deftest reconcile-is-idempotent
   (reg! :profile/card2 {:sensitive [[:data :ssn]]})
-  (testing "re-running reconcile-registry over its own output is a no-op (the
-            full resource-sourced set is rebuilt from :entries deterministically)"
-    (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card2 {:slug "x"})
-          rdb  (runtime-db-with {k {:data {:ssn "x"}}})
-          once (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)
-          twice (rf.resources.classification/reconcile-registry once rf.resources.registry/resource-meta)]
-      (is (= once twice) "reconciliation is idempotent"))))
+  (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card2 {:slug "x"})
+        once (reconcile (runtime-db-with {k {:data {:ssn "x"}}}))]
+    (is (= once (reconcile once)))))
 
 (deftest reconcile-self-drops-evicted-entry
   (reg! :profile/card3 {:sensitive [[:data :ssn]]})
-  (testing "an evicted entry's :source :resource declarations vanish on the next
-            reconcile (the per-instance teardown — no separate drop hook)"
-    (let [k     (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card3 {:slug "x"})
-          rdb   (runtime-db-with {k {:data {:ssn "x"}}})
-          live  (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)
-          ;; evict: drop the entry, keep the carried registry, reconcile again.
-          evicted (-> live
-                      (assoc-in [rf.resources.state/resources-key :entries] {})
-                      (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta))]
-      (is (seq (sensitive-decls live)) "the live entry lowered a declaration")
-      (is (empty? (get-in evicted [:rf.runtime/elision :sensitive-declarations]))
-          "the evicted entry's declaration is dropped"))))
+  (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card3 {:slug "x"})
+        live (reconcile (runtime-db-with {k {:data {:ssn "x"}}}))]
+    (is (seq (sensitive-decls live)) "FIXTURE — the live entry lowered a declaration")
+    (is (empty? (sensitive-decls (evict-and-reconcile live)))
+        "the evicted entry's declaration is dropped, with no separate drop hook")))
 
 (deftest reconcile-no-classification-no-registry
-  (reg! :plain/card {})   ;; declares no classification
-  (testing "a resource that declares no classification lowers nothing — no
-            stray registry sub-tree"
-    (let [k   (rf.resources.state/scoped-resource-key :rf.scope/global :plain/card {:slug "x"})
-          rdb (runtime-db-with {k {:data {:title "t"}}})
-          out (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)]
-      (is (not (contains? out :rf.runtime/elision))
-          "no :rf.runtime/elision key when nothing classifies"))))
-
-;; ===========================================================================
-;; 2. END-TO-END — a :sensitive resource-declared path redacts VIA THE REGISTRY
-;;    (a generic registry-reading egress walk, not the family-private projector).
-;; ===========================================================================
+  (reg! :plain/card {})
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :plain/card {:slug "x"})]
+    (is (not (contains? (reconcile (runtime-db-with {k {:data {:title "t"}}})) :rf.runtime/elision))
+        "a resource that declares no classification leaves no stray registry sub-tree")))
 
 (deftest registry-reader-sees-resource-classification-and-redacts
+  ;; the elision-registry walker a generic registry reader (and the SSR
+  ;; registry-projection defence in depth) uses, not the family projector
   (reg! :acct/profile {:sensitive [[:data :ssn]]})
-  (testing "after lowering, the elision-registry walker (the SAME one a generic
-            registry reader / SSR registry-projection defence-in-depth uses)
-            redacts the resource's declared :data :ssn path — proving the
-            classification is IN the registry, not only at the family projector"
-    (rf/make-frame {:id :reg/frame})
-    (let [k     (rf.resources.state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
-          k-id  (rf.resources.state/key-id k)
-          rdb   (runtime-db-with {k {:data {:ssn "123-45-6789" :name "Alice"}}})
-          ;; lower the resource classification into the frame's registry…
-          lowered (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)]
-      (rf.frame/swap-runtime-db! :reg/frame (constantly lowered))
-      ;; …then a GENERIC registry reader (elide-wire-value over the frame's
-      ;; registry) redacts the declared :data :ssn path of the entry value.
-      ;; The walker's opts map is CLOSED: a `:rf.egress/profile`
-      ;; names a BOUNDARY and belongs to `project-egress`, which resolves it to
-      ;; the `:rf.egress/*` opt-set below before delegating here. Spelt directly,
-      ;; this is the `:rf.egress/off-box-tool` floor PLUS the explicit digest
-      ;; override (that profile carries no digest).
-      (let [entry-data (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
-            projected  (rf.elision/elide-wire-value
-                         entry-data
-                         {:frame :reg/frame
-                          :path  [:rf.runtime/resources :entries k-id :data]
-                          :rf.egress/include-digests? true})]
-        (is (= :rf/redacted (:ssn projected))
-            "the registry reader redacts the resource-declared :data :ssn path")
-        (is (= "Alice" (:name projected))
-            "the undeclared sibling rides verbatim")
-        (testing "the registry carries the declaration under :source :resource"
-          (is (= #{{:source :resource}}
-                 (get (rf.elision/sensitive-declarations :reg/frame)
-                      [:rf.runtime/resources :entries k-id :data :ssn]))))))))
-
-;; ===========================================================================
-;; MULTI-OWNER union — a resource's lowered :data claim and an app
-;; effect claim on the SAME absolute entry path survive INDEPENDENTLY.
-;; ===========================================================================
+  (rf/make-frame {:id :reg/frame})
+  (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
+        k-id    (rf.resources.state/key-id k)
+        lowered (reconcile (runtime-db-with {k {:data {:ssn "123-45-6789" :name "Alice"}}}))]
+    (rf.frame/swap-runtime-db! :reg/frame (constantly lowered))
+    ;; the walker's opts map is closed: this is the :rf.egress/off-box-tool
+    ;; floor `project-egress` would resolve, plus an explicit digest override
+    (is (= {:ssn :rf/redacted :name "Alice"}
+           (select-keys (rf.elision/elide-wire-value
+                          (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
+                          {:frame :reg/frame
+                           :path  [:rf.runtime/resources :entries k-id :data]
+                           :rf.egress/include-digests? true})
+                        [:ssn :name]))
+        "the declared :ssn redacts and the undeclared sibling rides verbatim")))
 
 (deftest resource-and-effect-claims-union-and-remove-independently
   (reg! :acct/card {:sensitive [[:data :ssn]]})
-  (testing "a resource's lowered :data claim and an app effect claim
-            on the SAME absolute entry path UNION through reconcile, and each
-            removes INDEPENDENTLY: eviction drops the resource claim while the
-            effect survives; removing the effect owner leaves the resource claim."
-    (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :acct/card {:slug "x"})
-          k-id    (rf.resources.state/key-id k)
-          abs-ssn [:rf.runtime/resources :entries k-id :data :ssn]
-          ;; base runtime-db: the entry exists AND an app effect ALREADY
-          ;; classifies the same absolute path (Spec 015 L149).
-          base    (-> (runtime-db-with {k {:data {:ssn "123-45-6789"}}})
-                      (assoc-in [:rf.runtime/elision :sensitive-declarations abs-ssn]
-                                #{{:source :effect}}))
-          ;; reconcile LOWERS the resource claim → UNION with the effect claim
-          unioned (rf.resources.classification/reconcile-registry base rf.resources.registry/resource-meta)
-          owners  (get-in unioned [:rf.runtime/elision :sensitive-declarations abs-ssn])]
-      (is (contains? owners {:source :effect})  "the effect claim is retained")
-      (is (contains? owners {:source :resource}) "the resource claim UNIONS in")
-      ;; EVICT the entry → reconcile drops ONLY the resource owner; effect survives
-      (let [evicted  (-> unioned
-                         (assoc-in [rf.resources.state/resources-key :entries] {})
-                         (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta))
-            e-owners (get-in evicted [:rf.runtime/elision :sensitive-declarations abs-ssn])]
-        (is (= #{{:source :effect}} e-owners)
-            "eviction drops the resource claim; the effect claim SURVIVES (no fail-open)"))
-      ;; conversely, removing the effect owner leaves the resource claim standing
-      (let [reg-only       (get unioned :rf.runtime/elision)
-            without-effect (rf.elision/remove-owner reg-only :sensitive-declarations {:source :effect})
-            r-owners       (get-in without-effect [:sensitive-declarations abs-ssn])]
-        (is (= #{{:source :resource}} r-owners)
-            "removing the effect owner leaves the resource claim standing")))))
+  (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :acct/card {:slug "x"})
+        abs-ssn [:rf.runtime/resources :entries (rf.resources.state/key-id k) :data :ssn]
+        ;; an app effect already classifies the same absolute path (Spec 015)
+        unioned (reconcile (assoc-in (runtime-db-with {k {:data {:ssn "123-45-6789"}}})
+                                     [:rf.runtime/elision :sensitive-declarations abs-ssn]
+                                     #{{:source :effect}}))]
+    (is (= #{{:source :effect} {:source :resource}} (get (sensitive-decls unioned) abs-ssn))
+        "the resource claim unions with the effect claim")
+    (is (= #{{:source :effect}} (get (sensitive-decls (evict-and-reconcile unioned)) abs-ssn))
+        "eviction drops the resource claim and the effect claim survives")
+    (is (= resource-owner
+           (get-in (rf.elision/remove-owner (:rf.runtime/elision unioned)
+                                            :sensitive-declarations {:source :effect})
+                   [:sensitive-declarations abs-ssn]))
+        "removing the effect owner leaves the resource claim standing")))
