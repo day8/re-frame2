@@ -2,45 +2,18 @@
   "Every sibling the visual + a11y results section emits from a `for`
   reaches React carrying a key.
 
-  ## Why a lost key is invisible to a markup assertion
-
-  `^{:key …}` reader metadata on the
-  `(if (= kind :visual) [visual-card row] [a11y-card row])` CALL FORM would
-  be discarded the moment the form evaluates, so the vector the `if`
-  returns would carry none of it and React would receive no key — on ANY
-  substrate, not merely at a Fresco boundary. Nothing supplies one by
-  another route either: `a11y-card` and `visual-card` both root at a
-  `[:div {:style … :data-test …}]` whose attrs map has no `:key`.
-
-  A lost key does not FAIL. It degrades silently into index-based
+  A lost key does not fail: it degrades silently into index-based
   reconciliation, which paints identically and corrupts card identity only
-  once the row seq changes shape.
+  once the row seq changes shape. Key metadata on the section's `(if …)`
+  CALL FORM is discarded when the form evaluates, and Fresco's codec reads
+  `:key` only from the attribute map.
 
-  `findings-list`'s key (the second site in that file) would survive as
-  metadata on a vector LITERAL, which Reagent does read, and be lost only at
-  a Fresco boundary, whose codec reads `:key` from the attribute map and
-  Clojure metadata nowhere. Both sites carry the key in an attribute map,
-  which both renderers honour.
-
-  ## `(meta …)` WOULD BE A HOLLOW GATE IN BOTH DIRECTIONS
-
-  It reads nil on the call-form metadata spelling, because the call form
-  discards the metadata; and it reads nil on the attribute-map spelling
-  too, because there the key is not metadata at all. A gate built
-  on `(meta …)` therefore answers identically either way and proves
-  nothing. Hence `r/as-element` below: it runs Reagent's own key resolution
-  — metadata first, then props — so these rows grade what the RENDERER
-  receives rather than how the key happens to be spelled. A meta-spelled
-  key would still pass here, which is deliberate: the subject is whether
-  React gets a key, not which syntax delivered it.
-
-  ## The walk is RAW
-
-  Row nodes are taken from the hiccup WITHOUT rebuilding it. A `mapv`-style
-  rebuild (what the shared `expand-tree` helper does) mints fresh vectors
-  and strips reader metadata, so a meta-spelled key could not be seen at
-  all and this gate would read a false nil and fail for the wrong reason."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  `(meta …)` would be a hollow gate (nil on either spelling), so the key is
+  read through `r/as-element`, which runs Reagent's own resolution —
+  metadata first, then props — and grades what the RENDERER receives. The
+  walk is RAW: a `mapv`-style rebuild mints fresh vectors and strips reader
+  metadata, so this gate would read a false nil."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [reagent.core :as r]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
             [re-frame.story.ui.test-mode.visual-a11y-view :as rf.story.ui.test-mode.visual-a11y-view]))
@@ -148,39 +121,16 @@
 
 ;; ---- the section's cards ---------------------------------------------------
 
+;; The exact keys imply the rest: three rows rendered (no vacuous pass),
+;; every one keyed, siblings distinct.
 (deftest section-rows-reach-react-with-distinct-keys
-  (testing "every card the `visual-a11y-section` `for` emits reaches
-            React carrying a key, and sibling keys are distinct. A key
-            riding reader metadata on the `(if …)` call form would reach
-            React on no substrate at all."
-    (seed!)
-    (let [rows (section-rows)
-          ks   (mapv react-key rows)]
-
-      ;; Precondition — a vacuous pass is the failure mode here, so the row
-      ;; count is asserted before the keys are.
-      (is (= 3 (count rows)) "the fixture's three browser-tier rows each render")
-
-      (is (every? some? ks) "every row reaches React with a key")
-      (is (= 3 (count (distinct ks))) "sibling keys are distinct")
-      (is (= [":visual#0" ":a11y-structural#1" ":a11y#2"] ks)
-          "the key React receives is the `<kind>#<index>` the section
-           stamps"))))
+  (seed!)
+  (is (= [":visual#0" ":a11y-structural#1" ":a11y#2"]
+         (mapv react-key (section-rows)))))
 
 ;; ---- the findings list in the same file -----------------------------------
 
 (deftest findings-list-rows-reach-react-with-distinct-keys
-  (testing "every `<li>` `findings-list` emits reaches React carrying a
-            key. The key rides the `<li>`'s own attribute map, which
-            Fresco's codec reads too (Reagent would also read metadata on
-            a vector literal; Fresco would not)."
-    (seed!)
-    (let [lis (finding-rows)
-          ks  (mapv react-key lis)]
-
-      (is (= 3 (count lis)) "the fixture's three structural findings each render")
-
-      (is (every? some? ks) "every finding row reaches React with a key")
-      (is (= 3 (count (distinct ks))) "sibling keys are distinct")
-      (is (= [":img-missing-alt#0" ":control-missing-name#1" ":some-future-rule#2"] ks)
-          "the key React receives is the `<rule>#<index>` the list stamps"))))
+  (seed!)
+  (is (= [":img-missing-alt#0" ":control-missing-name#1" ":some-future-rule#2"]
+         (mapv react-key (finding-rows)))))
