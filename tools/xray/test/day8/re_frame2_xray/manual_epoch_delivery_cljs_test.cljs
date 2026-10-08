@@ -101,23 +101,10 @@
 
       (rf/dispatch-sync [::bump])
 
-      (let [records (filterv #(= :rf/default (:frame %)) @seen)
-            record  (first records)]
-        (is (= 1 (count records))
-            "exactly one fan-out for one dequeued event on the host frame")
-        (is (= ::bump (:event-id record))
-            ":event-id names the dispatched event")
-        (is (= [::bump] (:trigger-event record))
-            ":trigger-event is the full event vector")
-        (is (= {:n 1} (:db-after record))
-            ":db-after is the post-settle snapshot — an ASSEMBLED record,
-             not a bare notification")
-        (is (= :ok (:outcome record))
-            ":outcome :ok pins the event-settle outcome"))
-
-      (let [history (rf/epoch-history :rf/default)]
-        (is (= 1 (count history))
-            "the same epoch is retained in the frame's ring — the vector
-             Xray's Time-Travel panel re-reads")
-        (is (= ::bump (:event-id (last history)))
-            "and it is the dispatched event's record")))))
+      (is (= [[::bump [::bump] {:n 1} :ok]]
+             (mapv (juxt :event-id :trigger-event :db-after :outcome)
+                   (filterv #(= :rf/default (:frame %)) @seen)))
+          "one fan-out on the host frame, carrying an ASSEMBLED record (its
+           post-settle :db-after), not a bare notification")
+      (is (= [::bump] (mapv :event-id (rf/epoch-history :rf/default)))
+          "the same epoch is retained in the ring Xray's Time-Travel panel re-reads"))))
