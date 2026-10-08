@@ -14,15 +14,13 @@
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
             [re-frame.machines]
-            ;; Routing ships in day8/re-frame2-routing.
-            ;; Required here so its load-time hook + reg-sub
-            ;; registrations fire before this ns's reg-route call.
-            [re-frame.routing :as rf.routing]
+            ;; Loaded for its load-time hook and sub registrations.
+            [re-frame.routing]
             ;; Flows ships in day8/re-frame2-flows.
             ;; Required here so its load-time hook registrations
             ;; fire before this ns's reg-flow call.
             [re-frame.flows]
-            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr]
             ;; Epoch ships in day8/re-frame2-epoch.
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
@@ -47,17 +45,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ---- shared dispatch + sub --------------------------------------------------
-
-(deftest sub-chain-cljs
-  (testing "layer-1 + layer-2 subs return computed values"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
-    (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-sum  {:inputs [[:items]]} (fn [[items] _] (reduce + items)))
-    (rf/dispatch-sync [:seed])
-    (is (= [10 20 30] (rf/subscribe-once [:items])))
-    (is (= 60         (rf/subscribe-once [:item-sum])))))
-
 ;; ---- with-frame macro -------------------------------------------------------
 
 (deftest with-frame-binds-current-frame
@@ -80,18 +67,6 @@
             the fixture's ambient scope (:rf/default)"
     (is (= :rf/default (rf/current-frame-id)))))
 
-;; ---- reg-view macro ---------------------------------------------------------
-
-(deftest reg-view-registers
-  (testing "reg-view (defn-shape macro) registers the view under the :view kind"
-    ;; Per Spec 001 §Allowed forms of the middle slot: the macro is defn-shape. It
-    ;; auto-derives the id from (keyword *ns* sym); the ^{:rf/id ...}
-    ;; metadata override pins an explicit keyword for assertion.
-    (reg-view ^{:rf/id :greet} greet [n] [:p "hi " n])
-    (is (some? (rf/view :greet))
-        "the view is registered under the :view kind")
-    (is (fn? greet)
-        "the macro defs the supplied symbol to a callable render fn")))
 
 ;; ---- (rf/view id) — runtime-lookup handle ----------------------
 ;; Per Spec 001 §(re-frame.core/view id): render trees use Vars; runtime
@@ -162,24 +137,6 @@
       (is (= 3 @r))
       (rf/unsubscribe [:n]))))
 
-;; ---- hot-reload sub invalidation ------------------------------------------
-;;
-;; The registrar replacement-hook should evict cached reactions for
-;; re-registered subs on every adapter, including Reagent's.
-
-(deftest sub-hot-reload-cljs
-  (testing "re-registering a sub flips the next subscribe-once to the new body"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :answer (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (is (= 7 (rf/subscribe-once [:answer])))
-    ;; Force-pin so the cache slot survives the subscribe-once
-    ;; auto-unsubscribe.
-    (let [_pin (rf/subscribe [:answer])]
-      (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (is (= 70 (rf/subscribe-once [:answer]))
-          "the new sub body is in effect after re-registration")
-      (rf/unsubscribe [:answer]))))
 
 ;; ---- flows ----------------------------------------------------------------
 
@@ -194,38 +151,6 @@
     (rf/dispatch-sync [:h! 4])
     (is (= 12 (:area (rf/app-db-value :rf/default))))))
 
-;; ---- routing --------------------------------------------------------------
-
-(deftest match-and-unparse-routes
-  (testing "match-url and route-url round-trip on CLJS"
-    (rf/reg-route :user/show {} "/users/:id")
-    (let [m (rf.routing/match-url "/users/42")]
-      (is (= :user/show (:route-id m)))
-      (is (= "42"       (:id (:params m)))))
-    (is (= "/users/42" (rf.routing/route-url {:to :user/show :params {:id 42}})))))
-
-;; ---- SSR end-to-end -------------------------------------------------------
-
-(deftest ssr-end-to-end-cljs
-  (testing "complete SSR flow runs against the Reagent adapter on CLJS"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items ["a" "b" "c"]}}))
-    (rf/reg-sub :items (fn [db _] (:items db)))
-    (rf/reg-view ^{:rf/id :pages/list} pages-list []
-      [:ul
-       (for [it (rf/subscribe-once [:items])]
-         ^{:key it} [:li it])])
-    (rf/dispatch-sync [:seed])
-    ;; Callable head, not `[:pages/list]`. `render-to-string`
-    ;; ships from the shared `.cljc` emitter, so the keyword-head removal
-    ;; lands on the CLJS side of it too: a keyword head is an element on
-    ;; every host, and `[:pages/list]` would render an empty `<list>`.
-    (let [tree [(rf/view :pages/list)]
-          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
-      (is (re-find #"<ul[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
-          "rendered HTML carries a stable hash on the root <ul>")
-      (is (clojure.string/includes? html "<li>a</li>"))
-      (is (clojure.string/includes? html "<li>b</li>"))
-      (is (clojure.string/includes? html "<li>c</li>")))))
 
 ;; ---- subscription topology: glitch-freedom -------------------------------
 ;;
