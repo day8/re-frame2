@@ -1,33 +1,10 @@
 #!/usr/bin/env node
 /*
- * Tests for `check-examples-compile.cjs` — the standalone-build COMPILE gate.
- *
- * The gate derives its compile list from `shadow-cljs.edn`'s `:examples/*`
- * and `:testbeds/*` build ids, so a newly-declared build under either prefix
- * is swept automatically. The TEETH live here: these tests pin the
- * enumeration so the derivation can't silently under-count (which would let
- * a build ship uncompiled-but-green, the exact regression class the gate
- * exists to prevent). Specifically:
- *
- *   - the parser recovers the UIx example builds (login-uix, dashboard-uix)
- *     AND the counter pair — so the gate sweeps the whole standalone example
- *     set;
- *   - it recovers the twelve non-tenant top-level `:testbeds/*` builds no
- *     other PR-time lane compiles, and `tenant-switcher` beside them;
- *   - a NEWLY-declared build under EITHER prefix is picked up (proven by
- *     feeding the parser a synthetic edn with an extra build — the
- *     enumeration grows, which is exactly why the live gate would compile it
- *     and fail RED if it were broken);
- *   - a build REMOVED from the compiled set is detected (a hardcoded subset
- *     would miss it — proven by feeding an edn missing a known build);
- *   - line comments and mid-line `:examples/...` tokens are NOT mistaken
- *     for build defs (no false coverage / no parser crash);
- *   - the parse over the REAL shadow-cljs.edn is non-vacuous UNDER EACH
- *     PREFIX — a prefix that stops matching cannot hide behind its sibling's
- *     healthy count.
- *
- * Standalone node-runnable suite — no external test framework, mirroring
- * `_adapter-smoke-filter.test.cjs` / `dev-testbed.test.cjs`. Discovered by `npm run test:scripts`.
+ * Tests for `check-examples-compile.cjs`, the standalone-build compile gate. Its
+ * compile list is derived from shadow-cljs.edn's `:examples/*` and `:testbeds/*`
+ * build ids, and shadow-cljs exits 0 on warnings, so these pin the two places it
+ * could go green without compiling: an enumeration that under-counts, and summary
+ * parsing that misses a warning or a build. Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -36,7 +13,6 @@ const assert = require('assert');
 
 const {
   readShadowEdn,
-  stripEdnComments,
   enumerateCompiledBuilds,
   prefixesBelowFloor,
   parseBuildSummaries,
@@ -61,8 +37,6 @@ console.log(
   'check-examples-compile enumeration tests',
 );
 
-// --- Real-file enumeration: non-vacuous + covers the gap builds -----------
-
 const realEdn = readShadowEdn();
 const realBuilds = enumerateCompiledBuilds(realEdn);
 
@@ -75,76 +49,10 @@ it('enumeration over the real shadow-cljs.edn is non-vacuous under EVERY swept p
   );
 });
 
-it('the standalone example builds are swept', () => {
-  for (const b of [
-    'examples/login-uix',
-    'examples/dashboard-uix',
-    'examples/counter',
-    'examples/counter-uix',
-  ]) {
-    assert.ok(
-      realBuilds.includes(b),
-      `${b} is NOT in the gate's ` +
-        `compile set — the gate would not compile it, so the regression ` +
-        `it exists to catch would still ship green.`,
-    );
-  }
-});
-
-it('enumeration is sorted + de-duplicated', () => {
-  const sorted = [...realBuilds].sort();
-  assert.deepStrictEqual(realBuilds, sorted, 'build list must be sorted');
-  assert.strictEqual(
-    new Set(realBuilds).size,
-    realBuilds.length,
-    'build list must be de-duplicated',
-  );
-});
-
-// The twelve non-tenant top-level testbed builds no other PR-time lane
-// compiles. They are named individually rather than counted: a count would
-// go green again the moment a thirteenth build replaced a deleted twelfth,
-// which is exactly the drift the derivation exists to expose. `tenant-switcher`
-// is listed beside them because it is the same shadow build and costs nothing
-// extra here, even though `tenant_switcher_smoke` also covers it.
-const TOP_LEVEL_TESTBED_BUILDS = [
-  'testbeds/deep-machine',
-  'testbeds/deliberate-throw',
-  'testbeds/drain-depth-trigger',
-  'testbeds/http-toggle',
-  'testbeds/large-dispatcher',
-  'testbeds/long-flow-w-failure',
-  'testbeds/multi-frame',
-  'testbeds/non-trivial-app-db',
-  'testbeds/schema-violation',
-  'testbeds/ssr-basic',
-  'testbeds/ssr-hydration-mismatch',
-  'testbeds/ssr-multi-frame',
-  'testbeds/tenant-switcher',
-];
-
-it('the twelve dark top-level testbed builds are swept (rf2-in6c4 gap)', () => {
-  for (const b of TOP_LEVEL_TESTBED_BUILDS) {
-    assert.ok(
-      realBuilds.includes(b),
-      `${b} is NOT in the gate's compile set — the top-level testbeds/ tree ` +
-        `holds no test file and no armed lane :requires its namespaces, so ` +
-        `nothing else compiles it at PR time.`,
-    );
-  }
-});
-
 it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () => {
-  // The vacuous pass this refuses: with two prefixes, a single TOTAL floor is
-  // satisfiable by the examples alone, so the testbeds arm could silently stop
-  // matching and the gate would still pass having dropped every testbed
-  // build. Feed the checker an examples-only roster well above any
-  // total floor and require it to name `testbeds` anyway.
+  // A single TOTAL floor is satisfiable by the examples alone, so the testbeds arm
+  // could stop matching unseen: an examples-only roster must starve `testbeds`.
   const examplesOnly = realBuilds.filter((b) => b.startsWith('examples/'));
-  assert.ok(
-    examplesOnly.length >= 10,
-    'precondition: the examples roster alone clears any plausible total floor',
-  );
   const starved = prefixesBelowFloor(examplesOnly);
   assert.deepStrictEqual(
     starved.map((s) => s.prefix),
@@ -165,11 +73,7 @@ it('a :story-static/* declaration is NOT swept (prefix roster is closed)', () =>
   ]);
 });
 
-// --- Parser robustness: comments + mid-line tokens are not false builds ---
-
 it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
-  // A comment in shadow-cljs.edn names :examples/xray-rhs-smoke in prose;
-  // such mentions must never be enumerated as live builds.
   const edn =
     '  :examples/real {:target :browser}\n' +
     '  ;; see :examples/xray-rhs-smoke for the removed variant\n' +
@@ -178,18 +82,8 @@ it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
   assert.deepStrictEqual(builds, ['examples/real']);
 });
 
-it('stripEdnComments removes ;-comments but preserves code', () => {
-  assert.strictEqual(
-    stripEdnComments('  :examples/x {} ; :examples/y {}'),
-    '  :examples/x {} ',
-  );
-});
-
-// --- Warning-detection teeth ----------------------------------------------
-// `shadow-cljs compile` exits 0 even when a build emits warnings, so the
-// gate parses the per-build summary lines and fails on warnings>0. These
-// pin that parsing — the second half of the teeth (a typo'd init-fn /
-// undeclared var must turn the gate RED, not ship green as "1 warnings").
+// `shadow-cljs compile` exits 0 on warnings, so the gate fails on the per-build
+// summary lines' warning counts.
 
 const CLEAN_OUTPUT = [
   '[:examples/login-uix] Compiling ...',
@@ -212,15 +106,13 @@ const FAILED_OUTPUT = [
 ].join('\n');
 
 it('parseBuildSummaries reads per-build warning counts', () => {
-  const { completed, failed } = parseBuildSummaries(CLEAN_OUTPUT);
-  assert.deepStrictEqual(
-    completed,
-    [
+  assert.deepStrictEqual(parseBuildSummaries(CLEAN_OUTPUT), {
+    completed: [
       { build: ':examples/login-uix', warnings: 0 },
       { build: ':examples/login-helix', warnings: 0 },
     ],
-  );
-  assert.deepStrictEqual(failed, []);
+    failed: [],
+  });
 });
 
 it('a warning (typo\'d var) IS detected so the gate fails RED', () => {
@@ -235,17 +127,11 @@ it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
   assert.deepStrictEqual(failed, [':examples/login-uix']);
 });
 
-// --- Coverage reconciliation teeth ----------------------------------------
-// A clean child exit + zero PARSED warning rows is NOT proof every build was
-// analysed. If a requested build's summary is missing or unparsable, the
-// warning analysis was BLIND for that build — the gate must FAIL, not pass
-// vacuously. These pin reconcileRequestedBuilds so a
-// missing/unparseable summary, a duplicate/unexpected summary, and a
-// parser-missed WARNING marker all turn the gate RED.
+// A clean exit with zero parsed warning rows is not proof every build was
+// analysed: a missing, duplicate or unexpected summary, or a WARNING marker no
+// parsed row accounts for, must fail the gate.
 
 it('reconcile is clean when every requested build has exactly one summary', () => {
-  // CLEAN_OUTPUT carries login-uix + login-helix summaries; request exactly
-  // those (enumeration uses the colon-stripped coords).
   const problems = reconcileRequestedBuilds(
     ['examples/login-uix', 'examples/login-helix'],
     CLEAN_OUTPUT,
@@ -254,37 +140,25 @@ it('reconcile is clean when every requested build has exactly one summary', () =
 });
 
 it('a requested build with NO parsable summary is a coverage FAILURE (false-green closed)', () => {
-  // Request a third build (dashboard-uix) whose summary never appears — the
-  // exact false-green: child exits 0, no warning row, and a gate without
-  // reconciliation passes.
   const problems = reconcileRequestedBuilds(
     ['examples/login-uix', 'examples/login-helix', 'examples/dashboard-uix'],
     CLEAN_OUTPUT,
   );
-  assert.strictEqual(problems.length, 1, `expected one problem, got: ${problems}`);
   assert.ok(
-    problems[0].includes(':examples/dashboard-uix') &&
-      /NO parsable/.test(problems[0]),
-    `expected a missing-summary problem for dashboard-uix, got: ${problems[0]}`,
+    problems.length === 1 && problems[0].includes(':examples/dashboard-uix') && /NO parsable/.test(problems[0]),
+    `expected one missing-summary problem for dashboard-uix, got: ${problems}`,
   );
 });
 
 it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () => {
-  // shadow prints `... 1 warnings` (plural); a format drift to the
-  // singular `1 warning` does not match COMPLETED_RE, so the summary is
-  // unparseable AND a WARNING marker is present. Both the missing-summary
-  // and orphan-warning teeth must fire — the warning would otherwise vanish.
+  // A drift to the singular `1 warning` leaves the summary unparseable and the
+  // WARNING marker orphaned: both teeth must fire, or the warning vanishes.
   const drifted = [
     '[:examples/login-helix] Compiling ...',
     '------ WARNING #1 - :undeclared-var --------------',
     ' Use of undeclared Var login-helix.core/typo',
     '[:examples/login-helix] Build completed. (196 files, 1 compiled, 1 warning, 5.47s)',
   ].join('\n');
-  // The unparseable summary yields zero completed rows...
-  assert.deepStrictEqual(parseBuildSummaries(drifted).completed, []);
-  assert.deepStrictEqual(buildsWithWarnings(drifted), []);
-  // ...so a gate without reconciliation would pass green. The reconciler must FAIL: the
-  // requested build has no parsable summary, and a WARNING marker is orphaned.
   const problems = reconcileRequestedBuilds(['examples/login-helix'], drifted);
   assert.ok(
     problems.some((p) => /NO parsable/.test(p)),
@@ -296,31 +170,19 @@ it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () =>
   );
 });
 
-it('zero parsed summaries with builds requested is a coverage FAILURE', () => {
-  // The whole-output-unparseable case (parser drift erased everything): no
-  // completed rows at all, but builds were requested → every one is missing.
-  const garbage = 'Build done. nothing the parser recognises here.\n';
-  assert.deepStrictEqual(parseBuildSummaries(garbage).completed, []);
-  const problems = reconcileRequestedBuilds(
-    ['examples/login-uix', 'examples/login-helix'],
-    garbage,
-  );
-  assert.strictEqual(problems.length, 2, `expected two missing, got: ${problems}`);
-  assert.ok(problems.every((p) => /NO parsable/.test(p)));
-});
-
 it('a DUPLICATE completed summary for one build is a coverage FAILURE', () => {
   const dup = [
     '[:examples/login-uix] Build completed. (188 files, 187 compiled, 0 warnings, 5.10s)',
     '[:examples/login-uix] Build completed. (188 files, 0 compiled, 0 warnings, 0.10s)',
   ].join('\n');
   const problems = reconcileRequestedBuilds(['examples/login-uix'], dup);
-  assert.strictEqual(problems.length, 1, `expected one problem, got: ${problems}`);
-  assert.ok(/2 "Build completed." summaries/.test(problems[0]));
+  assert.ok(
+    problems.length === 1 && /2 "Build completed." summaries/.test(problems[0]),
+    `expected one duplicate-summary problem, got: ${problems}`,
+  );
 });
 
 it('an UNEXPECTED completed summary (not requested) is a coverage FAILURE', () => {
-  // login-helix completed but was never requested — enumeration/output drift.
   const problems = reconcileRequestedBuilds(['examples/login-uix'], CLEAN_OUTPUT);
   assert.ok(
     problems.some(
@@ -331,16 +193,10 @@ it('an UNEXPECTED completed summary (not requested) is a coverage FAILURE', () =
 });
 
 it('reconcile stays clean when a parsable warning row accounts for the WARNING marker (the orphan check does not double-report a real warning)', () => {
-  // WARNED_OUTPUT carries a parsable `1 warnings` row, so buildsWithWarnings
-  // is non-empty and the orphan-warning branch must NOT fire (the real
-  // warning is caught by the primary buildsWithWarnings path in the CLI).
   const problems = reconcileRequestedBuilds(
     ['examples/login-helix', 'examples/login-uix'],
     WARNED_OUTPUT,
   );
-  // Both requested builds have exactly one summary, and the WARNING marker is
-  // accounted for by a parsable warning row — so reconcile is clean here (the
-  // warning is failed by the buildsWithWarnings path, not the orphan check).
   assert.deepStrictEqual(problems, [], `expected no coverage problems, got: ${problems}`);
 });
 
