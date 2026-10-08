@@ -1,73 +1,26 @@
 (ns day8.re-frame2-xray.settings.popup-dispatch-routing-cljs-test
-  "Click-time frame-routing tests for the Xray Settings popup.
+  "Click-time routing for the Settings popup's three close affordances.
 
-  Sibling to `popup_cljs_test.cljs`. Lives in a separate ns so the
-  `use-fixtures` map shape required by `cljs.test/async` does not
-  conflict with the fn-form `make-reset-runtime-fixture` the
-  render / open-state tests use.
+  A browser click fires after render, when React has popped the frame
+  context, so every deferred handler dispatches through the dispatcher
+  captured at render time. Each row plucks a handler off the rendered
+  tree and fires it OUTSIDE any `with-frame`. The fixture binds
+  `:rf/default` as an ambient scope, so a handler that ignored the
+  captured dispatcher would reduce `:rf/default` here (the browser, with
+  no ambient scope, raises `:rf.error/no-frame-context`). The tab button's
+  click through the production boundary is the browser lane's
+  `settings_fresco_boundary_dom_cljs_test` W2 row.
 
-  ## The bug these tests defend against
-
-  The Settings popup mounts via `[rf/frame-provider {:frame :rf/xray}
-  …]` in the shell. Subscribes inside the popup resolve through React
-  context — at RENDER time, React's `_currentValue` for the
-  `frame-context` is set to `:rf/xray` while the body of the
-  frame-provider's children is rendering, so `(rf/subscribe …)` picks
-  up the right frame with no explicit opt.
-
-  Dispatches from `:on-click` / `:on-change` / `:on-key-down` fire
-  LATER — after render commits and React has POPPED `_currentValue`
-  back to the context's default, which is the NO-PROVIDER SENTINEL,
-  not `:rf/default`. At click time the frame resolution chain has TWO
-  tiers (dynamic var → React-context tier) and nothing beneath them:
-  the sentinel coerces to nil, so a bare unscoped dispatch RAISES
-  `:rf.error/no-frame-context` (EP-0002) rather than routing anywhere.
-  Without an explicit frame, then, the `:rf.xray/settings-*` handler
-  never reduces `:rf/xray`'s db. Symptom:
-  X button does nothing, tabs do not switch, Esc
-  does not close — the modal is stuck.
-
-  So in `view.cljs` every `rf/dispatch` from a
-  deferred handler carries `{:frame :rf/xray}` so the envelope's
-  `:frame` is set at call time and never depends on the click-time
-  React-context read.
-
-  ## How these tests reproduce the click-time path
-
-  Each test plucks the click handler off the rendered hiccup and
-  invokes it OUTSIDE any `with-frame` binding — simulating the
-  browser's click-fires-after-render reality. Click handlers use
-  queued `rf/dispatch` (not `dispatch-sync`); the router drain is
-  async via `goog.async.nextTick`. Tests use `rf.test-support/poll-until`
-  to await the drain before asserting.
-
-  ONE WAY THE HARNESS DIFFERS FROM THE BROWSER, and the counterfactual
-  clauses below are worded for it. `make-xray-runtime-fixture` does not
-  opt out of `:ambient-frame`, so the fixture binds `:rf/default` as an
-  AMBIENT SCOPE around every body here. A handler invoked \"outside any
-  `with-frame`\" therefore still has that scope in effect: under this
-  harness an unscoped dispatch reduces `:rf/default`'s db — which is
-  precisely what the `:rf/default`-is-NOT-polluted rows pin — where the
-  browser, having no ambient scope at all, raises
-  `:rf.error/no-frame-context`. The property under test is the same
-  either way: the envelope's `:frame` is set at call time and never
-  depends on the click-time context read."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  A separate ns from `popup_cljs_test` because `cljs.test/async` needs the
+  map-shape fixture."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; `make-xray-runtime-fixture` composes core
-;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
-;; dispose/install) with Xray's own reset tier. `:tier :runtime` folds the
-;; sentinel + trace-collector + persisted-settings reset; `:async? true` is the
-;; map-form cljs.test/async requires; `:post-reset` re-registers Xray's
-;; :rf.xray/* handlers + the :rf/xray frame (rolled back with the per-test
-;; registrar snapshot).
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
     {:tier       :runtime
@@ -76,19 +29,7 @@
                    (registry/register-xray-handlers!)
                    (rf/make-frame {:id :rf/xray}))}))
 
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
-;; walker facade.
-
-;; ---- click-time helpers ------------------------------------------------
-
-(defn- on-click [node] (:on-click (second node)))
-(defn- on-key-down [node] (:on-key-down (second node)))
-
 (defn- fake-event []
-  ;; Minimal object covering the methods the handlers call
-  ;; (preventDefault, stopPropagation). Plain JS object so `(.x e)`
-  ;; / `(.. e -x)` reads work.
   #js {:preventDefault  (fn [])
        :stopPropagation (fn [])})
 
@@ -97,103 +38,43 @@
        :preventDefault  (fn [])
        :stopPropagation (fn [])})
 
-(defn- await-xray-db
-  "Poll until `pred` of `:rf/xray`'s app-db returns truthy. Settles
-  the async router drain that queued click-dispatches go through."
-  [pred label]
-  (rf.test-support/poll-until
-    #(pred (rf/app-db-value :rf/xray))
-    {:label label :timeout-ms 1000}))
-
-(defn- render-open-modal []
+(defn- open-modal-handler
+  "Open the modal and answer the `handler-key` handler of the node
+  carrying `testid`."
+  [testid handler-key]
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree)))
+  (-> (rf/with-frame :rf/xray (modal-trees/settings-popup-tree))
+      (rf.test-helpers/find-by-testid testid)
+      second
+      handler-key))
 
-;; ---- tests --------------------------------------------------------------
+(defn- await-close
+  "A promise settling once the queued close has reduced `:rf/xray`'s db;
+  it then checks the dispatch did not land on `:rf/default`."
+  [label]
+  (-> (rf.test-support/poll-until
+        #(false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
+        {:label label :timeout-ms 1000})
+      (.then (fn [_]
+               (is (nil? (:settings-open? (rf/app-db-value :rf/default)))
+                   ":rf/default's db is NOT polluted by the dispatch")))
+      (.catch (fn [e] (is false (.-message e)) nil))))
 
 (deftest x-button-click-closes-modal-from-default-frame-context
-  (testing "clicking the ✕ button from OUTSIDE the
-            :rf/xray frame-provider's render context still flips
-            :rf/xray's :settings-open? to false. Without the explicit
-            `{:frame :rf/xray}` opt on the dispatch, the click would
-            reduce the fixture's ambient :rf/default db instead (and
-            raise in the browser, which has no ambient scope), and the
-            modal would stay open."
-    (let [rendered  (render-open-modal)
-          close-btn (rf.test-helpers/find-by-testid rendered "rf-xray-settings-close")
-          handler   (on-click close-btn)]
-      (is (some? handler) "close button exposes an :on-click handler")
-      (handler (fake-event)) ; outside any with-frame — same as a browser click
-      (async done
-        (-> (await-xray-db #(false? (boolean (:settings-open? %)))
-                            "settings-open? flips false after X click")
-            (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
-                         ":rf/xray's :settings-open? flips to false")
-                     (is (nil? (:settings-open? (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the dispatch")))
-            (.catch (fn [e] (is false (.-message e)) nil))
-            (.then (fn [_] (done))))))))
+  ((open-modal-handler "rf-xray-settings-close" :on-click) (fake-event))
+  (async done
+    (.then (await-close "settings-open? flips false after X click")
+           (fn [_] (done)))))
 
 (deftest backdrop-click-closes-modal-from-default-frame-context
-  (testing "clicking the backdrop from OUTSIDE the
-            :rf/xray frame-provider's render context still closes the
-            modal."
-    (let [rendered (render-open-modal)
-          backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-settings-backdrop")
-          handler  (on-click backdrop)]
-      (is (some? handler) "backdrop exposes an :on-click handler")
-      (handler (fake-event))
-      (async done
-        (-> (await-xray-db #(false? (boolean (:settings-open? %)))
-                            "settings-open? flips false after backdrop click")
-            (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
-                         ":rf/xray's :settings-open? flips to false")))
-            (.catch (fn [e] (is false (.-message e)) nil))
-            (.then (fn [_] (done))))))))
+  ((open-modal-handler "rf-xray-settings-backdrop" :on-click) (fake-event))
+  (async done
+    (.then (await-close "settings-open? flips false after backdrop click")
+           (fn [_] (done)))))
 
 (deftest esc-keydown-closes-modal-from-default-frame-context
-  (testing "Esc keydown from OUTSIDE the :rf/xray frame-
-            provider's render context still closes the modal."
-    (let [rendered (render-open-modal)
-          dialog   (rf.test-helpers/find-by-testid rendered "rf-xray-settings-dialog")
-          handler  (on-key-down dialog)]
-      (is (some? handler) "dialog exposes an :on-key-down handler")
-      (handler (fake-key-event "Escape"))
-      (async done
-        (-> (await-xray-db #(false? (boolean (:settings-open? %)))
-                            "settings-open? flips false after Esc")
-            (.then (fn [_]
-                     (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
-                         ":rf/xray's :settings-open? flips to false")))
-            (.catch (fn [e] (is false (.-message e)) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest tab-click-switches-section-from-default-frame-context
-  (testing "clicking a tab button from OUTSIDE the
-            :rf/xray frame-provider's render context still updates
-            :rf/xray's :settings-active-tab. Without the explicit
-            frame opt, every tab click would reduce the fixture's
-            ambient :rf/default db instead (and raise in the browser),
-            so the popup would stay frozen on the :general default.
-
-            Targets the Buffer tab (the routing assertion is
-            independent of which tab is clicked as long as it differs
-            from the default :general)."
-    (let [rendered (render-open-modal)
-          tab-node (rf.test-helpers/find-by-testid rendered "rf-xray-settings-tab-buffer")
-          handler  (on-click tab-node)]
-      (is (some? handler) "buffer tab exposes an :on-click handler")
-      (handler (fake-event))
-      (async done
-        (-> (await-xray-db #(= :buffer (:settings-active-tab %))
-                            "active-tab flips :buffer after click")
-            (.then (fn [_]
-                     (is (= :buffer (:settings-active-tab (rf/app-db-value :rf/xray)))
-                         "tab click flips :settings-active-tab to :buffer")
-                     (is (nil? (:settings-active-tab (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the tab dispatch")))
-            (.catch (fn [e] (is false (.-message e)) nil))
-            (.then (fn [_] (done))))))))
+  ((open-modal-handler "rf-xray-settings-dialog" :on-key-down) (fake-key-event "Escape"))
+  (async done
+    (.then (await-close "settings-open? flips false after Esc")
+           (fn [_] (done)))))
