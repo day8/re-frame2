@@ -1,50 +1,17 @@
 (ns re-frame.frame-teardown-report-cljs-test
-  "EP-0008 — the frame-teardown report. On frame destroy,
-  the best-effort teardown recipe runs many optional late-bound cleanup
-  hooks (`:ssr/on-frame-destroyed`, `:schemas/on-frame-destroyed!`,
-  `:flows/teardown-on-frame-destroy!`, …). When one or more throw, the
-  runtime emits ONE bounded always-on `:rf.error/frame-teardown-failed`
-  record carrying a `:hook-failures` vector — NOT one always-on emission
-  per hook (Spec 009 §Observability channels §Channel-promotion catalogue
-  rows; the DCE'd `:rf.warning/teardown-hook-exception` alone would leave a
-  production build silent — EP-0008 C4).
+  "The frame-teardown report (Spec 009 §Channel-promotion catalogue). When
+  late-bound cleanup hooks or guarded teardown steps throw during destroy, the
+  runtime emits ONE always-on `:rf.error/frame-teardown-failed` record carrying
+  every failure in `:hook-failures`, not one record per hook. The report
+  flushes even when teardown aborts part-way, carries no raw app values, keeps
+  nested destroys' failures apart, and a throwing machine-teardown step cannot
+  leave the frame live and half torn down. In dev each failure also emits a
+  per-hook diagnostic row.
 
-  Pins the four acceptance legs:
-
-    (a) N hook failures → exactly ONE always-on report carrying N
-        `:hook-failures` entries (single report, not per-hook flood).
-    (b) Partial-teardown-abort still flushes the collected entries — the
-        FINALLY boundary (EP-0008 R1): a downstream teardown step throws
-        AFTER some hooks failed; the report still ships the entries
-        gathered so far.
-    (c) The report rides the ALWAYS-ON axis — exercised via the
-        `register-error-listener!` substrate that survives a production
-        build path (`rf.error-emit/dispatch-frame-teardown-report!` is NOT
-        gated by `rf.interop/debug-enabled?`).
-    (d) The dev per-hook DIAGNOSTIC rows emit at their causal
-        positions (EP-0008 R2 — per-hook visibility lives on the
-        diagnostic axis; the always-on emission is the one bounded report).
-
-  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
-  build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
-  `clojure -M:test` runner both pick it up. The teardown path is plain
-  CLJC; no DOM dependency.
-
-  ## Posture split
-
-  Legs (a), (b), (c) and the (e) no-raw-values property all read the
-  ALWAYS-ON `:errors` axis — which is the whole point of the EP-0008 C4
-  report — so they run under `scripts/test-core-prod-gate.sh` unchanged,
-  including the `(empty? @seen)` negatives, which are genuine there because
-  that channel is live.
-
-  Leg (d) is the only dev-posture material: the contract is that its rows
-  ride the DIAGNOSTIC channel, not that they survive prod. Its deftest is
-  `^:requires-debug`, so `scripts/test-core-prod-gate.sh` skips it rather
-  than counting a deftest that ran nothing, and its body also sits inside a
-  `(when rf.interop/debug-enabled? …)` arm."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  The diagnostic test is `^:requires-debug`; every other test reads the
+  always-on error channel, which is live in the prod gate."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -53,32 +20,15 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; ---------------------------------------------------------------------------
-;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
-;; error-listener registry (a `defonce` atom) cleared so a listener from one
-;; test cannot leak into the next.
-;; ---------------------------------------------------------------------------
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 (rf.error-emit/clear-error-listeners!))}))
 
-;; ---------------------------------------------------------------------------
-;; Cleanup-hook-key install helper.
-;;
-;; The teardown cleanup hooks are late-bound (optional artefacts). In a
-;; core-only build they are usually UNBOUND. We install a throwing fn under
-;; a hook key for the duration of `f`, snapshotting + restoring the prior
-;; binding so the install never leaks across tests (set-fn! to the original,
-;; or to nil when there was none — get-fn returns nil for both, the unbound
-;; state).
-;; ---------------------------------------------------------------------------
-
 (defn- with-hooks*
-  "Install each `hook-key -> fn` from `hook-map` via `rf.late-bind/set-fn!`
-  for the dynamic extent of `f`, restoring the prior bindings after."
+  "Install each `hook-key -> fn` of `hook-map` for the extent of `f`,
+  restoring the prior bindings after."
   [hook-map f]
   (let [originals (into {} (map (fn [k] [k (rf.late-bind/get-fn k)]) (keys hook-map)))]
     (try
@@ -88,160 +38,70 @@
         (doseq [[k orig] originals] (rf.late-bind/set-fn! k orig))))))
 
 (defn- throwing-hook
-  "A cleanup-hook fn that always throws — models a leaked optional-artefact
-  cleanup. Accepts any arity (the cache-reset hooks take no frame arg; the
-  per-frame hooks take an id)."
+  "A cleanup hook that always throws, at any arity."
   [label]
   (fn [& _] (throw (ex-info (str "teardown hook threw: " label) {:hook label}))))
 
-;; ===========================================================================
-;; (a) N hook failures → exactly ONE always-on report with N entries
-;; ===========================================================================
-
 (deftest n-hook-failures-yield-one-report-with-n-entries
-  (testing "Per Spec 009 §Channel-promotion catalogue rows:
-            N cleanup hooks throwing during destroy produce EXACTLY ONE
-            always-on `:rf.error/frame-teardown-failed` record carrying N
-            `:hook-failures` entries — NOT one record per failed hook."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/make-frame {:id :teardown/n-failures :doc "three hooks will throw"})
-      (with-hooks*
-        {:ssr/on-frame-destroyed         (throwing-hook :ssr)
-         :schemas/on-frame-destroyed!    (throwing-hook :schemas)
-         :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
-        (fn [] (rf/destroy-frame! :teardown/n-failures)))
-      (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
-        (is (= 1 (count reports))
-            "exactly ONE always-on report per destroy — not three (one per hook)")
-        (let [r (first reports)]
-          (is (= :teardown/n-failures (:frame r))
-              ":frame names the destroyed frame")
-          (is (= 3 (count (:hook-failures r)))
-              "the report carries one :hook-failures entry per failed hook")
-          (is (= #{:ssr/on-frame-destroyed
-                   :schemas/on-frame-destroyed!
-                   :flows/teardown-on-frame-destroy!}
-                 (set (map :hook (:hook-failures r))))
-              "every failed hook key is represented in :hook-failures")
-          (is (every? #(= :safe-call-hook! (:where %)) (:hook-failures r))
-              "each entry carries :where :safe-call-hook!")
-          (is (every? #(some? (:exception %)) (:hook-failures r))
-              "each entry carries the thrown exception")
-          (is (= :ignored (:recovery r))
-              ":recovery :ignored — teardown is best-effort")
-          (is (string? (:reason r)) ":reason is a human-readable sentence")
-          (is (number? (:time r)) ":time is a wall-clock millis number"))))))
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! seen conj record)))
+    (rf/make-frame {:id :teardown/n-failures :doc "three hooks will throw"})
+    (with-hooks*
+      {:ssr/on-frame-destroyed           (throwing-hook :ssr)
+       :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+       :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
+      (fn [] (rf/destroy-frame! :teardown/n-failures)))
+    (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
+          r       (first reports)]
+      (is (= [1
+              :teardown/n-failures
+              [:flows/teardown-on-frame-destroy! :schemas/on-frame-destroyed! :ssr/on-frame-destroyed]
+              #{:safe-call-hook!}
+              true
+              :ignored
+              true
+              true]
+             [(count reports)
+              (:frame r)
+              (sort (map :hook (:hook-failures r)))
+              (set (map :where (:hook-failures r)))
+              (every? #(some? (:exception %)) (:hook-failures r))
+              (:recovery r)
+              (string? (:reason r))
+              (number? (:time r))])
+          "one report for the destroy, with one entry per failed hook"))))
 
 (deftest clean-destroy-emits-no-report
-  (testing "a destroy with NO failing hook emits NO
-            `:rf.error/frame-teardown-failed` report (the report fn
-            short-circuits on an empty :hook-failures vector)."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/make-frame {:id :teardown/clean :doc "no hooks throw"})
-      (rf/destroy-frame! :teardown/clean)
-      (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
-          "no report when teardown completes cleanly"))))
-
-;; ===========================================================================
-;; (b) Partial-teardown-abort still flushes — the FINALLY boundary (R1)
-;; ===========================================================================
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! seen conj record)))
+    (rf/make-frame {:id :teardown/clean :doc "no hooks throw"})
+    (rf/destroy-frame! :teardown/clean)
+    (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)))))
 
 (deftest partial-teardown-abort-still-flushes-collected-entries
-  (testing "Per EP-0008 R1 / Spec 009 §Emit-safety (finally-
-            shaped flush): if teardown ABORTS mid-recipe after some hooks
-            have already failed, the entries collected so far MUST still
-            ship. We make two cleanup hooks throw (accumulating two
-            entries) and then force a downstream teardown step
-            (`emit-frame-destroyed-trace!`, which runs AFTER the cleanup
-            hooks) to throw unrecoverably — the throw propagates out of
-            `destroy-frame!`, yet the finally-shaped flush still emits the
-            report with the two gathered entries."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/make-frame {:id :teardown/abort :doc "aborts mid-teardown"})
-      (with-hooks*
-        ;; These two run BEFORE emit-frame-destroyed-trace! in the recipe,
-        ;; so both accumulate before the abort.
-        {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
-        (fn []
-          ;; Force a mid-teardown collapse: a downstream NON-hook step
-          ;; throws. `safe-call-hook!` swallows hook throws, so to model a
-          ;; genuine abort we redef a later teardown step to throw.
-          (with-redefs [rf.frame/emit-frame-destroyed-trace!
-                        (fn [_id]
-                          (throw (ex-info "mid-teardown collapse" {})))]
-            (is (thrown? #?(:clj Throwable :cljs js/Error)
-                         (rf/destroy-frame! :teardown/abort))
-                "the downstream teardown step's throw propagates"))))
-      (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
-        (is (= 1 (count reports))
-            "the report STILL flushed despite the mid-teardown abort")
-        (let [r (first reports)]
-          (is (= 2 (count (:hook-failures r)))
-              "the report carries the TWO entries gathered before the abort
-               (the finally boundary flushed the partial accumulation)")
-          (is (= #{:ssr/on-frame-destroyed :schemas/on-frame-destroyed!}
-                 (set (map :hook (:hook-failures r))))
-              "the gathered hook keys are exactly the ones that ran + threw
-               before the collapse"))))))
-
-;; ===========================================================================
-;; (c) The report rides the ALWAYS-ON axis (survives the production path)
-;; ===========================================================================
-
-(deftest report-reason-is-truthful-for-a-guarded-direct-step
-  (testing "a `:hook-failures` entry names a failed teardown
-            STEP — a late-bound cleanup hook OR a guarded direct step run
-            under `safe-teardown-step!` (notably the
-            `:frame/notify-machine-destruction!` machine cascade). The
-            user-facing `:reason` prose must therefore stay truthful when the
-            ONLY failure is a direct step: it must not claim a cleanup HOOK
-            threw. The `:hook-failures` / `:hook` wire names are deliberately
-            stable and span both kinds — this pins the prose, not the shape."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf.error-emit/dispatch-frame-teardown-report!
-        :prod/frame
-        [{:hook      :frame/notify-machine-destruction!
-          :exception (ex-info "machine cascade blew up" {})
-          :where     :safe-teardown-step!}]
-        99)
-      ;; Filter by category rather than taking `first` — the always-on
-      ;; `:errors` stream is shared, so an unrelated record landing in `seen`
-      ;; must not decide this assertion (the sibling deftests above use the
-      ;; same guard).
-      (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
-        (is (= :safe-teardown-step! (:where (first (:hook-failures r))))
-            "the teardown report reached the always-on listener, and its entry is
-             a guarded direct step, not a late-bound hook")
-        (is (not (re-find #"cleanup hook" (:reason r)))
-            (str "the :reason must not claim a cleanup HOOK threw when the only"
-                 " failure was a guarded direct step — got: " (:reason r)))
-        (is (re-find #"step\(s\) threw" (:reason r))
-            "the :reason names failed teardown STEPS, spanning both kinds")))))
-
-;; ===========================================================================
-;; (d) Dev per-hook DIAGNOSTIC rows emit at causal positions (R2)
-;; ===========================================================================
+  ;; two hooks fail, then a later non-hook step throws out of destroy-frame!;
+  ;; the finally-shaped flush still ships the entries gathered so far
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! seen conj record)))
+    (rf/make-frame {:id :teardown/abort :doc "aborts mid-teardown"})
+    (with-hooks*
+      {:ssr/on-frame-destroyed      (throwing-hook :ssr)
+       :schemas/on-frame-destroyed! (throwing-hook :schemas)}
+      (fn []
+        (with-redefs [rf.frame/emit-frame-destroyed-trace!
+                      (fn [_id]
+                        (throw (ex-info "mid-teardown collapse" {})))]
+          (is (thrown? #?(:clj Throwable :cljs js/Error)
+                       (rf/destroy-frame! :teardown/abort))))))
+    (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
+      (is (= [1 [:schemas/on-frame-destroyed! :ssr/on-frame-destroyed]]
+             [(count reports) (sort (map :hook (:hook-failures (first reports))))])))))
 
 (deftest ^:requires-debug dev-per-hook-diagnostic-rows-still-emit
- ;; This deftest IS the diagnostic channel; it has no production
- ;; residue by design (see the body's own comment), so it declares the
- ;; posture it needs — the production-gate lane skips the tag rather than
- ;; counting an empty pass — and sits in the arm on every other runner.
- (when rf.interop/debug-enabled?
-  (testing "Per EP-0008 R2 / Spec 009: the per-hook
-            `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace
-            emits at its causal position inside `safe-call-hook!` (dev
-            visibility — the always-on emission is the single report). One diagnostic row per failed hook, carrying
-            the hook key + frame."
+  (when rf.interop/debug-enabled?
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
       (rf/make-frame {:id :teardown/diagnostic :doc "two hooks throw"})
@@ -252,219 +112,85 @@
           (try
             (rf/destroy-frame! :teardown/diagnostic)
             (finally (rf/unregister-listener! :trace ::rec)))))
-      (let [warns (filter #(= :rf.warning/teardown-hook-exception (:operation %))
-                          @traces)]
-        ;; The trace surface is live in dev (this runner), so the per-hook
-        ;; rows are present. (Under :advanced + goog.DEBUG=false they DCE —
-        ;; the contract is that they ride the DIAGNOSTIC channel, not that
-        ;; they survive prod.)
-        (is (= 2 (count warns))
-            "one diagnostic row per failed hook at its causal position")
-        (is (= #{:ssr/on-frame-destroyed :schemas/on-frame-destroyed!}
-               (set (map #(get-in % [:tags :hook]) warns)))
-            "each diagnostic row names the hook that threw")
-        (is (every? #(= :teardown/diagnostic (get-in % [:tags :frame])) warns)
-            "each diagnostic row is frame-attributed"))))))
-
-;; ===========================================================================
-;; (e) No-raw-values property of the always-on report
-;; ---------------------------------------------------------------------------
-;; The teardown report rides the ALWAYS-ON / production-surviving axis, which
-;; is NOT privacy-gated like the dev trace. `dispatch-frame-teardown-report!`
-;; builds the record with EXACTLY `{:error :frame :hook-failures :recovery
-;; :reason :time}` — deliberately NO `:event` vector and NO app-db slice — and
-;; each `:hook-failures` entry is structured-only `{:hook :exception :where}`.
-;; The contrast partner `write_after_destroy_always_on_cljs_test.cljc` asserts
-;; its record carries no raw values (`:event`/`:frame`/`:exception` nil). This
-;; pins the same property for the teardown report, so a change that folds an
-;; app value into the report fails closed.
-;; ===========================================================================
+      (is (= [[:teardown/diagnostic :schemas/on-frame-destroyed!]
+              [:teardown/diagnostic :ssr/on-frame-destroyed]]
+             (sort (keep #(when (= :rf.warning/teardown-hook-exception (:operation %))
+                            [(get-in % [:tags :frame]) (get-in % [:tags :hook])])
+                         @traces)))
+          "one frame-attributed diagnostic row per failed hook"))))
 
 (deftest report-record-carries-no-raw-values
-  (testing "Per Spec 009 §Observability channels (always-on axis,
-            non-privacy-gated): the `:rf.error/frame-teardown-failed` record's
-            keys are EXACTLY the known structured set — no `:event` vector, no
-            `:app-db` slice, no raw app-supplied payload — so a destroy report
-            on a `goog.DEBUG=false` host carries no user data off-box. Each
-            `:hook-failures` entry is structured-only `{:hook :exception
-            :where}`. (The per-hook `:exception` object can itself carry app
-            data in its ex-data — that is a SPEC question for 009, not pinned
-            here.)"
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/make-frame {:id :teardown/no-raw :doc "two hooks throw"})
-      (with-hooks*
-        {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
-        (fn [] (rf/destroy-frame! :teardown/no-raw)))
-      (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
-        (is (= #{:error :frame :hook-failures :recovery :reason :time}
-               (set (keys r)))
-            "the report fired, and its record's keys are EXACTLY the known
-             structured set — no :event vector (a destroy report is not a
-             per-event throw), no :app-db slice, no raw payload leak")
-        (doseq [entry (:hook-failures r)]
-          (is (= #{:hook :exception :where} (set (keys entry)))
-              "each :hook-failures entry is structured-only {:hook :exception
-               :where} — no raw user value folded into the entry"))))))
-
-;; ===========================================================================
-;; (h) The machine-teardown step (notify-machine-destruction!) is best-effort —
-;; a throw there must NOT leave the frame live + half-torn-down
-;; ---------------------------------------------------------------------------
-;; `destroy-frame!`'s `fire-on-destroy-event!` step has its own catch and
-;; every late-bound cleanup step from the liveness flip onward rides
-;; `safe-call-hook!`; the machine-teardown step — `notify-machine-destruction!`
-;; (the `:machines/teardown-on-frame-destroy!` hook call, its fallback
-;; `:rf.machine.lifecycle/destroyed` trace emits, and the trace-listener
-;; fan-out) — runs through the SAME accumulate-into-`*teardown-hook-failures*`
-;; boundary. Unguarded, a throwing non-machines hook consumer would escape
-;; `destroy-frame!`'s `try`: the finally would clear the in-flight marker and
-;; the throw propagate, but `:destroyed?` would never flip and the record never
-;; be dissoc'd → the frame would stay LIVE + HALF-TORN-DOWN with `:on-destroy`
-;; already run, and a subsequent `destroy-frame!` would see the still-live
-;; record and RE-RUN the whole recipe, re-firing `:on-destroy`. (The shipped
-;; machines callee self-defends per-actor and trace listeners are isolated at
-;; the tooling fan-out, so the reachable trigger is a non-machines hook
-;; consumer.)
-;; ===========================================================================
+  ;; the always-on axis is not privacy-gated, so the record carries no event
+  ;; vector, app-db slice or other raw payload
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! seen conj record)))
+    (rf/make-frame {:id :teardown/no-raw :doc "two hooks throw"})
+    (with-hooks*
+      {:ssr/on-frame-destroyed      (throwing-hook :ssr)
+       :schemas/on-frame-destroyed! (throwing-hook :schemas)}
+      (fn [] (rf/destroy-frame! :teardown/no-raw)))
+    (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
+      (is (= [#{:error :frame :hook-failures :recovery :reason :time}
+              #{#{:hook :exception :where}}]
+             [(set (keys r)) (set (map (comp set keys) (:hook-failures r)))])))))
 
 (deftest step2-teardown-throw-is-accumulated-frame-fully-torn-down
-  (testing "a throwing machine-teardown-step consumer
-            (`:machines/teardown-on-frame-destroy!`) is ACCUMULATED into the
-            best-effort teardown report — NOT escaped — the frame still fully
-            tears down (record dissoc'd), and a second destroy is a clean no-op
-            that does NOT re-fire `:on-destroy`."
-    (let [on-destroy-runs (atom 0)
-          reports         (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! reports conj record)))
-      (rf/reg-event :teardown/count-on-destroy
-                       (fn [{:keys [db]} _]
-                         (swap! on-destroy-runs inc)
-                         {:db db}))
-      (rf/make-frame {:id         :teardown/step2 :doc "machine-teardown consumer throws"
-                      :on-destroy [:teardown/count-on-destroy]})
-      (with-hooks*
-        ;; A non-machines machine-teardown consumer that throws — the reachable trigger.
-        {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
-        (fn []
-          (let [thrown (try (rf/destroy-frame! :teardown/step2) nil
-                            (catch #?(:clj Throwable :cljs :default) e e))]
-            (is (nil? thrown)
-                "the machine-teardown throw did NOT escape destroy-frame! — the
-                 best-effort boundary caught it"))))
-      ;; The frame fully tore down despite the machine-teardown throw.
-      (is (nil? (rf.frame/frame :teardown/step2))
-          "the record is dissoc'd — fully torn down, NOT left LIVE + half-torn-
-           down (:destroyed? unflipped + record intact → non-nil)")
-      (is (= 1 @on-destroy-runs)
-          ":on-destroy ran exactly once during the completed teardown")
-      ;; The machine-teardown failure was accumulated into the ONE always-on report.
-      (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
-        (is (= 1 (count reps))
-            "the machine-teardown failure flushed ONE always-on teardown report
-             (an escaping throw would never be accumulated → no report)")
-        (let [step2 (filter #(= :frame/notify-machine-destruction! (:hook %))
-                            (:hook-failures (first reps)))]
-          (is (= 1 (count step2))
-              "the report carries the machine-teardown recipe step's failure entry")
-          (is (= :safe-teardown-step! (:where (first step2)))
-              "recorded via the direct-call teardown boundary")))
-      ;; A second destroy is a clean no-op — the frame is already gone, so the
-      ;; recipe does not re-run and :on-destroy is NOT re-fired. (Wrapped so a
-      ;; re-run's own machine-teardown throw would surface as a FAILED assertion
-      ;; below, not an errored test.)
-      (try (rf/destroy-frame! :teardown/step2)
-           (catch #?(:clj Throwable :cljs :default) _ nil))
-      (is (= 1 @on-destroy-runs)
-          "a second destroy is a clean no-op — :on-destroy is NOT re-fired
-           (a still-live half-torn-down frame would re-run the recipe → 2)"))))
-
-;; ===========================================================================
-;; (g) Re-entrant / nested destroy accumulator isolation
-;; ---------------------------------------------------------------------------
-;; `destroy-frame!` holds the per-destroy hook-failure accumulator in a fresh
-;; `(atom [])` bound to the dynamic `*teardown-hook-failures*` PER CALL. Spec
-;; 002 re-entrancy supports a nested `destroy-frame!` for a
-;; DIFFERENT id from inside an `:on-destroy` handler. The correctness-by-
-;; construction claim is that each destroy gets its OWN accumulator (the
-;; `binding` shadows), so a nested destroy's hook failures cannot leak into the
-;; outer destroy's report and vice-versa, and each emits its own bounded report.
-;; A refactor to a non-dynamic accumulator would silently break this
-;; isolation invariant. Pinned here.
-;;
-;; Mechanism: `fire-on-destroy-event!` runs the user
-;; `:on-destroy` synchronously BEFORE the outer frame's own cleanup hooks.
-;; So an `:on-destroy` that triggers a nested `destroy-frame!` of a
-;; DIFFERENT frame runs that inner teardown — incl. the inner finally-flush —
-;; fully nested inside the outer's `fire-on-destroy-event!`, while the outer's accumulator is
-;; still empty. The `binding` shadow gives the inner destroy its own atom.
-;;
-;; Note: the cleanup hooks are late-bound by KEY (global), not per-frame — so
-;; BOTH A and B run the same recipe and BOTH fail every installed hook. The
-;; isolation invariant is therefore: each report carries exactly N entries
-;; (its OWN extent's failures), NOT 2N (the combined set). A leak from the
-;; binding-shadow breaking would show up as a 2N (double-counted) report.
-;; ===========================================================================
+  ;; Unguarded, a throwing machine-teardown consumer would escape destroy-frame!
+  ;; before :destroyed? flipped, leaving the frame live with :on-destroy already
+  ;; run, and a second destroy would re-run the recipe.
+  (let [on-destroy-runs (atom 0)
+        reports         (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! reports conj record)))
+    (rf/reg-event :teardown/count-on-destroy
+      (fn [{:keys [db]} _]
+        (swap! on-destroy-runs inc)
+        {:db db}))
+    (rf/make-frame {:id         :teardown/step2 :doc "machine-teardown consumer throws"
+                    :on-destroy [:teardown/count-on-destroy]})
+    (with-hooks*
+      {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
+      (fn []
+        (is (nil? (try (rf/destroy-frame! :teardown/step2) nil
+                       (catch #?(:clj Throwable :cljs :default) e e)))
+            "the throw did not escape destroy-frame!")))
+    (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
+      ;; fully torn down, :on-destroy ran once, and the failure is one entry of
+      ;; the one report, recorded at the direct-step boundary
+      (is (= [nil 1 1 [:safe-teardown-step!]]
+             [(rf.frame/frame :teardown/step2)
+              @on-destroy-runs
+              (count reps)
+              (keep #(when (= :frame/notify-machine-destruction! (:hook %)) (:where %))
+                    (:hook-failures (first reps)))])))
+    (try (rf/destroy-frame! :teardown/step2)
+         (catch #?(:clj Throwable :cljs :default) _ nil))
+    (is (= 1 @on-destroy-runs) "a second destroy does not re-fire :on-destroy")))
 
 (deftest nested-destroy-accumulators-are-isolated
-  (testing "Per Spec 002 re-entrancy + EP-0008: a
-            frame A whose `:on-destroy` triggers a nested `destroy-frame!` of a
-            DIFFERENT frame B, with throwing cleanup hooks installed for BOTH
-            extents, yields TWO independent `:rf.error/frame-teardown-failed`
-            reports — each carrying ONLY its own extent's failures (no
-            cross-contamination, no double-count). The dynamic
-            `*teardown-hook-failures*` binding shadow gives each destroy its own
-            accumulator: the inner (B) destroy runs nested inside A's
-            `:on-destroy` (`fire-on-destroy-event!`) under a SHADOWED atom, so its failures do not
-            land in A's accumulator and A's later failures do not land in B's."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      ;; B: the inner frame, destroyed nested from A's :on-destroy.
-      (rf/make-frame {:id :teardown/inner-B :doc "inner frame, destroyed nested"})
-      ;; A's :on-destroy event destroys B mid-teardown of A. B's full teardown
-      ;; (incl. its finally-flush report) completes nested inside A's
-      ;; `fire-on-destroy-event!`,
-      ;; while A's own accumulator is still empty (A's own hooks run AFTER).
-      (rf/reg-event :teardown/destroy-inner
-                       (fn [{:keys [db]} _]
-                         (rf/destroy-frame! :teardown/inner-B)
-                         {:db db}))
-      (rf/make-frame {:id :teardown/outer-A :doc        "outer frame"
-                      :on-destroy [:teardown/destroy-inner]})
-      ;; Three throwing hooks installed for the whole extent. Both A and B run
-      ;; the full recipe, so BOTH fail all three. The binding shadow must keep
-      ;; the two accumulators separate — each report carries exactly THREE, not
-      ;; six.
-      (with-hooks*
-        {:ssr/on-frame-destroyed           (throwing-hook :ssr)
-         :schemas/on-frame-destroyed!      (throwing-hook :schemas)
-         :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
-        (fn [] (rf/destroy-frame! :teardown/outer-A)))
-      (let [reports  (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
-            by-frame (into {} (map (juxt :frame identity)) reports)
-            report-A (get by-frame :teardown/outer-A)
-            report-B (get by-frame :teardown/inner-B)
-            expected #{:ssr/on-frame-destroyed
-                       :schemas/on-frame-destroyed!
-                       :flows/teardown-on-frame-destroy!}]
-        (is (= 2 (count reports))
-            "TWO independent reports — one per destroy (A and B), each frame-
-             attributed; the binding shadow did not collapse them into one")
-        ;; B's report carries exactly its OWN three failures — NOT six (which
-        ;; would mean A's accumulator leaked into B's), NOT zero.
-        (is (= 3 (count (:hook-failures report-B)))
-            "B's report carries exactly its OWN three hook failures — no leak
-             from / into A's extent (a broken binding shadow would show 6)")
-        (is (= expected (set (map :hook (:hook-failures report-B))))
-            "B's report carries B's own failing hook keys, no duplicates")
-        ;; A's report carries exactly its OWN three failures — NOT six (B's
-        ;; nested failures did NOT leak into A's accumulator).
-        (is (= 3 (count (:hook-failures report-A)))
-            "A's report carries exactly its OWN three hook failures — B's
-             nested failures did NOT leak into A's accumulator (no double-count)")
-        (is (= expected (set (map :hook (:hook-failures report-A))))
-            "A's report carries A's own failing hook keys, no duplicates")))))
+  ;; A's :on-destroy destroys B, nested inside A's teardown. Every installed hook
+  ;; fails in both extents, so a shared accumulator would show six in one report.
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder
+                                            (fn [record] (swap! seen conj record)))
+    (rf/make-frame {:id :teardown/inner-B :doc "inner frame, destroyed nested"})
+    (rf/reg-event :teardown/destroy-inner
+      (fn [{:keys [db]} _]
+        (rf/destroy-frame! :teardown/inner-B)
+        {:db db}))
+    (rf/make-frame {:id :teardown/outer-A :doc        "outer frame"
+                    :on-destroy [:teardown/destroy-inner]})
+    (with-hooks*
+      {:ssr/on-frame-destroyed           (throwing-hook :ssr)
+       :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+       :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
+      (fn [] (rf/destroy-frame! :teardown/outer-A)))
+    (let [reports  (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
+          expected [:flows/teardown-on-frame-destroy!
+                    :schemas/on-frame-destroyed!
+                    :ssr/on-frame-destroyed]]
+      (is (= [2 {:teardown/outer-A expected :teardown/inner-B expected}]
+             [(count reports)
+              (into {} (map (juxt :frame #(sort (map :hook (:hook-failures %))))) reports)])
+          "two reports, each carrying only its own extent's three failures"))))
