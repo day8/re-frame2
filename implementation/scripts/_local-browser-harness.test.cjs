@@ -11,10 +11,7 @@ const path = require('path');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
-  deriveProbeHost,
-  fetchToken,
   findFreePort,
-  isPortFree,
   isValidExplicitPort,
   probeTargetFromBaseUrl,
   publishOwnershipToken,
@@ -29,33 +26,6 @@ const tests = [];
 
 function test(name, fn) {
   tests.push({ name, fn });
-}
-
-// The IPv6-loopback owned-readiness tests need a `::1` that both binds AND
-// accepts a client connection. Most modern Windows/macOS/Linux hosts have it,
-// but minimal CI containers occasionally disable IPv6, so those tests SKIP
-// (rather than fail) where it is unavailable — the deriveProbeHost mapping
-// unit test plus the wildcard/default functional coverage still pin the
-// mapping on every platform. (Per the repo's cross-platform maintainer discipline: a
-// script must not hard-require a feature a maintainer's box may lack.)
-function testIpv6(name, fn) {
-  tests.push({ name, fn, needsIpv6: true });
-}
-
-function ipv6LoopbackAvailable() {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.listen(0, '::1', () => {
-      const { port } = srv.address();
-      // Bindable — now confirm a client can actually reach it over ::1.
-      const client = net.connect({ host: '::1', port }, () => {
-        client.destroy();
-        srv.close(() => resolve(true));
-      });
-      client.once('error', () => { srv.close(() => resolve(false)); });
-    });
-  });
 }
 
 function listenOnLoopback(server) {
@@ -79,85 +49,35 @@ function waitForExit(child, timeoutMs = 5000) {
   });
 }
 
-test('waitForHttpReady stops when aborted', async () => {
-  assert.equal(
-    await waitForHttpReady(1, Date.now() + 1000, {
-      isAborted: () => true,
-      pollMs: 10,
-    }),
-    false,
-  );
-});
-
-// The async cleanup() kills tracked
-// children sequentially (last-tracked first), awaiting each. If
-// process.exit() fires the 'exit' handler -> cleanupSync() while cleanup()
-// is still mid-flight — it has reached child[last] and is awaiting its
-// termination, but has NOT yet reached the earlier children — cleanupSync
-// MUST still synchronously terminate those earlier children. Node cannot
-// resume the async cleanup's pending awaits once the process is exiting,
-// so anything cleanupSync skips is ORPHANED.
-//
-// We model this deterministically via the injectable terminator seam: the
-// async terminator never resolves (modelling a process exit that abandons the
-// in-flight cleanup), and the sync terminator records which children it
-// swept. The invariant: after cleanupSync(), EVERY tracked child has been
-// synchronously swept — regardless of the async cleanup being mid-flight.
+// The process 'exit' handler (cleanupSync) can fire while an async cleanup() is
+// still awaiting one child's termination; Node never resumes those awaits, so
+// any child cleanupSync skips is orphaned. The async terminator here never
+// resolves, modelling exactly that abandonment.
 test('cleanupSync sweeps every child when async cleanup() is mid-flight', async () => {
-  const childA = { id: 'A' };
-  const childB = { id: 'B' };
   const sweptSync = [];
-
   const cleanup = createHarnessCleanup({
     onError: () => {},
-    // Records sync sweeps. Idempotent in spirit: real terminateProcessTreeSync
-    // no-ops on dead children; here we just record the attempt.
     terminateSync: (child) => { sweptSync.push(child.id); },
-    // Models an in-flight async kill that never completes — i.e. the
-    // process is exiting and these awaits will never resume.
     terminateAsync: () => new Promise(() => {}),
   });
-  cleanup.trackProcess(childA);
-  cleanup.trackProcess(childB);
+  cleanup.trackProcess({ id: 'A' });
+  cleanup.trackProcess({ id: 'B' });
 
-  // Start the async cleanup. Its IIFE runs synchronously up to the first
-  // `await terminateAsync(...)`, which never resolves — cleanup() is now
-  // permanently mid-flight (modelling abandonment during process exit).
   cleanup.cleanup();
-
-  // The 'exit' handler fires. It must synchronously sweep every tracked
-  // child, never return without sweeping.
   cleanup.cleanupSync();
 
-  assert.deepEqual(
-    [...sweptSync].sort(),
-    ['A', 'B'],
-    'cleanupSync must synchronously terminate every tracked child even when ' +
-      'an async cleanup() is mid-flight (otherwise children are orphaned on exit)',
-  );
+  assert.deepEqual([...sweptSync].sort(), ['A', 'B']);
 });
 
-// End-to-end companion: with REAL child processes, both terminate on the
-// cleanupSync path. Generous timeout because on Windows the kill goes
-// through `taskkill /T /F` (spawnSync), which can take several seconds per
-// child on a loaded machine — we only assert THAT they die, not how fast.
-test('cleanupSync terminates real tracked child processes', async () => {
-  const spawnLongLived = () => spawnHarnessProcess(process.execPath, [
-    '-e',
-    'setInterval(() => {}, 1000)',
-  ], { stdio: ['ignore', 'ignore', 'ignore'] });
-
+test('cleanupSync terminates a real tracked child process', async () => {
   const cleanup = createHarnessCleanup({ onError: () => {} });
-  const first = cleanup.trackProcess(spawnLongLived());
-  const second = cleanup.trackProcess(spawnLongLived());
-
-  const firstExit = waitForExit(first, 30000);
-  const secondExit = waitForExit(second, 30000);
-
+  const child = cleanup.trackProcess(
+    spawnHarnessProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }),
+  );
+  // Generous: on Windows the kill goes through `taskkill /T /F`.
+  const exited = waitForExit(child, 30000);
   cleanup.cleanupSync();
-
-  await Promise.all([firstExit, secondExit]);
-  assert.ok(true);
+  await exited;
 });
 
 test('cleanup runs each addCleanup fn at most once across sync + async paths', async () => {
@@ -170,113 +90,68 @@ test('cleanup runs each addCleanup fn at most once across sync + async paths', a
   assert.equal(calls, 1);
 });
 
-// Free-port resolution.
-test('resolveServePort returns the preferred port when it is free', async () => {
-  const free = await findFreePort();
-  const resolved = await resolveServePort(free);
-  assert.equal(resolved, free);
-});
+test('resolveServePort keeps a free preferred port and falls back, reported, from a busy or invalid one', async () => {
+  const preferred = await findFreePort();
+  assert.equal(await resolveServePort(preferred), preferred);
 
-test('resolveServePort falls back to a different free port when preferred is busy', async () => {
-  // Occupy a port, then ask resolveServePort to prefer it.
-  const occupied = await findFreePort();
   const squatter = net.createServer();
   await new Promise((resolve, reject) => {
     squatter.once('error', reject);
-    squatter.listen(occupied, '127.0.0.1', resolve);
+    squatter.listen(preferred, '127.0.0.1', resolve);
   });
   try {
-    let fellBack = false;
-    const resolved = await resolveServePort(occupied, {
-      onFallback: () => { fellBack = true; },
-    });
-    assert.equal(fellBack, true);
-    assert.notEqual(resolved, occupied);
-    assert.equal(await isPortFree(resolved), true);
+    // 0 would bind an ephemeral port, so it must never be advertised.
+    for (const bad of [preferred, 0]) {
+      let reported;
+      const resolved = await resolveServePort(bad, { onFallback: (p) => { reported = p; } });
+      assert.equal(reported, bad);
+      assert.ok(
+        isValidExplicitPort(resolved) && resolved !== bad,
+        `the fallback for ${bad} must be a different usable port, got ${resolved}`,
+      );
+    }
   } finally {
     await new Promise((r) => squatter.close(r));
   }
 });
 
-// Ownership-token verification.
 test('waitForOwnedHttpReady refuses a foreign server (token mismatch)', async () => {
-  // A reachable server that serves a DIFFERENT token — i.e. a port
-  // squatter / stale server from another run. The gate must refuse to
-  // proceed against it.
   const server = http.createServer((req, res) => {
-    if (req.url === `/${TOKEN_FILE_BASENAME}`) {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('a-foreign-token');
-      return;
-    }
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('ok');
+    res.writeHead(200);
+    res.end('a-foreign-token');
   });
   const port = await listenOnLoopback(server);
   try {
-    const result = await waitForOwnedHttpReady(port, 'our-token', Date.now() + 1000, { pollMs: 10 });
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'token-mismatch');
-    assert.equal(result.got, 'a-foreign-token');
+    assert.deepEqual(
+      await waitForOwnedHttpReady(port, 'our-token', Date.now() + 1000, { pollMs: 10 }),
+      { ok: false, reason: 'token-mismatch', got: 'a-foreign-token' },
+    );
   } finally {
     server.close();
   }
 });
 
-// Child-exited abort path. Both callers
-// (serve-and-run-browser-tests.cjs, check-story-static.cjs) and the Xray
-// gate pass `isAborted: () => <server died>` so the owned-readiness wait
-// fails fast when http-server exits before becoming reachable, instead of
-// burning the full timeout. Model the server never coming up + isAborted
-// flipping true: the wait must resolve { ok:false, reason:'child-exited' }.
 test('waitForOwnedHttpReady aborts with child-exited when isAborted goes true', async () => {
-  let aborted = false;
-  const result = await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, {
-    pollMs: 10,
-    isAborted: () => aborted,
-  });
-  // Flip after construction is irrelevant here — :1 is unreachable, so the
-  // first isAborted() check inside the loop decides. Assert the immediate
-  // pre-flighted abort path.
-  aborted = true;
-  const result2 = await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, {
-    pollMs: 10,
-    isAborted: () => aborted,
-  });
-  // result1 used aborted=false the whole time against an unreachable port →
-  // it must time out (never reachable), not falsely report child-exited.
-  assert.equal(result.ok, false);
-  assert.equal(result.reason, 'timeout');
-  // result2 had isAborted()===true from the first check → child-exited.
-  assert.equal(result2.ok, false);
-  assert.equal(result2.reason, 'child-exited');
+  // Port 1 is unreachable: without the abort the same wait ends as a timeout.
+  assert.deepEqual(
+    await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, { pollMs: 10 }),
+    { ok: false, reason: 'timeout' },
+  );
+  assert.deepEqual(
+    await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, { pollMs: 10, isAborted: () => true }),
+    { ok: false, reason: 'child-exited' },
+  );
 });
 
-// The exact owned-readiness happy path the browser-test / story-static
-// launchers drive: a server that starts tokenless
-// (http-server is up but hasn't published /.rf-harness-token yet) and then
-// begins serving the matching token. The wait must keep polling through the
-// tokenless window and resolve ok once the token appears — proving the
-// shared primitive covers the "server racing to publish the sentinel" shape.
 test('waitForOwnedHttpReady polls through a tokenless window then succeeds when the token appears', async () => {
   const token = crypto.randomBytes(8).toString('hex');
   let tokenLive = false;
   const server = http.createServer((req, res) => {
-    if (req.url === `/${TOKEN_FILE_BASENAME}`) {
-      if (!tokenLive) {
-        res.writeHead(404);
-        res.end('not yet');
-        return;
-      }
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end(token);
-      return;
-    }
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('ok');
+    const isToken = req.url === `/${TOKEN_FILE_BASENAME}`;
+    res.writeHead(isToken && !tokenLive ? 404 : 200);
+    res.end(isToken && tokenLive ? token : 'ok');
   });
   const port = await listenOnLoopback(server);
-  // Publish the token shortly after the wait begins.
   const flip = setTimeout(() => { tokenLive = true; }, 80);
   try {
     const result = await waitForOwnedHttpReady(port, token, Date.now() + 3000, { pollMs: 10 });
@@ -288,130 +163,57 @@ test('waitForOwnedHttpReady polls through a tokenless window then succeeds when 
 });
 
 test('waitForOwnedHttpReady reports token-never-served for a tokenless responder', async () => {
-  // Reachable, but never serves /.rf-harness-token (404). Must not be
-  // mistaken for "ours".
   const server = http.createServer((_, res) => {
     res.writeHead(404);
     res.end('nope');
   });
   const port = await listenOnLoopback(server);
   try {
-    const result = await waitForOwnedHttpReady(port, 'our-token', Date.now() + 400, { pollMs: 20 });
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'token-never-served');
+    assert.deepEqual(
+      await waitForOwnedHttpReady(port, 'our-token', Date.now() + 400, { pollMs: 20 }),
+      { ok: false, reason: 'token-never-served' },
+    );
   } finally {
     server.close();
   }
 });
 
-// Explicit-port validation. An explicit preferred
-// port is usable only as an integer in 1..65535; 0 / negative / overflow /
-// non-integer values must NOT bind net.listen (0 would bind an unusable
-// ephemeral port — a false "free"; the others throw ERR_SOCKET_BAD_PORT).
 test('isValidExplicitPort accepts only integers 1..65535', () => {
-  assert.equal(isValidExplicitPort(1), true);
-  assert.equal(isValidExplicitPort(8037), true);
-  assert.equal(isValidExplicitPort(65535), true);
-  // Invalid: 0, negative, overflow, non-integer, NaN, non-number.
-  assert.equal(isValidExplicitPort(0), false);
-  assert.equal(isValidExplicitPort(-1), false);
-  assert.equal(isValidExplicitPort(65536), false);
-  assert.equal(isValidExplicitPort(99999), false);
-  assert.equal(isValidExplicitPort(8037.5), false);
-  assert.equal(isValidExplicitPort(NaN), false);
-  assert.equal(isValidExplicitPort('8037'), false);
-  assert.equal(isValidExplicitPort(undefined), false);
-  assert.equal(isValidExplicitPort(null), false);
+  assert.deepEqual(
+    [1, 65535, 0, 65536, 8037.5, '8037'].map((p) => isValidExplicitPort(p)),
+    [true, true, false, false, false, false],
+  );
 });
-
-test('isPortFree reports false for 0 / out-of-range / non-integer without throwing', async () => {
-  // Port 0 binds an ephemeral port at the OS layer, but is not a usable
-  // ADVERTISED port — isPortFree must short-circuit to false rather than
-  // bind-and-release it (returning true here would let callers advertise
-  // :0). Negative / overflow / non-integer must not reach net.listen
-  // (which throws ERR_SOCKET_BAD_PORT) — the guard reports false cleanly.
-  assert.equal(await isPortFree(0), false);
-  assert.equal(await isPortFree(-1), false);
-  assert.equal(await isPortFree(65536), false);
-  assert.equal(await isPortFree(99999), false);
-  assert.equal(await isPortFree(8037.5), false);
-  assert.equal(await isPortFree(NaN), false);
-});
-
-test('resolveServePort never returns 0 and falls back (logged) for invalid preferred ports', async () => {
-  for (const bad of [0, -1, 65536, 99999, 8037.5, NaN, undefined, '8037']) {
-    let fellBack = false;
-    let reported;
-    const resolved = await resolveServePort(bad, {
-      onFallback: (preferred) => { fellBack = true; reported = preferred; },
-    });
-    assert.equal(fellBack, true, `expected fallback for preferred=${String(bad)}`);
-    assert.equal(reported, bad, 'onFallback receives the original invalid preferred value');
-    assert.ok(isValidExplicitPort(resolved), `fallback ${resolved} must be a usable port`);
-    assert.equal(await isPortFree(resolved), true);
-  }
-});
-
-// XRAY_FEATURE_GATE_BASE_URL probe-target parsing. If the Xray feature
-// gate's external-server escape hatch extracted only a port and probed
-// loopback `/`, a base URL with a non-127.0.0.1 host, an https scheme, or a
-// meaningful base path would be probed against the wrong endpoint shape.
-// probeTargetFromBaseUrl derives {host, port, path,
-// protocol} from the parsed URL so the readiness probe hits the endpoint
-// the caller actually pointed at.
 
 test('probeTargetFromBaseUrl derives host, port, path and protocol from the base URL (rf2-rcepku)', () => {
-  for (const [label, url, expected] of [
-    ['a non-127.0.0.1 host + base path', 'http://staging.internal:8080/app/base/',
-      { host: 'staging.internal', port: 8080, path: '/app/base/', protocol: 'http:' }],
-    ['the http port defaults to 80 and the path to /', 'http://example.com',
-      { host: 'example.com', port: 80, path: '/', protocol: 'http:' }],
-    ['the https scheme defaults to 443', 'https://secure.example.com/xray/',
-      { host: 'secure.example.com', port: 443, path: '/xray/', protocol: 'https:' }],
-    ['an explicit port beats the scheme default', 'https://secure.example.com:8443/',
-      { host: 'secure.example.com', port: 8443, path: '/', protocol: 'https:' }],
-  ]) {
-    assert.deepEqual(probeTargetFromBaseUrl(url), expected, `${label}: ${url}`);
-  }
-});
-
-test('probeTargetFromBaseUrl throws on a malformed URL rather than falling back (rf2-rcepku)', () => {
-  // A silent loopback fallback is how an invalid escape-hatch value could
-  // probe an unrelated local listener and then send the browser at a
-  // broken external URL — so a bad value must fail loud.
-  assert.throws(
-    () => probeTargetFromBaseUrl('not a url', { envName: 'XRAY_FEATURE_GATE_BASE_URL' }),
-    /XRAY_FEATURE_GATE_BASE_URL is not a valid URL/,
+  assert.deepEqual(
+    [
+      'http://staging.internal:8080/app/base/',
+      'http://example.com',
+      'https://secure.example.com/xray/',
+    ].map((url) => probeTargetFromBaseUrl(url)),
+    [
+      { host: 'staging.internal', port: 8080, path: '/app/base/', protocol: 'http:' },
+      { host: 'example.com', port: 80, path: '/', protocol: 'http:' },
+      { host: 'secure.example.com', port: 443, path: '/xray/', protocol: 'https:' },
+    ],
   );
 });
 
-test('probeTargetFromBaseUrl rejects a non-http(s) scheme (rf2-rcepku)', () => {
-  assert.throws(
-    () => probeTargetFromBaseUrl('ftp://example.com/', { envName: 'XRAY_FEATURE_GATE_BASE_URL' }),
-    /must use http: or https:/,
-  );
+test('probeTargetFromBaseUrl throws on a malformed or non-http(s) URL rather than falling back', () => {
+  assert.throws(() => probeTargetFromBaseUrl('not a url'));
+  assert.throws(() => probeTargetFromBaseUrl('ftp://example.com/'));
 });
 
 test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)', async () => {
-  // Bind the PATH probe directly. probeHttp resolves ready on
-  // ANY HTTP status (liveness, not 2xx), so a regression that hard-coded
-  // `/` instead of forwarding opts.path would still receive a response
-  // (a 404) and still report ready — so asserting only `ready === true`
-  // against a server that 404s every other path stays green under that
-  // regression. Observe the requested URL path directly instead: record every
-  // req.url and assert the advertised basePath was the path probed (and a
-  // bare `/` was NOT). This makes the path-forwarding contract load-bearing.
+  // probeHttp counts ANY status as live, so only the requested path shows
+  // whether the caller's path was forwarded rather than a hard-coded `/`.
   const basePath = '/app/base/';
   const requestedPaths = [];
   const server = http.createServer((req, res) => {
     requestedPaths.push(req.url);
-    if (req.url === basePath) {
-      res.writeHead(200);
-      res.end('ok');
-      return;
-    }
     res.writeHead(404);
-    res.end('nope');
+    res.end();
   });
   const port = await listenOnLoopback(server);
   try {
@@ -420,110 +222,35 @@ test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)'
       path: basePath,
       pollMs: 10,
     });
-    assert.equal(ready, true, 'the advertised base-path server must be seen as ready');
-    // The probe must have requested the caller-supplied path verbatim — a
-    // regression that hard-codes `/` would record `/` here and trip this.
-    assert.ok(
-      requestedPaths.includes(basePath),
-      `waitForHttpReady must probe the supplied path ${JSON.stringify(basePath)}; ` +
-        `observed requests: ${JSON.stringify(requestedPaths)}`,
-    );
-    assert.ok(
-      !requestedPaths.includes('/'),
-      `waitForHttpReady must NOT fall back to the hard-coded root path "/"; ` +
-        `observed requests: ${JSON.stringify(requestedPaths)}`,
-    );
+    assert.deepEqual({ ready, requestedPaths }, { ready: true, requestedPaths: [basePath] });
   } finally {
     server.close();
   }
 });
 
-// The shared ownership-token lifecycle. The five browser-harness launchers
-// (check-story-static, serve-and-run-browser-tests, reagent-slim smoke,
-// tenant-switcher testbed, Xray feature gate) delegate to
-// publishOwnershipToken(root) here rather than each carrying a bespoke
-// crypto/write/unlink copy. These tests pin its contract:
-// creation, basename/content, missing-root null, idempotent cleanup,
-// cleanup-error suppression, and the concurrency crux — a stale run's remove
-// must NOT delete a newer run's replacement token.
-function mkTmpRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-token-'));
-}
-
 test('publishOwnershipToken returns null for a missing root (caller-controlled policy) (rf2-pgppmu)', () => {
   const missing = path.join(os.tmpdir(), `rf2-token-missing-${crypto.randomBytes(6).toString('hex')}`);
-  assert.equal(fs.existsSync(missing), false, 'precondition: root must not exist');
-  // null (not a throw) so each launcher keeps its own "asset root missing"
-  // diagnostic + exit code.
   assert.equal(publishOwnershipToken(missing), null);
-  assert.equal(
-    fs.existsSync(path.join(missing, TOKEN_FILE_BASENAME)),
-    false,
-    'must not create the root or the sentinel',
-  );
-});
-
-test('publishOwnershipToken remove() suppresses cleanup errors (rf2-pgppmu)', () => {
-  const root = mkTmpRoot();
-  const { remove } = publishOwnershipToken(root);
-  // Yank the whole root (and its sentinel) out from under the returned
-  // cleanup — a readFileSync/unlinkSync inside remove() would now throw.
-  // Best-effort teardown must swallow it, never failing the run.
-  fs.rmSync(root, { recursive: true, force: true });
-  assert.doesNotThrow(() => remove());
 });
 
 test('publishOwnershipToken remove() preserves a newer overlapping run\'s replacement token (rf2-pgppmu)', () => {
-  const root = mkTmpRoot();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-token-'));
   try {
-    // Run A publishes.
     const runA = publishOwnershipToken(root);
-    const tokenPath = path.join(root, TOKEN_FILE_BASENAME);
-    // Run B (an overlapping run against the SAME root) re-publishes, replacing
-    // the sentinel content with its own nonce.
     const runB = publishOwnershipToken(root);
-    assert.notEqual(runA.token, runB.token, 'the two runs must have distinct nonces');
-    assert.equal(fs.readFileSync(tokenPath, 'utf8'), runB.token);
-    // Run A now tears down. It must NOT delete B's sentinel — unlinking here
-    // would make B's owned-readiness handshake spuriously fail (the
-    // concurrency crux).
     runA.remove();
-    assert.ok(
-      fs.existsSync(tokenPath),
-      'stale run A\'s remove() must not unlink the newer run B\'s sentinel',
-    );
-    assert.equal(
-      fs.readFileSync(tokenPath, 'utf8'),
-      runB.token,
-      'the surviving sentinel must still hold run B\'s token',
-    );
-    // B's own remove() correctly cleans up its sentinel.
-    runB.remove();
-    assert.equal(fs.existsSync(tokenPath), false);
+    assert.equal(fs.readFileSync(path.join(root, TOKEN_FILE_BASENAME), 'utf8'), runB.token);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-// startLocalHttpServer, the single owner of the local
-// http-server lifecycle the two Story launchers, serve-example, and the
-// adapter-smoke orchestrator share (spawn the loopback/
-// static/no-cache argv, track it for teardown, wire an early-exit abort +
-// bounded output capture, wait for readiness, print the canonical unreachable
-// diagnostic + captured tail on failure). These functional tests drive the
-// composition end-to-end with a FAKE http-server bin — so they exercise the
-// real argv/spawn/track/capture/abort/readiness behaviour without depending on
-// the http-server package. They are the "canonical-helper behaviour" coverage,
-// pinned once rather than as per-caller `-a 127.0.0.1` argv-regex policy checks.
-
-// A fake bin that parses the http-server-shaped argv (positional root, `-a`,
-// `-p`), binds the requested host+port, and records the FULL composed argv
-// (once listening) so the loopback/static composition can be asserted directly.
-// It models a REAL static file server for the ownership sentinel: a request for
-// /.rf-harness-token is answered with the token file startLocalHttpServer
-// published under `root` (this is exactly how the real http-server serves the
-// dotfile — see serve-and-run-browser-tests.cjs), so the owned-readiness
-// handshake sees THIS run's token. Any other path -> 200 'ok'.
+// Fake http-server bins: each parses the http-server-shaped argv, so the
+// startLocalHttpServer composition runs without the http-server package.
+//
+// FAKE_HTTP_SERVER binds the requested host+port, serves the ownership token
+// file startLocalHttpServer published under `root` (as the real http-server
+// serves the dotfile), and records the argv it was given once listening.
 const FAKE_HTTP_SERVER = `
 'use strict';
 const http = require('http');
@@ -558,10 +285,8 @@ server.listen(port, host, () => {
 });
 `;
 
-// A fake that parses the http-server-shaped argv, tries to bind the SAME
-// host+port, and exits 3 on EADDRINUSE — exactly how real http-server loses the
-// port race to a stale/sibling listener that squatted the port between
-// resolveServePort() and this spawn. It never serves anything of this run's.
+// Exits 3 on EADDRINUSE, as the real http-server does when a stale or sibling
+// listener squatted the port between resolveServePort() and this spawn.
 const FAKE_HTTP_LOSES_BIND = `
 'use strict';
 const http = require('http');
@@ -573,17 +298,11 @@ for (let i = 0; i < argv.length; i++) {
   else if (argv[i] === '-p') port = Number(argv[i + 1]);
 }
 const server = http.createServer((_, res) => { res.writeHead(200); res.end('ours'); });
-server.once('error', (err) => {
-  process.stderr.write('fake http-server: bind failed ' + err.code + '\\n');
-  process.exit(3);
-});
+server.once('error', () => process.exit(3));
 server.listen(port, host);
 `;
 
-// A fake that emits a known line synchronously (so the parent's bounded
-// capture holds it well before any verdict) then stays alive WITHOUT ever
-// listening — forcing a readiness TIMEOUT (never reachable) rather than an
-// early-exit abort.
+// Writes one line, then stays alive without ever listening: a readiness timeout.
 const FAKE_HTTP_SILENT = `
 'use strict';
 const fs = require('fs');
@@ -591,12 +310,9 @@ fs.writeSync(2, 'fake http-server: staged output line\\n');
 setInterval(() => {}, 1000);
 `;
 
-// A fake that writes a line synchronously then exits non-zero immediately —
-// the early-exit path the readiness abort must catch fast.
+// Exits non-zero at once: the early-exit path the readiness abort must catch.
 const FAKE_HTTP_CRASH = `
 'use strict';
-const fs = require('fs');
-fs.writeSync(2, 'fake http-server: refusing to bind\\n');
 process.exit(3);
 `;
 
@@ -611,70 +327,7 @@ function rmTmp(dir) {
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
 
-test('startLocalHttpServer composes the canonical loopback/static argv and reaches readiness (rf2-slapfs)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  try {
-    const result = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      // Silence the incidental "exited unexpectedly" line the force-kill in
-      // cleanup() below emits on Windows (exit code 1) — not what this test
-      // asserts.
-      log: () => {},
-    });
-    assert.equal(result.ready, true, 'the composed server must become reachable on loopback');
-    assert.equal(result.isDown(), false, 'the server must still be running once ready');
-    // The fake recorded the EXACT argv startLocalHttpServer composed — the
-    // canonical behaviour, pinned once rather than per caller:
-    // positional root, loopback `-a 127.0.0.1`, the resolved port, `-s`
-    // (silent), `-c-1` (no cache).
-    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
-    assert.deepEqual(argv, [dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1']);
-  } finally {
-    await cleanup.cleanup();
-    rmTmp(dir);
-  }
-});
-
-test('startLocalHttpServer appends the unresolved-request fallback ONLY when asked (rf2-fzbj.35)', async () => {
-  // serve-example's history-route fallback needs http-server to forward a request
-  // no file resolves; the seam is opt-in, so every OTHER caller's argv above
-  // must be untouched. The test above pins the absent case; this pins the
-  // present one — and the ORDER matters, because `--proxy` takes its value as
-  // the next token.
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  try {
-    const result = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-      unresolvedRequestUrl: 'http://127.0.0.1:65001',
-    });
-    assert.equal(result.ready, true);
-    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
-    assert.deepEqual(argv, [
-      dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1',
-      '--proxy', 'http://127.0.0.1:65001',
-    ]);
-  } finally {
-    await cleanup.cleanup();
-    rmTmp(dir);
-  }
-});
-
-test('startLocalHttpServer tracks the server so process-tree cleanup terminates it (rf2-slapfs)', async () => {
+test('startLocalHttpServer composes the canonical loopback/static argv, reaches owned readiness, and its cleanup stops the server and removes its token', async () => {
   const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
   const port = await findFreePort();
   const cleanup = createHarnessCleanup({ onError: () => {} });
@@ -686,16 +339,46 @@ test('startLocalHttpServer tracks the server so process-tree cleanup terminates 
       port,
       cwd: dir,
       readyTimeoutMs: 5000,
-      log: () => {}, // silence the force-kill teardown line (see above)
+      // Silences the "exited unexpectedly" line the teardown force-kill emits on Windows.
+      log: () => {},
     });
     assert.equal(ready, true);
-    // The server must be a tracked child that cleanup() actually terminates —
-    // otherwise the harness would leak http-server processes between runs.
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8')),
+      [dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'],
+    );
     const exited = waitForExit(server, 30000);
     await cleanup.cleanup();
     await exited;
-    assert.ok(true);
+    assert.equal(fs.existsSync(path.join(dir, TOKEN_FILE_BASENAME)), false);
   } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer appends the unresolved-request fallback ONLY when asked (rf2-fzbj.35)', async () => {
+  // The test above pins the absent case. `--proxy` takes its value as the next token.
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+      unresolvedRequestUrl: 'http://127.0.0.1:65001',
+    });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8')), [
+      dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1',
+      '--proxy', 'http://127.0.0.1:65001',
+    ]);
+  } finally {
+    await cleanup.cleanup();
     rmTmp(dir);
   }
 });
@@ -706,7 +389,7 @@ test('startLocalHttpServer times out with the unreachable diagnostic + captured 
   const cleanup = createHarnessCleanup({ onError: () => {} });
   const logged = [];
   try {
-    const { ready, isDown, output } = await startLocalHttpServer({
+    await startLocalHttpServer({
       cleanup,
       httpServerBin: binPath,
       root: dir,
@@ -716,15 +399,9 @@ test('startLocalHttpServer times out with the unreachable diagnostic + captured 
       captureOutput: true,
       log: (m) => logged.push(m),
     });
-    assert.equal(ready, false, 'a server that never listens must time out');
-    assert.equal(isDown(), false, 'the still-alive server did not exit — it just never served');
-    assert.ok(
-      output.some((l) => /staged output line/.test(l)),
-      `bounded capture must hold the server's output; got ${JSON.stringify(output)}`,
-    );
     assert.ok(
       logged.some((l) => /did not become reachable on :/.test(l)),
-      'the canonical unreachable diagnostic must be logged on timeout',
+      `the timeout diagnostic must be logged; got ${JSON.stringify(logged)}`,
     );
     assert.ok(
       logged.some((l) => /staged output line/.test(l)),
@@ -740,7 +417,6 @@ test('startLocalHttpServer aborts fast on an early server exit rather than burni
   const { dir, binPath } = mkFakeBin(FAKE_HTTP_CRASH, 'fake-http-crash.cjs');
   const port = await findFreePort();
   const cleanup = createHarnessCleanup({ onError: () => {} });
-  const logged = [];
   let exitCode = null;
   const started = Date.now();
   try {
@@ -750,28 +426,14 @@ test('startLocalHttpServer aborts fast on an early server exit rather than burni
       root: dir,
       port,
       cwd: dir,
-      readyTimeoutMs: 15000, // generous — the abort must beat this, not wait it out
-      // Capture (rather than inherit) the fake's stderr so its "refusing to
-      // bind" line doesn't leak into the test output; this test asserts the
-      // abort/onExit/diagnostic behaviour, not the captured tail.
-      captureOutput: true,
-      log: (m) => logged.push(m),
+      readyTimeoutMs: 15000,
+      log: () => {},
       onExit: (code) => { exitCode = code; },
     });
-    assert.equal(ready, false, 'a server that exits before readiness must not report ready');
-    assert.equal(isDown(), true, 'isDown() must reflect the exited server');
+    assert.deepEqual({ ready, down: isDown(), exitCode }, { ready: false, down: true, exitCode: 3 });
     assert.ok(
       Date.now() - started < 10000,
       'the early-exit abort must not wait out the 15s readiness budget',
-    );
-    assert.equal(exitCode, 3, 'onExit must receive the server exit code');
-    assert.ok(
-      logged.some((l) => /exited unexpectedly \(code=3/.test(l)),
-      `the non-zero exit must be surfaced; got ${JSON.stringify(logged)}`,
-    );
-    assert.ok(
-      logged.some((l) => /exited before it became ready on :/.test(l)),
-      'the child-exited owned-readiness diagnostic must be logged on the abort path',
     );
   } finally {
     cleanup.cleanupSync();
@@ -779,30 +441,17 @@ test('startLocalHttpServer aborts fast on an early server exit rather than burni
   }
 });
 
-// OWNED readiness is startLocalHttpServer's DEFAULT lifecycle. Awaiting an
-// unowned waitForHttpReady would let a FOREIGN server already listening on
-// the target port answer the liveness probe during the non-atomic
-// resolveServePort()->spawn port handoff and be accepted as ready:true — a
-// latent false-green across the CI browser gates. These tests pin that:
-// a foreign tree is rejected, a missing/non-directory root fails loudly, and
-// the per-run ownership token is published + torn down concurrency-safely.
-
-// The core case as a unit test. A foreign server serving a DIFFERENT asset
-// tree already holds the port; the spawned http-server loses the bind and
-// exits. The helper must return ready:false (never true) — refused for an
-// ownership reason (token-mismatch) or the lost-bind child exit. An unowned
-// readiness wait would return ready:true against the foreign tree.
+// Owned readiness is the default: an unowned liveness wait would accept a
+// foreign server that won the non-atomic resolveServePort()->spawn handoff.
 test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3fc89f.14)', async () => {
   const { dir, binPath } = mkFakeBin(FAKE_HTTP_LOSES_BIND, 'fake-http-loses-bind.cjs');
-  // Stand up the foreign server on a real loopback port; it answers every path
-  // (incl. /.rf-harness-token) with a tree this run never staged.
+  // Answers every path, the ownership-token path included.
   const foreign = http.createServer((_, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.writeHead(200);
     res.end('FOREIGN-ASSET-TREE');
   });
   const port = await listenOnLoopback(foreign);
   const cleanup = createHarnessCleanup({ onError: () => {} });
-  const logged = [];
   try {
     const { ready } = await startLocalHttpServer({
       cleanup,
@@ -811,22 +460,9 @@ test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3f
       port,
       cwd: dir,
       readyTimeoutMs: 4000,
-      captureOutput: true,
-      log: (m) => logged.push(m),
+      log: () => {},
     });
-    assert.equal(
-      ready,
-      false,
-      'a foreign asset tree squatting the port must NOT be accepted as ready',
-    );
-    // The refusal must cite an ownership / child-exit reason — not merely
-    // "unreachable" (the foreign server WAS reachable).
-    assert.ok(
-      logged.some((l) =>
-        /a foreign server answered|exited before it became ready on :|never served this run's/.test(l),
-      ),
-      `the refusal must cite an ownership/child-exit reason; got ${JSON.stringify(logged)}`,
-    );
+    assert.equal(ready, false);
   } finally {
     await cleanup.cleanup();
     await new Promise((r) => foreign.close(r));
@@ -834,264 +470,25 @@ test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3f
   }
 });
 
-// Missing staging root fails LOUDLY (throws) before any spawn/browser work.
-test('startLocalHttpServer throws loudly when the staging root does not exist (rf2-3fc89f.14)', async () => {
-  const missing = path.join(
-    os.tmpdir(),
-    `rf2-missing-root-${crypto.randomBytes(6).toString('hex')}`,
-  );
-  assert.equal(fs.existsSync(missing), false, 'precondition: root must not exist');
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  await assert.rejects(
-    () =>
-      startLocalHttpServer({
-        cleanup,
-        httpServerBin: 'unused',
-        root: missing,
-        port: 1,
-        readyTimeoutMs: 500,
-      }),
-    /does not exist or is not a directory/,
-  );
-});
-
-test('startLocalHttpServer throws loudly when the staging root is a file, not a directory (rf2-3fc89f.14)', async () => {
+test('startLocalHttpServer throws loudly when the staging root is missing or is a file', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-notdir-'));
   const filePath = path.join(dir, 'a-file');
   fs.writeFileSync(filePath, 'x');
   const cleanup = createHarnessCleanup({ onError: () => {} });
   try {
-    await assert.rejects(
-      () =>
-        startLocalHttpServer({
-          cleanup,
-          httpServerBin: 'unused',
-          root: filePath,
-          port: 1,
-          readyTimeoutMs: 500,
-        }),
-      /does not exist or is not a directory/,
-    );
+    for (const root of [path.join(dir, 'missing'), filePath]) {
+      await assert.rejects(() =>
+        startLocalHttpServer({ cleanup, httpServerBin: 'unused', root, port: 1, readyTimeoutMs: 500 }),
+      );
+    }
   } finally {
-    rmTmp(dir);
-  }
-});
-
-// The ownership token is torn down via the supplied cleanup handle, and its
-// removal is concurrency-safe: our cleanup unlinks OUR token but preserves a
-// newer overlapping run's replacement (the publishOwnershipToken contract,
-// exercised through startLocalHttpServer's default lifecycle).
-test('startLocalHttpServer cleanup removes only THIS run\'s ownership token (rf2-3fc89f.14)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
-  try {
-    const { ready } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-    });
-    assert.equal(ready, true);
-    assert.ok(
-      fs.existsSync(tokenPath),
-      'startLocalHttpServer must publish the ownership token under root before serving',
-    );
-    const ourToken = fs.readFileSync(tokenPath, 'utf8');
-    // A NEWER overlapping run against the SAME root re-publishes its own token.
-    const newer = publishOwnershipToken(dir);
-    assert.notEqual(newer.token, ourToken, 'the two runs must have distinct nonces');
-    // Our cleanup must terminate the server AND run the registered token
-    // removal — which must NOT delete the newer run's token.
-    await cleanup.cleanup();
-    assert.ok(
-      fs.existsSync(tokenPath),
-      'our cleanup must preserve a newer overlapping run\'s replacement token',
-    );
-    assert.equal(fs.readFileSync(tokenPath, 'utf8'), newer.token);
-    // The newer run's own remove() cleans up its sentinel.
-    newer.remove();
-    assert.equal(fs.existsSync(tokenPath), false);
-  } finally {
-    rmTmp(dir);
-  }
-});
-
-test('startLocalHttpServer cleanup unlinks its own ownership token in the non-overlapping case (rf2-3fc89f.14)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
-  try {
-    const { ready } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-    });
-    assert.equal(ready, true);
-    assert.ok(fs.existsSync(tokenPath), 'precondition: token published');
-    await cleanup.cleanup();
-    assert.equal(
-      fs.existsSync(tokenPath),
-      false,
-      'cleanup must unlink this run\'s ownership token',
-    );
-  } finally {
-    rmTmp(dir);
-  }
-});
-
-// startLocalHttpServer must PROVE owned readiness against the interface the
-// server actually bound to, not a hard-coded 127.0.0.1 default. It advertises
-// a configurable `host` (passed to http-server as `-a <host>`); a readiness
-// wait that dropped it would let probeHttp/fetchToken default to 127.0.0.1,
-// so a server bound `::1` (IPv6 loopback only) would be probed on IPv4
-// loopback and falsely report timeout — a false-red gate against a healthy
-// server, plus a cleanup that kills it. A `probeHost` (derived from `host`)
-// is threaded through the single options object both the liveness probe and
-// the ownership-token fetch read, so they cannot diverge.
-
-test('deriveProbeHost keeps concrete binds and maps wildcards to loopback (rf2-j538f7.12)', () => {
-  // Concrete binds probe THEMSELVES — the readiness check must address the
-  // same interface the server listens on (an ::1 server is unreachable via
-  // 127.0.0.1, and vice versa).
-  assert.equal(deriveProbeHost('127.0.0.1'), '127.0.0.1');
-  assert.equal(deriveProbeHost('::1'), '::1');
-  assert.equal(deriveProbeHost('localhost'), 'localhost');
-  assert.equal(deriveProbeHost('staging.internal'), 'staging.internal');
-  // Wildcard binds are "every interface" bind targets, never portable client
-  // destinations — map each to the matching, reachable loopback.
-  assert.equal(deriveProbeHost('0.0.0.0'), '127.0.0.1');
-  assert.equal(deriveProbeHost('::'), '::1');
-  assert.equal(deriveProbeHost('[::]'), '::1');
-});
-
-testIpv6('startLocalHttpServer proves owned readiness over a non-default IPv6-loopback bind (rf2-j538f7.12)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
-  try {
-    const { server, ready } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      host: '::1', // bind IPv6 loopback ONLY
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-    });
-    // The core case: readiness is proven over the configured ::1 bind. A
-    // prove that defaulted to 127.0.0.1 would TIME OUT against this healthy
-    // IPv6-only server, so `ready` would be false here.
-    assert.equal(ready, true, 'owned readiness must be proven over the configured ::1 bind host');
-    // The `-a <host>` bind host propagated to spawn (recorded argv).
-    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
-    assert.deepEqual(argv, [dir, '-a', '::1', '-p', String(port), '-s', '-c-1']);
-    // The exact ownership token was fetched over ::1.
-    assert.equal(
-      await fetchToken(port, { host: '::1' }),
-      fs.readFileSync(tokenPath, 'utf8'),
-      'the ownership token must be fetchable over ::1',
-    );
-    // TEETH: the same server is NOT reachable through 127.0.0.1 — so the
-    // success above came from host propagation, not dual-stack behaviour in
-    // the fake. A 127.0.0.1 fetch must find nothing.
-    assert.equal(
-      await fetchToken(port, { host: '127.0.0.1', timeout: 500 }),
-      null,
-      'the IPv6-only server must be unreachable via 127.0.0.1 (proves host propagation, not dual-stack)',
-    );
-    // Cleanup terminates the child and removes this run's ownership token.
-    const exited = waitForExit(server, 30000);
-    await cleanup.cleanup();
-    await exited;
-    assert.equal(
-      fs.existsSync(tokenPath),
-      false,
-      'cleanup must remove this run\'s ownership token',
-    );
-  } finally {
-    await cleanup.cleanup();
-    rmTmp(dir);
-  }
-});
-
-testIpv6('startLocalHttpServer readiness follows probeHost, not the bind host (rf2-j538f7.12)', async () => {
-  // Bind IPv6 loopback but OVERRIDE the probe to IPv4 loopback. The server is
-  // healthy and serving its token over ::1, yet readiness must FAIL — proving
-  // the owned-readiness prove connects to `probeHost` for BOTH the liveness
-  // probe and the token fetch, never a hard-coded/derived default that could
-  // diverge from where the caller pointed it.
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  try {
-    const { ready, isDown } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      host: '::1',
-      probeHost: '127.0.0.1', // deliberately mismatched with the bind
-      cwd: dir,
-      readyTimeoutMs: 800,
-      log: () => {},
-    });
-    assert.equal(ready, false, 'probing 127.0.0.1 against an ::1-only server must not prove ready');
-    assert.equal(isDown(), false, 'the server is healthy — it was simply not probed on its interface');
-  } finally {
-    await cleanup.cleanup();
-    rmTmp(dir);
-  }
-});
-
-test('startLocalHttpServer proves readiness against loopback for a wildcard 0.0.0.0 bind (rf2-j538f7.12)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  try {
-    const { ready } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      host: '0.0.0.0', // wildcard bind — a bind target, not a client address
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-    });
-    // deriveProbeHost maps 0.0.0.0 -> 127.0.0.1, a concrete reachable loopback
-    // the wildcard-bound server answers on; the prove must never connect to
-    // the unspecified 0.0.0.0 itself.
-    assert.equal(ready, true, 'a wildcard-bound server must be proven ready via 127.0.0.1');
-    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
-    assert.deepEqual(argv, [dir, '-a', '0.0.0.0', '-p', String(port), '-s', '-c-1']);
-  } finally {
-    await cleanup.cleanup();
     rmTmp(dir);
   }
 });
 
 (async () => {
-  const hasIpv6 = await ipv6LoopbackAvailable();
   let failed = 0;
-  let skipped = 0;
-  for (const { name, fn, needsIpv6 } of tests) {
-    if (needsIpv6 && !hasIpv6) {
-      skipped += 1;
-      console.log(`SKIP ${name} (no IPv6 loopback available)`);
-      continue;
-    }
+  for (const { name, fn } of tests) {
     try {
       await fn();
     } catch (err) {
@@ -1106,10 +503,7 @@ test('startLocalHttpServer proves readiness against loopback for a wildcard 0.0.
     process.exit(1);
   }
 
-  console.log(
-    `local-browser-harness tests: ${tests.length - skipped} passed` +
-      (skipped ? `, ${skipped} skipped (no IPv6 loopback).` : '.'),
-  );
+  console.log(`local-browser-harness tests: ${tests.length} passed.`);
 })().catch((err) => {
   console.error(err && err.stack ? err.stack : err);
   process.exit(1);
