@@ -5,8 +5,8 @@
   no custom transit handler. The live entries table is pinned in
   `resources-runtime-cljs-test`."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    #?(:cljs [cljs.reader])
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
