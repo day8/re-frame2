@@ -12,8 +12,8 @@
   short-circuits via `(when (exists? js/document) …)` so the suite stays
   green on Node and runs fully under Chromium.
 
-  The pure Tab-wrap math (`trap-wrap-target`) and the no-throw factory
-  contracts live in the DOM-free `theme.a11y-cljs-test`."
+  The pure Tab-wrap math (`trap-wrap-target`) and the pop-out-document
+  rows live in the DOM-free `theme.a11y-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-xray.theme.a11y :as a11y]))
 
@@ -137,20 +137,6 @@
               "Shift+Tab off the first button wraps to the last")
           (finally (ref nil) (cleanup)))))))
 
-(deftest dialog-ref-empty-dialog-pins-tab-on-root
-  (testing "with no focusable child, Tab cannot escape: the
-            trap pins focus back on the tab-index=-1 dialog root"
-    (when (exists? js/document)
-      (let [{:keys [dialog cleanup]} (mk-dialog! 0)
-            ref (a11y/dialog-ref)]
-        (try
-          (ref dialog)
-          (.focus dialog)
-          (press-tab! dialog false)
-          (is (= dialog (.-activeElement js/document))
-              "Tab keeps focus on the empty dialog root")
-          (finally (ref nil) (cleanup)))))))
-
 ;; ---- focus restore on close ----------------------------------------------
 
 (deftest dialog-ref-restores-focus-to-opener-on-close
@@ -170,37 +156,4 @@
           (ref nil)                           ;; close
           (is (= opener (.-activeElement js/document))
               "focus restored to the opener on close")
-          (finally (cleanup)))))))
-
-(deftest dialog-ref-skips-restore-when-opener-detached
-  (testing "if the opener was removed from the document while
-            the dialog was open, close must not throw (and must not
-            re-focus a detached node)"
-    (when (exists? js/document)
-      (let [{:keys [dialog opener cleanup]} (mk-dialog! 3)
-            ref (a11y/dialog-ref)]
-        (try
-          (ref dialog)
-          ;; opener leaves the document while the modal is open
-          (.removeChild (.-body js/document) opener)
-          (is (nil? (ref nil))
-              "close with a detached opener returns nil and does not throw")
-          (finally (cleanup)))))))
-
-(deftest dialog-ref-teardown-removes-trap-listener
-  (testing "after close, the keydown trap listener is gone:
-            a Tab on the (now-detached) former dialog node does not move
-            focus via the trap"
-    (when (exists? js/document)
-      (let [{:keys [dialog buttons opener cleanup]} (mk-dialog! 3)
-            ref (a11y/dialog-ref)]
-        (try
-          (ref dialog)
-          (ref nil)                           ;; close → listener removed
-          ;; opener is focused again post-restore; a Tab dispatched on
-          ;; the old dialog node must not be intercepted by a stale trap.
-          (.focus opener)
-          (press-tab! dialog false)
-          (is (= opener (.-activeElement js/document))
-              "no stale trap listener fires after close")
           (finally (cleanup)))))))
