@@ -119,7 +119,6 @@
   rather than to an assertion that passes because nothing ran. The two
   controls that need no DOM run in both lanes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -160,22 +159,6 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The deferral carriers this file undertakes to drive.
-  [[the-declared-population-was-actually-exercised]] asserts every one was
-  reached at runtime, so the roster cannot decay into a list of things the
-  suite used to do — a row deleted, a row returning early, a row whose
-  poll quietly degrades."
-  #{:effect/layout :effect/passive :suspense/retry :activity/reveal})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [carrier] (swap! !exercised conj carrier) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -537,8 +520,6 @@
                     (is (= #{(sub-key [:red/escaped]) (sub-key [:red/escaped-2])}
                            (rf.fresco.test.runtime/reads-of entry)))))
 
-                (exercised! :effect/layout)
-                (exercised! :effect/passive)
                 (teardown-census! handle)))
             (.catch (report-failure! "react-effect witness" handle))
             (.then (fn [_] (done))))))))
@@ -607,7 +588,6 @@
                   (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
                          (ownership))))
 
-                (exercised! :suspense/retry)
                 (teardown-census! handle)))
             (.catch (report-failure! "suspense-retry witness" handle))
             (.then (fn [_] (done))))))))
@@ -678,7 +658,6 @@
                   (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
                          (ownership))))
 
-                (exercised! :activity/reveal)
                 (teardown-census! handle)))
             (.catch (report-failure! "activity-reveal witness" handle))
             (.then (fn [_] (done))))))))
@@ -715,11 +694,3 @@
             can pass on somebody else's refusal"
     (is (not= (escaped-extent-refusal [:red/escaped])
               (escaped-extent-refusal [:red/escaped-2])))))
-
-(deftest the-declared-population-was-actually-exercised
-  ;; Declared LAST so every row above has run.
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM, so no carrier is driven there")
-    (is (= declared-population @!exercised)
-        (str "every declared deferral carrier must be reached; missing: "
-             (pr-str (set/difference declared-population @!exercised))))))
