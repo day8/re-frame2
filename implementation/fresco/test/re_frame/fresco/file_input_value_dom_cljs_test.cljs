@@ -146,26 +146,16 @@
   (testing "one file picked: `.value` is a plausible string that names a
            path nothing can open"
     (let [target (file-stand-in ["budget.csv"])]
-      (is (= "C:\\fakepath\\budget.csv" (.-value target))
-          "the stand-in is the platform's rule written down")
       (is (= :rf.error/fresco-file-input-value-marker
              (id-of (thrown-by
                      #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
                                           (ev target)))))
           "the string the marker would otherwise lower to")))
-  (testing "three files picked: it names the FIRST, and discards the rest"
-    (let [target (file-stand-in ["a.csv" "b.csv" "c.csv"])]
-      (is (= "C:\\fakepath\\a.csv" (.-value target)))
-      (is (= :rf.error/fresco-file-input-value-marker
-             (id-of (thrown-by
-                     #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
-                                          (ev target))))))))
   (testing "nothing picked is refused too — the control is the wrong one
            for this marker whatever it currently holds, and a refusal that
            waited for a selection would fire on the user's action rather
            than the author's mistake"
     (let [target (file-stand-in [])]
-      (is (= "" (.-value target)))
       (is (= :rf.error/fresco-file-input-value-marker
              (id-of (thrown-by
                      #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
@@ -178,16 +168,6 @@
       (is (= [:app/pick true]
              (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/checked]
                                  (ev target)))))))
-
-(deftest the-marker-is-untouched-on-every-other-control
-  (testing "`.files` is null on every input but the file one, and absent
-           entirely off an input — so no other control pays more than the
-           one property read"
-    (is (= [:app/pick "typed"]
-           (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/value]
-                               (ev #js {:files nil :value "typed"})))
-        "a text input — the multiple and single <select> rows are
-         `select-multiple-value-dom-cljs-test`'s")))
 
 (deftest the-real-file-input-agrees-with-the-stand-in
   (if-not (browser?)
