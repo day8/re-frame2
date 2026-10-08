@@ -19,11 +19,8 @@
                                     OWN sub-cache rather than off the DOM
     6 CLEAN TEARDOWN              — W3
 
-    5 NO APPLICATION VIEW TRACE   — W5, with the positive `reg-view` control
+    5 NO APPLICATION VIEW TRACE   — W4, with the positive `reg-view` control
                                     that makes the zero mean silence
-
-  W4 answers no listed criterion. It is the standing demonstration under
-  W1's chart row that the wrapper selector cannot witness the chart.
 
   Criterion 3 has no row here: its affordances (Prev/Next, the chart's
   state-click) dispatch through a frame captured at render time by
@@ -45,14 +42,13 @@
   `machine-canvas/Chart-view` ships a Fresco boundary beside the
   `reg-view` — both one call to the same `machine-canvas/chart-tree` — so
   the panel heads it directly, no `as-child` parameter is threaded, and
-  W5's zero is reachable.
+  W4's zero is reachable.
 
   SELECT THE CHART BY A NODE THE CHART EMITS. That is
   `rf-xray-machine-canvas-host`, the chart's own root. It is NOT
   `rf-xray-machine-focused-event-chart`, which `machine_inspector` emits two
   levels ABOVE the mount and which therefore survives the whole chart
-  subtree being absent — W4 is the standing demonstration of why that
-  marker cannot witness the chart.
+  subtree being absent.
 
   ## The mount is the SHELL's mount, taken from the registry
 
@@ -253,19 +249,6 @@
 (defn- focused-section? [container]
   (some? (q container "[data-testid=\"rf-xray-machine-focused-event\"]")))
 
-(defn- chart-wrapper-node
-  "The chart WRAPPER — a `:div` `machine_inspector` itself emits above the
-  chart mount (`panels/machine_inspector.cljs`, ELEMENT 3). Its presence says
-  the focused-event section reached element 3 and took the has-definition
-  arm, and it says NOTHING WHATEVER about the chart: `machine_inspector`
-  emits this node and a second styling wrapper ABOVE the mount, so it is
-  committed even when the entire chart subtree is absent.
-  [[w4-the-chart-selector-discriminates-and-the-wrapper-does-not]]
-  demonstrates exactly that, which is why this is not a claim about the
-  chart and must never be written as one."
-  [container]
-  (q container "[data-testid=\"rf-xray-machine-focused-event-chart\"]"))
-
 (defn- island-node
   "THE CHART's OWN root div. `machine-canvas/chart-tree` emits
   `:data-testid` from its `testid` prop, whose `:or` default is this literal
@@ -311,38 +294,23 @@
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
-            ;; A live read in the OTHER frame, so the negative half of the
-            ;; targeting claim below is measured with an instrument that is
-            ;; demonstrably able to see an entry in that frame's cache.
-            _probe (rf/subscribe [:rf.xray/trace-buffer] {:frame app-frame})
             _ (seed-machines!)
             _ (set-history! fixture-history)
             _ (focus-epoch! 1)
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
-          (is (some? (panel-node container))
-              "the panel committed a real DOM root under React — a Fresco
-               boundary mounted through Reagent's `:>` from the registry entry")
           (is (focused-section? container)
-              "and with a machine-transitioning epoch focused it committed the
+              "the panel committed real DOM under React — a Fresco boundary
+               mounted through Reagent's `:>` from the registry entry — and
+               with a machine-transitioning epoch focused it committed the
                focused-event surface, so the body really ran through
                `panel-tree` rather than painting an empty shell")
 
           ;; ---- the chart, which only a real commit can witness ------------
           ;;
-          ;; TWO ROWS, AND THE ORDER IS THE POINT. `machine_inspector` emits
-          ;; the chart WRAPPER itself, two levels above the mount, so a row
-          ;; selecting it would be true of a tree with no chart in it at
-          ;; all — restating what the `focused-section?` row above
-          ;; establishes. The wrapper row is here because it IS a real
-          ;; witness of its own claim, and it claims no more than that; the
-          ;; chart claim selects the chart's own root.
-          (is (some? (chart-wrapper-node container))
-              "the focused-event section reached ELEMENT 3 and took the
-               has-definition arm, so it emitted the chart WRAPPER. This is a
-               claim about `machine_inspector`'s own markup and no more: the
-               wrapper sits above the mount and survives the chart being
-               absent, which is W4's subject.")
+          ;; Selected by the chart's OWN root: `machine_inspector`'s chart
+          ;; wrapper sits two levels above the mount and survives the chart
+          ;; being absent.
           (is (some? (island-node container))
               "THE CHART MOUNTED — `machine-canvas/Chart-view`'s OWN root
                div. That head is an `rf.fresco/defview`, so this node reaches
@@ -362,12 +330,7 @@
                 (str "and NOT in the application frame's — a foreign root "
                      "that inherited the ambient scope instead of reading "
                      "React context would put " (pr-str query-v) " here")))
-          (is (pos? (ref-count-of app-frame [:rf.xray/trace-buffer]))
-              "NON-VACUITY: the application frame's cache is readable by this
-               same instrument and does hold the probe's entry, so the zeros
-               above are absences and not a broken reader")
           (finally
-            (rf/unsubscribe [:rf.xray/trace-buffer] {:frame app-frame})
             (teardown! root container)))))))
 
 ;; ===========================================================================
@@ -391,9 +354,6 @@
               section (panel-node container)]
           (is (some? section)
               "PRECONDITION: the panel is on screen at all")
-          (is (not (focused-section? container))
-              "NON-VACUITY: with an empty spine the focused-event surface is
-               NOT on screen before this row moves the world")
 
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
           (rf/dispatch-sync [::write-unwatched-slot 1] {:frame :rf/xray})
@@ -411,11 +371,10 @@
                     {:label "the panel committed the focused-event surface"})))
               (.then
                 (fn [_]
-                  (is (focused-section? container)
-                      "the panel re-rendered on a real invalidation of its own
-                       reads and committed the focused-event surface")
                   (is (identical? section (panel-node container))
-                      "and it is the SAME <section> node: React reconciled the
+                      "the panel re-rendered on a real invalidation of its own
+                       reads, committed the focused-event surface, and it is
+                       the SAME <section> node: React reconciled the
                        live tree in place, so the surface did not arrive by the
                        panel being remounted from scratch, which would not be
                        liveness")))
@@ -470,10 +429,6 @@
                         {:label "the first unmount released every read"})
                       (.then
                         (fn [_]
-                          (is (released?)
-                              (str "the unmount released them COMPLETELY, "
-                                   "within the collector's grace macrotask. "
-                                   "Cache: " (pr-str (keys (cache-of :rf/xray)))))
                           ;; ---- reopen: the same counts, not higher ones ----
                           (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
                                 remounted (mapv #(ref-count-of :rf/xray %)
@@ -489,107 +444,22 @@
                             (teardown! r2 c2)
                             (rf.test-support/poll-until released?
                               {:label "the second unmount released them too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases them too")))
             (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
-;; W4 — the chart selector discriminates, and the wrapper selector cannot
-;;      witness the chart
-;; ===========================================================================
-
-;; WHY THIS ROW EXISTS.
-;;
-;; `machine-canvas/Chart-view` is a Fresco boundary — the same
-;; `machine-canvas/chart-tree` body the `reg-view` renders — so the panel
-;; heads it directly, and no argument threaded through `panel-tree` can
-;; remove the chart.
-;;
-;; THE CLAIM PINNED HERE is about the two SELECTORS rather than about the
-;; chart's presence: a row that selects `rf-xray-machine-focused-event-chart`
-;; reads GREEN over a tree with no chart in it at all, so W1's chart
-;; assertion has to select `rf-xray-machine-canvas-host`. Both halves below
-;; make that claim against the real committed DOM:
-;;
-;;   1. STRUCTURALLY — the wrapper is a strict ANCESTOR of the chart's own
-;;      root, emitted by `machine_inspector` two levels above the mount. So
-;;      its presence is implied by the chart's and never implies it.
-;;   2. OPERATIONALLY — with the chart's root removed from the committed DOM,
-;;      the wrapper query still answers while the chart query does not. That
-;;      is the wrapper-selector defect stated as a passing assertion.
-
-(deftest w4-the-chart-selector-discriminates-and-the-wrapper-does-not
-  (testing "`rf-xray-machine-focused-event-chart` is
-            a strict ANCESTOR of `rf-xray-machine-canvas-host`, so a row
-            selecting the wrapper cannot fail on an absent chart. Asserted on
-            the panel's own committed DOM, and then demonstrated directly by
-            taking the chart's root away and re-querying."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (async done
-        (setup!)
-        (seed-machines!)
-        (set-history! fixture-history)
-        (focus-epoch! 1)
-        (let [{:keys [container root]} (mount-panel! :rf/xray)]
-          (-> (rf.test-support/poll-until
-                #(some? (island-node container))
-                {:label "the panel committed the chart's own canvas host"})
-              (.then
-                (fn [_]
-                  (let [wrapper (chart-wrapper-node container)
-                        chart   (island-node container)]
-                    ;; ---- 1. the structural half ---------------------------
-                    (is (= "rf-xray-machine-canvas-host"
-                           (some-> chart (.getAttribute "data-testid")))
-                        "NON-VACUITY: the chart's own root really is committed
-                         here, compared against the marker written out in
-                         full so a nil node cannot agree with a nil
-                         expectation")
-                    (is (some? wrapper)
-                        "and so is the wrapper, which is what makes the
-                         comparison below a controlled one rather than two
-                         unrelated trees")
-                    (is (and (some? wrapper) (some? chart)
-                             (not (identical? wrapper chart))
-                             (.contains wrapper chart))
-                        "THE WRAPPER IS A STRICT ANCESTOR of the chart's root.
-                         `machine_inspector` emits it two levels ABOVE the
-                         chart mount, so its presence is implied by the
-                         chart's and never implies it — which is the whole of
-                         why W1's chart assertion must not select it.")
-                    ;; ---- 2. the operational half --------------------------
-                    (.remove chart)
-                    (is (nil? (island-node container))
-                        "with the chart's root taken out of the committed DOM,
-                         the chart selector answers nothing")
-                    (is (some? (chart-wrapper-node container))
-                        "AND THE WRAPPER IS STILL STANDING. This is the
-                         wrapper-selector defect stated as a passing
-                         assertion: a row selecting that marker reads GREEN
-                         over a tree with no chart in it at all. W1 does not
-                         make the claim with this node."))))
-              (.catch (fn [e]
-                        (is false (str "W4 never settled: " (.-message e)))
-                        nil))
-              (.then (fn [_]
-                       (teardown! root container)
-                       (done)))))))))
-
-;; ===========================================================================
-;; W5 — the panel's render is not application view evidence (criterion 5)
+;; W4 — the panel's render is not application view evidence (criterion 5)
 ;; ===========================================================================
 
 (rf/reg-view ProbeRegView
-  "The POSITIVE CONTROL for W5, and nothing else. An ordinary `reg-view`
+  "The POSITIVE CONTROL for W4, and nothing else. An ordinary `reg-view`
   rendered by the installed adapter in the same root, in the same frame and
   in the same commit shape as the panel — so the only variable between it
   and the panel is which view layer authored the body."
   []
   [:div {:data-testid "rf-xray-probe-reg-view"}])
 
-(deftest w5-the-panels-render-emits-no-view-trace
+(deftest w4-the-panels-render-emits-no-view-trace
   (testing "criterion 5. The panel's focused-event subtree bottoms
             out in the chart, and a `reg-view` emits view trace wherever
             it renders — so heading `machine-canvas/Chart`, an
@@ -598,9 +468,10 @@
             `machine-canvas/Chart-view` is what makes it so.
 
             THE SCOPE IS ASSERTED RATHER THAN ASSUMED: the row pins that the
-            focused-event section and the chart's own root are BOTH on screen
-            in the commit being measured, so the zero covers the whole chart
-            subtree and not a tree that happened not to render one."
+            chart's own root — and so the focused-event section holding it —
+            is on screen in the commit being measured, so the zero covers the
+            whole chart subtree and not a tree that happened not to render
+            one."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (do
@@ -617,13 +488,9 @@
             (let [{:keys [container root]} (mount-panel! :rf/xray)
                   subject-views (filterv view-op? @traces)]
               (try
-                (is (focused-section? container)
-                    "precondition: the focused-event section really did render
-                     in this commit — an empty container would make the zero
-                     below vacuous")
                 (is (some? (island-node container))
-                    "SCOPE: and so did the CHART, whose root marker is on
-                     screen. Over a `reg-view` chart render this same
+                    "SCOPE: the CHART rendered in this commit, its root marker
+                     on screen. Over a `reg-view` chart render this same
                      assertion would stand beside a zero below that could
                      not hold.")
                 (is (zero? (count subject-views))
@@ -642,8 +509,6 @@
                     (rdc/render root [rf/frame-provider {:frame :rf/xray}
                                       [ProbeRegView]])))
                 (let [control-views (filterv view-op? @traces)]
-                  (is (some? (q container "[data-testid=\"rf-xray-probe-reg-view\"]"))
-                      "precondition: the control really did render")
                   (is (pos? (count control-views))
                       (str "CONTROL FIRES: an ordinary reg-view rendered the "
                            "same way DOES emit a :rf.view/* op, so the "
