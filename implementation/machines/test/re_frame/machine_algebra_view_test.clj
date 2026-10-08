@@ -81,12 +81,10 @@
             [[:event :close] [:event :logout] [:event :open-settings]]]
            [":regions state-maps are walked like :states"
             :par/main
-            {:initial :running
+            {:type    :parallel
              :data    {}
-             :states  {:running
-                       {:type    :parallel
-                        :regions {:left  {:initial :l0 :states {:l0 {:on {:left/go :l1}} :l1 {}}}
-                                  :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}}}
+             :regions {:left  {:initial :l0 :states {:l0 {:on {:left/go :l1}} :l1 {}}}
+                       :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}
             [[:event :left/go] [:event :right/go]]]]]
     (rf/reg-machine machine-id spec)
     (is (= expected (:inputs (static-node machine-id))) label)))
