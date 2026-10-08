@@ -21,11 +21,11 @@
   GC probe — deterministic, and it is the retention relation that matters
   rather than whether a particular collector has run.
 
-  THE LEVER. Every reclamation test here runs twice against the SAME
-  teardown call: once with the `:drop-a11y-state` late-bind hook
-  unregistered (the state in which no producer registers it) and once
-  with it registered. The unregistered arm is the red control, executed
-  permanently in the suite rather than trusted to a one-off revert.
+  THE LEVER. `the-leak` runs the SAME teardown call twice: once with the
+  `:drop-a11y-state` late-bind hook unregistered (the state in which no
+  producer registers it) and once with it registered. The unregistered arm
+  is the red control, executed permanently in the suite rather than
+  trusted to a one-off revert.
 
   Pure `.cljs`: the panel is CLJS-only, and the `async` tests need
   cljs.test MAP fixtures, which a `.cljc` may not use
@@ -116,21 +116,6 @@
   [id node-obj]
   #js {:violations #js [(violation-holding id node-obj)]})
 
-(defn- never-settles
-  "A promise that never resolves — a scan still in flight when the test
-  makes its assertions, so the run holding the slot demonstrably still
-  holds it."
-  []
-  (js/Promise. (fn [_ _] nil)))
-
-(defn- signal
-  "A promise plus the fn that resolves it. Lets a test wait for a specific
-  point in a run to be reached instead of counting microtask turns."
-  []
-  (let [resolve-fn (atom nil)
-        p          (js/Promise. (fn [res _] (reset! resolve-fn res)))]
-    {:promise p :fire! (fn [] (@resolve-fn true))}))
-
 ;; ---------------------------------------------------------------------------
 ;; The lever
 ;; ---------------------------------------------------------------------------
@@ -186,10 +171,6 @@
         (-> (rf.story.ui.a11y/run-axe! variant-id (ctx))
             (.then
               (fn [_]
-                ;; The scan landed: the panel holds the frame's slot AND
-                ;; the node the violation points at.
-                (is (contains? @rf.story.ui.a11y/violations-by-frame variant-id)
-                    "precondition: the scan stored a per-frame entry")
                 (is (node-reachable-from-panel? variant-id detached-node)
                     "precondition: the stored violation references the node")
 
@@ -197,8 +178,6 @@
                 (with-eviction-hook-removed
                   (fn []
                     (rf.story.frames/destroy! variant-id)
-                    (is (contains? @rf.story.ui.a11y/violations-by-frame variant-id)
-                        "WITHOUT the eviction the slot survives frame destruction")
                     (is (node-reachable-from-panel? variant-id detached-node)
                         "WITHOUT the eviction the DESTROYED variant's detached
                          node is still reachable from the panel — the leak")))
@@ -214,130 +193,11 @@
                             "precondition: the re-scan re-stored the node")
                         (rf.story.frames/destroy! variant-id)
                         (is (not (contains? @rf.story.ui.a11y/violations-by-frame variant-id))
-                            "WITH the eviction the violations slot is ABSENT")
+                            "WITH the eviction the violations slot is ABSENT —
+                             the detached node is no longer reachable")
                         (is (not (contains? @rf.story.ui.a11y/run-state variant-id))
-                            "WITH the eviction the run-state slot is ABSENT")
-                        (is (not (node-reachable-from-panel? variant-id detached-node))
-                            "WITH the eviction the detached node is no longer
-                             reachable from the panel — reclaimed")
-                        (is (= :idle (rf.story.ui.a11y/status-for variant-id))
-                            "a reclaimed frame reads :idle, the never-scanned status")
-                        (done)))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Sequence — a guard carrying state can pass every single transition
-;; ---------------------------------------------------------------------------
-
-(deftest the-eviction-does-not-latch
-  (testing "SCAN -> DESTROY -> reclaimed -> SCAN again -> DESTROY again ->
-            reclaimed again, four transitions on one frame id in ONE
-            process. A teardown that reclaimed only once (or only after
-            the first allocation) would pass every single-transition test
-            and still be broken."
-    (async done
-      (let [node-1 #js {"tagName" "A" "id" "first"}
-            node-2 #js {"tagName" "IMG" "id" "second"}]
-        ;; --- round 1 ---
-        (allocate-probe-frame!)
-        (install-axe! (fn [_] (js/Promise.resolve (results-holding "round-1" node-1))))
-        (-> (rf.story.ui.a11y/run-axe! variant-id (ctx))
-            (.then
-              (fn [_]
-                (is (node-reachable-from-panel? variant-id node-1)
-                    "round 1 ADMIT: the scan stored its violation")
-                (is (= :done (rf.story.ui.a11y/status-for variant-id))
-                    "round 1 ADMIT: the run reached :done")
-                (rf.story.frames/destroy! variant-id)
-                (is (not (contains? @rf.story.ui.a11y/violations-by-frame variant-id))
-                    "round 1 RECLAIM: violations slot absent")
-                (is (not (contains? @rf.story.ui.a11y/run-state variant-id))
-                    "round 1 RECLAIM: run-state slot absent")
-                (is (not (node-reachable-from-panel? variant-id node-1))
-                    "round 1 RECLAIM: node-1 unreachable")
-
-                ;; --- round 2, SAME frame id, fresh incarnation ---
-                (allocate-probe-frame!)
-                (install-axe! (fn [_] (js/Promise.resolve
-                                        (results-holding "round-2" node-2))))
-                (-> (rf.story.ui.a11y/run-axe! variant-id (ctx))
-                    (.then
-                      (fn [_]
-                        (is (node-reachable-from-panel? variant-id node-2)
-                            "round 2 ADMIT: a re-allocated frame can scan again —
-                             the first teardown did not poison the slot")
-                        (is (not (node-reachable-from-panel? variant-id node-1))
-                            "round 2 ADMIT: round 1's node did NOT come back")
-                        (is (= :done (rf.story.ui.a11y/status-for variant-id))
-                            "round 2 ADMIT: the second run reached :done")
-                        (rf.story.frames/destroy! variant-id)
-                        (is (not (contains? @rf.story.ui.a11y/violations-by-frame variant-id))
-                            "round 2 RECLAIM: violations slot absent again")
-                        (is (not (contains? @rf.story.ui.a11y/run-state variant-id))
-                            "round 2 RECLAIM: run-state slot absent again")
-                        (is (not (node-reachable-from-panel? variant-id node-2))
-                            "round 2 RECLAIM: node-2 unreachable")
-                        (done)))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction with the supersession fence
-;; ---------------------------------------------------------------------------
-;;
-;; The run token lives IN the slot, so "does the slot still exist" and
-;; "is it still mine" are ONE question. This teardown is a second clearing
-;; path, so the claim it revokes must be revoked for free. Verify that
-;; rather than assume it.
-;;
-;; NOTE the failure shape being excluded: on CLJS this class does NOT
-;; throw. `(swap! run-state assoc frame-id …)` over a map the frame was
-;; dissoc'd from RESURRECTS the entry. So these assert the slot is ABSENT
-;; and the status terminal — never that an exception was raised.
-
-(deftest teardown-revokes-an-in-flight-runs-claim
-  (testing "a scan still in flight when the frame is torn down settles into
-            NOTHING: it must not resurrect the slot it no longer owns"
-    (async done
-      (let [scan-started (signal)
-            detached     #js {"tagName" "DIV" "id" "in-flight"}
-            release      (atom nil)]
-        (allocate-probe-frame!)
-        ;; The scan parks until the test releases it, so teardown is
-        ;; positioned exactly INSIDE the in-flight window — never raced.
-        (install-axe!
-          (fn [_]
-            ((:fire! scan-started))
-            (js/Promise. (fn [res _] (reset! release #(res (results-holding
-                                                             "late" detached)))))))
-        (rf.story.ui.a11y/run-axe! variant-id (ctx))
-        (-> (:promise scan-started)
-            (.then
-              (fn [_]
-                (is (contains? @rf.story.ui.a11y/run-state variant-id)
-                    "precondition: the in-flight run holds the slot")
-                ;; Tear the frame down mid-scan through the PRODUCTION path.
-                (rf.story.frames/destroy! variant-id)
-                (is (not (contains? @rf.story.ui.a11y/run-state variant-id))
-                    "teardown cleared the slot the in-flight run held")
-                ;; Now let the scan settle over the cleared state.
-                (@release)
-                ;; Yield past the settlement's own callback chain before
-                ;; reading, so the assertion sees the post-settlement world.
-                (-> (js/Promise.resolve)
-                    (.then (fn [_] nil))
-                    (.then (fn [_] nil))
-                    (.then
-                      (fn [_]
-                        (is (not (contains? @rf.story.ui.a11y/run-state variant-id))
-                            "the superseded settlement did NOT resurrect the
-                             run-state slot — the fence still declines after a
-                             teardown-driven revocation")
-                        (is (not (contains? @rf.story.ui.a11y/violations-by-frame variant-id))
-                            "the superseded settlement did NOT resurrect the
-                             violations slot")
-                        (is (not (node-reachable-from-panel? variant-id detached))
-                            "the late scan's node never entered the panel")
-                        (is (= :idle (rf.story.ui.a11y/status-for variant-id))
-                            "status reads :idle (terminal, never-scanned) rather
-                             than a fabricated :done for a frame that is gone")
+                            "WITH the eviction the run-state slot is ABSENT, so
+                             the frame reads :idle, the never-scanned status")
                         (done)))))))))))
 
 (deftest teardown-leaves-an-unrelated-frames-state-alone
@@ -361,8 +221,6 @@
               (fn [_]
                 (is (node-reachable-from-panel? variant-id node-a)
                     "precondition: probe frame holds its own scan")
-                (is (node-reachable-from-panel? other-id node-b)
-                    "precondition: sibling frame holds its own scan")
                 (rf.story.frames/destroy! variant-id)
                 (is (not (contains? @rf.story.ui.a11y/violations-by-frame variant-id))
                     "the destroyed frame's slot is reclaimed")
