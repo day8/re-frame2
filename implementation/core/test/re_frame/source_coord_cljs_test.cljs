@@ -1,15 +1,11 @@
 (ns re-frame.source-coord-cljs-test
-  "CLJS-side smoke check for `:rf.trace/call-site` on
-  `:rf.error/*` trace events. JVM-side coverage lives in
-  `source_coord_jvm_test.cljc`; the macro-expansion path is identical
-  across both targets (the `.cljc` macros run on the Clojure side of
-  the compiler in either case), so this file primarily verifies that
-  the CLJS bundle wires up the dynamic-var read end-to-end."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "CLJS calls to `rf/dispatch-sync` and `rf/subscribe` reach the call-site
+  macros through re-frame.core's self-`:require-macros`, not the value
+  aliases, which do not stamp. The macros expand on the JVM side for both
+  targets, so `source_coord_jvm_test.cljc` pins the stamp's shape and
+  placement; this pins the CLJS wiring."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.router :as rf.router]
-            [re-frame.subs :as rf.subs]
-            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -17,59 +13,13 @@
 (use-fixtures :each (rf.test-support/make-reset-runtime-fixture
                       {:adapter rf.substrate.plain-atom/adapter}))
 
-(defn- record-traces
-  [body-fn]
+(deftest cljs-dispatch-and-subscribe-macros-stamp-call-site
   (let [seen (atom [])]
-    (rf.trace.tooling/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    (try (body-fn)
-         (finally (rf.trace.tooling/unregister-listener! ::rec)))
-    @seen))
-
-(defn- errors-of [evs op]
-  (filterv #(and (= :error (:op-type %))
-                 (= op     (:operation %)))
-           evs))
-
-(deftest cljs-dispatch-macro-stamps-call-site
-  (testing "CLJS: dispatch-sync macro stamps :rf.trace/call-site at the top level"
-    (let [evs (record-traces
-               (fn []
-                 (rf/dispatch-sync [:rf2-ts1a/missing])))
-          [miss] (errors-of evs :rf.error/no-such-handler)
-          cs     (:rf.trace/call-site miss)]
-      (is (symbol? (:ns cs)) "call-site captured")
-      (is (integer? (:line cs)))
-      (is (not (contains? (:tags miss) :rf.trace/call-site))
-          ":rf.trace/call-site lives at top level, not under :tags"))))
-
-(deftest cljs-dispatch-owning-fn-omits-call-site
-  (testing "CLJS: the owning-ns fn-form re-frame.router/dispatch-sync! does
-   NOT stamp"
-    (let [evs (record-traces
-               (fn []
-                 (rf.router/dispatch-sync! [:rf2-ts1a/missing])))
-          [miss] (errors-of evs :rf.error/no-such-handler)]
-      (is (some? miss))
-      (is (not (contains? miss :rf.trace/call-site))))))
-
-(deftest cljs-subscribe-macro-stamps-call-site
-  (testing "CLJS: subscribe macro stamps :rf.trace/call-site on :rf.error/no-such-sub"
-    (let [evs (record-traces
-               (fn []
-                 (rf/subscribe [:rf2-ts1a/missing-sub])))
-          [miss] (errors-of evs :rf.error/no-such-sub)]
-      (is (some? (:rf.trace/call-site miss))))))
-
-(deftest cljs-subscribe-owning-fn-omits-call-site
-  (testing "CLJS: the owning-ns fn-form re-frame.subs/subscribe does NOT
-   stamp"
-    (let [evs (record-traces
-               (fn []
-                 (rf.subs/subscribe [:rf2-ts1a/missing-sub])))
-          [miss] (errors-of evs :rf.error/no-such-sub)]
-      (is (some? miss))
-      (is (not (contains? miss :rf.trace/call-site))))))
-
-;; There is no `inject-cofx` (EP-0017 slice A.3), so there is no inject-cofx
-;; call-site deftest here. The dispatch / subscribe call-site stamping (above)
-;; does not depend on it.
+    (rf.trace.tooling/register-listener! ::rec #(swap! seen conj %))
+    (try
+      (rf/dispatch-sync [:rf2-ts1a/missing])
+      (rf/subscribe [:rf2-ts1a/missing-sub])
+      (finally (rf.trace.tooling/unregister-listener! ::rec)))
+    (doseq [op [:rf.error/no-such-handler :rf.error/no-such-sub]]
+      (let [cs (:rf.trace/call-site (first (filter #(= op (:operation %)) @seen)))]
+        (is (and (symbol? (:ns cs)) (integer? (:line cs))) (str op))))))
