@@ -1,11 +1,7 @@
 (ns re-frame.story-chrome-a11y-cljs-test
-  "CLJS smoke tests for the chrome-a11y panel.
-
-  Mirrors the shape of `story-a11y-cljs-test` (the variant a11y panel
-  test) — registration + state-management surface that's load-bearing
-  in the CLJS bundle. The actual axe-core run is a browser concern
-  (script injection from a CDN); these tests cover the panel's
-  contract without requiring a live browser."
+  "CLJS tests for the chrome-a11y panel's registration and scope contract,
+  shaped like `re-frame.story-a11y-cljs-test`; the axe-core run itself is a
+  browser concern."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -30,29 +26,16 @@
 ;; ---- panel registration -------------------------------------------------
 
 (deftest chrome-a11y-panel-body
-  (testing "the chrome-a11y panel body declares :placement :right + :render"
-    (let [body (rf.story/handler-meta :story-panel rf.story.ui.chrome-a11y/panel-id)]
-      (is (= :right (:placement body)))
-      (is (= rf.story.ui.chrome-a11y/panel-render-id (:render body)))
-      (is (re-find #"(?i)chrome" (or (:title body) ""))))))
+  (let [body (rf.story/handler-meta :story-panel rf.story.ui.chrome-a11y/panel-id)]
+    (is (= [:right rf.story.ui.chrome-a11y/panel-render-id] ((juxt :placement :render) body)))
+    (is (re-find #"(?i)chrome" (or (:title body) "")))))
 
 (deftest chrome-a11y-render-view-roots-in-dom-element
-  (testing "the chrome-a11y panel-render view returns hiccup whose root
-            is a DOM element keyword (`:div`), not a bare component
-            reference.
-
-            Per Spec 006 §Source-coord annotation the annotator can only
-            attach `data-rf2-source-coord` to hiccup DOM roots; a bare
-            `[panel variant-id]` root makes the panel invisible to Story
-            Inspect Mode + Xray Inspect Mode. The `[:div]`
-            wrap is load-bearing."
-    (let [view-fn (rf/view rf.story.ui.chrome-a11y/panel-render-id)
-          out     (view-fn :story.unknown/y)]
-      (is (vector? out)
-          "panel-render returns a hiccup vector")
-      (is (= :div (first out))
-          "hiccup root is the DOM element `:div` per the source-coord-annotator
-           wrap, not a component ref"))))
+  (testing "the panel-render view's hiccup roots in a DOM element: the
+            source-coord annotator attaches `data-rf2-source-coord` only to
+            DOM roots (Spec 006 §Source-coord annotation)"
+    (let [out ((rf/view rf.story.ui.chrome-a11y/panel-render-id) :story.unknown/y)]
+      (is (and (vector? out) (= :div (first out)))))))
 
 ;; ---- scope contract -----------------------------------------------------
 
@@ -64,8 +47,6 @@
 ;; ---- find-chrome-root degraded-environment safety -----------------------
 
 (deftest find-chrome-root-handles-missing-dom
-  (testing "find-chrome-root returns nil rather than throwing when no shell is mounted"
-    ;; The Node-runtime test environment does not mount the Story shell,
-    ;; so find-chrome-root must gracefully return nil (the panel surfaces
-    ;; a :no-root state in that case).
+  (testing "with no shell mounted find-chrome-root is nil rather than a throw,
+            and the panel surfaces :no-root"
     (is (nil? (rf.story.ui.chrome-a11y/find-chrome-root)))))
