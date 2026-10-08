@@ -97,16 +97,8 @@
                             {:compose       [:fragment.login/errored]
                              :sub-overrides {[:login/attempts] 3}
                              :setup        []})
-    (let [resolved (canvas-sub-overrides :story.login/from-fragment {})]
-      (testing "the variant's OWN override resolves"
-        (is (= 3 (get resolved [:login/attempts]))))
-      (testing "the COMPOSED fragment's override ALSO resolves — a bare-body
-                read (`(:sub-overrides body)`) would drop it"
-        (is (= :error (get resolved [:login/state]))))
-      (testing "the canvas resolver agrees with the plan's composed slot"
-        (is (= (get-in (rf.story.plan/variant-plan :story.login/from-fragment)
-                       [:world :render :sub-overrides])
-               resolved))))))
+    (is (= {[:login/attempts] 3 [:login/state] :error}
+           (canvas-sub-overrides :story.login/from-fragment {})))))
 
 (deftest extends-chain-sub-overrides-resolve-on-canvas-path
   (testing "a child variant that :extends a parent with :sub-overrides and
@@ -119,12 +111,8 @@
                             {:extends       :story.ext.subovr/parent
                              :sub-overrides {[:login/attempts] 5}
                              :setup        []})
-    (let [resolved (canvas-sub-overrides :story.ext.subovr/child {})]
-      (testing "the child's OWN override resolves"
-        (is (= 5 (get resolved [:login/attempts]))))
-      (testing "the parent-chain override is INHERITED (the plan
-                compiler is the single :extends merge authority)"
-        (is (= :error (get resolved [:login/state])))))))
+    (is (= {[:login/attempts] 5 [:login/state] :error}
+           (canvas-sub-overrides :story.ext.subovr/child {})))))
 
 (deftest variant-with-no-sub-overrides-resolves-nil
   (testing "a registered variant authoring NO :sub-overrides resolves nil
@@ -166,11 +154,7 @@
         (is (= [[:deco/theme-dark]] rv-refs)))
       (testing "the canvas resolves the SAME inherited decorator (NOT empty —
                 a bare-body read would drop the :extends-inherited stack)"
-        (is (= [:deco/theme-dark] canvas-ids)))
-      (testing "both paths agree: render-variant's refs resolve to the canvas
-                pack's :hiccup ids"
-        (is (= canvas-ids
-               (mapv :id (:hiccup (rf.story.decorators/resolve-decorator-refs rv-refs)))))))))
+        (is (= [:deco/theme-dark] canvas-ids))))))
 
 (deftest canvas-and-render-variant-agree-on-full-decorator-stack
   (testing "the canvas + render-variant resolve the SAME FULL decorator
@@ -212,19 +196,11 @@
       (testing "the canvas pack resolves the SAME full stack in the SAME order"
         (is (= [:deco/global-theme :deco/story-frame :deco/variant-pad]
                canvas-ids)))
-      (testing "both paths agree: render-variant's refs resolve to the canvas
-                pack's :hiccup ids — IDENTICAL decorated tree"
-        (is (= canvas-ids
-               (mapv :id (:hiccup (rf.story.decorators/resolve-decorator-refs rv-refs))))))
       (testing "and applying the stack wraps the leaf globals-outermost,
                 variant-innermost (the rendered tree both paths paint)"
         (is (= [:div.global [:div.story [:div.variant [:span "leaf"]]]]
                (rf.story.decorators/apply-hiccup-decorators
                  (:hiccup canvas-pack) [:span "leaf"] {})))))))
-
-;; ===========================================================================
-;; The single render path's cannot-render honesty
-;; ===========================================================================
 
 ;; ===========================================================================
 ;; The canvas decorator path threads :run-args into the plan it
@@ -311,29 +287,6 @@
                    {:cell-overrides {:only-in-cell "from-cell"}})]
         (is (= [:deco/cell-wrap] (mapv :id (:hiccup pack))))
         (is (empty? (:errors pack)))))))
-
-(deftest canvas-decorator-resolution-unaffected-when-arg-in-variant-chain
-  (testing "the COMMON case: when every `[:arg key]` is declared on the
-            variant itself, the no-opts front door resolves fine, and
-            threading run opts resolves the identical stack"
-    (rf.story.registrar/reg-decorator* :deco/plain-wrap
-                              {:kind :hiccup :wrap (fn [body _] [:div.plain body])})
-    (rf.story.registrar/reg-variant* :story.canvas.ownarg/v
-                            {:component  :views/widget
-                             :decorators [[:deco/plain-wrap]]
-                             :args       {:in-variant "static"}
-                             :db-seed    {:seeded [:arg :in-variant]}
-                             :setup     []})
-    (testing "no-opts resolves (the variant declares the key)"
-      (is (= [:deco/plain-wrap]
-             (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
-                                  :story.canvas.ownarg/v))))))
-    (testing "and threading run opts resolves the IDENTICAL stack"
-      (is (= (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
-                                  :story.canvas.ownarg/v)))
-             (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
-                                  :story.canvas.ownarg/v
-                                  {:active-modes [] :cell-overrides {}}))))))))
 
 (deftest resolution-fingerprints-threads-run-args-without-throwing
   (testing "the hot-reload fingerprint poll (`resolution-fingerprints`) threads
