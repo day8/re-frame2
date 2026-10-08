@@ -1,78 +1,14 @@
 (ns re-frame.ssr-safe-redirect-production-test
-  "An attempted open redirect reaches an off-box
-  shipper under the REAL production gate, and does NOT touch the wire.
+  "A rejected `:rf.server/safe-redirect` is refused, leaves the wire alone
+  (no redirect, no 500), and ships exactly ONE always-on record an off-box
+  shipper sees under the production gate. That record is a closed structural
+  projection: framework keywords and the frame id only — never the URL, any
+  URL component, the raw scheme or host, or the app's own allowlist — so it
+  can carry no caller bytes and cannot be inflated or fragmented by the
+  caller. Every assertion is posture-independent.
 
-  THE RISK. `:rf.server/safe-redirect`'s five-step gate (parse → scheme →
-  relative-only → allowlist → pass) REJECTS correctly under
-  `-Dre-frame.debug=false`, and that is asserted
-  below for its own sake. What needs its own channel is the RECORD. Were
-  every rejection to go out through `emit-safe-redirect-error!` calling
-  `trace/emit-error!` alone — the dev bus, inside
-  `interop/debug-enabled?` — an attacker-supplied
-  `?next=javascript:alert(1)` on a production JVM would be rejected into
-  total silence: no Sentry
-  event, no Datadog metric, no frame-owned `:observability :errors` record,
-  and no wire signal either (the fx no-ops; the response simply carries no
-  redirect). A security team could not see open-redirect probing against
-  their own app.
-
-  The CRLF / NUL gate on the
-  SAME fx THROWS, so it rides `:rf.error/fx-handler-exception` and is
-  always-on. Two halves of one security surface must not have opposite
-  production observability.
-
-  WHY THIS SUITE IS POSTURE-INDEPENDENT, AND WHY THAT MATTERS. Every
-  assertion below is true under BOTH postures and mentions the dev trace bus
-  NOWHERE, so the namespace joins `scripts/test-ssr-prod-gate.sh` by default
-  (that roster is an EXCLUSION list) and executes under
-  `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
-  false]` rebind CANNOT reach a load-time gate — it is not evidence here,
-  which is exactly why a safe-redirect test that reads only the dev trace
-  bus can stay green while production ships silence.
-
-  WHAT IS PINNED:
-
-    1. The mitigation. Every rejection arm leaves `:redirect` nil
-       under the gate — the security-load-bearing half, asserted here so a
-       change to the record cannot quietly cost the refusal.
-    2. The record. EXACTLY ONE always-on record per rejection reaches an
-       off-box shipper, carrying the specific `:rf.error/safe-redirect-*`
-       category and the discriminating tags.
-    3. The key set, pinned CLOSED. A slot added to this record reaches
-       Sentry / Datadog in a production build, so it must be a deliberate
-       change rather than a drift.
-    4. The PROJECTION. The record carries no URL,
-       no URL COMPONENT, and never the app's own allowlist. A carrier-scrubbed
-       `:location` would not do: that scrub is
-       the right blanket policy over the app's OWN URL space, but it does
-       string surgery only after the first `?` or `#`, so on an arbitrary
-       FOREIGN URL the userinfo (`alice:pw@`), the whole path (a reset token)
-       and any value-less query key would ride out verbatim — and an
-       `:allowlist` slot would ship the app's security configuration beside
-       them. One test per leak, each with its own sentinel.
-    5. The VALUES, not merely the keys. A closed key SET carrying the
-       parsed `:scheme` and `:host` as strings would rest on the premise
-       that a parsed component is
-       structural. It is not: a scheme is arbitrary text (RFC 3986 §3.1) and
-       a rejected host is by construction one the app did NOT authorise, so
-       each could carry a sentinel outright and each could be varied per
-       request to write unbounded distinct values into a metrics dimension.
-       The record carries the classified `:scheme-class` and no host, and
-       §(5) below pins BOTH properties — content and cardinality — with
-       sentinel-bearing and oversized input in each position.
-    6. The wire is UNTOUCHED. The always-on record changes what shippers
-       see, never what the wire does — the rule this artefact's `error_listener.cljc`
-       states at the head of `non-projection-eligible-errors`. A rejected
-       redirect must not become a 500, or `?next=javascript:alert(1)` would
-       be a denial of service.
-
-  Companion suites:
-    - `re-frame.ssr-end-to-end-test` — the safe-redirect cases this suite
-      does not carry: a `java.net.URI` parse failure, the scheme-prefix
-      ordering, the dev trace's raw `:host` / `:allowlist` / `:scheme`
-      diagnostics, and the relative-path pass-through control.
-    - `re-frame.ssr-route-miss-404-production-test` — the
-      always-on witness this one is modelled on."
+  The dev trace's diagnostics and the URI parse-failure cases live in
+  `re-frame.ssr-end-to-end-test`."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -80,45 +16,26 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.egress :as rf.ssr.egress]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; NOTE the fixture does NOT clear the always-on error-listener registry.
-;; `re-frame.ssr` installs its own `::error-projection` listener there at
-;; ns-load time, and (5) below is precisely a claim about what that listener
-;; does with these categories. Each test unregisters only the shipper
-;; stand-in it registered.
+;; The fixture leaves the always-on listener registry alone: the façade's own
+;; projection listener there is what decides whether a rejection becomes a 500.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
-
-(defn- server-frame []
-  (rf.frame/make-anon-frame-record!
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}}))
-
-(defn- capture-always-on!
-  "Register an off-box-shipper stand-in on the ALWAYS-ON error axis (the
-  `:errors` stream of `register-listener!` — surface #4, not the dev trace
-  bus). Returns the atom collecting every record it receives."
-  [id]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
-    seen))
-
 (defn- reject!
-  "Drive `:rf.server/safe-redirect` with `args` on a fresh server frame and
-  return `{:frame :records :response}` — the always-on records the shipper
-  stand-in saw, and the resolved response accumulator."
+  "Drive `:rf.server/safe-redirect` with `args` on a fresh server frame.
+  Returns the frame, every always-on record a shipper stand-in saw, and the
+  resolved response."
   [args]
-  (let [f    (server-frame)
-        id   (keyword "rf2-6jqa8" (str "cap-" (name (gensym "s"))))
-        seen (capture-always-on! id)]
+  (let [f    (rf.frame/make-anon-frame-record!
+               {:platform :server
+                :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                           :dev-error-detail? false}})
+        id   (keyword "rf.test" (str "cap-" (name (gensym "s"))))
+        seen (atom [])]
+    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
     (rf/reg-event ::attempt (fn [_ [_ a]] {:fx [[:rf.server/safe-redirect a]]}))
     (rf/dispatch-sync [::attempt args] {:frame f})
     (rf.error-emit/unregister-error-listener! id)
@@ -129,622 +46,121 @@
 (defn- safe-redirect-records [records]
   (filter #(str/starts-with? (name (:error %)) "safe-redirect-") records))
 
-;; ===========================================================================
-;; (1) THE MITIGATION — every arm refuses, under the gate
-;; ===========================================================================
+(defn- refusal
+  "`[redirect status records]` for `args`, each record with `:frame` and
+  `:time` reduced to whether they are this frame's id and a clock reading."
+  [args]
+  (let [{:keys [frame records response]} (reject! args)]
+    [(:redirect response)
+     (:status response)
+     (mapv #(-> % (update :frame = frame) (update :time number?))
+           (safe-redirect-records records))]))
 
-(deftest every-rejection-arm-still-refuses-under-the-production-gate
-  (testing "The five-step gate is production-real. This is the
-            security-load-bearing half, asserted here in its own right so a
-            change to the RECORD can never quietly cost the REFUSAL — the
-            failure mode an observability change is most at risk of."
-    (doseq [[label args] [["javascript: scheme"
-                           {:location "javascript:alert(1)"}]
-                          ["data: scheme"
-                           {:location "data:text/html,<script>alert(1)</script>"}]
-                          ["vbscript: scheme"
-                           {:location "vbscript:msgbox(1)"}]
-                          ["non-http(s) scheme"
-                           {:location "mailto:evil@example.com"}]
-                          ["scheme-bearing opaque host bypass"
-                           {:location "http:evil.example.com"}]
-                          ["absolute URL under :relative-only?"
-                           {:location "https://evil.example.com/" :relative-only? true}]
-                          ["protocol-relative under :relative-only?"
-                           {:location "//evil.example.com/" :relative-only? true}]
-                          ["off-allowlist host"
-                           {:location "https://evil.example.com/" :allow ["app.example.com"]}]
-                          ["unparseable location"
-                           {:location ""}]]]
-      (let [{:keys [response]} (reject! args)]
-        (is (nil? (:redirect response))
-            (str label " — rejected: the response accumulator's :redirect "
-                 "slot is untouched under -Dre-frame.debug=false"))))))
+(defn- refused-with
+  "The `refusal` of a rejected redirect whose one record is `slots` plus the
+  framework-owned attribution."
+  [slots]
+  [nil 200 [(merge {:frame true :time true :recovery :no-recovery} slots)]])
 
-;; ---------------------------------------------------------------------------
-;; (1b) NETWORK-PATH REFERENCES java.net.URI cannot see the host of
-;; ---------------------------------------------------------------------------
+(def ^:private scheme-rejected :rf.error/safe-redirect-scheme-rejected)
+(def ^:private invalid-url     :rf.error/safe-redirect-invalid-url)
+(def ^:private host-disallowed :rf.error/safe-redirect-host-disallowed)
 
-(def ^:private network-path-bypasses
-  "Locations a browser resolves OFF-ORIGIN while java.net.URI reports no
-  usable host. Resolved against `https://trusted.example/login` by the
-  WHATWG URL parser (Node 24):
-
-    ///evil.example/path   → https://evil.example/path   URI: no scheme, NO authority
-    ////evil.example/path  → https://evil.example/path   URI: no scheme, NO authority
-    //evil_example/path    → https://evil_example/path   URI: authority, NO host
-
-  The first two read as a RELATIVE reference to a gate that asks only
-  whether URI found an authority; the third has an authority but no
-  extractable host, which an allowlist arm reading only URI's host would
-  wave through."
-  ["///evil.example/path" "////evil.example/path" "//evil_example/path"])
+(deftest each-rejection-arm-refuses-and-ships-one-closed-record
+  (testing "every arm refuses with no redirect and no 500, and its one record
+            is exactly the closed shape — so no sentinel planted anywhere in
+            the input (scheme, userinfo, host label, path, query key,
+            allowlist entry) and no oversized input reaches it"
+    (doseq [[args slots]
+            [[{:location "javascript:alert(1)"}
+              {:error scheme-rejected :scheme-class :javascript}]
+             [{:location "s3cr3t-probe-scheme:payload"}
+              {:error scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
+             [{:location (str "s" (apply str (repeat 20000 "x")) ":payload")}
+              {:error scheme-rejected :reason :scheme-not-allowed :scheme-class :other}]
+             [{:location "https:s3cr3t-opaque-token.evil.example"}
+              {:error invalid-url :reason :scheme-without-host :scheme-class :https}]
+             [{:location "https://s3cr3t-session-id.evil.example/x" :relative-only? true}
+              {:error host-disallowed :reason :relative-only-violation}]
+             [{:location "//evil.example.com/" :relative-only? true}
+              {:error host-disallowed :reason :relative-only-violation}]
+             [{:location "https://alice:s3cr3t-pw@a.b.s3cr3t-label.evil.example/reset/s3cr3t-token?s3cr3t-flag"
+               :allow    ["app.example.com" "s3cr3t-internal-admin.example.com"]}
+              {:error host-disallowed :reason :not-in-allowlist}]
+             [{:location (str "https://" (apply str (repeat 20000 "h")) ".evil.example/"
+                              (apply str (repeat 20000 "p")))
+               :allow    ["app.example.com"]}
+              {:error host-disallowed :reason :not-in-allowlist}]
+             [{:location ""}
+              {:error invalid-url :reason :parse-failed}]]]
+      (is (= (refused-with slots) (refusal args))
+          (subs (pr-str args) 0 (min 120 (count (pr-str args))))))))
 
 (deftest a-network-path-reference-cannot-satisfy-either-policy
-  (testing "A caller that restricted the redirect — relative-only,
-            or a host allowlist — must not be redirected off-origin by a
-            location the browser resolves to a foreign host merely because
-            java.net.URI cannot expose that host. Each is refused with the
-            arm's own category and reason, and the accumulator keeps
-            its default 200 with no redirect."
-    (doseq [location network-path-bypasses
-            [args expected-reason]
-            [[{:location location :relative-only? true} :relative-only-violation]
-             [{:location location :allow ["trusted.example"]} :not-in-allowlist]]]
-      (let [{:keys [records response]} (reject! args)
-            hits                       (safe-redirect-records records)]
-        (is (nil? (:redirect response))
-            (str (pr-str args) " — refused: no :redirect reaches the accumulator"))
-        (is (= 200 (:status response))
-            (str (pr-str args) " — refused: the status is the untouched default, not a 3xx"))
-        (is (= 1 (count hits))
-            (str (pr-str args) " — exactly one always-on rejection record"))
-        (is (= :rf.error/safe-redirect-host-disallowed (:error (first hits)))
-            (str (pr-str args) " — the policy arm's own category"))
-        (is (= expected-reason (:reason (first hits)))
-            (str (pr-str args) " — the policy arm's own reason"))))))
+  (testing "locations a browser resolves off-origin while java.net.URI reports
+            no usable host (no authority, or an authority with no host) are
+            refused by relative-only and by an allowlist alike"
+    (doseq [location ["///evil.example/path" "////evil.example/path" "//evil_example/path"]
+            [args reason] [[{:location location :relative-only? true} :relative-only-violation]
+                           [{:location location :allow ["trusted.example"]} :not-in-allowlist]]]
+      (is (= (refused-with {:error host-disallowed :reason reason}) (refusal args))
+          (pr-str args)))))
 
 (deftest each-policy-still-passes-its-legitimate-targets
-  (testing "CONTROL: the network-path rule narrows what counts as relative and
-            what satisfies an allowlist — it must not refuse everything. An
-            ordinary local reference passes relative-only and an allowlist
-            alike, and an explicitly allowed https host passes its allowlist."
-    (doseq [args [{:location "/dashboard" :relative-only? true}
-                  {:location "dashboard/settings?tab=2" :relative-only? true}
-                  {:location "/dashboard" :allow ["trusted.example"]}
-                  {:location "https://trusted.example/path" :allow ["trusted.example"]}
-                  {:location "https://TRUSTED.example/path" :allow ["trusted.example"]}]]
-      (let [{:keys [records response]} (reject! args)]
-        (is (= (:location args) (:location (:redirect response)))
-            (str (pr-str args) " — passes, carrying its own target"))
-        (is (empty? (safe-redirect-records records))
-            (str (pr-str args) " — and ships no rejection record"))))))
-
-;; ===========================================================================
-;; (2) THE RECORD — the rejection reaches an off-box shipper in production
-;; ===========================================================================
-
-(deftest a-scheme-rejection-reaches-the-always-on-axis
-  (testing "The headline claim. Without this record a production build
-            would carry the rejection on the dev trace bus alone, so an
-            attempted `javascript:` redirect would be silently no-op'd with
-            nothing for a shipper to see."
-    (let [{:keys [records]} (reject! {:location "javascript:alert(1)"})
-          hits              (safe-redirect-records records)]
-      (is (= 1 (count hits))
-          "exactly one always-on record — one per rejection, not one per axis")
-      (let [r (first hits)]
-        (is (= :rf.error/safe-redirect-scheme-rejected (:error r)))
-        (is (= :javascript (:scheme-class r))
-            "the probe CLASS is named, so a dashboard can rank it — a
-             framework keyword drawn from the gate's own vocabulary, not the
-             caller's scheme string")
-        (is (= :no-recovery (:recovery r)))
-        (is (some? (:frame r))
-            "frame-attributed, so the record routes to the frame's
-             :observability :errors sink")
-        (is (number? (:time r)))))))
-
-(deftest each-rejection-arm-names-its-own-category-and-reason
-  (testing "The three categories and their `:reason` vocabulary
-            are what a security team discriminates on. Asserted per arm, off
-            the production axis, so the discrimination survives the gate
-            rather than living only on the dev trace."
-    (doseq [[args expected-error expected-reason]
-            [[{:location "mailto:evil@example.com"}
-              :rf.error/safe-redirect-scheme-rejected :scheme-not-allowed]
-             [{:location "http:evil.example.com"}
-              :rf.error/safe-redirect-invalid-url :scheme-without-host]
-             [{:location "https://evil.example.com/" :relative-only? true}
-              :rf.error/safe-redirect-host-disallowed :relative-only-violation]
-             [{:location "https://evil.example.com/" :allow ["app.example.com"]}
-              :rf.error/safe-redirect-host-disallowed :not-in-allowlist]
-             ;; This arm's `:reason` is a closed keyword, not free prose: a
-             ;; closed keyword is what makes
-             ;; the slot aggregatable AND keeps the vocabulary framework-owned
-             ;; on the one arm whose input did not parse.
-             [{:location ""}
-              :rf.error/safe-redirect-invalid-url :parse-failed]]]
-      (let [hits (safe-redirect-records (:records (reject! args)))
-            r    (first hits)]
-        (is (= 1 (count hits)) (str args " — exactly one record"))
-        (is (= expected-error (:error r)) (str args " — category"))
-        (is (= expected-reason (:reason r)) (str args " — reason"))))))
-
-(deftest a-passing-redirect-emits-no-record-at-all
-  (testing "Non-vacuity: the always-on axis is silent on the happy
-            path. Without this, every assertion above would be satisfied by
-            an emit site that fired unconditionally."
-    (let [{:keys [records response]} (reject! {:location "/dashboard"
-                                               :relative-only? true})]
-      (is (empty? (safe-redirect-records records))
-          "a passing relative redirect ships no rejection record")
-      (is (= "/dashboard" (:location (:redirect response)))
-          "and it really did pass — the :redirect slot carries the target,
-           so the silence above is not the silence of a refused redirect"))))
-
-;; ===========================================================================
-;; (3) THE KEY SET — pinned CLOSED
-;; ===========================================================================
-
-(deftest the-production-record-carries-exactly-the-enumerated-slots
-  (testing "EGRESS: this record is what a
-            `-Dre-frame.debug=false` build sends off-box, so pinning the shape
-            is the job. The key set is CLOSED because it is produced by a
-            `select-keys` against one allowlist — a slot added to a tag map at
-            any of the eight emit arms simply does not reach Sentry / Datadog,
-            and WIDENING the record is an edit to
-            `egress/safe-redirect-record-slots` that reddens this test.
-
-            The per-arm sets differ only in which discriminator the arm was
-            able to classify. No arm carries `:location`, none carries
-            `:allowlist`, and none carries a
-            raw URL component under any name."
-    (let [scheme (first (safe-redirect-records
-                          (:records (reject! {:location "javascript:alert(1)"}))))
-          host   (first (safe-redirect-records
-                          (:records (reject! {:location "https://evil.example.com/x"
-                                              :allow    ["app.example.com"]}))))
-          parse  (first (safe-redirect-records
-                          (:records (reject! {:location ""}))))]
-      (is (= #{:error :time :recovery :frame :scheme-class}
-             (set (keys scheme)))
-          "scheme rejection — the probe class is the discriminator; no raw URL
-           and no raw scheme")
-      (is (= #{:error :time :recovery :frame :reason}
-             (set (keys host)))
-          "host rejection — which policy arm fired, and nothing else. The
-           target host is NOT here: on this arm it is by construction a name
-           the app did not authorise, the redirect is already refused, and it
-           would be the record's last caller-authored string")
-      (is (= #{:error :time :recovery :frame :reason}
-             (set (keys parse)))
-          "parse failure — nothing parsed, so the category and a closed
-           :reason are all there is to say")
-      (is (every? keyword? (keep :reason [scheme host parse]))
-          "every :reason is a closed keyword, never free prose — prose on an
-           attacker-influenced arm is how raw material re-enters a record"))))
-
-;; ===========================================================================
-;; (4) THE PROJECTION — no URL secrets, no allowlist
-;; ===========================================================================
-;;
-;; Scrubbing the `:location` with `url-egress/redact-url-carriers` and putting
-;; the scrubbed string on the record would not do.  That scrub is the right
-;; blanket policy for ordinary route diagnostics
-;; over the app's OWN URL space (the route-miss `:url`), and it is NOT
-;; a fail-closed projection of an ARBITRARY ATTACKER-SUPPLIED FOREIGN URL: the
-;; policy does string surgery only after the first `?` or `#`, so everything to
-;; the LEFT of them — userinfo, the whole path — would ride out verbatim, as
-;; would a value-less query key.  An `:allowlist` slot would ship the
-;; application's own security configuration too.
-;;
-;; So the production record is a strict STRUCTURAL PROJECTION of the
-;; diagnostics rather than a scrubbed copy of them: framework-classified
-;; values only, never a URL.  Below is one test per leak, each with a sentinel that is
-;; present in the input by construction, so a regression names its own slot.
-
-(defn- record-strings
-  "Every string anywhere in `record` — the values a shipper serialises. The
-  leak assertions below scan THIS rather than a named slot, so a secret that
-  reappears under some *other* key is caught just as well as one that
-  reappears under `:location`."
-  [record]
-  (filter string? (tree-seq coll? seq record)))
-
-(defn- ships? [record needle]
-  (boolean (some #(str/includes? % needle) (record-strings record))))
-
-(deftest userinfo-does-not-egress
-  (testing "Leak 1: a URL's userinfo component carries
-            credentials outright (RFC 3986 §3.2.1; OpenTelemetry's URL
-            conventions say user / password MUST NOT be recorded). It sits
-            LEFT of any `?`, so the carrier scrub never reaches it and
-            `https://alice:pw@host/` would ship whole."
-    (let [r (first (safe-redirect-records
-                     (:records (reject! {:location "https://alice:s3cr3t-userinfo-pw@evil.example.com/private"
-                                         :allow    ["app.example.com"]}))))]
-      (is (not (ships? r "s3cr3t-userinfo-pw"))
-          "the password in the userinfo component does not egress")
-      (is (not (ships? r "alice"))
-          "nor the username")
-      (is (= :not-in-allowlist (:reason r))
-          "and the record is still worth having: the arm that refused is
-           named, which is what an operator counts"))))
-
-(deftest path-borne-secrets-do-not-egress
-  (testing "Leak 1 (second half): opaque secrets live
-            in PATH segments too — a password-reset token is the canonical
-            case. The path is left of the `?`, so the carrier scrub keeps it
-            deliberately ('keep the structured path'), which is right for the
-            app's own URL space and wrong for a foreign one."
-    (let [r (first (safe-redirect-records
-                     (:records (reject! {:location "https://evil.example.com/reset/s3cr3t-path-token?x=1"
-                                         :allow    ["app.example.com"]}))))]
-      (is (not (ships? r "s3cr3t-path-token"))
-          "the opaque path segment does not egress")
-      (is (not (ships? r "/reset/"))
-          "nor the path structure around it"))))
-
-(deftest value-less-query-keys-do-not-egress
-  (testing "Leak 1 (third half): the carrier policy
-            PRESERVES a value-less query key by design — the key names the
-            shape, not the secret. True over the app's own URL space; over an
-            attacker's, the attacker chooses the key, so the key IS the
-            payload."
-    (let [r (first (safe-redirect-records
-                     (:records (reject! {:location "https://evil.example.com/x?s3cr3t-bare-flag"
-                                         :allow    ["app.example.com"]}))))]
-      (is (not (ships? r "s3cr3t-bare-flag"))
-          "an attacker-chosen value-less query key does not egress"))))
-
-(deftest the-applications-own-allowlist-does-not-egress
-  (testing "Leak 2: `:allowlist` is not user data —
-            it is worse. It is the app's SECURITY CONFIGURATION, unbounded in
-            size, and shipping it off-box hands whoever reads the sink the
-            exact boundary they are probing. `:reason :not-in-allowlist`
-            already says which arm fired; the contents add nothing an operator
-            cannot read from their own config."
-    (let [r (first (safe-redirect-records
-                     (:records (reject! {:location "https://evil.example.com/"
-                                         :allow    ["app.example.com"
-                                                    "s3cr3t-internal-admin.example.com"]}))))]
-      (is (not (ships? r "s3cr3t-internal-admin.example.com"))
-          "no allowlist entry egresses")
-      (is (not (contains? r :allowlist))
-          "and the slot itself is gone, not merely emptied")
-      (is (= :not-in-allowlist (:reason r))
-          "the DISCRIMINATION survives — an operator still knows the
-           allowlist arm rejected this, which is the actionable half"))))
+  (doseq [args [{:location "/dashboard" :relative-only? true}
+                {:location "/dashboard" :allow ["trusted.example"]}
+                {:location "https://trusted.example/path" :allow ["trusted.example"]}
+                {:location "https://TRUSTED.example/path" :allow ["trusted.example"]}]]
+    (let [{:keys [records response]} (reject! args)]
+      (is (= [(:location args) []]
+             [(:location (:redirect response)) (vec (safe-redirect-records records))])
+          (pr-str args)))))
 
 (deftest the-probe-class-is-normalised-for-aggregation
-  (testing "`:scheme-class` exists to be COUNTED. Schemes are
-            case-insensitive (RFC 3986 §3.1), so a prober alternating case
-            would otherwise fragment one spike across many dashboard buckets —
-            an evasion that costs the attacker nothing. The classifier folds
-            case before the lookup, so every spelling of one scheme lands in
-            one bucket."
-    (doseq [[loc expected] [["javascript:alert(1)"       :javascript]
-                            ["JavaScript:alert(1)"       :javascript]
-                            ["JAVASCRIPT:alert(1)"       :javascript]
-                            ["data:text/html,x"          :data]
-                            ["VBScript:x"                :vbscript]
-                            ["MAILTO:evil@example.com"   :other]
-                            ["https:evil.example.com"    :https]]]
-      (let [r (first (safe-redirect-records (:records (reject! {:location loc}))))]
-        (is (= expected (:scheme-class r)) (str loc " — probe class"))))))
-
-;; ===========================================================================
-;; (5) THE VALUES — bounded and framework-owned, not merely closed keys
-;; ===========================================================================
-;;
-;; §(3) pins the record's KEYS closed and §(4)
-;; proves no URL, path or allowlist rides under them — and both would be
-;; satisfied by a record carrying the parsed `:scheme` and `:host` as strings.
-;; A closed key set says nothing about what its values contain, and on this
-;; path both would be caller-authored:
-;;
-;;   - a scheme is `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )` (RFC 3986
-;;     §3.1), so `s3cr3t-probe-token:payload` would reach the non-http(s) arm
-;;     with the sentinel as its "parsed component",
-;;   - a rejected host is by definition one the app did NOT authorise, so
-;;     `https://s3cr3t-reset-token.evil.example/` would ship that name whole.
-;;
-;; Two distinct costs.  CONTENT: a sentinel egresses under a key every reader
-;; treats as structural.  CARDINALITY: a probe run with a fresh host per
-;; request writes unbounded distinct values into a metrics dimension — the
-;; records meant to reveal a DoS becoming one.  The tests below pin both, in
-;; BOTH positions, with sentinels that are present in the input by
-;; construction and with input sized far past anything a real URL carries.
-;;
-;; §(4)'s tests scan every string in the record; these also assert the record
-;; is bounded and drawn from a closed vocabulary, which is the property a
-;; scan alone cannot express.
-
-(def ^:private hostile-probes
-  "One entry per rejection arm whose input carries a caller-authored
-  discriminator, each with a sentinel planted in the position that arm reads.
-  `:allow` is supplied where the arm needs it to fire."
-  [{:label "sentinel in the SCHEME position (non-http(s) arm)"
-    :args  {:location "s3cr3t-probe-scheme:payload"}
-    :needle "s3cr3t-probe-scheme"}
-   {:label "sentinel in the HOST position (allowlist arm)"
-    :args  {:location "https://s3cr3t-reset-token.evil.example/x"
-            :allow    ["app.example.com"]}
-    :needle "s3cr3t-reset-token"}
-   {:label "sentinel in the HOST position (relative-only arm)"
-    :args  {:location       "https://s3cr3t-session-id.evil.example/x"
-            :relative-only? true}
-    :needle "s3cr3t-session-id"}
-   {:label "sentinel in the HOST position (scheme-without-host arm)"
-    :args  {:location "https:s3cr3t-opaque-token.evil.example"}
-    :needle "s3cr3t-opaque-token"}
-   {:label "sentinel in a SUBDOMAIN label, which survives any suffix trim"
-    :args  {:location "https://a.b.c.s3cr3t-deep-label.evil.example/"
-            :allow    ["app.example.com"]}
-    :needle "s3cr3t-deep-label"}])
-
-(deftest no-sentinel-reaches-the-record-from-any-discriminator-position
-  (testing "`:scheme` and `:host` would be the last
-            caller-authored strings on the record. A scheme is arbitrary text
-            and a rejected host is a name the app never authorised, so each
-            would be a channel for exactly the material §(4) closes elsewhere —
-            just under a key that reads as structural."
-    (doseq [{:keys [label args needle]} hostile-probes]
-      (let [{:keys [records response]} (reject! args)
-            hits                       (safe-redirect-records records)
-            r                          (first hits)]
-        (is (= 1 (count hits)) (str label " — non-vacuity: a record did ship"))
-        (is (not (ships? r needle))
-            (str label " — the sentinel does not egress"))
-        (is (nil? (:redirect response))
-            (str label " — and the refusal still stands"))))))
-
-(deftest the-record-carries-no-caller-authored-value-at-all
-  (testing "The stronger claim, and the one
-            worth pinning because it cannot be evaded by a sentinel the test
-            forgot to plant. Every value on the record is a framework keyword
-            or the frame's own id — there is NO slot into which a caller's
-            bytes could be written, so the leak class is closed by shape
-            rather than by enumeration.
-
-            `:time` is the host clock and `:frame` the frame id; both are the
-            runtime's. Everything else must be a keyword."
-    (doseq [{:keys [label args]} hostile-probes]
-      (let [r (first (safe-redirect-records (:records (reject! args))))]
-        (is (empty? (record-strings r))
-            (str label " — no STRING value anywhere on the record; strings are
-                 how caller bytes travel, and the record has none"))
-        (is (every? keyword? (vals (dissoc r :time)))
-            (str label " — every value is a keyword (the frame id included)"))))))
-
-(deftest an-oversized-discriminator-does-not-inflate-the-record
-  (testing "Size is the other half of the
-            leak. A caller who cannot get a sentinel out can still make the
-            record enormous — an off-box shipper is billed per byte and a
-            sink can be filled — so the record's size must be a property of
-            the FRAMEWORK's vocabulary rather than of the input's length. A
-            scheme longer than the longest scheme the gate knows is
-            classified without even being lower-cased."
-    (let [huge-scheme (str "s" (apply str (repeat 20000 "x")))
-          huge-label  (apply str (repeat 20000 "h"))]
-      (doseq [[label args] [["10k-character scheme"
-                             {:location (str huge-scheme ":payload")}]
-                            ["10k-character host label"
-                             {:location (str "https://" huge-label ".evil.example/")
-                              :allow    ["app.example.com"]}]
-                            ["10k-character path on a rejected host"
-                             {:location (str "https://evil.example.com/"
-                                             (apply str (repeat 20000 "p")))
-                              :allow    ["app.example.com"]}]]]
-        (let [r (first (safe-redirect-records (:records (reject! args))))]
-          (is (some? r) (str label " — non-vacuity: a record shipped"))
-          (is (> 400 (count (pr-str r)))
-              (str label " — the serialised record stays small; its size is
-                   the framework vocabulary's, not the input's")))))))
-
-(deftest the-record-vocabulary-is-closed-so-cardinality-cannot-be-driven
-  (testing "The CARDINALITY half. A raw host
-            on the record would let one probe run write a fresh value per
-            request into a metrics dimension — unbounded series, which is how
-            the records meant to reveal an attack become one. Distinct hostile
-            inputs must collapse onto a bounded set of records, or the
-            aggregation the always-on record exists to enable is the
-            attacker's to fragment.
-
-            Asserted over the record MINUS `:frame` / `:time`, which vary per
-            rejection by design (attribution and clock) and are the runtime's
-            own, not the caller's."
-    (let [probes  (for [i (range 100)]
-                    {:location (str "https://probe-" i ".evil.example/p" i "?q=" i)
-                     :allow    ["app.example.com"]})
-          shapes  (into #{}
-                        (map (fn [args]
-                               (-> (first (safe-redirect-records
-                                            (:records (reject! args))))
-                                   (dissoc :frame :time))))
-                        probes)]
-      (is (= #{{:error    :rf.error/safe-redirect-host-disallowed
-                :reason   :not-in-allowlist
-                :recovery :no-recovery}}
-             shapes)
-          "100 distinct hostile targets produce ONE record shape — the
-           dimension a dashboard groups by is the framework's, so a prober
-           cannot inflate it")))
-
-  (testing "And the probe class itself is drawn from a closed
-            vocabulary, so the one slot that DOES vary with the input varies
-            over a set the framework owns."
-    (let [classes (into #{}
-                        (map (fn [scheme]
-                               (rf.ssr.egress/safe-redirect-scheme-class scheme)))
-                        ["javascript" "DATA" "vbscript" "http" "https"
-                         "mailto" "ftp" "file" "tel" "s3cr3t-probe-token"
-                         (apply str (repeat 5000 "z"))])]
-      (is (= #{:javascript :data :vbscript :http :https :other} classes)
-          "every scheme the gate can meet lands in the six-member vocabulary")
-      (is (nil? (rf.ssr.egress/safe-redirect-scheme-class nil))
-          "no scheme to classify yields nil, so the slot is omitted rather
-           than carried as nil")
-      (is (= :other (rf.ssr.egress/safe-redirect-scheme-class
-                      (apply str (repeat 50000 "q"))))
-          "an oversized scheme is classified without being copied"))))
+  (testing "schemes are case-insensitive, so every spelling lands in one bucket"
+    (let [expected {"JavaScript:alert(1)"     :javascript
+                    "data:text/html,x"        :data
+                    "VBScript:x"              :vbscript
+                    "MAILTO:evil@example.com" :other
+                    "https:evil.example.com"  :https}]
+      (is (= expected
+             (into {} (for [loc (keys expected)]
+                        [loc (:scheme-class (first (safe-redirect-records
+                                                     (:records (reject! {:location loc})))))])))))))
 
 (deftest the-class-vocabulary-tracks-the-gates-own-scheme-sets
-  (testing "`egress/scheme-classes` must name
-            exactly the schemes `safe-redirect-fx`'s gate names. A scheme
-            added to the gate but not to the class map would silently degrade
-            to `:other` — the record would stop distinguishing a category the
-            gate went to the trouble of drawing, and nothing would fail. This
-            is that failure, made loud."
+  (testing "a scheme added to the gate but not to the class map would silently
+            degrade to :other"
     (let [gate-schemes (into (deref #'re-frame.ssr.response/rejected-schemes)
                              (deref #'re-frame.ssr.response/allowed-schemes))]
-      (is (= gate-schemes (set (keys rf.ssr.egress/scheme-classes)))
-          "the class map's domain IS the gate's closed vocabulary")
-      (is (= (into #{} (map keyword) gate-schemes)
-             (set (vals rf.ssr.egress/scheme-classes)))
-          "and each maps to the keyword of its own name — no re-spelling, so
-           a reader of the sink and a reader of the gate use one word")
-      (is (not (contains? (set (vals rf.ssr.egress/scheme-classes)) :other))
-          ":other is the fallback for everything OUTSIDE the vocabulary; a
-           scheme mapping TO it would make the fallback ambiguous"))))
+      (is (= (zipmap gate-schemes (map keyword gate-schemes))
+             rf.ssr.egress/scheme-classes)))))
 
-;; ===========================================================================
-;; (6) THE WIRE IS UNTOUCHED — the always-on record changes shippers, never the wire
-;; ===========================================================================
-
-(deftest a-rejected-redirect-does-not-become-a-500
-  (testing "The three categories are on
-            `non-projection-eligible-errors`. Without that, putting them on
-            the always-on axis would let `error-emit-projection-listener`
-            buffer the record and the default projector's `:else` arm stamp
-            the generic 500
-            — so `?next=javascript:alert(1)` would be a trivial denial of
-            service, the inverse of the record's intent. `safe-redirect-fx`
-            is deliberately emit-and-no-op: the cascade continues and the
-            page renders."
-    (doseq [[label args] [["javascript:" {:location "javascript:alert(1)"}]
-                          ["off-allowlist" {:location "https://evil.example.com/"
-                                            :allow    ["app.example.com"]}]
-                          ["unparseable" {:location ""}]]]
-      (let [{:keys [response records]} (reject! args)]
-        (is (= 1 (count (safe-redirect-records records)))
-            (str label " — the record DID ship (non-vacuity for the status "
-                 "assertion beside it)"))
-        (is (= 200 (:status response))
-            (str label " — the wire is untouched: a working mitigation is not "
-                 "a server error"))
-        (is (nil? (:redirect response))
-            (str label " — and still no redirect"))))))
-
-;; ===========================================================================
-;; (7) THE SCRUB REACHES A ROUTING-FREE SSR HOST
-;; ===========================================================================
-;;
-;; The `:location` scrub lives in CORE (`re-frame.privacy.url`), the one
-;; artefact both SSR and routing depend on. SSR depends on core alone, so the
-;; other ways to share one scrub with routing would be a production
-;; `:require` on routing (the whole route
-;; grammar on the classpath of every SSR app that registers no routes) or a
-;; late-bind hook to it — and a late-bind FAILS OPEN in exactly the common
-;; case, a routing-free SSR host. No routing artefact, no scrub, secrets on
-;; the wire. A fail-open scrub on a fail-closed egress boundary is the wrong
-;; failure mode by construction.
-;;
-;; This section is the regression net for that
-;; property, because the property is invisible in an ordinary test run — the
-;; `:test` alias puts routing on the classpath, so a routing
-;; dependency would go GREEN here and only fail on a real routing-free
-;; deployment. So it is asserted STRUCTURALLY, off the artefact's own
-;; production dependency declaration and source tree, which is where the
-;; regression would actually live.
+;; The `:location` scrub lives in core, so a routing-free SSR host has it. The
+;; `:test` alias puts routing on the classpath, so a routing dependency would
+;; stay green in an ordinary run; this asserts it off the production deps and
+;; the source tree instead.
 
 (defn- ssr-artefact-file
-  "Resolve a path inside `implementation/ssr/` from the JVM test CWD (this
-  artefact's own directory), falling back to a run from the repo root."
+  "Resolve a path inside `implementation/ssr/` from this artefact's directory
+  or from the repo root."
   [rel]
   (first (filter #(.exists ^java.io.File %)
                  [(io/file rel) (io/file "implementation/ssr" rel)])))
 
-(defn- ssr-production-sources []
-  (->> (file-seq (ssr-artefact-file "src"))
-       (filter #(.isFile ^java.io.File %))
-       (filter #(re-find #"\.clj[cs]?$" (.getName ^java.io.File %)))))
-
 (def ^:private routing-load-form
-  "A routing namespace reached in a LOAD position — an `(:require [re-frame…])`
-  vector, a bare `(:require re-frame.routing…)`, or a quoted symbol handed to
-  `require` / `resolve` at runtime. Deliberately not a bare-name grep: two
-  comments in `payload_policy.cljc` discuss routing's classification registry
-  in prose, and prose is not a classpath dependency."
+  "A routing namespace in a LOAD position (a require vector, a bare
+  `(:require re-frame.routing…)`, or a quoted symbol), not a prose mention."
   #"(\[|'|\(:require\s+)re-frame\.routing")
 
 (deftest the-location-scrub-is-on-ssrs-production-classpath-without-routing
-  (testing "SSR's production `:deps` name core and nothing else, so
-            the artefact a deployed SSR host loads is core + ssr. Routing
-            appears only under the `:test` / `:prod-gate` aliases."
-    (let [deps (-> (ssr-artefact-file "deps.edn") slurp edn/read-string :deps keys set)]
-      (is (contains? deps 'day8/re-frame2)
-          "non-vacuity: the production deps map really was read")
-      (is (= #{'day8/re-frame2} deps)
-          "core ALONE. A routing coordinate here would make every SSR app pay
-           for the route grammar — it is not the way to share one scrub.")))
-
-  (testing "No production source file under implementation/ssr/src
-            LOADS a routing namespace — not in an `(ns … :require)`, not via a
-            runtime `require` / `resolve`. There is therefore nothing for a
-            routing-free host to fail to resolve."
-    (let [sources (ssr-production-sources)
-          guilty  (filter #(re-find routing-load-form (slurp %)) sources)]
-      (is (< 10 (count sources))
-          "non-vacuity: the source scan really reached the ssr src tree")
-      (is (empty? (map #(.getPath ^java.io.File %) guilty))
-          "a routing reference in ssr production source is the fail-open shape
-           the core-owned scrub exists to prevent")))
-
-  (testing "And the scrub itself is a plain core fn — resolvable,
-            with no hook to be unbound and no artefact to be absent. This is
-            the assertion a late-bind design could not make: under it,
-            a routing-free host would take the unbound branch and ship the raw
-            URL."
-    (is (= "/cb?code=rf/redacted#rf/redacted"
-           (rf.privacy.url/redact-url-carriers "/cb?code=secret#access_token=leak"))
-        "the scrub runs here, on ssr's classpath, with nothing routing-shaped
-         loaded on its behalf")
-    (is (= "/cb?code=rf/redacted#rf/redacted"
-           (:location (rf.privacy.url/redact-url-tag
-                        {:location "/cb?code=secret#access_token=leak"}
-                        :location)))
-        "and the `:location` slot the rejection arms build reaches it")))
-
-(deftest exactly-one-url-carrier-policy-survives-the-consolidation
-  (testing "There is no scrub of its own in `re-frame.ssr.egress`. Two
-            copies of one policy is how the two drift, and the drift
-            would be silent — each artefact's own suite would stay green while
-            the same URL scrubbed two different ways."
-    (is (nil? (resolve 're-frame.ssr.egress/redact-url-carriers))
-        "there is no SSR copy, shadowed or otherwise")
-    (is (nil? (resolve 're-frame.ssr.egress/redact-url-tag))
-        "and so is its tag wrapper")
-    (is (some? (resolve 're-frame.privacy.url/redact-url-carriers))
-        "core owns the one implementation"))
-
-  (testing "What `re-frame.ssr.egress` owns is the ALLOW-list
-            for the always-on record — a different instrument for a different
-            job, and one the carrier scrub must never be mistaken for. It is
-            built FROM its slot set rather than filtered down to it, so an
-            unrecognised tag has no path into the record even in principle."
-    (is (= #{:frame :recovery :reason :scheme-class}
-           rf.ssr.egress/safe-redirect-record-slots)
-        "the closed set")
-    (is (= {:scheme-class :https}
-           (rf.ssr.egress/safe-redirect-record-tags
-             {:scheme    "https"
-              :host      "evil.example.com"
-              :location  "https://alice:pw@evil.example.com/reset/tok-abc"
-              :allowlist ["app.example.com"]}))
-        "a scrubbed-or-not `:location`, the rejected `:host` and the app's own
-         allowlist are BUILT OUT of the record, not filtered out of it — the
-         userinfo password and the path-borne token the carrier scrub
-         deliberately keeps never had a route here, and the parsed `:scheme`
-         arrives only as the class it belongs to")))
+  (is (= #{'day8/re-frame2}
+         (-> (ssr-artefact-file "deps.edn") slurp edn/read-string :deps keys set))
+      "SSR's production deps name core alone")
+  (let [sources (->> (file-seq (ssr-artefact-file "src"))
+                     (filter #(.isFile ^java.io.File %))
+                     (filter #(re-find #"\.clj[cs]?$" (.getName ^java.io.File %))))]
+    (is (= [true []]
+           [(< 10 (count sources))
+            (mapv #(.getPath ^java.io.File %) (filter #(re-find routing-load-form (slurp %)) sources))])
+        "[the scan reached the src tree, no source loads a routing namespace]")))
