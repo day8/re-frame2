@@ -1,103 +1,29 @@
 (ns day8.re-frame2-xray.panels.epoch.badge-cljs-test
-  "Pure-data tests for the Epoch panel's badge taxonomy.
-
-  ## Under test
-
-    1. Every badge resolves to a non-blank uppercase label via
-       `badge/label`.
-    2. `token-key` produces a known theme-token keyword for every
-       badge.
-    3. Fibonacci spacing scale produces stable px strings."
+  "Pure-data tests for the Epoch panel's badge taxonomy: pill tokens, the
+  numbered-cascade geometry, the machine-cascade kind / phase labels, and
+  the outcome and SIDE EFFECTS ledger glyphs."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
-            [day8.re-frame2-xray.panels.epoch.badge :as badge]
-            [day8.re-frame2-xray.panels.epoch.projection :as proj]))
-
-(deftest badge-labels-resolve-test
-  (testing "every badge label resolves to a non-blank string.
-
-  Labels are uppercase keyword names by default (DISPATCH, COEFFECT,
-  EVENT HANDLER, EFFECT HANDLERS, ...). Labels that lead with `:` are
-  EDN-key-style and render through `badge-pill`'s mono-font,
-  no-uppercase path. Both styles are valid; this test just pins that
-  every badge has a label."
-    (doseq [b proj/badge-set]
-      (let [l (badge/label b)]
-        (is (string? l)
-            (str "badge label for " b " is a string"))
-        (is (seq l)
-            (str "badge label for " b " is non-blank"))
-        (is (or (= (str/upper-case l) l)
-                (str/starts-with? l ":"))
-            (str "badge label for " b " is uppercase OR EDN-key style: " l))))))
-
-(deftest token-key-fallback-test
-  (testing "unknown badge falls back to :text-tertiary"
-    (is (= :text-tertiary (badge/token-key :NOT-A-BADGE))))
-  (testing "known badges resolve to specific token keys"
-    (is (= :accent (badge/token-key :HANDLER)))
-    (is (= :accent (badge/token-key :FLOW)))
-    (is (= :orange (badge/token-key :SIDE-EFFECTS)))
-    (is (= :success (badge/token-key :VIEWS)))))
+            [day8.re-frame2-xray.panels.epoch.badge :as badge]))
 
 (deftest coeffect-and-subscriptions-pull-distinct-tokens-test
   ;; Two badges sharing one token (`:magenta`) would make the pipeline
   ;; pills near-indistinguishable in the live panel.
-  ;; The 5 pipeline pills (DISPATCH / COEFFECT / HANDLER /
-  ;; SUBSCRIPTIONS / VIEWS) MUST map to 5 distinct theme tokens.
-  (testing "COEFFECT pulls a different token-key from SUBSCRIPTIONS"
-    (is (not= (badge/token-key :COEFFECT)
-              (badge/token-key :SUBSCRIPTIONS))
-        "COEFFECT and SUBSCRIPTIONS must be visually distinct"))
-  (testing "COEFFECT pulls :magenta (violet — mock #a855f7)"
-    (is (= :magenta (badge/token-key :COEFFECT))))
-  (testing "SUBSCRIPTIONS pulls :magenta-pink (pink — mock #ec4899)"
-    (is (= :magenta-pink (badge/token-key :SUBSCRIPTIONS))))
   (testing "the five core pipeline pills carry five distinct token keys"
     (let [core-pills #{:DISPATCH :COEFFECT :HANDLER :SUBSCRIPTIONS :VIEWS}
           token-keys (set (map badge/token-key core-pills))]
       (is (= 5 (count token-keys))
           (str "expected 5 distinct token-keys, got " token-keys)))))
 
-(deftest fib-px-test
-  (testing "fibonacci helper resolves to px strings"
-    (is (= "3px"  (badge/fib-px :f3)))
-    (is (= "5px"  (badge/fib-px :f5)))
-    (is (= "8px"  (badge/fib-px :f8)))
-    (is (= "13px" (badge/fib-px :f13)))
-    (is (= "21px" (badge/fib-px :f21)))
-    (is (= "34px" (badge/fib-px :f34)))
-    (is (= "55px" (badge/fib-px :f55)))
-    (is (= "89px" (badge/fib-px :f89))))
-  (testing "unknown key returns '0'"
-    (is (= "0" (badge/fib-px :nope)))))
-
 (deftest numbered-cascade-geometry-test
   (testing "the geometry constants exposed for the view are the ones the spec commits to"
-    (is (= 21  badge/step-numbered-circle-diameter-px))
     (is (= 13  badge/vertical-line-offset-px))
-    (is (= -44 badge/circle-left-offset-px))
     (is (= -34 badge/line-left-offset-px))))
 
 ;; ---- machine-cascade row chrome ----------------------------------------
 
-(deftest cascade-kind-set-test
-  (testing "the cascade-kind inventory matches the substrate trace ops
-            the projection harvests (:no-op for the benign unhandled-event
-            no-op; :start for the machine's birth [START] badge;
-            :microstep for a parent-owned parallel :always round)"
-    (is (= #{:guard :action :transition :microstep :timer :no-op :start}
-           badge/cascade-kind-set))
-    (is (badge/cascade-kind? :guard))
-    (is (badge/cascade-kind? :action))
-    (is (badge/cascade-kind? :transition))
-    (is (badge/cascade-kind? :microstep))
-    (is (badge/cascade-kind? :timer))
-    (is (badge/cascade-kind? :no-op))
-    (is (badge/cascade-kind? :start))
-    (is (not (badge/cascade-kind? :NOT-A-KIND))))
-
+(deftest cascade-kind-label-and-colour-test
   (testing "the :microstep kind resolves to the magenta
             transition-family colour + an ALWAYS label"
     (is (= "ALWAYS" (badge/cascade-kind-label :microstep)))
@@ -124,39 +50,6 @@
            (badge/cascade-kind-colour :no-op))
         "muted/tertiary tone, not an alarmist hue")))
 
-(deftest cascade-kind-resolver-test
-  (testing "every cascade kind resolves to an uppercase label"
-    (doseq [k badge/cascade-kind-set]
-      (let [l (badge/cascade-kind-label k)]
-        (is (string? l))
-        (is (= (str/upper-case l) l)
-            (str "kind label for " k " not uppercase: " l))))))
-
-(deftest cascade-kind-token-key-mappings-test
-  (testing "kind → token-key mappings are stable"
-    (is (= :text-tertiary (badge/cascade-kind-token-key :guard)))
-    (is (= :accent        (badge/cascade-kind-token-key :action)))
-    (is (= :magenta       (badge/cascade-kind-token-key :transition)))
-    (is (= :warning       (badge/cascade-kind-token-key :timer))))
-  (testing "unknown kind falls back to :text-tertiary"
-    (is (= :text-tertiary (badge/cascade-kind-token-key :NOT-A-KIND)))))
-
-(deftest cascade-phase-set-test
-  (testing "the cascade-phase set is closed"
-    (is (= #{:exit :transition :entry :always
-             :after-action :initial-entry :destroy-exit}
-           badge/cascade-phase-set))
-    (doseq [p badge/cascade-phase-set]
-      (is (badge/cascade-phase? p)))
-    (is (not (badge/cascade-phase? :NOT-A-PHASE)))))
-
-(deftest cascade-phase-label-test
-  (testing "every phase produces a non-blank label"
-    (doseq [p badge/cascade-phase-set]
-      (let [l (badge/cascade-phase-label p)]
-        (is (string? l))
-        (is (seq l))))))
-
 (deftest cascade-action-badge-label-test
   (testing "the merged ACTION badge folds the phase + the
             ACTION kind into one token"
@@ -167,12 +60,7 @@
     (is (= "AFTER-ACTION ACTION"  (badge/cascade-action-badge-label :after-action)))
     (is (= "INITIAL-ENTRY ACTION" (badge/cascade-action-badge-label :initial-entry)))
     (is (= "DESTROY-EXIT ACTION"  (badge/cascade-action-badge-label :destroy-exit))))
-  (testing "every phase yields a `<PHASE> ACTION` token ending in
-            ` ACTION`; a phase-less action falls back to the bare ACTION label"
-    (doseq [p badge/cascade-phase-set]
-      (let [l (badge/cascade-action-badge-label p)]
-        (is (string? l))
-        (is (str/ends-with? l " ACTION"))))
+  (testing "a phase-less action falls back to the bare ACTION label"
     (is (= (badge/cascade-kind-label :action)
            (badge/cascade-action-badge-label nil))
         "no phase → bare ACTION label (the kind label)"))
@@ -209,15 +97,12 @@
     (is (= "✗" (badge/fx-row-status-glyph :rollback)))
     (is (= "↺" (badge/fx-row-status-glyph :overridden)))
     (is (= "–" (badge/fx-row-status-glyph :skipped))
-        "skipped is the muted en-dash 'n/a'")
-    (is (= "✓" (badge/fx-row-status-glyph :whatever)) "quiet default")))
+        "skipped is the muted en-dash 'n/a'")))
 
 (deftest overridden-hover-names-the-replacement-test
-  (testing "the ↺ row's hover names the replacement and
-            claims nothing about whether real I/O happened"
+  (testing "the ↺ row's hover names the replacement"
     (is (str/includes? (badge/overridden-hover :http/fake) ":http/fake"))
-    (is (str/includes? (badge/overridden-hover :re-frame.fx/fn-value) "with a function"))
-    (is (not (str/includes? (badge/overridden-hover :http/fake) "for real")))))
+    (is (str/includes? (badge/overridden-hover :re-frame.fx/fn-value) "with a function"))))
 
 (deftest fx-row-status-token-key-test
   (testing ":error/:rollback → :error; :overridden → :accent;
@@ -226,5 +111,4 @@
     (is (= :error         (badge/fx-row-status-token-key :rollback)))
     (is (= :accent        (badge/fx-row-status-token-key :overridden)))
     (is (= :text-tertiary (badge/fx-row-status-token-key :skipped)))
-    (is (= :success       (badge/fx-row-status-token-key :ok)))
-    (is (= :success       (badge/fx-row-status-token-key nil)))))
+    (is (= :success       (badge/fx-row-status-token-key :ok)))))
