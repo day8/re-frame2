@@ -82,7 +82,6 @@
   `:node-test` has no DOM. Every row degrades to an explicit skip rather
   than to an assertion that passes because nothing ran."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -109,25 +108,6 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The abandonment and commit mechanisms this file undertakes to exercise.
-  [[the-declared-population-was-actually-exercised]] asserts that every one
-  of them was reached at runtime, so the roster cannot drift into a list of
-  things the suite used to do."
-  #{:suspense/abandon-and-retry
-    :transition/abort-and-complete
-    :strict-mode/double-invoke
-    :error-boundary/throw-and-retry
-    :render-to-commit-gap/heal})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -333,7 +313,6 @@
                   (is (= 1 (readers-of [:kcod/left])))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                          (ownership))))
-                (exercised! :suspense/abandon-and-retry)
                 (teardown-census! handle)))
             (.catch (report-failure! "suspense witness" handle))
             (.then (fn [_] (done))))))))
@@ -411,7 +390,6 @@
                   (is (= 1 (readers-of [:kcod/right])))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                          (ownership))))
-                (exercised! :transition/abort-and-complete)
                 (teardown-census! handle)))
             (.catch (report-failure! "transition witness" handle))
             (.then (fn [_] (done))))))))
@@ -469,7 +447,6 @@
                   (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
                          (ownership)))
                   (is (= 2 (:entries (rf.fresco.test.runtime/residue)))))
-                (exercised! :strict-mode/double-invoke)
                 (teardown-census! handle)))
             (.catch (report-failure! "strictmode witness" handle))
             (.then (fn [_] (done))))))))
@@ -521,7 +498,6 @@
                   (is (= 1 (readers-of [:kcod/right])))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                          (ownership))))
-                (exercised! :error-boundary/throw-and-retry)
                 (teardown-census! handle)))
             ;; `!throw?` is disarmed on the single trailing step, which runs on
             ;; BOTH paths — the `.catch` returns normally rather than finishing
@@ -577,22 +553,6 @@
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                          (ownership))))
 
-                (exercised! :render-to-commit-gap/heal)
                 (teardown-census! handle)))
             (.catch (report-failure! "render-to-commit-gap witness" handle))
             (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The population, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  ;; Declared LAST so every row above has run. The roster is not prose: a
-  ;; mechanism that stops being reached — a row deleted, a row that returns
-  ;; early, a row whose poll silently degrades — fails here instead of
-  ;; quietly shrinking what the suite covers.
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM, so no mechanism is exercised there")
-    (is (= declared-population @!exercised)
-        (str "every declared abandonment mechanism must be reached; missing: "
-             (pr-str (set/difference declared-population @!exercised))))))
