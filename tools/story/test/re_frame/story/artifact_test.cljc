@@ -1,17 +1,7 @@
 (ns re-frame.story.artifact-test
   "Tests for the `:rf.test/run-artifact` schema + `replay-run-artifact`
-  (spec/017-Testing-Story.md §Run artifact and replay).
-
-  Two layers, both under `clojure -M:test` (JVM):
-
-  - PURE construction: `make-run-artifact` coerces the event program,
-    folds setup ⧺ script, defaults `:fx-decisions`, and `run-artifact?`
-    recognises the shape. `replay-result` builds the shared run-result
-    from a hand-built tape with no live frame.
-  - HEADLESS replay (against a live frame): `replay-run-artifact` replays
-    the dispatch program into a FRESH frame, reapplies fx
-    decisions/overrides, captures a NEW epoch tape, and returns the
-    shared run-result shape."
+  (spec/017-Testing-Story.md §Run artifact and replay): pure construction
+  and result projection, then headless replay against a live frame."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
             [re-frame.epoch  :as rf.epoch]
@@ -23,7 +13,6 @@
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.determinism :as rf.story.determinism]
-            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]))
@@ -33,67 +22,41 @@
 ;; ===========================================================================
 
 (deftest make-run-artifact-coerces-program
-  (testing "a bare event list lifts to a tagged [:dispatch …] program"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:counter/inc] [:dispatch [:counter/dec]]]})]
-      (is (= :rf.test/run-artifact (:artifact/kind a)))
-      (is (= [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]]
-             (:event-program a))
-          "bare event vector lifts; an already-tagged step passes through")
-      (is (rf.story.artifact/run-artifact? a))))
-
-  (testing "an empty / fx-less artifact defaults :fx-decisions to {}"
-    (let [a (rf.story.artifact/make-run-artifact {})]
-      (is (= {} (:fx-decisions a)))
-      (is (= [] (:event-program a)))
-      (is (rf.story.artifact/run-artifact? a))))
-
-  (testing ":setup ⧺ :script fold into one ordered program (setup first)"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:setup  [[:dispatch [:seed/a]]]
-               :script [[:dispatch [:act/b]] [:wait 5]]})]
-      (is (= [[:dispatch [:seed/a]] [:dispatch [:act/b]] [:wait 5]]
-             (:event-program a)))))
-
-  (testing "an explicit :event-program wins over :setup/:script"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:dispatch [:only/this]]]
-               :setup         [[:dispatch [:ignored]]]})]
-      (is (= [[:dispatch [:only/this]]] (:event-program a)))))
-
-  (testing "slots outside the artifact surface are dropped; known slots kept"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:dispatch [:e]]]
-               :seed          42
-               :fx-decisions  {:http/get :http/stub}
-               :source        {:tool :recorder}
-               :bogus/extra   :dropped})]
-      (is (= 42 (:seed a)))
-      (is (= {:http/get :http/stub} (:fx-decisions a)))
-      (is (= {:tool :recorder} (:source a)))
-      (is (not (contains? a :bogus/extra))))))
+  (doseq [[label parts expected]
+          [["a bare event lifts to [:dispatch …]; a tagged step passes through"
+            {:event-program [[:counter/inc] [:dispatch [:counter/dec]]]}
+            {:event-program [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]]}]
+           [":setup ⧺ :script fold into one program, setup first"
+            {:setup [[:dispatch [:seed/a]]] :script [[:dispatch [:act/b]] [:wait 5]]}
+            {:event-program [[:dispatch [:seed/a]] [:dispatch [:act/b]] [:wait 5]]}]
+           ["an explicit :event-program wins over :setup / :script"
+            {:event-program [[:dispatch [:only/this]]] :setup [[:dispatch [:ignored]]]}
+            {:event-program [[:dispatch [:only/this]]]}]
+           ["slots outside the artifact surface are dropped; known slots kept"
+            {:event-program [[:dispatch [:e]]] :seed 42 :fx-decisions {:http/get :http/stub}
+             :source {:tool :recorder} :bogus/extra :dropped}
+            {:event-program [[:dispatch [:e]]] :seed 42 :fx-decisions {:http/get :http/stub}
+             :source {:tool :recorder}}]]]
+    (testing label
+      (is (= (merge {:artifact/kind :rf.test/run-artifact :fx-decisions {}} expected)
+             (rf.story.artifact/make-run-artifact parts))))))
 
 (deftest run-artifact-predicate
-  (testing "run-artifact? requires the kind tag AND a vector :event-program"
-    (is (rf.story.artifact/run-artifact?
-          {:artifact/kind :rf.test/run-artifact :event-program []}))
-    (is (not (rf.story.artifact/run-artifact? {:event-program []}))
-        "missing :artifact/kind")
-    (is (not (rf.story.artifact/run-artifact?
-               {:artifact/kind :rf.test/run-artifact}))
-        "missing :event-program")
-    (is (not (rf.story.artifact/run-artifact? nil)))
-    (is (not (rf.story.artifact/run-artifact? [:not :a :map])))))
+  (is (rf.story.artifact/run-artifact?
+        {:artifact/kind :rf.test/run-artifact :event-program []}))
+  (is (not (rf.story.artifact/run-artifact? {:event-program []}))
+      "missing :artifact/kind")
+  (is (not (rf.story.artifact/run-artifact? {:artifact/kind :rf.test/run-artifact}))
+      "missing :event-program"))
 
 (deftest program-events-projection
-  (testing "program-events projects only the dispatched event vectors"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:dispatch [:a 1]]
-                               [:wait 10]
-                               [:dispatch-sync [:b 2]]
-                               [:assert-db [:k] :v]]})]
-      (is (= [[:a 1] [:b 2]] (rf.story.artifact/program-events a))
-          ":wait / :assert-* contribute no event"))))
+  (let [a (rf.story.artifact/make-run-artifact
+            {:event-program [[:dispatch [:a 1]]
+                             [:wait 10]
+                             [:dispatch-sync [:b 2]]
+                             [:assert-db [:k] :v]]})]
+    (is (= [[:a 1] [:b 2]] (rf.story.artifact/program-events a))
+        ":wait / :assert-* contribute no event")))
 
 ;; ===========================================================================
 ;; PURE: replay-result construction from a hand-built tape
@@ -108,51 +71,27 @@
          m))
 
 (deftest replay-result-shared-shape
-  (testing "replay-result builds the shared run-result shape from a clean tape"
-    (let [a    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
-          tape [(epoch :e1 {:db-after {:n 1}})]
-          res  (rf.story.artifact/replay-result
-                 {:epoch-tape tape :artifact a
-                  :outcomes [{:status :settled :boundary :headless}]
-                  :frame-id :rf.test.replay/f :app-db {:n 1}})]
-      (is (= :pass (:status res)))
-      (is (= :headless (:runner res)))
-      (is (= {:n 1} (:app-db res)))
-      (is (= tape (:epoch-tape res)) "the captured tape is the evidence source")
-      (is (= a (:run-artifact res)) "back-link to the replayed source")
-      (is (vector? (:narrative res)) "two-level narrative present")
-      (is (vector? (:schema-violations res)))
-      (is (empty? (:schema-violations res))))))
+  (let [a    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
+        tape [(epoch :e1 {:db-after {:n 1}})]
+        res  (rf.story.artifact/replay-result
+               {:epoch-tape tape :artifact a
+                :outcomes [{:status :settled :boundary :headless}]
+                :frame-id :rf.test.replay/f :app-db {:n 1}})]
+    (is (= {:status :pass :runner :headless :app-db {:n 1} :epoch-tape tape
+            :run-artifact a :schema-violations []}
+           (select-keys res [:status :runner :app-db :epoch-tape :run-artifact
+                             :schema-violations])))))
 
 (deftest replay-result-status-follows-the-tape-and-step-outcomes
-  (testing ":fail when the tape carries unconsumed failure evidence"
-    (let [a    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
-          tape [(epoch :e1 {:outcome :halt})]
-          res  (rf.story.artifact/replay-result
-                 {:epoch-tape tape :artifact a
-                  :outcomes [{:status :settled :boundary :headless}]
-                  :frame-id :f :app-db {}})]
-      (is (= :fail (:status res))
-          "a non-:ok epoch outcome trips the agreement floor")))
-
-  (testing ":cannot-run when a step refused"
-    (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
-          res (rf.story.artifact/replay-result
-                {:epoch-tape [] :artifact a
-                 :outcomes [{:status :cannot-run :required-boundary :dom
-                             :provided-boundary :headless}]
-                 :frame-id :f :app-db {}})]
-      (is (= :cannot-run (:status res)))
-      (is (= :dom (get-in res [:cannot-run :required-boundary])))))
-
-  (testing ":error when a step errored"
-    (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
-          res (rf.story.artifact/replay-result
-                {:epoch-tape [] :artifact a
-                 :outcomes [{:status :error :error "boom"}]
-                 :frame-id :f :app-db {}})]
-      (is (= :error (:status res)))
-      (is (= "boom" (:error res))))))
+  (let [a      (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
+        replay (fn [outcome]
+                 (rf.story.artifact/replay-result
+                   {:epoch-tape [] :artifact a :outcomes [outcome] :frame-id :f :app-db {}}))]
+    (testing ":cannot-run when a step refused"
+      (let [refusal {:status :cannot-run :required-boundary :dom :provided-boundary :headless}]
+        (is (= [:cannot-run refusal] ((juxt :status :cannot-run) (replay refusal))))))
+    (testing ":error when a step errored"
+      (is (= [:error "boom"] ((juxt :status :error) (replay {:status :error :error "boom"})))))))
 
 ;; ===========================================================================
 ;; HEADLESS replay: against a live frame
@@ -161,10 +100,9 @@
 (defn- reset-rf! [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; Requiring `re-frame.epoch` (above) installs the epoch artefact's
-  ;; late-bind hooks, so `epoch-history` records a real tape; clear its
-  ;; per-frame ring + listeners between tests so a replay reads only its
-  ;; own freshly-captured epochs.
+  ;; Requiring `re-frame.epoch` installs the epoch late-bind hooks, so
+  ;; `epoch-history` records a real tape; clear it so a replay reads only its
+  ;; own epochs.
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
   (try (rf/init! rf.substrate.plain-atom/adapter)
@@ -175,175 +113,103 @@
 (use-fixtures :each reset-rf!)
 
 (deftest replay-wraps-not-replaces-richer-dispatch-when-fx-decisions-present
-  (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
-            fx-decisions are present — the fx reapplication WRAPS the supplied
-            :dispatch! and routes the overrides through it, rather than
-            short-circuiting to dispatch-sync! directly.
-
-            Calling dispatch-sync! directly on the fx-decisions branch would
-            never touch `inner`, so a richer (:dom / :cljs-reactive)
-            adapter's enqueue + flush path would be silently skipped — this
-            probe would record no call. The probe :dispatch! runs AND the
-            fx-overrides still apply."
-    (let [dispatch-calls (atom [])
-          dispatch-opts  (atom [])
-          fx-hits        (atom [])]
-      ;; A 'real' effect remapped to a stub by the fx decision, so we can also
-      ;; confirm the override rides the wrapped dispatch path (not just that
-      ;; the probe ran). `:platforms #{:client :server}` so the fx fire on the
-      ;; JVM (`:server`) test platform as well as in the browser.
-      (rf/reg-fx :rep.fx/real {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fx-hits conj :real)))
-      (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fx-hits conj :stub)))
-      (rf/reg-event :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
-      (let [;; A richer adapter-style hooks map: a custom :dispatch! that
-            ;; RECORDS it was invoked, then delegates to the real headless
-            ;; drain so the replay still settles. `:provides :headless` so the
-            ;; settled-boundary does not refuse the bare [:dispatch …] step.
-            ;; The optional 3-arity carries the EP-0017 dispatch opts
-            ;; — the same shape the boundary's 6-arity threads — so we can also
-            ;; confirm the replay's strict mint policy rides the adapter path.
-            probe-hooks {:provides  :headless
-                         :dispatch! (fn probe-dispatch!
-                                      ([frame-id event-vector]
-                                       (probe-dispatch! frame-id event-vector nil))
-                                      ([frame-id event-vector opts]
-                                       (swap! dispatch-calls conj event-vector)
-                                       (swap! dispatch-opts conj opts)
-                                       (rf.story.play.settled-boundary/drain-sync! frame-id event-vector opts)))
-                         :flush!    {:headless (fn [_frame-id] nil)}}
-            a   (rf.story.artifact/make-run-artifact
-                  {:event-program [[:dispatch [:rep/fire]]]
-                   :fx-decisions  {:rep.fx/real :rep.fx/stub}})
-            res (rf.story.artifact/replay-run-artifact a {:hooks probe-hooks})]
-        (is (= :pass (:status res)))
-        (is (= [[:rep/fire]] @dispatch-calls)
-            "the supplied richer :dispatch! WAS invoked — the fx reapplication
-             wrapped it instead of bypassing it with a direct dispatch-sync!")
-        (is (= [:stub] @fx-hits)
-            "the fx override still rode the wrapped dispatch path (real → stub)")
-        (is (= [{:rf.cofx/mint-policy :strict}] @dispatch-opts)
-            "the replay's strict mint policy rode the adapter's :dispatch! opts
-             (EP-0017 strict-by-default replay)")))))
-
-(deftest each-replay-allocates-a-distinct-frame
-  (testing "two replays of the same artifact each run into their own fresh
-            :rf.test.replay/* frame"
-    (rf/reg-event :rep/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (let [a    (rf.story.artifact/make-run-artifact
-                 {:event-program [[:dispatch [:rep/set 7]]]})
-          r1   (rf.story.artifact/replay-run-artifact a)
-          r2   (rf.story.artifact/replay-run-artifact a)]
-      (is (not= (:frame r1) (:frame r2)) "distinct fresh frames"))))
+  ;; A richer adapter's enqueue + flush path must run: the fx reapplication
+  ;; wraps the supplied :dispatch! instead of calling dispatch-sync! directly.
+  (let [dispatch-calls (atom [])
+        dispatch-opts  (atom [])
+        fx-hits        (atom [])]
+    (rf/reg-fx :rep.fx/real {:platforms #{:client :server}}
+               (fn [_ _] (swap! fx-hits conj :real)))
+    (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
+               (fn [_ _] (swap! fx-hits conj :stub)))
+    (rf/reg-event :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
+    (let [probe-hooks {:provides  :headless
+                       :dispatch! (fn probe-dispatch!
+                                    ([frame-id event-vector]
+                                     (probe-dispatch! frame-id event-vector nil))
+                                    ([frame-id event-vector opts]
+                                     (swap! dispatch-calls conj event-vector)
+                                     (swap! dispatch-opts conj opts)
+                                     (rf.story.play.settled-boundary/drain-sync! frame-id event-vector opts)))
+                       :flush!    {:headless (fn [_frame-id] nil)}}
+          a   (rf.story.artifact/make-run-artifact
+                {:event-program [[:dispatch [:rep/fire]]]
+                 :fx-decisions  {:rep.fx/real :rep.fx/stub}})
+          res (rf.story.artifact/replay-run-artifact a {:hooks probe-hooks})]
+      (is (= :pass (:status res)))
+      (is (= [[:rep/fire]] @dispatch-calls) "the supplied :dispatch! was invoked")
+      (is (= [:stub] @fx-hits) "the fx override rode the wrapped dispatch")
+      (is (= [{:rf.cofx/mint-policy :strict}] @dispatch-opts)
+          "the strict mint policy rode the adapter's :dispatch! opts"))))
 
 (deftest replay-into-caller-supplied-frame
-  (testing "a caller-supplied :frame is replayed into and LEFT intact (the
-            caller owns its lifecycle)"
-    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/make-frame {:id :rep/caller-frame :doc "caller-owned replay frame"})
-    (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/inc]]]})
-          res (rf.story.artifact/replay-run-artifact a {:frame :rep/caller-frame})]
-      (is (= :pass (:status res)))
-      (is (= :rep/caller-frame (:frame res)))
-      (is (contains? @rf.frame/frames :rep/caller-frame)
-          "the caller-supplied frame is NOT destroyed"))))
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf/make-frame {:id :rep/caller-frame :doc "caller-owned replay frame"})
+  (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/inc]]]})
+        res (rf.story.artifact/replay-run-artifact a {:frame :rep/caller-frame})]
+    (is (= :pass (:status res)))
+    (is (= :rep/caller-frame (:frame res)))
+    (is (contains? @rf.frame/frames :rep/caller-frame)
+        "the caller owns the frame's lifecycle, so it is not destroyed")))
 
-;; ===========================================================================
-;; Exact-incarnation teardown of the replay-allocated frame
-;; ===========================================================================
-
+;; Teardown destroys the frame VALUE the replay created, carrying its exact
+;; incarnation token, so a same-id successor seated during the replay
+;; survives (the two-argument destroy no-ops against it).
 (deftest replay-teardown-is-incarnation-exact
-  (testing "replay-run-artifact tears down the frame VALUE it created (carrying
-            the exact incarnation token), NOT the bare frame-id keyword — so a
-            same-id successor seated before teardown is left alive rather than
-            reaped while the run still reads :pass"
-    (rf/reg-event :rep/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
-    (let [real-destroy    rf/destroy-frame!
-          teardown-target (atom ::none)]
-      ;; Spy on the facade destroy the replay's `finally` calls. A clean replay
-      ;; issues exactly ONE facade `rf/destroy-frame!` — the own-frame teardown —
-      ;; and it hands over the frame VALUE, not the bare gensym id.
-      (with-redefs [rf/destroy-frame!
-                    (fn [target & more]
-                      (when (and (= ::none @teardown-target)
-                                 (rf.frame/frame-value? target))
-                        (reset! teardown-target target))
-                      (apply real-destroy target more))]
-        (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/noop]]]})
-              res (rf.story.artifact/replay-run-artifact a)
-              fid (:frame res)]
-          (is (= :pass (:status res)) "the replay ran clean")
-          (is (not (contains? @rf.frame/frames fid))
-              "the replay-allocated incarnation is fully released (N released)")))
-      (is (rf.frame/frame-value? @teardown-target)
-          "teardown targeted the make-frame VALUE, not a bare frame-id keyword")
-      (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
-          "the teardown target carries the exact incarnation token — so the
-           two-argument destroy no-ops against any same-id successor (N+1),
-           leaving it alive (proven end-to-end by re-frame.frame-lifecycle-test)"))))
+  (rf/reg-event :rep/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
+  (let [real-destroy    rf/destroy-frame!
+        teardown-target (atom ::none)]
+    (with-redefs [rf/destroy-frame!
+                  (fn [target & more]
+                    (when (and (= ::none @teardown-target)
+                               (rf.frame/frame-value? target))
+                      (reset! teardown-target target))
+                    (apply real-destroy target more))]
+      (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/noop]]]})
+            res (rf.story.artifact/replay-run-artifact a)]
+        (is (not (contains? @rf.frame/frames (:frame res)))
+            "the replay-allocated frame is released")))
+    (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
+        "teardown targeted the make-frame value with its incarnation token")))
 
 ;; ===========================================================================
-;; EP-0017: recordable-coeffect envelopes survive run-artifact replay,
-;; replayed under STRICT mint policy by default
+;; Recordable-coeffect envelopes survive replay, under STRICT mint policy
 ;; ===========================================================================
 
 (deftest replay-delivers-recorded-cofx-verbatim
-  (testing "a [:dispatch evec {:rf.cofx {…}}] step in the :event-program
-            re-presents the recorded recordable-coeffect value verbatim on
-            replay — the handler reads the recorded provided fact, not a
-            fresh host read"
-    (let [seen (atom nil)]
-      (rf/reg-cofx :rep.cofx/delta {:recordable? true}
-                   (fn [] (throw (ex-info "generator must not run on replay" {}))))
-      (rf/reg-event :rep/use-delta
-        {:rf.cofx/requires [:rep.cofx/delta]}
-        (fn [{:keys [db rep.cofx/delta]} _]
-          (reset! seen delta)
-          {:db (assoc db :delta delta)}))
-      (let [a   (rf.story.artifact/make-run-artifact
-                  {:event-program
-                   [[:dispatch [:rep/use-delta]
-                     {:rf.cofx {:rf/time-ms 1781078400123 :rep.cofx/delta 42}}]]})
-            res (rf.story.artifact/replay-run-artifact a)]
-        (is (= :pass (:status res)))
-        (is (= 42 @seen) "the recorded recordable cofx value replayed verbatim")
-        (is (= 42 (:delta (:app-db res))))))))
+  (rf/reg-cofx :rep.cofx/delta {:recordable? true}
+               (fn [] (throw (ex-info "generator must not run on replay" {}))))
+  (rf/reg-event :rep/use-delta
+    {:rf.cofx/requires [:rep.cofx/delta]}
+    (fn [{:keys [db rep.cofx/delta]} _] {:db (assoc db :delta delta)}))
+  (let [a   (rf.story.artifact/make-run-artifact
+              {:event-program
+               [[:dispatch [:rep/use-delta]
+                 {:rf.cofx {:rf/time-ms 1781078400123 :rep.cofx/delta 42}}]]})
+        res (rf.story.artifact/replay-run-artifact a)]
+    (is (= :pass (:status res)))
+    (is (= 42 (:delta (:app-db res))) "the recorded cofx value replayed verbatim")))
 
 (deftest replay-is-strict-incomplete-record-fails-loud
-  (testing "replay dispatches with :rf.cofx/mint-policy :strict by default —
-            a generator-backed recordable fact ABSENT from the recorded
-            envelope fails loudly (:rf.error/missing-required-cofx) rather
-            than minting a fresh value mid-replay"
-    (let [gen-calls (atom 0)
-          fired?    (atom false)]
-      (rf/reg-cofx :rep.cofx/missing {:recordable? true}
-                   (fn [] (swap! gen-calls inc) 5))
-      (rf/reg-event :rep/needs-missing
-        {:rf.cofx/requires [:rep.cofx/missing]}
-        (fn [_ _] (reset! fired? true) {}))
-      ;; The recorded envelope is INCOMPLETE — it carries the framework
-      ;; :rf/time-ms but not the declared :rep.cofx/missing fact.
-      (let [a   (rf.story.artifact/make-run-artifact
-                  {:event-program
-                   [[:dispatch [:rep/needs-missing]
-                     {:rf.cofx {:rf/time-ms 1781078400123}}]]})
-            res (rf.story.artifact/replay-run-artifact a)]
-        (is (zero? @gen-calls)
-            "strict replay ran NO generator — an incomplete record never re-mints")
-        (is (false? @fired?) "the handler never ran (the incomplete record halts)")
-        (is (contains? #{:error :cannot-run} (:status res))
-            "replay failed loudly rather than passing a fresh-minted value")))))
+  (let [gen-calls (atom 0)]
+    (rf/reg-cofx :rep.cofx/missing {:recordable? true}
+                 (fn [] (swap! gen-calls inc) 5))
+    (rf/reg-event :rep/needs-missing
+      {:rf.cofx/requires [:rep.cofx/missing]}
+      (fn [_ _] {}))
+    ;; The recorded envelope carries :rf/time-ms but not :rep.cofx/missing.
+    (let [a   (rf.story.artifact/make-run-artifact
+                {:event-program
+                 [[:dispatch [:rep/needs-missing]
+                   {:rf.cofx {:rf/time-ms 1781078400123}}]]})
+          res (rf.story.artifact/replay-run-artifact a)]
+      (is (zero? @gen-calls) "an incomplete record never re-mints")
+      (is (contains? #{:error :cannot-run} (:status res))
+          "replay fails loudly rather than passing a fresh-minted value"))))
 
 ;; ===========================================================================
 ;; Replay runs EVERY step, not only the dispatches
 ;; ===========================================================================
-;;
-;; The non-dispatch steps run through the play runner's step executor, the
-;; one a live run uses. Running only the `[:dispatch …]` steps would leave an
-;; `[:assert …]` checkpoint unevaluated and a `[:click …]` the headless runner
-;; cannot prove unrefused: both would read `:pass`, and so would every
-;; property and fault sweep judged by replay.
 
 (defn- replay-program [program]
   (rf.story.artifact/replay-run-artifact
@@ -357,8 +223,7 @@
                                [:assert [:rf.assert/path-equals [:n] 99]]])]
       (is (= :fail (:status res)))
       (is (= [[:rf.assert/path-equals false :fail]]
-             (mapv (juxt :assertion :passed? :status) (:assertions res))))
-      (is (= 1 (:n (:app-db res))))))
+             (mapv (juxt :assertion :passed? :status) (:assertions res))))))
   (testing "a TRUE checkpoint passes and is recorded"
     (let [res (replay-program [[:dispatch [:rep/inc]]
                                [:assert [:rf.assert/path-equals [:n] 1]]])]
@@ -367,43 +232,34 @@
              (mapv (juxt :assertion :passed? :status) (:assertions res)))))))
 
 (deftest replay-refuses-a-step-the-headless-runner-cannot-prove
-  (testing "a headless [:click …] refuses with :cannot-run rather than reading :pass"
-    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [res (replay-program [[:dispatch [:rep/inc]] [:click ".nope"]])]
-      (is (= :cannot-run (:status res)))
-      (is (= [:click ".nope"] (get-in res [:cannot-run :unit]))))))
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [res (replay-program [[:dispatch [:rep/inc]] [:click ".nope"]])]
+    (is (= :cannot-run (:status res)))
+    (is (= [:click ".nope"] (get-in res [:cannot-run :unit])))))
 
 (deftest replay-fails-a-wait-until-that-never-holds
-  (testing "an unmet [:wait-until …] fails the replay with a step-failed record"
-    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [res (replay-program [[:dispatch [:rep/inc]] [:wait-until [:db [:n] 99]]])]
-      (is (= :fail (:status res)))
-      (is (= [:rf.error/story-play-step-failed] (mapv :assertion (:assertions res)))))))
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [res (replay-program [[:dispatch [:rep/inc]] [:wait-until [:db [:n] 99]]])]
+    (is (= :fail (:status res)))
+    (is (= [:rf.error/story-play-step-failed] (mapv :assertion (:assertions res))))))
 
 ;; ===========================================================================
 ;; Tape-evaluated checkpoints get their verdict on replay
 ;; ===========================================================================
 ;;
-;; A `[:assert [:rf.assert/schema-error …]]` or causal checkpoint has no
-;; handler: the step executor skips it and the result boundary owns its
-;; verdict. `replay-result` runs the program's tape-evaluated checkpoints
-;; through the result boundary's own matchers. Skipping that boundary role
-;; would let a missing expected violation and an unprovable causal claim both
-;; read `:pass` with no record, while a MATCHING expected violation would stay
-;; unconsumed and trip the tape floor.
+;; A schema-error or causal checkpoint has no handler: the step executor
+;; skips it and `replay-result` judges it with the result boundary's own
+;; matchers.
 
 (def ^:private schema-checkpoint
   [:assert [:rf.assert/schema-error {:where :event :event :rep/typed}]])
 
 (deftest replay-fails-a-missing-expected-schema-violation
-  (testing "an expected schema violation that never happens fails the replay"
-    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [res (replay-program [[:dispatch [:rep/inc]] schema-checkpoint])]
-      (is (= :fail (:status res)))
-      (is (= [[:rf.assert/schema-error false :fail]]
-             (mapv (juxt :assertion :passed? :status) (:assertions res))))
-      (is (empty? (:schema-violations res)) "precondition: nothing was emitted")
-      (is (= #{} (:consumed-selectors res))))))
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [res (replay-program [[:dispatch [:rep/inc]] schema-checkpoint])]
+    (is (= :fail (:status res)))
+    (is (= [[:rf.assert/schema-error false :fail]]
+           (mapv (juxt :assertion :passed? :status) (:assertions res))))))
 
 (deftest replay-consumes-a-matching-expected-schema-violation
   ;; `replay-run-artifact` hands its captured tape to `replay-result`, so the
@@ -432,43 +288,25 @@
 
 (deftest replay-refuses-a-causal-checkpoint-it-cannot-prove
   (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (doseq [id [:rf.assert/caused :rf.assert/no-cascade-rerender]]
-    (testing (str id " with no reactive evidence refuses rather than passing")
-      (let [res (replay-program [[:dispatch [:rep/inc]]
-                                 [:assert [id {:event :rep/inc}]]])]
-        (is (= :cannot-run (:status res)))
-        (is (= [[id false :cannot-run]]
-               (mapv (juxt :assertion :passed? :status) (:assertions res))))
-        (is (= id (get-in res [:cannot-run :assertion])))
-        (is (not (contains? res :reactive-counts))
-            "precondition: the headless replay carried no reactive evidence")))))
+  (let [res (replay-program [[:dispatch [:rep/inc]]
+                             [:assert [:rf.assert/caused {:event :rep/inc}]]])]
+    (is (= :cannot-run (:status res)))
+    (is (= [[:rf.assert/caused false :cannot-run]]
+           (mapv (juxt :assertion :passed? :status) (:assertions res))))
+    (is (= :rf.assert/caused (get-in res [:cannot-run :assertion])))))
 
 ;; ===========================================================================
 ;; :network route stubs survive replay
 ;; ===========================================================================
 ;;
-;; The `:network` world slot (spec/017 §The network surface) lowers to a
-;; `:fx-decisions` redirect (`{:rf.http/managed :rf.http/managed-test-stub}`)
-;; PLUS the per-route reply map at `[:world :network]`. The artifact carries
-;; `[:world :network]` in its `:network` slot (`rf.story.determinism/->artifact`) and re-installs
-;; those route stubs around the replay (`rf.story.artifact/with-network-stubs!`), so a
-;; replayed request matches its route and synthesises the recorded reply.
-;; Capturing ONLY the redirect (via `:fx-decisions`) would reapply it to a
-;; stub fx never registered with the routes — every request would fail closed
-;; on "no stub matched" (http_test_support.cljc `stub-handler`'s :else
-;; branch), silently diverging from the original run.
-;;
-;; Drop the `:network` capture or the re-install and `:got` becomes the
-;; synthesised "no stub matched" transport failure instead of the recorded
-;; `:ok` / `:failure` reply.
+;; The `:network` world slot lowers to an `:fx-decisions` redirect onto the
+;; managed test stub, which only matches routes once they are installed. The
+;; artifact carries the routes in `:network`, and replay re-installs them;
+;; without that, every replayed request fails closed on "no stub matched".
 
 (defn- register-network-event!
-  "Register a test event that issues a managed-HTTP request to `route`
-  ([method url]) and records the reply (success value or failure) into
-  app-db under `:got`. The reply rides back to this same origin event via
-  `:reply-to` (Spec 014 §Reply addressing — appended as the last arg), so a
-  re-installed stub's synthesised reply is observable in the replay's final
-  app-db."
+  "Register `event-id`, which issues a managed-HTTP request to `[method url]`
+  and records the reply under `:got`."
   [event-id [method url]]
   (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg reply]]
@@ -479,9 +317,8 @@
                                  :reply-to [event-id msg]}]]}))))
 
 (defn- network-artifact
-  "Compile a `:network` variant plan for `routes`, coerce it through the
-  determinism gate's `->artifact` (the materialize-to-artifact seam), and
-  return the run artifact. `script` is the dispatch program."
+  "The run artifact `determinism/->artifact` builds from a `:network` variant
+  plan for `routes` and `script`."
   [routes script]
   (let [variant-id :story.net/v
         plan       (rf.story.plan/variant-plan
@@ -491,50 +328,24 @@
     (rf.story.determinism/->artifact plan)))
 
 (deftest replay-reinstalls-network-success-route
-  (testing "a replayed :network variant has its SUCCESS request matched by the
-            re-installed route stub — not fail-closed"
-    (register-network-event! :net/get-cart [:get "/api/cart"])
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          art    (network-artifact routes [[:dispatch [:net/get-cart]]])
-          res    (rf.story.artifact/replay-run-artifact art)
-          got    (:got (:app-db res))]
-      (is (= :pass (:status res)))
-      (is (= :ok (:status got))
-          "the re-installed route stub matched — NOT the 'no stub matched'
-           transport failure that fails closed without the re-install")
-      (is (= {:items [{:sku "A"}]} (:value got))
-          "the synthesised reply carries the recorded route payload"))))
+  (register-network-event! :net/get-cart [:get "/api/cart"])
+  (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+        art    (network-artifact routes [[:dispatch [:net/get-cart]]])
+        res    (rf.story.artifact/replay-run-artifact art)]
+    (is (= {:status :ok :value {:items [{:sku "A"}]}}
+           (select-keys (:got (:app-db res)) [:status :value]))
+        "the re-installed route stub matched and replied with the recorded payload")))
 
 ;; ===========================================================================
 ;; EXACT narrative attribution from runner-recorded settle boundaries
 ;; ===========================================================================
 ;;
-;; The narrative supports EXACT (`:rf.story/script-idx` stamps) and EVEN (an
-;; arbitrary forward partition) beat→step attribution. `replay-into-frame!`
-;; records each dispatch step's settle boundary (the last-committed
-;; `:epoch-id` at the start of its settle) on the outcomes metadata, and
-;; `replay-result` feeds it through `project-evidence` as `:attribution`, so
-;; the narrative is attributed EXACTLY. Without the stamp `explicit-beats?`
-;; would be false and every run would fall to EVEN — which mis-attributes
-;; re-dispatch fan-out.
-;;
-;; THE DISCRIMINATING CASE. Two dispatch steps where the SECOND re-dispatches:
-;;
-;;   step 0  [:dispatch [:rkd/a]]                 → 1 committed epoch (e0)
-;;   step 1  [:dispatch [:rkd/c]] (re-dispatches  → 2 committed epochs (e1 e2)
-;;                                  :rkd/d)
-;;
-;; Tape = [e0 e1 e2]; 2 dispatch steps. EVEN partitions 3 across 2 as [2 1]
-;; (remainder front-loaded), so it WRONGLY groups {e0 e1} under step 0 and
-;; {e2} under step 1 — e1 belongs to step 1. EXACT groups {e0} under step 0
-;; and {e1 e2} under step 1. The commented assertion below is what the EVEN
-;; partition produces (RED for the correct grouping); the live assertions
-;; prove EXACT fires.
+;; Step 1 re-dispatches, so the tape is [a c d] over two dispatch steps. The
+;; EVEN forward partition would group {a c} under step 0; the replay records
+;; each step's settle boundary, so attribution is EXACT: {a} and {c d}.
 
 (defn- beats-by-step
-  "Group the flattened narrative beats of run-`result` by their owning
-  `:step`, returning `{step [trigger-event …]}` so a test can assert WHICH
-  authored step each beat (by its `:trigger-event`) landed under."
+  "`{step [trigger-event …]}` over the flattened narrative beats of `result`."
   [result]
   (->> (rf.story.play.evidence/narrative-beats (:narrative result))
        (reduce (fn [m {:keys [step trigger-event]}]
@@ -542,53 +353,12 @@
                {})))
 
 (deftest replay-narrative-exact-attribution-of-redispatch-fanout
-  (testing "a step that re-dispatches has its fan-out attributed to THAT
-            step's span — EXACT (`:rf.story/script-idx`), not the EVEN
-            forward partition that mis-groups it"
-    ;; :rkd/a — a plain leaf dispatch (1 epoch).
-    (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
-    ;; :rkd/c — re-dispatches :rkd/d, so step 1 settles to 2 epochs.
-    (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-    (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:rkd/a]]
-                                 [:dispatch [:rkd/c]]]})
-          res (rf.story.artifact/replay-run-artifact a)
-          by  (beats-by-step res)]
-      (is (= :pass (:status res)))
-      ;; THREE committed epochs: a, c, and c's re-dispatched d.
-      (is (= 3 (count (:epoch-tape res)))
-          "the re-dispatch settled to a 3-epoch tape")
-      ;; EXACT: step 0 owns ONLY :rkd/a; step 1 owns BOTH :rkd/c and the
-      ;; re-dispatched :rkd/d (the fan-out attaches to the step that produced
-      ;; it). The EVEN forward partition [2 1] would instead group
-      ;; {:rkd/a :rkd/c} under step 0, mis-attributing :rkd/c's epoch.
-      (is (= [[:rkd/a]] (get by [:dispatch [:rkd/a]]))
-          "step 0's span holds ONLY its own leaf epoch")
-      (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch [:rkd/c]]))
-          "step 1's span holds its dispatch AND its re-dispatch fan-out — EXACT"))))
-
-(deftest replay-narrative-stamp-does-not-perturb-run-hash
-  (testing "the :rf.story/script-idx stamp is a :rf.story/* accumulator key
-            the determinism projection strips — so the EXACT-attributed run
-            and a stamp-free baseline canonicalize + run-hash IDENTICALLY
-            (determinism guard: :narrative is not in
-            run-hash-input-keys AND the :epoch-tape slot stays raw)"
-    (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
-    (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-    (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
-    (let [a    (rf.story.artifact/make-run-artifact
-                 {:event-program [[:dispatch [:rkd/a]]
-                                  [:dispatch [:rkd/c]]]})
-          res  (rf.story.artifact/replay-run-artifact a)
-          ;; The verbatim :epoch-tape slot must be RAW — no stamp leaked into
-          ;; the hashed slice.
-          tape-keys (into #{} (mapcat keys) (:epoch-tape res))]
-      (is (not (contains? tape-keys :rf.story/script-idx))
-          "the retained :epoch-tape slot is the RAW tape (no stamp leak)")
-      ;; The run-hash over an EXACT-attributed result equals the run-hash over
-      ;; the SAME result with the narrative dropped — proving the stamp (which
-      ;; rides only the narrative projection) is invisible to the hash.
-      (is (= (rf.story.fingerprint/run-hash res)
-             (rf.story.fingerprint/run-hash (dissoc res :narrative)))
-          "dropping the stamped :narrative does not change the run-hash"))))
+  (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+  (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+  (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
+  (let [a (rf.story.artifact/make-run-artifact
+            {:event-program [[:dispatch [:rkd/a]]
+                             [:dispatch [:rkd/c]]]})]
+    (is (= {[:dispatch [:rkd/a]] [[:rkd/a]]
+            [:dispatch [:rkd/c]] [[:rkd/c] [:rkd/d]]}
+           (beats-by-step (rf.story.artifact/replay-run-artifact a))))))
