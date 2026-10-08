@@ -40,12 +40,8 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
       `const d = h.makeScratchDir(${JSON.stringify(REPO_ROOT)}, 'rf2-isolation-neighbour');`,
       'require("fs").writeFileSync(require("path").join(d, "x.txt"), "x");',
       'h.cleanupScratchDirs();',
-      'process.stdout.write(d);',
     ].join('\n');
-    const neighbourLane = execFileSync(process.execPath, ['-e', child], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    }).trim();
+    execFileSync(process.execPath, ['-e', child], { cwd: REPO_ROOT });
 
     // Fails on a whole-root removal.
     assert.equal(
