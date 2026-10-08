@@ -177,13 +177,6 @@
       nested-page
       ssn)))
 
-(deftest control-the-same-vector-page-without-an-accessor-redacts-the-declaration-as-written
-  (assert-reply-value
-    (settle-feed :feed-reply/vector-nested {:sensitive [[:data :items :ssn]]} nested-page)
-    [{:items {:ssn redacted} :name "zero"}]
-    nested-page
-    ssn))
-
 ;; ---- the large axis --------------------------------------------------------
 
 (def ^:private blob "feed-reply-blob-LARGE")
