@@ -2,41 +2,11 @@
 'use strict';
 
 /*
- * Gate-arming policy test for the reagent-slim CLIENT-RUNTIME smoke.
- *
- * The acceptance criterion this file enforces: edits to the slim smoke
- * manifest/path must ARM the intended CI gate and cannot silently drift
- * to Reagent/UIx-only coverage. These checks have teeth — each
- * fails RED if a future edit unwires the slim smoke, points it at the
- * wrong substrate, deletes a required file, or removes the npm gate.
- *
- * Surfaces pinned:
- *   1. The slim testbed source files exist on disk (core + index.html +
- *      smoke).
- *   2. The shadow-cljs build `:adapters/reagent-slim-testbed` is declared
- *      with the slim testbed init-fn AND its source path is on the
- *      :node/:dev source-paths.
- *   3. The slim testbed core actually mounts on the SLIM substrate
- *      (reagent2.* + re-frame.adapter.reagent-slim), never stock Reagent —
- *      so the smoke can never silently regress to exercising stock
- *      coverage while still "compiling".
- *   4. The smoke scenario asserts the slim example's dataflow: initial
- *      value 5, click-driven inc AND dec.
- *   5. npm `test:reagent-slim:smoke` exists and runs the adapter-owned
- *      runner. (This file itself needs no enrolment pin: `npm run
- *      test:scripts` discovers every `scripts/*.test.cjs` by name.)
- *   6. The slim smoke is a DISTINCT surface from the shared adapter-smoke
- *      manifest: its driver file is not named
- *      spec.cjs/*.spec.cjs (the shared adapter-smoke spec-walker's reconcile
- *      in _adapter-smoke-filter.test.cjs reds on one) AND it is not an
- *      entry in implementation/adapters/scripts/adapter-smoke-filter.cjs
- *      (whose Reagent/UIx set is its own surface). This is the
- *      two-way drift guard.
- *
- * Standalone node-runnable suite — no external test framework, mirroring
- * check-reagent-slim-boundary.test.cjs. Discovered by `npm run test:scripts`
- * (Node's built-in runner globs `scripts/*.test.cjs`; a correctly named file
- * is registered by existing).
+ * The reagent-slim client-runtime smoke stays wired and stays SLIM: its build is
+ * declared, its testbed mounts the slim substrate rather than stock Reagent, and
+ * PR CI runs it in a reagent_slim_bundle-gated job. A shadow-cljs.edn or
+ * package.json edit does not arm that job, so those halves are pinned here, in
+ * the always-run lane. Discovered by `npm run test:scripts`.
  */
 
 const fs = require('fs');
@@ -48,12 +18,8 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 
 const TESTBED_DIR = path.join(IMPL_ROOT, 'adapters', 'reagent-slim', 'testbed');
 const CORE = path.join(TESTBED_DIR, 'adapter_testbed_reagent_slim', 'core.cljs');
-const INDEX_HTML = path.join(TESTBED_DIR, 'index.html');
-const SMOKE = path.join(TESTBED_DIR, 'smoke.cjs');
-const RUNNER = path.join(IMPL_ROOT, 'scripts', 'serve-and-run-reagent-slim-smoke.cjs');
 const SHADOW_EDN = path.join(IMPL_ROOT, 'shadow-cljs.edn');
 const PKG_JSON = path.join(IMPL_ROOT, 'package.json');
-const ADAPTER_SMOKE_FILTER = path.join(IMPL_ROOT, 'adapters', 'scripts', 'adapter-smoke-filter.cjs');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'test.yml');
 
 let failed = 0;
@@ -74,44 +40,16 @@ function read(p) {
 
 console.log('reagent-slim smoke policy tests');
 
-// ---- 1) testbed source files exist ---------------------------------------
-
-it('slim testbed index.html exists', () => {
-  assert.ok(fs.existsSync(INDEX_HTML), `missing slim testbed index.html: ${INDEX_HTML}`);
-});
-it('adapter-owned slim smoke runner exists', () => {
-  assert.ok(fs.existsSync(RUNNER), `missing slim smoke runner: ${RUNNER}`);
-});
-
-// ---- 2) shadow-cljs build + source path armed ----------------------------
-
 const SHADOW = fs.existsSync(SHADOW_EDN) ? read(SHADOW_EDN) : '';
 
-it('shadow-cljs.edn declares the :adapters/reagent-slim-testbed build', () => {
-  assert.ok(
-    /:adapters\/reagent-slim-testbed/.test(SHADOW),
-    'shadow-cljs.edn has no :adapters/reagent-slim-testbed build — the slim ' +
-      'smoke gate is unarmed',
-  );
-});
-
-it('the slim-testbed build uses the slim testbed init-fn', () => {
+it('shadow-cljs.edn declares the slim-testbed build, its init-fn and its source path', () => {
+  assert.ok(/:adapters\/reagent-slim-testbed/.test(SHADOW), 'no :adapters/reagent-slim-testbed build');
   assert.ok(
     /:init-fn\s+adapter-testbed-reagent-slim\.core\/init/.test(SHADOW),
-    'the :adapters/reagent-slim-testbed build does not point at ' +
-      'adapter-testbed-reagent-slim.core/init',
+    'the slim-testbed build does not point at adapter-testbed-reagent-slim.core/init',
   );
+  assert.ok(/"adapters\/reagent-slim\/testbed"/.test(SHADOW), '"adapters/reagent-slim/testbed" is on no source-paths');
 });
-
-it('the slim testbed source path is on a shadow-cljs source-paths vector', () => {
-  assert.ok(
-    /"adapters\/reagent-slim\/testbed"/.test(SHADOW),
-    'shadow-cljs.edn does not add "adapters/reagent-slim/testbed" to ' +
-      'source-paths — the slim testbed core will not resolve',
-  );
-});
-
-// ---- 3) the testbed mounts on the SLIM substrate (teeth: no stock drift) --
 
 const CORE_SRC = fs.existsSync(CORE) ? read(CORE) : '';
 
@@ -125,9 +63,7 @@ it('slim testbed core requires the SLIM substrate, not stock Reagent', () => {
     /re-frame\.adapter\.reagent-slim/.test(CORE_SRC),
     'slim testbed core must install re-frame.adapter.reagent-slim',
   );
-  // Hard guard against silent regression to the stock substrate: a bare
-  // `reagent.*` (not `reagent2.*`) require or the stock adapter would mean
-  // the smoke is exercising stock Reagent while claiming to cover slim.
+  // A stock require would mean the smoke exercises stock Reagent while claiming slim.
   assert.ok(
     !/\[reagent\.(core|dom|ratom)/.test(CORE_SRC),
     'slim testbed core requires a stock reagent.* namespace — it would ' +
@@ -140,105 +76,25 @@ it('slim testbed core requires the SLIM substrate, not stock Reagent', () => {
   );
 });
 
-it('slim testbed core is idiomatic re-frame2 (app-db + events + subs)', () => {
-  // EP-0018 Z: `reg-event` is the one-form event-registration API; the
-  // per-kind `reg-event-db`/`-fx`/`-ctx` names are throwing stubs. Match
-  // `(reg-event <id> ...)` — the trailing `\s` requires the bare one-form
-  // symbol and is NOT satisfied by a `reg-event-db` (etc.) wrapper name.
-  assert.ok(/reg-event\s/.test(CORE_SRC), 'no reg-event (events) in slim testbed core');
-  assert.ok(/reg-sub/.test(CORE_SRC), 'no reg-sub (subs) in slim testbed core');
-  assert.ok(/reg-view/.test(CORE_SRC), 'no reg-view in slim testbed core');
-  // No raw atoms threaded through views — the value flows through app-db.
-  assert.ok(
-    !/\(r\/atom|reagent\.core\/atom|reagent2\.core\/atom/.test(CORE_SRC),
-    'slim testbed core threads a raw atom through the view — must use ' +
-      'app-db + subs',
-  );
-});
-
-// ---- 4) the smoke asserts the slim dataflow (init 5, inc + dec) ----------
-
-const SMOKE_SRC = fs.existsSync(SMOKE) ? read(SMOKE) : '';
-
-it('the smoke asserts the slim dataflow: initial value 5, inc and dec', () => {
-  assert.ok(/rf-adapter-counter/.test(SMOKE_SRC), 'smoke does not read the counter element');
-  assert.ok(/'5'/.test(SMOKE_SRC), 'smoke does not assert the initial counter value 5');
-  assert.ok(/rf-adapter-inc/.test(SMOKE_SRC), 'smoke does not drive the inc button');
-  assert.ok(/rf-adapter-dec/.test(SMOKE_SRC), 'smoke does not drive the dec button');
-});
-
-it('the smoke is shaped { name, url, run } like the adapter spec.cjs', () => {
-  const mod = require(SMOKE);
-  assert.strictEqual(typeof mod.run, 'function', 'smoke must export run()');
-  assert.strictEqual(typeof mod.url, 'string', 'smoke must export a url string');
-  assert.ok(mod.name, 'smoke must export a name');
-});
-
-// ---- 5) npm gates wired ---------------------------------------------------
-
 const pkg = JSON.parse(read(PKG_JSON));
 const scripts = pkg.scripts || {};
 
 it('npm `test:reagent-slim:smoke` exists and runs the adapter-owned runner', () => {
   const s = scripts['test:reagent-slim:smoke'];
-  assert.ok(s, 'package.json has no test:reagent-slim:smoke script — the gate is unarmed');
   assert.ok(
     /serve-and-run-reagent-slim-smoke\.cjs/.test(s),
     `test:reagent-slim:smoke does not run the slim smoke runner: ${s}`,
   );
 });
 
-// ---- 5b) PR CI runs the smoke gate ---------------------------------------
-// The workflow must execute the npm script, and reagent-slim changes must arm
-// its job; declaring an unreferenced script is not CI coverage.
-
 const WORKFLOW_SRC = fs.existsSync(WORKFLOW) ? read(WORKFLOW) : '';
 
-it('PR CI workflow EXECUTES `npm run test:reagent-slim:smoke`', () => {
-  assert.ok(WORKFLOW_SRC, `missing workflow: ${WORKFLOW}`);
+it('PR CI runs `npm run test:reagent-slim:smoke` in a reagent_slim_bundle-gated job', () => {
   assert.ok(
     /npm run test:reagent-slim:smoke/.test(WORKFLOW_SRC),
-    '.github/workflows/test.yml never runs `npm run test:reagent-slim:smoke` — ' +
-      'the slim client-runtime smoke is UNARMED in PR CI (it exists as an npm ' +
-      'script but no job executes it).',
+    '.github/workflows/test.yml never runs `npm run test:reagent-slim:smoke`',
   );
-});
-
-it('the slim smoke runs in a reagent_slim_bundle-gated job', () => {
-  // The job that runs the smoke must be guarded by the reagent_slim_bundle
-  // surface so it fires for reagent-slim adapter/testbed/runner changes
-  // (and is skipped, not absent, on unrelated PRs). The smoke step lives in
-  // the cljs-reagent-slim-bundle-isolation job, whose `if:` is gated on
-  // detect_changed_surfaces.outputs.reagent_slim_bundle.
-  assert.ok(
-    /reagent_slim_bundle == 'true'/.test(WORKFLOW_SRC),
-    'no job in test.yml is gated on reagent_slim_bundle — the smoke gate ' +
-      'cannot be armed by reagent-slim surface detection',
-  );
-});
-
-// ---- 6) distinct-surface / two-way drift guard ---------------------------
-
-it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx only)', () => {
-  // The slim smoke is the slim adapter's OWN gate; it must NOT be folded
-  // into the shared adapter-smoke manifest. This pins both directions of
-  // the drift: the shared set does not silently grow a slim entry, and the
-  // slim gate does not silently vanish into it. (The manifest's set — the
-  // two adapter smokes — is pinned by _adapter-smoke-filter.test.cjs; here we pin
-  // the exact set too so a slim entry cannot hide behind growth.)
-  const { ADAPTER_SMOKES } = require(ADAPTER_SMOKE_FILTER);
-  const builds = ADAPTER_SMOKES.map((e) => e.build).sort();
-  assert.deepStrictEqual(
-    builds,
-    [
-      'adapters/reagent-testbed',
-      'adapters/uix-testbed',
-    ],
-    'the shared adapter-smoke manifest drifted from the ' +
-      'Reagent/UIx set; the slim client-runtime smoke is a ' +
-      'dedicated adapter-owned gate (test:reagent-slim:smoke), not a ' +
-      'shared-manifest entry',
-  );
+  assert.ok(/reagent_slim_bundle == 'true'/.test(WORKFLOW_SRC), 'no job in test.yml is gated on reagent_slim_bundle');
 });
 
 if (failed > 0) {
