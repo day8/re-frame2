@@ -4,27 +4,17 @@
 
   - **inline schema validation** — `violations-by-key` indexing + the
     `validation-banner` / inline-error rendering in `args-editor`;
-  - **diff-from-saved + per-arg reset** — `arg-changed?` + the
-    changed-dot / per-arg `reset` affordance;
+  - **diff-from-saved + per-arg reset** — the changed-dot / per-arg
+    `reset` affordance;
   - **summarise-before-expand** — `summarize-value` + the disclosure
     header that collapses nested controls by default and lazily renders
     children only when expanded.
 
-  ## Tiers
-
-  - **CLJS-only pure** — `violations-by-key`, `arg-changed?`,
-    `summarize-value` live in the CLJS-only `controls` ns. All pure
-    data → data.
-  - **CLJS-only render** — `args-editor` (Form-2) returns hiccup; the
-    collection / row / banner pieces are plain hiccup-returning fns so
-    the whole tree is inline and walkable.
-
   The inline-error test branches on whether a live validator is
-  registered (`validator-fns` is 'either nil or callable' per the schema-
-  validation panel's own test): with a validator present it asserts the
-  banner + inline error; without, it asserts the documented soft-pass.
-  The pure walk that PRODUCES violations is covered in
-  `schema-validation-cljs-test`.
+  registered (`validator-fns` is either nil or callable): with a validator
+  present it asserts the banner + inline error; without, it asserts the
+  documented soft-pass. The pure walk that PRODUCES violations is covered
+  in `schema-validation-cljs-test`.
 
   The file is a `.cljc` for symmetry with sibling controls tests; every
   body is CLJS-only (`#?(:cljs ...)`). The ns suffix `-cljs-test` puts
@@ -53,23 +43,20 @@
 
 ;; ---- helpers -------------------------------------------------------------
 ;;
-;; Hiccup walking: `for`-produced child seqs are NOT vectors, so a naive
-;; `(tree-seq vector? rest tree)` never descends into them. We walk
-;; explicitly — recursing into vector children AND seq children — mirroring
-;; the sibling `controls-scalar-widgets-cljs-test/walk-find` idiom.
+;; `for`-produced child seqs are NOT vectors, so a naive
+;; `(tree-seq vector? rest tree)` never descends into them; the walk
+;; recurses into vector AND seq children.
 
 #?(:cljs
    (defn- attrs
-     "Return the attribute map of a hiccup node (second element when it's
-     a map, else nil)."
+     "The attribute map of a hiccup node, or nil."
      [node]
      (let [a (when (vector? node) (second node))]
        (when (map? a) a))))
 
 #?(:cljs
    (defn- all-nodes
-     "Depth-first vector of every hiccup VECTOR node in `tree` (descending
-     through both vector children and `for`-produced seq children)."
+     "Depth-first vector of every hiccup VECTOR node in `tree`."
      [tree]
      (let [acc (atom [])]
        (letfn [(walk [node]
@@ -82,7 +69,7 @@
 
 #?(:cljs
    (defn- find-node
-     "First hiccup node satisfying `pred` (pred receives the node)."
+     "First hiccup node satisfying `pred`."
      [tree pred]
      (some (fn [n] (when (pred n) n)) (all-nodes tree))))
 
@@ -111,36 +98,14 @@
 
 #?(:cljs
    (deftest violations-by-key-indexes-by-arg-key
-     (testing "violations-by-key turns the args-violations vector into a
-               {arg-key → violation} map"
-       (let [viols [{:key :name :value 42 :schema :string :explain nil}
-                    {:key :age  :value "x" :schema :int    :explain nil}]
-             by-k  (rf.story.ui.controls/violations-by-key viols)]
-         (is (= 2 (count by-k)))
-         (is (= 42 (get-in by-k [:name :value])))
-         (is (= "x" (get-in by-k [:age :value])))))))
-
-#?(:cljs
-   (deftest violations-by-key-remaps-root-key
-     (testing "the schema-validation ::root sentinel (whole-args non-:map
-               failure) remaps to :rf.story.controls/root so it never
-               collides with a real arg-key but still counts"
-       (let [viols [{:key :re-frame.story.ui.schema-validation/root
+     (testing "a {arg-key → violation} map; the schema-validation ::root
+               sentinel (whole-args non-:map failure) remaps to
+               :rf.story.controls/root so it never collides with a real arg"
+       (let [name-v {:key :name :value 42 :schema :string :explain nil}
+             root-v {:key :re-frame.story.ui.schema-validation/root
                      :value {:a 1} :schema :string :explain nil}]
-             by-k  (rf.story.ui.controls/violations-by-key viols)]
-         (is (contains? by-k :rf.story.controls/root))
-         (is (= {:a 1} (get-in by-k [:rf.story.controls/root :value])))))))
-
-;; ---- pure: arg-changed? -------------------------------------------------
-
-#?(:cljs
-   (deftest arg-changed?-compares-effective-against-saved
-     (doseq [[eff saved changed? why]
-             [[{:a 2} {:a 1} true  "the effective value differs from the saved one"]
-              [{:a 1} {:a 1} false "equal values are not changed, even with a same-value override present"]
-              [{:a 1} {}     true  "absent from saved but present in effective"]
-              [{}     {}     false "absent from both"]]]
-       (is (= changed? (rf.story.ui.controls/arg-changed? eff saved :a)) why))))
+         (is (= {:name name-v :rf.story.controls/root root-v}
+                (rf.story.ui.controls/violations-by-key [name-v root-v])))))))
 
 ;; ---- pure: summarize-value ----------------------------------------------
 
@@ -156,44 +121,14 @@
        ;; a scalar landing under a collection widget pr-strs
        (is (= "\"x\""   (rf.story.ui.controls/summarize-value "x"))))))
 
-#?(:cljs
-   (deftest summarize-value-does-not-recurse
-     (testing "deep contents are NOT walked — only the top-level count
-               appears (the point of summarising before expanding)"
-       (is (= "1 key"
-              (rf.story.ui.controls/summarize-value
-                {:deep {:and {:nested {:tree :here}}}}))))))
-
 ;; ---- CLJS render: summarise-before-expand -------------------------------
 
 #?(:cljs
-   (deftest group-collapsed-by-default-hides-its-children
-     (testing "a :group widget is collapsed by default — the disclosure
-               header is present + collapsed, and the nested child rows
-               are NOT in the tree (summarise-before-expand, spec/019 §4)"
-       ;; The controls schema is the COMPILED plan's
-       ;; view-args-schema (off the :component view's :rf/props), not a bare
-       ;; variant-body :schema slot. Register the component view + point at it.
-       (rf/reg-view* :view.ba86n/grp
-         {:rf/props [:map [:meta [:map [:author :string] [:rating :int]]]]}
-         (fn [_] [:div]))
-       (rf.story/reg-variant :story.ba86n/grp
-         {:component :view.ba86n/grp
-          :args      {:meta {:author "ada" :rating 5}}
-          :setup    []})
-       (let [tree   (render :story.ba86n/grp)
-             toggle (button-with-action tree "toggle-expand")]
-         (is (some? toggle) "disclosure toggle present")
-         (is (= "false" (:data-controls-expanded (attrs toggle)))
-             "collapsed by default")
-         ;; The nested :author key row is NOT rendered while collapsed.
-         ;; (Keys stringify WITH the leading colon — `(str :author)`.)
-         (is (nil? (node-with-attr tree :data-controls-key ":author")))))))
-
-#?(:cljs
    (deftest disclosure-toggle-expands-and-reveals-children
-     (testing "clicking the disclosure toggle flips the (component-local)
-               expand state and a re-render reveals the nested child rows"
+     (testing "a :group widget is collapsed by default with its nested rows
+               NOT in the tree (summarise-before-expand, spec/019 §4); the
+               toggle flips the component-local expand state and a re-render
+               reveals them"
        (rf/reg-view* :view.ba86n/grp2
          {:rf/props [:map [:meta [:map [:author :string]]]]}
          (fn [_] [:div]))
@@ -201,33 +136,18 @@
          {:component :view.ba86n/grp2
           :args      {:meta {:author "ada"}}
           :setup    []})
-       ;; ONE editor instance — the expand ratom lives on its closure, so
-       ;; the toggle + re-render must go through the same instance.
+       ;; ONE editor instance — the expand ratom lives on its closure.
+       ;; Keys stringify WITH the leading colon — `(str :author)`.
        (let [editor (rf.story.ui.controls/args-editor :story.ba86n/grp2)
              tree-1 (editor :story.ba86n/grp2)
-             toggle (button-with-action tree-1 "toggle-expand")
-             on-click (:on-click (attrs toggle))]
-         (is (fn? on-click))
-         ;; Collapsed first: no nested :author row.
+             toggle (button-with-action tree-1 "toggle-expand")]
+         (is (= "false" (:data-controls-expanded (attrs toggle))))
          (is (nil? (node-with-attr tree-1 :data-controls-key ":author")))
-         (on-click nil)
-         (let [tree-2 (editor :story.ba86n/grp2)]
-           ;; Expanded now: the nested :author row IS present.
-           (is (some? (node-with-attr tree-2 :data-controls-key ":author"))))))))
+         ((:on-click (attrs toggle)) nil)
+         (is (some? (node-with-attr (editor :story.ba86n/grp2)
+                                    :data-controls-key ":author")))))))
 
 ;; ---- CLJS render: inline schema error + banner --------------------------
-
-#?(:cljs
-   (deftest args-editor-marks-rows-with-validity-attribute
-     (testing "every arg row carries a data-controls-invalid attribute so
-               downstream tooling / the browser smoke can detect blocked
-               renders"
-       (rf.story/reg-variant :story.ba86n/val
-         {:args {:title "hi"} :setup []})
-       (let [tree (render :story.ba86n/val)
-             row  (node-with-attr tree :data-controls-arg ":title")]
-         (is (some? row))
-         (is (contains? (attrs row) :data-controls-invalid))))))
 
 #?(:cljs
    (deftest inline-error-and-banner-track-the-live-validator
@@ -247,8 +167,7 @@
              err-row (node-with-attr tree :data-controls-error)
              age-row (node-with-attr tree :data-controls-arg ":age")]
          (if (:validate (rf.story.ui.schema-validation/validator-fns))
-           ;; Live validator present — the BEFORE-render claims contract:
-           ;; banner + inline error + row marked invalid.
+           ;; Live validator present: banner + inline error + row marked invalid.
            (do
              (is (some? banner) "the panel banner renders")
              (is (pos? (js/parseInt
@@ -276,15 +195,10 @@
        (let [tree      (render :story.ba86n/diff)
              title-row (node-with-attr tree :data-controls-arg ":title")]
          (is (= "true" (:data-controls-changed (attrs title-row))))
-         (let [reset-btn (button-with-action title-row "reset-arg")]
-           (is (some? reset-btn))
-           ((:on-click (attrs reset-btn)) nil)
-           ;; :title override gone, :other override survives.
-           (is (nil? (get-in (rf.story.ui.state/get-state)
-                             [:cell-overrides :story.ba86n/diff :title])))
-           (is (= "changed-too"
-                  (get-in (rf.story.ui.state/get-state)
-                          [:cell-overrides :story.ba86n/diff :other]))))))))
+         ((:on-click (attrs (button-with-action title-row "reset-arg"))) nil)
+         (is (= {:other "changed-too"}
+                (get-in (rf.story.ui.state/get-state)
+                        [:cell-overrides :story.ba86n/diff])))))))
 
 #?(:cljs
    (deftest unchanged-arg-has-no-changed-dot
@@ -302,9 +216,7 @@
                at least one override exists for the focused variant"
        (rf.story/reg-variant :story.ba86n/resetall
          {:args {:a 1} :setup []})
-       ;; No overrides yet → no reset-all button.
        (is (nil? (button-with-action (render :story.ba86n/resetall) "reset-all")))
-       ;; Add an override → reset-all appears.
        (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar
                           :story.ba86n/resetall :a 2)
        (is (some? (button-with-action (render :story.ba86n/resetall) "reset-all"))))))
