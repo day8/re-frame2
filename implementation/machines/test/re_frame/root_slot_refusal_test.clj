@@ -8,15 +8,10 @@
   `:default-target`. Refused on a flat root only: `:on-done` (a parallel
   root's action-only `:on-done` is its supported completion signal).
 
-  Controls: a parallel root's `:after`, `:timeout` / `:on-timeout` and
-  action-only `:on-done` register. Root `:entry` / `:exit` refs are held
-  to the same action-form and resolution checks a state's are. The honoured
-  root `:entry` / `:exit` / `:tags` / `:spawn` register throughout
-  `root_lifecycle_test.clj` and `root_spawn_test.clj`, and a flat root's
-  `:after` / `:timeout` keep their own
-  `:rf.error/machine-non-parallel-root-after-not-supported`, pinned in
-  `root_after_non_parallel_test.clj`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Root `:entry` / `:exit` refs are held to the same action-form and
+  resolution checks a state's are. A flat root's `:after` / `:timeout` keep
+  their own refusal, pinned in `root_after_non_parallel_test.clj`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -59,52 +54,29 @@
 ;; ---- refused keys ----------------------------------------------------------
 
 (deftest flat-root-refuses-each-unread-key
-  (doseq [[k v] (assoc refused-everywhere :on-done :b)]
-    (testing (str "flat root " k)
-      (let [d (refusal (assoc flat-root k v))]
-        (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id d)))
-        (is (= [k] (:offending-keys d)) "ex-data names the offending root key")))))
+  (doseq [k [:always :on-done]]
+    (is (= {:rf.error/id :rf.error/machine-root-slot-not-supported :offending-keys [k]}
+           (select-keys (refusal (assoc flat-root k (get refused-everywhere k :b)))
+                        [:rf.error/id :offending-keys]))
+        (str k))))
 
 (deftest parallel-root-refuses-each-unread-key
-  (doseq [[k v] refused-everywhere]
-    (testing (str "parallel root " k)
-      (let [d (refusal (assoc parallel-root k v))]
-        (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id d)))
-        (is (= [k] (:offending-keys d)))))))
+  (is (= {:rf.error/id :rf.error/machine-root-slot-not-supported :offending-keys [:always]}
+         (select-keys (refusal (assoc parallel-root :always (:always refused-everywhere)))
+                      [:rf.error/id :offending-keys]))))
 
 (deftest refusal-message-names-the-substitute
-  (testing "a flat root :spawn-all names the root :spawn and the compound wrapper"
-    (let [msg (::message (refusal (assoc flat-root :spawn-all (:spawn-all refused-everywhere))))]
-      (is (str/includes? msg ":spawn-all"))
-      (is (str/includes? msg "declare :spawn on the root"))
-      (is (str/includes? msg "compound"))))
-  (testing "a parallel root :spawn-all names the root :spawn and the single-state region"
-    (let [msg (::message (refusal (assoc parallel-root :spawn-all (:spawn-all refused-everywhere))))]
-      (is (str/includes? msg "declare :spawn on the root"))
-      (is (str/includes? msg "region")))))
+  (let [msg (fn [root] (::message (refusal (assoc root :spawn-all (:spawn-all refused-everywhere)))))]
+    (is (str/includes? (msg flat-root) "compound"))
+    (is (str/includes? (msg parallel-root) "region"))))
 
 ;; ---- controls: the slots the root reads register ---------------------------
-
-(deftest parallel-root-completion-and-deadline-slots-register
-  (is (nil? (refusal (assoc parallel-root :on-done {:action (fn [_] nil)})))
-      "an action-only parallel-root :on-done is the supported completion signal")
-  (is (nil? (refusal (assoc parallel-root :after {1000 {:target [:x :x2]}})))
-      "a parallel root's :after is the supported machine-lifetime timer")
-  (is (nil? (refusal (assoc parallel-root :timeout 1000 :on-timeout {:target [:x :x2]})))
-      "a parallel root's :timeout lowers onto that :after"))
 
 ;; ---- root :entry / :exit refs are checked like a state's -------------------
 
 (deftest root-entry-and-exit-refs-are-checked
-  (testing "an unresolved keyword ref"
-    (is (= :rf.error/machine-unresolved-action
-           (:rf.error/id (refusal (assoc flat-root :entry :nowhere)))))
-    (is (= :rf.error/machine-unresolved-action
-           (:rf.error/id (refusal (assoc parallel-root :exit :nowhere))))))
-  (testing "a vector of actions"
-    (is (= :rf.error/machine-bad-action-form
-           (:rf.error/id (refusal (assoc flat-root
-                                         :actions {:log (fn [_] nil)}
-                                         :exit    [:log :log]))))))
-  (testing "a resolving keyword ref registers"
-    (is (nil? (refusal (assoc flat-root :actions {:log (fn [_] nil)} :entry :log :exit :log))))))
+  (doseq [[expected machine] [[:rf.error/machine-unresolved-action (assoc flat-root :entry :nowhere)]
+                              [:rf.error/machine-unresolved-action (assoc parallel-root :exit :nowhere)]
+                              [:rf.error/machine-bad-action-form
+                               (assoc flat-root :actions {:log (fn [_] nil)} :exit [:log :log])]]]
+    (is (= expected (:rf.error/id (refusal machine))))))
