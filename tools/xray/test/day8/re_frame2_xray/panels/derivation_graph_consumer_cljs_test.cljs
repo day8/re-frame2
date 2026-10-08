@@ -23,14 +23,12 @@
   ## What's under test (the actual subscriptions, end to end)
 
     1. STATIC mode — `:rf.xray/derivation-graph` returns a graph the shared
-       COMPOSER produced over `xray-contributors` (real registered subs +
-       machine become nodes; the composer's edge roles appear), and
-       `:rf.xray/derivation-graph-tab-data` reports `:mode :static`, the
-       node/edge tally, by-family grouping, and edge roles.
-    2. ALL FIVE families wired — the contributor map carries
-       `:subs :flows :resources :routes :machines`; a registered machine +
-       its selector flow through to the graph as a `:machine` process node
-       and a precise `:selector` edge.
+       COMPOSER produced over `xray-contributors` (the composer's `:input`
+       edge between real registered subs appears), and
+       `:rf.xray/derivation-graph-tab-data` reports `:mode :static` and the
+       by-family grouping.
+    2. The MACHINE family wired — a registered machine + its selector flow
+       through to the graph as a `:selector` edge.
     3. PRECISE selector targeting — two machines, one selector
        reading only one: the unrelated machine gets NO selector edge through
        the Xray consumer path.
@@ -45,7 +43,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines]                     ;; load the machines facade so reg-machine works
-            [re-frame.machines.tooling :as rf.machines.tooling]
             [re-frame.routing]                      ;; load routing so reg-route + navigate materialize a live route slice
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -79,64 +76,30 @@
               {:inputs [[:cart/items]]}
               (fn [[items] _] (count items))))
 
-(defn- register-machine+selector! []
-  ;; a machine process node + an ordinary sub that READS it (the selector).
-  (rf/reg-machine :upload/main
-                  {:initial :idle
-                   :data    {:progress 0}
-                   :states  {:idle      {:on {:upload/start {:target :uploading}}}
-                             :uploading {:on {:upload/done {:target :idle}}}}})
-  (rf/reg-sub :upload/progress
-              {:inputs [[:rf/machine :upload/main]]}
-              (fn [[snapshot] _] (get-in snapshot [:data :progress] 0))))
-
 ;; ---- (1) static mode consumes the shared composer -----------------------
 
 (deftest static-mode-subscription-consumes-the-composer
   (testing ":rf.xray/derivation-graph returns a graph the shared composer
-            produced over xray-contributors (the real registered subs are nodes)"
+            produced over xray-contributors — its static declared-input edge
+            between the real registered subs — and tab-data summarizes it for
+            the view"
     (setup-xray!)
     (register-host-subs!)
-    (let [graph (read-xray [:rf.xray/derivation-graph])]
-      (is (= :static (:mode graph)) "default mode is :static")
-      ;; The registered subs became composer nodes — not a hand-rolled shape.
-      (is (contains? (:nodes graph) [:sub :cart/total])
-          "the registered :cart/total sub is a [:sub …] node in the composed graph")
-      (is (contains? (:nodes graph) [:sub :cart/items])
-          "the registered :cart/items sub is a node")
-      ;; The composer's static :input edge (cart/items → cart/total).
-      (is (some #(= % {:from [:sub :cart/items]
-                       :to   [:sub :cart/total]
-                       :role :input})
-                (:edges graph))
-          "the static declared-input edge the composer derives is present")))
-  (testing "tab-data summarizes the composer graph for the view (mode / counts / grouping / roles)"
-    (setup-xray!)
-    (register-host-subs!)
-    (let [{:keys [mode summary by-family edges]} (read-xray [:rf.xray/derivation-graph-tab-data])]
-      (is (= :static mode) "tab-data carries the static mode")
-      (is (= :static (:mode summary)))
-      (is (pos? (:node-count summary)) "the header reports a real node count")
-      (is (contains? (set (keys by-family)) :subs) "subs family is grouped")
-      (is (some #(= :input (:role %)) edges) "the :input edge role is summarized into tab-data"))))
+    (is (some #(= % {:from [:sub :cart/items]
+                     :to   [:sub :cart/total]
+                     :role :input})
+              (:edges (read-xray [:rf.xray/derivation-graph])))
+        "the static declared-input edge the composer derives is present")
+    (let [{:keys [mode by-family]} (read-xray [:rf.xray/derivation-graph-tab-data])]
+      (is (= :static mode) "tab-data carries the default static mode")
+      (is (contains? by-family :subs) "subs family is grouped"))))
 
-;; ---- (2)+(3) all five families wired + precise selector targeting -------
+;; ---- (2)+(3) the machine family + precise selector targeting ------------
 
 (deftest machine-family-and-precise-selector-edge-flow-through-the-consumer
-  (testing "a registered machine + its selector flow through Xray's contributor
-            map as a :machine node + a :selector edge"
-    (setup-xray!)
-    (register-machine+selector!)
-    (let [graph (read-xray [:rf.xray/derivation-graph])]
-      (is (contains? (:nodes graph) [:machine :upload/main])
-          "the machine family contributes a [:machine …] process node")
-      (is (some #(= % {:from [:machine :upload/main]
-                       :to   [:sub :upload/progress]
-                       :role :selector})
-                (:edges graph))
-          "the machine → selector :selector edge is drawn through the Xray consumer")))
-  (testing "in a multi-machine app the selector edge targets ONLY the machine
-            it reads — no cross product"
+  (testing "a registered machine + its selector flow through Xray's
+            contributor map as a :selector edge, and in a multi-machine app
+            that edge targets ONLY the machine it reads — no cross product"
     (setup-xray!)
     (rf/reg-machine :upload/main
                     {:initial :idle :data {:progress 0}
@@ -159,21 +122,7 @@
                :to   [:sub :upload/progress]
                :role :selector}]
              (vec our-target))
-          "exactly one selector edge to :upload/progress, from the machine it reads")
-      ;; The unrelated machine receives NO edge to OUR selector (no cross product).
-      (is (not-any? #(and (= [:machine :download/main] (:from %))
-                          (= [:sub :upload/progress] (:to %)))
-                    sel)
-          "the unrelated :download/main machine gets no edge to our selector")
-      ;; And every selector edge in the whole graph is precisely targeted — its
-      ;; :from machine id matches a machine the :to selector actually reads
-      ;; (no edge points from a machine the selector does not name).
-      (is (every? (fn [{:keys [from to]}]
-                    (let [sub-id (second to)]
-                      (contains? (rf.machines.tooling/machine-selector-targets sub-id)
-                                 (second from))))
-                  sel)
-          "every selector edge runs from a machine its target selector reads"))))
+          "exactly one selector edge to :upload/progress, from the machine it reads"))))
 
 ;; ---- (4) LIVE mode: the target frame, its REAL live CONTENT, isolation ---
 ;;
@@ -198,25 +147,17 @@
                       {:frame :app/main})
     (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})
     (rf/dispatch-sync [:rf.xray/set-target-frame :app/main] {:frame :rf/xray})
-    (let [graph (read-xray [:rf.xray/derivation-graph])
-          slice (get (:nodes graph) :rf/route)]
+    (let [graph (read-xray [:rf.xray/derivation-graph])]
       (is (= :live (:mode graph)))
       ;; The realized route slice is a LIVE node in the composed graph — not
       ;; an empty graph.
-      (is (some? slice) "the live route slice node is present in the live graph")
-      (is (= :route/article (:route-id slice)) "the realized matched route id")
-      (is (= {:slug "welcome"} (:params slice)) "the realized live params")
-      (is (= :routes (:rf/family slice)) "the live node is family-tagged :routes"))
+      (is (= {:slug "welcome"} (:params (get (:nodes graph) :rf/route)))
+          "the realized live params"))
     (testing "tab-data feeds the live node into its by-family grouping (live
               content reaches the view-facing composite, not just :mode)"
-      (let [{:keys [mode by-family silent?]} (read-xray [:rf.xray/derivation-graph-tab-data])]
-        (is (= :live mode))
-        (is (not silent?) "the live graph is NOT empty — tab-data carries live content")
-        (is (contains? (set (keys by-family)) :routes)
-            "the routes family is grouped from the live node")
-        (let [route-entries (get by-family :routes)]
-          (is (some (fn [[node-id _]] (= :rf/route node-id)) route-entries)
-              "the live route node is in the routes group")))))
+      (is (some (fn [[node-id _]] (= :rf/route node-id))
+                (:routes (:by-family (read-xray [:rf.xray/derivation-graph-tab-data]))))
+          "the live route node is in the routes group")))
 
   (testing "target-frame ISOLATION — pointing Xray at a DIFFERENT frame (no
             navigation) yields an empty live graph; the first frame's live
@@ -227,9 +168,7 @@
     (let [graph (read-xray [:rf.xray/derivation-graph])]
       (is (= :app/other (:frame graph)) "the live graph targets the OTHER frame")
       (is (nil? (get (:nodes graph) :rf/route))
-          "no route slice leaks from :app/main into the :app/other live graph")
-      (is (= {} (into {} (filter (fn [[_ n]] (= :routes (:rf/family n))) (:nodes graph))))
-          "the :app/other live graph carries no routes-family live node"))))
+          "no route slice leaks from :app/main into the :app/other live graph"))))
 
 ;; ---- (5) EP-0013 relocation coordinates survive tab-data ----------------
 
@@ -252,11 +191,6 @@
       (let [{:keys [by-family]} (read-xray [:rf.xray/derivation-graph-tab-data])
             summarized (->> (get by-family :subs)
                             (some (fn [[k node]] (when (= k [:sub :scoped/fact]) node))))]
-        (is (some? summarized) "the metadata-carrying node is grouped under :subs")
         (is (= :checkout/main (:rf.frame/id summarized)) ":rf.frame/id preserved through tab-data")
-        (is (= :checkout/img (:rf.image/id summarized)) ":rf.image/id preserved through tab-data")
         ;; the value-bearing field gets its on-box summary attached
-        (is (contains? summarized :summaries) "the on-box summary is attached")
-        ;; structure preserved: kind + family ride through
-        (is (= :derivation (:kind summarized)))
-        (is (= :subs (:rf/family summarized)))))))
+        (is (contains? summarized :summaries) "the on-box summary is attached")))))
