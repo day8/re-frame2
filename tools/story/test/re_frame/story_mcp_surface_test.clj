@@ -1,40 +1,7 @@
 (ns re-frame.story-mcp-surface-test
-  "JVM tests for the MCP-perspective scenarios in spec/015 §MCP surface.
-
-  Pairs with `re-frame.story-mcp-boundary-test` (Var-resolution +
-  late-bind contract) and `re-frame.story-runtime-test` (run-variant
-  return shape). This namespace covers four scenarios from spec/015
-  §MCP surface:
-
-  - **`(ids :story)` / `(ids :variant)` / `(list-modes)` shape** —
-    pinning the return shape of the read primitives the MCP read tools
-    (`list-stories`, `list-modes`) call through to; each returns a set
-    of keyword ids matching the spec/006 §read primitive table.
-  - **run-variant from the MCP perspective** — invoke `run-variant`
-    against a seeded variant; assert the return shape matches spec/002
-    + spec/006 (`{:frame :app-db :assertions :elapsed-ms ...}`).
-    Rendering is `render-variant`'s job and the run result carries no
-    rendering slot.
-  - **dispatch-via-mcp same-process round trip** — register a variant
-    via `reg-variant*` (the MCP write path), then dispatch into the
-    variant's frame with the `{:frame variant-id}` opts map (the public
-    `re-frame.core/dispatch-sync` shape an in-process caller uses; the
-    MCP jar ships no dispatch tool); assert the frame's `app-db`
-    reflects the dispatched event's effect. These are same-process
-    public-API shape pins, NOT cross-process bridge coverage — no such
-    bridge exists; live-browser Story access is pair-owned (spec/006
-    §Two surfaces, one live door).
-  - **snapshot-identity stability** — invoke `snapshot-identity` for a
-    variant; mutating cell-overrides (render-relevant input) changes
-    the identity hash; mutating the `:source` slot (cosmetic-only edit)
-    leaves the identity unchanged.
-
-  Test isolation: each test runs against a clean side-table seeded
-  with `install-canonical-vocabulary!` (the canonical tags, the
-  lifecycle machine, the assertion handlers and the built-in
-  decorators). The framework registrar is cleared between
-  tests so the variant-frame run-variant allocates against a clean
-  app-db."
+  "The spec/015 §MCP surface scenarios, from the vantage of the story-mcp jar's
+  in-process calls: the id-set reads, the run-variant result shape, a
+  frame-scoped dispatch, and snapshot-identity stability."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -62,238 +29,87 @@
 
 (use-fixtures :each reset-all)
 
-;; ===========================================================================
-;; (ids :story) / (ids :variant) / (list-modes) shape
-;;
-;; Per spec/006 §Story's public read primitives the MCP introspection
-;; tools (list-stories / list-modes) call through to the Story-side
-;; queries. Story does not register list-* fns; instead
-;; the registrar's `(ids kind)` / `(list-modes)` surface is what agents
-;; consume. Pinning the return shape protects against a refactor that
-;; changes the collection type (set → vector, or vice versa) and
-;; silently breaks every MCP tool that pattern-matches on the result.
-;; ===========================================================================
+(defn- run-v! [vid]
+  (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000))
+
+(defn- content-hash [vid opts]
+  (:content-hash (rf.story/snapshot-identity vid opts)))
 
 (deftest list-stories-returns-id-set
-  (testing "(ids :story) returns a set of keyword ids — the MCP
-            list-stories tool's return shape per spec/006 §read
-            primitives"
-    (rf.story/reg-story :story.mcp.list-s-a {:doc "story A"})
-    (rf.story/reg-story :story.mcp.list-s-b {:doc "story B"})
-    (is (= #{:story.mcp.list-s-a :story.mcp.list-s-b} (rf.story/ids :story))
-        "exactly the registered keyword ids, as a set — agents iterate /
-         contains? against it")))
+  (rf.story/reg-story :story.mcp.list-s-a {:doc "story A"})
+  (rf.story/reg-story :story.mcp.list-s-b {:doc "story B"})
+  (is (= #{:story.mcp.list-s-a :story.mcp.list-s-b} (rf.story/ids :story))))
 
 (deftest list-variants-returns-id-set
-  (testing "(ids :variant) returns the set of registered variant ids;
-            the MCP jar's argument checks read this directly. Empty
-            registry returns the empty set, not nil — protects the
-            agent's `(for [...])` walk from a nil punning bug"
-    (is (= #{} (rf.story/ids :variant))
-        "empty registry → empty set")
-    (rf.story/reg-variant :story.mcp.list-v/probe {:setup []})
-    (rf.story/reg-variant :story.mcp.list-v/probe-two {:setup []})
-    (let [result (rf.story/ids :variant)]
-      (is (= #{:story.mcp.list-v/probe :story.mcp.list-v/probe-two}
-             result)))))
+  (is (= #{} (rf.story/ids :variant)) "an empty registry answers #{}, not nil")
+  (rf.story/reg-variant :story.mcp.list-v/probe {:setup []})
+  (rf.story/reg-variant :story.mcp.list-v/probe-two {:setup []})
+  (is (= #{:story.mcp.list-v/probe :story.mcp.list-v/probe-two} (rf.story/ids :variant))))
 
 (deftest list-modes-returns-id-set
-  (testing "(list-modes) returns the registered mode ids — the MCP
-            list-modes tool's return shape. Distinct from (ids :mode)
-            only by the symbol agents are taught to call; under the
-            hood both delegate to the same registrar slot"
-    (is (= #{} (rf.story/list-modes))
-        "empty registry → empty set")
-    (rf.story/reg-mode :Mode.mcp.list/dark  {:args {:theme :dark}})
-    (rf.story/reg-mode :Mode.mcp.list/light {:args {:theme :light}})
-    (let [result (rf.story/list-modes)]
-      (is (= #{:Mode.mcp.list/dark :Mode.mcp.list/light} result))
-      ;; (list-modes) MUST equal (ids :mode) — they are the same data.
-      (is (= (rf.story/list-modes) (rf.story/ids :mode))
-          "(list-modes) is a thin alias of (ids :mode)"))))
-
-;; ===========================================================================
-;; run-variant from the MCP perspective
-;;
-;; Spec/006 names `run-variant` as a public read primitive, and the MCP
-;; `run-variant` tool calls it. The shape an agent expects in the return
-;; slot is specified by spec/002 §Programmatic API. This test pins the
-;; shape from the MCP boundary's vantage: invoke run-variant the same
-;; way the MCP jar does (a direct, in-process call — spec/006
-;; §Architecture) and assert every keyed slot of the documented
-;; return shape is present.
-;; ===========================================================================
+  (is (= #{} (rf.story/list-modes)))
+  (rf.story/reg-mode :Mode.mcp.list/dark  {:args {:theme :dark}})
+  (rf.story/reg-mode :Mode.mcp.list/light {:args {:theme :light}})
+  (is (= #{:Mode.mcp.list/dark :Mode.mcp.list/light} (rf.story/list-modes) (rf.story/ids :mode))))
 
 (deftest run-variant-return-shape-matches-spec
-  (testing "spec/002 §Programmatic API + spec/006 §read primitives: the
-            result map carries :frame :app-db :assertions :elapsed-ms
-            :snapshot :decorators"
-    (rf/reg-event :mcp/seed
-      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (rf.story/reg-variant :story.mcp.run/probe
-      {:setup [[:mcp/seed 42]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
-    (let [result (rf.story.async/deref-blocking
-                   (rf.story/run-variant :story.mcp.run/probe) 5000)]
-      (is (= :story.mcp.run/probe (:frame result))
-          ":frame — the agent reads which frame received the dispatch")
-      (is (= 42 (:n (:app-db result)))
-          ":app-db — the frame's post-run state; events phase seeded :n = 42")
-      (is (vector? (:assertions result))
-          ":assertions — the agent reads pass/fail rows")
-      (is (= [true] (mapv :passed? (:assertions result)))
-          "the one play assertion was recorded, and it passed")
-      (is (number? (:elapsed-ms result))
-          ":elapsed-ms — wall-clock for the run")
-      (is (contains? result :snapshot)
-          ":snapshot slot present — the spec/002 snapshot tuple")
-      (is (contains? result :decorators)
-          ":decorators slot present — the resolved decorator pack"))))
+  (rf/reg-event :mcp/seed (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (rf.story/reg-variant :story.mcp.run/probe
+    {:setup  [[:mcp/seed 42]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
+  (let [result (run-v! :story.mcp.run/probe)]
+    (is (= [:story.mcp.run/probe 42 [true]]
+           [(:frame result) (-> result :app-db :n) (mapv :passed? (:assertions result))]))
+    (is (vector? (:assertions result)))
+    (is (number? (:elapsed-ms result)))
+    (is (every? #(contains? result %) [:snapshot :decorators]))))
 
 (deftest run-variant-empty-play-still-returns-shape
-  (testing "even a variant with no :script surfaces the full return shape
-            — agents must not have to special-case the no-play branch"
-    (rf.story/reg-variant :story.mcp.run/no-play {:setup []})
-    (let [result (rf.story.async/deref-blocking
-                   (rf.story/run-variant :story.mcp.run/no-play) 5000)]
-      (is (= :story.mcp.run/no-play (:frame result)))
-      (is (= [] (:assertions result))
-          "empty :script → empty :assertions vector (not nil)")
-      (is (map? (:app-db result))))))
+  (rf.story/reg-variant :story.mcp.run/no-play {:setup []})
+  (let [result (run-v! :story.mcp.run/no-play)]
+    (is (= [:story.mcp.run/no-play [] true]
+           [(:frame result) (:assertions result) (map? (:app-db result))]))))
 
-;; ===========================================================================
-;; dispatch-via-mcp end-to-end
-;;
-;; The MCP write path: an agent calls `reg-variant*` (programmatic write
-;; — no source coord); an in-process caller then drives a dispatch
-;; against the allocated frame via `(rf/dispatch-sync event {:frame
-;; variant-id})`. The MCP jar ships no dispatch tool; the test pins the
-;; round-trip from registration through dispatch through observable
-;; app-db change — a same-process shape pin, not bridge coverage.
-;; ===========================================================================
+;; A same-process shape pin: register through `reg-variant*`, run, then
+;; dispatch with `{:frame variant-id}` (the MCP jar ships no dispatch tool).
 
 (deftest dispatch-via-mcp-writes-to-variant-frame-app-db
-  (testing "the full MCP write+dispatch path: reg-variant* (programmatic
-            registration), run-variant (allocate frame + seed app-db),
-            then dispatch-sync with {:frame ...} — the agent observes
-            the dispatch's effect on the frame's app-db"
-    (rf/reg-event :mcp.dispatch/set
-      (fn [{:keys [db]} [_ v]] {:db (assoc db :payload v)}))
-    ;; MCP write path: programmatic registration (no &form meta).
-    (rf.story/reg-variant* :story.mcp.dispatch/probe
-      {:setup []
-       :args   {}})
-    ;; Allocate the variant frame so the dispatch has somewhere to land.
-    (rf.story.async/deref-blocking
-      (rf.story/run-variant :story.mcp.dispatch/probe) 5000)
-    (is (some? (rf/app-db-value :story.mcp.dispatch/probe))
-        "frame was allocated by run-variant")
-    ;; The frame-scoped dispatch an in-process caller makes.
-    (rf/dispatch-sync [:mcp.dispatch/set "hello"]
-                      {:frame :story.mcp.dispatch/probe})
-    (let [db (rf/app-db-value :story.mcp.dispatch/probe)]
-      (is (= "hello" (:payload db))
-          "the dispatch landed on the variant's frame — not the default frame"))
-    ;; The default frame must NOT have received the dispatch — proves
-    ;; the {:frame ...} routing actually scoped the write.
-    (let [default-db (rf/app-db-value :rf/default)]
-      (is (not= "hello" (:payload default-db))
-          "default frame is uncontaminated — :frame routing isolates"))))
+  (rf/reg-event :mcp.dispatch/set (fn [{:keys [db]} [_ v]] {:db (assoc db :payload v)}))
+  (rf.story/reg-variant* :story.mcp.dispatch/probe {:setup [] :args {}})
+  (run-v! :story.mcp.dispatch/probe)
+  (rf/dispatch-sync [:mcp.dispatch/set "hello"] {:frame :story.mcp.dispatch/probe})
+  (is (= ["hello" nil] [(:payload (rf/app-db-value :story.mcp.dispatch/probe))
+                        (:payload (rf/app-db-value :rf/default))])
+      "the write lands on the variant's frame and not on the default frame"))
 
 (deftest dispatch-via-mcp-multiple-events-accumulate
-  (testing "an in-process caller can fire a sequence of events into
-            a single variant frame; each dispatch updates the frame's
-            app-db in order"
-    (rf/reg-event :mcp.dispatch/push
-      (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
-    (rf.story/reg-variant* :story.mcp.dispatch.seq/probe {:setup []})
-    (rf.story.async/deref-blocking
-      (rf.story/run-variant :story.mcp.dispatch.seq/probe) 5000)
-    (doseq [v ["a" "b" "c"]]
-      (rf/dispatch-sync [:mcp.dispatch/push v]
-                        {:frame :story.mcp.dispatch.seq/probe}))
-    (let [db (rf/app-db-value :story.mcp.dispatch.seq/probe)]
-      (is (= ["a" "b" "c"] (:log db))
-          "three dispatches in order — frame's app-db carries all three"))))
+  (rf/reg-event :mcp.dispatch/push (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
+  (rf.story/reg-variant* :story.mcp.dispatch.seq/probe {:setup []})
+  (run-v! :story.mcp.dispatch.seq/probe)
+  (doseq [v ["a" "b" "c"]]
+    (rf/dispatch-sync [:mcp.dispatch/push v] {:frame :story.mcp.dispatch.seq/probe}))
+  (is (= ["a" "b" "c"] (:log (rf/app-db-value :story.mcp.dispatch.seq/probe)))))
 
-;; ===========================================================================
-;; snapshot-identity stability
-;;
-;; The MCP `snapshot-identity` tool surfaces `snapshot-identity` for
-;; an agent to detect drift between runs. Per spec/002 §Snapshot-identity
-;; computation: render-relevant inputs (args, mode-merged args, decorator
-;; chain) flip the hash; cosmetic edits (`:source` coords) do not.
-;; This test pins the identity-stability contract from the MCP boundary.
-;; ===========================================================================
+;; Render-relevant inputs move the hash; a cosmetic `:source` edit does not
+;; (002-Runtime §Snapshot-identity computation).
 
 (deftest snapshot-identity-stable-across-cosmetic-edits
-  (testing "spec/002 §Snapshot-identity computation: mutating the variant's :source
-            slot (a cosmetic-only edit, used by reg-variant* for
-            'register-from-position' tooling) does NOT change the
-            snapshot-identity hash — the agent's drift detector
-            consequently does NOT re-render the variant on a source-
-            coord-only change"
+  (rf.story/reg-variant* :story.mcp.snap/probe {:args {:label "v1"} :setup []})
+  (let [h1 (content-hash :story.mcp.snap/probe nil)]
     (rf.story/reg-variant* :story.mcp.snap/probe
-      {:args {:label "v1"}
-       :setup []})
-    (let [identity-1 (rf.story/snapshot-identity :story.mcp.snap/probe)]
-      (is (string? (:content-hash identity-1)) ":content-hash present")
-      ;; Re-register with the same body but a different :source slot
-      ;; — cosmetic, the same as moving the registration to a new line.
-      (rf.story/reg-variant* :story.mcp.snap/probe
-        {:args   {:label "v1"}
-         :setup []
-         :source {:file "agent.cljs" :line 99}})
-      (let [identity-2 (rf.story/snapshot-identity :story.mcp.snap/probe)]
-        (is (= (:content-hash identity-1) (:content-hash identity-2))
-            ":source edit is cosmetic — content-hash MUST be stable")))))
+      {:args {:label "v1"} :setup [] :source {:file "agent.cljs" :line 99}})
+    (is (= h1 (content-hash :story.mcp.snap/probe nil)))))
 
 (deftest snapshot-identity-changes-on-args-edit
-  (testing "spec/002 §Snapshot-identity computation: mutating the variant's :args
-            slot (a render-relevant input) DOES change the snapshot-
-            identity hash. The agent's drift detector re-renders.
-
-            cell-overrides go through `snapshot-identity` via the opts
-            map (the canvas uses this path to detect control changes);
-            pinning the hash on the opts path covers the surface MCP
-            tools consume."
-    (rf.story/reg-variant* :story.mcp.snap.args/probe
-      {:args   {:label "before"}
-       :setup []})
-    (let [base    (:content-hash
-                    (rf.story/snapshot-identity :story.mcp.snap.args/probe))
-          with-co (:content-hash
-                    (rf.story/snapshot-identity :story.mcp.snap.args/probe
-                                             {:cell-overrides {:label "after"}}))]
-      (is (not= base with-co)
-          "cell-override mutation flips the hash — agent detects drift")
-      ;; And the inverse — same cell-overrides → same hash.
-      (let [with-co-2 (:content-hash
-                        (rf.story/snapshot-identity :story.mcp.snap.args/probe
-                                                 {:cell-overrides {:label "after"}}))]
-        (is (= with-co with-co-2)
-            "same input → same hash (deterministic)")))))
+  (rf.story/reg-variant* :story.mcp.snap.args/probe {:args {:label "before"} :setup []})
+  (let [with-co #(content-hash :story.mcp.snap.args/probe {:cell-overrides {:label "after"}})]
+    (is (not= (content-hash :story.mcp.snap.args/probe nil) (with-co)))
+    (is (= (with-co) (with-co)) "same input, same hash")))
 
 (deftest snapshot-identity-changes-on-active-modes
-  (testing "active-modes is a render-relevant input — flipping a mode
-            changes the resolved args and thus the snapshot-identity
-            hash. The MCP boundary surfaces this via the opts map so
-            the agent can compare per-mode snapshots"
-    (rf.story/reg-mode :Mode.mcp.snap/dark  {:args {:theme :dark}})
-    (rf.story/reg-mode :Mode.mcp.snap/light {:args {:theme :light}})
-    (rf.story/reg-variant* :story.mcp.snap.modes/probe
-      {:args   {:label "x"}
-       :setup []})
-    (let [dark  (:content-hash
-                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
-                                           {:active-modes [:Mode.mcp.snap/dark]}))
-          light (:content-hash
-                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
-                                           {:active-modes [:Mode.mcp.snap/light]}))
-          none  (:content-hash
-                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
-                                           {:active-modes []}))]
-      (is (not= dark light)
-          "two different active-modes → two different hashes")
-      (is (not= dark none)
-          "no modes vs dark → distinct hashes"))))
+  (rf.story/reg-mode :Mode.mcp.snap/dark  {:args {:theme :dark}})
+  (rf.story/reg-mode :Mode.mcp.snap/light {:args {:theme :light}})
+  (rf.story/reg-variant* :story.mcp.snap.modes/probe {:args {:label "x"} :setup []})
+  (is (= 3 (count (set (map #(content-hash :story.mcp.snap.modes/probe {:active-modes %})
+                            [[:Mode.mcp.snap/dark] [:Mode.mcp.snap/light] []]))))
+      "dark, light and no mode hash three ways"))
