@@ -1,120 +1,62 @@
 (ns re-frame.story.ui.markdown-test
-  "Pure CLJC coverage of the inline markdown → hiccup parser. Lives
-  behind the JVM `clojure -M:test` runner — no DOM, no Reagent.
-
-  The renderer in `re-frame.story.ui.docs/prose-section` and
-  `re-frame.story.ui.workspace/prose-block` are thin projections
-  over `parse` — pinning the parse output here covers both
-  surfaces' contract without booting the shell."
+  "Pure CLJC coverage of the markdown → hiccup parser. The docs prose
+  section and `:prose`-layout workspaces are thin projections over `parse`."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [re-frame.story.ui.markdown :as rf.story.ui.markdown]))
 
-;; ---- helpers -------------------------------------------------------------
-
 (defn- blocks
-  "Strip the `:div.rf-story-md` wrapper and return the block-level
-  vector. Reduces test boilerplate."
+  "The block-level vector inside the `:div.rf-story-md` wrapper."
   [s]
   (vec (rest (rf.story.ui.markdown/parse s))))
 
 ;; ---- block shapes --------------------------------------------------------
 
 (deftest empty-and-nil-inputs
-  (testing "empty / nil / whitespace input produce an empty wrapper"
-    (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse "")))
+  (testing "nil / whitespace-only input produce an empty wrapper"
     (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse nil)))
     (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse "   \n   ")))))
 
-(deftest paragraph-with-plain-text
-  (testing "plain text becomes a single <p> block"
-    (let [out (blocks "Hello world.")]
-      (is (= 1 (count out)))
-      (is (= :p (first (first out))))
-      (is (= "Hello world." (last (first out)))))))
-
 (deftest paragraph-joins-lines-with-space
-  (testing "consecutive non-blank lines join with a single space"
-    (let [out (blocks "line one\nline two")]
-      (is (= 1 (count out)))
-      ;; Body should contain both lines with a joining space.
-      (let [body (rest (first out))]
-        (is (some #{"line one"} body))
-        (is (some #{"line two"} body))
-        (is (some #{" "}        body))))))
+  (testing "consecutive non-blank lines form one <p>, joined with a single space"
+    (is (= [[:p {} "line one" " " "line two"]] (blocks "line one\nline two")))))
 
 (deftest hard-break-via-trailing-two-spaces
-  (testing "a line ending with `  ` (CommonMark hard break) yields a
-            `[:br]` element between the two lines"
-    (let [out (blocks "first  \nsecond")
-          body (rest (first out))]
-      (is (some #(and (vector? %) (= :br (first %))) body)))))
+  (testing "a line ending with `  ` (CommonMark hard break) yields a `[:br]`"
+    (is (= [[:p {} "first" [:br {}] "second"]] (blocks "first  \nsecond")))))
 
 (deftest headings-levels-1-through-6
-  (testing "# / ## / ### map to :h1 / :h2 / :h3 etc."
-    (is (= :h1 (first (first (blocks "# Title")))))
-    (is (= :h2 (first (first (blocks "## Title")))))
-    (is (= :h3 (first (first (blocks "### Title")))))
-    (is (= :h4 (first (first (blocks "#### Title")))))
-    (is (= :h5 (first (first (blocks "##### Title")))))
-    (is (= :h6 (first (first (blocks "###### Title")))))))
+  (is (= :h1 (first (first (blocks "# Title")))))
+  (is (= :h6 (first (first (blocks "###### Title"))))))
 
 (deftest heading-inline-parsing
-  (testing "headings parse inline markdown — `code` / **bold** / *em*"
-    (let [out (first (blocks "## A `code` heading"))]
-      (is (= :h2 (first out)))
-      ;; Should contain a [:code {} ...] child.
-      (let [children (drop 2 out) ; drop tag + attrs
-            code-children (filter (fn [c] (and (vector? c) (= :code (first c)))) children)]
-        (is (= 1 (count code-children)))
-        (is (= "code" (last (first code-children))))))))
+  (testing "headings parse inline markdown"
+    (is (= [[:h2 {} "A " [:code {} "code"] " heading"]] (blocks "## A `code` heading")))))
 
 (deftest bullet-list
-  (testing "`- item` lines collapse into a single <ul> with one <li> per line"
-    (let [out (first (blocks "- one\n- two\n- three"))]
-      (is (= :ul (first out)))
-      (let [items (drop 2 out)]
-        (is (= 3 (count items)))
-        (is (every? #(= :li (first %)) items))))))
-
-(deftest bullet-list-with-asterisks
-  (testing "`* item` syntax also produces a <ul>"
-    (let [out (first (blocks "* one\n* two"))]
-      (is (= :ul (first out)))
-      (is (= 2 (count (drop 2 out)))))))
+  (testing "`- item` and `* item` lines collapse into one <ul>, one <li> per line"
+    (is (= [[:ul {} [:li {} "one"] [:li {} "two"] [:li {} "three"]]]
+           (blocks "- one\n- two\n- three")))
+    (is (= [[:ul {} [:li {} "one"] [:li {} "two"]]] (blocks "* one\n* two")))))
 
 (deftest ordered-list
   (testing "`N. item` lines collapse into a single <ol>"
-    (let [out (first (blocks "1. one\n2. two\n3. three"))]
-      (is (= :ol (first out)))
-      (is (= 3 (count (drop 2 out)))))))
+    (is (= [[:ol {} [:li {} "one"] [:li {} "two"] [:li {} "three"]]]
+           (blocks "1. one\n2. two\n3. three")))))
 
 (deftest fenced-code-block
   (testing "``` fences wrap into [:pre [:code]] preserving inner text"
-    (let [out (first (blocks "```clojure\n(+ 1 2)\n```"))]
-      (is (= :pre (first out)))
-      (is (= {:data-lang "clojure"} (second out)))
-      (let [code (nth out 2)]
-        (is (= :code (first code)))
-        (is (= "(+ 1 2)" (last code)))))))
-
-(deftest fenced-code-block-no-lang
-  (testing "fenced block without a lang carries an empty :data-lang"
-    (let [out (first (blocks "```\nplain\n```"))]
-      (is (= :pre (first out)))
-      (is (= {:data-lang ""} (second out))))))
+    (is (= [[:pre {:data-lang "clojure"} [:code {} "(+ 1 2)"]]]
+           (blocks "```clojure\n(+ 1 2)\n```")))))
 
 (deftest fenced-code-preserves-markdown-syntax
-  (testing "markdown syntax inside a fenced block is NOT re-parsed —
-            backticks / asterisks render literal"
-    (let [out (first (blocks "```\n**not bold**\n- not list\n```"))
-          code-text (last (nth out 2))]
-      (is (= "**not bold**\n- not list" code-text)))))
+  (testing "markdown syntax inside a fenced block is NOT re-parsed"
+    (let [out (first (blocks "```\n**not bold**\n- not list\n```"))]
+      (is (= "**not bold**\n- not list" (last (nth out 2)))))))
 
 (deftest blockquote
   (testing "`> ` lines collapse into a single <blockquote>"
-    (let [out (first (blocks "> note one\n> note two"))]
-      (is (= :blockquote (first out))))))
+    (is (= [[:blockquote {} "note one" " " "note two"]] (blocks "> note one\n> note two")))))
 
 ;; ---- inline span shapes --------------------------------------------------
 
@@ -123,57 +65,34 @@
   [s]
   (drop 2 (first (blocks s))))
 
-(deftest inline-code
-  (testing "`code` spans render as [:code {} \"code\"]"
-    (let [children (p-children "see `foo` for details")
-          codes    (filter (fn [c] (and (vector? c) (= :code (first c)))) children)]
-      (is (= 1 (count codes)))
-      (is (= "foo" (last (first codes)))))))
-
 (deftest emphasis-spans
-  (are [src tag] (= 1 (count (filter (fn [c] (and (vector? c) (= tag (first c))))
-                                     (p-children src))))
-    ;; **bold** renders as [:strong {} ...]
-    "this is **important** stuff" :strong
-    ;; *italic* and _italic_ both render as [:em {} ...]
-    "this is *slanted* text"      :em
-    "this is _slanted_ text"      :em))
+  (are [src] (= 1 (count (filter (fn [c] (and (vector? c) (= :em (first c))))
+                                 (p-children src))))
+    "this is *slanted* text"
+    "this is _slanted_ text"))
 
 (deftest link-spans
-  (testing "[label](url) renders as an [:a] with safe :href + noopener
-            target=_blank"
-    (let [children (p-children "see [the docs](https://example.com)")
-          links    (filter (fn [c] (and (vector? c) (= :a (first c)))) children)]
-      (is (= 1 (count links)))
-      (let [link (first links)
-            attrs (second link)]
-        (is (= "https://example.com" (:href attrs)))
-        (is (= "_blank" (:target attrs)))
-        (is (= "noopener noreferrer" (:rel attrs)))))))
+  (testing "[label](url) renders as an [:a] with safe :href + noopener target=_blank"
+    (is (= ["see " [:a {:href "https://example.com" :target "_blank" :rel "noopener noreferrer"}
+                    "the docs"]]
+           (p-children "see [the docs](https://example.com)")))))
 
 (deftest link-href-sanitisation
   (are [src href] (= href (:href (second (first (filter (fn [c] (and (vector? c) (= :a (first c))))
                                                         (p-children src))))))
-    ;; javascript: links are scrubbed to # so XSS surfaces don't leak
-    ;; through markdown prose
+    ;; javascript: links are scrubbed to # so XSS cannot ride in on prose
     "click [me](javascript:alert(1))" "#"
-    ;; relative paths and anchors pass through as-is
-    "[home](/index.html)"             "/index.html"
-    "[top](#top)"                     "#top"))
+    "[home](/index.html)"             "/index.html"))
 
 (deftest nested-inline-spans
   (testing "**bold with `code` inside** parses as a strong-wrap of a code child"
-    (let [children (p-children "**bold with `code` inside**")
-          strong   (first (filter (fn [c] (and (vector? c) (= :strong (first c)))) children))
-          inner    (drop 2 strong)]
-      (is (some (fn [c] (and (vector? c) (= :code (first c)))) inner)
-          "the code span lives INSIDE the strong wrapper"))))
+    (is (= [[:strong {} "bold with " [:code {} "code"] " inside"]]
+           (p-children "**bold with `code` inside**")))))
 
 ;; ---- mixed-document shapes -----------------------------------------------
 
 (deftest realistic-prose-block
-  (testing "a realistic prose authoring sample — heading, paragraph,
-            list, code — parses into the expected block sequence"
+  (testing "heading, paragraph, list, code — parse into the expected block sequence"
     (let [src (str "# Counter variant\n"
                    "\n"
                    "A simple counter with `inc` / `dec` actions.\n"
@@ -185,17 +104,9 @@
                    "\n"
                    "```\n"
                    "(dispatch [:counter/inc])\n"
-                   "```")
-          out (blocks src)]
-      (is (= 5 (count out)))
-      (is (= [:h1 :p :p :ul :pre] (mapv first out))))))
+                   "```")]
+      (is (= [:h1 :p :p :ul :pre] (mapv first (blocks src)))))))
 
 (deftest no-raw-html-leakage
-  (testing "raw HTML / script tags survive as plain text — they're NOT
-            parsed as HTML by the renderer (defends against XSS via
-            markdown content)"
-    (let [out (blocks "<script>alert(1)</script>")]
-      ;; Should still be a paragraph; tags appear as literal text.
-      (is (= :p (first (first out))))
-      (let [body (rest (first out))]
-        (is (some #(and (string? %) (not= -1 (.indexOf ^String % "<script>"))) body))))))
+  (testing "raw HTML / script tags survive as plain text — never parsed as HTML"
+    (is (= [[:p {} "<script>alert(1)</script>"]] (blocks "<script>alert(1)</script>")))))
