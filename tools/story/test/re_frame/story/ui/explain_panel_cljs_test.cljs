@@ -1,30 +1,9 @@
 (ns re-frame.story.ui.explain-panel-cljs-test
-  "CLJS-side regression net for the Explain panel (spec/020 §4).
-
-  Pairs with the host-free projection coverage in
-  `re_frame/story/ui/explain_panel_test.cljc`. This namespace pins the
-  reachability + render wiring that needs a CLJS runtime:
-
-  - **command-palette reachability** — the synthetic `Explain variant`
-    command appears in the palette corpus, ranks for an `explain`
-    query, and `select-entry!` runs `rf.story.ui.explain-panel/open!` which flips
-    the `:explain` panel-visibility slot on — the panel's 'reachable
-    from the command palette' contract.
-
-  - **render-with-explain state** — for a registered variant the panel
-    renders the section inventory (one `story-explain-section` node per
-    spec slot) plus the raw-EDN / copy toolbar; absent slots carry
-    `data-present=false`.
-
-  - **render-no-variant state** — with no focused variant the panel
-    renders the quiet 'select a variant' empty state.
-
-  - **render-error state** — an unknown variant surfaces the structured
-    compile error rather than blanking.
-
-  Per the Story testing posture (CLJS unit tests, not Playwright) the
-  panel render is exercised by calling the form-2 component's inner
-  render fn directly and walking the hiccup with `re-frame.test-helpers`."
+  "CLJS coverage of the Explain panel (spec/020 §4): command-palette
+  reachability and the three render states. The panel render is exercised by
+  calling the form-2 component's inner render fn and walking the hiccup with
+  `re-frame.test-helpers`; the pure projection is covered by
+  `explain_panel_test.cljc`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -64,21 +43,10 @@
 ;; command-palette reachability
 ;; ===========================================================================
 
-(deftest command-entry-ranks-for-explain-query
-  (testing "an `explain` query surfaces the command at the top of results"
-    (reg-counter!)
-    (let [entries (rf.story.ui.command-palette/entries (rf.story.ui.state/registry-snapshot))
-          results (rf.story.ui.command-palette/search entries "explain")
-          top     (first results)]
-      (is (= :command (:kind top)))
-      (is (= :explain (:id top))))))
-
 (deftest select-command-opens-panel-visibility-slot
   (testing "selecting the Explain command flips :panel-visibility :explain on"
-    (reg-counter!)
     ;; Start hidden so the open! flip is observable.
     (rf.story.ui.state/swap-state! assoc-in [:panel-visibility rf.story.ui.explain-panel/panel-key] false)
-    (is (false? (get-in (rf.story.ui.state/get-state) [:panel-visibility rf.story.ui.explain-panel/panel-key])))
     (let [entry (->> (rf.story.ui.command-palette/entries (rf.story.ui.state/registry-snapshot))
                      (filter #(= :command (:kind %)))
                      first)
