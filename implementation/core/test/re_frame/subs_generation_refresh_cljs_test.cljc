@@ -1,61 +1,19 @@
 (ns re-frame.subs-generation-refresh-cljs-test
   "A frame's cached subscriptions REFRESH when its resolved image generation
-  changes.
+  changes, with no `clear-sub-cache!` (EP-0023 §Hot Reload).
 
-  ## The hazard
+  Both generation writers — `make-frame` against an existing `:id`, and the
+  `reg-*` reprojection swap — preserve the frame's `:sub-cache` atom, and a
+  cache HIT never compares its entry against the current generation. So
+  `invalidate-subs-for-generation-change!` diffs the two generations and evicts
+  the `:added` / `:changed` / `:removed` sub ids plus their declared-input
+  dependent closure from THAT frame's cache; `:retained` entries keep their
+  identity and ref-counts.
 
-  `re-frame.live-frame/make-frame` against an EXISTING `:id` is the supported
-  image hot-reload verb (EP-0023 §Hot Reload; there is no `reload-images!`
-  verb): it seals a fresh generation and installs it
-  via `rf.frame/upsert-frame!`'s surgical-update path, preserving durable frame
-  state — the `:sub-cache` atom among it. The automatic `reg-*` reprojection
-  path (`reproject-live-frame!` / `reproject-live-frames!`) swaps a generation
-  in place through `rf.frame/set-generation!` for the same reason.
-
-  Both preserve the sub-cache. Were neither to invalidate ANY of it, a query
-  already materialised would stay a cache HIT — `subscribe-in-frame`'s hit
-  branch bumps the ref-count and returns the cached reaction without
-  comparing that entry against the current generation — so it would keep
-  running the OLD generation's body. Image replacement (and Story behaviour
-  replacement) would appear not to take effect until the caller knew to call
-  `clear-sub-cache!` by hand, which is exactly the ceremony EP-0023 §Hot
-  Reload says a reload must not require.
-
-  The second face of the same gap is a LATE dependency: a parent sub declaring
-  an input that is not registered yet resolves that input to a nil-yielding
-  reaction, and the miss is deliberately not cached. But the PARENT is cached,
-  holding the nil-yielding input by closure — so first-registering the missing
-  input, which reprojects the frame's generation, would leave the cached
-  parent permanently nil while `compute-sub` inside the frame's resolution
-  returned the real value.
-
-  ## The refresh under test
-
-  `re-frame.live-frame`'s `invalidate-subs-for-generation-change!` runs after
-  both generation writers — `make-frame`'s same-id re-construction and the
-  reprojection swap (`swap-frame-generation!`). It diffs the two generations
-  with the public `re-frame.live-frame/generation-diff`, keeps the `:sub` ids
-  that were `:added` / `:changed` / `:removed`, and evicts exactly those slots
-  plus their transitive declared-input dependent closure from THAT frame's
-  cache through `rf.subs.cache/invalidate-frame-subs!` — the same
-  `transitive-dependent-closure` + dispose machinery the `reg-sub` replacement
-  hook uses. `:retained` registrations (present in both generations
-  with an `=` descriptor — an unchanged sub merely selected by a different
-  image composition) are NOT evicted, so unchanged entries keep their identity
-  and ref-counts.
-
-  ## Posture split
-
-  Every assertion here is posture-independent: it holds in the ordinary
-  `clojure -M:test` suite AND under the real production gate
-  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`). Nothing here
-  observes the `:trace` stream, and the invalidation seam itself is deliberately
-  NOT behind `rf.interop/debug-enabled?` — a correctness seam hung off the
-  trace surface would DCE out of release bundles.
-
-  `.cljc` — runs under both `clojure -M:test` (JVM) and `npm run test:cljs`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  `.cljc`, posture-independent: runs under `clojure -M:test`, the production
+  gate and `npm run test:cljs`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -71,205 +29,96 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; COLD-START the slot: destroy, then seat. `init!` is idempotent
-  ;; only for the adapter ALREADY SEATED — handed a DIFFERENT one
-  ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
-  ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-  ;; and the SSR adapter, so a bare `init!` here would raise whenever one of
-  ;; them ran first.
+  ;; Destroy first: `init!` handed a DIFFERENT adapter than the seated one
+  ;; raises, and this ns shares the node bundle with suites that seat Reagent,
+  ;; UIx and SSR.
   (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- constant-sub-image
-  "An image whose only registration is an inline layer-1 `:reg-sub` under `id`
-  returning the constant `value`. The inline descriptor goes through the REAL
-  normalize + lower path when the frame's generation is sealed."
-  [image-id id value]
+(defn- sub-image
+  "An image of inline layer-1 subs, each `[id value]` returning `value`."
+  [image-id & id-values]
   (rf.image/image {:id            image-id
-                 :registrations {:reg-sub [[id (fn [_db _q] value)]]}}))
+                   :registrations {:reg-sub (vec (for [[id v] (partition 2 id-values)]
+                                                   [id (fn [_db _q] v)]))}}))
 
 (defn- install!
-  "Create — or, on a repeat call with the same `frame-id`, SURGICALLY REPLACE the
-  generation of — a runnable frame sealed from `image`. The empty descriptor
-  pool keeps the generation to the image's OWN inline registrations, so the
-  live source store cannot contaminate the reading."
-  [frame-id image]
-  (rf.live-frame/make-frame {:id frame-id :images [image]} []))
+  "Create, or on a repeat call SURGICALLY REPLACE the generation of, a frame
+  sealed from `images` alone (the empty descriptor pool keeps the live source
+  store out)."
+  [frame-id & images]
+  (rf.live-frame/make-frame {:id frame-id :images (vec images)} []))
 
-(defn- cache-keys
-  [frame-id]
-  (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
+(defn- read-sub [frame-id query-v]
+  @(rf.subs/subscribe query-v {:frame frame-id}))
 
-(defn- ref-count
-  [frame-id query-v]
-  (get-in @(:sub-cache (rf.frame/frame frame-id)) [query-v :ref-count]))
-
-;; ---- 1. same-id re-construction refreshes a changed sub -------------------
+(defn- cached? [frame-id query-v]
+  (contains? @(:sub-cache (rf.frame/frame frame-id)) query-v))
 
 (deftest same-id-remake-refreshes-a-changed-inline-sub
-  (testing "a same-id make-frame that changes an inline sub body is observed by
-            the next subscribe, with NO clear-sub-cache!"
-    (install! :gen/frame (constant-sub-image :gen/v1 :gen/value 1))
-    (let [r1 (rf.subs/subscribe [:gen/value] {:frame :gen/frame})]
-      (is (= 1 @r1) "generation 1 yields the first body's value")
-
-      ;; The supported image hot-reload verb: re-call make-frame on the SAME id
-      ;; with a new image. Durable frame state (the sub-cache atom) is preserved
-      ;; by design; the ENTRY for the changed sub must not be.
-      (install! :gen/frame (constant-sub-image :gen/v2 :gen/value 2))
-
-      (let [r2 (rf.subs/subscribe [:gen/value] {:frame :gen/frame})]
-        (is (= 2 @r2)
-            "the next subscribe must resolve the NEW generation's body — a
-             stale hit would return the cached reaction built against
-             generation 1 and read 1")
-        (is (not (identical? r1 r2))
-            "a sub whose definition CHANGED does not keep its reaction identity
-             (preserving it is not required)")))
-
-    ;; `subscribe-once` reads through the same seam.
-    (is (= 2 (rf.subs/subscribe-once [:gen/value] {:frame :gen/frame}))
-        "subscribe-once sees the new generation too")))
+  (install! :gen/frame (sub-image :gen/v1 :gen/value 1))
+  (let [before (read-sub :gen/frame [:gen/value])]
+    (install! :gen/frame (sub-image :gen/v2 :gen/value 2))
+    (is (= [1 2] [before (read-sub :gen/frame [:gen/value])]))))
 
 (deftest same-id-remake-refreshes-a-changed-declared-input-parent
-  (testing "a cached PARENT rebuilds when the child it declares as an input changes"
-    (let [image-1 (rf.image/image
-                    {:id            :gen/p1
-                     :registrations {:reg-sub [[:gen/child (fn [_db _q] 1)]
-                                               [:gen/parent
-                                                {:inputs [[:gen/child]]}
-                                                (fn [[c] _q] (* 10 c))]]}})
-          image-2 (rf.image/image
-                    {:id            :gen/p2
-                     :registrations {:reg-sub [[:gen/child (fn [_db _q] 5)]
-                                               [:gen/parent
-                                                {:inputs [[:gen/child]]}
-                                                (fn [[c] _q] (* 10 c))]]}})]
-      (install! :gen/pframe image-1)
-      (is (= 10 @(rf.subs/subscribe [:gen/parent] {:frame :gen/pframe}))
-          "generation 1: parent derives from the first child body")
-
-      (install! :gen/pframe image-2)
-      (is (= 50 @(rf.subs/subscribe [:gen/parent] {:frame :gen/pframe}))
-          "the parent's TRANSITIVE dependent closure must be evicted too — a
-           cached parent would keep the generation-1 child reaction by closure
-           and stay 10"))))
-
-;; ---- 2. a first-registered late input reaches a cached parent -------------
+  ;; The parent's declared-input closure must be evicted too, or the cached
+  ;; parent keeps the generation-1 child reaction by closure.
+  (let [image (fn [id child-value]
+                (rf.image/image
+                  {:id            id
+                   :registrations {:reg-sub [[:gen/child (fn [_db _q] child-value)]
+                                             [:gen/parent
+                                              {:inputs [[:gen/child]]}
+                                              (fn [[c] _q] (* 10 c))]]}}))]
+    (install! :gen/pframe (image :gen/p1 1))
+    (let [before (read-sub :gen/pframe [:gen/parent])]
+      (install! :gen/pframe (image :gen/p2 5))
+      (is (= [10 50] [before (read-sub :gen/pframe [:gen/parent])])))))
 
 (deftest first-registered-late-input-reaches-a-cached-parent
-  (testing "first-registering a previously-missing declared input refreshes the
-            already-cached parent that resolved it to nil"
-    ;; A DEFAULT-image frame: its generation reprojects off the live source
-    ;; store, so a later `reg-sub` moves it.
-    (rf/reg-sub :gen/parent-late {:inputs [[:gen/late]]} (fn [[x] _q] x))
-    (rf.live-frame/make-frame {:id :gen/lframe})
-
-    (let [r1 (rf.subs/subscribe [:gen/parent-late] {:frame :gen/lframe})]
-      (is (nil? @r1)
-          "the missing input resolves to a nil-yielding reaction; the
-           MISS is not cached but the PARENT is")
-      (is (contains? (cache-keys :gen/lframe) [:gen/parent-late])
-          "the parent IS cached, holding the nil-yielding input by closure"))
-
-    ;; First registration of the missing input. This fires no registrar
-    ;; REPLACEMENT hook (there is nothing to replace) — but it DOES dirty the
-    ;; live-frame projection, so the frame's generation moves on the next read.
+  ;; A missing declared input resolves to a nil-yielding reaction and the miss
+  ;; is not cached, but the PARENT is. First-registering the input dirties the
+  ;; default-image frame's projection, and the `:added` sub must evict that
+  ;; parent.
+  (rf/reg-sub :gen/parent-late {:inputs [[:gen/late]]} (fn [[x] _q] x))
+  (rf.live-frame/make-frame {:id :gen/lframe})
+  (let [before (read-sub :gen/lframe [:gen/parent-late])]
     (rf/reg-sub :gen/late (fn [_db _q] 7))
-
-    (is (= 7 @(rf.subs/subscribe [:gen/parent-late] {:frame :gen/lframe}))
-        "second face: the :added registration must evict the cached parent
-         that declares it as an input — a cached parent would stay nil while
-         compute-sub inside the frame's resolution returned 7")))
-
-;; ---- 3. unaffected entries and other frames are UNTOUCHED -----------------
+    (is (= [nil 7] [before (read-sub :gen/lframe [:gen/parent-late])]))))
 
 (deftest unchanged-entries-keep-identity-and-ref-counts
-  (testing "a generation change evicts ONLY affected entries: an unchanged sub
-            keeps its reaction identity and its ref-count"
-    ;; `:gen/stable` lives in a SHARED image value carried into BOTH
-    ;; compositions, so its resolved descriptor is byte-identical across the
-    ;; swap and `generation-diff` classes it `:retained`. (Re-declaring the
-    ;; same body inline in two SEPARATE images would not be retained, and
-    ;; correctly so: the lowered descriptors differ on
-    ;; `:rf.provenance/image`, which is a real difference in where the
-    ;; registration came from — measured, not assumed.)
-    (let [shared  (rf.image/image
-                    {:id            :gen/shared
-                     :registrations {:reg-sub [[:gen/stable (fn [_db _q] :stable)]]}})
-          image-1 (rf.image/image
-                    {:id            :gen/s1
-                     :registrations {:reg-sub [[:gen/moving (fn [_db _q] :before)]]}})
-          image-2 (rf.image/image
-                    {:id            :gen/s2
-                     :registrations {:reg-sub [[:gen/moving (fn [_db _q] :after)]]}})
-          install-pair! (fn [moving-image]
-                          (rf.live-frame/make-frame
-                            {:id :gen/sframe :images [shared moving-image]} []))]
-      (install-pair! image-1)
-      (let [moving-1 (rf.subs/subscribe [:gen/moving] {:frame :gen/sframe})
-            stable-1 (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe})]
-        ;; A second holder, so the ref-count is observably 2 rather than 1.
-        (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe})
-        (is (= :before @moving-1))
-        (is (= :stable @stable-1))
-        (is (= 2 (ref-count :gen/sframe [:gen/stable]))
-            "two holders → ref-count 2 before the swap")
-
-        (install-pair! image-2)
-
-        (is (= 2 (ref-count :gen/sframe [:gen/stable]))
-            "the RETAINED entry's ref-count survives the generation change
-             untouched — the invalidation is targeted, not a cache clear")
-        (is (identical? stable-1
-                        (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe}))
-            "the RETAINED entry keeps its reaction IDENTITY")
-        (is (not (contains? (cache-keys :gen/sframe) [:gen/moving]))
-            "the CHANGED entry was evicted")
-        (is (= :after @(rf.subs/subscribe [:gen/moving] {:frame :gen/sframe}))
-            "and rebuilds against the new generation")))))
+  ;; `:gen/stable` comes from ONE shared image value carried into both
+  ;; compositions, so its descriptor is identical across the swap and the diff
+  ;; classes it `:retained`. (The same body declared in two separate images
+  ;; differs on `:rf.provenance/image`.)
+  (let [shared (sub-image :gen/shared :gen/stable :stable)]
+    (install! :gen/sframe shared (sub-image :gen/s1 :gen/moving :before))
+    (let [stable (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe})]
+      ;; A second holder, so the ref-count is observably 2.
+      (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe})
+      (read-sub :gen/sframe [:gen/moving])
+      (install! :gen/sframe shared (sub-image :gen/s2 :gen/moving :after))
+      (is (= [2 true false :after]
+             [(get-in @(:sub-cache (rf.frame/frame :gen/sframe)) [[:gen/stable] :ref-count])
+              (identical? stable (rf.subs/subscribe [:gen/stable] {:frame :gen/sframe}))
+              (cached? :gen/sframe [:gen/moving])
+              (read-sub :gen/sframe [:gen/moving])])))))
 
 (deftest other-frames-are-untouched-by-a-generation-change
-  (testing "swapping frame A's generation does not disturb frame B's cache"
-    (install! :gen/a (constant-sub-image :gen/a1 :gen/value 1))
-    (install! :gen/b (constant-sub-image :gen/b1 :gen/value 100))
-    (let [a1 (rf.subs/subscribe [:gen/value] {:frame :gen/a})
-          b1 (rf.subs/subscribe [:gen/value] {:frame :gen/b})]
-      (is (= 1 @a1))
-      (is (= 100 @b1))
-
-      (install! :gen/a (constant-sub-image :gen/a2 :gen/value 2))
-
-      (is (identical? b1 (rf.subs/subscribe [:gen/value] {:frame :gen/b}))
-          "frame B's entry — same query-v, different frame — keeps its identity")
-      (is (= 100 @b1) "and its value")
-      (is (= 2 @(rf.subs/subscribe [:gen/value] {:frame :gen/a}))
-          "while frame A refreshed"))))
-
-;; ---- 4. a removed registration releases exactly its own refs -------------
+  (install! :gen/a (sub-image :gen/a1 :gen/value 1))
+  (install! :gen/b (sub-image :gen/b1 :gen/value 100))
+  (let [b1 (rf.subs/subscribe [:gen/value] {:frame :gen/b})]
+    (install! :gen/a (sub-image :gen/a2 :gen/value 2))
+    (is (= [true 100 2]
+           [(identical? b1 (rf.subs/subscribe [:gen/value] {:frame :gen/b})) @b1
+            (read-sub :gen/a [:gen/value])]))))
 
 (deftest a-removed-sub-is-evicted-and-recovers-as-a-miss
-  (testing "a registration REMOVED by the new generation is evicted, and the
-            next subscribe takes the ordinary no-such-sub recovery"
-    (let [image-1 (rf.image/image
-                    {:id            :gen/r1
-                     :registrations {:reg-sub [[:gen/kept  (fn [_db _q] :kept)]
-                                               [:gen/gone  (fn [_db _q] :here)]]}})
-          image-2 (rf.image/image
-                    {:id            :gen/r2
-                     :registrations {:reg-sub [[:gen/kept  (fn [_db _q] :kept)]]}})]
-      (install! :gen/rframe image-1)
-      (is (= :here @(rf.subs/subscribe [:gen/gone] {:frame :gen/rframe})))
-      (is (contains? (cache-keys :gen/rframe) [:gen/gone]))
-
-      (install! :gen/rframe image-2)
-
-      (is (not (contains? (cache-keys :gen/rframe) [:gen/gone]))
-          "the REMOVED registration's slot is evicted")
-      (is (nil? @(rf.subs/subscribe [:gen/gone] {:frame :gen/rframe}))
-          "and the next subscribe is an honest no-such-sub miss, not a stale hit"))))
+  (install! :gen/rframe (sub-image :gen/r1 :gen/kept :kept :gen/gone :here))
+  (read-sub :gen/rframe [:gen/gone])
+  (install! :gen/rframe (sub-image :gen/r2 :gen/kept :kept))
+  (is (= [false nil] [(cached? :gen/rframe [:gen/gone]) (read-sub :gen/rframe [:gen/gone])])))
