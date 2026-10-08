@@ -33,8 +33,8 @@
   whole point of an elision lane.
 
   So: do not simplify the fixtures to a bare `[:tag \"text\"]`.
-  Each assertion pins `(map? attrs)` first, so a fixture that drifts
-  fails loudly instead of quietly certifying nothing.
+  Each assertion reads `(map? attrs)` alongside the keys, so a fixture
+  that drifts fails loudly instead of quietly certifying nothing.
 
   Naming convention: files ending in `-prod-test.cljs` are picked up
   ONLY by the `:browser-test-prod-elision` build."
@@ -69,17 +69,12 @@
     (let [render (rf/view :rf.prod-elision-test/jsx-with-attrs)
           out    (render)
           attrs  (root-attrs out)]
-      ;; Precondition, not decoration: if this fails the three
-      ;; key reads below are reading out of nil and certify nothing.
-      (is (map? attrs)
-          "the root carries an attrs map — the shape the assertions read")
-      (is (= "x" (:id attrs)) "the author's own attrs pass through")
-      (is (nil? (:_jsxFileName attrs))
-          "NO :_jsxFileName on the rendered root")
-      (is (nil? (:_jsxLineNumber attrs))
-          "NO :_jsxLineNumber on the rendered root")
-      (is (nil? (:_jsxColumnNumber attrs))
-          "NO :_jsxColumnNumber on the rendered root"))))
+      ;; The map? slot is a precondition, not decoration: without it the
+      ;; key reads could be reading out of nil and certify nothing.
+      (is (= [true "x" nil nil nil]
+             [(map? attrs) (:id attrs)
+              (:_jsxFileName attrs) (:_jsxLineNumber attrs) (:_jsxColumnNumber attrs)])
+          "the root carries the author's attrs map, with NO _jsx* prop on it"))))
 
 (deftest reg-view-wrapped-fn-has-no-display-name-under-prod
   (testing "Per Spec 006 §React DevTools support production-elision:
@@ -88,8 +83,8 @@
             fn carries NO `displayName` under prod-mode."
     (rf/reg-view* :rf.prod-elision-test/dn-no-attr
                   (fn [] [:p "hi"]))
+    ;; Reading a property off a missing view throws.
     (let [wrapped (rf/view :rf.prod-elision-test/dn-no-attr)]
-      (is (some? wrapped) "the view is registered")
       (is (nil? (.-displayName ^js wrapped))
           "wrapped fn carries no .displayName under prod-mode — elision held"))))
 
@@ -104,9 +99,6 @@
           out    (render)
           flat   (pr-str out)]
       ;; Same precondition as above: a root with no attrs map is a root a
-      ;; prop-decorating regression never touches, so the scan below would
-      ;; be reading a string that could not have carried the literal.
-      (is (map? (root-attrs out))
-          "the root carries an attrs map — the shape a prop regression lands on")
-      (is (not (clojure.string/includes? flat "_jsxFileName"))
-          "the literal _jsxFileName does not appear in the rendered output"))))
+      ;; prop-decorating regression never touches.
+      (is (= [true false] [(map? (root-attrs out)) (clojure.string/includes? flat "_jsxFileName")])
+          "the root carries an attrs map, and the literal _jsxFileName does not appear in the rendered output"))))
