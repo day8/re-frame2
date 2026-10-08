@@ -60,54 +60,30 @@
 (deftest macrostep-violation-rolls-back-and-emits
   (testing "an action returning bad :data triggers a :where :machine-data
             trace AND rolls back the cascade"
-    (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial :idle
-                      :data    {:n 1}
-                      :schemas {:data DataSchema}
-                      :actions {:break (fn [_] {:data {:n 0}})}     ;; 0 violates pos-int?
-                      :states  {:idle {:on {:go {:target :ran
-                                                 :action :break}}}
-                                :ran  {}}}]
-      (rf/reg-machine :rf.machine-schema/macrostep spec)
-      ;; Bring the machine to life with an event that doesn't violate the schema —
-      ;; bootstrap settles to {:n 1} cleanly.
-      (rf/dispatch-sync [:rf.machine-schema/macrostep [:noop]])
-      (let [snap-before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep])
-            db-before   (:rf.db/runtime (rf/frame-state-value :rf/default))
-            traces      (collect-traces!
-                          #(rf/dispatch-sync [:rf.machine-schema/macrostep [:go]]))
-            trace-ev    (first traces)
-            tag         (:tags trace-ev)]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-data trace fired on the violating macrostep")
-        (is (= :machine-data (:where tag))
-            "trace's :where tag pins the boundary")
-        (is (= :rf.machine-schema/macrostep (:machine-id tag))
-            "tag carries :machine-id identifying the failing machine")
-        (is (= :rf.machine-schema/macrostep (:failing-id tag))
-            "tag carries :failing-id alias for uniform error-emit projection")
-        (is (= :macrostep (:phase tag))
-            "tag's :phase pins the lifecycle position")
-        (is (= {:n 0} (:value tag))
-            "tag carries the offending :data value")
-        (is (contains? tag :explain)
-            ":explain present (Xray renders the Malli explanation)")
-        (is (true? (:rollback? tag))
-            "tag declares :rollback? true (commit was rolled back)")
-        (is (string? (:reason tag))
-            ":reason is a human-readable string")
-        ;; `:recovery` is hoisted onto the trace envelope, not inside
-        ;; `:tags` — mirrors the `:where :app-db` projection.
-        (is (= :no-recovery (:recovery trace-ev))
-            "trace envelope declares :no-recovery (consistent with :where :app-db)")
-        ;; Rollback restores pre-handler runtime-db.
-        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-            "post-rollback runtime-db equals pre-handler runtime-db")
-        (is (= snap-before
-               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                       [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
-            "the machine's snapshot returns to its pre-handler value")))))
+    (rf/reg-machine :rf.machine-schema/macrostep
+      {:initial :idle
+       :data    {:n 1}
+       :schemas {:data [:map [:n pos-int?]]}
+       :actions {:break (fn [_] {:data {:n 0}})}
+       :states  {:idle {:on {:go {:target :ran :action :break}}}
+                 :ran  {}}})
+    (rf/dispatch-sync [:rf.machine-schema/macrostep [:noop]])
+    (let [db-before         (:rf.db/runtime (rf/frame-state-value :rf/default))
+          [ev :as traces]   (collect-traces!
+                              #(rf/dispatch-sync [:rf.machine-schema/macrostep [:go]]))
+          tag               (:tags ev)]
+      (is (= 1 (count traces)))
+      (is (= {:where      :machine-data
+              :machine-id :rf.machine-schema/macrostep
+              :failing-id :rf.machine-schema/macrostep
+              :phase      :macrostep
+              :value      {:n 0}
+              :rollback?  true}
+             (select-keys tag [:where :machine-id :failing-id :phase :value :rollback?])))
+      (is (= [true true :no-recovery]
+             [(contains? tag :explain) (string? (:reason tag)) (:recovery ev)]))
+      (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
+          "post-rollback runtime-db (snapshot included) equals pre-handler runtime-db"))))
 
 ;; ---- (1b) macrostep boundary on a SPAWNED actor -------------
 
@@ -116,145 +92,86 @@
             returns schema-violating :data must roll back the macrostep and
             emit :where :machine-data — the schema resolves off the snapshot's
             :rf/machine-type, not via the registry projection"
-    (let [ChildSchema [:map [:n pos-int?]]
-          ;; The child boots with valid :data {:n 1}; a :tick transition runs
-          ;; the :break action returning {:data {:n 0}} (violates pos-int?) via
-          ;; the ordinary macrostep path (NOT the escape hatch).
-          child-spec  {:initial :booting
-                       :data    {:n 1}                ;; valid at spawn
-                       :schemas {:data ChildSchema}
+    (let [child-spec  {:initial :booting
+                       :data    {:n 1}
+                       :schemas {:data [:map [:n pos-int?]]}
                        :actions {:break (fn [_] {:data {:n 0}})}
                        :states  {:booting {:on {:tick {:target :running
                                                        :action :break}}}
-                                 :running {}}}
-          parent-spec {:initial :start
-                       :data    {}
-                       :states  {:start    {:on {:go :spawning}}
-                                 :spawning {:entry
-                                            (fn [_]
-                                              {:fx [[:rf.machine/spawn
-                                                     {:fixed-actor-id :rf.machine-schema/spawned-macrostep
-                                                      :definition     child-spec}]]})}}}]
-      (rf/reg-machine :rf.machine-schema/spawn-macrostep-parent parent-spec)
+                                 :running {}}}]
+      (rf/reg-machine :rf.machine-schema/spawn-macrostep-parent
+        {:initial :start
+         :data    {}
+         :states  {:start    {:on {:go :spawning}}
+                   :spawning {:entry
+                              (fn [_]
+                                {:fx [[:rf.machine/spawn
+                                       {:fixed-actor-id :rf.machine-schema/spawned-macrostep
+                                        :definition     child-spec}]]})}}})
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:noop]])
-      ;; Spawn the child (valid :data {:n 1} → installs).
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:go]])
-      (is (= 1 (:n (:data (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                  [:rf.runtime/machines :snapshots
-                                   :rf.machine-schema/spawned-macrostep]))))
-          "precondition: the spawned child installed with valid :data {:n 1}")
-      (let [snap-before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/machines :snapshots
-                                 :rf.machine-schema/spawned-macrostep])
-            db-before   (:rf.db/runtime (rf/frame-state-value :rf/default))
-            traces      (collect-traces!
-                          #(rf/dispatch-sync [:rf.machine-schema/spawned-macrostep [:tick]]))
-            trace-ev    (first traces)
-            tag         (:tags trace-ev)]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-data trace fired on the violating macrostep")
-        (is (= :machine-data (:where tag))
-            "trace's :where tag pins the boundary")
-        (is (= :rf.machine-schema/spawned-macrostep (:machine-id tag))
-            "tag carries :machine-id identifying the failing spawned actor")
-        (is (= :macrostep (:phase tag))
-            "tag's :phase pins the macrostep lifecycle position")
-        (is (zero? (:n (:value tag)))
-            "tag carries the offending :data value (:n 0)")
-        (is (true? (:rollback? tag))
-            "tag declares :rollback? true (commit must be rolled back)")
-        ;; The whole point: the macrostep ROLLS BACK — the violating :data
-        ;; does not commit. The schema resolves off the snapshot's
-        ;; :rf/machine-type (not via the registry projection, which returns nil for a
-        ;; spawned actor), so the validation runs and the rollback fires.
-        (is (= snap-before
-               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                       [:rf.runtime/machines :snapshots
-                        :rf.machine-schema/spawned-macrostep]))
-            "the spawned actor's snapshot returns to its pre-handler value (rolled back)")
-        (is (= 1 (:n (:data (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/machines :snapshots
-                                     :rf.machine-schema/spawned-macrostep]))))
-            "the violating :data {:n 0} did NOT commit — :n stays the valid 1")
-        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-            "post-rollback runtime-db equals pre-handler runtime-db")))))
+      (let [db-before (:rf.db/runtime (rf/frame-state-value :rf/default))
+            traces    (collect-traces!
+                        #(rf/dispatch-sync [:rf.machine-schema/spawned-macrostep [:tick]]))]
+        (is (= [{:where :machine-data :machine-id :rf.machine-schema/spawned-macrostep
+                 :phase :macrostep :value 0 :rollback? true}]
+               (mapv #(-> (:tags %)
+                          (select-keys [:where :machine-id :phase :value :rollback?])
+                          (update :value :n))
+                     traces)))
+        (is (= [1 db-before]
+               [(get-in db-before [:rf.runtime/machines :snapshots
+                                   :rf.machine-schema/spawned-macrostep :data :n])
+                (:rf.db/runtime (rf/frame-state-value :rf/default))])
+            "the child installed with valid :data, and the violating macrostep rolled back")))))
 
 ;; ---- (2) bootstrap-time validation: initial :data violates --------------
 
 (deftest bootstrap-violation-emits-and-rolls-back
   (testing "an initial :data that violates [:schemas :data] emits + rolls back the
             first dispatch's bootstrap commit"
-    (let [DataSchema [:map [:n pos-int?]]
-          ;; Typo: :n is 0 — violates pos-int? on bootstrap.
-          spec       {:initial :idle
-                      :data    {:n 0}
-                      :schemas {:data DataSchema}
-                      :states  {:idle {}}}]
-      (rf/reg-machine :rf.machine-schema/bootstrap spec)
-      (let [db-before (:rf.db/runtime (rf/frame-state-value :rf/default))
-            traces    (collect-traces!
-                        #(rf/dispatch-sync [:rf.machine-schema/bootstrap [:noop]]))
-            tag       (-> traces first :tags)]
-        (is (= 1 (count traces))
-            "exactly one boundary trace fires for the bootstrap violation")
-        (is (= :machine-data (:where tag)))
-        (is (= {:n 0} (:value tag)))
-        ;; Rollback drops the violating snapshot.
-        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/machines :snapshots :rf.machine-schema/bootstrap]))
-            "rolled back: the machine snapshot is not installed in runtime-db")
-        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-            "rolled back: runtime-db unchanged")))))
+    (rf/reg-machine :rf.machine-schema/bootstrap
+      {:initial :idle
+       :data    {:n 0}
+       :schemas {:data [:map [:n pos-int?]]}
+       :states  {:idle {}}})
+    (let [db-before (:rf.db/runtime (rf/frame-state-value :rf/default))
+          traces    (collect-traces!
+                      #(rf/dispatch-sync [:rf.machine-schema/bootstrap [:noop]]))]
+      (is (= [{:where :machine-data :value {:n 0}}]
+             (mapv #(select-keys (:tags %) [:where :value]) traces)))
+      (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
+          "rolled back: runtime-db unchanged, so no snapshot installed"))))
 
 ;; ---- (3) spawn-time validation: spawned actor's :data violates ----------
 
 (deftest spawn-violation-emits-and-skips-install
   (testing "a spawned actor whose initial :data violates the schema is rejected
             at install time; the snapshot never lands in runtime-db"
-    (let [ChildSchema [:map [:n pos-int?]]
-          ;; Child spec violates its own schema at bootstrap.
-          child-spec  {:initial :idle
-                       :data    {:n 0}
-                       :schemas {:data ChildSchema}
-                       :states  {:idle {}}}
-          parent-spec {:initial :starting
-                       :data    {}
-                       :states  {:starting
-                                 {:on {:go :spawning}}
-                                 :spawning
-                                 {:entry (fn [_]
-                                           {:fx [[:rf.machine/spawn
-                                                  {:fixed-actor-id :rf.machine-schema/spawned
-                                                   :definition     child-spec}]]})}}}]
-      (rf/reg-machine :rf.machine-schema/spawn-parent parent-spec)
+    (let [child-spec {:initial :idle
+                      :data    {:n 0}
+                      :schemas {:data [:map [:n pos-int?]]}
+                      :states  {:idle {}}}]
+      (rf/reg-machine :rf.machine-schema/spawn-parent
+        {:initial :starting
+         :data    {}
+         :states  {:starting {:on {:go :spawning}}
+                   :spawning {:entry (fn [_]
+                                       {:fx [[:rf.machine/spawn
+                                              {:fixed-actor-id :rf.machine-schema/spawned
+                                               :definition     child-spec}]]})}}})
       (rf/dispatch-sync [:rf.machine-schema/spawn-parent [:noop]])
       (let [traces (collect-traces!
-                     #(rf/dispatch-sync [:rf.machine-schema/spawn-parent [:go]]))
-            tag    (-> traces first :tags)]
-        ;; The spawn-time validation emits exactly one :where :machine-data
-        ;; trace with :phase :spawn — no macrostep-phase trace fires for the
-        ;; rejected actor because its snapshot never lands in runtime-db.
-        (let [machine-data-traces (filter #(= :machine-data (-> % :tags :where)) traces)]
-          (is (= 1 (count machine-data-traces))
-              "exactly one :where :machine-data trace fires on spawn rejection"))
-        (is (= :machine-data (:where tag)))
-        (is (= :spawn (:phase tag))
-            ":phase :spawn distinguishes spawn-time from macrostep failures")
-        (is (false? (:rollback? tag))
-            "spawn-phase failure carries :rollback? false (nothing was committed)")
-        ;; The spawned actor's snapshot was never installed.
-        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
-            "rejected spawn: snapshot is not in runtime-db")
-        ;; Atomic reject: a schema-rejected spawn registers NOTHING —
-        ;; no event handler, no `:rf/machine?` registry entry — the install gate
-        ;; and registration are in lockstep.
-        (is (nil? (rf.registrar/lookup :event :rf.machine-schema/spawned))
-            "rejected spawn: NO event handler is registered")
-        (is (not (contains? (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-                                             (rf/registrations {:source :store :kind :event}))))
-                            :rf.machine-schema/spawned))
-            "rejected spawn: the actor does NOT appear under the :rf/machine? filter")))))
+                     #(rf/dispatch-sync [:rf.machine-schema/spawn-parent [:go]]))]
+        (is (= [{:where :machine-data :phase :spawn :rollback? false}]
+               (->> traces
+                    (filter #(= :machine-data (-> % :tags :where)))
+                    (mapv #(select-keys (:tags %) [:where :phase :rollback?])))))
+        (is (= [nil nil]
+               [(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/machines :snapshots :rf.machine-schema/spawned])
+                (rf.registrar/lookup :event :rf.machine-schema/spawned)])
+            "rejected spawn: no snapshot and no event handler")))))
 
 ;; ---- (4) declaration presence is KEY-presence -----------------------------
 ;;
@@ -272,45 +189,33 @@
       (re-frame.schemas/set-schema-fns!
         {:validate (fn [schema _value] (swap! seen conj schema) false)})
       (try
-        (let [spec {:initial :idle
-                    :data    {:n 1}
-                    :schemas {:data nil}
-                    :states  {:idle {}}}]
-          (rf/reg-machine :rf.machine-schema/nil-declared spec)
-          (let [traces (collect-traces!
-                         #(rf/dispatch-sync [:rf.machine-schema/nil-declared [:noop]]))]
-            (is (= [nil] @seen)
-                "the EXACT nil token reached the validator, exactly once")
-            (is (= 1 (count traces))
-                "the false verdict emitted the :where :machine-data boundary trace")
-            (is (= :machine-data (-> traces first :tags :where)))
-            (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/machines :snapshots
-                               :rf.machine-schema/nil-declared]))
-                "rolled back: the violating snapshot never installed")))
+        (rf/reg-machine :rf.machine-schema/nil-declared
+          {:initial :idle
+           :data    {:n 1}
+           :schemas {:data nil}
+           :states  {:idle {}}})
+        (let [traces (collect-traces!
+                       #(rf/dispatch-sync [:rf.machine-schema/nil-declared [:noop]]))]
+          (is (= [[nil] [:machine-data] nil]
+                 [@seen
+                  (mapv (comp :where :tags) traces)
+                  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                          [:rf.runtime/machines :snapshots :rf.machine-schema/nil-declared])])))
         (finally
           (re-frame.schemas/set-schema-fns! re-frame.schemas/default-schema-fns))))))
 
 (deftest present-nil-data-schema-fails-closed-under-default-malli
   (testing "with the DEFAULT Malli validator a present nil [:schemas :data]
-            fails CLOSED: Malli throws on the non-schema form, the
-            `:schemas/validate-with-registered-fn` seam isolates the throw
-            to a false verdict (its documented malformed-schema fail-closed
-            contract — the seam is a pure check surface, so the failure
-            surfaces as the boundary's own :where :machine-data trace), and
-            the bootstrap commit is rejected — never silently installed
-            unvalidated"
-    (let [spec {:initial :idle
-                :data    {:n 1}
-                :schemas {:data nil}
-                :states  {:idle {}}}]
-      (rf/reg-machine :rf.machine-schema/nil-malli spec)
-      (let [traces (collect-traces!
-                     #(rf/dispatch-sync [:rf.machine-schema/nil-malli [:noop]]))]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-data boundary trace — fail closed")
-        (is (= :machine-data (-> traces first :tags :where))))
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/machines :snapshots
-                         :rf.machine-schema/nil-malli]))
-          "rejected: the snapshot never installed (fail closed, not fail open)"))))
+            fails CLOSED: the seam isolates Malli's throw to a false verdict,
+            so the bootstrap commit is rejected, never installed unvalidated"
+    (rf/reg-machine :rf.machine-schema/nil-malli
+      {:initial :idle
+       :data    {:n 1}
+       :schemas {:data nil}
+       :states  {:idle {}}})
+    (let [traces (collect-traces!
+                   #(rf/dispatch-sync [:rf.machine-schema/nil-malli [:noop]]))]
+      (is (= [[:machine-data] nil]
+             [(mapv (comp :where :tags) traces)
+              (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                      [:rf.runtime/machines :snapshots :rf.machine-schema/nil-malli])])))))
