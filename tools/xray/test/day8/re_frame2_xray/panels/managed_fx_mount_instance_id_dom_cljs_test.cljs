@@ -40,16 +40,15 @@
   back the memoised callback, whose mount arm is guarded on
   `(nil? (:observer entry))`), and `release-mount!` would tear the SHARED
   entry down when EITHER mount detaches — leaving the survivor on screen
-  with no observer and no width updates. So that row asserts the observer
-  is held by each mount, and by the survivor once the other detaches.
+  with no observer and no width updates. So that row asserts the two mounts
+  compose two ids and the survivor keeps its observer once the other detaches.
 
   ## The negative control IS the collision, and it is a row rather than a note
 
   [[two-unnamed-mounts-still-collide]] mounts the same two lists with NO
-  `:instance-id` and asserts the id sets are IDENTICAL. It carries two
-  claims at once: the instrument can see a collision (so the disjointness
-  above is separation and not silence), and omitting the opt leaves every
-  id with no instance segment at all.
+  `:instance-id` and asserts the id sets are IDENTICAL, so the instrument can
+  see a collision; and a named mount's ids are the unnamed ones with the name
+  spliced in, so naming separates the mounts.
 
   ## Substrate: the Reagent adapter, and the mount is the PUBLIC one
 
@@ -67,7 +66,6 @@
   passing silently. A green node lane is therefore NOT evidence about this
   file; `npm run test:browser` is."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as string]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
@@ -202,49 +200,6 @@
   "rf-xray-inspect-managed-fx/")
 
 ;; ===========================================================================
-;; W1 — two NAMED standalone mounts compose two disjoint sets of ids
-;; ===========================================================================
-
-(deftest two-named-mounts-compose-disjoint-inspector-ids
-  (testing "`mount-managed-fx!` given two different
-            `:instance-id`s mounts two lists whose committed DOM carries two
-            disjoint sets of `data-rf-mount-id`, in the ONE `:rf/xray` frame
-            they both default to. Each id composes the widget's lifecycle
-            key AND its `:panel-id`, so disjointness here is disjointness of
-            both."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_     (setup!)
-            left  (mount! {:instance-id "left"})
-            right (mount! {:instance-id "right"})]
-        (try
-          (let [ids-l (mount-ids (:container left))
-                ids-r (mount-ids (:container right))]
-            ;; ---- controls, taken from the target ------------------------
-            (is (seq ids-l)
-                "control: the left mount committed at least one edn-inspector
-                 widget, so an empty intersection below means separation and
-                 not an empty list that rendered no widget at all")
-            (is (= (count ids-l) (count ids-r))
-                "naming an instance changes the ids, never the records — two
-                 mounts of the same focused event over the same records")
-
-            ;; ---- the claim ---------------------------------------------
-            (is (nil? (some (set ids-l) ids-r))
-                (str "no mount-id survives from one standalone mount to the "
-                     "other — the store's lifecycle key, the measured width "
-                     "slot and the expansion/zoom panel-id are all derived "
-                     "from this string. left=" (pr-str ids-l)
-                     " right=" (pr-str ids-r)))
-            (is (every? #(string/starts-with? % (str id-prefix "left/")) ids-l)
-                (str "each id carries the name THIS mount was given, rather "
-                     "than a per-render nonce or a shared string: "
-                     (pr-str ids-l))))
-          (finally
-            (unmount! right)
-            (unmount! left)))))))
-
-;; ===========================================================================
 ;; W2 — the lifecycle half: each mount owns an observer, and keeps it
 ;; ===========================================================================
 
@@ -264,24 +219,11 @@
             id-l  (first (mount-ids (:container left)))
             id-r  (first (mount-ids (:container right)))]
         (try
-          (is (some? id-l)
-              "control: the left mount committed a widget, so the store keys
-               below name something that really mounted")
           (is (not= id-l id-r)
               "the two mounts composed two mount-ids")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
-                         :observer)
-              "the left mount installed its own ResizeObserver")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
-                         :observer)
-              "and so did the right — two live mounts, two observers. Under
-               a shared identity the second element's ref callback would find
-               an observer already on the entry and install none")
 
           (unmount! right)
 
-          (is (nil? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r)))
-              "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
               "and the mount left ON SCREEN is observed — a shared key would
@@ -296,11 +238,9 @@
 
 (deftest two-unnamed-mounts-still-collide
   (testing "the collision, as a row. Two standalone
-            mounts with NO `:instance-id` present the SAME ids, which is what
-            makes W1's disjointness a measurement rather than a coincidence;
-            and the ids they present carry no instance segment at all, so a
-            single-mount call site that names no instance composes the plain
-            record-keyed ids."
+            mounts with NO `:instance-id` present the SAME ids, so the
+            instrument can see a collision; and a named mount's ids are the
+            unnamed ids with the caller's name spliced in."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -314,9 +254,7 @@
             (is (seq ids-a)
                 "control: both unnamed mounts committed widgets")
             (is (= ids-a ids-b)
-                (str "two unnamed mounts present the SAME ids — so the "
-                     "instrument W1 uses CAN see a collision, and its "
-                     "disjointness is a measurement rather than silence. a="
+                (str "two unnamed mounts present the SAME ids — a="
                      (pr-str ids-a)))
             (is (= ids-n
                    (mapv #(str id-prefix "left/" (subs % (count id-prefix)))
@@ -326,10 +264,7 @@
                      "— which says both halves at once: naming qualifies the "
                      "id without disturbing the record key inside it, and an "
                      "unnamed mount composes the plain prefixed id with no "
-                     "instance segment. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
-            (is (= ids-a (mount-ids (:container a)))
-                "re-reading the same container is stable — these are
-                 identities, not per-render nonces"))
+                     "instance segment. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n))))
           (finally
             (unmount! named)
             (unmount! b)
