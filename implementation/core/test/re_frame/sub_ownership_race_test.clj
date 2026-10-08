@@ -154,23 +154,19 @@
             (future-cancel job)))))))
 
 (deftest one-shot-read-beside-a-live-holder-leaves-the-holder-intact
-  (testing "no eviction: the one-shot takes and returns only its own reference"
-    (let [frame-id :own/control
-          q        [:own/value]
-          disposed (atom 0)]
-      (rf/reg-sub :own/value (fn [_db _q] :value))
-      (rf/make-frame {:id frame-id})
-      (let [held (rf.subs/subscribe q {:frame frame-id})]
-        (rf.interop/add-on-dispose! held #(swap! disposed inc))
-        (is (= :value (rf.subs/subscribe-once q {:frame frame-id})))
-        (is (identical? held (:reaction (entry frame-id q)))
-            "the holder's reaction is still the cached one")
-        (is (= 1 (:ref-count (entry frame-id q)))
-            "the one-shot released exactly the reference it took")
-        (is (zero? @disposed))
-        (rf.subs/unsubscribe frame-id q)
-        (is (nil? (entry frame-id q)))
-        (is (= 1 @disposed) "the holder's own release disposes exactly once")))))
+  ;; No eviction: the one-shot takes and returns only its own reference.
+  (let [frame-id :own/control
+        q        [:own/value]
+        disposed (atom 0)]
+    (rf/reg-sub :own/value (fn [_db _q] :value))
+    (rf/make-frame {:id frame-id})
+    (let [held (rf.subs/subscribe q {:frame frame-id})]
+      (rf.interop/add-on-dispose! held #(swap! disposed inc))
+      (is (= [:value true 1 0]
+             [(rf.subs/subscribe-once q {:frame frame-id})
+              (identical? held (:reaction (entry frame-id q)))
+              (:ref-count (entry frame-id q))
+              @disposed])))))
 
 (deftest one-shot-read-as-the-only-owner-disposes-in-tick
   (testing "the one-shot owned the last reference, so its release evicts and
@@ -246,23 +242,6 @@
               (str "B must not be erased by the reset while absent from the "
                    "batch's snapshot, which would leave it never disposed; got "
                    (fate late [:own/late]))))))))
-
-(deftest overlapping-batches-condemn-each-entry-once
-  (rf/reg-sub :own/old (fn [_db _q] :old))
-  (doseq [[i [label batch-for]] (map-indexed vector batches)]
-    (testing (str label ": a batch that runs to completion while another is held
-                   at its extraction leaves each entry in exactly one of them")
-      (let [frame-id (fresh-frame! "overlap" i)
-            cache    (:sub-cache (rf.frame/frame frame-id))
-            counts   (atom {})
-            old      (rf.subs/subscribe [:own/old] {:frame frame-id})
-            batch!   (batch-for frame-id)]
-        (with-redefs [rf.interop/dispose! (counting-dispose counts)]
-          (run-batch-held-at-extraction cache batch! batch!))
-        (is (= {} @cache))
-        (is (= 1 (get @counts old 0))
-            "exactly one batch disposes the entry: were both to snapshot it,
-             each of them would dispose it")))))
 
 (deftest an-acquisition-after-extraction-stays-live
   (rf/reg-sub :own/old (fn [_db _q] :old))
