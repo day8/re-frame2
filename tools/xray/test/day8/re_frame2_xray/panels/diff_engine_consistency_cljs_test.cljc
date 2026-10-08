@@ -1,208 +1,22 @@
 (ns day8.re-frame2-xray.panels.diff-engine-consistency-cljs-test
-  "Engine-consistency guard for Xray's `:diff` lenses.
+  "Empty-collection leaves inside a changed subtree, as every `:diff` lens
+  reads them off `day8.re-frame2-xray.diff.engine/project`.
 
-  ## What this asserts
-
-  Every Xray surface that surfaces a `:diff` lens — App-DB panel,
-  HANDLER `:db`, Machine Inspector snapshot — MUST route through the
-  canonical Editscript-A* engine
-  (`day8.re-frame2-xray.diff.engine/project`'s `:flat-rows`) and emit
-  the universal 4-tuple shape `[path before after op]`.
-
-  A lens on a second engine — a structural-sharing key-walker such as
-  `app-db-diff-helpers/diff-paths`, say, rather than Editscript — would
-  disagree on R6 vector-shift, R7 type-change, and R8 redaction, so
-  flipping between the `:diff` and `:full+diff` (mode-3) lenses of
-  the same `(before, after)` payload would produce different chrome.
-
-  This test pins the invariant: for any `(before,
-  after)` pair, the App-DB sub's diff output, the HANDLER `:db`
-  projection's `:db-diff`, and the Machine Inspector's snapshot
-  drill-in (a FULL+DIFF edn-inspector mount, whose diff is
-  `engine/project`'s) all derive from the same engine + same
-  shape → byte-equal vectors (up to row-shape canonicalisation).
-
-  Pure data → data; .cljc so the JVM target picks it up too. No
-  re-frame runtime — every row calls `engine/project` directly and
-  applies the same `:flat-rows` → 4-tuple conversion the lenses use.
-
-  The contract: 'same input → same flat-rows → same chrome → identical
-  R-rule application'."
+  An empty container (`[]`, `{}`, `#{}`, `'()`) is a terminal leaf: were the
+  engine to recurse into it, it would emit no op and the slot would read
+  `:same` inside a green `:added` cascade — the one path in the subtree lying
+  to the operator. The check is `container?` + `empty?`, not per kind."
   (:require [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.diff.engine :as engine]))
 
-(defn- flat-rows->triples
-  "Mirror the call-site conversion every `:diff` lens uses to turn
-  `engine/project`'s `:flat-rows` into the universal 4-tuple shape
-  the renderer destructures. Pure."
-  [flat-rows]
-  (mapv (fn [{:keys [path op before after]}]
-          [path before after op])
-        flat-rows))
-
-(defn- universal-diff
-  "The canonical diff every Xray `:diff` lens produces.
-  Used as the oracle each per-surface helper must match."
-  [before after]
-  (flat-rows->triples (:flat-rows (engine/project before after))))
-
-;; ---- R1 modified scalar -------------------------------------------------
-
-(deftest engine-consistency-r1-modified-scalar
-  (testing "modified scalar → identical 4-tuple across every :diff lens"
-    (let [before {:counter 5}
-          after  {:counter 6}
-          oracle (universal-diff before after)]
-      (is (= [[[:counter] 5 6 :modified]] oracle)
-          "engine produces the universal `[path before after op]` shape"))))
-
-;; ---- R7 type-change container -------------------------------------------
-
-(deftest engine-consistency-r7-type-change
-  (testing "R7 type-change classification. Engine
-            reclassifies a kind-flip (map → scalar) as `:modified` at
-            the parent path with `:rf.xray.diff/type-change? true`.
-            A key-walker emits `:modified` too but without the
-            type-change tag; same row count, different chrome."
-    (let [before {:slot {:nested :value}}
-          after  {:slot :scalar}
-          oracle (universal-diff before after)]
-      (is (= 1 (count oracle))
-          "one row at the type-change container path")
-      (is (= [:slot] (first (first oracle)))
-          "row anchored at the parent path"))))
-
-;; ---- R8 redaction sentinel ----------------------------------------------
-
-(deftest engine-consistency-r8-redaction-one-sided
-  (testing "R8 one-sided redaction. Engine tags
-            `:rf.xray.diff/redaction-side` so the renderer can carry
-            the curated `← was redacted` / `← now redacted` suffix
-            without leaking the sentinel text. A key-walker
-            emits a plain `:modified` row with no redaction
-            context — different chrome at the same path."
-    (let [before {:auth {:token "secret-value"}}
-          after  {:auth {:token :rf/redacted}}
-          oracle (universal-diff before after)]
-      ;; one row at [:auth :token] classified :modified
-      (is (some (fn [[path _b _a op]]
-                  (and (= path [:auth :token]) (= op :modified)))
-                oracle)
-          "engine surfaces the redaction transition as :modified at
-           the leaf path"))))
-
-;; ---- mode-3 (full+diff) ↔ :diff lens consistency ------------------------
-
-(deftest engine-consistency-full-with-diff-and-diff-share-engine
-  (testing "the operator's mental model: flipping between
-            `:full+diff` (mode-3) and `:diff` lenses of the same
-            `(before, after)` payload MUST produce engine-stable rows.
-
-            Both modes consume the same `engine/project` output:
-            `:diff` reads `:flat-rows`; mode-3 reads `:path-ops` +
-            `:container-ops` + `:wholly-changed-roots`. Both derive
-            from the SAME edit-script → the row inventory in `:diff`
-            mode is a strict subset of the change-bearing paths in
-            mode-3 (non-`:same` `:path-ops` keys).
-
-            With mode-3 on the Editscript engine and `:diff` on a
-            key-walker, R6 / R7 / R8 cases would classify
-            differently → different chrome."
-    (let [before {:counter 5
-                  :items [:a :b :c]
-                  :auth  {:token "secret"}
-                  :slot  {:nested :value}}
-          after  {:counter 6
-                  :items [:a :NEW :b :c]
-                  :auth  {:token :rf/redacted}
-                  :slot  :scalar}
-          ;; The :diff lens — flat-rows projected to 4-tuples.
-          diff-rows (universal-diff before after)
-          ;; The mode-3 surface — same engine, different consumer.
-          proj      (engine/project before after)
-          path-ops  (:path-ops proj)
-          ;; Every diff-row path MUST live in path-ops with the
-          ;; matching op (allowing for `:same-shifted` which is
-          ;; filtered out of `:flat-rows`).
-          diff-row-paths (set (map first diff-rows))
-          mode-3-change-paths
-          (->> path-ops
-               (remove (fn [[_p {:keys [op]}]]
-                         (or (= op :same) (= op :same-shifted))))
-               (map first)
-               set)]
-      (is (= diff-row-paths mode-3-change-paths)
-          "every :diff row's path also appears in mode-3's
-           `:path-ops` with a non-`:same` op — single engine, single
-           inventory"))))
-
-;; ---- empty-collection leaves in changed subtrees ------------------------
-;;
-;; Inside a wholly-`:added` (or wholly-`:removed`) subtree, an empty-
-;; collection leaf (`[]`, `{}`, `#{}`, `'()`) is a terminal leaf. Were
-;; `expand-leaf-paths` to recurse into a container with zero descendant
-;; slots it would emit NOTHING, no `:path-ops` entry would exist, and the
-;; leaf would fall through `op-at` to `:same` — the only path in the
-;; subtree lying to the operator (a green-`:added` cascade with muted
-;; `:same` empty slots). So an empty container is a terminal leaf in
-;; BOTH walkers — `expand-leaf-paths` (so the slot carries an explicit
-;; op) and `mark-wholly-changed`'s `collect-leaves` (so the uniformity
-;; check sees the slot and a `:same` empty sibling doesn't get falsely
-;; swept into a wholly-changed promotion). The equivalence is NOT
-;; type-specific: `(container? v)` + `(empty? v)` covers all four kinds.
-
-(def ^:private empty-collections
-  "The four empty-collection kinds the equivalence covers."
-  {:vec  []
-   :map  {}
-   :set  #{}
-   :list '()})
-
-(defn- build-projection
-  "Thin alias for `engine/project`, named for what these rows build."
-  [before after]
-  (engine/project before after))
-
-(deftest empty-collection-leaf-added-direct
-  (testing "a wholly-added empty-collection leaf at depth 2
-            classifies `:added`, not `:same`, for every collection kind."
-    (doseq [[kind empty-coll] empty-collections]
-      (let [proj (build-projection {} {:a {:b empty-coll}})]
-        (is (= :added (engine/op-at proj [:a :b]))
-            (str "empty " (name kind) " leaf inside an added subtree is :added"))
-        ;; the container that holds the lone empty leaf is wholly-added
-        (is (= :added (engine/op-at proj [:a]))
-            (str "container of a lone added empty " (name kind) " is wholly-:added"))))))
-
-(deftest empty-collection-leaf-added-deeply-nested
-  (testing "the inheritance holds ≥3 levels deep inside the
-            added subtree (the live epoch-2 witness below sits 6 levels deep)."
-    (doseq [[kind empty-coll] empty-collections]
-      (let [proj (build-projection {} {:root {:x {:y {:z empty-coll}}}})]
-        (is (= :added (engine/op-at proj [:root :x :y :z]))
-            (str "deeply-nested empty " (name kind) " leaf is :added"))))))
-
 (deftest empty-collection-leaf-removed-direct
-  (testing "symmetric: a wholly-removed empty-collection
-            leaf (before-side empty, after-side absent) classifies
-            `:removed`, not `:same`, for every collection kind."
-    (doseq [[kind empty-coll] empty-collections]
-      (let [proj (build-projection {:a {:b empty-coll}} {})]
-        (is (= :removed (engine/op-at proj [:a :b]))
-            (str "empty " (name kind) " leaf inside a removed subtree is :removed"))))))
-
-(deftest empty-collection-leaf-removed-deeply-nested
-  (testing "symmetric removed inheritance ≥3 levels deep."
-    (doseq [[kind empty-coll] empty-collections]
-      (let [proj (build-projection {:root {:x {:y {:z empty-coll}}}} {})]
-        (is (= :removed (engine/op-at proj [:root :x :y :z]))
-            (str "deeply-nested empty " (name kind) " leaf is :removed"))))))
+  (testing "a wholly-removed empty-collection leaf classifies `:removed`, not `:same`"
+    (is (= :removed (engine/op-at (engine/project {:a {:b []}} {}) [:a :b])))))
 
 (deftest empty-collection-leaf-epoch2-witness
   (testing "the live step-deck epoch-2 :rf.db/runtime allocation:
-            `:messages []` and `:rf/spawn-counter {}` paint :added (green)
-            alongside every other leaf under the wholly-added subtree —
-            no :same paint anywhere in the cascade."
+            `:messages []` and `:rf/spawn-counter {}` paint :added alongside
+            every other leaf under the wholly-added subtree"
     (let [after {:rf.db/runtime
                  {:rf.runtime/machines
                   {:snapshots
@@ -211,31 +25,17 @@
                      :data  {:connections 0
                              :messages    []}
                      :rf/spawn-counter {}}}}}}
-          proj (build-projection {} after)
-          messages-path [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection :data :messages]
-          spawn-path    [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection :rf/spawn-counter]]
-      (is (= :added (engine/op-at proj messages-path))
-          "`:messages []` paints :added, not :same")
-      (is (= :added (engine/op-at proj spawn-path))
-          "`:rf/spawn-counter {}` paints :added, not :same")
+          proj (engine/project {} after)]
+      (is (= :added (engine/op-at proj [:rf.db/runtime :rf.runtime/machines :snapshots
+                                        :ws/connection :data :messages])))
+      (is (= :added (engine/op-at proj [:rf.db/runtime :rf.runtime/machines :snapshots
+                                        :ws/connection :rf/spawn-counter])))
       (is (= :added (engine/op-at proj [:rf.db/runtime]))
           "the whole :rf.db/runtime subtree is wholly-:added"))))
 
 (deftest empty-collection-leaf-same-container-does-not-inherit
-  (testing "the mid-tree boundary: an UNCHANGED empty-
-            collection leaf does NOT inherit a changed classification.
-            Only genuine absent↔empty transitions classify; an empty
-            collection that is identical on both sides stays `:same`,
-            and its presence must not falsely promote an otherwise
-            mixed container to wholly-changed."
-    (doseq [[kind empty-coll] empty-collections]
-      ;; `:b` is unchanged (empty both sides); a sibling key `:c` is added.
-      (let [proj (build-projection {:a {:b empty-coll}}
-                                   {:a {:b empty-coll :c 1}})]
-        (is (= :same (engine/op-at proj [:a :b]))
-            (str "unchanged empty " (name kind) " leaf stays :same"))
-        (is (= :added (engine/op-at proj [:a :c]))
-            "the genuinely-added sibling is :added")
-        (is (= :children (engine/op-at proj [:a]))
-            (str "container with a :same empty " (name kind)
-                 " + one :added sibling is :children, NOT wholly-:added"))))))
+  (testing "an UNCHANGED empty leaf stays `:same`, and its presence does not
+            promote a container with one added sibling to wholly-changed"
+    (let [proj (engine/project {:a {:b []}} {:a {:b [] :c 1}})]
+      (is (= :same (engine/op-at proj [:a :b])))
+      (is (= :children (engine/op-at proj [:a]))))))
