@@ -1,46 +1,26 @@
 (ns re-frame.machine-active-path-geometry-test
-  "Exact exit / action / entry IDENTITIES for every TARGET ↔ DECLARING-state
-  transition geometry.
+  "Exact exit / action / entry identities for each TARGET <-> DECLARING-state
+  geometry (Spec 005 §Self-transitions). The discriminator is the target's
+  relationship to the state the transition is declared on, not whether the
+  target lies on the active path:
 
-  Per Spec 005 §Self-transitions the discriminator is the target's
-  relationship to the state the transition is DECLARED on — NOT merely
-  whether the target lies on the active path. Four geometries:
-
-   1. **Targetless** — the ONLY internal case: the `:action` fires alone and
-      the configuration, active descendants included, survives untouched.
-   2. **Self target (the declaring state itself), no `:reenter?`** — the
-      target NODE survives (its `:exit`/`:entry` do not fire) but its active
-      DESCENDANTS exit and its `:initial` chain re-descends. A target that is
-      a proper ANCESTOR of the declaring state is not this geometry: it
-      follows the ordinary LCCA rule, so the ancestor exits and re-enters
+   1. Targetless: the only internal case; the `:action` fires alone.
+   2. Self target (the declaring state), no `:reenter?`: the target survives,
+      its active descendants exit and its `:initial` chain re-descends. A
+      proper ANCESTOR of the declaring state instead exits and re-enters,
       with or without `:reenter?`.
-   3. **Proper-descendant target named by the declaring compound, no
-      `:reenter?`** — the targeted descendant RE-ENTERS (its `:exit` AND
-      `:entry` fire) while the declaring compound survives. This holds EVEN
-      WHEN the target is already active and IS A LEAF, and it takes PRIORITY
-      over (2) wherever both descriptions fit.
-   4. **`:reenter? true`** — restarts the TARGET for (2), but the DECLARING
-      COMPOUND (then descending to the named target) for (3). It is a no-op
-      for a proper-ancestor target, which restarts regardless.
+   3. Proper-descendant target named by the declaring compound, no
+      `:reenter?`: the descendant re-enters while the declarer survives, even
+      when the target is the already-active leaf. This takes priority over (2).
+   4. `:reenter? true`: restarts the target for (2), the declaring compound
+      for (3).
 
-  The load-bearing pin is the (1)-vs-(3) contrast at the SAME leaf: a
-  `:parent`-declared target of the already-active leaf produces
-  exit-leaf/action/enter-leaf, while the targetless control on `:parent`
-  produces the action ALONE. An active-path target is NOT `internal`, and
-  targeting a LEAF does not necessarily equal targetless: both would be false
-  for the declaring-compound descendant relationship, which is why
-  `lca-len`'s `cond` orders `target-descendant-of-decl?` AHEAD of
-  `target-on-active-path?`. Reordering those two arms must fail
-  `parent-declared-active-leaf-*` below.
-
-  The leaf SELF-target cases pin the genuine coincidence that is easy to
-  over-generalise FROM: a transition declared ON the leaf targeting itself
-  has no descendants to re-resolve, so it really does collapse to the
-  targetless log — the distinction is the DECLARING state, not leaf-ness."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The load-bearing pin is (1) vs (3) at the same leaf: `lca-len` tests
+  `target-descendant-of-decl?` ahead of `target-on-active-path?`, and
+  reordering those arms must fail `parent-declared-active-leaf-*`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            ;; Loading the machines facade registers `rf/reg-machine` + the
-            ;; reserved machine fxs when this ns runs alone.
+            ;; Registers `rf/reg-machine` when this ns runs alone.
             [re-frame.machines]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -55,15 +35,12 @@
   (fn [_] (swap! log conj k) {}))
 
 (defn- drive!
-  "Register `machine` under `id`, consume the bootstrap initial-entry cascade
-  with a benign unhandled event, run `setup-events`, then clear `log` and
-  dispatch `event`. Returns the recorded exit/action/entry identities for
-  `event` ALONE."
+  "Register `machine` under `id`, consume the bootstrap cascade with a benign
+  unhandled event, run `setup-events`, then clear `log` and dispatch `event`.
+  Returns the exit/action/entry identities `event` alone recorded."
   ([log id machine event] (drive! log id machine [] event))
   ([log id machine setup-events event]
    (rf/reg-machine id machine)
-   ;; The first dispatch fires the bootstrap cascade; a benign unhandled
-   ;; event drives it without touching the states under test.
    (rf/dispatch-sync [id [::prime]])
    (doseq [e setup-events]
      (rf/dispatch-sync [id e]))
@@ -71,13 +48,10 @@
    (rf/dispatch-sync [id event])
    @log))
 
-;; ===========================================================================
-;; (1) vs (3) — the parent-declared ACTIVE LEAF.
-;; ===========================================================================
+;; ---- (1) vs (3): the parent-declared ACTIVE LEAF --------------------------
 
 (defn- parent-declared-leaf-machine [log]
   {:initial :parent
-   :data    {}
    :actions {:act          (tag log :act)
              :enter-parent (tag log :enter-parent)
              :exit-parent  (tag log :exit-parent)
@@ -88,142 +62,34 @@
     {:initial :leaf
      :entry   :enter-parent
      :exit    :exit-parent
-     ;; Every transition here is DECLARED ON :parent, so `decl-path` is
-     ;; [:parent] and `[:parent :leaf]` is a PROPER DESCENDANT of it.
+     ;; Declared ON :parent, so [:parent :leaf] is a proper descendant of the declarer.
      :on      {:targetless   {:action :act}
                :target-leaf  {:target [:parent :leaf] :action :act}
                :reenter-leaf {:target [:parent :leaf] :reenter? true :action :act}}
      :states  {:leaf {:entry :enter-leaf :exit :exit-leaf}}}}})
 
 (deftest parent-declared-active-leaf-re-enters-the-leaf
-  (testing "a :parent-declared target of the ALREADY-ACTIVE LEAF re-enters the
-            leaf itself — exit-leaf → action → enter-leaf — because the
-            declaring-compound/proper-descendant relationship takes priority
-            over the generic active-path case (target-descendant-of-decl?
-            is tested ahead of target-on-active-path? in lca-len)"
-    (let [log (atom [])]
-      (is (= [:exit-leaf :act :enter-leaf]
-             (drive! log :geo/parent-leaf (parent-declared-leaf-machine log)
-                     [:target-leaf]))
-          "the targeted leaf IS re-entered; :parent is neither exited nor entered")
-      (is (= [:parent :leaf] (rf.machines.test-support/machine-state :geo/parent-leaf))
-          "the configuration is unchanged in VALUE — the churn is the point"))))
+  (let [log (atom [])]
+    (is (= [:exit-leaf :act :enter-leaf]
+           (drive! log :geo/parent-leaf (parent-declared-leaf-machine log) [:target-leaf])))))
 
 (deftest targetless-control-on-the-same-leaf-runs-the-action-alone
-  (testing "the TARGETLESS control declared on the same :parent, at the same
-            [:parent :leaf] configuration, runs the :action ALONE — no exit,
-            no entry. This is the contrast that makes an explicit
-            active-path target NOT internal and NOT equal to targetless"
-    (let [log (atom [])]
-      (is (= [:act]
-             (drive! log :geo/parent-leaf-control (parent-declared-leaf-machine log)
-                     [:targetless]))
-          "targetless is the ONLY true internal no-op — the action fires alone"))))
+  (let [log (atom [])]
+    (is (= [:act]
+           (drive! log :geo/parent-leaf-control (parent-declared-leaf-machine log) [:targetless])))))
 
 (deftest parent-declared-leaf-with-reenter-restarts-the-declaring-compound
-  (testing ":reenter? on a declaring-compound DESCENDANT target restarts the
-            DECLARING COMPOUND (:parent) and then descends to the NAMED
-            target — not :parent's :initial by coincidence"
-    (let [log (atom [])]
-      (is (= [:exit-leaf :exit-parent :act :enter-parent :enter-leaf]
-             (drive! log :geo/parent-leaf-reenter (parent-declared-leaf-machine log)
-                     [:reenter-leaf]))
-          ":parent exits + re-enters (boundary pulls up to decl-path's parent)"))))
+  (let [log (atom [])]
+    (is (= [:exit-leaf :exit-parent :act :enter-parent :enter-leaf]
+           (drive! log :geo/parent-leaf-reenter (parent-declared-leaf-machine log) [:reenter-leaf])))))
 
-;; ===========================================================================
-;; (2) — leaf SELF target: the genuine targetless coincidence.
-;; ===========================================================================
-
-(defn- leaf-self-machine [log]
-  {:initial :parent
-   :data    {}
-   :actions {:act        (tag log :act)
-             :enter-leaf (tag log :enter-leaf)
-             :exit-leaf  (tag log :exit-leaf)}
-   :states
-   {:parent
-    {:initial :leaf
-     ;; DECLARED ON :leaf — `decl-path` is [:parent :leaf], so `:same-state`
-     ;; resolves to the declaring state ITSELF: a SELF target, never a
-     ;; descendant of the declaring state.
-     :states {:leaf {:entry :enter-leaf
-                     :exit  :exit-leaf
-                     :on    {:self         {:target :same-state :action :act}
-                             :self-reenter {:target :same-state :reenter? true :action :act}}}}}}})
-
-(deftest leaf-self-target-without-reenter-coincides-with-targetless
-  (testing "a SELF target declared ON the leaf has no descendants to
-            re-resolve, so it genuinely collapses to the targetless log. This
-            is the real coincidence that is easy to over-generalise from —
-            it is licensed by the DECLARING-state relationship (self, not
-            descendant), NOT by leaf-ness alone"
-    (let [log (atom [])]
-      (is (= [:act]
-             (drive! log :geo/leaf-self (leaf-self-machine log) [:self]))
-          "self target on a leaf: the target survives and has no descendants"))))
-
-(deftest leaf-self-target-with-reenter-restarts-the-leaf
-  (testing ":reenter? on a leaf SELF target restarts the TARGET itself"
-    (let [log (atom [])]
-      (is (= [:exit-leaf :act :enter-leaf]
-             (drive! log :geo/leaf-self-reenter (leaf-self-machine log)
-                     [:self-reenter]))
-          "the leaf is exited + re-entered under the external opt-in"))))
-
-;; ===========================================================================
-;; (2) — COMPOUND self target, declared on the ancestor it names: node
-;;       survives, descendants re-resolve.
-;; ===========================================================================
+;; ---- (2) / (4) self and ANCESTOR targets on a spawning compound -----------
 ;;
-;; Without `:reenter?` the exact log is
-;; ancestor-declared-self-target-keeps-the-ancestor-and-its-child's (below),
-;; on the same machine plus a `:spawn`.
-
-(defn- compound-self-target-machine [log]
-  {:initial :process
-   :data    {}
-   :actions {:act           (tag log :act)
-             :enter-process (tag log :enter-process)
-             :exit-process  (tag log :exit-process)
-             :enter-step1   (tag log :enter-step1)
-             :exit-step1    (tag log :exit-step1)
-             :enter-step3   (tag log :enter-step3)
-             :exit-step3    (tag log :exit-step3)}
-   :states
-   {:process
-    {:initial :step1
-     :entry   :enter-process
-     :exit    :exit-process
-     ;; Declared ON :process targeting :process — `decl-path` == `target-base`,
-     ;; so this is a SELF target of the declaring compound (NOT a descendant).
-     :on      {:restart         {:target :process :action :act}
-               :restart-reenter {:target :process :reenter? true :action :act}}
-     :states  {:step1 {:entry :enter-step1 :exit :exit-step1
-                       :on    {:next :step3}}
-               :step3 {:entry :enter-step3 :exit :exit-step3}}}}})
-
-(deftest compound-self-target-with-reenter-restarts-the-target
-  (testing ":reenter? on a compound self target restarts the TARGET: it exits
-            and re-enters, then re-descends its own :initial"
-    (let [log (atom [])]
-      (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1]
-             (drive! log :geo/ancestor-reenter (compound-self-target-machine log)
-                     [[:next]] [:restart-reenter]))
-          ":process exits + re-enters, then re-descends :initial"))))
-
-;; ===========================================================================
-;; CHILD-declared proper-ANCESTOR target: the ancestor exits and re-enters.
-;; ===========================================================================
-;;
-;; The declaring state sits BELOW the target, so the LCCA of {source, target}
-;; is the target's parent and the target is in the exit set — the SCXML /
-;; XState rule, with or without `:reenter?`. The final configuration is the
-;; same as the ancestor-declared control's, so the pins below read what the
-;; ancestor OWNS: its `:exit`/`:entry` and its `:spawn` child's incarnation.
+;; At [:process :step3]. The `:spawn` child is what the ancestor OWNS, so its
+;; incarnation shows whether :process itself restarted.
 
 (defn- spawning-ancestor-machine [log]
   {:initial :process
-   :data    {}
    :actions {:act           (tag log :act)
              :enter-process (tag log :enter-process)
              :exit-process  (tag log :exit-process)
@@ -237,8 +103,9 @@
      :entry   :enter-process
      :exit    :exit-process
      :spawn   {:machine-id :geo/worker}
-     ;; Declared ON :process, targeting :process — the self-target control.
-     :on      {:restart {:target :process :action :act}}
+     ;; Declared ON :process, targeting :process: a SELF target.
+     :on      {:restart         {:target :process :action :act}
+               :restart-reenter {:target :process :reenter? true :action :act}}
      :states  {:step1 {:entry :enter-step1 :exit :exit-step1
                        :on    {:next :step3}}
                :step3 {:entry :enter-step3 :exit :exit-step3
@@ -246,55 +113,40 @@
                        :on    {:restart-from-child {:target [:process] :action :act}}}}}}})
 
 (defn- drive-spawning-ancestor!
-  "Register the spawning-ancestor machine under `id`, advance it to
-  [:process :step3], then dispatch `event`. Returns the event's recorded
-  exit/action/entry identities and `:process`'s spawned child before and
-  after it."
-  [log id event]
-  (rf/reg-machine :geo/worker {:initial :idle :states {:idle {}}})
-  (rf/reg-machine id (spawning-ancestor-machine log))
-  (rf/dispatch-sync [id [::prime]])
-  (rf/dispatch-sync [id [:next]])
-  (let [kid #(get-in (rf.machines.test-support/runtime-db)
-                     (rf.machines.paths/spawned-path id [:process]))
-        before (kid)]
-    (reset! log [])
-    (rf/dispatch-sync [id event])
-    {:steps @log :kid-before before :kid-after (kid)}))
+  "At [:process :step3], dispatch `event`. Returns its recorded identities and
+  whether `:process`'s spawned child was `:kept` or `:respawned`."
+  [id event]
+  (let [log (atom [])]
+    (rf/reg-machine :geo/worker {:initial :idle :states {:idle {}}})
+    (rf/reg-machine id (spawning-ancestor-machine log))
+    (rf/dispatch-sync [id [::prime]])
+    (rf/dispatch-sync [id [:next]])
+    (let [kid    #(get-in (rf.machines.test-support/runtime-db)
+                          (rf.machines.paths/spawned-path id [:process]))
+          before (kid)]
+      (reset! log [])
+      (rf/dispatch-sync [id event])
+      {:steps @log
+       :kid   (cond (nil? before)       :never-spawned
+                    (= before (kid))    :kept
+                    :else               :respawned)})))
+
+(deftest compound-self-target-with-reenter-restarts-the-target
+  (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1]
+         (:steps (drive-spawning-ancestor! :geo/self-reenter [:restart-reenter])))))
 
 (deftest child-declared-ancestor-target-restarts-the-ancestor-and-its-child
-  (testing "at [:process :step3], :target [:process] declared on :step3 (no
-            :reenter?) exits :step3 AND :process, then re-enters :process and
-            re-descends :step1 — so :process's :spawn child is torn down and
-            respawned"
-    (let [{:keys [steps kid-before kid-after]}
-          (drive-spawning-ancestor! (atom []) :geo/child-ancestor [:restart-from-child])]
-      (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1] steps)
-          ":process exits + re-enters (the LCCA is its parent, the root)")
-      (is (some? kid-before) "control: :process spawned a child on entry")
-      (is (not= kid-before kid-after)
-          ":process's :spawn child is a new incarnation after the restart")
-      (is (= [:process :step1] (rf.machines.test-support/machine-state :geo/child-ancestor))))))
+  (is (= {:steps [:exit-step3 :exit-process :act :enter-process :enter-step1] :kid :respawned}
+         (drive-spawning-ancestor! :geo/child-ancestor [:restart-from-child]))))
 
 (deftest ancestor-declared-self-target-keeps-the-ancestor-and-its-child
-  (testing "the CONTROL on the same machine: :target :process declared ON
-            :process leaves :process standing, so its :spawn child keeps its
-            incarnation"
-    (let [{:keys [steps kid-before kid-after]}
-          (drive-spawning-ancestor! (atom []) :geo/self-ancestor [:restart])]
-      (is (= [:exit-step3 :act :enter-step1] steps)
-          "only the active descendant re-resolves")
-      (is (some? kid-before) "control: :process spawned a child on entry")
-      (is (= kid-before kid-after)
-          ":process's :spawn child keeps its incarnation"))))
+  (is (= {:steps [:exit-step3 :act :enter-step1] :kid :kept}
+         (drive-spawning-ancestor! :geo/self-ancestor [:restart]))))
 
-;; ===========================================================================
-;; (3) — parent-declared COMPOUND descendant.
-;; ===========================================================================
+;; ---- (3) the parent-declared COMPOUND descendant --------------------------
 
 (defn- compound-descendant-machine [log]
   {:initial :parent
-   :data    {}
    :actions {:act          (tag log :act)
              :enter-parent (tag log :enter-parent)
              :exit-parent  (tag log :exit-parent)
@@ -314,14 +166,8 @@
                        :states  {:a {:entry :enter-a :exit :exit-a}}}}}}})
 
 (deftest parent-declared-compound-descendant-re-enters-the-descendant
-  (testing "at [:parent :child :a], a :parent-declared target of the COMPOUND
-            descendant [:parent :child] re-enters :child (exit a + child,
-            then re-enter child and re-descend its :initial) while :parent
-            survives — the boundary is computed against target-BASE, so a
-            descendant whose :initial re-descends to the active leaf still
-            re-enters rather than collapsing to a silent no-op"
-    (let [log (atom [])]
-      (is (= [:exit-a :exit-child :act :enter-child :enter-a]
-             (drive! log :geo/compound-descendant (compound-descendant-machine log)
-                     [:target-child]))
-          "the targeted compound descendant re-enters; :parent untouched"))))
+  ;; The boundary is computed against the target BASE, so a descendant whose
+  ;; :initial re-descends to the active leaf still re-enters, never a no-op.
+  (let [log (atom [])]
+    (is (= [:exit-a :exit-child :act :enter-child :enter-a]
+           (drive! log :geo/compound-descendant (compound-descendant-machine log) [:target-child])))))
