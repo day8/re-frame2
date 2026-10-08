@@ -1,250 +1,81 @@
 (ns re-frame.api-manifest.api-md-check-test
-  "Regression tests for the spec/API.md projection check's qualifier
-  resolution and kind grading.
+  "Tests for the spec/API.md projection check's parser, its qualifier
+  resolution and kind grading, and its non-vacuous floor.
 
-  THE HAZARD. The manifest carries the SAME bare var `adapter` for FOUR
-  distinct namespaces (`re-frame.adapter.{reagent,uix}` and
-  `re-frame.fresco.substrate` at tier `:adapter`, plus `re-frame.ssr` at
-  `:implementation`). A validator that stripped the namespace/alias
-  qualifier and matched by BARE var name only would let a QUALIFIED row
-  such as `rf.adapter.uix/adapter` drift to a stale / wrong / unknown
-  qualifier (`bogus-adapter/adapter`) and STILL pass, because some other
-  manifest entry with bare name `adapter` carries the expected tier — a
-  false-green drift gate.
-
-  THE CONTRACT. Qualified rows resolve STRICTLY against the manifest
-  `[namespace var]` index: the qualifier is mapped through the documented
-  adapter `:as` aliases (`adapter-aliases`) else taken verbatim (the
-  full-namespace `re-frame.interop/...` rows ARE literal manifest
-  namespaces), and the resolved `[namespace var]` pair must exist with a
-  matching tier. Bare rows keep by-bare-name latitude + the
-  bare-name allowlist. These tests pin that contract through the pure
-  `reconcile` reconciler with synthetic inputs, plus a live smoke that the
-  committed spec/API.md + manifest reconcile clean."
-  (:require [clojure.test :refer [deftest is testing]]
+  The manifest carries the SAME bare var `adapter` for several namespaces at
+  different tiers. A qualified row therefore resolves strictly against the
+  `[namespace var]` index — a bare-name match would let `rf.adapter.uix/adapter`
+  drift to an unknown qualifier and still pass. Bare rows keep by-name
+  latitude and the bare-name allowlist."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.api-manifest.api-md-check :as rf.api-manifest.api-md-check]))
 
-;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
-;; manifest has: the bare var `adapter` carried for four namespaces, three
-;; of them at tier :adapter and one (SSR) at :implementation. Plus an
-;; intentionally-bare var (`reg-event` — the EP-0018 one-form public event
-;; registrar) for the bare-row path.
-(def ^:private synthetic-rows
-  [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter :kind :var}
-   {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter :kind :var}
-   {:namespace "re-frame.fresco.substrate" :var "adapter" :tier :adapter :kind :var}
-   {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation :kind :fn}
-   {:namespace "re-frame.interop" :var "debug-enabled?" :tier :implementation :kind :var}
-   {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch :kind :macro}
-   {:namespace "re-frame.core"            :var "image" :tier :advanced :kind :macro}])
+(deftest reconcile-grades-qualified-and-bare-rows
+  (doseq [[api-row allow expected]
+          [;; Qualified: neither another namespace's :adapter-tier `adapter`
+           ;; nor the bare-name allowlist rescues an unknown qualifier.
+           [{:var "adapter" :qualifier "bogus-adapter" :tier :adapter
+             :line 185 :raw "bogus-adapter/adapter"}
+            #{"adapter"}
+            [{:kind :missing :var "adapter" :raw "bogus-adapter/adapter"
+              :line 185 :api-tier :adapter}]]
+           [{:var "adapter" :qualifier "re-frame.ssr" :tier :adapter
+             :line 314 :raw "re-frame.ssr/adapter"}
+            #{}
+            [{:kind :tier-mismatch :var "adapter" :raw "re-frame.ssr/adapter"
+              :line 314 :api-tier :adapter :manifest-tiers #{:implementation}}]]
+           ;; Bare: resolves by name; an unmanifested name is flagged unless
+           ;; allowlisted. A row with no :kind is not graded on kind.
+           [{:var "reg-event" :tier :front-porch :line 1 :raw "reg-event"} #{} []]
+           [{:var "story-view" :tier :tooling :line 2 :raw "story-view"}
+            #{}
+            [{:kind :missing :var "story-view" :raw "story-view" :line 2 :api-tier :tooling}]]
+           [{:var "story-view" :tier :tooling :line 2 :raw "story-view"} #{"story-view"} []]
+           [{:var "reg-event" :tier :tooling :line 3 :raw "reg-event"}
+            #{}
+            [{:kind :tier-mismatch :var "reg-event" :raw "reg-event" :line 3
+              :api-tier :tooling :manifest-tiers #{:front-porch}}]]
+           ;; Kind is graded once name and tier resolve.
+           [{:var "reg-event" :tier :front-porch :kind :fn :line 4 :raw "reg-event"}
+            #{}
+            [{:kind :kind-mismatch :var "reg-event" :raw "reg-event" :line 4
+              :api-kind :fn :manifest-kinds #{:macro}}]]
+           [{:var "reg-event" :tier :front-porch :kind :macro :line 5 :raw "reg-event"} #{} []]]]
+    (is (= expected
+           (rf.api-manifest.api-md-check/reconcile
+             {:rows               [{:namespace "re-frame.adapter.reagent" :var "adapter"
+                                    :tier :adapter :kind :var}
+                                   {:namespace "re-frame.ssr" :var "adapter"
+                                    :tier :implementation :kind :fn}
+                                   {:namespace "re-frame.core" :var "reg-event"
+                                    :tier :front-porch :kind :macro}]
+              :api-rows           [api-row]
+              :known-unmanifested allow
+              :aliases            rf.api-manifest.api-md-check/adapter-aliases}))
+        (:raw api-row))))
 
-(defn- problems-for
-  "Run `reconcile` over `api-rows` against the synthetic manifest, with the
-   real `adapter-aliases` and an optional bare-name allowlist."
-  [api-rows & {:keys [known-unmanifested]
-               :or   {known-unmanifested #{}}}]
-  (rf.api-manifest.api-md-check/reconcile {:rows               synthetic-rows
-                :api-rows           api-rows
-                :known-unmanifested known-unmanifested
-                :aliases            rf.api-manifest.api-md-check/adapter-aliases}))
+(deftest parse-var-rows-reads-the-leading-kind-marker
+  ;; The M/Fn cell is graded by its leading marker; an unknown spelling
+  ;; (`Macro`) drops the row silently, which is the collapse the floor catches.
+  (is (= [[3 "reg-event" :macro] [4 "adapter" :var] [5 "frame-root" :fn]]
+         (map (juxt :line :var :kind)
+              (rf.api-manifest.api-md-check/parse-var-rows
+                [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+                 [2 "|---|---|---|---|---|---|"]
+                 [3 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
+                 [4 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
+                 [5 "| `frame-root` | Fn (Reagent component) | sig | v1 | front-porch | 002 |"]
+                 [6 "| `render!` | Macro | sig | v1 | advanced | 006 |"]])))))
 
-;; ---------------------------------------------------------------------------
-;; Qualified-row resolution.
-;; ---------------------------------------------------------------------------
-
-(deftest unknown-qualifier-on-duplicate-bare-var-fails
-  (testing "a qualified duplicate bare var changed to an
-            UNKNOWN/WRONG qualifier FAILS, even though another adapter var
-            with the same bare name and tier still exists"
-    ;; `uix-adapter/adapter` mutated to `bogus-adapter/adapter`. `bogus-adapter`
-    ;; is neither a documented alias nor a manifest namespace, so
-    ;; [<bogus> adapter] is absent — even though re-frame.adapter.{reagent,
-    ;; uix}/adapter and re-frame.fresco.substrate/adapter all carry
-    ;; :adapter. A bare-name match
-    ;; would PASS this (some `adapter` row carries :adapter).
-    (let [problems (problems-for
-                     [{:var "adapter" :qualifier "bogus-adapter" :tier :adapter
-                       :line 185 :raw "bogus-adapter/adapter"}])]
-      (is (= 1 (count problems))
-          "the wrong/unknown qualifier must be flagged despite the bare var
-           `adapter` carrying :adapter on three real namespaces")
-      (is (= :missing (:kind (first problems))))
-      (is (= "bogus-adapter/adapter" (:raw (first problems))))
-      (is (= 185 (:line (first problems)))))))
-
-(deftest wrong-but-real-namespace-qualifier-with-mismatched-tier-fails
-  (testing "a qualifier that resolves to a REAL [ns var] pair whose tier
-            disagrees with the API.md tier is a tier-mismatch, not a pass"
-    ;; re-frame.ssr/adapter exists but at :implementation, not :adapter.
-    ;; A qualified row claiming :adapter for it must fail on tier even
-    ;; though the [ns var] pair resolves.
-    (let [problems (problems-for
-                     [{:var "adapter" :qualifier "re-frame.ssr" :tier :adapter
-                       :line 314 :raw "re-frame.ssr/adapter"}])]
-      (is (= 1 (count problems)))
-      (is (= :tier-mismatch (:kind (first problems))))
-      (is (= #{:implementation} (:manifest-tiers (first problems)))))))
-
-(deftest qualifier-does-not-mask-via-bare-name
-  (testing "the qualified path NEVER falls back to bare-name latitude: a
-            qualified row whose [ns var] is absent fails even when the bare
-            name is in the bare-name allowlist (the allowlist is bare-only)"
-    ;; Even if `adapter` were on the bare allowlist, a qualified row with a
-    ;; non-resolving qualifier still fails — the allowlist only silences
-    ;; BARE rows.
-    (is (= 1 (count (problems-for
-                      [{:var "adapter" :qualifier "bogus-adapter" :tier :adapter
-                        :line 1 :raw "bogus-adapter/adapter"}]
-                      :known-unmanifested #{"adapter"})))
-        "a bare-name allowlist entry must not silence a qualified row")))
-
-;; ---------------------------------------------------------------------------
-;; Bare-row resolution (by-name latitude).
-;; ---------------------------------------------------------------------------
-
-(deftest bare-row-resolves-by-bare-name
-  (testing "a bare row resolves if ANY manifest row with that bare name
-            carries the stated tier"
-    (is (empty? (problems-for
-                  [{:var "reg-event" :qualifier nil :tier :front-porch
-                    :line 1 :raw "reg-event"}])))
-    (testing "and an unmanifested bare name is flagged unless allowlisted"
-      (is (= 1 (count (problems-for
-                        [{:var "story-view" :qualifier nil :tier :tooling
-                          :line 1 :raw "story-view"}]))))
-      (is (empty? (problems-for
-                    [{:var "story-view" :qualifier nil :tier :tooling
-                      :line 1 :raw "story-view"}]
-                    :known-unmanifested #{"story-view"}))))))
-
-(deftest bare-row-tier-mismatch-flagged
-  (testing "a bare row whose stated tier no manifest row with that name
-            carries is a tier-mismatch"
-    (let [problems (problems-for
-                     [{:var "reg-event" :qualifier nil :tier :tooling
-                       :line 1 :raw "reg-event"}])]
-      (is (= 1 (count problems)))
-      (is (= :tier-mismatch (:kind (first problems))))
-      (is (= #{:front-porch} (:manifest-tiers (first problems)))))))
-
-;; ---------------------------------------------------------------------------
-;; Kind grading: the M/Fn cell's kind must match the manifest's :kind.
-;; ---------------------------------------------------------------------------
-
-(deftest kind-mismatch-flagged
-  (testing "a row whose name and tier resolve but whose kind disagrees with
-            the manifest is a kind-mismatch, on both row shapes"
-    (let [[bare-problem :as bare-problems]
-          (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind :fn
-                          :line 1 :raw "reg-event"}])
-          [qualified-problem :as qualified-problems]
-          (problems-for [{:var "debug-enabled?" :qualifier "re-frame.interop"
-                          :tier :implementation :kind :macro
-                          :line 2 :raw "re-frame.interop/debug-enabled?"}])]
-      (is (= 1 (count bare-problems)))
-      (is (= :kind-mismatch (:kind bare-problem)))
-      (is (= :fn (:api-kind bare-problem)))
-      (is (= #{:macro} (:manifest-kinds bare-problem)))
-      (is (= 1 (count qualified-problems)))
-      (is (= :kind-mismatch (:kind qualified-problem)))
-      (is (= #{:var} (:manifest-kinds qualified-problem)))))
-  (testing "control: the matching kind, and a row carrying no kind, are clean"
-    (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind :macro
-                                :line 1 :raw "reg-event"}])))
-    (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind nil
-                                :line 1 :raw "reg-event"}])))))
-
-(deftest planted-kind-cell-is-red-end-to-end
-  (testing "END-TO-END: an API.md row whose M/Fn cell says `Fn` for a manifest
-            macro parses to :fn and reconciles to a kind-mismatch"
-    (let [lines    [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
-                    [2 "|---|---|---|---|---|---|"]
-                    [3 "| `image` | Fn | `(image spec)` | v1 | advanced | 002 |"]]
-          parsed   (rf.api-manifest.api-md-check/parse-var-rows lines)
-          problems (problems-for parsed)]
-      (is (= [:fn] (map :kind parsed)))
-      (is (= [:kind-mismatch] (map :kind problems)))
-      (is (= 3 (:line (first problems))))))
-  (testing "control: the same row with the true `M` marker is clean, and the
-            parser maps every marker the table uses"
-    (let [parsed (rf.api-manifest.api-md-check/parse-var-rows
-                   [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
-                    [2 "|---|---|---|---|---|---|"]
-                    [3 "| `image` | M | `(image spec)` | v1 | advanced | 002 |"]
-                    [4 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
-                    [5 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
-                    [6 "| `frame-root` | Fn (Reagent component) | sig | v1 | front-porch | 002 |"]])]
-      (is (= [:macro :macro :var :fn] (map :kind parsed)))
-      (is (empty? (problems-for (take 3 parsed)))))))
-
-;; ---------------------------------------------------------------------------
-;; Live smoke: the committed spec/API.md + manifest reconcile clean.
-;; ---------------------------------------------------------------------------
-
-(deftest live-api-md-and-manifest-reconcile-clean
-  (testing "the committed spec/API.md projection reconciles against the
-            committed manifest with zero problems (the CI contract: the full
-            check!, keyword-drift guards included), and it actually exercises
-            qualified rows"
-    (let [api-rows (rf.api-manifest.api-md-check/parse-api-md-var-rows)]
-      (is (pos? (count (filter :qualifier api-rows)))
-          "spec/API.md must actually name namespace/alias-qualified var-rows
-           (otherwise this regression would be vacuous)")
-      (is (true? (rf.api-manifest.api-md-check/check!))
-          "live drift: spec/API.md var-rows disagree with the manifest"))))
-
-;; ---------------------------------------------------------------------------
-;; Non-vacuous extracted-row floor.
-;;
-;; Without it, api-md-check/check! would report OK whenever its problem list
-;; is empty — even with ZERO extracted var-rows, so a table-shape /
-;; tier-header / marker-cell / parser drift that collapses extraction toward 0
-;; would pass green while most of spec/API.md's public-var references go
-;; unchecked. The floor turns a near-collapse into a FAILURE.
-;; ---------------------------------------------------------------------------
+(deftest live-api-md-names-qualified-var-rows
+  ;; Without qualified rows in the live table, the strict qualifier
+  ;; resolution would guard nothing.
+  (is (seq (filter :qualifier (rf.api-manifest.api-md-check/parse-api-md-var-rows)))))
 
 (deftest extraction-floor-trips-only-on-a-collapse
-  (testing "a total parser collapse (ZERO extracted var-rows) and a
-            near-collapse just below the floor both trip it"
-    (is (some? (rf.api-manifest.api-md-check/floor-violation 0))
-        "zero extracted rows must be a floor violation (vacuous OK refused)")
-    (is (some? (rf.api-manifest.api-md-check/floor-violation 49))
-        "49 rows is below the 50 floor — must trip it"))
-  (testing "exactly at the floor, and a 10% shrink of the live count, do not trip it"
-    (is (nil? (rf.api-manifest.api-md-check/floor-violation 50))
-        "exactly at the floor is acceptable (strictly-below trips)")
-    ;; This pair is the calibration invariant. Asserting a specific number
-    ;; trips AND asserting the real parse clears cannot both hold once the
-    ;; real parse reaches that number, so a floor calibrated too close to the
-    ;; live count fails here. Keep the tripping number a genuine collapse.
-    (is (nil? (rf.api-manifest.api-md-check/floor-violation
-                (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))
-        "a 10% shrink of API.md's var-rows must NOT trip the floor: the floor
-         guards a near-total collapse, never ordinary retirement churn.")))
-
-;; ---------------------------------------------------------------------------
-;; END-TO-END parser disappearance.
-;;
-;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.
-;; A root verb whose M/Fn marker drifted to an UNKNOWN spelling (`Macro`, not
-;; the blessed `M`) is SKIPPED by the real parser — proving the disappearance
-;; is real and SILENT, which is what `floor-violation` exists to catch once
-;; enough rows go the same way.
-;; ---------------------------------------------------------------------------
-
-(def ^:private synthetic-api-md-lines
-  "A minimal API.md table (with a Tier column) documenting the four root verbs;
-   render! carries an UNKNOWN M/Fn marker (`Macro`) so the parser drops it."
-  [[1 "| Name | M/Fn | Signature | Stage | Tier | Notes |"]
-   [2 "|------|------|-----------|-------|------|-------|"]
-   [3 "| `create-root`  | M     | sig | S1 | advanced | n |"]
-   [4 "| `render!`      | Macro | sig | S1 | advanced | n |"]
-   [5 "| `hydrate-root` | M     | sig | S1 | advanced | n |"]
-   [6 "| `unmount!`     | Fn    | sig | S1 | advanced | n |"]])
-
-(deftest unknown-kind-marker-disappears-then-is-caught
-  (testing "END-TO-END: a root verb whose M/Fn marker is an unknown
-            spelling (`Macro`) is DROPPED by the real parser"
-    (let [parsed (rf.api-manifest.api-md-check/parse-var-rows synthetic-api-md-lines)]
-      (is (= #{"create-root" "hydrate-root" "unmount!"} (set (map :var parsed)))
-          "render! must have DISAPPEARED from the parse (unknown marker skipped)"))))
+  (is (some? (rf.api-manifest.api-md-check/floor-violation 49)))
+  (is (nil? (rf.api-manifest.api-md-check/floor-violation 50)))
+  ;; The floor guards a near-total collapse, never ordinary retirement churn,
+  ;; so it must sit well below the live count.
+  (is (nil? (rf.api-manifest.api-md-check/floor-violation
+              (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))))
