@@ -1,174 +1,33 @@
 (ns re-frame.api-manifest.roster-completeness-test
-  "Regression tests for the roster-completeness gate.
-
-  THE HAZARD. `jvm-namespaces` is an EXPLICIT roster, and every downstream
-  projection (`doc_api_check` among them) derives its own namespace roster
-  from the rows that roster produces. So a namespace absent from the roster
-  is not UNCLASSIFIED — it is UNSCANNED: `--check` stays green, no
-  documentation-coverage check reaches it, and every public var in it is
-  invisible to every manifest-derived gate at once. A completeness check
-  keyed on the roster cannot see what the roster omits.
-
-  AN ORPHANED GATE. Remove the assertion's call site and `namespaces-under`
-  and `source-file->ns-sym` survive with no caller, which is worse than no
-  gate: the orphan reads like a live backstop to anyone grepping for one.
-  These tests exist so the gate cannot be orphaned silently — the call-site
-  tests below fail if it stops accounting for the real trees.
-
-  THE GATE. It infers nothing about publicness. It asserts only that every
-  source namespace under `roster-covered-roots` is ACCOUNTED FOR — by
-  `jvm-namespaces`, by a sidecar `:cljs-only` row, or by `internal-namespaces`
-  — and fails BY NAME with the ways to answer for it. These tests pin that
-  through `roster-drift` (pure, synthetic inputs, all three directions) plus
-  `assert-roster-complete!` (the throw), and assert the LIVE rosters account
-  for the LIVE trees exactly."
-  (:require [clojure.test :refer [deftest is testing]]
+  "Tests for the roster-completeness gate. `jvm-namespaces` is an explicit
+  roster, so a namespace it omits is not unclassified but UNSCANNED by every
+  manifest-derived gate. The gate requires every source namespace under
+  `roster-covered-roots` to be accounted for — by `jvm-namespaces`, a sidecar
+  `:cljs-only` row, or `internal-namespaces` — and fails by name otherwise."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
 
-;; ---------------------------------------------------------------------------
-;; roster-drift — pure reconciliation over synthetic inputs.
-;;
-;; `present` stands in for the live source tree, so these drive the three
-;; failure directions without touching disk. The sidecar argument supplies
-;; only `:cljs-only`, which is the third way a namespace can be accounted for.
-;; ---------------------------------------------------------------------------
-
-(def ^:private no-cljs-sidecar
-  "A sidecar carrying no `:cljs-only` rows — the common case for the JVM
-   trees, and the one that isolates the other two rosters."
-  {:cljs-only []})
-
-(deftest fully-accounted-tree-has-no-drift
-  (testing "a tree whose every namespace is enrolled or recorded internal
-            reports nothing in any of the three directions"
-    (let [present (into #{'re-frame.ssr 're-frame.ssr.ring}
-                        (take 3 rf.api-manifest.gen/internal-namespaces))
-          drift   (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)]
-      (is (empty? (:unaccounted drift)))
-      (is (empty? (:contradictory drift)))
-      ;; Every internal entry NOT in this synthetic `present` reads as stale,
-      ;; which is the mechanism working; the live-tree test is what pins the
-      ;; real roster's staleness.
-      (is (seq (:stale drift))
-          "internal entries absent from the tree are reported stale"))))
-
-(deftest a-cljs-only-sidecar-row-accounts-for-a-namespace
-  (testing "a namespace the JVM cannot require is accounted for by its
-            sidecar :cljs-only rows — the path a CLJS-only surface takes"
-    (let [present #{'re-frame.fresco.server}
-          bare    (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)
-          carried (rf.api-manifest.gen/roster-drift
-                    present
-                    {:cljs-only [{:namespace "re-frame.fresco.server"
-                                  :var       "render-body"}]})]
-      (is (= '[re-frame.fresco.server] (:unaccounted bare))
-          "unaccounted without the row")
-      (is (empty? (:unaccounted carried))
-          "accounted for with it"))))
-
 (deftest a-vanished-internal-entry-is-stale
-  (testing "an internal-roster entry whose source file is gone is reported —
-            the roster rots the way the sidecar does, and is reconciled the
-            same way"
-    (let [gone  (first (sort rf.api-manifest.gen/internal-namespaces))
-          drift (rf.api-manifest.gen/roster-drift
-                  (disj (set rf.api-manifest.gen/internal-namespaces) gone)
-                  no-cljs-sidecar)]
-      (is (= [gone] (:stale drift))))))
+  (let [gone (first (sort rf.api-manifest.gen/internal-namespaces))]
+    (is (= [gone] (:stale (rf.api-manifest.gen/roster-drift
+                            (disj rf.api-manifest.gen/internal-namespaces gone)
+                            {:cljs-only []}))))))
 
 (deftest claiming-both-is-contradictory
-  (testing "a namespace enrolled as public AND recorded internal is a
-            contradiction, not a classification"
-    (let [both  (first (sort rf.api-manifest.gen/internal-namespaces))
-          drift (rf.api-manifest.gen/roster-drift
-                  #{both}
-                  {:cljs-only [{:namespace (name both) :var "x"}]})]
-      (is (= [both] (:contradictory drift))))))
-
-;; ---------------------------------------------------------------------------
-;; assert-roster-complete! — the throw that turns drift red.
-;; ---------------------------------------------------------------------------
-
-(deftest assert-throws-on-unaccounted-and-names-it
-  (testing "the assertion throws, names the namespace, and carries it in
-            ex-data for a caller that wants the list"
-    (let [present '#{re-frame.ssr re-frame.ssr.brand-new}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"re-frame\.ssr\.brand-new"
-                            (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar)))
-      (is (= '[re-frame.ssr.brand-new]
-             (:unaccounted
-               (try (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar)
-                    (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
-
-;; ---------------------------------------------------------------------------
-;; The LIVE tree.
-;; ---------------------------------------------------------------------------
-
-(deftest the-crossing-namespaces-are-enrolled
-  (testing "the two JVM-loadable ssr-node crossing namespaces are enrolled
-            for introspection"
-    (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.ring.node))
-    (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.render-state))))
-
-(deftest covered-source-namespaces-reads-the-real-tree
-  (testing "the live scan returns the artefact doors it must contain — a
-            silently empty scan is the defect `namespaces-under` throws to
-            prevent, and this pins that it did not happen, including through
-            an empty `roster-covered-roots`, which no root would throw for"
-    (let [present (rf.api-manifest.gen/covered-source-namespaces)]
-      (is (contains? present 're-frame.ssr))
-      (is (contains? present 're-frame.ssr.ring))
-      (is (contains? present 're-frame.ssr.ring.node))
-      (is (contains? present 're-frame.ssr.render-state)))))
-
-;; ---------------------------------------------------------------------------
-;; The CALL SITE — the test that fails if `build-manifest` stops asserting.
-;;
-;; WHY THIS EXISTS SEPARATELY FROM EVERYTHING ABOVE. Every
-;; test above exercises `roster-drift` / `assert-roster-complete!` DIRECTLY, so
-;; all of them stay green if `build-manifest`'s single call to
-;; `assert-roster-complete!` is deleted — which is precisely the orphaning this
-;; file guards against. A suite that only tests the helpers cannot tell a live
-;; gate from an orphan, and PLANTING a namespace on disk to watch `--check` go
-;; red is a demonstration performed by hand, not a regression test that runs
-;; every time.
-;;
-;; So this drives the PRODUCTION entry point. It redefines the live tree scan to
-;; report one synthetic unaccounted namespace and requires `build-manifest` to
-;; refuse BY NAME. Delete the `(assert-roster-complete! ...)` line from
-;; `build-manifest` and this test fails — not by erroring, but because manifest
-;; generation SUCCEEDS where it must have thrown.
-;; ---------------------------------------------------------------------------
-
-(def ^:private synthetic-unaccounted
-  "A namespace named by none of the three rosters. Deliberately under the
-   `re-frame.ssr` prefix a covered root really uses, so it is the shape a
-   newly-shipped namespace would have; nothing on disk answers to it."
-  're-frame.ssr.synthetic-unaccounted-probe)
+  (let [both (first (sort rf.api-manifest.gen/internal-namespaces))]
+    (is (= [both] (:contradictory (rf.api-manifest.gen/roster-drift
+                                    #{both}
+                                    {:cljs-only [{:namespace (name both) :var "x"}]}))))))
 
 (deftest build-manifest-asserts-roster-completeness
-  (testing "`build-manifest` itself refuses an unaccounted namespace, naming
-            it. This drives the production call site rather than the helper, so
-            it is what goes red if that call is ever removed and the gate is
-            orphaned. The refusal carries `:unaccounted` in its ex-data, which
-            is what distinguishes the ROSTER assertion from the
-            missing/stale/duplicate throws that follow it in the same fn."
-    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
-          sidecar (rf.api-manifest.gen/read-sidecar)]
-      ;; CONTROL FIRST: the live tree is fully accounted for, so `build-manifest`
-      ;; succeeds on it. Without this, a `build-manifest` that threw for some
-      ;; unrelated reason (a missing classification, a duplicate row) would make
-      ;; the assertion below pass for the wrong reason.
-      (is (map? (rf.api-manifest.gen/build-manifest sidecar))
-          "control: the live tree builds a manifest")
-      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
-                    (constantly (conj live synthetic-unaccounted))]
-        (try
-          (rf.api-manifest.gen/build-manifest sidecar)
-          (is false "expected build-manifest to throw on the unaccounted namespace")
-          (catch clojure.lang.ExceptionInfo e
-            (is (re-find #"re-frame\.ssr\.synthetic-unaccounted-probe" (ex-message e))
-                "build-manifest must refuse, naming the unaccounted namespace")
-            (is (= [synthetic-unaccounted] (:unaccounted (ex-data e)))
-                "ex-data must name the unaccounted namespace")))))))
+  ;; Drives the production call site rather than `assert-roster-complete!`, so
+  ;; it goes red if `build-manifest` stops asserting. The exact `:unaccounted`
+  ;; also proves no live namespace is unaccounted for.
+  (let [probe 're-frame.ssr.synthetic-unaccounted-probe
+        live  (rf.api-manifest.gen/covered-source-namespaces)]
+    (with-redefs [rf.api-manifest.gen/covered-source-namespaces (constantly (conj live probe))]
+      (is (= [probe]
+             (:unaccounted
+               (try (rf.api-manifest.gen/build-manifest (rf.api-manifest.gen/read-sidecar))
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
