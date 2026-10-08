@@ -68,7 +68,7 @@
         (rf.error-emit/clear-error-listeners!)
         (rf/destroy-frame! :probe)))))
 
-(deftest every-query-vector-category-egresses-raw-on-both-routes
+(deftest every-query-vector-category-egresses-raw
   ;; Enumerated by what `:event` carries, not by a `sub-*` prefix, which would
   ;; miss the `:subscribe` realm of the realm-ambiguous frame-destroyed error.
   ;; The internal raw-event? marker never reaches the sink.
@@ -86,7 +86,7 @@
               (mapv #(select-keys % [:kind :error :event :re-frame.projection/raw-event?]) sink)])
           (str error-kw)))))
 
-(deftest dispatched-event-errors-keep-their-elision-on-both-routes
+(deftest dispatched-event-error-still-elides-on-both-routes
   ;; A dispatched event's coordinate is payload, not identity: a handler error
   ;; and the `:dispatch` realm of frame-destroyed both elide it.
   (doseq [[error-kw attrs] [[:rf.error/handler-exception nil]
