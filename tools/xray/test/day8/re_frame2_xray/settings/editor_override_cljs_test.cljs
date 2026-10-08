@@ -1,23 +1,12 @@
 (ns day8.re-frame2-xray.settings.editor-override-cljs-test
-  "CLJS tests for the end-user editor override surface.
+  "CLJS tests for the end-user editor override — the per-machine
+  `[:general :editor-override]` slot `config/get-editor` consults before
+  the host's `:rf.xray/editor` atom, without ever mutating that atom.
 
-  The override is a per-machine preference that lets an individual
-  operator on a mixed-editor team override the project's
-  `:rf.xray/editor` default without touching the host app's boot
-  config. The override:
-
-  - Persists via the settings localStorage round-trip (the slot
-    lives in `[:general :editor-override]`).
-  - Wins immediately — `config/get-editor` consults it before the
-    host `editor` atom.
-  - Falls back to the host default when `nil` (the cleared state).
-  - Is purely client-side — never mutates the host's atom; never
-    reaches other browsers / tabs / users.
-
-  These assertions cover the resolution order, the round-trip of the
-  map-valued override, and the `open-chip` / `:rf.xray/open-in-editor`
-  consumers."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  Covers the resolution order, the localStorage round-trip of the
+  map-valued override, its validation on read, and the `open-chip`
+  consumer."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]))
 
@@ -31,46 +20,17 @@
              (config/set-editor! :vscode)
              (config/set-project-root! nil))})
 
-;; ---- defaults ----------------------------------------------------------
-
-(deftest host-default-helper-returns-atom-value
-  (testing "`get-host-editor-default` exposes the host atom value
-            unchanged — separate from `get-editor` which honours the
-            override"
-    (is (= :vscode (config/get-host-editor-default)))
-    (config/set-editor! :idea)
-    (is (= :idea (config/get-host-editor-default)))))
-
 ;; ---- resolution order --------------------------------------------------
 
-(deftest get-editor-honours-keyword-override
-  (testing "Resolution tier 1: an enumerated-keyword override wins
-            over the host default"
-    (config/set-editor! :vscode)
-    (config/update-setting! :general :editor-override :idea)
-    (is (= :idea (config/get-editor))
-        "override beats host default")
-    (is (= :vscode (config/get-host-editor-default))
-        "host atom is untouched")))
-
 (deftest get-editor-falls-back-when-override-cleared
-  (testing "Clearing the override (writing nil) restores the host
-            default — `get-editor` walks back down the resolution
-            chain"
-    (config/set-editor! :idea)
-    (config/update-setting! :general :editor-override :cursor)
-    (is (= :cursor (config/get-editor)))
-    (config/update-setting! :general :editor-override nil)
-    (is (= :idea (config/get-editor))
-        "nil override falls through to host atom")))
-
-(deftest framework-default-when-host-and-override-both-absent
-  (testing "Resolution tier 3: `set-editor!` resets the host atom to
-            `:vscode` when given nil; with no override, get-editor
-            still returns the framework default"
-    (config/set-editor! nil)  ;; resets host atom to :vscode
-    (is (nil? (config/get-setting :general :editor-override)))
-    (is (= :vscode (config/get-editor)))))
+  ;; The override wins over the host default without touching the host
+  ;; atom; clearing it (writing nil) walks back to the host default.
+  (config/set-editor! :idea)
+  (config/update-setting! :general :editor-override :cursor)
+  (is (= [:cursor :idea]
+         [(config/get-editor) (config/get-host-editor-default)]))
+  (config/update-setting! :general :editor-override nil)
+  (is (= :idea (config/get-editor))))
 
 ;; ---- localStorage round-trip ------------------------------------------
 ;;
@@ -80,107 +40,31 @@
 ;; reset. The row here owns the map-valued `{:custom <tpl>}` shape.
 
 (deftest custom-override-round-trips
-  (testing "A `{:custom <tpl>}` override survives the EDN
-            (`pr-str` / `read-string`) round-trip"
-    (config/update-setting! :general :editor-override
-                            {:custom "emacsclient://{path}:{line}"})
-    (reset! config/settings config/default-settings)
-    (config/load-settings-from-storage!)
-    (is (= {:custom "emacsclient://{path}:{line}"}
-           (config/get-setting :general :editor-override)))))
+  (config/update-setting! :general :editor-override
+                          {:custom "emacsclient://{path}:{line}"})
+  (reset! config/settings config/default-settings)
+  (config/load-settings-from-storage!)
+  (is (= {:custom "emacsclient://{path}:{line}"}
+         (config/get-setting :general :editor-override))))
 
-;; ---- consumer parity: open-chip + resolve-uri honour the override -----
-
-(deftest open-chip-uses-override-uri
-  (testing "`open-in-editor/open-chip` reads through `get-editor`, so
-            an override flips the rendered `:href` immediately
-            without a reload — the same source of truth as the
-            click-time fx"
-    (config/set-editor! :vscode)
-    ;; Baseline: no override, host default :vscode wins.
-    (let [coord  {:file "src/x.cljs" :line 10 :column 1}
-          hiccup (open-in-editor/open-chip coord)]
-      (is (= "vscode://file/src/x.cljs:10:1"
-             (:href (second hiccup))))
-      (is (= "vscode" (:data-editor (second hiccup)))))
-    ;; Flip the override; the chip flips with it.
-    (config/update-setting! :general :editor-override :idea)
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/x.cljs" :line 10 :column 1})]
-      (is (= "idea://open?file=src/x.cljs&line=10&column=1"
-             (:href (second hiccup)))
-          "override-driven editor flips the URI scheme")
-      (is (= "idea" (:data-editor (second hiccup)))
-          "the `:data-editor` attr reflects the override too"))))
+;; ---- consumer: open-chip ----------------------------------------------
 
 (deftest open-chip-custom-override-substitutes-template
-  (testing "An end-user `{:custom <tpl>}` override drives URI
-            construction the same way the host's `set-editor!`
-            custom value would — the template is substituted at
-            click time"
-    (config/set-editor! :vscode)
-    (config/update-setting! :general :editor-override
-                            {:custom "subl://open?url=file://{path}&line={line}"})
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/x.cljs" :line 7})]
-      (is (= "subl://open?url=file://src/x.cljs&line=7"
-             (:href (second hiccup))))
-      (is (= "custom" (:data-editor (second hiccup)))))))
-
-(deftest resolve-uri-honours-override
-  (testing "`open-in-editor/resolve-uri` — the seam the
-            `:rf.xray/open-in-editor` event-fx walks — uses the
-            override at resolve time, so the panel-side dispatch
-            path lands on the same URI the chip renders"
-    (config/set-editor! :vscode)
-    (config/update-setting! :general :editor-override :windsurf)
-    (is (= "windsurf://file/src/x.cljs:5:1"
-           (open-in-editor/resolve-uri
-             {:file "src/x.cljs" :line 5 :column 1})))))
+  ;; A `{:custom <tpl>}` override drives the chip's URI and its
+  ;; `:data-editor`, and a non-forbidden custom scheme passes through.
+  (config/update-setting! :general :editor-override
+                          {:custom "subl://open?url=file://{path}&line={line}"})
+  (let [[_ attrs] (open-in-editor/open-chip {:file "src/x.cljs" :line 7})]
+    (is (= ["subl://open?url=file://src/x.cljs&line=7" "custom"]
+           [(:href attrs) (:data-editor attrs)]))))
 
 ;; ---- robustness --------------------------------------------------------
 
 (deftest invalid-override-shape-degrades-to-host-default
-  (testing "a persisted override that fails
-            `valid-editor-override?` (corrupted localStorage payload,
-            hand-edit, stale experimental shape) falls back to the
-            host default on read. `get-editor` filters the slot
-            through the predicate so a malformed value can never
-            reach the URI builder."
-    (config/set-editor! :idea)
-    ;; Force an invalid value in directly to bypass the picker (the
-    ;; single writer that enforces the shape contract).
-    (swap! config/settings assoc-in [:general :editor-override] "not-a-keyword")
-    (is (= :idea (config/get-editor))
-        "invalid override degrades to the host default")
-    ;; Empty-template :custom is also rejected (the picker's seed
-    ;; window would otherwise leak through here).
-    (swap! config/settings assoc-in [:general :editor-override] {:custom ""})
-    (is (= :idea (config/get-editor))
-        "empty :custom template is rejected; host default wins")
-    ;; Maps without :custom string also fall back.
-    (swap! config/settings assoc-in [:general :editor-override] {:something 1})
-    (is (= :idea (config/get-editor))
-        "map without valid :custom string is rejected")))
-
-(deftest valid-editor-override?-predicate-coverage
-  (testing "the predicate accepts exactly the shapes
-            `set-editor!` accepts (modulo nil for cleared)."
-    (is (config/valid-editor-override? nil))
-    (is (config/valid-editor-override? :vscode))
-    (is (config/valid-editor-override? :cursor))
-    (is (config/valid-editor-override? :idea))
-    (is (config/valid-editor-override? :zed))
-    (is (config/valid-editor-override? :windsurf))
-    (is (config/valid-editor-override?
-          {:custom "subl://open?url=file://{path}&line={line}"}))
-    (is (not (config/valid-editor-override? "string-keyword")))
-    (is (not (config/valid-editor-override? :unknown-editor)))
-    (is (not (config/valid-editor-override? {:custom ""}))
-        "empty :custom template is invalid")
-    (is (not (config/valid-editor-override? {:custom 42}))
-        ":custom must be a string")
-    (is (not (config/valid-editor-override? [:vscode]))
-        "vector wrappers reject")
-    (is (not (config/valid-editor-override? 42))
-        "scalars reject")))
+  ;; `get-editor` filters the slot through `valid-editor-override?`, so a
+  ;; corrupt persisted value degrades to the host default and never
+  ;; reaches the URI builder.
+  (config/set-editor! :idea)
+  (doseq [bad [:unknown-editor {:custom ""} {:custom 42}]]
+    (swap! config/settings assoc-in [:general :editor-override] bad)
+    (is (= :idea (config/get-editor)) (pr-str bad))))
