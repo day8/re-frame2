@@ -1,36 +1,15 @@
 (ns re-frame.resources-lifecycle-trace-ops-cljs-test
-  "Coverage for the lifecycle trace ops the `:rf.resource/*` trace family
-  enumerates in Spec 016 §Xray and AI tooling — the rows the Xray
-  lifecycle timeline / AI-Audit consume:
-
-    1. `:rf.resource/registered`     — one row per FIRST-TIME `reg-resource`
-                                       (frame-agnostic; first-time-only,
-                                       symmetric with :rf.route/registered);
-    2. `:rf.resource/owner-attached` — a NEW owner attached to an entry,
-                                       both on a fresh load (`:joined-in-flight?`
-                                       false) and on a dedupe join (true), and
-                                       NOT re-emitted for an already-present
-                                       owner (symmetric with :owner-released);
-    3. `:rf.resource/hydrate-refetch`— one per hydration refetch-plan entry
-                                       (the per-entry decision; distinct from
-                                       the ordinary refetch the route
-                                       integration then dispatches).
-
-  Also pins that the runtime emits exactly one suppression op
-  (`:rf.resource/stale-suppressed`); `:rf.resource/work-suppressed` is
-  never emitted. And it pins that `:rf.resource/cache-hit` IS emitted on a
-  fresh-skip ensure (an `ensure` of an already-`:loaded`, still-fresh
-  entry serves the cached value — no fetch, no in-flight join).
-
-  Per Spec 016 §Xray and AI tooling / §Active owners and causes."
+  "The lifecycle trace ops the Xray timeline and AI audit consume (Spec 016
+  §Xray and AI tooling): :rf.resource/registered on first registration only,
+  :rf.resource/owner-attached when a new owner lands (fresh load or dedupe
+  join), :rf.resource/hydrate-refetch per hydration refetch-plan entry, the
+  single :rf.resource/stale-suppressed op carrying the canonical reply
+  envelope, and :rf.resource/cache-hit on a fresh-skip ensure."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting require: the façade registers the
-   ;; :rf.resource/* events + subs + the generation cofx/fx these tests
-   ;; dispatch.
    [re-frame.resources]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
@@ -43,16 +22,8 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport + trace recorder ---------------------------------
-
-(def ^:private last-managed-args (atom nil))
-
-(defn- capturing-transport-fixture
-  "Override the real :rf.http/managed fx with a capturing no-op so ensure's
-  :loading entry write + lower-fx are deterministic and no real fetch fires."
-  [f]
-  (reset! last-managed-args nil)
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+(defn- capturing-transport-fixture [f]
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (f))
 
 (use-fixtures :each
@@ -62,9 +33,7 @@
   capturing-transport-fixture)
 
 (defn- record-resource-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.resource/*`-operation trace event emitted during it (in capture
-  order). The listener is unregistered in a `finally`."
+  "Run `body-fn`; return every :rf.resource/* trace event, in capture order."
   [body-fn]
   (let [seen (atom [])
         k    ::resource-trace-recorder]
@@ -77,15 +46,12 @@
          (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-(defn- ops
-  "The set of distinct :operation keywords across captured trace events."
-  [traces]
-  (into #{} (map :operation) traces))
+(defn- ops [traces] (into #{} (map :operation) traces))
 
-(defn- by-op
-  "Captured events for a given :operation, in capture order."
+(defn- tags-of
+  "The :tags of each captured event with `op`, in capture order."
   [traces op]
-  (filterv #(= op (:operation %)) traces))
+  (into [] (comp (filter #(= op (:operation %))) (map :tags)) traces))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -102,115 +68,69 @@
 (defn- entry [scoped-key]
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entry-path scoped-key)))
 
-;; ===========================================================================
-;; 1. :rf.resource/registered — first-time-only, frame-agnostic
-;; ===========================================================================
+(defn- ensure! [resource owner]
+  (rf/dispatch-sync [:rf.resource/ensure {:resource resource :scope :rf.scope/global
+                                          :params {:slug "w"} :owner owner}]))
+
+(defn- k-of [resource] (rf.resources.state/scoped-resource-key :rf.scope/global resource {:slug "w"}))
 
 (deftest reg-resource-emits-registered-trace
-  (testing "reg-resource fires :rf.resource/registered with the resource id +
-            the static policy summary (Spec 016 §Xray and AI tooling)"
-    (let [traces (record-resource-traces!
-                   #(rf/reg-resource :rt/article
-                                     (article-spec {:stale-after-ms 60000
-                                                    :gc-after-ms    300000})
-                                     article-spec-request))
-          evs    (by-op traces :rf.resource/registered)]
-      (is (= 1 (count evs))
-          "exactly one :rf.resource/registered for a fresh reg-resource")
-      (let [tags (:tags (first evs))]
-        (is (= :rt/article      (:resource-id tags))    ":resource-id in tags")
-        (is (= :rf.scope/global (:scope-policy tags))   ":scope-policy in tags")
-        (is (= 60000            (:stale-after-ms tags)) ":stale-after-ms in tags")
-        (is (= 300000           (:gc-after-ms tags))    ":gc-after-ms in tags")))))
+  (let [[tags :as all] (tags-of (record-resource-traces!
+                                  #(rf/reg-resource :rt/article
+                                                    (article-spec {:stale-after-ms 60000
+                                                                   :gc-after-ms    300000})
+                                                    article-spec-request))
+                                :rf.resource/registered)]
+    (is (= [1 {:resource-id :rt/article :scope-policy :rf.scope/global
+               :stale-after-ms 60000 :gc-after-ms 300000}]
+           [(count all) (select-keys tags [:resource-id :scope-policy :stale-after-ms :gc-after-ms])])
+        "one registered row carrying the static policy summary")))
 
 (deftest registered-fires-first-time-only
-  (testing "re-registration does NOT re-emit :rf.resource/registered (the
-            cross-kind :rf.registry/handler-replaced trace is the hot-reload
-            signal) — symmetric with :rf.route/registered / :rf.flow/registered"
-    (rf/reg-resource :rt/once (article-spec) article-spec-request)
-    (let [traces (record-resource-traces!
-                   #(rf/reg-resource :rt/once (article-spec {:stale-after-ms 1}) article-spec-request))]
-      (is (empty? (by-op traces :rf.resource/registered))
-          "re-registration emits no :rf.resource/registered"))))
-
-;; ===========================================================================
-;; 2. :rf.resource/owner-attached — a new owner attached to an entry
-;; ===========================================================================
+  ;; :rf.registry/handler-replaced is the hot-reload signal
+  (rf/reg-resource :rt/once (article-spec) article-spec-request)
+  (is (empty? (tags-of (record-resource-traces!
+                         #(rf/reg-resource :rt/once (article-spec {:stale-after-ms 1}) article-spec-request))
+                       :rf.resource/registered))))
 
 (deftest owner-attached-on-fresh-load
   (rf/reg-resource :oa/article (article-spec) article-spec-request)
-  (testing "an ensure that fresh-loads AND attaches a NEW owner emits
-            :rf.resource/owner-attached (:joined-in-flight? false)"
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :oa/article {:slug "w"})
-          traces (record-resource-traces!
-                   #(rf/dispatch-sync
-                      [:rf.resource/ensure {:resource :oa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :oa 1]}]))
-          evs    (by-op traces :rf.resource/owner-attached)]
-      (is (= 1 (count evs)) "one owner-attached on a fresh load with an owner")
-      (let [tags (:tags (first evs))]
-        (is (= [:app :oa 1] (:owner tags))           ":owner in tags")
-        (is (= scoped-key     (:resource/key tags))    ":resource/key in tags")
-        (is (false?           (:joined-in-flight? tags)) "fresh load: not a join")))))
+  (is (= [{:owner [:app :oa 1] :resource/key (k-of :oa/article) :joined-in-flight? false}]
+         (mapv #(select-keys % [:owner :resource/key :joined-in-flight?])
+               (tags-of (record-resource-traces! #(ensure! :oa/article [:app :oa 1]))
+                        :rf.resource/owner-attached)))))
 
 (deftest owner-attached-on-dedupe-join
   (rf/reg-resource :oa/join (article-spec) article-spec-request)
-  (testing "a second ensure that JOINS an in-flight request but attaches a NEW
-            owner emits :rf.resource/owner-attached (:joined-in-flight? true)"
-    (rf/dispatch-sync
-      [:rf.resource/ensure {:resource :oa/join :scope :rf.scope/global
-                            :params {:slug "w"} :owner [:route :r 1]}])
-    (let [traces (record-resource-traces!
-                   #(rf/dispatch-sync
-                      [:rf.resource/ensure {:resource :oa/join :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :x 2]}]))
-          evs    (by-op traces :rf.resource/owner-attached)]
-      (is (seq (by-op traces :rf.resource/deduped)) "the second ensure deduped")
-      (is (= 1 (count evs)) "one owner-attached for the NEW owner on the join")
-      (let [tags (:tags (first evs))]
-        (is (= [:app :x 2] (:owner tags))            "the newly-joined owner")
-        (is (true?           (:joined-in-flight? tags)) "join: :joined-in-flight? true")))))
+  (ensure! :oa/join [:route :r 1])
+  (let [traces (record-resource-traces! #(ensure! :oa/join [:app :x 2]))]
+    (is (seq (tags-of traces :rf.resource/deduped)) "precondition: the second ensure deduped")
+    (is (= [{:owner [:app :x 2] :joined-in-flight? true}]
+           (mapv #(select-keys % [:owner :joined-in-flight?]) (tags-of traces :rf.resource/owner-attached)))
+        "one row for the newly joined owner")))
 
 (deftest owner-attached-not-re-emitted-for-existing-owner
   (rf/reg-resource :oa/same (article-spec) article-spec-request)
-  (testing "re-ensuring with an owner ALREADY on the entry does NOT re-emit
-            owner-attached (the owner did not change)"
-    (rf/dispatch-sync
-      [:rf.resource/ensure {:resource :oa/same :scope :rf.scope/global
-                            :params {:slug "w"} :owner [:app :same 1]}])
-    (let [traces (record-resource-traces!
-                   #(rf/dispatch-sync
-                      [:rf.resource/ensure {:resource :oa/same :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :same 1]}]))]
-      (is (empty? (by-op traces :rf.resource/owner-attached))
-          "no owner-attached when the owner was already present"))))
+  (ensure! :oa/same [:app :same 1])
+  (is (empty? (tags-of (record-resource-traces! #(ensure! :oa/same [:app :same 1]))
+                       :rf.resource/owner-attached))))
 
 (deftest owner-attached-absent-when-no-owner
+  ;; a cause is not an owner (Spec 016 §Active owners and causes)
   (rf/reg-resource :oa/none (article-spec) article-spec-request)
-  (testing "an ownerless ensure (e.g. a focus/reconnect refetch) emits no
-            owner-attached (a CAUSE, not an owner — Spec 016 §Active owners
-            and causes)"
-    (let [traces (record-resource-traces!
-                   #(rf/dispatch-sync
-                      [:rf.resource/ensure {:resource :oa/none :scope :rf.scope/global
-                                            :params {:slug "w"} :cause [:manual :x]}]))]
-      (is (empty? (by-op traces :rf.resource/owner-attached))
-          "no owner → no owner-attached"))))
-
-;; ===========================================================================
-;; 3. :rf.resource/hydrate-refetch — one per refetch-plan entry
-;; ===========================================================================
+  (is (empty? (tags-of (record-resource-traces!
+                         #(rf/dispatch-sync
+                            [:rf.resource/ensure {:resource :oa/none :scope :rf.scope/global
+                                                  :params {:slug "w"} :cause [:manual :x]}]))
+                       :rf.resource/owner-attached))))
 
 (defn- hydrated-runtime-db
-  "A runtime-db carrying three hydrated entries: a fresh-with-data entry (no
-  refetch), a stale-with-data entry (background refetch), and a metadata-only
-  entry (no data → refetch)."
+  "Three hydrated entries: fresh with data (no refetch), stale with data, and
+  metadata-only (no data)."
   [clock]
   (let [k-fresh [:rf.scope/global :h/fresh {:slug "f"}]
         k-stale [:rf.scope/global :h/stale {:slug "s"}]
         k-meta  [:rf.scope/global :h/meta  {:slug "m"}]]
-    ;; `:entries` is keyed on the byte `key-id`; each entry carries
-    ;; its own `:resource/key` (the refetch plan reads it for :resource-id).
     {rf.resources.state/resources-key
      {:entries
       {(rf.resources.state/key-id k-fresh) {:resource/key k-fresh :status :loaded :data {:x 1} :loaded-at (- clock 10) :stale-at (+ clock 10000)}
@@ -218,174 +138,62 @@
        (rf.resources.state/key-id k-meta)  {:resource/key k-meta  :status :loaded :data nil    :loaded-at (- clock 10) :stale-at (+ clock 10000)}}}}))
 
 (deftest hydrate-refetch-emits-per-plan-entry
-  (testing "hydrate-refetch-plan emits one :rf.resource/hydrate-refetch per
-            plan entry (stale + metadata-only), NOT for fresh-with-data, with
-            the per-entry :reason (Spec 016 §Xray and AI tooling)"
-    (let [clock  5000
-          rdb    (hydrated-runtime-db clock)
-          traces (record-resource-traces!
-                   #(rf.resources.ssr/hydrate-refetch-plan rdb clock :rf/default))
-          evs    (by-op traces :rf.resource/hydrate-refetch)
-          reasons (into {} (map (juxt #(get-in % [:tags :resource-id])
-                                      #(get-in % [:tags :reason]))) evs)]
-      (is (= 2 (count evs)) "two refetch rows: the stale + the metadata-only entry")
-      (is (= :stale   (reasons :h/stale)) "stale entry → :stale")
-      (is (= :no-data (reasons :h/meta))  "metadata-only entry → :no-data")
-      (is (not (contains? reasons :h/fresh)) "fresh-with-data entry has NO row")
-      (is (every? #(= :hydration (get-in % [:tags :cause])) evs)
-          "each row carries :cause :hydration"))))
-
-;; ===========================================================================
-;; 4. One suppression op; cache-hit on a fresh-skip ensure only
-;; ===========================================================================
-
-;; ---------------------------------------------------------------------------
-;; There is exactly ONE suppression op, and the canonical :status :stale reply
-;; envelope rides it — the PRODUCTION resource stale-suppression trace. A
-;; behaviour-only check (like the work-ledger / invalidation-GC stale
-;; tests) would pass even if the production stale branch discarded the
-;; canonical reply — emitting a bespoke trace with carried-generation ONLY
-;; and never lowering through the shared `re-frame.reply` substrate. These
-;; assertions pin the envelope — the SAME shape the machine
-;; `:rf.machine/done` stale path pins.
-;; ---------------------------------------------------------------------------
+  (let [clock 5000
+        rows  (tags-of (record-resource-traces!
+                         #(rf.resources.ssr/hydrate-refetch-plan (hydrated-runtime-db clock) clock :rf/default))
+                       :rf.resource/hydrate-refetch)]
+    (is (= [2 #{[:h/stale :stale :hydration] [:h/meta :no-data :hydration]}]
+           [(count rows) (set (map (juxt :resource-id :reason :cause) rows))])
+        "one row per refetched entry with its reason, none for the fresh one")))
 
 (deftest stale-suppressed-trace-carries-canonical-reply-envelope
+  ;; the envelope is what tooling reads; a behaviour-only check would pass a
+  ;; stale branch that skipped the shared re-frame.reply substrate
   (rf/reg-resource :rev/article (article-spec) article-spec-request)
-  (testing "a superseded resource reply (carried gen 1 vs current
-            gen 2) is recorded :status :stale / :rf.reply/work-status :suppressed via
-            the shared substrate, with the carried-vs-current generation pair
-            on the production :rf.resource/stale-suppressed trace; the app
-            target does NOT run (no entry write) and the ledger is :suppressed"
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :rev/article {:slug "w"})]
-      (rf/dispatch-sync
-        [:rf.resource/ensure {:resource :rev/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:app :rev 1]}])
-      (let [wid1 (:current-work (entry scoped-key))
-            traces
-            (record-resource-traces!
-              (fn []
-                ;; supersede with a refetch (mints generation 2), then land the
-                ;; OLD (generation-1) reply — the REAL production stale path.
-                (rf/dispatch-sync
-                  [:rf.resource/refetch {:resource :rev/article :scope :rf.scope/global
-                                         :params {:slug "w"}}])
-                (rf/dispatch-sync
-                  [:rf.resource.internal/succeeded
-                   {:resource/key scoped-key :work/id wid1 :generation 1
-                    :data {:stale "data"}}])))
-            sup  (first (by-op traces :rf.resource/stale-suppressed))]
-        (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
-        (is (not (contains? (ops traces) :rf.resource/work-suppressed))
-            ":rf.resource/work-suppressed is never emitted — stale-suppressed is the one suppression op")
-        (let [tags (:tags sup)]
-          ;; the bespoke facts ride alongside the envelope. There is no
-          ;; bare :work/id duplicate; the work identity rides
-          ;; ONLY as :rf.reply/work-id (asserted below).
-          (is (= scoped-key (:resource/key tags)))
-          (is (not (contains? tags :work/id))
-              "no bare :work/id duplicate on the stale-suppressed reply row")
-          (is (= :success   (:outcome tags)) "the stale reply's natural outcome diagnostic")
-          ;; CANONICAL reply-envelope vocabulary via the shared substrate
-          (is (= :stale (:rf.reply/status tags))
-              "the canonical :status :stale reply IS produced via re-frame.reply")
-          (is (= :suppressed (:rf.reply/work-status tags))
-              "the ledger terminal for a stale completion")
-          (is (= :rf.resource/superseded (:rf.reply/stale-reason tags)))
-          (is (= wid1 (:rf.reply/work-id tags)) "the canonical work identity")
-          ;; the carried-vs-current generation pair IS the supersession gate
-          (let [corr (:rf.reply/correlation tags)]
-            (is (= 1 (-> corr :generation :carried))
-                "carried generation off the stale reply token")
-            (is (= 2 (-> corr :generation :current))
-                "current generation is the LIVE entry's generation (gen 2)")
-            (is (= scoped-key (:resource/key corr)))))
-        ;; the app target did NOT run — the entry was NOT overwritten by
-        ;; the stale reply (still on gen 2, not :loaded with {:stale "data"}).
-        (let [e (entry scoped-key)]
-          (is (= 2 (:generation e)) "the stale reply did not touch the newer entry")
-          (is (not= {:stale "data"} (:data e)) "stale data was NOT written"))
-        ;; the ledger row settles terminal :suppressed.
-        (is (= :suppressed (:status (rf.resources.work-ledger/get-record
-                                      (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
-            "the work row settled terminal :suppressed")))))
+  (let [k (k-of :rev/article)]
+    (ensure! :rev/article [:app :rev 1])
+    (let [wid1   (:current-work (entry k))
+          traces (record-resource-traces!
+                   (fn []
+                     ;; a refetch mints generation 2; then the generation-1 reply lands
+                     (rf/dispatch-sync [:rf.resource/refetch {:resource :rev/article :scope :rf.scope/global
+                                                              :params {:slug "w"}}])
+                     (rf/dispatch-sync [:rf.resource.internal/succeeded
+                                        {:resource/key k :work/id wid1 :generation 1
+                                         :data {:stale "data"}}])))
+          tags   (first (tags-of traces :rf.resource/stale-suppressed))]
+      (is (not (contains? (ops traces) :rf.resource/work-suppressed)) "stale-suppressed is the one suppression op")
+      (is (= {:resource/key k :outcome :success :rf.reply/status :stale :rf.reply/work-status :suppressed
+              :rf.reply/stale-reason :rf.resource/superseded :rf.reply/work-id wid1}
+             (select-keys tags [:resource/key :outcome :rf.reply/status :rf.reply/work-status
+                                :rf.reply/stale-reason :rf.reply/work-id])))
+      (is (not (contains? tags :work/id)) "the work identity rides only as :rf.reply/work-id")
+      (is (= [1 2 k] ((juxt (comp :carried :generation) (comp :current :generation) :resource/key)
+                      (:rf.reply/correlation tags)))
+          "the carried-vs-current generation pair")
+      (is (= [2 false :suppressed]
+             [(:generation (entry k)) (= {:stale "data"} (:data (entry k)))
+              (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))])
+          "the stale reply wrote nothing and its work row settled :suppressed"))))
 
 (deftest cache-hit-emitted-on-fresh-ensure
-  ;; no :stale-after-ms → the entry is always fresh once loaded
-  ;; (entry-stale? false: neither :stale-at nor :invalidated-at set)
+  ;; no :stale-after-ms, so the loaded entry stays fresh
   (rf/reg-resource :ch/article (article-spec) article-spec-request)
-  (testing "an ensure of an already-:loaded, still-fresh entry serves the
-            cached value: it emits :rf.resource/cache-hit and starts NO new
-            load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip)"
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/article {:slug "w"})]
-      ;; load it once, then settle to :loaded (fresh: no stale policy)
-      (rf/dispatch-sync
-        [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:app :ch 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync
-          [:rf.resource.internal/succeeded
-           {:resource/key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
-      (is (= :loaded (:status (entry scoped-key))) "entry settled :loaded")
-      (let [gen-before (:generation (entry scoped-key))
-            data-before (:data (entry scoped-key))
-            traces (record-resource-traces!
-                     #(rf/dispatch-sync
-                        [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :ch 2]}]))
-            hits   (by-op traces :rf.resource/cache-hit)]
-        (is (= 1 (count hits)) "one :rf.resource/cache-hit on the fresh ensure")
-        (let [tags (:tags (first hits))]
-          (is (= scoped-key (:resource/key tags)) ":resource/key in tags")
-          (is (= [:app :ch 2] (:owner tags))    "the newly-attached owner in tags"))
-        (testing "fresh-skip starts NO new load: no fetch-started / work-started"
-          (is (not (contains? (ops traces) :rf.resource/fetch-started))
-              "no fetch-started on a cache-hit")
-          (is (not (contains? (ops traces) :rf.resource/work-started))
-              "no work-started on a cache-hit")
-          (is (not (contains? (ops traces) :rf.resource/deduped))
-              "a settled fresh entry is NOT a dedupe (no in-flight work)"))
-        (testing "the entry is unchanged (same generation + data; owner attached)"
-          (let [e (entry scoped-key)]
-            (is (= gen-before (:generation e)) "no new generation")
-            (is (identical? data-before (:data e)) "same data value (cache served)")
-            (is (nil? (:current-work e)) "no in-flight work record")
-            (is (contains? (:active-owners e) [:app :ch 2]) "new owner attached")))
-        (testing "the new owner is recorded as :rf.resource/owner-attached"
-          (let [oa (by-op traces :rf.resource/owner-attached)]
-            (is (= 1 (count oa)) "one owner-attached for the newly-attached owner")
-            (is (false? (:joined-in-flight? (:tags (first oa))))
-                "fresh-skip is not an in-flight join")))))))
-
-(deftest stale-loaded-ensure-still-refetches
-  (rf/reg-resource :ch/stale (article-spec) article-spec-request)
-  (testing "a STALE :loaded entry STILL refetches on the next ensure —
-            fresh-skip must NOT swallow a stale refresh (negative case)"
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
-      (rf/dispatch-sync
-        [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:app :st 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync
-          [:rf.resource.internal/succeeded
-           {:resource/key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
-      ;; make it stale WITHOUT auto-refetch: release the owner, then invalidate
-      ;; (an inactive matched entry is marked stale but not refetched)
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :st 1]}])
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope :rf.scope/global :tags #{[:article "w"]}}])
-      (is (some? (:invalidated-at (entry scoped-key))) "entry marked stale")
-      (let [gen-before (:generation (entry scoped-key))
-            traces (record-resource-traces!
-                     #(rf/dispatch-sync
-                        [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :st 2]}]))]
-        (testing "a stale ensure refetches (fetch/work-started), NOT a cache-hit"
-          (is (not (contains? (ops traces) :rf.resource/cache-hit))
-              "no cache-hit on a stale entry")
-          (is (contains? (ops traces) :rf.resource/work-started)
-              "a stale ensure starts new work"))
-        (is (= (inc gen-before) (:generation (entry scoped-key)))
-            "a new generation was minted (refetch)")
-        (is (= :fetching (:status (entry scoped-key)))
-            "stale-while-revalidate: :fetching with prior data kept")))))
+  (let [k (k-of :ch/article)]
+    (ensure! :ch/article [:app :ch 1])
+    (rf/dispatch-sync [:rf.resource.internal/succeeded
+                       {:resource/key k :work/id (:current-work (entry k)) :generation 1 :data {:title "W"}}])
+    (let [before (entry k)
+          traces (record-resource-traces! #(ensure! :ch/article [:app :ch 2]))
+          e      (entry k)]
+      (is (= [{:resource/key k :owner [:app :ch 2]}]
+             (mapv #(select-keys % [:resource/key :owner]) (tags-of traces :rf.resource/cache-hit))))
+      (is (empty? (filter #{:rf.resource/fetch-started :rf.resource/work-started :rf.resource/deduped}
+                          (ops traces)))
+          "a fresh-skip starts no load and is not a dedupe")
+      (is (= [(:generation before) true nil true]
+             [(:generation e) (identical? (:data before) (:data e)) (:current-work e)
+              (contains? (:active-owners e) [:app :ch 2])])
+          "the cached value is served unchanged and the new owner attached")
+      (is (= [false] (mapv :joined-in-flight? (tags-of traces :rf.resource/owner-attached)))
+          "the new owner is recorded, not as an in-flight join"))))
