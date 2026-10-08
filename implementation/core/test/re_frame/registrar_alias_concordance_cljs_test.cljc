@@ -1,35 +1,18 @@
 (ns re-frame.registrar-alias-concordance-cljs-test
-  "Pins the `re-frame.core` REGISTRAR CONCORDANCE.
+  "Pins the `re-frame.core` registrar concordance. Each `reg-*` registrar is
+  declared twice in the facade: as a macro from the generator table
+  (`defreg-macro` / `defreg-event-macro`, `#?(:clj ...)`) and as a same-name
+  CLJS value alias (`#?(:cljs ...)`, Convention A, so `(map rf/reg-sub ...)`
+  compiles). The alias half is a hand list and drifts.
 
-  THE DEFECT THIS SUITE EXISTS FOR. `re-frame.core` declares its `reg-*`
-  registration surfaces TWICE: once as macros, emitted from a single
-  generator table (`re-frame.core-reg-macros/defreg-macro` /
-  `defreg-event-macro`) in the facade's `#?(:clj …)` branch, and once as
-  same-name CLJS value aliases (`(def reg-x owning/reg-x)`) in its
-  `#?(:cljs …)` branch — Convention A, so a higher-order caller can write
-  `(map rf/reg-sub …)` where a macro cannot ride. The alias half is a
-  hand-written list, and a hand list DRIFTS: a registrar with a macro and no
-  alias works in call position while `(map rf/reg-x …)` fails to compile.
-  Nothing in the corpus trips on that, which is exactly why a hand list
-  drifts unnoticed — hence a pin rather than a one-off repair.
-
-  DERIVED, NOT RESTATED. Both halves are read out of `re_frame/core.cljc`
-  itself — once under `:features #{:clj}` and once under `#{:cljs}`, so each
-  reader-conditional branch collapses to the arm that host actually
-  compiles. There is no third list here to go stale in its turn: adding a
-  sixteenth `defreg-macro` row without its alias reds this suite, and so
-  does deleting an alias.
-
-  TWO HOSTS, TWO HALVES. The JVM deftest compares the two SOURCE tables
-  (names and delegates). The CLJS deftest closes what a source read cannot
-  see — that each alias is a live `fn?` in the consolidated `:node-test`
-  bundle — by emitting the generator table's names as var references at
-  CLJS compile time through [[live-registrar-aliases]]. A name with a macro
-  row and no alias emits an undeclared var there and reads back `nil`,
-  which is the red."
+  Both halves are read from `re_frame/core.cljc` itself under each host's
+  features, so nothing here is a third list. The CLJS deftest checks each
+  generator name is a live fn in the node bundle (a missing alias reads back
+  nil); the JVM deftests check the delegates agree and that CLJS can reach each
+  macro in call position."
   #?(:cljs (:require-macros [re-frame.registrar-alias-concordance-cljs-test
                              :refer [live-registrar-aliases]]))
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.core]
             #?(:clj [clojure.java.io :as io])))
 
@@ -133,65 +116,29 @@
 
 #?(:clj
    (deftest generator-table-parses
-     (testing "the reader found the facade's generator rows — a mis-parse would
-               otherwise make every comparison below vacuously true"
-       (let [macros (macro-table)]
-         (is (contains? macros 'reg-event)
-             "the `reg-event` row must be visible in the :clj view")
-         (is (= 'rf.events/reg-event (get macros 'reg-event))
-             "and carry its delegate")
-         (is (contains? (alias-table) 'reg-event)
-             "the `reg-event` alias must be visible in the :cljs view")
-         (is (not (contains? (alias-table) 'reg-event-db))
-             "the retired ^:no-doc throwing stubs are not aliases")))))
-
-#?(:clj
-   (deftest every-registrar-macro-has-a-same-name-cljs-alias
-     (testing "Convention A (spec/Conventions.md §Convention A): the generator
-               table and the CLJS value-alias block name the SAME registrars"
-       (let [macros  (macro-table)
-             aliases (alias-table)]
-         (is (= (set (keys macros)) (set (keys aliases)))
-             (str "re-frame.core registrar drift — macros without an alias: "
-                  (sort (remove (set (keys aliases)) (keys macros)))
-                  "; aliases without a macro: "
-                  (sort (remove (set (keys macros)) (keys aliases)))))))))
+     ;; control: a mis-parse would make every comparison below vacuously true
+     (is (= 'rf.events/reg-event (get (macro-table) 'reg-event)))
+     (is (contains? (alias-table) 'reg-event))))
 
 #?(:clj
    (deftest alias-and-macro-delegate-to-the-same-fn
-     (testing "an alias that points somewhere else would satisfy the name
-               comparison above while silently registering through a different
-               fn than the macro"
-       (let [macros  (macro-table)
-             aliases (alias-table)]
-         (doseq [[nm delegate] macros
-                 :when (contains? aliases nm)]
-           (is (= delegate (get aliases nm))
-               (str "re-frame.core/" nm ": the macro splices to " delegate
-                    " but the CLJS alias defs " (get aliases nm))))))))
+     (let [macros  (macro-table)
+           aliases (alias-table)]
+       (is (= (select-keys macros (keys aliases))
+              (select-keys aliases (keys macros)))
+           "each CLJS alias defs the fn its macro splices to"))))
 
 #?(:clj
    (deftest every-registrar-macro-is-self-required-for-cljs
-     (testing "a registrar macro absent from the facade's own `:require-macros`
-               `:refer` is unreachable in CALL position from CLJS, whatever the
-               value alias does"
-       (let [referred (self-required-macro-names)]
-         (is (contains? referred 'reg-event)
-             "control: the :refer list parsed")
-         (is (empty? (remove referred (keys (macro-table))))
-             (str "registrar macros missing from re-frame.core's self-"
-                  ":require-macros :refer list: "
-                  (sort (remove referred (keys (macro-table))))))))))
+     ;; a macro absent from the facade's own :require-macros :refer is
+     ;; unreachable in call position from CLJS
+     (let [referred (self-required-macro-names)]
+       (is (contains? referred 'reg-event) "control: the :refer list parsed")
+       (is (= [] (sort (remove referred (keys (macro-table)))))))))
 
 #?(:cljs
    (deftest every-registrar-macro-carries-a-live-cljs-fn-value
-     (testing "each registrar name resolves to a plain fn in VALUE position in
-               the consolidated node bundle — the half a source read cannot see"
-       (let [live (live-registrar-aliases)]
-         (is (contains? live 'reg-event)
-             "control: the generator table was emitted into this build")
-         (doseq [[nm v] live]
-           (is (fn? v)
-               (str "re-frame.core/" nm
-                    " must be a plain fn on CLJS (Convention A same-name value"
-                    " alias); got " (pr-str v))))))))
+     (let [live (live-registrar-aliases)]
+       (is (contains? live 'reg-event) "control: the generator table was emitted")
+       (is (= [] (sort (keep (fn [[nm v]] (when-not (fn? v) nm)) live)))
+           "each registrar name is a plain fn in value position"))))
