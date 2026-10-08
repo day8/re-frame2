@@ -1,17 +1,8 @@
 (ns re-frame.story-save-variant-cljs-test
-  "CLJS-side tests for the save-current-canvas-state-as-variant flow.
-
-  Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The snippet generator, id derivation and dialog state machine are
-  pure `.cljc` with no reader conditional on their path; the JVM
-  `re-frame.story-save-variant-test` covers them, and
-  `re-frame.story.ui.save-variant-cljs-test` runs the generator on this
-  lane. This ns keeps the args snapshot and the save trigger running
-  under CLJS.
-
-  Browser-only behaviour (Reagent ratom, modal dialog rendering) lives
-  in the CLJS-only `re-frame.story.ui.save-variant` ns, which
-  `re-frame.story.ui.save-variant-cljs-test` covers."
+  "CLJS tests keeping the save-variant args snapshot and save trigger running
+  on this lane. The `.cljc` generator, id derivation and dialog state machine
+  are covered on the JVM by `re-frame.story-save-variant-test`; the Reagent
+  dialog by `re-frame.story.ui.save-variant-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.save-variant :as rf.story.save-variant]
@@ -31,22 +22,14 @@
 ;; ---- snapshot-args -------------------------------------------------------
 
 (deftest snapshot-args-returns-resolved-args
-  (rf.story/reg-variant :story.snap/v
-    {:args {:label "hello" :n 1}
-     :setup []})
-  (let [snap (rf.story.save-variant/snapshot-args :story.snap/v)]
-    (is (= "hello" (:label snap)))
-    (is (= 1 (:n snap)))))
-
-(deftest snapshot-args-includes-cell-overrides
-  (rf.story/reg-variant :story.snap/v
-    {:args   {:label "before" :keep "yes"}
-     :setup []})
-  (let [snap (rf.story.save-variant/snapshot-args
-               :story.snap/v
-               {:cell-overrides {:label "after"}})]
-    (is (= "after" (:label snap)))
-    (is (= "yes"   (:keep snap)))))
+  (rf.story/reg-variant :story.snap/v {:args {:label "hello" :n 1 :keep "yes"} :setup []})
+  (is (= {:label "hello" :n 1 :keep "yes"}
+         (select-keys (rf.story.save-variant/snapshot-args :story.snap/v) [:label :n :keep])))
+  (is (= {:label "after" :keep "yes"}
+         (select-keys (rf.story.save-variant/snapshot-args :story.snap/v
+                                                           {:cell-overrides {:label "after"}})
+                      [:label :keep]))
+      "cell overrides win over the variant args"))
 
 ;; ---- save-current-as-variant! --------------------------------------------
 
@@ -58,7 +41,5 @@
       (fn [source-id args & _]
         (reset! captured {:source-id source-id :args args})))
     (let [result (rf.story.save-variant/save-current-as-variant!)]
-      (is (some? @captured))
-      (is (= :story.snap/v (:source-id @captured)))
-      (is (= 7 (-> @captured :args :n)))
-      (is (= :story.snap/v (:source-id result))))))
+      (is (= [:story.snap/v 7 :story.snap/v]
+             [(:source-id @captured) (-> @captured :args :n) (:source-id result)])))))
