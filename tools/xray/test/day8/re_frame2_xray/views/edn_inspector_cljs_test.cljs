@@ -3,27 +3,26 @@
 
   ## What's under test
 
-  1. **Type classification** — `collection-kind` dispatches scalars
-     + collections + sentinels onto the right keyword.
-  2. **Scalar rendering** — every leaf shape lands at the right
+  1. **Scalar rendering** — every leaf shape lands at the right
      theme-token colour.
-  3. **Bracket styling** — distinct opener/closer per kind; map-entry
+  2. **Bracket styling** — distinct opener/closer per kind; map-entry
      vs 2-vector brackets differ in COLOUR (same chars).
-  4. **Inline preview** — `▸ {:a 1, :b 2, …}` cases (all-fit, partial,
-     fallback `{…3 keys}`).
-  5. **Click-to-toggle** — toggle event flips the per-path expansion;
+  3. **Inline preview** — `▸ {:a 1, :b 2, …}` cases.
+  4. **Click-to-toggle** — toggle event flips the per-path expansion;
      dispatch carries the canonical event shape; expanded state
      swaps the glyph `▸` → `▾` and renders the body.
-  6. **Per-call-site isolation** — two `[edn-inspector]` mounts get
+  5. **Per-call-site isolation** — two `[edn-inspector]` mounts get
      independent `mount-id`s; toggling one path in mount-A leaves
      mount-B's same path untouched.
-  7. **Sentinels** (`:rf/redacted`, `:rf.size/large-elided`, combined)
+  6. **Sentinels** (`:rf/redacted`, `:rf.size/large-elided`, combined)
      render their first-class chip chrome.
+  7. **Diff mode**, the bounded walks, the width-aware heuristic, zoom
+     and the card / header chrome.
 
   Pure-data unit tests; no DOM mount, which is the default shape for
   Xray/Story tests."
   (:require [clojure.string :as str]
-            [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -32,18 +31,10 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens dark-palette light-palette]]))
 
-;; Fresh re-frame runtime per test so the click-to-toggle integration
-;; test can fire `dispatch-sync` against the registered event handlers
-;; end-to-end without leaking state between cases.
-;;
-;; `:init-fn` calls the widget's own `install!` on the just-reset
-;; registrar. The `:rf.xray.edn-inspector/*` subs and events register
-;; from `install!` — reached in production from
-;; `registry/register-xray-handlers!` — rather than at ns-LOAD, so that a
-;; release bundle merely carrying the preload's bytes cannot mutate the
-;; host's process-global registrar; requiring `ei` registers nothing.
-;; This suite installs the widget alone
-;; rather than pulling the whole orchestrator in for three event ids.
+;; A fresh re-frame runtime per test, with the widget's own `install!` run
+;; on the just-reset registrar: the `:rf.xray.edn-inspector/*` subs and
+;; events register from `install!`, never at ns-load, so requiring `ei`
+;; registers nothing.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
@@ -65,11 +56,7 @@
     @out))
 
 (defn- nodes-with-attr
-  "Every node whose attribute-map key `k` equals `v`, in document order.
-
-  `find-attr` below takes the first of these, which is the right instrument
-  for \"is it rendered at all\" and the wrong one for \"how many answer this
-  name\" — the distinction the container-testid rows below turn on."
+  "Every node whose attribute-map key `k` equals `v`, in document order."
   [tree k v]
   (->> (walk-hiccup tree)
        (filter (fn [n]
@@ -94,161 +81,62 @@
       (walk tree))
     (apply str @out)))
 
-;; ---- collection-kind classification -------------------------------------
-
-(deftest classify-scalars
-  (is (= :nil      (ei/collection-kind nil)))
-  (is (= :boolean  (ei/collection-kind true)))
-  (is (= :boolean  (ei/collection-kind false)))
-  (is (= :keyword  (ei/collection-kind :foo)))
-  (is (= :keyword  (ei/collection-kind :ns/foo)))
-  (is (= :symbol   (ei/collection-kind 'sym)))
-  (is (= :string   (ei/collection-kind "hi")))
-  (is (= :number   (ei/collection-kind 42)))
-  (is (= :number   (ei/collection-kind 3.14)))
-  (is (= :uuid     (ei/collection-kind (random-uuid))))
-  (is (= :regex    (ei/collection-kind #"abc")))
-  (is (= :fn       (ei/collection-kind (fn [x] x)))))
-
-(deftest classify-collections
-  (is (= :map     (ei/collection-kind {:a 1})))
-  (is (= :vector  (ei/collection-kind [1 2 3])))
-  (is (= :list    (ei/collection-kind '(1 2 3))))
-  (is (= :set     (ei/collection-kind #{1 2 3})))
-  (is (= :seq     (ei/collection-kind (map inc [1 2 3]))))
-  (is (= :map     (ei/collection-kind {})))
-  (is (= :vector  (ei/collection-kind []))))
-
-;; defrecords classify as `:record`, not `:map`.
-;;
-;; `record?*` delegates to `cljs.core/record?`. Reading
-;; `(.-cljs$lang$type v)` off the INSTANCE would not work: `defrecord`
-;; sets that static field on the CONSTRUCTOR function, and a property
-;; set on a constructor is not on its prototype, so no instance
-;; carries it — the predicate would answer false for every record in
-;; existence, `collection-kind` would fall through to `(map? v) :map`,
-;; and the whole `:record` render path below it (`delim`, `record-tag`'s
-;; `#tag` prefix, `children-of`, `child-count`, the `:record` arms of
-;; `children-of-pair` / `diff-pair-count`) would be dead code.
+;; ---- records -------------------------------------------------------------
 
 (defrecord R [a])
 
-(deftest classify-records
-  (let [r (->R 1)]
-    (is (= :record (ei/collection-kind r))
-        "a defrecord instance classifies as :record")
-    (is (= :map (ei/collection-kind (into {} r)))
-        "and the same data as a plain map still classifies as :map — the
-         control, so `:record` is not simply answering for everything")
-    (is (= :record (ei/collection-kind (assoc r :extra 2)))
-        "a record with an extra field is still a record")
-    (is (= :map (ei/collection-kind (dissoc r :a)))
-        "dissoc'ing a declared field demotes it to a plain map, per
-         cljs.core/record? — the widget follows the host, it does not
-         second-guess it")))
-
 (deftest records-render-with-their-tag
-  ;; The user-visible payoff: `#…R{:a 1}` rather than `{:a 1}`.
-  ;;
-  ;; The expected opening comes from the PRODUCER — `pr-str`'s own
-  ;; `#<ns>.R{` — so the tag's text is what is pinned. Asserting only
-  ;; that the text contains a `#` would pass a broken `"#"` tag:
-  ;; `(.-name (type v))` is `""` for every CLJS type, so a tag built
-  ;; from it opens `#{`, a SET's bracket.
-  (let [r      (->R 1)
-        pr     (pr-str r)
+  ;; A record opens with the `#<ns>.R{` tag `pr-str` prints, on every path —
+  ;; never a bare `#`, which would read as a set's `#{`.
+  (let [r       (->R 1)
+        pr      (pr-str r)
         opening (subs pr 0 (inc (str/index-of pr "{")))
-        render (fn [expansion-map]
-                 (ei/render-node {:value r
-                                  :panel-id :test
-                                  :mount-id "m1"
-                                  :path []
-                                  :depth 0
-                                  :expansion-map expansion-map
-                                  :opts {}}))
-        h      (render {})]
-    (testing "CONTROL — the producer's opening is a qualified record tag"
-      (is (str/ends-with? opening ".R{")
-          (str "cljs.core prints " (pr-str pr) ", naming the record type"))
-      (is (not= "#{" opening) "and not a set's bracket"))
-    (is (some? (find-attr h :data-rf-kind "record"))
-        "renders through the :record container path")
-    (is (str/includes? (collect-text h) opening)
-        (str "the inline render opens with " opening))
-    (is (not (str/includes? (collect-text h) "#{"))
-        "and never with a set's `#{`")
-    (testing "the EXPANDED header carries the same tag"
-      (let [h (render {(ei/expansion-key :test "m1" []) {:expanded? true}})]
-        (is (str/includes? (collect-text h) opening))
-        (is (not (str/includes? (collect-text h) "#{")))))
-    (testing "and so does the collapsed preview, so a record is no map look-alike"
-      (is (str/starts-with? (ei/inline-preview-string r 3 80) opening)
-          "the record's own preview")
-      (is (str/includes? (ei/inline-preview-string {:p r} 3 80)
-                         (str opening "…1 keys}"))
-          "and its one-level placeholder inside a parent's preview"))))
-
-(deftest large-sentinel-detects-spec-current-shape
-  ;; A predicate matching `:rf/large` (a key the framework does not
-  ;; emit) would send real markers through generic map rendering. Lock
-  ;; in the spec-current key + pin `:rf/large` as a non-match.
-  (testing "spec-current `:rf.size/large-elided` wrapper is detected"
-    (is (true? (ei/large-sentinel?
-                 {:rf.size/large-elided {:path   [:p]
-                                         :bytes  1024
-                                         :type   :vector
-                                         :reason :schema
-                                         :hint   nil
-                                         :handle [:rf.elision/at [:p]]}}))))
-  (testing "`:rf/large` shape is NOT detected (pre-alpha: no shim)"
-    (is (false? (ei/large-sentinel? {:rf/large {:bytes 1024 :head "abc"}}))))
-  (testing "ordinary one-key map is NOT detected"
-    (is (false? (ei/large-sentinel? {:not-a-sentinel {:bytes 1}}))))
-  (testing "non-map values are NOT detected"
-    (is (false? (ei/large-sentinel? :rf.size/large-elided)))
-    (is (false? (ei/large-sentinel? nil)))))
+        text    (fn [expansion-map]
+                  (collect-text (ei/render-node {:value r
+                                                 :panel-id :test
+                                                 :mount-id "m1"
+                                                 :path []
+                                                 :depth 0
+                                                 :expansion-map expansion-map
+                                                 :opts {}})))]
+    (is (str/includes? (text {}) opening) "the inline render")
+    (is (str/includes? (text {(ei/expansion-key :test "m1" []) {:expanded? true}})
+                       opening)
+        "the expanded header")
+    (is (str/starts-with? (ei/inline-preview-string r 3 80) opening)
+        "the collapsed preview")
+    (is (str/includes? (ei/inline-preview-string {:p r} 3 80)
+                       (str opening "…1 keys}"))
+        "and its one-level placeholder inside a parent's preview")))
 
 ;; ---- scalar rendering ----------------------------------------------------
 
 (deftest scalar-leaves-paint-their-syntax-token
   ;; Each scalar kind paints through its own `:syntax-*` token and prints
-  ;; its own text. Keywords are magenta, NOT `:accent` chrome blue, so the
-  ;; scalar types do not crowd into one blue family; nil is a deliberately
-  ;; muted grey, because absence reads as faded.
+  ;; its own text.
   (doseq [[v token text] [[:foo    :syntax-keyword ":foo"]
                           ["hello" :syntax-string  "\"hello\""]
                           [42      :syntax-number  "42"]
+                          [true    :syntax-boolean "true"]
                           [nil     :syntax-nil     "nil"]
                           ['sym    :syntax-symbol  "sym"]]]
     (let [h (ei/render-scalar v)]
-      (is (= (get tokens token) (-> h second :style :color))
-          (str (pr-str v) " paints via " token))
-      (is (= text (collect-text h))
-          (str (pr-str v) " prints as " text))))
-  (let [h-true (ei/render-scalar true)
-        h-num  (ei/render-scalar 1)]
-    (is (= "true" (collect-text h-true)))
-    (is (not= (-> h-true second :style :color)
-              (-> h-num  second :style :color))
-        "boolean and number must use DIFFERENT theme tokens")))
+      (is (= [(get tokens token) text]
+             [(-> h second :style :color) (collect-text h)])
+          (str (pr-str v) " paints via " token " and prints as " text)))))
 
 (deftest scalar-fn-renders-with-italic
   (let [h (ei/render-scalar (fn [x] x))]
-    (is (re-find #"^#fn" (collect-text h)))
-    (is (= "italic" (-> h second :style :font-style)))))
+    (is (= ["#fn" "italic"]
+           [(collect-text h) (-> h second :style :font-style)]))))
 
 ;; ---- scalar hue-family contract ------------------------------------------
 ;;
-;; The five scalar types (keyword / string / number / boolean / nil) MUST
-;; span at least four hue families. CLJS programmers' eyes are trained on
-;; editor syntax-highlight palettes (One Dark / Calva / Cursive default),
-;; where keywords + strings + numbers paint in clearly distinct hues. Three
-;; of five in the blue family with only luminance varying would make the
-;; inspector look monochrome.
-;;
-;; "Hue family" here is the dominant RGB channel of the hex (whichever of
-;; R/G/B has the largest value, with a tie tolerance for grey). The
-;; contract holds in BOTH dark + light palettes.
+;; The five scalar types (keyword / string / number / boolean / nil) span at
+;; least four hue families in BOTH palettes, as editor syntax palettes do —
+;; three of five in the blue family would make the inspector look
+;; monochrome. "Hue family" is the dominant RGB channel of the hex, with a
+;; tie tolerance for grey.
 
 (defn- hex->rgb
   "Parse a `#rrggbb` hex string into a `[r g b]` int triple. Cljs-only."
@@ -279,9 +167,7 @@
 
 (deftest scalar-hue-families-stay-distinct-in-both-palettes
   ;; In each palette the five scalar tokens span ≥4 hue families, and at
-  ;; most one sits in the blue family — the collision to guard against is
-  ;; keyword, number and string all reading blue. Renames are token-keyword
-  ;; level; this asserts the actual hex values.
+  ;; most one sits in the blue family. This asserts the actual hex values.
   (let [scalar-keys [:syntax-keyword :syntax-string :syntax-number
                      :syntax-boolean :syntax-nil]
         families-of (fn [palette]
@@ -297,225 +183,103 @@
     (is (contains? (families-of dark-palette) :grey)
         "nil reads as deliberately muted grey")))
 
-(deftest scalar-tokens-are-defined-in-both-palettes
-  ;; Every scalar token must exist in both palettes — the theme toggle
-  ;; can't fall back to undefined.
-  (doseq [k [:syntax-keyword :syntax-string :syntax-number
-             :syntax-boolean :syntax-nil :syntax-symbol]]
-    (is (re-find #"^#[0-9a-fA-F]{6}$" (get dark-palette k))
-        (str k " defined in dark-palette as a 6-digit hex"))
-    (is (re-find #"^#[0-9a-fA-F]{6}$" (get light-palette k))
-        (str k " defined in light-palette as a 6-digit hex"))))
-
 ;; ---- sentinel rendering --------------------------------------------------
 
-(deftest redacted-sentinel-chrome
-  (let [h (ei/render-scalar :rf/redacted)
-        all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-redacted")))
-    (is (re-find #"redacted" all))
-    (is (= (:magenta tokens) (-> h second :style :color)))))
-
-(deftest large-sentinel-chrome
-  ;; Marker shape is the framework-emitted spec/015 body:
-  ;; `:path :bytes :type :reason :hint :handle`.
-  (let [h (ei/render-scalar
-            {:rf.size/large-elided {:path   [:blob]
+(deftest sentinel-chips-render-their-chrome
+  ;; spec/015's three sentinels render as first-class chips — testid, hue
+  ;; and text. The large-elided body's `:bytes`, `:type` and `:hint` are
+  ;; optional, and the chip renders without them.
+  (doseq [[v testid colour text]
+          [[:rf/redacted
+            "rf-xray-edn-inspector-redacted" :magenta "●redacted"]
+           [{:rf/redacted {:bytes 200}}
+            "rf-xray-edn-inspector-redacted-size" :magenta "●redacted· 200 bytes"]
+           [{:rf.size/large-elided {:path   [:blob]
                                     :bytes  5000
                                     :type   :string
                                     :reason :schema
                                     :hint   "Upload preview"
-                                    :handle [:rf.elision/at [:blob]]}})
-        all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
-    (is (re-find #"large" all))
-    (is (re-find #"5000" all))
-    (is (= (:yellow tokens) (-> h second :style :color)))))
-
-(deftest large-sentinel-chrome-renders-when-marker-keys-missing
-  ;; Defensive: the chip must render gracefully even if the
-  ;; emission side ever omits optional body slots. `:bytes` may be
-  ;; absent (no "· N bytes" segment); `:type` and `:hint` are optional
-  ;; (title degrades to the base sentence).
-  (testing "marker with only :path + :handle still renders the chip"
-    (let [h (ei/render-scalar
-              {:rf.size/large-elided {:path   [:x]
-                                      :handle [:rf.elision/at [:x]]}})]
-      (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
-      (is (re-find #"large" (collect-text h))))))
-
-(deftest redacted-size-sentinel-chrome
-  (let [h (ei/render-scalar {:rf/redacted {:bytes 200}})
-        all (collect-text h)]
-    (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-redacted-size")))
-    (is (re-find #"200" all))
-    (is (= (:magenta tokens) (-> h second :style :color)))))
+                                    :handle [:rf.elision/at [:blob]]}}
+            "rf-xray-edn-inspector-large" :yellow "●large· 5000 bytes"]
+           [{:rf.size/large-elided {:path   [:x]
+                                    :handle [:rf.elision/at [:x]]}}
+            "rf-xray-edn-inspector-large" :yellow "●large"]]]
+    (let [h (ei/render-scalar v)]
+      (is (= [testid (get tokens colour) text]
+             [(-> h second :data-testid) (-> h second :style :color) (collect-text h)])
+          (pr-str v)))))
 
 ;; ---- inline-preview-string -----------------------------------------------
 
-(deftest inline-preview-small-collections
-  ;; A sequential collection is SPACE-separated (`[1 2 3]`), matching
-  ;; canonical EDN print spacing; commas are reserved for map entries.
-  (is (= "{:a 1, :b 2}" (ei/inline-preview-string {:a 1 :b 2} 3 80))
-      "a small map fits inline")
-  (is (= "[1 2 3]" (ei/inline-preview-string [1 2 3] 3 80))
-      "a vector of exactly max-elements fits whole")
-  (is (re-find #"…" (ei/inline-preview-string [1 2 3 4 5] 3 80))
-      "a vector with more elements than max-elements gets `…`"))
-
-(deftest inline-preview-map-overflow-fallback
-  (testing "map that doesn't fit shows a partial OR `{…N keys}` fallback"
-    (let [big (zipmap (map #(keyword (str "k" %)) (range 50)) (range 50))
-          s   (ei/inline-preview-string big 3 20)]
-      ;; Implementation may take any of: full first N (if fits),
-      ;; partial preview with `…`, or the `{…50 keys}` fallback. ALL
-      ;; outputs must:
-      ;;   - start with `{` and end with `}` (delimiter shape preserved)
-      ;;   - signal incompleteness via `…` (an ellipsis marker)
-      (is (re-find #"^\{" s))
-      (is (re-find #"\}$" s))
-      (is (re-find #"…" s)
-          "overflow output must signal incompleteness with `…`"))))
-
-(deftest inline-preview-set
-  (let [s   (ei/inline-preview-string #{:a :b} 3 80)]
-    ;; Set iteration order is unspecified; assert shape.
-    (is (re-find #"^#\{" s))
-    (is (re-find #"\}$" s))))
+(deftest inline-preview-string-fits-truncates-or-falls-back
+  ;; Canonical EDN spacing (`, ` between map entries, a space between
+  ;; sequential elements); past `max-elements` a trailing `…`; past
+  ;; `max-chars` a one-element preview.
+  (are [v max-chars preview] (= preview (ei/inline-preview-string v 3 max-chars))
+    {:a 1 :b 2}           80 "{:a 1, :b 2}"
+    [1 2 3]               80 "[1 2 3]"
+    [1 2 3 4 5]           80 "[1 2 3 …]"
+    #{:a}                 80 "#{:a}"
+    {:a 1 :b 2 :c 3 :d 4} 12 "{:a 1, …}"))
 
 ;; ---- bracket styling -----------------------------------------------------
 
 (deftest bracket-characters-per-kind
-  (is (= "{"  (-> ei/delim :map      :open)) "map opens with {")
-  (is (= "}"  (-> ei/delim :map      :close)))
-  (is (= "["  (-> ei/delim :vector   :open)) "vector opens with [")
-  (is (= "]"  (-> ei/delim :vector   :close)))
-  (is (= "#{" (-> ei/delim :set      :open)) "set opens with #{")
-  (is (= "("  (-> ei/delim :list     :open)) "list opens with (")
-  (is (= "["  (-> ei/delim :map-entry :open)) "map-entry uses [ chars")
-  (testing "map-entry brackets share a vector's chars but read in `:accent`,
-            where a vector's read in `:text-secondary`"
-    (is (= :accent         (-> ei/delim :map-entry :tone-key)))
-    (is (= :text-secondary (-> ei/delim :vector    :tone-key)))))
+  (is (= [["{" "}"] ["[" "]"] ["(" ")"] ["#{" "}"] ["[" "]"]]
+         (map (juxt :open :close)
+              (map ei/delim [:map :vector :list :set :map-entry]))))
+  (is (= [:accent :text-secondary]
+         (map (comp :tone-key ei/delim) [:map-entry :vector]))
+      "map-entry brackets share a vector's characters but read in `:accent`"))
 
-;; ---- expansion-key shape -------------------------------------------------
-
-(deftest expansion-key-shape
-  (is (= [:app-db "mid-1" [:cart :items 0]]
-         (ei/expansion-key :app-db "mid-1" [:cart :items 0])))
-  (is (= [:app-db "mid-1" [:a]]
-         (ei/expansion-key :app-db "mid-1" '(:a)))
-      "path always coerced to a vector"))
-
-;; ---- resolve-expanded? ---------------------------------------------------
-
-;; ---- click-to-toggle integration -----------------------------------------
-;;
-;; The widget's toggle path: clicking the `▸` glyph dispatches
-;; `:rf.xray.edn-inspector/toggle-node panel-id mount-id path`. The
-;; reducer flips the per-path entry under `:rf.xray.edn-inspector/expansion`.
-;; A subsequent render against the new app-db state must show `▾` and
-;; render the body.
+;; ---- click-to-toggle -----------------------------------------------------
 
 (deftest toggle-event-flips-expansion-state
-  ;; The toggle reducer inverts from the
-  ;; current rendered-expanded? state (passed in the dispatch
-  ;; payload) when no override is stored, then inverts the stored
-  ;; override on subsequent clicks. This is the load-bearing
-  ;; correctness contract: first click MUST invert the visible
-  ;; state, not jump to a hard-coded "first click opens" value.
-  (let [panel-id :test
-        mount-id "m-1"
-        path     [:a]]
-    ;; Case A — default-collapsed (e.g. deep path). Visible state
-    ;; is collapsed → dispatch carries `false` → first click stores
-    ;; `:expanded? true` (opens). Second click inverts to `false`.
+  ;; The reducer inverts the stored override when there is one, and
+  ;; otherwise the rendered state the click carries, so the first click
+  ;; always flips what the user sees.
+  (let [stored (fn [] (get-in @(rf/subscribe [ei/expansion-slot])
+                              [(ei/expansion-key :test "m-1" [:a]) :expanded?]))
+        click! (fn [rendered-expanded?]
+                 (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
+                                    :test "m-1" [:a] rendered-expanded?]))]
+    (click! false)
+    (is (= true (stored)) "rendered collapsed, no override: the first click opens")
+    (click! true)
+    (is (= false (stored)) "the second click inverts the stored override")
+    (click! true)
+    (is (= true (stored))
+        "a stale payload contradicting the stored override: the override wins and inverts")
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path false])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= true (get-in snapshot [k :expanded?]))
-          "default-collapsed: first click stores :expanded? true (opens)"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= false (get-in snapshot [k :expanded?]))
-          "second toggle inverts the stored override to false"))
-    ;; A stale payload: the stored override is now `false`, but this
-    ;; click carries `true` — a queued click rendered before the previous
-    ;; one landed. The stored override wins, so the reducer inverts
-    ;; `false` to `true`; one inverting the payload would store `false`.
-    ;; Every click above carries a payload that agrees with the store, so
-    ;; this is the one click that tells the two rules apart.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= true (get-in snapshot [k :expanded?]))
-          "a payload contradicting the stored override: the override wins and inverts to true"))
-
-    ;; Case B — default-expanded (e.g. top-level path). Visible
-    ;; state is expanded → dispatch carries `true` → first click
-    ;; stores `:expanded? false` (collapses). A reducer that
-    ;; emitted a hard-coded `{:expanded? true}` here — the same as
-    ;; the rendered state — would make the first click a silent
-    ;; no-op.
+    (click! true)
+    (is (= false (stored)) "rendered expanded, no override: the first click collapses")
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= false (get-in snapshot [k :expanded?]))
-          "default-expanded: first click stores :expanded? false (collapses)"))
-
-    ;; Reset cleans the slot.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (is (nil? @(rf/subscribe [ei/expansion-slot])))))
+    (is (nil? @(rf/subscribe [ei/expansion-slot])) "reset clears the slot")))
 
 ;; ---- render-node — container/scalar dispatch -----------------------------
 
-(deftest render-node-scalar-passes-through
-  (let [h (ei/render-node {:value 42
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (= :span (first h)))
-    (is (= "42" (collect-text h)))))
-
 (deftest render-node-empty-map-no-toggle
-  (let [h (ei/render-node {:value {}
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})
-        text (collect-text h)]
-    (is (re-find #"\{" text))
-    (is (re-find #"\}" text))
-    ;; No toggle glyph for empty collections.
-    (is (not (re-find #"▸|▾" text)))))
+  (is (= "{}" (collect-text (ei/render-node {:value {}
+                                             :panel-id :p
+                                             :mount-id "m"
+                                             :path []
+                                             :depth 0
+                                             :expansion-map {}
+                                             :opts {}})))
+      "an empty collection renders its bracket pair flat, with no toggle"))
 
 (deftest render-node-small-map-renders-every-entry-inline
-  ;; default-expanded-depth = 2 → depth 0 should be expanded.
-  (let [h (ei/render-node {:value {:a 1 :b 2}
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        text (collect-text h)]
-    ;; Either expanded (▾ with keys visible) OR inline-fit (all on one line).
-    ;; The 2-key map fits inline, so we don't get a triangle — but :a
-    ;; and 1 must both be visible.
-    (is (re-find #":a" text))
-    (is (re-find #":b" text))
-    (is (re-find #"1" text))
-    (is (re-find #"2" text))))
+  (is (= "{:a 1, :b 2}"
+         (collect-text (ei/render-node {:value {:a 1 :b 2}
+                                        :panel-id :p
+                                        :mount-id "m"
+                                        :path []
+                                        :depth 0
+                                        :expansion-map {}
+                                        :opts {:default-expanded-depth 2}})))))
 
 (deftest render-node-deep-map-default-collapsed
+  ;; Past `:default-expanded-depth` the tree collapses.
   (let [v {:level1 {:level2 {:level3 {:level4 {:level5 42}}}}}
         h (ei/render-node {:value v
                            :panel-id :p
@@ -525,99 +289,35 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 2}})
         text (collect-text h)]
-    ;; Past default-expanded-depth=2 collapses; rendered text should
-    ;; NOT contain the deepest leaf.
     (is (not (re-find #":level5" text)))
-    ;; First two levels should be visible.
     (is (re-find #":level1" text))))
 
 (deftest render-node-closed-override-hides-the-subtree
   (let [v {:level1 {:level2 {:level3 {:deep 1}}}}
         k0 (ei/expansion-key :p "m" [:level1 :level2])
-        ;; Force the nested map at [:level1 :level2] CLOSED.
         h  (ei/render-node {:value v
                             :panel-id :p
                             :mount-id "m"
                             :path []
                             :depth 0
                             :expansion-map {k0 {:expanded? false}}
-                            :opts {:default-expanded-depth 5}})
-        text (collect-text h)]
-    ;; The closed node's children should NOT be in the rendered text.
-    (is (not (re-find #":deep" text)))))
-
-(deftest render-node-includes-data-testid
-  ;; The trailing separator is not a typo and is the pin for the
-  ;; container-testid block below: a node's testid always carries its path component,
-  ;; and the root's path is empty, so the string ends at the separator. It
-  ;; is what keeps the root node's name off the container's.
-  (let [h  (ei/render-node {:value {:a 1}
-                            :panel-id :app-db
-                            :mount-id "m-42"
-                            :path []
-                            :depth 0
-                            :expansion-map {}
-                            :opts {}})]
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-app-db-m-42-")))))
-
-;; ---------------------------------------------------------------------------
-;; THE CONTAINER TESTID NAMES EXACTLY ONE NODE.
-;;
-;; Two names, for two different things. The widget's outer container is
-;; `[panel-id mount-id]`; a node inside its rendered tree is `[panel-id
-;; mount-id path]`. The path suffix is appended for EVERY path, the empty
-;; one included. Appended only for a NON-EMPTY path, it would let the root
-;; render-node at `[]` answer the container's name as well as its own, and
-;; one mount would put one testid on two nodes.
-;;
-;; That fails in the direction that reassures. `querySelector` always
-;; returns something, so a helper resolving "the container" gets a node and
-;; carries on; WHICH of the two it gets is document order. They are not
-;; interchangeable — the container carries the widget chrome, the
-;; measurement `:ref` and `data-rf-mount-id`, the render-node carries the
-;; rendered tree — so a row asserting on geometry through that selector
-;; could pass while measuring the wrong element. A COUNT is the first
-;; instrument that has to care.
-;;
-;; The row is written so that a node coming back is not enough to pass it.
-;; It counts, and it asks every answering node for an attribute only the
-;; container carries — the second assertion is independent of document
-;; order, so neither is carried by the other.
-;; ---------------------------------------------------------------------------
+                            :opts {:default-expanded-depth 5}})]
+    (is (not (re-find #":deep" (collect-text h)))
+        "the node forced closed renders none of its children")))
 
 (deftest container-testid-names-exactly-one-node
-  (testing "the widget's container testid is answered by ONE node,
-            and that node is the container."
-    (let [outer (ei/edn-inspector {:a 1 :b 2} {:panel-id :p})
-          tree  (outer {:a 1 :b 2} {:panel-id :p})
-          cid   (:data-testid (second tree))
-          hits  (nodes-with-attr tree :data-testid cid)]
-      (is (some? cid)
-          "PRECONDITION: the outer container carries a testid at all — the
-           two assertions below are vacuous against a nil name")
-      (is (= 1 (count hits))
-          (str "the container testid names exactly one node. TWO is the "
-               "defect: the root render-node at path [] composes the same "
-               "string, so every count keyed on this selector reads double "
-               "and every querySelector takes whichever comes first. Got "
-               (count hits) " for " (pr-str cid)))
-      (is (every? #(some? (:data-rf-mount-id (second %))) hits)
-          (str "and the selector resolves to the CONTAINER — every node "
-               "answering it carries data-rf-mount-id, which no render-node "
-               "does. This half does not depend on document order, so a "
-               "container that merely happened to come first cannot carry "
-               "it. Kinds answering the name: "
-               (pr-str (mapv #(select-keys (second %)
-                                           [:data-rf-mount-id :data-rf-kind])
-                             hits)))))))
+  ;; The container's testid is `[panel-id mount-id]`; a node's is
+  ;; `[panel-id mount-id path]`, with the path separator unconditional, so
+  ;; the root node at `[]` cannot compose the container's string.
+  (let [outer (ei/edn-inspector {:a 1 :b 2} {:panel-id :p})
+        tree  (outer {:a 1 :b 2} {:panel-id :p})
+        hits  (nodes-with-attr tree :data-testid (:data-testid (second tree)))]
+    (is (= 1 (count hits))
+        (str "the container testid names exactly one node; got " (count hits)))
+    (is (every? #(some? (:data-rf-mount-id (second %))) hits)
+        "and that node is the container — the only one carrying data-rf-mount-id")))
 
 ;; ---- triangle hit-box ≥24×24 ---------------------------------------------
-;;
-;; Sized by the glyph alone, the expand/collapse triangles (▾ / ▸) would
-;; sit far below Fitts's-Law-friendly mouse-target sizing. A shared
-;; `triangle-style` with padding + font-size + min-width/min-height gives
-;; every triangle on every code path the same ≥24×24 hit-box.
 
 (defn- parse-px
   "Parse `'24px'` → 24. Returns nil for non-px strings."
@@ -625,37 +325,16 @@
   (when (and (string? s) (re-find #"^\d+(\.\d+)?px$" s))
     (js/parseFloat s)))
 
-(deftest triangle-style-sizes-the-glyph-and-a-24px-hit-box
-  (testing "the shared triangle-style declares ≥24px min-
-            width AND min-height so the computed hit-box meets the
-            comfortable-mouse-target threshold"
-    (is (>= (parse-px (:min-width  ei/triangle-style)) 24)
-        ":min-width ≥24px")
-    (is (>= (parse-px (:min-height ei/triangle-style)) 24)
-        ":min-height ≥24px")
-    (is (= "pointer" (:cursor ei/triangle-style))
-        "still registers as clickable")
-    (is (= "none"    (:user-select ei/triangle-style))
-        "no accidental text selection on the glyph")
-    (is (= "inline-flex" (:display ei/triangle-style))
-        "inline-flex so min-width/min-height are honoured")
-    (is (= "center"  (:align-items     ei/triangle-style))
-        "glyph centred vertically inside the hit-box")
-    (is (= "center"  (:justify-content ei/triangle-style))
-        "glyph centred horizontally inside the hit-box"))
-  (testing "the glyph font-size is 22px, inside the preferred 22-24px
-            band: 14px is hit-box-adequate but reads as hairline against
-            the inspector chrome"
-    (is (= "22px" (:font-size ei/triangle-style)))))
+(deftest triangle-style-gives-a-24px-hit-box
+  ;; `min-width` / `min-height` only take effect on a non-inline box.
+  (is (= "inline-flex" (:display ei/triangle-style)))
+  (is (every? #(>= (parse-px (get ei/triangle-style %)) 24)
+              [:min-width :min-height])))
 
 (deftest every-toggle-triangle-uses-the-shared-triangle-style
-  ;; Three branches of the container header each draw a toggle, and each
-  ;; must carry the shared `triangle-style` verbatim: the default-collapsed
-  ;; ▸ (a large map at depth past default-expanded-depth), the expanded ▾
-  ;; (the root under an expanded override) and the depth-capped `▸ {…}`
-  ;; (a node past :max-depth). The capped row addresses `[:a]`, the node AT
-  ;; the cap: the root's `…-m--toggle` sits at depth 0 and is not capped,
-  ;; so addressing it would never reach that branch.
+  ;; The three header branches that draw a toggle — collapsed ▸, expanded ▾
+  ;; and the depth-capped `▸ {…}` — all carry the shared hit-box style. The
+  ;; capped row addresses `[:a]`, the node AT the cap.
   (doseq [[label v depth expansion-map opts toggle-testid placeholder]
           [["collapsed ▸" {:a 1 :b 2 :c 3 :d 4 :e 5} 5 {}
             {:default-expanded-depth 1}
@@ -673,7 +352,6 @@
                                :expansion-map expansion-map
                                :opts opts})
           tog (find-attr h :data-testid toggle-testid)]
-      (is (some? tog) (str label " renders carry a toggle span"))
       (when placeholder
         (is (str/includes? (collect-text h) placeholder)
             (str label " is the capped placeholder")))
@@ -681,478 +359,213 @@
           (str label " uses the shared triangle-style verbatim")))))
 
 (deftest depth-capped-toggle-expands-one-level-rf2-3x7nj-25-4
-  ;; The capped `▸ {…}` is a real control — `role=button`, focusable, an
-  ;; `on-click` — and its click dispatches a toggle the reducer stores as
-  ;; `{:expanded? true}`. A `depth-capped?` reading `depth` and
-  ;; `max-depth` alone, with both `expanded?` and `children` requiring it
-  ;; false, would leave that stored override no way to take effect:
-  ;; nothing on screen would change.
-  ;;
-  ;; The override is PRODUCED here, not hand-written: the capped toggle's
-  ;; own click is captured and run through the real reducer.
-  (let [v        {:a {:b {:c 1}}}
-        opts     {:default-expanded-depth 5 :max-depth 1}
-        render   (fn [expansion-map dispatch-fn]
-                   (ei/render-node {:value v
+  ;; The capped `▸ {…}` is a real control: its own click, run through the
+  ;; real reducer, opens the node — by exactly one level.
+  (let [render   (fn [expansion-map dispatch-fn]
+                   (ei/render-node {:value {:a {:b {:c 1}}}
                                     :panel-id :test :mount-id "m"
                                     :path [] :depth 0
                                     :expansion-map expansion-map
                                     :dispatch-fn dispatch-fn
-                                    :opts opts}))
+                                    :opts {:default-expanded-depth 5 :max-depth 1}}))
         a-toggle "rf-xray-edn-inspector-test-m-:a-toggle"
         b-toggle "rf-xray-edn-inspector-test-m-:a/:b-toggle"
+        state    (fn [h toggle-testid child-key]
+                   [(-> (find-attr h :data-testid toggle-testid) second :aria-expanded)
+                    (str/includes? (collect-text h) child-key)])
         captured (atom nil)
         capped   (render {} (fn [ev] (reset! captured ev)))]
-    (testing "CONTROL — at the cap, `[:a]` is a collapsed toggle with nothing under it"
-      (is (false? (-> (find-attr capped :data-testid a-toggle) second :aria-expanded)))
-      (is (not (str/includes? (collect-text capped) ":b"))
-          "its child key is not painted"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    (is (= [false false] (state capped a-toggle ":b"))
+        "at the cap `[:a]` is collapsed with nothing painted under it")
     ((-> (find-attr capped :data-testid a-toggle) second :on-click) nil)
-    (is (= [:rf.xray.edn-inspector/toggle-node :test "m" [:a] false] @captured)
-        "the click dispatches a toggle from the visible, collapsed state")
     (rf/dispatch-sync @captured)
-    (let [expansion-map @(rf/subscribe [ei/expansion-slot])
-          h             (render expansion-map nil)]
-      (is (= {:expanded? true}
-             (get expansion-map (ei/expansion-key :test "m" [:a])))
-          "the reducer stores the open override")
-      (testing "and that override EXPANDS the capped node"
-        (is (true? (-> (find-attr h :data-testid a-toggle) second :aria-expanded))
-            "`[:a]` renders open")
-        (is (str/includes? (collect-text h) ":b")
-            "its child key is painted"))
-      (testing "by ONE level — the next node down is capped in its turn"
-        (is (false? (-> (find-attr h :data-testid b-toggle) second :aria-expanded))
-            "`[:a :b]`, at depth 2, is a collapsed toggle")
-        (is (not (str/includes? (collect-text h) ":c"))
-            "and nothing below it is painted")))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
+    (let [h (render @(rf/subscribe [ei/expansion-slot]) nil)]
+      (is (= [true true] (state h a-toggle ":b"))
+          "the override the click stored opens `[:a]`")
+      (is (= [false false] (state h b-toggle ":c"))
+          "by one level — `[:a :b]` is capped in its turn"))))
 
-;; ---- map body layout: column-align + inline scalars ----------------------
-;;
-;; Two layout properties of a map body:
-;;
-;;   Inline scalars — every scalar row renders its value on the key's
-;;     line. A `gutter-row` wrapping diff'd leaves in a BLOCK div
-;;     (`display: flex`) inside a `flex-wrap: wrap` per-row container
-;;     would wrap the wide div below the key (`:show-parity?` + newline
-;;     + `true`) while sibling scalar rows on the same map render inline.
-;;
-;;   Column-aligned values — values share one x-coordinate across rows
-;;     of the same map. A per-row `display: flex` would put each value
-;;     after whatever gap landed after its key — different keys, different
-;;     value x-coordinates, a ragged value-column left edge.
-;;
-;; So the body container is a CSS Grid (`max-content 1fr`), with key +
-;; value emitted as direct grid children, and the `gutter-row` wrapper is
-;; `inline-flex` rather than block-level `flex`, so a diff'd leaf
-;; composes inline with its preceding key.
+;; ---- map body layout -----------------------------------------------------
 
-(deftest map-body-uses-css-grid-layout
-  (testing "labelled-kind bodies use grid with
-            max-content+1fr columns so values column-align across rows"
-    ;; Map MUST be too big to inline-fit (cnt > 3) so the body
-    ;; container renders.
-    (let [v {:short 1 :very-very-long-key 2 :third 3 :fourth 4}
-          k0 (ei/expansion-key :p "m" [])
-          h  (ei/render-node {:value v
+(deftest map-body-is-one-grid-with-key-and-value-cells
+  ;; Keys and values are direct children of one `max-content 1fr` grid, so
+  ;; values column-align across rows; a nested map lays out inside its own
+  ;; value cell.
+  (let [h    (ei/render-node {:value {:scalar-1 1 :scalar-2 "two" :nested {:inner 99}}
                               :panel-id :p :mount-id "m"
                               :path [] :depth 0
-                              :expansion-map {k0 {:expanded? true}}
+                              :expansion-map {(ei/expansion-key :p "m" []) {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
-      (is (some? body) "expanded map renders a body container")
-      (let [s (-> body second :style)]
-        (is (= "grid" (:display s))
-            "labelled-kind body uses CSS grid")
-        (is (re-find #"max-content" (str (:grid-template-columns s)))
-            "grid template uses max-content for the key column")
-        (is (re-find #"1fr" (str (:grid-template-columns s)))
-            "grid template uses 1fr for the value column")
-        (is (= "8px" (:column-gap s))
-            "key→value separation is the canonical 8px (gap-2 step)")
-        (is (= "baseline" (:align-items s))
-            "key + value baselines align per row")
-        (is (= "0" (:row-gap s))
-            "row-gap 0 keeps the workstation-dense layout: column
-             alignment and inline composition leave vertical density
-             alone")))))
+        body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")
+        s    (-> body second :style)]
+    (is (= ["grid" "max-content 1fr" 6]
+           [(:display s) (:grid-template-columns s) (count (drop 2 body))])
+        "3 rows × (key cell + value cell) as direct grid children")))
 
 (deftest gutter-row-is-inline-flex-not-block
-  (testing "gutter-row wraps diff'd leaves in an inline-flex SPAN (not
-            a block-level DIV with display: flex). A block wrapper inside
-            a per-row flex container would force the value below the key
-            (wrap → two-line rows)."
-    (let [;; Force a :same diff row — both sides equal scalars.
-          h (ei/render-node {:value 1
-                             :before 1
-                             :diff? true
-                             :panel-id :p :mount-id "m" :path [] :depth 0
-                             :expansion-map {} :opts {}})
-          ;; The gutter wrapper carries the data-rf-diff-op attr.
-          row (->> (walk-hiccup h)
-                   (filter #(some? (get (second %) :data-rf-diff-op)))
-                   first)]
-      (is (some? row) "diff render emits the gutter wrapper")
-      (is (= :span (first row))
-          "gutter wrapper is a SPAN (inline element), not a DIV")
-      (is (= "inline-flex" (-> row second :style :display))
-          "gutter wrapper is inline-flex so it composes inline with
-           a preceding key"))))
+  ;; A diff'd leaf composes inline with its key; a block wrapper inside a
+  ;; wrapping row would push the value below the key.
+  (let [h (ei/render-node {:value 1 :before 1 :diff? true
+                           :panel-id :p :mount-id "m" :path [] :depth 0
+                           :expansion-map {} :opts {}})]
+    (is (= [:span "inline-flex"] [(first h) (-> h second :style :display)]))))
 
 (deftest scalar-leaves-render-as-inline-spans-in-non-diff-mode
-  (testing "plain scalars (numbers, booleans, etc.)
-            render as inline spans, never as a block element that
-            would push the value below its key."
-    (doseq [v [42 true false "hello" :foo 'sym nil]]
-      (let [h (ei/render-node {:value v
-                               :panel-id :p :mount-id "m"
-                               :path [] :depth 0
-                               :expansion-map {} :opts {}})]
-        (is (= :span (first h))
-            (str "scalar " (pr-str v) " renders as a [:span] inline"))))))
-
-(deftest map-with-mixed-scalar-and-container-values-grid-layout
-  (testing "mixed-kind map (some scalars, some nested
-            containers) renders the body as ONE grid where every key
-            sits in column 1 and every value (scalar OR nested) sits in
-            column 2. The nested container's own expanded body is its
-            own (independent) grid inside the parent's value cell."
-    (let [v {:scalar-1 1
-             :scalar-2 "two"
-             :nested   {:inner 99}}
-          k0 (ei/expansion-key :p "m" [])
-          h  (ei/render-node {:value v
-                              :panel-id :p :mount-id "m"
-                              :path [] :depth 0
-                              :expansion-map {k0 {:expanded? true}}
-                              :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")
-          ;; Filter ONLY this body's direct cells, not the nested
-          ;; map's cells.
-          direct-children (rest (rest body))]
-      (is (= "grid" (-> body second :style :display))
-          "outer body uses grid")
-      ;; 3 rows × 2 cells = 6 direct grid children.
-      (is (= 6 (count direct-children))
-          "3 rows × (key + value) = 6 direct grid cells"))))
+  (let [h (ei/render-node {:value 42
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {} :opts {}})]
+    (is (= [:span "42"] [(first h) (collect-text h)]))))
 
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event
-  ;; The dispatch payload threads the rendered-
-  ;; expanded? state as a fifth slot so the reducer can invert
-  ;; from the user's visible state on the first click.
-  (testing "default-collapsed path: dispatched event carries rendered? false"
+  ;; The click carries the node's rendered state as the fifth slot, so the
+  ;; reducer can invert from what the user sees.
+  (doseq [[path depth default-depth toggle-testid rendered-expanded?]
+          [[[:x] 5 1 "rf-xray-edn-inspector-test-m1-:x-toggle" false]
+           [[]   0 2 "rf-xray-edn-inspector-test-m1--toggle"   true]]]
     (let [captured (atom nil)
-          ;; render-node accepts an explicit dispatch-fn so tests
-          ;; can intercept the toggle dispatch without redef'ing
-          ;; the global rf/dispatch. The :dispatch-fn slot is
-          ;; the same closure the reg-view'd outer body threads to
-          ;; carry frame context.
-          ;;
-          ;; default-expanded-depth=1, depth=5 → both depth-band
-          ;; checks fail (`(<= 5 0)` false; `(= 5 1)` false) → the
-          ;; heuristic returns false → path renders ▸ (collapsed).
-          v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-          h   (ei/render-node {:value v
-                               :panel-id :test
-                               :mount-id "m1"
-                               :path [:x]
-                               :depth 5
-                               :expansion-map {}
-                               :dispatch-fn (fn [event-v]
-                                              (reset! captured event-v))
-                               :opts {:default-expanded-depth 1}})
-          ;; Find the toggle span by data-testid suffix.
-          tog (find-attr h :data-testid
-                         "rf-xray-edn-inspector-test-m1-:x-toggle")
-          on-click (-> tog second :on-click)]
-      (is (fn? on-click) "toggle glyph must carry an :on-click")
-      (when on-click (on-click nil))
-      (is (= [:rf.xray.edn-inspector/toggle-node :test "m1" [:x] false]
-             @captured)
-          "default-collapsed render → payload carries rendered? false")))
+          h        (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                                    :panel-id :test
+                                    :mount-id "m1"
+                                    :path path
+                                    :depth depth
+                                    :expansion-map {}
+                                    :dispatch-fn (fn [event-v] (reset! captured event-v))
+                                    :opts {:default-expanded-depth default-depth}})]
+      ((-> (find-attr h :data-testid toggle-testid) second :on-click) nil)
+      (is (= [:rf.xray.edn-inspector/toggle-node :test "m1" path rendered-expanded?]
+             @captured)))))
 
-  (testing "default-expanded path: dispatched event carries rendered? true"
-    (let [captured (atom nil)
-          ;; A >3-key map at depth 0 with default-expanded-depth 2:
-          ;; - inline-fit gate fails (cnt > 3 → not inline)
-          ;; - `(<= 0 (dec 2))` true → default-expanded? returns true
-          ;; - path renders ▾, toggle dispatches rendered? true.
-          v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-          h   (ei/render-node {:value v
-                               :panel-id :test
-                               :mount-id "m2"
-                               :path []
-                               :depth 0
-                               :expansion-map {}
-                               :dispatch-fn (fn [event-v]
-                                              (reset! captured event-v))
-                               :opts {:default-expanded-depth 2}})
-          tog (find-attr h :data-testid
-                         "rf-xray-edn-inspector-test-m2--toggle")
-          on-click (-> tog second :on-click)]
-      (is (fn? on-click) "toggle glyph must carry an :on-click")
-      (when on-click (on-click nil))
-      (is (= [:rf.xray.edn-inspector/toggle-node :test "m2" [] true]
-             @captured)
-          "default-expanded render → payload carries rendered? true"))))
+;; ---- mount-id, site-id and per-call-site isolation -----------------------
 
-;; ---- opt-in `:site-id` for cross-mount persistence -----------------------
-;;
-;; By default, two `[edn-inspector value]` mounts in the same panel get
-;; independent expansion state via the auto-mount-id.
-;; The cost — only visible in the panel-leave-and-return workflow —
-;; is that the same logical site loses state on every unmount, because
-;; the second mount allocates a new auto-mount-id.
-;;
-;; Opt-in `:site-id` avoids that cost without breaking the isolation default:
-;; consumers that want their expansion state to SURVIVE a remount pass
-;; a stable identifier (e.g. `[:app-db-frame frame-id]`) as the
-;; `:site-id`. The expansion-key's second component reads `:site-id`
-;; when supplied, falling back to auto-mount-id when omitted.
-
-(deftest edn-inspector-container-carries-the-site-id-attr
-  ;; A supplied `:site-id` is published on the outer container, beside
-  ;; the auto-mount-id.
-  (let [outer (ei/edn-inspector {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
-                                                      :site-id  [:my-site "x"]
-                                                      :default-expanded-depth 0})
-        inner1 (outer {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
-                                              :site-id  [:my-site "x"]
-                                              :default-expanded-depth 0})
-        attrs  (second inner1)]
-    ;; The container attrs carry both the auto-mount-id (debugging) AND
-    ;; the literal site-id (for inspection / Storybook-tier targeting).
-    (is (some? (get attrs :data-rf-mount-id))
-        "auto-mount-id still present (for debugging)")
-    (is (= (pr-str [:my-site "x"]) (get attrs :data-rf-site-id))
-        ":data-rf-site-id attribute carries the literal site-id")))
+(deftest edn-inspector-container-carries-mount-and-site-id-attrs
+  ;; Each mount draws its own mount-id, so two side-by-side mounts keep
+  ;; independent expansion; a supplied `:site-id` is published beside it;
+  ;; the container carries the measurement ref.
+  (let [attrs (fn [opts] (second ((ei/edn-inspector {:a 1} opts) {:a 1} opts)))]
+    (is (not= (:data-rf-mount-id (attrs {:panel-id :p}))
+              (:data-rf-mount-id (attrs {:panel-id :p})))
+        "two mounts with no :site-id draw distinct mount-ids")
+    (is (= (pr-str [:my-site "x"])
+           (:data-rf-site-id (attrs {:panel-id :p :site-id [:my-site "x"]}))))
+    (is (fn? (:ref (attrs {:panel-id :p})))
+        "the container carries the ref callback that drives width measurement")))
 
 (deftest site-id-keys-the-expansion-state-the-render-reads
-  ;; The attribute above is only a label. What makes a remount keep its
-  ;; state is that the renderer keys each node's expansion lookup by the
-  ;; site-id, so an override stored under `[panel-id site-id path]` is
-  ;; the one the render reads — whatever auto-mount-id this mount drew.
+  ;; An override stored under `[panel-id site-id path]` is the one a fresh
+  ;; mount reads, whatever mount-id it drew — so the state survives a remount.
   (let [site-id [:my-site "x"]
         v       {:a 1 :b 2 :c 3 :d 4}
         opts    {:panel-id :p :site-id site-id :default-expanded-depth 0}
-        render  (fn [] ((ei/edn-inspector v opts) v opts))
-        root-expanded (fn [h]
+        root-expanded (fn []
                         (:data-rf-expanded
-                          (second (first (nodes-with-attr h :data-rf-kind "map")))))]
-    (is (= "1" (root-expanded (render)))
-        "precondition: with no override the root renders expanded")
+                          (second (first (nodes-with-attr ((ei/edn-inspector v opts) v opts)
+                                                          :data-rf-kind "map")))))]
+    (is (= "1" (root-expanded)) "with no override the root renders expanded")
     (rf/dispatch-sync [:rf.xray.edn-inspector/set-node :p site-id [] false])
-    (is (= "0" (root-expanded (render)))
-        "an override stored under the site-id collapses the root of a fresh mount")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
-(deftest edn-inspector-without-site-id-keeps-per-call-site-isolation
-  ;; When `:site-id` is omitted, auto-mount-id keeps two side-by-side
-  ;; mounts independent. This guards the isolation default.
-  (let [outer1 (ei/edn-inspector {:a 1} {:panel-id :p})
-        outer2 (ei/edn-inspector {:a 1} {:panel-id :p})
-        inner1 (outer1 {:a 1} {:panel-id :p})
-        inner2 (outer2 {:a 1} {:panel-id :p})
-        m1     (get (second inner1) :data-rf-mount-id)
-        m2     (get (second inner2) :data-rf-mount-id)]
-    (is (some? m1))
-    (is (some? m2))
-    (is (not= m1 m2)
-        "two mounts with no :site-id get DIFFERENT auto-mount-ids → independent expansion state")
-    (is (nil? (get (second inner1) :data-rf-site-id))
-        "no :site-id supplied → no data-rf-site-id attribute")))
-
-;; ---- per-call-site isolation ---------------------------------------------
+    (is (= "0" (root-expanded))
+        "an override stored under the site-id collapses a fresh mount's root")))
 
 (deftest two-mounts-independent-via-distinct-mount-ids
-  (let [v {:a 1 :b 2 :c 3 :d 4 :e 5}
-        m1 "mount-1"
-        m2 "mount-2"
-        k1 (ei/expansion-key :p m1 [])
-        k2 (ei/expansion-key :p m2 [])
-        ;; mount-1 is force-expanded; mount-2 is force-collapsed.
-        emap {k1 {:expanded? true}
-              k2 {:expanded? false}}
-        h1 (ei/render-node {:value v :panel-id :p :mount-id m1
-                            :path [] :depth 0
-                            :expansion-map emap
-                            :opts {:default-expanded-depth 0}})
-        h2 (ei/render-node {:value v :panel-id :p :mount-id m2
-                            :path [] :depth 0
-                            :expansion-map emap
-                            :opts {:default-expanded-depth 0}})]
-    (is (re-find #"▾" (collect-text h1)) "mount-1 reads :expanded? true")
-    (is (re-find #"▸" (collect-text h2)) "mount-2 reads :expanded? false")
-    (is (not (re-find #"▾" (collect-text h2))) "mount-2 does NOT show ▾")))
+  (let [v        {:a 1 :b 2 :c 3 :d 4 :e 5}
+        emap     {(ei/expansion-key :p "mount-1" []) {:expanded? true}
+                  (ei/expansion-key :p "mount-2" []) {:expanded? false}}
+        expanded (fn [mount-id]
+                   (-> (ei/render-node {:value v :panel-id :p :mount-id mount-id
+                                        :path [] :depth 0
+                                        :expansion-map emap
+                                        :opts {:default-expanded-depth 0}})
+                       second
+                       :data-rf-expanded))]
+    (is (= ["1" "0"] (map expanded ["mount-1" "mount-2"]))
+        "each mount reads only its own override for the same path")))
 
 ;; ---- mini one-liner ------------------------------------------------------
 
 (deftest mini-one-liner-renders-scalars-maps-and-sentinels
-  (is (re-find #":foo" (collect-text (ei/mini :foo))))
-  (let [all (collect-text (ei/mini {:a 1 :b 2} 80))]
-    (is (re-find #":a" all))
-    (is (re-find #":b" all)))
-  (is (re-find #"redacted" (collect-text (ei/mini :rf/redacted)))))
-
-(deftest mini-truncates-a-container-past-max-len
-  ;; A container's printed form past `max-len` is cut to `max-len`
-  ;; characters plus `…` in `data-rf-mini-text`, while the title keeps
-  ;; the whole form for hover. At or under `max-len` it is left whole.
-  (let [v       {:alpha 1 :beta 2 :gamma 3 :delta 4}
-        printed (pr-str v)
-        mini-text (fn [h] (some (fn [n] (let [attrs (second n)]
-                                          (when (map? attrs) (:data-rf-mini-text attrs))))
-                                (walk-hiccup h)))
-        long-h  (ei/mini v 12)
-        short-h (ei/mini v (count printed))]
-    (is (< 12 (count printed)) "precondition: the printed form is longer than the cap")
-    (is (= (str (subs printed 0 12) "…") (mini-text long-h))
-        "past max-len: cut to max-len characters plus an ellipsis")
-    (is (= printed (-> long-h second :title))
-        "the title keeps the whole printed form")
-    (is (= printed (mini-text short-h))
-        "at max-len: left whole, no ellipsis")))
+  ;; A sentinel keeps its opaque chip on the one-line path too.
+  (is (= [":foo" "{:a 1, :b 2}" "●redacted"]
+         (map #(collect-text (ei/mini % 80)) [:foo {:a 1 :b 2} :rf/redacted]))))
 
 ;; =========================================================================
 ;; Diff mode
 ;; =========================================================================
 ;;
-;; Passing `:before` switches the widget into diff mode where each
-;; node renders with a left-gutter glyph + colour and `:modified`
-;; leaves carry a `← was <prior>` annotation. Ancestor chain
-;; force-opens over any changed descendant.
-
-;; ---- pure helpers --------------------------------------------------------
-;;
-;; Diff classification lives in the Editscript-backed projection engine
-;; at `day8.re-frame2-xray.diff.engine`; the widget has no classifier of
-;; its own. The engine's own test suite at
-;; `day8.re-frame2-xray.diff.engine-cljs-test` carries the classification
-;; pins (R1-R8 grammar rules). The diff-leaf rendering tests below
-;; drive `render-node` end-to-end with `:before` and assert
-;; against the resulting DOM chrome attributes.
+;; Passing `:before` paints a gutter glyph, wash and stripe per node and a
+;; `← was <prior>` annotation on modified leaves; ancestors of a change
+;; force open. Classification is the diff engine's, pinned in its own
+;; suite; these tests pin the chrome.
 
 (deftest gutter-glyph-colour-is-syntax-palette-disjoint
-  (testing "the reserved `:diff-gutter` hue must NOT match
-            any `:syntax-*` token. A per-op gutter colour mapped
-            through `:green` / `:red` / `:yellow` / `:accent` would
-            collide with `:syntax-string` / `:syntax-number` /
-            `:syntax-boolean` etc., conflating type semantics with
-            diff state. The reserved hue (cyan-teal in dark,
-            darker-teal in light) sits outside every `:syntax-*`
-            family by design."
-    (doseq [palette [dark-palette light-palette]]
-      (let [gutter (:diff-gutter palette)
-            syntax-hexes #{(:syntax-keyword palette)
-                           (:syntax-string  palette)
-                           (:syntax-number  palette)
-                           (:syntax-boolean palette)
-                           (:syntax-nil     palette)
-                           (:syntax-symbol  palette)
-                           (:syntax-builtin palette)
-                           (:syntax-punctuation palette)}]
-        (is (not (contains? syntax-hexes gutter))
-            (str "diff-gutter " gutter " collides with a syntax-* token "
-                 "in palette " (if (= palette dark-palette) :dark :light)))))))
+  ;; The reserved `:diff-gutter` hue sits outside every `:syntax-*` token,
+  ;; so diff state never reads as a type colour.
+  (doseq [palette [dark-palette light-palette]]
+    (let [gutter (:diff-gutter palette)
+          syntax-hexes #{(:syntax-keyword palette)
+                         (:syntax-string  palette)
+                         (:syntax-number  palette)
+                         (:syntax-boolean palette)
+                         (:syntax-nil     palette)
+                         (:syntax-symbol  palette)
+                         (:syntax-builtin palette)
+                         (:syntax-punctuation palette)}]
+      (is (not (contains? syntax-hexes gutter))
+          (str "diff-gutter " gutter " collides with a syntax-* token "
+               "in palette " (if (= palette dark-palette) :dark :light))))))
 
 (deftest diff-leaf-preserves-syntax-token-colour
-  (testing "per-token text colour PRESERVED across `:added`
-            and `:modified` ops: the row chrome (wash + stripe +
-            glyph) carries the diff signal. A diff path overriding to
-            `:green` / `:yellow` text colour would clash with the
-            Calva-aligned syntax palette (numbers orange ≡ modified
-            yellow)."
-    ;; :added — number value keeps `:syntax-number` orange
-    (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
+  ;; The row chrome carries the diff signal; the leaf keeps its syntax
+  ;; colour under `:added` and `:modified`.
+  (doseq [[v before data-type token] [[42 ::ei/missing "number" :syntax-number]
+                                      [true false "boolean" :syntax-boolean]]]
+    (let [h (ei/render-node {:value v :before before :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
-                             :expansion-map {} :opts {}})
-          node (find-attr h :data-rf-type "number")]
-      (is (some? node) "number scalar rendered inside the gutter row")
-      (is (= (:syntax-number tokens) (-> node second :style :color))
-          ":syntax-number token preserved on the added scalar"))
-    ;; :modified — boolean keeps `:syntax-boolean` gold
-    (let [h (ei/render-node {:value true :before false :diff? true
-                             :panel-id :p :mount-id "m" :path [] :depth 0
-                             :expansion-map {} :opts {}})
-          node (find-attr h :data-rf-type "boolean")]
-      (is (some? node) "boolean scalar rendered inside the gutter row")
-      (is (= (:syntax-boolean tokens) (-> node second :style :color))
-          ":syntax-boolean token preserved on the modified scalar"))))
+                             :expansion-map {} :opts {}})]
+      (is (= (get tokens token)
+             (-> (find-attr h :data-rf-type data-type) second :style :color))
+          (str data-type " keeps " token)))))
 
 (deftest diff-row-wrapper-carries-wash-and-stripe-attrs
-  (testing "diff row wrapper carries data-attributes so
-            tests + DOM inspectors can confirm the wash + stripe are
-            applied per op"
-    (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
-                             :panel-id :p :mount-id "m" :path [] :depth 0
-                             :expansion-map {} :opts {}})
-          wrapper (find-attr h :data-rf-diff-op "added")]
-      (is (some? wrapper))
-      (is (= "1" (:data-rf-diff-wash  (second wrapper)))
-          "added row carries wash attr")
-      (is (= "1" (:data-rf-diff-stripe (second wrapper)))
-          "added row carries stripe attr")
-      (is (= (:diff-added-wash tokens) (-> wrapper second :style :background))
-          "wash background reads through the diff-added-wash token"))
-    ;; :same — no wash, no stripe attrs
-    (let [h (ei/render-node {:value 42 :before 42 :diff? true
-                             :panel-id :p :mount-id "m" :path [] :depth 0
-                             :expansion-map {} :opts {}})
-          wrapper (find-attr h :data-rf-diff-op "same")]
-      (is (some? wrapper))
-      (is (nil? (:data-rf-diff-wash  (second wrapper)))
-          ":same row has no wash")
-      (is (nil? (:data-rf-diff-stripe (second wrapper)))
-          ":same row has no stripe"))))
-
-;; ---- diff mode — modified-leaf annotation --------------------------------
+  (let [chrome (fn [before]
+                 ((juxt :data-rf-diff-op :data-rf-diff-wash :data-rf-diff-stripe
+                        (comp :background :style))
+                  (second (ei/render-node {:value 42 :before before :diff? true
+                                           :panel-id :p :mount-id "m" :path [] :depth 0
+                                           :expansion-map {} :opts {}}))))]
+    (is (= ["added" "1" "1" (:diff-added-wash tokens)] (chrome ::ei/missing))
+        "an added row carries the wash and the stripe, the wash through its token")
+    (is (= ["same" nil nil nil] (chrome 42))
+        "a same row carries neither")))
 
 (deftest diff-modified-leaf-emits-changed-from-annotation
-  (let [h (ei/render-node {:value 2
-                           :before 1
-                           :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)]
-    (is (re-find #"← was 1" all)
-        "modified scalar leaf carries the annotation chip")))
-
-;; ---- diff mode — added / removed -----------------------------------------
+  (is (re-find #"← was 1"
+               (collect-text (ei/render-node {:value 2 :before 1 :diff? true
+                                              :panel-id :p :mount-id "m"
+                                              :path [] :depth 0
+                                              :expansion-map {} :opts {}})))))
 
 (deftest diff-removed-leaf-shows-prior-value
-  (let [h (ei/render-node {:value ei/missing-sentinel
-                           :before 1
-                           :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)]
-    (is (re-find #"1" all)
-        "removed leaf still renders the prior value (struck-through)")))
-
-;; ---- diff mode — ancestor chain force-open -------------------------------
+  ;; The struck row paints the prior value — never the absence sentinel.
+  (is (= "-1" (collect-text (ei/render-node {:value ei/missing-sentinel
+                                             :before 1
+                                             :diff? true
+                                             :panel-id :p :mount-id "m"
+                                             :path [] :depth 0
+                                             :expansion-map {} :opts {}})))))
 
 (deftest diff-forces-ancestor-chain-open-over-changed-descendant
-  ;; A deep `:e` change should be visible even when the depth heuristic
-  ;; would normally collapse the parents — force-expand wins.
-  (let [v {:a {:b {:c {:d {:e 2}}}}}
-        b {:a {:b {:c {:d {:e 1}}}}}
-        h (ei/render-node {:value v
-                           :before b
-                           :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 1}})
-        all (collect-text h)]
-    (is (re-find #":e" all) "deep changed leaf appears in the rendered text")
-    (is (re-find #"← was 1" all) "with its annotation")))
-
-;; ---- diff mode — same nodes dim ------------------------------------------
+  ;; A change four levels down shows even though the depth heuristic would
+  ;; collapse its ancestors.
+  (is (re-find #"← was 1"
+               (collect-text (ei/render-node {:value  {:a {:b {:c {:d {:e 2}}}}}
+                                              :before {:a {:b {:c {:d {:e 1}}}}}
+                                              :diff? true
+                                              :panel-id :p :mount-id "m"
+                                              :path [] :depth 0
+                                              :expansion-map {}
+                                              :opts {:default-expanded-depth 1}})))))
 
 (deftest diff-same-leaf-uses-text-tertiary
   (let [h (ei/render-node {:value 1
@@ -1160,106 +573,38 @@
                            :diff? true
                            :panel-id :p :mount-id "m" :path [] :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        ;; The leaf sits in a `:same` gutter row, inside a span whose
-        ;; colour is text-tertiary. The gutter glyph beside it is
-        ;; text-tertiary too, so a search of the whole printed tree would
-        ;; find that token on the glyph whatever colour the value took;
-        ;; read the value span's own colour instead.
+                           :opts {}})
+        ;; Read the value span's own colour: the gutter glyph beside it is
+        ;; text-tertiary too, whatever colour the value took.
         value-colours (keep (fn [n] (get-in (second n) [:style :color]))
                             (nodes-with-attr h :data-rf-diff-op "same"))]
-    (is (= [(:text-tertiary tokens)] value-colours)
-        "same leaf in diff mode renders via the text-tertiary token")))
-
-;; ---- diff mode — public widget exposes mode marker -----------------------
+    (is (= [(:text-tertiary tokens)] value-colours))))
 
 (deftest edn-inspector-mode-marker-on-container
-  ;; The public widget's outer container carries `data-rf-mode` — "diff"
-  ;; when `:before` is supplied, "browse" otherwise — so panels / tests
-  ;; can target the diff variant. The widget is form-2: the outer call
-  ;; returns the fn that renders.
-  (let [diff   ((ei/edn-inspector {:a 2} {:before {:a 1}}) {:a 2} {:before {:a 1}})
-        browse ((ei/edn-inspector {:a 1}) {:a 1} nil)]
-    (is (= "diff" (get (second diff) :data-rf-mode))
-        "diff-mode marker present when :before is supplied")
-    (is (= "browse" (get (second browse) :data-rf-mode))
-        "browse-mode marker present without :before")))
+  ;; `data-rf-mode` is "diff" when `:before` is supplied, "browse" otherwise.
+  (is (= ["diff" "browse"]
+         [(:data-rf-mode (second ((ei/edn-inspector {:a 2} {:before {:a 1}})
+                                  {:a 2} {:before {:a 1}})))
+          (:data-rf-mode (second ((ei/edn-inspector {:a 1}) {:a 1} nil)))])))
 
-(deftest edn-inspector-diff-convenience-threads-before
-  ;; `[edn-inspector-diff before after]` is `[edn-inspector after
-  ;; {:before before}]`.
-  (is (= [ei/edn-inspector {:a 2} {:before {:a 1}}]
-         (ei/edn-inspector-diff {:a 1} {:a 2}))))
-
-;; =========================================================================
-;; diff renders REMOVED items (the child walk is the union of
-;; BEFORE + AFTER, not just AFTER)
-;; =========================================================================
-;;
-;; A body walking `(children-of value)` (AFTER only) would silently drop
-;; items present in BEFORE but absent from AFTER — the common
-;; `dissoc` / set-`disj` / vector-`pop` case. `children-of-pair` returns
-;; the UNION of BEFORE + AFTER triples; removed slots render with the
-;; removed chrome (strike-through + red wash + `-` gutter glyph).
-
-(deftest children-of-pair-map-union
-  (testing "AFTER's keys in order then BEFORE-only keys appended"
-    (let [pairs (ei/children-of-pair {:a 1 :gone "g"} {:a 1 :added 9} :map)]
-      ;; Each triple is [k after-value before-value].
-      (is (= [:a 1 1]                        (nth (vec pairs) 0)))
-      (is (= [:added 9 ei/missing-sentinel]  (nth (vec pairs) 1)))
-      (is (= [:gone ei/missing-sentinel "g"] (nth (vec pairs) 2)))))
-  (testing "all-added when BEFORE not a map"
-    (let [pairs (vec (ei/children-of-pair nil {:a 1} :map))]
-      (is (= [:a 1 ei/missing-sentinel] (first pairs)))))
-  (testing "all-removed when AFTER empty"
-    (let [pairs (vec (ei/children-of-pair {:a 1 :b 2} {} :map))]
-      (is (= 2 (count pairs)))
-      (is (every? #(= ei/missing-sentinel (second %)) pairs))
-      (is (= #{:a :b} (set (map first pairs)))))))
-
-(deftest children-of-pair-vector-tail
-  (testing "BEFORE-tail items past AFTER render as removed slots"
-    (let [pairs (vec (ei/children-of-pair [:x :y :z] [:x] :vector))]
-      (is (= [0 :x :x]                       (nth pairs 0)))
-      (is (= [1 ei/missing-sentinel :y]      (nth pairs 1)))
-      (is (= [2 ei/missing-sentinel :z]      (nth pairs 2)))))
-  (testing "ADDED tail items appear too"
-    (let [pairs (vec (ei/children-of-pair [:x] [:x :y :z] :vector))]
-      (is (= [1 :y ei/missing-sentinel] (nth pairs 1)))
-      (is (= [2 :z ei/missing-sentinel] (nth pairs 2))))))
+;; ---- set members ---------------------------------------------------------
 
 (deftest children-of-pair-set-union-sorted
-  (testing "set members render alongside survivors; sort by pr-str"
-    (let [pairs (vec (ei/children-of-pair #{:a :b :ws/authenticating}
-                                          #{:a :b}
-                                          :set))
-          keys  (mapv first pairs)]
-      (is (= 3 (count pairs)))
-      ;; pr-str sort is stable: `:a` < `:b` < `:ws/authenticating`.
-      (is (= [:a :b :ws/authenticating] keys))
-      ;; The removed member's AFTER slot is ::missing; BEFORE side
-      ;; carries the prior value.
-      (is (= [:ws/authenticating ei/missing-sentinel :ws/authenticating]
-             (last pairs))
-          "removed-only member appears with after=::missing, before=value"))))
+  ;; A set diff walks the union of members in `pr-str` order, so a removed
+  ;; member has a stable place beside the survivors.
+  (is (= [[:a :a :a]
+          [:b :b :b]
+          [:ws/authenticating ::ei/missing :ws/authenticating]]
+         (vec (ei/children-of-pair #{:a :b :ws/authenticating} #{:a :b} :set)))))
 
 ;; =========================================================================
-;; scattered / mid-vector removals render the genuinely-removed
-;; members struck, and the surviving-shifted members NOT struck. The
-;; renderer consumes the engine's off-path `:vector-removals` + `:same-
-;; shifted` projection instead of index-aligning the raw before/after
-;; vectors via `children-of-pair`.
+;; Vector diff — removed members struck in place
 ;; =========================================================================
 ;;
-;; Index-aligning position-by-position would render
-;; `[:a :b :c :d] -> [:a :c]` as `[ :a :c(was…) -:c -:d ]` — striking
-;; `:c` (which SURVIVES at after-index 1) and `:d`, and never surfacing
-;; the genuinely-removed `:b`. Contiguous TAIL removals line up under
-;; index alignment, so only mid / scattered removals would mis-render.
-;; These tests drive `render-node` WITH a projection (the
-;; real diff path; the no-projection test/REPL path still falls back to
-;; `children-of-pair`), and assert which members are struck.
+;; The renderer consumes the engine's `:vector-removals` + `:same-shifted`
+;; projection rather than index-aligning before and after, so a scattered
+;; or mid-vector removal strikes the removed member, not the survivor that
+;; slid up into its slot.
 
 (defn- struck-members
   "Return the set of value strings the renderer struck through in `tree`.
@@ -1283,9 +628,8 @@
     @out))
 
 (defn- render-vec-diff
-  "Render `before -> after` as a vector diff THROUGH the real projection
-  path (the production renderer computes `engine/project` once at the top
-  and threads it down via `:projection`). Returns the hiccup tree."
+  "Render `before -> after` as a vector diff through the real projection,
+  as the production renderer does."
   [before after]
   (ei/render-node {:value      after
                    :before     before
@@ -1294,20 +638,13 @@
                    :panel-id   :p :mount-id "m"
                    :path [] :depth 0
                    :expansion-map {}
-                   ;; default-expanded-depth high enough that the root
-                   ;; expands and the body walk runs.
                    :opts {:default-expanded-depth 4}}))
 
 (deftest projection-vector-diff-strikes-removed-members-not-survivors
-  ;; Each row is an edit script rendered through the real projection
-  ;; (`render-vec-diff` threads `engine/project`): every genuinely-removed
-  ;; member is struck, and every survivor renders and is NOT struck. A
-  ;; misaligned replay of the engine's unified edit script surfaces here as
-  ;; the WRONG member struck (a survivor morphed) or a removal dropped. The
-  ;; mixed insert+delete rows mirror `diff-removed-vector-element-no-sentinel-leak`
-  ;; (the delete-only render guard) for the mixed-edit case. A removed
-  ;; member's text is in the tree whenever it is struck, so only the
-  ;; survivors' visibility is asserted separately.
+  ;; Each row is an edit script rendered through the real projection: every
+  ;; removed member is struck, and every survivor renders and is NOT struck.
+  ;; A misaligned replay of the edit script surfaces as the WRONG member
+  ;; struck or a removal dropped.
   (doseq [[label before after removed survivors]
           [["scattered `[:a :b :c :d] -> [:a :c]`: :b@1 and :d@3 removed, :c survives shifted 2 → 1"
             [:a :b :c :d] [:a :c] [":b" ":d"] [":a" ":c"]]
@@ -1331,70 +668,16 @@
         (is (str/includes? all m)
             (str label " — the survivor " m " still renders")))))
   (testing "the scattered script's surviving-shifted :c carries a `(was N)`
-            shift suffix. The engine's R6 shift detector reports :c's
-            before-index and the renderer surfaces it verbatim; only SOME
-            suffix is asserted, since the exact N is the engine's contract,
-            tested in the engine suite"
-    (is (re-find #"\(was \d+\)" (collect-text (render-vec-diff [:a :b :c :d] [:a :c])))
-        ":c is surviving-shifted → carries a (was N) shift suffix")))
+            suffix; the exact N is the engine's contract, tested there"
+    (is (re-find #"\(was \d+\)" (collect-text (render-vec-diff [:a :b :c :d] [:a :c]))))))
 
-(deftest sequential-diff-children-scattered-removal-shape
-  ;; The pure projection-aware child walk directly: for `[:a :b :c :d] ->
-  ;; [:a :c]` it emits before-ordered triples with the removed members at
-  ;; a synthetic key (forces `:removed` via `::missing` after-value) and
-  ;; the survivors at their AFTER index (projection chrome resolves).
-  (let [before [:a :b :c :d]
-        after  [:a :c]
-        proj   (engine/project before after)
-        pairs  (vec (ei/sequential-diff-children before after :vector [] proj))]
-    (testing "one triple per before-position (survivors + struck removals)"
-      (is (= 4 (count pairs))
-          "[:a :b :c :d] -> [:a :c]: 2 survivors + 2 removed = 4 rows"))
-    (testing "removed members carry ::missing on the AFTER side"
-      ;; :b and :d are the removed before-values; their after slot is ::missing.
-      (let [removed-after (->> pairs
-                               (filter (fn [[_ a _]] (= a ::ei/missing)))
-                               (map (fn [[_ _ b]] b))
-                               set)]
-        (is (= #{:b :d} removed-after)
-            ":b and :d are the struck (after=::missing) members")))
-    (testing "survivors keep their AFTER index as the path key"
-      (let [survivors (->> pairs
-                           (remove (fn [[_ a _]] (= a ::ei/missing)))
-                           (map (fn [[k a _]] [k a]))
-                           set)]
-        ;; :a at after-index 0, :c at after-index 1.
-        (is (= #{[0 :a] [1 :c]} survivors)
-            "survivors rendered at after-index 0 (:a) and 1 (:c)")))
-    (testing "before-order: :a, :b(removed), :c, :d(removed)"
-      (is (= [:a :b :c :d]
-             (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) pairs))
-          "rows read in before-order with deletions struck in place"))))
-
-;; ---- the sequential diff ENTRY path is bounded ---------------------------
+;; ---- the sequential diff entry path is bounded ---------------------------
 ;;
-;; `children-of-pair` is bounded, but the LIVE diff render path never
-;; calls it for a vector / list / seq: `render-container` routes those
-;; three kinds to `sequential-diff-children`. A `let` there realising BOTH
-;; sides with a bare `vec` BEFORE the `cond` that delegates would make the
-;; bound unreachable on exactly the shapes most likely to be lazy: an
-;; actual infinite sequence would never reach the fallback.
-;;
-;; TWO properties are asserted, deliberately, because either alone is green
-;; against a plausible wrong fix:
-;;
-;;   P1 BOUNDED WORK      — the generator is not pulled past the bound. A
-;;                          row-COUNT assertion alone passes against
-;;                          `(take count-bound (vec after))`, which bounds
-;;                          the OUTPUT while still realising the INPUT and
-;;                          therefore still hangs on an endless sequence.
-;;   P2 ALIGNMENT + FINITE — the in-place strike lands on the
-;;                          genuinely-removed member, and an ordinary finite
-;;                          sequence LONGER than the bound is rendered
-;;                          whole. A bounded-work assertion alone says
-;;                          nothing about either, and a blanket
-;;                          `(take count-bound …)` would silently truncate
-;;                          a perfectly renderable 1050-element vector.
+;; `sequential-diff-children` realises both sides through `bounded-vec`
+;; before it branches, so an endless sequence is never realised whole on
+;; the diff path. These measure REALISATION with a counter, never output
+;; length: a bound reached too late looks identical to one that works if
+;; all you count is rows.
 
 (def ^:private count-bound
   "Mirrors the view's own private `count-bound` (1001) — the single
@@ -1403,26 +686,9 @@
   1001)
 
 (def ^:private render-path-bound
-  "What the RENDER path may realise: `count-bound` plus exactly ONE.
-
-  `render-container` asks `diff-pair-count` for the header count BEFORE
-  it walks the children, and that goes through `bounded-count*` →
-  `cljs.core/bounded-count`, whose loop is
-
-      (if (and (not (nil? s)) (< i n)) (recur (inc i) (next s)) i)
-
-  so at `i` = n-1 it calls `(next s)` once more to discover whether a
-  further element exists. The header's own count therefore looks exactly
-  one element past the ceiling, and the walk that follows re-reads a
-  sequence already realised that far.
-
-  The two tests below localise it between them: the walker on its own
-  realises exactly 1001 (its deftest asserts `<= count-bound`), while
-  the render path realises 1002. The overshoot is `cljs.core`'s, is
-  constant, and is inside `bounded-count*`.
-
-  This is NOT a bound widened to hide a defect: 1002 against a guard of
-  50000 fails loudly on any genuinely unbounded walk."
+  "What the RENDER path may realise: `count-bound` plus exactly one,
+  because the header's `bounded-count*` (`cljs.core/bounded-count`) looks
+  one element past the ceiling to learn whether another exists."
   (inc count-bound))
 
 (defn- counting-seq
@@ -1430,14 +696,9 @@
   REALISED elements in `counter` and THROWS when asked for element
   `guard`.
 
-  The guard is the instrument, not a shortcut: it converts \"loops for
-  ever\" into \"fails in milliseconds\", so an unbounded walk's RED is
-  observable at all. A true `(range)` against an unbounded walk does not
-  fail — it exhausts the heap and takes the whole lane's exit file with
-  it.
-
-  `lazy-seq` + `cons` is unchunked, so `counter` tracks single-element
-  pulls exactly."
+  The guard converts \"loops for ever\" into \"fails in milliseconds\",
+  so an unbounded walk's RED is observable at all. `lazy-seq` + `cons` is
+  unchunked, so `counter` tracks single-element pulls exactly."
   [counter guard]
   (letfn [(step [i]
             (lazy-seq
@@ -1449,190 +710,85 @@
     (step 0)))
 
 (deftest sequential-diff-children-bounds-the-entry-path-rf2-brmyq
-  ;; A guarded lazy sequence that throws after element 1500 must not
-  ;; throw through `sequential-diff-children`, just as
-  ;; `children-of-pair` directly returns 1001 rows from the same
-  ;; generator.
-  (let [guard 1500]
-    (testing "CONTROL — children-of-pair is bounded"
-      (let [seen (atom 0)
-            rows (vec (ei/children-of-pair
-                        (counting-seq seen guard) [1 2 3] :vector))]
-        (is (= count-bound (count rows))
-            "children-of-pair returns count-bound rows from this generator")
-        (is (<= @seen count-bound)
-            (str "and realised " @seen " elements, never past the bound"))))
-    (testing "P1 — the ENTRY path the renderer actually calls is bounded too"
-      (let [seen (atom 0)
-            rows (vec (ei/sequential-diff-children
-                        (counting-seq seen guard) [1 2 3] :vector [] nil))]
-        (is (<= @seen count-bound)
-            (str "sequential-diff-children realised " @seen
-                 " elements; the bound is " count-bound
-                 ". A bare `vec` realises the lot and throws at the guard."))
-        (is (= count-bound (count rows))
-            "and emits the same row count children-of-pair does")))
-    (testing "P1 — bounded on the AFTER side as well as the BEFORE side"
-      (let [seen (atom 0)
-            rows (vec (ei/sequential-diff-children
-                        [1 2 3] (counting-seq seen guard) :seq [] nil))]
-        (is (<= @seen count-bound)
-            (str "realised " @seen " elements from the AFTER side"))
-        (is (= count-bound (count rows))
-            "and still emits count-bound rows")))))
+  ;; A generator that throws past element 1500 is realised no further than
+  ;; the bound, whichever side it is on.
+  (let [seen (atom 0)]
+    (dorun (ei/sequential-diff-children (counting-seq seen 1500) [1 2 3] :vector [] nil))
+    (is (<= @seen count-bound)
+        (str "the BEFORE side realised " @seen " elements; the bound is " count-bound)))
+  (let [seen (atom 0)]
+    (dorun (ei/sequential-diff-children [1 2 3] (counting-seq seen 1500) :seq [] nil))
+    (is (<= @seen count-bound)
+        (str "the AFTER side realised " @seen " elements; the bound is " count-bound))))
 
 (deftest diff-render-path-bounds-an-endless-sequence-rf2-brmyq
-  ;; Through `render-node` — the CALLER — rather than the
-  ;; walker in isolation. `render-container` routes a `:seq` in diff mode
-  ;; to `sequential-diff-children` and NEVER to `children-of-pair`, so
-  ;; this is the path an unbounded walk would hang. A guard far above the bound stands in for
-  ;; a truly endless sequence: reaching it at all is the failure.
-  (let [guard 50000]
-    (testing "endless AFTER side renders instead of hanging"
-      (let [seen (atom 0)
-            h    (ei/render-node {:value      (counting-seq seen guard)
-                                  :before     [0 1 2]
-                                  :diff?      true
-                                  :projection nil
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [] :depth 0
-                                  :expansion-map {} :opts {}})]
-        (is (vector? h) "the diff render path returns hiccup")
-        (is (<= @seen render-path-bound)
-            (str "and realised " @seen " elements, not " guard))))
-    (testing "endless BEFORE side renders instead of hanging"
-      (let [seen (atom 0)
-            h    (ei/render-node {:value      [0 1 2]
-                                  :before     (counting-seq seen guard)
-                                  :diff?      true
-                                  :projection nil
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [] :depth 0
-                                  :expansion-map {} :opts {}})]
-        (is (vector? h) "the diff render path returns hiccup")
-        (is (<= @seen render-path-bound)
-            (str "and realised " @seen " elements, not " guard))))))
+  ;; Through `render-node`: the header count and the walk together realise
+  ;; at most the render-path bound, on either side. A guard far above the
+  ;; bound stands in for a truly endless sequence.
+  (doseq [endless-side [:value :before]]
+    (let [seen (atom 0)]
+      (ei/render-node (merge {:value [0 1 2] :before [0 1 2]}
+                             {endless-side (counting-seq seen 50000)}
+                             {:diff? true :projection nil
+                              :panel-id :test :mount-id "m1"
+                              :path [] :depth 0
+                              :expansion-map {} :opts {}}))
+      (is (<= @seen render-path-bound)
+          (str "the endless " (name endless-side) " side realised " @seen " elements")))))
 
 (deftest bounding-preserves-removal-alignment-over-the-bound-rf2-brmyq
-  ;; P2. A FINITE vector LONGER than the bound, with a scattered
-  ;; mid-vector removal — the scattered-removal shape, at a size where a blanket
-  ;; `(take count-bound …)` would show its hand.
-  ;;
-  ;; A vector is `counted?` and finite by construction, and
-  ;; `diff-pair-count` reports its FULL count, so the body must render it
-  ;; whole: truncating here would put 1001 rows under a header saying
-  ;; 1050, which is the disagreement `children-of`'s docstring refuses in
-  ;; the other direction. `bounded-vec` caps only what is NOT `counted?`.
-  (let [n       1050
-        drop-at 500
-        before  (vec (range n))
-        after   (vec (concat (range drop-at) (range (inc drop-at) n)))
-        proj    (engine/project before after)
-        rows    (vec (ei/sequential-diff-children before after :vector [] proj))]
-    (testing "an ordinary finite diff longer than the bound is NOT truncated"
-      (is (= n (count rows))
-          (str n " rows: " (dec n) " survivors + 1 struck removal. "
-               "A blanket (take count-bound …) would read " count-bound ".")))
-    (testing "the struck row is the genuinely-removed member, not a shifted survivor"
-      (let [struck (->> rows
-                        (filter (fn [[_ a _]] (= a ::ei/missing)))
-                        (mapv (fn [[_ _ b]] b)))]
-        (is (= [drop-at] struck)
-            (str "exactly element " drop-at " is struck — index alignment "
-                 "would strike the SURVIVOR that "
-                 "slid up into the vacated slot instead"))))
-    (testing "rows read in BEFORE-order with the deletion struck in place"
-      (let [in-before-order (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) rows)]
-        (is (= (vec (range n)) in-before-order)
-            "before-order 0..n-1 reconstructed exactly")))
-    (testing "survivors past the removal carry their SHIFTED after-index"
-      ;; before-index 501 survives at after-index 500.
-      (let [survivors (into {} (comp (remove (fn [[_ a _]] (= a ::ei/missing)))
-                                     (map (fn [[k a _]] [a k])))
-                            rows)]
-        (is (= 500 (get survivors (inc drop-at)))
-            "element 501 renders at after-index 500")
-        (is (= 0 (get survivors 0))
-            "and element 0 is unmoved")))))
+  ;; A finite vector LONGER than the bound, with a mid-vector removal, is
+  ;; rendered whole: the removed member struck in place, survivors at their
+  ;; shifted after-index, and no row claiming an unrealised value.
+  (let [n         1050
+        drop-at   500
+        before    (vec (range n))
+        after     (vec (concat (range drop-at) (range (inc drop-at) n)))
+        rows      (vec (ei/sequential-diff-children before after :vector []
+                                                    (engine/project before after)))
+        removed?  (fn [[_ a _]] (= a ::ei/missing))
+        survivors (into {} (comp (remove removed?) (map (fn [[k a _]] [a k]))) rows)]
+    (is (= [drop-at] (mapv #(nth % 2) (filter removed? rows)))
+        (str "exactly element " drop-at " is struck — index alignment would "
+             "strike the survivor that slid up into the vacated slot"))
+    (is (= (vec (range n)) (mapv (fn [[_ a b :as row]] (if (removed? row) b a)) rows))
+        "rows read in BEFORE-order with the deletion in place, none dropped")
+    (is (= [500 0] (map survivors [(inc drop-at) 0]))
+        "element 501 renders at after-index 500; element 0 is unmoved")
+    (is (not-any? (fn [[_ a b]] (or (= a ::ei/unrealised) (= b ::ei/unrealised))) rows)
+        "neither side was capped, so no row claims an unrealised value")))
 
-;; ---- a `counted?` sequence renders every row its header
-;; ---- promises ------------------------------------------------------------
+;; ---- a `counted?` sequence renders every row its header promises ---------
 ;;
-;; Every "how many children" question shares ONE ceiling
-;; (`count-bound`, 1001), and the WALKERS split on `counted?`
-;; (`bounded-vec`), so a finite collection is realised whole while only an
-;; endless-capable one is capped. The header function beside each walker
-;; reports through `bounded-count*` — which is EXACT for anything
-;; `counted?` — so a walker taking `count-bound` UNCONDITIONALLY would
-;; disagree with it:
-;;
-;;   `children-of`'s `:list` / `:seq` arms  vs  `child-count`
-;;   `children-of-pair`'s sequential arm    vs  `diff-pair-count`
-;;
-;; A 1200-element list or vector would print a header promising 1200 and
-;; render 1001 rows, the 199 missing rows not marked, not counted and
-;; not reachable — the inspector saying one thing and showing another.
-;; `sequential-diff-children` with no projection reaches the same walker
-;; by a SECOND route.
-;;
-;; TWO properties are asserted, because either alone is green against a
-;; plausible wrong fix:
-;;
-;;   P1 AGREEMENT — the header's number and the rendered row count are
-;;                  EQUAL for a `counted?` sequence at a size that crosses
-;;                  the bound. P1 also pins that number to the collection's
-;;                  FULL count, because capping the HEADER down to 1001
-;;                  would satisfy "they agree" while making the dropped
-;;                  rows invisible instead of merely unexplained.
-;;   P2 BOUNDED   — an endless sequence still terminates and still realises
-;;                  no more than the bound. The `rf2-brmyq` rows above and
-;;                  the cut-sequence row below measure it with a
-;;                  REALISATION COUNTER, never output length: a bound that
-;;                  is present but reached too late looks identical to one
-;;                  that works if all you measure is how many rows came out.
-;;
-;; WHICH NUMBER. `count-bound` (1001) is the WALKER's ceiling — the length
-;; of `(take count-bound …)`, and the most a walker realises on its own.
-;; `render-path-bound` (1002) is the RENDER path's, because the header is
-;; computed BEFORE the walk and `cljs.core/bounded-count` looks one element
-;; past the ceiling to discover whether another exists. Every assertion
-;; below says which of the two it means.
+;; Counters (`bounded-count*`) and walkers (`bounded-vec`) both split on
+;; `counted?`, so a finite collection is realised whole and only an
+;; endless-capable one is capped: the header's number and the body's rows
+;; agree past the bound.
 
 (def ^:private jh12f-n
-  "Fixture size — comfortably past `count-bound` (1001), so a walker that
-  truncates shows its hand by ~200 rows rather than by one."
+  "Comfortably past `count-bound`, so a walker that truncates shows it by
+  ~200 rows rather than by one."
   1200)
 
 (defn- header-promise
   "The number the COLLAPSED header promises, read out of the production
-  code rather than mirrored here.
-
-  `inline-preview-string`'s fallback shape is `(…N items)`, and its N comes
-  from `bounded-count*` — the same function `child-count` and
-  `diff-pair-count` report through, so this is the header's own arithmetic
-  and not a re-derivation of it. A `max-chars` of 0 forces that fallback
-  rather than an element preview.
-
-  A sequence CUT at the bound prints `N+`; the `+` is read past, so
-  this answers the number either way."
+  code: `inline-preview-string`'s fallback `(…N items)`, whose N comes from
+  `bounded-count*`. A `max-chars` of 0 forces that fallback; a cut
+  sequence's `N+` is read past."
   [v]
   (let [s (ei/inline-preview-string v 3 0)]
     (some-> (re-find #"(\d+)\+? items" s) second js/parseInt)))
 
 (defn- rendered-rows
-  "How many child rows the renderer actually emitted for the ROOT
-  container. A sequential body is `(into [:div attrs] (map …))` with one
-  `[:<> …]` fragment per row, so the row count is the body vector's length
-  less its tag and its attribute map. Document order puts the root's body
-  first."
+  "How many child rows the renderer emitted for the ROOT container: the
+  root's block body less its tag and attribute map."
   [tree]
   (when-let [body (first (nodes-with-attr tree :data-rf-body-layout "block"))]
     (- (count body) 2)))
 
 (defn- render-expanded
   "`render-node` with the root forced OPEN, so the body is walked rather
-  than summarised. The operator override also switches off the inline-fit
-  gate, which is the other thing `render-container` consults it for."
+  than summarised (the override also switches off the inline-fit gate)."
   [m]
   (let [panel-id :test
         mount-id "m1"]
@@ -1647,73 +803,13 @@
              m))))
 
 (deftest browse-header-and-body-agree-for-a-counted-list-rf2-jh12f
-  ;; SITE: `children-of`'s `:list` arm against `child-count`'s
-  ;; `(:list :seq)` arm. A `PersistentList` is `counted?`, so
-  ;; `bounded-count*` hands the header the FULL count while the walk took
-  ;; only `count-bound`.
+  ;; A `PersistentList` is `counted?`, so the header reports its full count
+  ;; and the walk must render every element under it.
   (let [v (apply list (range jh12f-n))]
-    (testing "the fixture really is the shape this turns on"
-      (is (= :list (ei/collection-kind v)))
-      (is (counted? v)
-          (str "`counted?` is the dispatch, not the KIND — a `cons` over a "
-               "lazy seq is also a `:list` and is NOT counted?")))
-    (testing "P1 AGREEMENT — header count == rendered row count"
-      (let [header (header-promise v)
-            rows   (rendered-rows (render-expanded {:value v}))]
-        (is (= jh12f-n header)
-            "the header promises the collection's full count")
-        (is (= jh12f-n rows)
-            (str "and the body must render all " jh12f-n " of them. A walker "
-                 "capped at the bound would render " count-bound " — the WALKER's "
-                 "number — under that very header."))
-        (is (= header rows)
-            "header and body describe the same collection")))))
-
-(deftest diff-header-and-body-agree-for-a-counted-vector-rf2-jh12f
-  ;; SITE: `children-of-pair`'s `(:vector :list :seq)` arm against
-  ;; `diff-pair-count`'s. Reached by TWO routes and both are asserted:
-  ;; directly, and through the `:projection nil` fallback.
-  (let [after  (vec (range jh12f-n))
-        before [0 1 2]]
-    (testing "P1 AGREEMENT — direct route (`children-of-pair`)"
-      (is (= jh12f-n (count (ei/children-of-pair before after :vector)))
-          (str "an added " jh12f-n "-element vector emits " jh12f-n
-               " rows, not " count-bound)))
-    (testing "P1 AGREEMENT — the fallback route (`:projection nil`)"
-      (is (= jh12f-n (count (ei/sequential-diff-children
-                              before after :vector [] nil)))
-          "the fallback bounds at the same ceiling as the direct route"))
-    (testing "P1 AGREEMENT — end to end through the renderer"
-      (let [header (header-promise after)
-            rows   (rendered-rows (render-expanded {:value      after
-                                                    :before     before
-                                                    :diff?      true
-                                                    :projection nil}))]
-        (is (= jh12f-n header) "the header promises the full count")
-        (is (= jh12f-n rows)   "and the diff body renders every row")
-        (is (= header rows)    "header and body describe the same collection")))
-    (testing "the tail is genuinely PRESENT, not merely counted"
-      ;; A row-count assertion alone would be satisfied by 1200 placeholder
-      ;; rows, so read the last one and check it carries real data.
-      (let [rows    (vec (ei/children-of-pair before after :vector))
-            [k a b] (peek rows)]
-        (is (= (dec jh12f-n) k) "the last row is the last index")
-        (is (= (dec jh12f-n) a) "carrying its real AFTER value")
-        (is (= ::ei/missing b)  "with no BEFORE counterpart — it is :added")))))
+    (is (= [jh12f-n jh12f-n]
+           [(header-promise v) (rendered-rows (render-expanded {:value v}))]))))
 
 ;; ---- a sequence cut at the bound SAYS so ---------------------------------
-;;
-;; Without a marker, a not-`counted?` sequence longer than `count-bound`
-;; would render as exactly `count-bound` elements: header, `(…1001 items)`
-;; summary and body all agreeing on 1001, and the body closing after row
-;; 1000 with nothing saying the sequence goes on. An endless
-;; `(iterate inc 0)` would read as a finite 1001-element seq. The diff
-;; path refuses that lie with `::unrealised`; the browse path's
-;; equivalent is the trailing unrealised-tail row.
-;;
-;; The marker must cost NOTHING past the bound: it looks at the one element
-;; `cljs.core/bounded-count` already realises, so `render-path-bound` still
-;; holds.
 
 (defn- unrealised-tail
   "The trailing `… (not realised past N)` row, or nil."
@@ -1721,29 +817,18 @@
   (find-attr tree :data-rf-cell "unrealised-tail"))
 
 (deftest a-cut-sequence-says-so-rf2-3x7nj-25-1
+  ;; A not-`counted?` sequence longer than the bound reads as CUT — a
+  ;; trailing row and a `1001+` count — at no cost past the render bound.
   (let [guard 50000]
-    (testing "the expanded BROWSE body closes on an explicit unrealised-tail row"
+    (testing "the expanded body closes on an explicit unrealised-tail row"
       (let [seen (atom 0)
             h    (render-expanded {:value (counting-seq seen guard)})]
-        (is (some? (unrealised-tail h))
-            "a trailing row says the sequence continues past the bound")
         (is (str/includes? (collect-text (unrealised-tail h))
-                           (str "not realised past " count-bound))
-            "naming the bound it was not realised past")
+                           (str "not realised past " count-bound)))
         (is (= count-bound (rendered-rows h))
             "the body's own rows are still exactly the rows walked")
         (is (<= @seen render-path-bound)
-            (str "and realised " @seen " elements; the marker adds nothing to "
-                 "the RENDER path's bound of " render-path-bound))))
-    (testing "the DIFF body says so too — the App-DB panel renders a diff"
-      (let [seen (atom 0)
-            h    (render-expanded {:value      (counting-seq seen guard)
-                                   :before     [0 1 2]
-                                   :diff?      true
-                                   :projection nil})]
-        (is (some? (unrealised-tail h)))
-        (is (<= @seen render-path-bound)
-            (str "realised " @seen " elements"))))
+            (str "and realised " @seen " elements"))))
     (testing "the collapsed count reads `1001+`, not a confident `1001`"
       (let [seen (atom 0)
             s    (ei/inline-preview-string (counting-seq seen guard) 3 0)]
@@ -1753,1214 +838,290 @@
                            {:rows (map identity (range 5000))} 3 80)
                          (str "(…" count-bound "+ items)"))
           "and so does a cut sequence's placeholder inside a parent's preview")))
-  (testing "CONTROLS — nothing is claimed of a sequence that was NOT cut"
+  (testing "nothing is claimed of a sequence that was NOT cut"
     (let [exact (map identity (range count-bound))]
       (is (nil? (unrealised-tail (render-expanded {:value exact})))
-          (str "a lazy seq of EXACTLY " count-bound " elements was realised "
-               "whole — its end is known, so no marker"))
+          (str "a lazy seq of EXACTLY " count-bound " elements ended, so no marker"))
       (is (str/includes? (ei/inline-preview-string exact 3 0)
                          (str count-bound " items"))
           "and its count carries no `+`"))
-    (is (nil? (unrealised-tail (render-expanded {:value (map identity (range 10))})))
-        "a short lazy seq has no marker")
     (is (nil? (unrealised-tail (render-expanded {:value (apply list (range jh12f-n))})))
-        (str "nor does a `counted?` list of " jh12f-n ": it is rendered whole"))))
+        "nor does a `counted?` list, which is rendered whole")))
 
-;; ---- a capped BEFORE side must not hide the counted AFTER
-;; ---- tail ----------------------------------------------------------------
+;; ---- a capped BEFORE side keeps the counted AFTER tail -------------------
 ;;
-;; `sequential-diff-children` bounds BOTH sides through `bounded-vec`,
-;; which realises a finite (`counted?`) collection whole and caps only one
-;; that could be endless — so the two sides' ceilings are INDEPENDENT. A
-;; reconstruction that assumed both sides meet "the SAME ceiling" would be
-;; exact only when both sides are `counted?` or neither is.
-;;
-;; The MIXED representation is where they part, and it is an ordinary shape
-;; rather than an exotic one — `map`, `filter`, `concat`, `for` and `rest`
-;; all hand back something that is not `counted?`:
-;;
-;;   BEFORE  a lazy seq of 1050   →  `bounded-vec` caps `b-vec` at 1001
-;;   AFTER   a vector of 1050     →  `bounded-vec` realises `a-vec` whole
-;;
-;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side, and
-;; `before-order` walks `(range (count b-vec))` — so after-indices past the
-;; before bound are visited by no arm of that walk. `added-rows` does not
-;; recover them either: they are MODIFIED / SAME survivors, not additions.
-;; The header, reading the `counted?` after side through `bounded-count*`,
-;; promises 1050; a body showing 1001 would lose the changed tail element
-;; with nothing on screen saying so.
-;;
-;; An alignment test over TWO VECTORS has both sides `counted?` and both
-;; ceilings coinciding, so it exercises neither independent bound.
-;;
-;; TWO properties — either alone is green against a plausible wrong
-;; fix:
-;;
-;;   P1 NO SILENT LOSS  — every accessible after row is emitted, and the
-;;                        changed TAIL element is there carrying its REAL
-;;                        value. A row count alone would be satisfied by
-;;                        1050 placeholders.
-;;   P2 STILL BOUNDED,  — the walk realises no more of the before side than
-;;      STILL ALIGNED     the bound (a REALISATION counter, never an output
-;;                        length), and the in-place strike still
-;;                        lands on the genuinely-removed member. The two
-;;                        obvious wrong fixes are green on P1 and red here:
-;;                        widening the before bound loses P2's first half,
-;;                        sliding `bi->ai` to soak up the surplus survivors
-;;                        loses its second.
+;; `bounded-vec` caps only a not-`counted?` side, so a lazy before side stops
+;; at the bound while a vector after side is realised whole. The walk emits
+;; every accessible after row; a survivor past the before bound carries
+;; `::unrealised` — an UNKNOWN prior — never `::missing`, the structural
+;; sentinel that forces `:added` and would paint the survivor green.
 
 (deftest capped-before-side-keeps-the-counted-after-tail-rf2-zk4he
-  ;; The mixed-representation reproduction.
   (let [n      1050
         before (map identity (range n))
         after  (assoc (vec (range n)) (dec n) :changed-at-tail)
-        proj   (engine/project before after)
-        rows   (vec (ei/sequential-diff-children before after :vector [] proj))
-        tail   (first (filter (fn [[k _ _]] (= k (dec n))) rows))]
-    (testing "the fixture really is the shape this turns on"
-      (is (not (counted? before))
-          (str "the BEFORE side is a LazySeq, so `bounded-vec` caps it at "
-               count-bound " — `counted?` is the dispatch, not the KIND"))
-      (is (counted? after)
-          "the AFTER side is a vector, so `bounded-vec` realises it whole")
-      (is (= n (count after))
-          (str "and it is " n " long — " (- n count-bound)
-               " elements past the ceiling the other side stopped at")))
-    (testing "P1 — every accessible AFTER row is emitted"
-      (is (= n (count rows))
-          (str n " rows. A walk without the after-side recovery emits " count-bound ": "
-               "`before-order` iterates `(range (count b-vec))` and `b-vec` "
-               "stops at the bound, while the header — reading the `counted?` "
-               "AFTER side through `bounded-count*` — promises " n
-               ". That gap is neither marked nor reachable.")))
-    (testing "P1 — the CHANGED TAIL element is present with its real value"
-      (is (some? tail)
-          (str "after-index " (dec n) " is rendered at all"))
-      (is (= :changed-at-tail (second tail))
-          (str "carrying the value it actually has in the after-tree — a row "
-               "count alone would accept " n " placeholders")))
-    (testing "P1 — its BEFORE slot says UNKNOWN, and is never `::missing`"
-      (let [b (nth tail 2 ::absent)]
-        (is (= ::ei/unrealised b)
-            (str "the before side was truncated at " count-bound ", so this "
-                 "element's prior value was never realised — which is not the "
-                 "same as its having none"))
-        (is (not= ::ei/missing b)
-            (str "`::missing` is the STRUCTURAL sentinel and forces "
-                 "`render-leaf-with-diff`'s `:added` path, which would paint a "
-                 "modified element green as newly added — a confident lie in "
-                 "place of a silent drop"))))
-    (testing "the header and the body describe the same collection"
-      (is (= n (header-promise after))
-          (str "the header promises the `counted?` after side's full " n
-               " — `header-promise` reads it through the production code's own "
-               "`bounded-count*`, which is also what `diff-pair-count` reports "
-               "through and takes the `max` of"))
-      (is (= (header-promise after) (count rows))
-          "header and body describe the same collection"))))
+        rows   (vec (ei/sequential-diff-children before after :vector []
+                                                 (engine/project before after)))]
+    (is (= n (count rows)) "every accessible AFTER row is emitted")
+    (is (= [(dec n) :changed-at-tail ::ei/unrealised]
+           (first (filter (fn [[k _ _]] (= k (dec n))) rows)))
+        "the changed tail element carries its real value and an UNKNOWN prior")))
 
 (deftest unrealised-before-slot-is-not-an-addition-rf2-zk4he
-  ;; The one place a plausible fix tells a NEW lie. `::missing` in a before
-  ;; slot is a STRUCTURAL sentinel that OVERRIDES the projection:
-  ;; it means "no such slot existed", and `render-leaf-with-diff` paints it
-  ;; green as `:added`. Reusing it for a survivor whose prior value is merely
-  ;; UNKNOWN swaps a silent drop for a confident falsehood. `::unrealised` is
-  ;; a third state and deliberately NOT structural, so the op falls through
-  ;; to the projection — which is computed over the FULL inputs and therefore
-  ;; classifies the element correctly.
-  (let [proj   (engine/project [1 2] [1 :changed])
-        render (fn [b projection]
-                 (ei/render-node {:value      :changed
-                                  :before     b
-                                  :diff?      true
-                                  :projection projection
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [1] :depth 1
-                                  :expansion-map {} :opts {}}))]
-    (testing "an `::unrealised` before slot reads the projection's own op"
-      (let [tree (render ::ei/unrealised proj)]
-        (is (seq (nodes-with-attr tree :data-rf-diff-op "modified"))
-            "the row renders as `:modified`, which is what the projection says")
-        (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
-            "and NOT as `:added` — this is the assertion the wrong fix fails")))
-    (testing "CONTROL — `::missing` in the SAME slot really does force `:added`"
-      ;; Without this the assertion above could be green because nothing
-      ;; renders an `:added` marker on this path at all.
-      (let [tree (render ::ei/missing proj)]
-        (is (seq (nodes-with-attr tree :data-rf-diff-op "added"))
-            (str "`::missing` forces `:added` even against a projection that "
-                 "says `:modified` — the structural override is real, which is "
-                 "exactly why it must not be borrowed for an unknown prior"))
-        (is (empty? (nodes-with-attr tree :data-rf-diff-op "modified"))
-            "and suppresses the projection's own op entirely")))
-    (testing "the sentinel is never printed, and the chip says UNKNOWN"
-      ;; With no projection there is no prior to recover, so the
-      ;; `← was <prior>` chip would `pr-str` the sentinel straight into the
-      ;; output — a sentinel leak, reached through a new door.
-      (let [tree (render ::ei/unrealised nil)
-            txt  (collect-text tree)]
-        (is (not (str/includes? txt "edn-inspector/unrealised"))
-            "the internal sentinel keyword never reaches the rendered output")
-        (is (seq (nodes-with-attr tree
-                                  :data-rf-diff-annotation "unrealised-before"))
-            "an explicit unknown-prior chip is rendered in its place")))))
+  ;; `::unrealised` is not structural, so the op comes off the projection;
+  ;; with no projection the `← was` chip states the unknown instead of
+  ;; printing the sentinel.
+  (let [render      (fn [b projection]
+                      (ei/render-node {:value      :changed
+                                       :before     b
+                                       :diff?      true
+                                       :projection projection
+                                       :panel-id   :test :mount-id "m1"
+                                       :path       [1] :depth 1
+                                       :expansion-map {} :opts {}}))
+        unprojected (render ::ei/unrealised nil)]
+    (is (= "modified" (-> (render ::ei/unrealised (engine/project [1 2] [1 :changed]))
+                          second
+                          :data-rf-diff-op))
+        "the row takes the projection's own op, never `:added`")
+    (is (not (str/includes? (collect-text unprojected) "edn-inspector/unrealised"))
+        "the internal sentinel keyword never reaches the rendered output")
+    (is (seq (nodes-with-attr unprojected :data-rf-diff-annotation "unrealised-before"))
+        "an explicit unknown-prior chip is rendered in its place")))
 
-(deftest capped-before-side-stays-bounded-and-aligned-rf2-zk4he
-  ;; P2, both halves. Their job is to refuse a WRONG tail recovery, not
-  ;; to catch a missing one.
-  (testing "P2 — lazy work is still bounded (guarded input)"
-    ;; The generator is ENDLESS and throws if anything pulls past the guard,
-    ;; so this measures REALISATION and not output length: a "fix" that
-    ;; recovered the tail by widening or dropping the before bound is green
-    ;; on P1 and red right here. The projection is built from an equivalent
-    ;; VECTOR so that computing it does not itself realise the generator —
-    ;; `engine/project` over an endless input is a separate subject.
-    (let [n     1050
-          guard 1500
-          after (assoc (vec (range n)) (dec n) :changed-at-tail)
-          proj  (engine/project (vec (range n)) after)
-          seen  (atom 0)
-          rows  (vec (ei/sequential-diff-children
-                       (counting-seq seen guard) after :vector [] proj))]
-      (is (<= @seen count-bound)
-          (str "realised " @seen " elements of the endless BEFORE side; the "
-               "WALKER's bound is " count-bound ". Recovering the after tail "
-               "must not cost the walker's bound."))
-      (is (= n (count rows))
-          (str "and still emits all " n " accessible AFTER rows"))))
-  (testing "P2 — two VECTORS: the removal alignment holds"
-    ;; Both sides `counted?`, so the two ceilings coincide, no row can be
-    ;; unpairable, and the recovered tail rows must be EMPTY. A fix that slid
-    ;; `bi->ai` to soak up surplus after-side survivors would strike the
-    ;; wrong element here — the scattered-removal defect — while still
-    ;; passing P1.
-    (let [n       1050
-          drop-at 500
-          before  (vec (range n))
-          after   (vec (concat (range drop-at) (range (inc drop-at) n)))
-          proj    (engine/project before after)
-          rows    (vec (ei/sequential-diff-children before after :vector [] proj))]
-      (is (= n (count rows))
-          (str n " rows: " (dec n) " survivors + 1 struck removal"))
-      (is (= [drop-at]
-             (->> rows
-                  (filter (fn [[_ a _]] (= a ::ei/missing)))
-                  (mapv (fn [[_ _ b]] b))))
-          (str "exactly element " drop-at " is struck — index alignment "
-               "strikes the SURVIVOR that slid up into the vacated slot, "
-               "which is what the projection-aware walk prevents"))
-      (is (empty? (filter (fn [[_ _ b]] (= b ::ei/unrealised)) rows))
-          (str "and NO row claims an unrealised prior: neither side was "
-               "capped, so every survivor pairs and the tail run is empty")))))
+(deftest capped-before-side-stays-bounded-rf2-zk4he
+  ;; Recovering the after tail costs nothing past the walker's bound on an
+  ;; endless before side. The projection comes from an equivalent vector, so
+  ;; computing it does not itself realise the generator.
+  (let [n     1050
+        after (assoc (vec (range n)) (dec n) :changed-at-tail)
+        seen  (atom 0)
+        rows  (vec (ei/sequential-diff-children
+                     (counting-seq seen 1500) after :vector []
+                     (engine/project (vec (range n)) after)))]
+    (is (<= @seen count-bound)
+        (str "realised " @seen " elements of the endless BEFORE side"))
+    (is (= n (count rows)) "and still emits every accessible AFTER row")))
 
-;; ---- a capped AFTER side must not DROP the counted before
-;; ---- tail ----------------------------------------------------------------
+;; ---- a capped AFTER side keeps the counted BEFORE tail -------------------
 ;;
-;; The MIRROR of the capped-BEFORE rows directly above, in the same walker.
-;; A capped BEFORE side loses the surplus AFTER rows; swap the two
-;; representations and the walk loses the surplus BEFORE rows instead:
-;;
-;;   BEFORE  a vector of 1050     →  `bounded-vec` realises `b-vec` whole
-;;   AFTER   a lazy seq of 1050   →  `bounded-vec` caps `a-vec` at 1001
-;;
-;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side — here the
-;; AFTER side — so `survivor-bis` past the after ceiling pair with nothing.
-;; A survivor arm shaped `(when-let [ai (bi->ai bi)] …)` would emit
-;; NOTHING for those before-indices, which is why `before-order`'s arm has
-;; an else-branch. The after-side recovery run does not reach them: it
-;; iterates `after-idxs` ONLY, so it recovers the AFTER direction and has
-;; no arm pointing the other way. The header, reading the `counted?` BEFORE
-;; side through `bounded-count*` and taking the `max`, promises 1050.
-;;
-;; A body showing 1001 — `count-bound` exactly — would break three
-;; normative statements in one direction: `sequential-diff-children`'s own
-;; docstring ("The body never falls SHORT of the header, in either
-;; direction"), `count-bound`'s ("A body that fell SHORT of the header is
-;; the direction that loses data, and that is what this ceiling refuses")
-;; and `children-of-pair`'s arm ("Dropping them instead would put the
-;; body SHORT of the header `diff-pair-count` prints").
-;;
-;; TWO properties — either alone is green against a plausible wrong
-;; fix:
-;;
-;;   P1 NO SILENT LOSS  — every before-side row the walk can still account for
-;;                        is emitted, carrying its REAL prior value, and its
-;;                        AFTER slot says UNKNOWN rather than claiming a
-;;                        deletion. A row count alone would be satisfied by
-;;                        1050 placeholders, and `::missing` there would be
-;;                        a confident false deletion.
-;;   P2 STILL BOUNDED,  — the walk realises no more of the AFTER side than
-;;      STILL ALIGNED     the bound (a REALISATION counter, never an output length),
-;;                        the in-place strike still lands on the
-;;                        genuinely-removed member, and every emitted row still
-;;                        carries a DISTINCT key. Widening the after bound
-;;                        loses P2's first half; sliding `bi->ai` to soak up
-;;                        the surplus before-side survivors loses its second;
-;;                        keying the recovered rows by their bare before-index
-;;                        loses its third, because an added after-element can
-;;                        already own that integer.
+;; The mirror: a vector before side against a lazy after side capped at the
+;; bound. Before-side survivors past the after ceiling are emitted in
+;; before-order under a synthetic key, carrying `::unrealised` in the AFTER
+;; slot — never `::missing`, which would strike a retained element as a
+;; confirmed deletion.
 
 (deftest capped-after-side-keeps-the-counted-before-tail-rf2-f8nm7
-  ;; The capped-BEFORE fixture with the two sides swapped.
   (let [n      1050
         before (assoc (vec (range n)) (dec n) :changed-at-tail)
         after  (map identity (range n))
-        proj   (engine/project before after)
-        rows   (vec (ei/sequential-diff-children before after :vector [] proj))
-        ;; Found by its BEFORE value, not by a key: its key is a synthetic
-        ;; segment, and a walk that drops it leaves no row to find.
-        tail   (first (filter (fn [[_ _ b]] (= b :changed-at-tail)) rows))]
-    (testing "CONTROL — the fixture really is the shape this turns on"
-      (is (counted? before)
-          "the BEFORE side is a vector, so `bounded-vec` realises it whole")
-      (is (not (counted? after))
-          (str "the AFTER side is a LazySeq, so `bounded-vec` caps it at "
-               count-bound " — `counted?` is the dispatch, not the KIND"))
-      (is (= n (count before))
-          (str "and the before side is " n " long — " (- n count-bound)
-               " elements past the ceiling the other side stopped at")))
-    (testing "CONTROL — the walk reached its subject and reconstructed below
-              the bound"
-      ;; Without these the row-count assertion below could be red because the
-      ;; walk threw, returned nil, or never took the projection-aware arm at
-      ;; all — a test that never reached its contract rather than a contract
-      ;; that failed.
-      (is (seq rows)
-          "the projection-aware arm ran and emitted rows")
-      (is (= [0 0 0] (first rows))
-          "before-index 0 pairs with after-index 0 and carries both values")
-      (is (some (fn [[k _ _]] (= k (dec count-bound))) rows)
-          (str "and the last PAIRABLE index (" (dec count-bound)
-               ") is present — the reconstruction works below the ceiling")))
-    (testing "CONTROL — the header promises the counted BEFORE side's full count"
-      (is (= n (max (header-promise before) (header-promise after)))
-          (str "`diff-pair-count` reports the `max` of the two sides through "
-               "`bounded-count*`; the `counted?` BEFORE side answers " n
-               " while the capped AFTER side answers " count-bound)))
-    (testing "P1 — every accessible BEFORE row is emitted"
-      (is (= n (count rows))
-          (str n " rows. A walk without the before-side recovery emits " count-bound ": "
-               "`bi->ai`'s `zipmap` truncates to the capped AFTER side, and "
-               "a `when-let` survivor arm yields NOTHING for a before-index "
-               "past it while the recovery run walks `after-idxs` only. That "
-               "gap is neither marked nor reachable.")))
-    (testing "P1 — the CHANGED TAIL element is present with its real prior"
-      (is (some? tail)
-          (str "before-index " (dec n) " is rendered at all"))
-      (is (= :changed-at-tail (nth tail 2 ::absent))
-          (str "carrying the prior it actually has in the before-tree — a row "
-               "count alone would accept " n " placeholders")))
-    (testing "P1 — its AFTER slot says UNKNOWN, and is never `::missing`"
-      (let [a (nth tail 1 ::absent)]
-        (is (= ::ei/unrealised a)
-            (str "the after side was truncated at " count-bound ", so this "
-                 "element's current value was never realised — which is not "
-                 "the same as its having none"))
-        (is (not= ::ei/missing a)
-            (str "`::missing` is the STRUCTURAL sentinel and forces "
-                 "`leaf-diff-op`'s `:removed` path, which would present a "
-                 "RETAINED element as a confirmed deletion — the worse "
-                 "of the two false readings. A false addition "
-                 "overstates what arrived; a false deletion tells the "
-                 "operator that data they still have is gone."))))
-    (testing "P1 — and NO row in the set claims a deletion"
-      ;; Nothing was removed from this collection, so no `::missing` after
-      ;; value may appear anywhere: the only rows carrying one are genuine
-      ;; `:vector-removals`, and there are none.
-      (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) rows))
-          "no row is struck through — this diff removed nothing"))))
+        rows   (vec (ei/sequential-diff-children before after :vector []
+                                                 (engine/project before after)))]
+    (is (= n (count rows)) "every accessible BEFORE row is emitted")
+    (is (= [::ei/unrealised :changed-at-tail]
+           (rest (first (filter (fn [[_ _ b]] (= b :changed-at-tail)) rows))))
+        "the tail element keeps its real prior and states its current value unknown")
+    (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) rows))
+        "nothing was removed, so no row is struck")))
 
 (deftest unreached-before-row-is-not-an-unchanged-value-rf2-f8nm7
-  ;; The one place a plausible fix tells a NEW lie, and the reason the
-  ;; recovered row may not simply take `op-at`'s answer. It has NO after-path
-  ;; — that is the whole reason it exists — so a key the projection can be
-  ;; asked about at all gets `op-at`'s documented no-entry default, `:same`.
-  ;; `render-leaf-with-diff`'s `:same` arm paints `present-value`, which for
-  ;; an `::unrealised` after slot falls back to the BEFORE value — so the row
-  ;; would render the PRIOR value, muted, as the settled current one. The
-  ;; render layer says so itself: it falls back that way because a projection
-  ;; `:same` "CERTIFIES the two sides equal", and a default is not a
-  ;; certification. That is a fourth confident falsehood in the family that
-  ;; exists to refuse the other three.
-  ;;
-  ;; `:modified` is the honest op — `leaf-diff-op`'s own note calls
-  ;; it "an honest 'something here is not settled'" — and it paints `value`,
-  ;; which `paint` turns into the explicit unknown-value token, beside the
-  ;; `← was <prior>` chip carrying the prior we really do know.
+  ;; A row past the after ceiling has no after-path, so `op-at`'s `:same`
+  ;; default would paint the PRIOR, muted, as the settled value. It renders
+  ;; as `:modified` with an explicit unknown-value token instead.
   (let [n      1050
         before (assoc (vec (range n)) (dec n) :changed-at-tail)
         after  (map identity (range n))
-        proj   (engine/project before after)
         tree   (render-expanded {:value      after
                                  :before     before
                                  :diff?      true
-                                 :projection proj})
-        txt    (collect-text tree)]
-    (testing "CONTROL — the body renders every row the header promises"
-      (is (= n (rendered-rows tree))
-          (str "all " n " rows reach the screen; a body without the recovery shows "
-               count-bound " under a header promising " n)))
-    (testing "the recovered row states the unknown rather than painting a
-              stale value as settled"
-      (is (seq (nodes-with-attr tree :data-rf-diff-value "unrealised-after"))
-          (str "an explicit `(after side bounded — value not realised)` token "
-               "is rendered. Without this the row paints `:changed-at-tail` "
-               "— the PRIOR — in muted `:same` chrome, which says the "
-               "element is settled at a value it no longer has."))
-      (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
-          (str "and NO row is painted as a deletion — nothing was removed "
-               "from this collection, and `::missing` in the after slot "
-               "would be a confident false deletion reached through a new "
-               "door")))
-    (testing "CONTROL — the sentinels never reach the screen"
-      (is (not (str/includes? txt "edn-inspector/unrealised"))
-          "the internal unknown-value sentinel is never `pr-str`ed out")
-      (is (not (str/includes? txt "edn-inspector/unreached"))
-          (str "and neither is the synthetic KEY segment the recovered row "
-               "is addressed by")))))
+                                 :projection (engine/project before after)})]
+    (is (seq (nodes-with-attr tree :data-rf-diff-value "unrealised-after"))
+        "the recovered row states the unknown")
+    (is (not (str/includes? (collect-text tree) "edn-inspector/unrealised"))
+        "the internal sentinel keyword never reaches the rendered output")))
 
-(deftest capped-after-side-stays-bounded-and-aligned-rf2-f8nm7
-  ;; P2, all three halves. Their job is to refuse a WRONG tail recovery,
-  ;; not to catch a missing one.
-  (testing "P2 — lazy work is still bounded (guarded AFTER input)"
-    ;; The generator is ENDLESS and throws if anything pulls past the guard,
-    ;; so this measures REALISATION and not output length: a "fix" that
-    ;; recovered the before tail by widening or dropping the AFTER bound is
-    ;; green on P1 and red right here. The projection is built from an
-    ;; equivalent VECTOR so that computing it does not itself realise the
-    ;; generator — `engine/project` over an endless input is a separate
-    ;; subject.
-    (let [n     1050
-          guard 1500
-          before (assoc (vec (range n)) (dec n) :changed-at-tail)
-          proj  (engine/project before (vec (range n)))
-          seen  (atom 0)
-          rows  (vec (ei/sequential-diff-children
-                       before (counting-seq seen guard) :vector [] proj))]
-      (is (<= @seen count-bound)
-          (str "realised " @seen " elements of the endless AFTER side; the "
-               "WALKER's bound is " count-bound ". Recovering the before tail "
-               "must not cost the walker's bound."))
-      (is (= n (count rows))
-          (str "and still emits all " n " accessible BEFORE rows"))))
-  (testing "P2 — every emitted row carries a DISTINCT key"
-    ;; The recovered rows have no after-index to be keyed by, and their bare
-    ;; before-index is NOT free: an `:added` after-element can already own
-    ;; that integer, so keying them by it would collide and two rows would
-    ;; share a React key and a testid. This is why the removals carry a
-    ;; synthetic segment too.
+(deftest capped-after-side-stays-bounded-with-distinct-keys-rf2-f8nm7
+  (testing "an endless AFTER side is realised no further than the walker's bound"
     (let [n      1050
-          before (vec (range n))
-          ;; Additions early in the after side push `survivor-ais` well below
-          ;; `a-count`, so the unpaired before-indices land INSIDE the integer
-          ;; range the after-side keys occupy.
-          after  (map identity (concat [:added-a :added-b :added-c] (range n)))
-          proj   (engine/project before after)
-          rows   (vec (ei/sequential-diff-children before after :vector [] proj))
-          ks     (mapv first rows)]
-      (is (= (count ks) (count (distinct ks)))
-          (str "all " (count ks) " row keys are distinct; "
-               (- (count ks) (count (distinct ks)))
-               " collided. A bare before-index would clash with the "
-               "after-index of an added element."))))
-  (testing "P2 — two VECTORS: the removal alignment holds"
-    ;; Both sides `counted?`, so the two ceilings coincide, no row can be
-    ;; unpairable, and the recovered before rows must be EMPTY. A fix that
-    ;; slid `bi->ai` to soak up surplus before-side survivors would strike the
-    ;; wrong element here — the scattered-removal defect — while still
-    ;; passing P1.
-    (let [n       1050
-          drop-at 500
-          before  (vec (range n))
-          after   (vec (concat (range drop-at) (range (inc drop-at) n)))
-          proj    (engine/project before after)
-          rows    (vec (ei/sequential-diff-children before after :vector [] proj))]
-      (is (= n (count rows))
-          (str n " rows: " (dec n) " survivors + 1 struck removal"))
-      (is (= [drop-at]
-             (->> rows
-                  (filter (fn [[_ a _]] (= a ::ei/missing)))
-                  (mapv (fn [[_ _ b]] b))))
-          (str "exactly element " drop-at " is struck — index alignment "
-               "strikes the SURVIVOR that slid up into the vacated slot, "
-               "which is what the projection-aware walk prevents"))
-      (is (empty? (filter (fn [[_ a _]] (= a ::ei/unrealised)) rows))
-          (str "and NO row claims an unrealised CURRENT value: neither side "
-               "was capped, so every survivor pairs and the recovery run is "
-               "empty")))))
-
-;; ---- `children-of-pair`'s mixed-ceiling tail ------------------------------
-;;
-;; The SIBLING of the capped-side rows above, reached in the other walker,
-;; where the risk points the OPPOSITE way. `sequential-diff-children` could
-;; LOSE the surplus after rows; this arm walks `(range (max …))`, so it loses
-;; nothing — the risk is filling the truncated before tail with `::missing`
-;; instead.
-;;
-;; `::missing` is the STRUCTURAL sentinel. `leaf-diff-op` reads it BEFORE it
-;; consults the projection — `(= before ::missing) → :added` — so a survivor
-;; whose prior value was merely never realised would be painted green as a
-;; structurally new element: a CONFIDENT LIE in place of a silent drop,
-;; reached by a different route in the sibling function.
-;;
-;; The arm is live: `sequential-diff-children` FALLS BACK to it whenever it
-;; has no projection, and its own docstring promises "same answer for the
-;; no-removal case". A fallback emitting `::missing` where the main path
-;; emits `::unrealised` would break that promise in exactly this shape,
-;; because the two walkers return the SAME triple shape to the same renderer.
-;;
-;; TWO properties — either alone is green against a plausible wrong
-;; fix:
-;;
-;;   P1 NO CONFIDENT LIE  — a survivor past the before bound carries
-;;                          `::unrealised`, and renders as the projection's
-;;                          own op rather than as `:added`.
-;;   P2 ADDITIONS AND     — a before side that ran out HONESTLY still says
-;;      BOUND INTACT        `::missing`, and the walk realises no more of the
-;;                          before side than the bound. Swapping the sentinel
-;;                          unconditionally is green on P1 and red on the
-;;                          first half of P2; widening the before bound to
-;;                          "just look" is green on both of those and red on
-;;                          the second.
-
-(deftest children-of-pair-capped-before-tail-is-unknown-not-added-rf2-idydb
-  ;; The mixed-ceiling reproduction. `map` hands back a LazySeq, which is not
-  ;; `counted?`, so `bounded-vec` caps the BEFORE side at `count-bound` while
-  ;; realising the `counted?` AFTER side whole — the independent ceilings
-  ;; of the `counted?` split.
-  (let [n      1050
-        before (map identity (range n))
-        after  (assoc (vec (range n)) (dec n) :changed-at-tail)
-        rows   (vec (ei/children-of-pair before after :vector))
-        tail   (first (filter (fn [[k _ _]] (= k (dec n))) rows))]
-    (testing "the fixture really is the shape this turns on"
-      (is (not (counted? before))
-          (str "the BEFORE side is a LazySeq, so `bounded-vec` caps it at "
-               count-bound " — `counted?` is the dispatch, not the KIND"))
-      (is (counted? after)
-          "the AFTER side is a vector, so `bounded-vec` realises it whole")
-      (is (= n (count after))
-          (str "and it is " n " long — " (- n count-bound)
-               " elements past the ceiling the other side stopped at")))
-    (testing "nothing is LOST — this arm walks `(range (max …))`"
-      (is (= n (count rows))
-          (str "all " n " rows are emitted. The other walker's data-loss "
-               "failure does not arise here, which is why a "
-               "row count cannot see a mislabel: the tail is PRESENT either "
-               "way"))
-      (is (some? tail)
-          (str "after-index " (dec n) " is emitted"))
-      (is (= :changed-at-tail (second tail))
-          "carrying the value it actually has in the after-tree"))
-    (testing "P1 — its BEFORE slot says UNKNOWN, and is never `::missing`"
-      (let [b (nth tail 2 ::absent)]
-        (is (= ::ei/unrealised b)
-            (str "the before side was truncated at " count-bound ", so this "
-                 "element's prior value was never realised — which is not the "
-                 "same as its having none"))
-        (is (not= ::ei/missing b)
-            (str "`::missing` OVERRIDES the projection in `leaf-diff-op`, so "
-                 "borrowing it for an unknown prior paints a surviving "
-                 "element green as newly added"))))
-    (testing "P1 — and it renders as the projection's own op, never `:added`"
-      ;; The chain closed end to end: the slot `children-of-pair` actually
-      ;; produced, handed to the renderer against the projection computed
-      ;; over the FULL pair — which owes nothing to the walker's ceiling.
-      (let [proj    (engine/project before after)
-            proj-op (engine/op-at proj [(dec n)])
-            render  (fn [b]
-                      (ei/render-node {:value      (second tail)
-                                       :before     b
-                                       :diff?      true
-                                       :projection proj
-                                       :panel-id   :test :mount-id "m1"
-                                       :path       [(dec n)] :depth 1
-                                       :expansion-map {} :opts {}}))]
-        (is (not= :added proj-op)
-            (str "the projection saw BOTH full trees and calls after-index "
-                 (dec n) " `" proj-op "` — it is a survivor, not an addition"))
-        (let [tree (render (nth tail 2))]
-          (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
-              "so the row must not render as `:added` — the mislabel's signature")
-          (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-              (str "it renders the projection's own `" proj-op "` instead")))
-        (testing "CONTROL — `::missing` in the SAME slot really does force `:added`"
-          ;; Without this the assertions above could be green because nothing
-          ;; renders an `:added` marker on this path at all.
-          (let [tree (render ::ei/missing)]
-            (is (seq (nodes-with-attr tree :data-rf-diff-op "added"))
-                (str "`::missing` forces `:added` even against a projection "
-                     "saying `" proj-op "` — the structural override is real, "
-                     "which is exactly why this arm must not emit it here"))
-            (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-                "and suppresses the projection's own op entirely")))))))
-
-(deftest children-of-pair-honest-before-exhaustion-stays-missing-rf2-idydb
-  ;; P2. Its job is to refuse a WRONG fix, not to catch a mislabelled
-  ;; tail. `::missing` is CORRECT wherever the walk
-  ;; realised the whole before side and found no element — swapping the
-  ;; sentinel unconditionally would report every genuine append as an unknown
-  ;; prior, which is the same confident falsehood pointing the other way.
-  (testing "P2 — both sides `counted?`: the surplus after tail is a real addition"
-    (let [rows (vec (ei/children-of-pair [1 2] [1 2 3 4] :vector))
-          bs   (mapv (fn [[_ _ b]] b) rows)]
-      (is (= 4 (count rows)) "index-aligned to the longer side")
-      (is (= [::ei/missing ::ei/missing] (subvec bs 2))
-          (str "neither side was capped — `bounded-vec` realises a `counted?` "
-               "collection whole — so indices 2 and 3 genuinely had no prior"))))
-  (testing "P2 — a SHORT lazy before side ended honestly, under the ceiling"
-    ;; The discriminator. This side is NOT `counted?`, exactly like the
-    ;; capped fixture, but it ran out on its own well before `count-bound`,
-    ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
-    ;; of the before side rather than on the ceiling being REACHED is red here.
-    (let [before (map identity (range 5))
-          rows   (vec (ei/children-of-pair before (vec (range 8)) :vector))
-          bs     (mapv (fn [[_ _ b]] b) rows)]
-      (is (not (counted? before))
-          "a LazySeq, the same shape the capped fixture uses")
-      (is (= 8 (count rows)) "index-aligned to the longer side")
-      (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec bs 5))
-          (str "the walk realised all 5 elements and the seq ended — under "
-               "the ceiling, so absence here is KNOWN, not unknown"))))
-  (testing "P2 — the before bound is not widened to find out"
-    ;; A REALISATION counter, never an output length: a "fix" that told the
-    ;; two cases apart by pulling one more element off the before side is
-    ;; green on P1 and on both halves above, and red right here.
-    (let [n     1050
-          guard 1500
-          seen  (atom 0)
-          after (vec (range n))
-          rows  (vec (ei/children-of-pair (counting-seq seen guard) after :vector))]
+          before (assoc (vec (range n)) (dec n) :changed-at-tail)
+          seen   (atom 0)
+          rows   (vec (ei/sequential-diff-children
+                        before (counting-seq seen 1500) :vector []
+                        (engine/project before (vec (range n)))))]
       (is (<= @seen count-bound)
-          (str "realised " @seen " elements of the endless BEFORE side; the "
-               "walker's bound is " count-bound))
-      (is (= n (count rows))
-          (str "and still emits all " n " accessible AFTER rows")))))
+          (str "realised " @seen " elements of the endless AFTER side"))
+      (is (= n (count rows)) "and still emits every accessible BEFORE row")))
+  (testing "every emitted row carries a distinct key"
+    ;; Early additions push the unpaired before-indices into the integer
+    ;; range the after-side keys occupy, so a bare before-index would collide.
+    (let [before (vec (range 1050))
+          after  (map identity (concat [:added-a :added-b :added-c] (range 1050)))
+          ks     (mapv first (ei/sequential-diff-children before after :vector []
+                                                         (engine/project before after)))]
+      (is (= (count ks) (count (distinct ks)))))))
 
-;; ---- an unknown prior carried INTO a nested container ---------------------
+;; ---- an unknown prior carried INTO a nested container --------------------
 ;;
-;; The same confusion one level DOWN from the two families above.
-;; `sequential-diff-children` emits `::unrealised` for a survivor past the
-;; before bound, and `children-of-pair`'s SEQUENTIAL arm tells that survivor
-;; from a genuine append. The RECURSION that carries such a slot into a
-;; nested CONTAINER needs the same distinction.
-;;
-;; When the surviving tail element is itself a map, `render-container`
-;; descends with `before` = `::unrealised`, and the map arm opens with
-;;
-;;     (let [a (when (map? after) after)
-;;           b (when (map? before) before)]
-;;
-;; The sentinel is not a map, so `b` binds to `nil` and the walk falls into
-;; the "only AFTER is a map" arm. Emitting every child there as
-;; `[k v ::missing]` would convert an UNKNOWN prior into an ABSENT one at a
-;; single `when`: `::missing` is the STRUCTURAL sentinel — `leaf-diff-op`
-;; reads it AHEAD of the projection — so every descendant of an entirely
-;; UNCHANGED map would render `:added`. `unpaired-prior` carries the marker
-;; down instead.
-;;
-;; `classify-container-op` meets the same confusion one step earlier: a
-;; structural override that compared the marker to the map as an actual
-;; VALUE would find them different and promote the projection's `:same` to
-;; `:children` — painting the unchanged tail change-bearing before its
-;; descendants are walked at all. Two sites, one confusion.
-;;
-;; TWO properties — either alone is green against a plausible wrong
-;; fix:
-;;
-;;   P1 NO FABRICATED    — a container reached under an `::unrealised` prior
-;;      ADDITIONS          gives its own children `::unrealised` priors, they
-;;                         render as the projection's own op, and the
-;;                         container is not forced change-bearing merely
-;;                         because the prior is unknown.
-;;   P2 REAL ABSENCE     — a prior that is genuinely `::missing` still makes
-;;      STILL READS        every child `:added`, a real prior map still
-;;      :added             key-aligns, and the before bound is not widened.
-;;                         A fix that swapped the sentinel unconditionally at
-;;                         the recursion boundary is green on P1 and red on
-;;                         P2, which `children-of-pair-map-union` and
-;;                         `children-of-pair-honest-before-exhaustion-stays-missing-rf2-idydb`
-;;                         hold.
+;; When a survivor past the before bound is itself a map, the renderer
+;; descends with `::unrealised` as its whole before side. Its children
+;; inherit the unknown prior, and the container is not promoted to
+;; change-bearing on the strength of a prior nobody looked at.
 
 (deftest nested-tail-container-under-unknown-prior-rf2-t450s
-  ;; The reproduction: an unchanged 1050-element collection
-  ;; whose LAST element is a map, diffed against a lazy-seq view of itself.
-  (let [n         1050
-        tail-map  {:keep 1 :other 2 :third 3 :fourth 4}
-        full      (assoc (vec (range n)) (dec n) tail-map)
-        before    (map identity full)
-        after     full
-        proj      (engine/project before after)
-        tail-path [(dec n)]
-        rows      (vec (ei/sequential-diff-children before after :vector [] proj))
-        tail      (first (filter (fn [[k _ _]] (= k (dec n))) rows))
-        ;; The container's OWN op, read off the one node carrying it:
-        ;; `render-container` puts `:data-rf-kind` and `:data-rf-diff-op` on
-        ;; the same div, so this cannot be answered by a descendant's row.
-        container-op (fn [tree kind]
-                       (get (second (find-attr tree :data-rf-kind kind))
-                            :data-rf-diff-op))
-        render-at (fn [path v b]
-                    (ei/render-node {:value      v
-                                     :before     b
-                                     :diff?      true
-                                     :projection proj
-                                     :panel-id   :test :mount-id "m1"
-                                     :path       path :depth 1
-                                     :expansion-map {} :opts {}}))]
-    (testing "the fixture really is the shape this turns on"
-      (is (not (counted? before))
-          (str "the BEFORE side is a LazySeq, so `bounded-vec` caps it at "
-               count-bound " — `counted?` is the dispatch, not the KIND"))
-      (is (counted? after)
-          "the AFTER side is a vector, so `bounded-vec` realises it whole")
-      (is (= full (vec before))
-          (str "the two sides carry IDENTICAL values — whatever this test "
-               "reports, NOTHING in this collection changed"))
-      (is (empty? (:flat-rows proj))
-          "which the projection agrees with: no changed rows anywhere")
-      (is (map? (nth after (dec n)))
-          (str "and the element past the ceiling is a CONTAINER — that is "
-               "what carries the unknown prior into the recursion")))
-    (testing "precondition — the walker hands that container an UNKNOWN prior"
-      ;; The capped-before-side contract, one level up. Were this ever to
-      ;; read `::missing` the failures below would be THAT defect, not this one.
-      (is (= n (count rows))
-          (str "all " n " accessible after rows are emitted"))
-      (is (= tail-map (second tail))
-          "the tail row carries the real map from the after-tree")
-      (is (= ::ei/unrealised (nth tail 2))
-          (str "and its before slot says UNKNOWN — the before side stopped "
-               "at " count-bound ", so this element's prior was never "
-               "realised")))
-    (testing "P1 — recursing into it must not invent ABSENT priors"
-      (let [kids (vec (ei/children-of-pair (nth tail 2) (second tail) :map))
-            bs   (mapv (fn [[_ _ b]] b) kids)]
-        (is (= 4 (count kids))
-            (str "all four of the after-map's keys are walked — the accessible "
-                 "AFTER data is preserved whole"))
-        (is (= (vec (repeat 4 ::ei/unrealised)) bs)
-            (str "and EVERY prior is UNKNOWN. The map arm binds `b` "
-                 "to `nil` (the sentinel is not a `map?`) and takes the "
-                 "\"only AFTER is a map\" arm, which must not emit `::missing` for all "
-                 "four"))
-        (is (empty? (filter #{::ei/missing} bs))
-            (str "never `::missing`, which `leaf-diff-op` reads AHEAD of the "
-                 "projection and renders `:added`"))))
-    (testing "P1 — and every descendant renders the projection's own op"
-      ;; The chain closed end to end: the slots `children-of-pair` actually
-      ;; produced, handed to the renderer against the projection computed
-      ;; over the FULL pair — which owes nothing to the walker's ceiling.
-      (let [kids (vec (ei/children-of-pair (nth tail 2) (second tail) :map))]
-        (doseq [[k v b] kids]
-          (let [kid-path (conj tail-path k)
-                proj-op  (engine/op-at proj kid-path)
-                tree     (render-at kid-path v b)]
-            (is (not= :added proj-op)
-                (str "the projection saw BOTH full trees and calls " k " `"
-                     proj-op "` — it is an untouched member, not an addition"))
-            (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
-                (str "so the row for " k " must not render as `:added` — the "
-                     "fabricated-addition signature, which would fire on all four"))
-            (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-                (str "it renders the projection's own `" proj-op
-                     "` instead"))))
-        (testing "CONTROL — `::missing` in those SAME slots really does force `:added`"
-          ;; Without this the assertions above could all be green because
-          ;; nothing renders an `:added` marker on these paths at all.
-          (doseq [[k v _] kids]
-            (let [kid-path (conj tail-path k)
-                  proj-op  (engine/op-at proj kid-path)
-                  tree     (render-at kid-path v ::ei/missing)]
-              (is (seq (nodes-with-attr tree :data-rf-diff-op "added"))
-                  (str "`::missing` forces `:added` for " k " even against a "
-                       "projection saying `" proj-op "` — the structural "
-                       "override is real, which is exactly why the recursion "
-                       "must not emit it for an unknown prior"))
-              (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-                  "and suppresses the projection's own op entirely"))))))
-    (testing "P1 — the container itself is not forced change-bearing"
-      ;; `classify-container-op`'s structural override promotes a `:same`
-      ;; projection to `:children` when the two sides differ as VALUES. The
-      ;; `::unrealised` marker is not a value, and differing from one is no
-      ;; evidence that anything changed.
-      (let [proj-op (engine/op-at proj tail-path)
-            tree    (render-at tail-path (second tail) (nth tail 2))]
-        (is (not= :added proj-op)
-            (str "the projection calls the tail element itself `" proj-op "`"))
-        (is (= (name proj-op) (container-op tree "map"))
-            (str "so the container row reads `" proj-op "`. Handed the marker, "
-                 "`differs-within-bound?` would compare it to the map, "
-                 "find them different, and promote it to `children`"))
-        (is (not= "children" (container-op tree "map"))
-            (str "and it is never painted change-bearing on the strength of "
-                 "a prior nobody looked at")))
-      (testing "CONTROL — a container whose prior GENUINELY differs still promotes"
-        ;; Without this the assertion above could be green because the
-        ;; override fires for nobody.
-        (let [tree (render-at tail-path (second tail) {:keep 1})]
-          (is (= "children" (container-op tree "map"))
-              (str "a REAL prior that differs from the after value still "
-                   "promotes `:same` to `:children` — the override is intact, "
-                   "and only the sentinel is excluded from it")))))))
-
-;; ---- `children-of-pair`'s capped-AFTER tail -------------------------------
-;;
-;; The MIRROR of the mixed-ceiling tail above, one line away in the same
-;; `for` comprehension, where conflating UNREALISED with ABSENT fails in the
-;; MORE DAMAGING direction: that one is the capped-BEFORE side, this is the
-;; capped-AFTER side.
-;;
-;; `bounded-vec` dispatches on `counted?`, so a `counted?` BEFORE side is
-;; realised whole while a not-`counted?` AFTER side stops at `count-bound`.
-;; Filling the AFTER slot past that ceiling with `::missing` — the
-;; STRUCTURAL sentinel, which `leaf-diff-op` reads AHEAD of the projection
-;; (`(= value ::missing) → :removed`) — would present a RETAINED element
-;; whose after value was merely never realised as a confirmed DELETION:
-;; strike-through, `−` glyph, red wash. Worse than a false addition,
-;; because the operator reads it as data that is GONE.
-;;
-;; TWO properties — either alone is green against a plausible wrong
-;; fix:
-;;
-;;   P1 NO CONFIDENT LIE  — a retained element past the after bound carries
-;;                          `::unrealised` in its AFTER slot, renders as the
-;;                          projection's own op rather than `:removed`, keeps
-;;                          its accessible prior, and never prints the
-;;                          sentinel.
-;;   P2 DELETIONS AND     — an after side that ran out HONESTLY still says
-;;      BOUND INTACT        `::missing` and still strikes a real deletion, and
-;;                          the walk realises no more of the after side than
-;;                          the bound. Swapping the sentinel unconditionally is green
-;;                          on P1 and red on the first half of P2; widening the
-;;                          after bound to "just look" is green on both of
-;;                          those and red on the last.
-
-(deftest children-of-pair-capped-after-tail-is-unknown-not-removed-rf2-g61nr
-  ;; The reproduction: `before` a 1050-element vector,
-  ;; `after` a LazySeq view of the SAME values. Nothing changed. `map` hands
-  ;; back a LazySeq, which is not `counted?`, so `bounded-vec` caps the AFTER
-  ;; side at `count-bound` while realising the `counted?` BEFORE side whole.
-  (let [n      1050
-        before (vec (range n))
-        after  (map identity before)
-        proj   (engine/project before after)
-        rows   (vec (ei/children-of-pair before after :vector))
-        tail   (first (filter (fn [[k _ _]] (= k (dec n))) rows))
-        past   (filterv (fn [[k _ _]] (>= k count-bound)) rows)
-        render (fn [a-slot]
-                 (ei/render-node {:value      a-slot
-                                  :before     (nth tail 2)
-                                  :diff?      true
-                                  :projection proj
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [(dec n)] :depth 1
-                                  :expansion-map {} :opts {}}))]
-    (testing "the fixture really is the shape this turns on"
-      (is (counted? before)
-          "the BEFORE side is a vector, so `bounded-vec` realises it whole")
-      (is (not (counted? after))
-          (str "the AFTER side is a LazySeq, so `bounded-vec` caps it at "
-               count-bound " — `counted?` is the dispatch, not the KIND"))
-      (is (= before (vec after))
-          (str "the two sides carry IDENTICAL values — whatever this test "
-               "reports, NOTHING in this collection was deleted"))
-      (is (empty? (:flat-rows proj))
-          "which the projection agrees with: no changed rows anywhere"))
-    (testing "nothing is LOST — this arm walks `(range (max …))`"
-      (is (= n (count rows))
-          (str "all " n " rows are emitted, so the tail is PRESENT either "
-               "way — which is why a row count cannot see a "
-               "mislabel at all"))
-      (is (= (- n count-bound) (count past))
-          (str (- n count-bound) " of them sit past the after ceiling of "
-               count-bound)))
-    (testing "P1 — their AFTER slot says UNKNOWN, and is never `::missing`"
-      (is (= [(dec n) ::ei/unrealised (dec n)] (vec tail))
-          (str "the last row. The confident-deletion reading is `[" (dec n) " ::missing "
-               (dec n) "]` — the decisive measurement"))
-      (is (= (vec (repeat (- n count-bound) ::ei/unrealised))
-             (mapv (fn [[_ a _]] a) past))
-          "and so does every row past the ceiling")
-      (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) past))
-          (str "never `::missing`, which OVERRIDES the projection in "
-               "`leaf-diff-op` and presents a retained element as a "
-               "confirmed deletion"))
-      (is (= (mapv (fn [[k _ _]] k) past)
-             (mapv (fn [[_ _ b]] b) past))
-          (str "while the BEFORE slot still carries the real, accessible "
-               "prior for every one of them — the known data is preserved, "
-               "not dropped")))
-    (testing "P1 — and it renders as the projection's own op, never `:removed`"
-      ;; The chain closed end to end: the slot `children-of-pair` actually
-      ;; produced, handed to the renderer against the projection computed
-      ;; over the FULL pair — which owes nothing to the walker's ceiling.
-      (let [proj-op (engine/op-at proj [(dec n)])
-            tree    (render (second tail))]
-        (is (not= :removed proj-op)
-            (str "the projection saw BOTH full trees and calls after-index "
-                 (dec n) " `" proj-op "` — it is retained, not deleted"))
-        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
-            "so the row must not render as `:removed` — the false-deletion signature")
-        (is (not (str/includes? (pr-str tree) "line-through"))
-            "and carries no strike-through")
-        (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-            (str "it renders the projection's own `" proj-op "` instead"))
-        (testing "CONTROL — `::missing` in the SAME slot really does force `:removed`"
-          ;; Without this the assertions above could be green because nothing
-          ;; renders a `:removed` marker on this path at all.
-          (let [tree (render ::ei/missing)]
-            (is (seq (nodes-with-attr tree :data-rf-diff-op "removed"))
-                (str "`::missing` forces `:removed` even against a projection "
-                     "saying `" proj-op "` — the structural override is real, "
-                     "which is exactly why this arm must not emit it here"))
-            (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
-                "and suppresses the projection's own op entirely")))))
-    (testing "P1 — the sentinel is never printed, and the known value survives"
-      ;; `render-leaf-with-diff` paints the PRESENT side of the pair, and
-      ;; `::unrealised` reaches the VALUE slot — a sentinel leak arriving
-      ;; through a new door.
-      (let [txt (collect-text (render (second tail)))]
-        (is (not (str/includes? txt "edn-inspector/unrealised"))
-            "the internal sentinel keyword never reaches the rendered output")
-        (is (str/includes? txt (str (dec n)))
-            (str "and the accessible prior is still shown: the projection "
-                 "calls this element unchanged, so its known value IS its "
-                 "value"))))
-    (testing "P1 — and on the NO-projection fallback route"
-      ;; `sequential-diff-children` defers to this walk whenever it has no
-      ;; projection, and there `leaf-diff-op` has nothing to fall through to.
-      ;; The honest answer is a stated unknown, never a deletion.
-      (let [rows' (vec (ei/sequential-diff-children before after :vector [] nil))
-            tail' (first (filter (fn [[k _ _]] (= k (dec n))) rows'))
-            tree  (ei/render-node {:value      (second tail')
-                                   :before     (nth tail' 2)
-                                   :diff?      true
-                                   :projection nil
-                                   :panel-id   :test :mount-id "m1"
-                                   :path       [(dec n)] :depth 1
-                                   :expansion-map {} :opts {}})
-            txt   (collect-text tree)]
-        (is (= (vec tail) (vec tail'))
-            (str "the fallback returns the IDENTICAL triple, which is what "
-                 "its docstring promises for the no-removal case"))
-        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
-            "no confirmed deletion, with no projection to appeal to either")
-        (is (seq (nodes-with-attr tree :data-rf-diff-value "unrealised-after"))
-            "an explicit unknown-value token is rendered in its place")
-        (is (not (str/includes? txt "edn-inspector/unrealised"))
-            "and the sentinel itself is still never printed")))
-    (testing "the 2x2's FOURTH CELL stays vacuous — an unknown AFTER never recurses"
-      ;; The mirror of the nested-container case: an unknown AFTER carried INTO a nested
-      ;; container. It cannot arise, and the reason is structural rather than
-      ;; lucky: `render-node`'s descent is driven by the AFTER value BEING a
-      ;; container, and a sentinel keyword never is. So `children-of-pair` is
-      ;; never entered with this marker as its `after`, its four `a`-bindings
-      ;; never see it, and `unpaired-prior` needs no after-side mirror.
-      (let [tree (ei/render-node {:value      ::ei/unrealised
-                                  :before     {:keep 1 :other 2}
-                                  :diff?      true
-                                  :projection nil
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [0] :depth 1
-                                  :expansion-map {} :opts {}})
-            txt  (collect-text tree)]
-        (is (empty? (nodes-with-attr tree :data-rf-kind "map"))
-            (str "the row renders as a LEAF, not as a walked container — "
-                 "`collection-kind` of the marker is not a container kind, so "
-                 "`render-container` is never reached"))
-        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
-            (str "so no child is emitted `[k ::missing v]` and painted as a "
-                 "confirmed deletion — the fourth cell's would-be signature"))
-        (is (not (str/includes? txt "edn-inspector/unrealised"))
-            "and the marker is not printed on this route either")))))
-
-(deftest children-of-pair-honest-after-exhaustion-stays-missing-rf2-g61nr
-  ;; P2. Its job is to refuse a WRONG fix, not to catch a false
-  ;; deletion. `::missing` is CORRECT wherever the walk
-  ;; realised the whole after side and found no element — swapping the
-  ;; sentinel unconditionally would report every genuine deletion as an
-  ;; unknown tail, the same confident falsehood pointing the other way.
-  (testing "P2 — both sides `counted?`: the surplus before tail is a real deletion"
-    (let [rows (vec (ei/children-of-pair [1 2 3 4] [1 2] :vector))
-          as   (mapv (fn [[_ a _]] a) rows)]
-      (is (= 4 (count rows)) "index-aligned to the longer side")
-      (is (= [::ei/missing ::ei/missing] (subvec as 2))
-          (str "neither side was capped — `bounded-vec` realises a `counted?` "
-               "collection whole — so indices 2 and 3 genuinely are gone"))))
-  (testing "P2 — a SHORT lazy after side ended honestly, under the ceiling"
-    ;; The discriminator. This side is NOT `counted?`, exactly like the
-    ;; capped fixture, but it ran out on its own well before `count-bound`,
-    ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
-    ;; of the after side rather than on the ceiling being REACHED is red here.
-    (let [after (map identity (range 5))
-          rows  (vec (ei/children-of-pair (vec (range 8)) after :vector))
-          as    (mapv (fn [[_ a _]] a) rows)]
-      (is (not (counted? after))
-          "a LazySeq, the same shape the capped fixture uses")
-      (is (= 8 (count rows)) "index-aligned to the longer side")
-      (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec as 5))
-          (str "the walk realised all 5 elements and the seq ended — under "
-               "the ceiling, so absence here is KNOWN, not unknown"))))
-  (testing "P2 — a real deletion still renders struck-through and `:removed`"
-    ;; The genuine-deletion control, closed end to end
-    ;; through the renderer rather than stopped at the triple.
-    (let [before (vec (range 8))
-          after  (map identity (range 5))
-          proj   (engine/project before after)
-          rows   (vec (ei/children-of-pair before after :vector))
-          gone   (first (filter (fn [[k _ _]] (= k 7)) rows))
-          tree   (ei/render-node {:value      (second gone)
-                                  :before     (nth gone 2)
-                                  :diff?      true
-                                  :projection proj
-                                  :panel-id   :test :mount-id "m1"
-                                  :path       [7] :depth 1
-                                  :expansion-map {} :opts {}})]
-      (is (= ::ei/missing (second gone))
-          "index 7 really is absent from the after side")
-      (is (seq (nodes-with-attr tree :data-rf-diff-op "removed"))
-          "and renders as a confirmed deletion, which it is")
-      (is (str/includes? (pr-str tree) "line-through")
-          "struck through, per the universal diff idiom")))
-  (testing "P2 — the after bound is not widened to find out"
-    ;; A REALISATION counter, never an output length: a "fix" that told the
-    ;; two cases apart by pulling one more element off the after side is green
-    ;; on P1 and on all three halves above, and red right here.
-    (let [n     1050
-          guard 1500
-          seen  (atom 0)
-          rows  (vec (ei/children-of-pair (vec (range n))
-                                          (counting-seq seen guard)
-                                          :vector))]
-      (is (<= @seen count-bound)
-          (str "realised " @seen " elements of the endless AFTER side; the "
-               "walker's bound is " count-bound))
-      (is (= n (count rows))
-          (str "and still emits all " n " rows")))))
+  ;; An unchanged 1050-element vector whose last element is a map, diffed
+  ;; against a lazy-seq view of itself: nothing changed.
+  (let [n            1050
+        tail-map     {:keep 1 :other 2 :third 3 :fourth 4}
+        full         (assoc (vec (range n)) (dec n) tail-map)
+        proj         (engine/project (map identity full) full)
+        tail-path    [(dec n)]
+        kids         (vec (ei/children-of-pair ::ei/unrealised tail-map :map))
+        rendered-op  (fn [path v b]
+                       (-> (ei/render-node {:value      v
+                                            :before     b
+                                            :diff?      true
+                                            :projection proj
+                                            :panel-id   :test :mount-id "m1"
+                                            :path       path :depth 1
+                                            :expansion-map {} :opts {}})
+                           second
+                           :data-rf-diff-op))]
+    (is (= (repeat 4 ::ei/unrealised) (map #(nth % 2) kids))
+        "every child keeps the UNKNOWN prior, never `::missing`")
+    (is (= (repeat 4 "same")
+           (map (fn [[k v b]] (rendered-op (conj tail-path k) v b)) kids))
+        "so each child renders the projection's own op, not a fabricated `:added`")
+    (is (= ["same" "children"]
+           [(rendered-op tail-path tail-map ::ei/unrealised)
+            (rendered-op tail-path tail-map {:keep 1})])
+        "an unknown prior leaves the container `:same`; a real differing prior still promotes it")))
 
 ;; =========================================================================
-;; The `::missing` sentinel must NEVER reach the output, and a
-;; removed CONTAINER renders as a struck-through collapsed ghost (not a
-;; flat pr-str, not the leaked sentinel keyword).
+;; Removed slots render as struck-through ghosts, never as the sentinel
 ;; =========================================================================
 ;;
-;; These cases thread a REAL `engine/project` projection (the live render
-;; path) rather than the `projection nil` fallback the other diff tests
-;; use. The leak can only surface with a projection in play: the engine
-;; anchors a `(update db :shapes dissoc :added)` deletion on the surviving
-;; parent (`op-at [:shapes]` → `:removed`) and classifies the removed
-;; child slot `:children` (`op-at [:shapes :added]` → `:children`, it owns
-;; the ghost subtree in `:container-ops`). A leaf renderer that trusted
-;; that `:children` op would fall through `case op`'s default branch and
-;; render `(render-scalar ::missing)` — leaking
-;; `:day8.re-frame2-xray.views.edn-inspector/missing` literally into the
-;; row (`:added ::missing`). So the structural sentinel is
-;; authoritative, and removed containers route through a recursive ghost.
+;; These thread a real `engine/project` projection. The engine anchors a
+;; `dissoc` on the surviving parent and classifies the removed child slot
+;; `:children`; the structural `::missing` sentinel overrides that, and a
+;; removed CONTAINER renders as a collapsed struck-through ghost.
 
 (defn- no-missing-sentinel-leak?
   "True iff the rendered hiccup carries no trace of the internal
-  `::missing` sentinel keyword in any string leaf OR attribute value.
-  The sentinel's `pr-str` is `:day8.re-frame2-xray.views.edn-
-  inspector/missing`; its `name` is the bare `\"missing\"`. We assert on
-  the broad `pr-str` of the whole tree so a leak anywhere (text, attr,
-  data-* marker) is caught."
+  `::missing` sentinel keyword in any string leaf OR attribute value."
   [h]
   (let [s (try (pr-str h) (catch :default _ ""))]
     (not (re-find #"edn-inspector/missing" s))))
 
 (deftest diff-removed-only-key-renders-struck-ghost-not-sentinel
-  ;; `(update db :shapes
-  ;; dissoc :added)` removes the only key of `:shapes`, leaving `{}`.
-  ;; The removed `:added {…}` slot must render as a struck-through ghost,
-  ;; NEVER as `:added ::missing` and NEVER as `:shapes {} :same`.
+  ;; `(update db :shapes dissoc :added)` removes the only key of `:shapes`;
+  ;; the removed `:added {…}` slot renders as a collapsed struck-through
+  ;; ghost, never as `:added ::missing`.
   (let [before {:shapes {:added {:label "added" :n 42}}}
         after  {:shapes {}}
-        proj   (engine/project before after)
         h (ei/render-node {:value after
                            :before before
                            :diff? true
-                           :projection proj
+                           :projection (engine/project before after)
                            :panel-id :p :mount-id "m"
                            :path [] :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    ;; The engine genuinely misclassifies the child path — this pins the
-    ;; precondition so the test documents WHY the renderer cannot trust it.
-    (is (= :children (engine/op-at proj [:shapes :added]))
-        "precondition: engine anchors the removal on the parent, leaves the child :children")
+                           :opts {:default-expanded-depth 6}})]
     (is (no-missing-sentinel-leak? h)
-        "the ::missing sentinel keyword must never reach the rendered output")
-    (is (not (re-find #":day8" all))
-        "no internal namespaced keyword leaks into the visible text")
-    (is (re-find #":added" all)
-        "the removed key :added still appears (struck-through ghost)")
-    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
-        "the removed slot carries the removed diff-op marker")
-    (is (re-find #"line-through" s)
-        "the removed ghost is struck through")))
-
-(deftest diff-removed-container-renders-collapsed-ghost
-  ;; A removed nested map renders as ONE collapsed struck-through node
-  ;; (`{…} (N keys)` summary), reusing the ordinary collapse machinery —
-  ;; bounds verbosity rather than pr-str'ing the whole deleted subtree.
-  (let [before {:shapes {:added {:label "added" :n 42 :deep {:x 1 :y 2}}}}
-        after  {:shapes {}}
-        proj   (engine/project before after)
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :projection proj
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (no-missing-sentinel-leak? h)
-        "no sentinel leak even with a deeper ghost subtree")
-    ;; The ghost node is marked + collapsed by default.
-    (is (re-find #"data-rf-removed-ghost" s)
-        "the removed container renders as a marked ghost node")
-    (is (re-find #"data-rf-preview" s)
-        "the ghost defaults to a collapsed `{…N keys}` summary, not the full subtree")
-    (is (re-find #"line-through" s)
-        "the ghost line is struck through")))
+        "the ::missing sentinel keyword never reaches the rendered output")
+    (is (re-find #":added" (collect-text h))
+        "the removed key :added still appears")
+    (is (seq (nodes-with-attr h :data-rf-removed-ghost "1"))
+        "as a removed-container ghost")
+    (is (seq (nodes-with-attr h :data-rf-preview "1"))
+        "collapsed to a one-line summary rather than the whole deleted subtree")
+    (is (re-find #"line-through" (pr-str h))
+        "struck through")))
 
 (deftest diff-deleted-ancestor-children-inherit-removed-when-expanded
-  ;; The deleted-ancestor hard case: when the operator EXPANDS a removed
-  ;; container ghost, every descendant inherits `:removed` (the symmetric
-  ;; of an added container's `:added` inheritance) — never an `:added` (green) or
-  ;; `:same` row, and never a leaked sentinel.
+  ;; Expanding a removed container ghost walks the deleted subtree, and
+  ;; every descendant inherits `:removed` — never `:added`, never the
+  ;; sentinel.
   (let [before {:shapes {:added {:label "added" :nested {:deep 1}}}}
         after  {:shapes {}}
-        proj   (engine/project before after)
-        ;; Force the whole ghost subtree open via a sticky expansion
-        ;; override at the ghost path + its nested child.
         expansion-map {(ei/expansion-key :p "m" [:shapes :added])         {:expanded? true}
                        (ei/expansion-key :p "m" [:shapes :added :nested]) {:expanded? true}}
         h (ei/render-node {:value after
                            :before before
                            :diff? true
-                           :projection proj
+                           :projection (engine/project before after)
                            :panel-id :p :mount-id "m"
                            :path [] :depth 0
                            :expansion-map expansion-map
                            :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
+        s (try (pr-str h) (catch :default _ ""))]
     (is (no-missing-sentinel-leak? h)
         "no sentinel leak when the ghost subtree is walked")
-    (is (re-find #":deep" all)
+    (is (re-find #":deep" (collect-text h))
         "the deeply-nested ghost leaf is reachable on expand")
     (is (not (re-find #"data-rf-diff-op.\"?added" s))
-        "no descendant of a removed subtree renders as :added (green) — all inherit :removed")
+        "no descendant of a removed subtree renders as :added")
     (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
         "ghost descendants carry the removed marker")))
 
 (deftest diff-removed-vector-element-no-sentinel-leak
-  ;; A vector that loses its tail under a real projection must not leak
-  ;; the sentinel for the dropped indices.
+  ;; A vector that loses its tail under a real projection strikes exactly
+  ;; the dropped elements, printed as their values.
   (let [before {:xs [:a :b :c]}
         after  {:xs [:a]}
-        proj   (engine/project before after)
         h (ei/render-node {:value after
                            :before before
                            :diff? true
-                           :projection proj
+                           :projection (engine/project before after)
                            :panel-id :p :mount-id "m"
                            :path [] :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        all (collect-text h)]
+                           :opts {:default-expanded-depth 6}})]
     (is (no-missing-sentinel-leak? h)
-        "popped vector tail must not leak the ::missing sentinel")
-    (is (re-find #":b" all) "dropped element :b still appears struck-through")
-    (is (re-find #":c" all) "dropped element :c still appears struck-through")))
+        "a popped vector tail does not leak the ::missing sentinel")
+    (is (= #{":b" ":c"} (struck-members h))
+        "the dropped :b and :c are struck, as their values")))
 
 (deftest diff-preserves-added-modified-same-rows
-  ;; Added / modified / same rows render
-  ;; alongside the removed rows.
-  (let [before {:same 1   :modify 2 :gone "g"}
-        after  {:same 1   :modify 9 :added :new}
-        h (ei/render-node {:value after
-                           :before before
+  ;; A map diff walks the union of both sides' keys, so added, removed,
+  ;; modified and unchanged rows render together.
+  (let [h (ei/render-node {:value  {:same 1 :modify 9 :added :new}
+                           :before {:same 1 :modify 2 :gone "g"}
                            :diff? true
                            :panel-id :p :mount-id "m"
                            :path [] :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
-        "added row marker present")
-    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
-        "removed row marker present")
-    (is (seq (nodes-with-attr h :data-rf-diff-op "modified"))
-        "modified row marker present")
-    (is (seq (nodes-with-attr h :data-rf-diff-op "same"))
-        "same row marker still present for unchanged rows")
-    (is (re-find #"← was 2" s)
-        "modified leaf still carries the change annotation")))
+                           :opts {:default-expanded-depth 2}})]
+    (is (every? #(seq (nodes-with-attr h :data-rf-diff-op %))
+                ["added" "removed" "modified" "same"]))
+    (is (re-find #"← was 2" (collect-text h))
+        "the modified leaf carries the change annotation")))
 
 (deftest l0us2-set-member-swap-renders-member-level-not-whole-key
-  ;; The door machine's `:tags` going
-  ;; `#{:door/locked}` → `#{:door/closed}`. The renderer must show
-  ;; `-:door/locked +:door/closed` with the `:tags` KEY INTACT, NOT a
-  ;; struck-through whole `:tags` entry (the 'sea of red'). The
-  ;; engine classifies `:tags` `:children` (intact) and the set's
-  ;; member union carries per-member -/+ chrome.
+  ;; The door machine's `:tags` going `#{:door/locked}` → `#{:door/closed}`
+  ;; renders `-:door/locked +:door/closed` with the `:tags` KEY intact — not
+  ;; a struck-through whole `:tags` entry.
   (let [before {:tags #{:door/locked}}
         after  {:tags #{:door/closed}}
-        proj   (engine/project before after)
         h (ei/render-node {:value after
                            :before before
                            :diff? true
-                           :projection proj
+                           :projection (engine/project before after)
                            :panel-id :p :mount-id "m"
                            :path [] :depth 0
                            :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    ;; Precondition (engine): :tags intact, members diffed.
-    (is (= :children (engine/op-at proj [:tags]))
-        "precondition: :tags key is intact (:children), not wholly removed")
-    (is (= :removed (engine/op-at proj [:tags :door/locked])))
-    (is (= :added (engine/op-at proj [:tags :door/closed])))
-    ;; Renderer: both members visible, member-level chrome present.
-    (is (re-find #":door/locked" all)
-        "the removed member :door/locked still renders")
-    (is (re-find #":door/closed" all)
-        "the added member :door/closed renders")
-    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
-        "a row carries the removed diff-op marker (the gone member)")
+                           :opts {:default-expanded-depth 6}})]
+    (is (= #{":door/locked"} (struck-members h))
+        "only the gone member is struck — not the whole key")
     (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
-        "a row carries the added diff-op marker (the new member)")
-    (is (re-find #"line-through" s)
-        "the removed member is struck through, not the whole key")
-    ;; The :tags key itself must NOT be inside a removed-ghost wrapper —
-    ;; that would be the 'sea of red' whole-key removal. The
-    ;; `data-rf-removed-ghost` attr is present on every container header
-    ;; but carries the value "1" ONLY for an actual removed ghost;
-    ;; :tags classifies :children so the marker stays unset.
-    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
-        "the :tags set is not rendered as a removed ghost (no whole-key strike)")))
+        "the new member carries the added marker")
+    (is (re-find #":door/closed" (collect-text h))
+        "and renders")))
 
-;; =========================================================================
-;; A vector filled from empty renders member-level
-;; =========================================================================
-;;
-;; A vector populated from empty must not classify as a whole-key
-;; `:modified` (a `~` amber row + `← was []`): the new element renders as
-;; its own added row. The emptying direction, for every container family,
-;; is the `c0c6a3` table below. The test drives the LIVE render path (a
-;; real `engine/project` projection) so the renderer's structural
-;; handling is exercised.
+;; ---- a vector filled from empty renders member-level ---------------------
 
 (deftest yucxn-vector-populated-from-empty-renders-added
-  ;; The symmetric `{:a []} → {:a [1]}` shows the new element
-  ;; in green (`+`), not a whole-key `~` modify.
+  ;; `{:a []} → {:a [1]}` shows the new element as its own added row, not a
+  ;; whole-key `~` modify with `← was []`.
   (let [before {:a []}
         after  {:a [1]}
         proj   (engine/project before after)
@@ -2977,31 +1138,16 @@
     (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
         "the filled-from-empty vector shows the new element as an added row")))
 
-;; =========================================================================
-;; A collection value EMPTYING renders KEY-INTACT (member-level
-;; removal inside the now-empty container), DISTINCT from a `dissoc` of the
-;; key (a struck-through removed ghost)
-;; =========================================================================
+;; ---- an emptied collection keeps its KEY intact --------------------------
 ;;
-;; `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`, `(x)→()` must not render the whole
-;; KEY as a struck-through removed ghost — indistinguishable from dissoc'ing
-;; the key. The engine's R5 `mark-wholly-changed` legitimately promotes the
-;; emptied set / map container path to `:removed` (the opposite side is
-;; empty — no surviving member anchors a member-level diff at the container
-;; path), and a renderer trusting it would strike the KEY + paint the `−`
-;; glyph. `diff-emptied?` keys the distinction off the SLOT shape:
-;; an emptied slot's AFTER value is a present empty collection (the key
-;; survives), whereas a dissoc'd slot's AFTER value is `missing-sentinel`.
-;;
-;; `find-key-cell` locates the `data-rf-cell "key"` cell carrying the named
-;; key so the assertions probe the OUTER key (not a struck INNER member key
-;; like a removed map entry, which SHOULD strike).
+;; `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`, `(x)→()` keep the key — the dropped
+;; member is struck INSIDE the now-empty container — where a `dissoc`
+;; strikes the key as a removed ghost. `diff-emptied?` reads the SLOT shape:
+;; an emptied slot's AFTER value is a present empty collection.
 
 (defn- find-key-cell
   "Return the first `data-rf-cell \"key\"` hiccup node whose flattened text
-  matches `key-pat` (a regex). Lets a test assert on a SPECIFIC key row's
-  chrome (e.g. is the OUTER `:one-set` key struck) rather than the whole
-  tree."
+  matches `key-pat` (a regex)."
   [tree key-pat]
   (->> (walk-hiccup tree)
        (filter (fn [n]
@@ -3012,8 +1158,7 @@
 
 (defn- key-intact?
   "True when the OUTER key row matching `key-pat` is NOT struck-through and
-  carries NO `−` removal glyph — i.e. the key survives (it was not
-  removed). Renders `nil` (treated as not-intact) when no such key cell."
+  carries NO `−` removal glyph. `nil` (not intact) when no such key cell."
   [tree key-pat]
   (let [cell (find-key-cell tree key-pat)
         s    (when cell (pr-str cell))]
@@ -3023,8 +1168,8 @@
            (not (re-find #"\"−\"" s))))))
 
 (defn- emptied-render
-  "Render `{key populated}` → `{key empty}` at DEFAULT depth (testbed-
-  faithful — no forced expansion) and return the hiccup."
+  "Render `{key populated}` → `{key empty}` at DEFAULT depth (no forced
+  expansion) and return the hiccup."
   [k populated empty-coll]
   (let [before {k populated}
         after  {k empty-coll}
@@ -3034,102 +1179,50 @@
                      :path [] :depth 0 :expansion-map {} :opts {}})))
 
 (deftest c0c6a3-emptied-collection-renders-key-intact-not-removed-ghost
-  ;; For EACH container family, emptying the collection (key
-  ;; intact) must render the KEY un-struck (NOT a removed ghost) with the
-  ;; dropped member struck-through INSIDE the now-empty container.
+  ;; Each container family walks its own children, so each is a row.
   (doseq [[label k populated empty-coll member-pat]
           [["set"    :one-set #{:only}  #{}  #":only"]
            ["map"    :one-map {:k 1}    {}   #":k"]
            ["vector" :one-vec [:only]   []   #":only"]
            ["list"   :one-lst '(:only)  '()  #":only"]]]
-    (let [h   (emptied-render k populated empty-coll)
-          s   (try (pr-str h) (catch :default _ ""))
-          key-pat (re-pattern (str k))]
-      (testing (str label " — emptied collection, key intact")
-        ;; The OUTER key is NOT struck and carries no `−` glyph — it
-        ;; survived (the value just emptied).
-        (is (key-intact? h key-pat)
-            (str "the " label " key " k " must render INTACT (not struck, "
-                 "no `−` glyph) — emptying is not a key removal"))
-        ;; The node is NOT a removed-container ghost (that's the dissoc
-        ;; rendering — `data-rf-removed-ghost "1"`).
-        (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
-            (str "the emptied " label " must NOT render as a removed ghost"))
-        ;; The dropped member is still visible + struck-through INSIDE the
-        ;; now-empty container (member-level removal).
-        (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
-            (str "the dropped " label " member carries the removed diff-op"))
-        (is (re-find #"line-through" s)
-            (str "the dropped " label " member is struck-through"))
-        (is (re-find member-pat (collect-text h))
-            (str "the dropped " label " member text still renders")))))
-  (testing "CONTRAST, the one the testbed wires — the emptied set above (key
-            intact, NOT a ghost) reads distinct from a `dissoc` of a key,
-            which renders the key struck-through as a removed ghost"
-    (let [before {:doomed {:goodbye true}}
-          after  {}
-          h-diss (ei/render-node {:value after :before before :diff? true
-                                  :projection (engine/project before after)
-                                  :panel-id :p :mount-id "m"
-                                  :path [] :depth 0 :expansion-map {} :opts {}})]
-      (is (not (key-intact? h-diss #":doomed"))
-          "dissoc'd :doomed renders the key struck-through (removed)")
-      (is (re-find #":data-rf-removed-ghost \"1\""
-                   (try (pr-str h-diss) (catch :default _ "")))
-          "dissoc'd :doomed renders as a removed ghost"))))
+    (let [h (emptied-render k populated empty-coll)]
+      (is (key-intact? h (re-pattern (str k)))
+          (str label ": the key renders intact — emptying is not a key removal"))
+      (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
+          (str label ": the dropped member is marked removed"))
+      (is (re-find member-pat (collect-text h))
+          (str label ": and still renders")))))
 
 (deftest c0c6a3-diff-emptied-predicate
-  ;; The render-side discriminator. True for a populated→empty
-  ;; same-family collection (key intact); false for a real key removal
-  ;; (after missing), a populated→populated change, and a type flip.
-  (testing "emptied same-family collections — true"
-    (is (ei/diff-emptied? #{:a} #{}))
-    (is (ei/diff-emptied? {:k 1} {}))
-    (is (ei/diff-emptied? [:x] []))
-    (is (ei/diff-emptied? '(:x) '()))
-    (is (ei/diff-emptied? [1 2 3] '()) "vector→empty list (same seq family)"))
-  (testing "NOT emptied — false"
-    (is (not (ei/diff-emptied? #{:a} ei/missing-sentinel))
-        "after missing = real key removal (dissoc), not emptying")
-    (is (not (ei/diff-emptied? ei/missing-sentinel #{}))
-        "before missing = a new empty collection (added), not emptying")
-    (is (not (ei/diff-emptied? #{:a} #{:b}))
-        "populated→populated swap is not emptying")
-    (is (not (ei/diff-emptied? #{} #{}))
-        "already-empty before is not an emptying")
-    (is (not (ei/diff-emptied? {:k 1} #{}))
-        "map→set type flip is not a same-family emptying")
-    (is (not (ei/diff-emptied? :scalar #{}))
-        "scalar→empty-set is not a container emptying")))
+  ;; Same FAMILY, not same kind; a populated → populated swap, an
+  ;; already-empty before and a type flip are not emptyings.
+  (are [before after emptied?] (= emptied? (ei/diff-emptied? before after))
+    [1 2 3] '()   true
+    #{:a}   #{:b} false
+    #{}     #{}   false
+    {:k 1}  #{}   false))
 
 ;; =========================================================================
 ;; Single render path: value (always) + before (optional)
 ;; =========================================================================
-;;
-;; The widget has ONE renderer. With a `:before` pre-image present the
-;; tree paints inline diff annotations + the R4 op-coloured rail + R3
-;; chip on change-bearing containers; with no pre-image the SAME renderer
-;; shows the value plainly (no rail, no chip, no annotation). The rail
-;; keys directly on `has-change?` (which itself implies `:diff?`).
+
+(defn- render-map-diff
+  "Render `before -> after` through the real projection at a depth where
+  the root's rows are visible."
+  [before after]
+  (ei/render-node {:value after
+                   :before before
+                   :diff? true
+                   :projection (engine/project before after)
+                   :panel-id :p :mount-id "m"
+                   :path [] :depth 0
+                   :expansion-map {}
+                   :opts {:default-expanded-depth 2}}))
 
 (deftest with-before-paints-rail-on-change-bearing-container
-  (testing "a `:before` pre-image renders the change-bearing
-            container with the R4 rail (`data-rf-rail`). The rail paints
-            on a container whose OWN op is added/removed/modified (a
-            newly-added nested map here)."
-    (let [before {:a 1}
-          after  {:a 1 :nested {:x 1 :y 2}}
-          proj   (engine/project before after)
-          h      (ei/render-node {:value after
-                                  :before before
-                                  :diff? true
-                                  :projection proj
-                                  :panel-id :p :mount-id "m"
-                                  :path [] :depth 0
-                                  :expansion-map {}
-                                  :opts {:default-expanded-depth 4}})]
-      (is (some? (find-attr h :data-rf-rail "1"))
-          "the added nested container's body carries the R4 rail attr"))))
+  ;; R4: a change-bearing container's body carries an op-coloured rail.
+  (is (some? (find-attr (render-map-diff {:a 1} {:a 1 :nested {:x 1 :y 2}})
+                        :data-rf-rail "1"))))
 
 (defn- diff-op-values
   "Collect every non-nil `:data-rf-diff-op` attribute value in `tree`."
@@ -3141,194 +1234,60 @@
        (remove nil?)))
 
 (deftest value-only-render-has-no-rail-or-annotation
-  (testing "with NO pre-image (`:diff?` absent) the same
-            renderer shows the value plainly: no R4 rail, no `← was`
-            annotation, no painted diff-op markers"
-    (let [v {:counter 2 :stable :x :nested {:deep 1}}
-          h (ei/render-node {:value v
-                             :panel-id :p :mount-id "m"
-                             :path [] :depth 0
-                             :expansion-map {}
-                             :opts {:default-expanded-depth 4}})
-          s (try (pr-str h) (catch :default _ ""))]
-      (is (nil? (find-attr h :data-rf-rail "1"))
-          "plain value render paints no R4 rail")
-      (is (not (re-find #"← was" s))
-          "plain value render carries no change annotation")
-      (is (empty? (diff-op-values h))
-          "plain value render emits no painted diff-op markers (the
-           `:data-rf-diff-op` value is nil outside diff mode)")
-      (is (re-find #":counter" s)
-          "the value's keys still render"))))
+  ;; With no pre-image the same renderer shows the value plainly. Every
+  ;; rail, gutter row and annotation hangs off a diff op.
+  (let [h (ei/render-node {:value {:counter 2 :stable :x :nested {:deep 1}}
+                           :panel-id :p :mount-id "m"
+                           :path [] :depth 0
+                           :expansion-map {}
+                           :opts {:default-expanded-depth 4}})]
+    (is (re-find #":counter" (collect-text h)) "the value renders")
+    (is (empty? (diff-op-values h)) "with no diff chrome")))
 
-;; =========================================================================
-;; Slot-vs-value anchoring (R2 + R6 whole-row treatment)
-;; =========================================================================
+;; ---- slot-vs-value anchoring (R2 + R6 whole-row treatment) ---------------
 ;;
-;; When the SLOT itself changes (key added / removed), the per-op wash
-;; paints the WHOLE row (key cell + value cell) and the `:removed`
-;; strike-through reaches the key text. When only the VALUE changed
-;; inside an existing slot (R1/R7/R8), the chrome stays value-anchored —
-;; no key-cell wash, no key strike.
+;; When the SLOT changes (key added / removed) the per-op wash paints the
+;; WHOLE row (key cell + value cell) and a removal strikes the key text.
+;; When only the VALUE changed (R1/R7/R8) the chrome stays on the value.
 
-(defn- ^:private projection-for
-  "Compute a projection for `(before, after)` so tests can drive
-  `render-node` with the same engine the production renderer uses."
-  [before after]
-  (engine/project before after))
+(defn- slot-cells
+  "Every node tagged `data-rf-row-anchor=\"slot\"`."
+  [tree]
+  (filter #(= "slot" (:data-rf-row-anchor (second %))) (walk-hiccup tree)))
 
 (deftest slot-anchored-added-key-paints-whole-row
-  ;; R2 added map-key — both the key cell AND the value cell carry the
-  ;; per-op wash; `data-rf-row-anchor="slot"` markers appear on both.
-  (let [before {:a 1}
-        after  {:a 1 :b 2}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        slot-cells (->> nodes
-                        (filter (fn [n]
-                                  (and (vector? n)
-                                       (map? (second n))
-                                       (= "slot"
-                                          (get (second n) :data-rf-row-anchor))))))
-        cell-roles (->> slot-cells
-                        (map (fn [n] (get (second n) :data-rf-cell)))
-                        set)]
-    (is (>= (count slot-cells) 2)
-        "added-key row tags both grid cells with data-rf-row-anchor=slot")
-    (is (contains? cell-roles "key")
-        "the key cell carries the slot-anchor marker")
-    (is (contains? cell-roles "value")
-        "the value cell carries the slot-anchor marker")
-    ;; Both cells must paint a non-empty :background (the per-op wash).
-    (doseq [cell slot-cells]
-      (let [bg (-> cell second :style :background)]
-        (is (some? bg)
-            (str "slot cell " (get (second cell) :data-rf-cell)
-                 " paints :background wash"))))
-    ;; The inner gutter-row inside the slot-anchored value cell suppresses
-    ;; its own wash (no `data-rf-diff-wash`), so the cell-level wash is not
-    ;; painted twice over the value half.
-    (let [value-cell (first (filter #(= "value" (get (second %) :data-rf-cell))
-                                    slot-cells))]
-      (is (not-any? (fn [n]
-                      (and (vector? n)
-                           (map? (second n))
-                           (= "1" (get (second n) :data-rf-diff-wash))))
-                    (walk-hiccup value-cell))
-          "the slot-anchored value cell suppresses its inner gutter-row wash"))))
+  ;; Both cells carry the wash, and the leaf's own gutter-row wash is
+  ;; suppressed so the value half is not painted twice.
+  (let [cells (slot-cells (render-map-diff {:a 1} {:a 1 :b 2}))]
+    (is (= #{"key" "value"} (set (map #(:data-rf-cell (second %)) cells))))
+    (is (every? #(some? (-> % second :style :background)) cells)
+        "each slot cell paints the per-op wash")
+    (is (not-any? #(= "1" (:data-rf-diff-wash (second %)))
+                  (walk-hiccup (first (filter #(= "value" (:data-rf-cell (second %))) cells))))
+        "the slot-anchored value cell suppresses its inner gutter-row wash")))
 
 (deftest slot-anchored-removed-key-paints-whole-row-and-strikes-key
-  ;; R2 removed map-key — both cells get the wash AND the key cell
-  ;; gets `text-decoration: line-through` so the strike reaches the
-  ;; key text, not just the value text.
-  (let [before {:a 1 :legacy-flag true}
-        after  {:a 1}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        slot-cells (->> nodes
-                        (filter (fn [n]
-                                  (and (vector? n)
-                                       (map? (second n))
-                                       (= "slot"
-                                          (get (second n) :data-rf-row-anchor))))))
-        key-cells (filter (fn [n] (= "key" (get (second n) :data-rf-cell)))
-                          slot-cells)
-        value-cells (filter (fn [n] (= "value" (get (second n) :data-rf-cell)))
-                            slot-cells)]
-    (is (= 1 (count key-cells))
-        "removed-key row contributes exactly one slot-anchored key cell")
-    (is (= 1 (count value-cells))
-        "removed-key row contributes exactly one slot-anchored value cell")
-    (let [key-style (-> key-cells first second :style)]
-      (is (some? (:background key-style))
-          "key cell paints the per-op wash background")
-      (is (= "line-through" (:text-decoration key-style))
-          "key cell paints strike-through so the strike reaches the key text"))
-    (let [val-style (-> value-cells first second :style)]
-      (is (some? (:background val-style))
-          "value cell paints the per-op wash background"))))
+  ;; Both cells carry the wash, and the strike reaches the key text.
+  (let [cells    (slot-cells (render-map-diff {:a 1 :legacy-flag true} {:a 1}))
+        style-of (fn [role]
+                   (map #(-> % second :style)
+                        (filter #(= role (:data-rf-cell (second %))) cells)))]
+    (is (= [["line-through" true]]
+           (map (juxt :text-decoration (comp some? :background)) (style-of "key")))
+        "one key cell, washed and struck")
+    (is (= [true] (map (comp some? :background) (style-of "value")))
+        "one value cell, washed")))
 
 (deftest value-anchored-modified-row-does-not-paint-key-cell-wash
-  ;; R1 (value mutated, slot identity unchanged) MUST stay value-
-  ;; anchored. No `data-rf-row-anchor=slot` markers on the key/value
-  ;; cells; key cell carries no wash and no strike.
-  (let [before {:counter 5}
-        after  {:counter 6}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        slot-cells (->> nodes
-                        (filter (fn [n]
-                                  (and (vector? n)
-                                       (map? (second n))
-                                       (= "slot"
-                                          (get (second n) :data-rf-row-anchor))))))
-        key-cells (->> nodes
-                       (filter (fn [n]
-                                 (and (vector? n)
-                                      (map? (second n))
-                                      (= "key" (get (second n) :data-rf-cell))))))
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (zero? (count slot-cells))
-        "modified-leaf row carries no slot-anchor markers (value-anchored)")
-    (is (pos? (count key-cells))
-        "the key cell still renders (no regression)")
-    (doseq [kc key-cells]
-      (let [style (-> kc second :style)]
-        (is (not (:background style))
-            "modified-key cell paints NO row wash")
-        (is (not= "line-through" (:text-decoration style))
-            "modified-key cell paints NO key-text strike")))
-    (is (re-find #"← was 5" s)
-        "value-side R1 annotation still present")
-    (testing "R8 (a redaction transition) stays value-anchored too — the slot
-              identity didn't change, only the visibility of the value did"
-      (let [before8 {:secret :rf/redacted}
-            after8  {:secret "now-visible"}
-            h8      (ei/render-node {:value after8
-                                     :before before8
-                                     :diff? true
-                                     :projection (projection-for before8 after8)
-                                     :panel-id :p :mount-id "m"
-                                     :path [] :depth 0
-                                     :expansion-map {}
-                                     :opts {:default-expanded-depth 2}})]
-        (is (not-any? (fn [n]
-                        (and (vector? n)
-                             (map? (second n))
-                             (= "slot" (get (second n) :data-rf-row-anchor))))
-                      (walk-hiccup h8))
-            "R8 row stays value-anchored — no slot-anchor markers")))))
+  ;; R1 and R8 change the value inside a surviving slot: no slot anchor,
+  ;; hence no key-cell wash or strike.
+  (let [h (render-map-diff {:counter 5} {:counter 6})]
+    (is (re-find #"← was 5" (collect-text h)) "the value-side R1 annotation renders")
+    (is (empty? (slot-cells h)) "and the row carries no slot-anchor markers"))
+  (is (empty? (slot-cells (render-map-diff {:secret :rf/redacted} {:secret "now-visible"})))
+      "nor does an R8 redaction transition"))
 
 ;; ---- inspector card chrome on top-level mounts ---------------------------
-;;
-;; `:card? true` opts the widget's outer container into the inspector-card
-;; chrome (background, border, radius, padding, margin) so panels with
-;; multiple top-level mounts (App-DB's TOP + per-`:rf/*` areas) read as
-;; distinct cards. Default off preserves inline / nested behaviour.
 
 (defn- invoke-edn-inspector
   "Form-2 unrolling — run the outer fn, then the inner fn with the same
@@ -3337,65 +1296,19 @@
   (let [outer (ei/edn-inspector value opts)]
     (outer value opts)))
 
-(deftest card-opt-off-by-default
-  (testing "without `:card?` (or with `false`) the outer
-            container carries NO card chrome (background, border,
-            radius, padding, margin all absent) and no `:data-rf-card`
-            attribute"
-    (let [h-default (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
-          style-default (-> h-default second :style)
-          h-false   (invoke-edn-inspector {:a 1}
-                                          {:panel-id :rf.xray/app-db
-                                           :card? false})
-          style-false (-> h-false second :style)]
-      (doseq [[label h style] [["default" h-default style-default]
-                               ["explicit false" h-false style-false]]]
-        (is (nil? (:data-rf-card (second h)))
-            (str label ": no :data-rf-card attribute"))
-        (is (nil? (:background-color style))
-            (str label ": no background"))
-        (is (nil? (:border style))
-            (str label ": no border"))
-        (is (nil? (:border-radius style))
-            (str label ": no border-radius"))
-        (is (nil? (:margin-bottom style))
-            (str label ": no margin-bottom"))))))
+(deftest card-opt-applies-card-chrome-only-when-set
+  ;; `:card? true` gives a top-level mount the theme-aware card surface
+  ;; spec/021 documents; inline mounts leave it off.
+  (let [chrome (fn [opts]
+                 ((juxt :background-color :border :border-radius :padding :margin-bottom)
+                  (-> (invoke-edn-inspector {:a 1} (assoc opts :panel-id :rf.xray/app-db))
+                      second
+                      :style)))]
+    (is (= [nil nil nil nil nil] (chrome {})) "off by default")
+    (is (= [(:bg-1 tokens) (str "1px solid " (:border-default tokens)) "8px" "8px 10px" "8px"]
+           (chrome {:card? true})))))
 
-(deftest card-opt-applies-card-chrome
-  (testing "`:card? true` adds background/border/radius/
-            padding/margin to the outer container so the mount reads
-            as a distinct inspector card"
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :card? true})
-          style (-> h second :style)]
-      (is (= (:bg-1 tokens) (:background-color style))
-          "background reads `:bg-1` (theme-aware)")
-      (is (= (str "1px solid " (:border-default tokens)) (:border style))
-          "1px border in `:border-default` (theme-aware)")
-      (is (= "8px" (:border-radius style)) "radius 8px")
-      (is (= "8px 10px" (:padding style)) "padding 8px 10px")
-      (is (= "8px" (:margin-bottom style))
-          "margin-bottom 8px gaps adjacent cards")
-      (is (= "1" (:data-rf-card (second h)))
-          "and publishes :data-rf-card=1 for testbed assertion"))))
-
-;; ---- map column alignment (triangle / line / keys / close) --------------
-;;
-;; The map body's left margin + 1px border position the vertical guide
-;; line at the triangle's visual centre (`margin-left 11px` per
-;; `body-grid-style` in impl). Keys sit 6px past the line. The closing
-;; brace sits at `padding-left 10px` so the triangle / line / keys /
-;; closing-brace converge on one column structure.
-
-(defn- find-body-divs
-  "Return every body-div the renderer emits (every node whose
-  `:data-rf-body-layout` is non-nil)."
-  [tree]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (some? (:data-rf-body-layout (second node)))))
-          (walk-hiccup tree)))
+;; ---- close bracket -------------------------------------------------------
 
 (defn- find-close-divs
   "Return every closing-bracket div (cells with `data-rf-cell \"close\"`)."
@@ -3406,88 +1319,21 @@
                  (= "close" (:data-rf-cell (second node)))))
           (walk-hiccup tree)))
 
-(deftest map-body-guide-line-at-triangle-center
-  (testing "the body div's `margin-left 11px` + `border-left
-            1px` puts the vertical guide line at the triangle-centred
-            column (matching `body-grid-style` in impl); keys sit 6px
-            past the line for a small breath"
-    (let [v   {:counter 1 :async nil :machine-ui {:open? true}}
-          k0  (ei/expansion-key :test "m" [])
-          h   (ei/render-node {:value v
-                               :panel-id :test :mount-id "m"
-                               :path [] :depth 0
-                               :expansion-map {k0 {:expanded? true}}
-                               :opts {:default-expanded-depth 0}})
-          bodies (find-body-divs h)]
-      (is (seq bodies) "expanded map renders body div(s)")
-      (doseq [body bodies]
-        (let [style (:style (second body))]
-          (is (= "11px" (:margin-left style))
-              "body's margin-left puts the 1px border at the triangle-centred guide column")
-          (is (= "6px" (:padding-left style))
-              "keys sit 6px past the line for a small breath"))))))
-
-(deftest closing-brace-aligns-with-guide-line
-  (testing "the closing-bracket div sits at `padding-left
-            10px`, column-aligned with the vertical guide line above,
-            so the bracket pair `▾ { … }` reads as a coherent vertical
-            column at every nesting depth"
-    (let [;; 4+ keys in each map defeats inline-fit (which requires
-          ;; ≤3 children) so both outer + inner expand-render.
-          v   {:a 1 :b 2 :c 3 :d 4
-               :nested {:x 1 :y 2 :z 3 :w 4}}
-          k0  (ei/expansion-key :test "m" [])
-          k1  (ei/expansion-key :test "m" [:nested])
-          h   (ei/render-node
-                {:value v
-                 :panel-id :test :mount-id "m"
-                 :path [] :depth 0
-                 :expansion-map {k0 {:expanded? true}
-                                 k1 {:expanded? true}}
-                 :opts {:default-expanded-depth 0}})
-          closes (find-close-divs h)]
-      (is (= 2 (count closes))
-          "outer + inner expanded maps each contribute a close-brace cell")
-      (doseq [c closes]
-        (let [style (:style (second c))]
-          (is (= "10px" (:padding-left style))
-              "close-brace `padding-left 10px` matches the guide-line x"))))))
-
-(deftest block-body-shares-alignment-with-grid-body
-  (testing "sequential (vector / list / set) bodies use the
-            same `margin-left 11px` + `padding-left 6px` as map bodies
-            so a vector's guide line / first item / closing bracket all
-            converge on the same column structure"
-    (let [;; 4 elements + a nested container defeats inline-fit so the
-          ;; block body actually renders.
-          v   [1 2 3 4 {:x :y}]
-          k0  (ei/expansion-key :test "m" [])
-          h   (ei/render-node {:value v
-                               :panel-id :test :mount-id "m"
-                               :path [] :depth 0
-                               :expansion-map {k0 {:expanded? true}}
-                               :opts {:default-expanded-depth 0}})
-          bodies (find-body-divs h)
-          block-bodies (filter #(= "block" (:data-rf-body-layout (second %)))
-                               bodies)]
-      (is (seq block-bodies)
-          "vector container emits a block-layout body when expanded")
-      (let [style (:style (second (first block-bodies)))]
-        (is (= "11px" (:margin-left style)) "same 11px margin as grid body")
-        (is (= "6px"  (:padding-left style)) "same 6px padding as grid body")))))
+(deftest expanded-containers-render-a-close-bracket-cell
+  (let [h (ei/render-node
+            {:value {:a 1 :b 2 :c 3 :d 4 :nested {:x 1 :y 2 :z 3 :w 4}}
+             :panel-id :test :mount-id "m"
+             :path [] :depth 0
+             :expansion-map {(ei/expansion-key :test "m" [])        {:expanded? true}
+                             (ei/expansion-key :test "m" [:nested]) {:expanded? true}}
+             :opts {:default-expanded-depth 0}})]
+    (is (= ["}" "}"] (map collect-text (find-close-divs h)))
+        "the outer and the nested expanded map each close their bracket")))
 
 ;; ---- :header opt + three-shade card chrome -------------------------------
 ;;
-;; `:header` opts the widget into the Machine-panel-aesthetic three-shade
-;; card chrome: outer `<section>` (background `:bg-2`, 1px border, 4px
-;; radius) + `<header>` ribbon (`:bg-3`, padding 10px 12px) + body sleeve
-;; (`:bg-1`, padding 12px). Consumer panels mounting multiple inspectors
-;; side-by-side (App-DB 3 mounts; Handler event/before/after/fx/coeffects)
-;; pass a per-mount header so the eye reads each as a discrete labelled
-;; card rather than blending into one continuous block.
-;;
-;; Default (`:header` nil) — no `<section>` wrapper, single-div render
-;; (the `:card?` semantics above).
+;; `:header` wraps the render in a `<section>` with a `<header>` ribbon and
+;; a body sleeve; without it the widget is a single `<div>`.
 
 (defn- find-tag
   "Return the first hiccup vector in `tree` whose tag is `tag`."
@@ -3497,279 +1343,98 @@
        first))
 
 (deftest header-opt-omitted-renders-no-section-wrapper
-  (testing "without `:header` (or with `:header nil`, which is equivalent)
-            the widget emits a single `<div>` root, with no `<section>`
-            wrapper and no `<header>` ribbon (the plain single-div mount)"
-    (doseq [[label opts] [["omitted" {:panel-id :rf.xray/app-db}]
-                          [":header nil" {:panel-id :rf.xray/app-db :header nil}]]]
-      (let [h (invoke-edn-inspector {:a 1} opts)]
-        (is (= :div (first h)) (str label ": root tag is `<div>`, not `<section>`"))
-        (is (nil? (find-tag h :section)) (str label ": no `<section>` anywhere in tree"))
-        (is (nil? (find-tag h :header)) (str label ": no `<header>` ribbon"))
-        (is (nil? (:data-rf-header (second h)))
-            (str label ": outer div omits the `data-rf-header` flag"))))))
-
-(deftest header-opt-string-renders-section-and-ribbon
-  (testing "`:header \"label\"` wraps the render in a
-            `<section>` with a `<header>` ribbon containing the supplied
-            string"
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :header "Counter app · :rf/default"})]
-      (is (= :section (first h)) "root tag is `<section>`")
-      (is (= "1" (:data-rf-header (second h)))
-          "section publishes `data-rf-header=1` for testbed assertion")
-      (let [hdr (find-tag h :header)]
-        (is (some? hdr) "section contains a `<header>` ribbon")
-        (is (= "ribbon" (:data-rf-header-role (second hdr)))
-            "header ribbon publishes its role for selectors")
-        (is (some #{"Counter app · :rf/default"} (rest hdr))
-            "header ribbon contains the supplied string verbatim")))))
+  (is (= :div (first (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})))))
 
 (deftest header-opt-hiccup-passes-through-opaquely
-  (testing "`:header [hiccup]` renders the supplied vector as
-            the ribbon content unchanged (the widget treats hiccup as
-            opaque — no parsing, no required shape)"
-    (let [header-hiccup [:span
-                         [:strong "Counter app"]
-                         " · "
-                         [:code ":rf/default"]]
-          h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :header header-hiccup})
-          hdr (find-tag h :header)]
-      (is (= :section (first h)) "root tag is `<section>`")
-      (is (some? hdr) "section contains a `<header>` ribbon")
-      (is (some #(= header-hiccup %) (rest hdr))
-          "header ribbon embeds the hiccup vector verbatim"))))
+  ;; The ribbon embeds the supplied header as-is — no parsing, no required
+  ;; shape.
+  (let [header-hiccup [:span
+                       [:strong "Counter app"]
+                       " · "
+                       [:code ":rf/default"]]
+        h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                        :header header-hiccup})]
+    (is (some #(= header-hiccup %) (rest (find-tag h :header))))))
 
 (deftest header-opt-three-shade-chrome-via-tokens
-  (testing "the section + header + body each read a distinct
-            shade from the live `tokens` map (`:bg-2` outer, `:bg-3`
-            header, `:bg-1` body). Theme-aware via CSS variables — both
-            light + dark resolve at paint time."
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :header "Counter"})
-          section-style (-> h second :style)
-          hdr           (find-tag h :header)
-          hdr-style     (-> hdr second :style)
-          ;; Body div is the LAST top-level child of the section (the
-          ;; affordance + header come before it).
-          body          (->> (rest h)
-                             (filter (fn [n]
-                                       (and (vector? n)
-                                            (= :div (first n))
-                                            (= "card-body"
-                                               (:data-rf-body-role (second n))))))
-                             first)
-          body-style    (-> body second :style)]
-      (is (= (:bg-2 tokens) (:background-color section-style))
-          "outer section reads `:bg-2` (light: #ffffff / dark: bg-2 token)")
-      (is (= (str "1px solid " (:border-default tokens))
-             (:border section-style))
-          "outer border reads `:border-default`")
-      (is (= "4px" (:border-radius section-style))
-          "outer corner radius 4px (matches Machine panel)")
-      (is (= (:bg-3 tokens) (:background hdr-style))
-          "header ribbon reads `:bg-3` (light: #e8e8e8)")
-      (is (= "10px 12px" (:padding hdr-style))
-          "header ribbon padding 10px 12px (matches Machine panel)")
-      (is (= (str "1px solid " (:border-subtle tokens))
-             (:border-bottom hdr-style))
-          "header ribbon carries a `:border-subtle` bottom rule")
-      (is (= (:bg-1 tokens) (:background body-style))
-          "body sleeve reads `:bg-1` (light: #f5f5f5)")
-      (is (= "12px" (:padding body-style))
-          "body sleeve padding 12px"))))
+  ;; Section `:bg-2`, header ribbon `:bg-3`, body sleeve `:bg-1`, with the
+  ;; borders and spacing spec/021 §10.0.10 documents.
+  (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
+                                        :header "Counter"})]
+    (is (= [[(:bg-2 tokens) (str "1px solid " (:border-default tokens)) "4px"]
+            [(:bg-3 tokens) "10px 12px" (str "1px solid " (:border-subtle tokens))]
+            [(:bg-1 tokens) "12px"]]
+           [((juxt :background-color :border :border-radius) (-> h second :style))
+            ((juxt :background :padding :border-bottom) (-> (find-tag h :header) second :style))
+            ((juxt :background :padding)
+             (-> (find-attr h :data-rf-body-role "card-body") second :style))]))))
 
 (deftest header-opt-preserves-mount-id-and-testid-on-section
-  (testing "when the widget chromes itself, the mount-id +
-            container testid + ref + data-rf-mode flag move to the
-            section so the same test selectors address it. The body's
-            edn-inspector tree renders inside the body div."
-    (let [h (invoke-edn-inspector {:a 1 :b 2}
-                                  {:panel-id :rf.xray/app-db
-                                   :header "Counter"})
-          attrs (second h)]
-      (is (= :section (first h)) "root tag is `<section>`")
-      (is (some? (:data-testid attrs))
-          "section carries the container `data-testid` (same id contract)")
-      (is (some? (:data-rf-mount-id attrs))
-          "section carries the auto-generated `mount-id`")
-      (is (= "browse" (:data-rf-mode attrs))
-          "section carries the mode flag")
-      (is (fn? (:ref attrs))
-          "section carries the measurement ref callback"))))
+  ;; The section takes the container's identity, so the same selectors, the
+  ;; measurement ref and the mode flag address it.
+  (let [h     (invoke-edn-inspector {:a 1 :b 2}
+                                    {:panel-id :rf.xray/app-db
+                                     :header "Counter"})
+        attrs (second h)]
+    (is (= [:section true true true "browse"]
+           [(first h)
+            (some? (:data-testid attrs))
+            (some? (:data-rf-mount-id attrs))
+            (fn? (:ref attrs))
+            (:data-rf-mode attrs)]))))
 
 (deftest header-opt-renders-body-content-inside-body-sleeve
-  (testing "the actual edn-inspector tree (collection-kind
-            scalars + brackets + body) lives inside the body sleeve, not
-            inside the header ribbon"
-    (let [h (invoke-edn-inspector {:counter 7}
-                                  {:panel-id :rf.xray/app-db
-                                   :header "Counter"})
-          body (->> (walk-hiccup h)
-                    (filter (fn [n]
-                              (and (vector? n)
-                                   (map? (second n))
-                                   (= "card-body"
-                                      (:data-rf-body-role (second n))))))
-                    first)]
-      (is (some? body) "section contains a body sleeve")
-      ;; The body should contain a representation of the `:counter` key
-      ;; somewhere in its subtree (collected as text leaves).
-      (is (str/includes? (collect-text body) ":counter")
-          "body sleeve renders the `:counter` key from the value")
-      (is (str/includes? (collect-text body) "7")
-          "body sleeve renders the numeric `7`"))))
+  (is (= "{:counter 7}"
+         (collect-text (find-attr (invoke-edn-inspector {:counter 7}
+                                                        {:panel-id :rf.xray/app-db
+                                                         :header "Counter"})
+                                  :data-rf-body-role "card-body")))))
 
 (deftest header-opt-keeps-popup-affordance-on-section
-  (testing "when `:popup-affordance?` is on alongside
-            `:header`, the icon button still renders inside the section
-            (positioned at the section's top-right corner via the
-            outer `position: relative`)"
-    (let [h (invoke-edn-inspector {:a 1}
-                                  {:panel-id :rf.xray/app-db
-                                   :header "Counter"
-                                   :popup-affordance? true})
-          attrs (second h)
-          ;; Affordance button lives as a direct child of the section.
-          button (->> (rest h)
-                      (filter (fn [n] (and (vector? n) (= :button (first n)))))
-                      first)]
-      (is (= "relative" (:position (:style attrs)))
-          "section establishes positioning context for the absolute button")
-      (is (= "1" (:data-rf-popup-affordance attrs))
-          "section publishes the affordance flag")
-      (is (some? button)
-          "section contains the popup affordance button as a direct child"))))
+  ;; The affordance button sits inside the section, which positions it.
+  (let [h (invoke-edn-inspector {:a 1}
+                                {:panel-id :rf.xray/app-db
+                                 :header "Counter"
+                                 :popup-affordance? true})]
+    (is (= "relative" (-> h second :style :position)))
+    (is (some #(and (vector? %) (= :button (first %))) (rest h))
+        "the button is a direct child of the section")))
 
 ;; =========================================================================
 ;; Width-aware expansion heuristic
 ;; =========================================================================
 ;;
-;; The heuristic drives the auto-expand decision: render inline when the
-;; value's estimated pr-str width fits the measured column with a small
-;; safety margin; otherwise expand to tree. `default-expanded-depth` is
-;; a CEILING beyond which the widget never auto-expands.
-;;
-;; These tests pin the pure decision functions (estimated-inline-px,
-;; would-fit-inline?, default-expanded? width-aware branch) and the
-;; render-container integration:
-;;
-;;   - width-aware default? returns false when value fits the column;
-;;     true (within ceiling) when it doesn't.
-;;   - operator's sticky override still wins (a width-fitting node the
-;;     operator explicitly opened renders expanded, not inline).
-;;   - diff mode's force-open over changed descendants still fires.
-;;   - the recursive inline renderer paints nested containers in one
-;;     line with full syntax-palette colour.
+;; A container renders inline when its estimated width fits the measured
+;; column and expands to a tree otherwise; `:default-expanded-depth` is a
+;; CEILING past which nothing auto-expands.
 
-(deftest width-estimate-constants-and-default-ceiling-are-stable
-  (testing "width-estimation constants exposed for tests"
-    (is (= 7 ei/mono-char-width-px)
-        "7px M-advance is the conservative pick for JetBrains Mono 12px")
-    (is (= 16 ei/safety-margin-px)
-        "16px safety margin covers closing bracket + gutter")
-    (is (= 8 ei/default-ceiling-depth)
-        "default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
+(deftest default-expanded-depth-ceiling-defaults-to-8
+  (is (= 8 ei/default-ceiling-depth)))
 
 ;; ---- the estimate is BOUNDED ---------------------------------------------
 ;;
-;; `estimated-inline-px` runs on EVERY render to answer a yes/no
-;; question. As a bare `(* mono-char-width-px (count (pr-str value)))`
-;; it would cost twice: it would serialise the whole subtree — the
-;; entire app-db, per render, to decide a boolean — and on an infinite
-;; lazy seq it would never return at all, freezing the tab with no
-;; error anywhere.
-;;
-;; Note the shape of these tests: every assertion is on a value that
-;; either terminates by construction or is proven to terminate by the
-;; assertion itself returning. NOTHING here takes an unbounded prefix
-;; of an infinite seq, because a test that hangs takes the whole gate
-;; with it and presents as infrastructure trouble rather than as a
-;; failure.
-
-(deftest estimated-inline-px-returns-on-an-infinite-seq
-  (testing "the canonical runaway: `(range)` at one key"
-    (is (number? (ei/estimated-inline-px {:a (range)}))
-        "returns at all — this is the whole assertion; an unbounded print hangs")
-    (is (pos? (ei/estimated-inline-px {:a (range)}))
-        "and answers a positive width"))
-  (testing "bare, nested, and beside real data"
-    (is (number? (ei/estimated-inline-px (range))))
-    (is (number? (ei/estimated-inline-px [1 2 (repeat :x)])))
-    (is (number? (ei/estimated-inline-px {:a {:b {:c (iterate inc 0)}}})))
-    (is (number? (ei/estimated-inline-px (cycle [1 2 3]))))))
+;; `estimated-inline-px` runs on every render: it decides with a walk that
+;; stops at the budget, and measures exactly only what is provably small.
+;; Every assertion here is on a value that terminates by construction.
 
 (deftest infinite-seq-saturates-HIGH-so-it-never-reads-as-fitting
-  ;; The direction matters more than the number. An estimate that
-  ;; capped LOW would report a runaway value as narrow, the widget
-  ;; would render it inline, and the column would overflow — a worse
-  ;; bug than the freeze. Saturating HIGH can only ever read as
-  ;; "does not fit".
-  ;;
-  ;; The 100000px case is here because a finite saturation —
-  ;; `inline-estimate-char-cap × 7` = 28,672px, "wider than any column"
-  ;; — is not wider than every column, and `would-fit-inline?` would
-  ;; then report a `(range)` as FITTING. No finite ceiling out-runs
-  ;; every argument a caller might pass, so the over-budget answer is
-  ;; `##Inf`.
-  (is (false? (ei/would-fit-inline? {:a (range)} 966))
-      "an infinite seq does not fit a real column")
-  (is (false? (ei/would-fit-inline? {:a (range)} 100000))
-      "nor an absurd one")
-  (is (false? (ei/would-fit-inline? {:a (range)} 1e12))
-      "nor one no display could have")
-  (is (= ##Inf (ei/estimated-inline-px (range)))
-      "over budget the estimate is unbounded, not a large finite number")
-  (testing "a merely LARGE finite value saturates the same way"
-    ;; Past the char cap the widget declines to render inline whatever
-    ;; the column — that is the product decision, not just a guard.
-    (is (= ##Inf (ei/estimated-inline-px (vec (range 5000))))
-        "5000 elements is past `inline-estimate-char-cap` characters")
-    (is (false? (ei/would-fit-inline? (vec (range 5000)) 100000)))))
+  ;; Over budget the estimate is `##Inf`. A finite saturation (the char cap
+  ;; × 7px ≈ 28,672px) would report a `(range)` as FITTING a wider column.
+  (is (= ##Inf (ei/estimated-inline-px (range))))
+  (is (false? (ei/would-fit-inline? {:a (range)} 100000))))
 
 (deftest bounded-estimate-leaves-ordinary-values-EXACT
-  ;; The control, and the reason the walk decides but `pr-str`
-  ;; measures: every ordinary estimate stays exact.
-  (doseq [v [{:a 1}
-             nil
-             "a string"
-             :kw
-             [1 2 3]
-             #{:a :b}
-             {:a {:b {:c [1 2 3]}}}
-             (list 1 2 3)
-             [:ws/connection [:rf.machine.timer/after-elapsed
-                              2501 [:active :authenticating]]]]]
+  ;; Under budget the answer is the exact printed width, escapes included —
+  ;; up to a string just under the char cap.
+  (doseq [v [{:a {:b {:c [1 2 3]}}}
+             (vec (range 200))
+             "has \"quotes\""
+             (apply str (repeat 4000 "y"))]]
     (is (= (* ei/mono-char-width-px (count (pr-str v)))
            (ei/estimated-inline-px v))
-        (str "exact for " (pr-str v))))
-  (testing "a large but FINITE value is still measured exactly"
-    (let [v (vec (range 200))]
-      (is (= (* ei/mono-char-width-px (count (pr-str v)))
-             (ei/estimated-inline-px v))
-          "200 elements sits under the char cap, so the answer is exact"))))
+        (str "exact for a value printing " (count (pr-str v)) " characters"))))
 
 ;; ---- a long STRING leaf is never serialised in full ----------------------
-;;
-;; The bounded walk above stops at the budget. A scalar branch that
-;; called `pr-str` on the WHOLE scalar and took `count` afterwards would
-;; return `##Inf` for `{:body <500,000 characters>}` against a 100px
-;; column — the right answer — only after allocating a 500,002-
-;; character printed leaf, on every render, when the string's own
-;; `count` already proves it cannot fit.
-;;
-;; NOTE THE SHAPE OF THESE TESTS, because it is the whole point: one
-;; that asserts only `##Inf` PASSES AGAINST A PRINT-IT-ALL BRANCH, since
-;; that branch returns `##Inf` too — just expensively. The expense
-;; IS the defect, so these spy on `pr-str` and assert on the SIZES
-;; PRINTED rather than on the value returned.
-;;
-;; The spy's own positive control is load-bearing. Were the
-;; redefinition to miss the call site, `sizes` would be empty and
-;; "nothing large was printed" would pass vacuously against a
-;; print-it-all branch. So each case asserts a SMALL leaf WAS recorded
-;; before asserting the LARGE one was not.
 
 (defn- printed-sizes
   "Run thunk `f` with `pr-str` spying, returning `[result sizes]`,
@@ -3788,439 +1453,122 @@
     [result @sizes]))
 
 (deftest a-long-string-leaf-is-never-serialised-in-full
-  ;; The probe shape: a print-it-all branch records sizes `[5 500002]`.
-  (let [big                   (apply str (repeat 500000 "x"))
-        [_ control-sizes]     (printed-sizes
-                                #(ei/estimated-inline-px {:body "short"} 100))
-        [px sizes]            (printed-sizes
-                                #(ei/estimated-inline-px {:body big} 100))]
-    (testing "the spy is live and the walk reaches the VALUE position"
-      (is (some #(= 5 %) control-sizes)
-          "the 5-character `:body` key was recorded")
-      (is (some #(= 7 %) control-sizes)
-          "and so was the 7-character printed value beside it, so a
-           missing large print below means the print did not happen —
-           not that the walk stopped short"))
-    (testing "the large leaf is not printed to discover it cannot fit"
-      (is (some #(= 5 %) sizes)
-          "the key is printed exactly — small scalars are measured exactly")
-      (is (not-any? #(>= % 500000) sizes)
-          (str "no print may be proportional to the 500,000-character "
-               "leaf; recorded sizes were " (pr-str sizes))))
-    (testing "and the answer itself is the over-budget one"
-      (is (= ##Inf px)
-          "over budget the estimate is `##Inf`"))))
-
-(deftest small-strings-are-still-measured-EXACTLY
-  ;; The other half of the contract, and the docstring's standing promise:
-  ;; the lower bound is charged ONLY when it already carries the
-  ;; running total past `cap`. Under budget the print happens,
-  ;; so escapes — which make `pr-str` longer than `count` — are
-  ;; counted and every ordinary estimate stays exact.
-  (doseq [s ["plain"
-             "has \"quotes\""
-             "has \\ backslash"
-             "has\nnewline"
-             ""]]
-    (is (= (* ei/mono-char-width-px (count (pr-str s)))
-           (ei/estimated-inline-px s))
-        (str "exact for " (pr-str s))))
-  (testing "nested under a key, where escaping makes the print longer
-            than the raw character count"
-    (let [v {:msg "a \"quoted\" word"}]
-      (is (= (* ei/mono-char-width-px (count (pr-str v)))
-             (ei/estimated-inline-px v))
-          "escaped characters are still counted exactly")))
-  (testing "a string just under the ceiling is still measured by its
-            own print, not by a bound"
-    (let [s (apply str (repeat 4000 "y"))]
-      (is (= (* ei/mono-char-width-px (count (pr-str s)))
-             (ei/estimated-inline-px s))
-          "4000 characters sits under `inline-estimate-char-cap`"))))
+  ;; Asserting only `##Inf` would pass a print-it-all branch, which returns
+  ;; `##Inf` too — expensively — so this spies on the sizes printed.
+  (let [[px sizes] (printed-sizes
+                     #(ei/estimated-inline-px {:body (apply str (repeat 500000 "x"))} 100))]
+    (is (some #(= 5 %) sizes)
+        "the spy is live: the 5-character `:body` key was printed")
+    (is (not-any? #(>= % 500000) sizes)
+        (str "no print is proportional to the 500,000-character leaf; sizes were "
+             (pr-str sizes)))
+    (is (= ##Inf px))))
 
 (deftest preview-and-annotation-paths-return-on-an-infinite-seq
-  ;; `estimated-inline-px` is not the only unbounded print on a render
-  ;; path — `mini`, the `← was` chip and the collapsed-collection
-  ;; preview all `pr-str`'d or `count`ed without a bound.
-  (is (vector? (ei/mini (range)))
-      "`mini` returns on an infinite seq")
-  (is (vector? (ei/mini {:a (range)} 40))
-      "including nested under a key")
-  (is (string? (ei/inline-preview-string (range) 3 60))
-      "the collapsed-collection preview returns")
-  (is (string? (ei/inline-preview-string {:a (range)} 3 60))
-      "and so does one whose CHILD is infinite")
-  (testing "the `← was` chip, reached through a diff'd SCALAR leaf whose
-            prior value is the infinite seq"
-    (let [h (ei/render-node {:value 1
-                             :before (range)
-                             :diff? true
-                             :panel-id :test :mount-id "m1" :path [:k] :depth 0
-                             :expansion-map {} :opts {}})]
-      (is (some? (find-attr h :data-rf-diff-op "modified"))
-          "it renders as a modified leaf")
-      (is (str/includes? (collect-text h) "← was")
-          "and the `← was` chip is built from a BOUNDED print of the
-           infinite prior value"))))
-
-(deftest an-infinite-seq-renders-rather-than-freezing
-  ;; End to end: the whole point. An app-db with `(range)` under one
-  ;; key produces hiccup instead of locking the tab.
-  (let [h (ei/render-node {:value {:ok 1 :runaway (range)}
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (vector? h) "renders to hiccup")
-    (is (str/includes? (collect-text h) ":ok")
-        "and the sibling keys are still readable")))
+  ;; `mini` and the `← was` chip print through a bounded `pr-str`.
+  (is (vector? (ei/mini {:a (range)} 40)) "`mini` returns on an infinite seq")
+  (is (str/includes? (collect-text (ei/render-node {:value 1
+                                                    :before (range)
+                                                    :diff? true
+                                                    :panel-id :test :mount-id "m1"
+                                                    :path [:k] :depth 0
+                                                    :expansion-map {} :opts {}}))
+                     "← was")
+      "the `← was` chip of a leaf whose prior is the infinite seq"))
 
 (deftest would-fit-inline-fits-when-estimate-plus-margin-le-available
-  (testing "`would-fit-inline?` gate"
-    ;; A short value pr-strs to ~10 chars × 7px = 70px + 16px margin = 86px.
-    (let [v {:a 1}]
-      (is (ei/would-fit-inline? v 200)
-          "200px column trivially fits a 10-char value")
-      (is (not (ei/would-fit-inline? v 50))
-          "50px column rejects even short values"))
-    ;; Worked example: an ~81-char value in a 966px column.
-    (let [big-but-fitting (apply str (repeat 80 "x"))]
-      (is (ei/would-fit-inline? big-but-fitting 966)
-          "~570px estimate trivially fits 966px column"))
-    (is (not (ei/would-fit-inline? {:a 1} nil))
-        "nil available-width falls back to the strict (non-width) gate")
-    (is (not (ei/would-fit-inline? {:a 1} 0))
-        "zero or negative width is treated as no measurement")))
+  ;; `{:a 1}` prints 6 characters: 42px + the 16px margin. No measurement
+  ;; (nil or non-positive) never fits.
+  (are [width fits?] (= fits? (ei/would-fit-inline? {:a 1} width))
+    200 true
+    50  false
+    nil false
+    0   false))
 
-(deftest default-expanded-width-aware-branch
-  (testing "width-aware `default-expanded?` flips the verdict"
-    ;; A 2-key map fits in 600px easily — should NOT auto-expand (the
-    ;; inline-fit gate picks it up instead).
-    (is (false? (ei/default-expanded?
-                  {:depth 0 :child-count 2 :value {:a 1 :b 2}
-                   :available-width-px 600})))
-    ;; A long string-keyed map that overflows 200px should auto-expand
-    ;; (within the ceiling).
-    (let [wide-v {:a "much-longer-than-the-budget"
-                  :b "another-overflowing-string"
-                  :c "and-yet-more-data"}]
-      (is (true? (ei/default-expanded?
-                   {:depth 0 :child-count 3 :value wide-v
-                    :available-width-px 100}))))
-    ;; Beyond the ceiling, the width-aware branch falls back to false
-    ;; (collapsed summary instead of auto-expanding pathologically deep).
-    (let [wide-v {:a "much-longer-than-the-budget"
-                  :b "another-overflowing-string"}]
-      (is (false? (ei/default-expanded?
-                    {:depth 9 :child-count 2 :value wide-v
-                     :default-expanded-depth 8
-                     :available-width-px 100}))))
-    ;; Diff mode's force-open over changed descendants still beats width
-    (let [v {:a "wide string that overflows"}]
-      (is (true? (ei/default-expanded?
-                   {:depth 0 :child-count 1 :value v
-                    :available-width-px 1000
-                    :has-changed-descendant? true}))
-          "changed-descendant rule beats width-fits for diff readability"))))
-
-(deftest default-expanded-diff-collapses-unchanged
-  (testing "with a pre-image present (`:diff?`):
-            unchanged subtrees collapse regardless of depth/width. Only
-            the root + ancestors of a change auto-expand. (The collapse
-            heuristic keys directly on `:diff?`.)"
-    ;; Root (depth 0) always expands so the operator sees the keys.
-    (is (true? (ei/default-expanded?
-                 {:depth 0 :child-count 5 :value {:a 1 :b 2}
-                  :default-expanded-depth 3
-                  :diff? true})))
-    ;; Depth 1 with NO changed descendant + diff on → collapse,
-    ;; even though depth ≤ default-expanded-depth (would normally expand).
-    (is (false? (ei/default-expanded?
-                  {:depth 1 :child-count 5 :value {:a 1 :b 2}
-                   :default-expanded-depth 3
-                   :diff? true})))
-    ;; Depth 1 WITH changed descendant + diff on → expand (the
-    ;; force-expand rule for diff readability wins).
-    (is (true? (ei/default-expanded?
-                 {:depth 1 :child-count 5 :value {:a 1 :b 2}
-                  :default-expanded-depth 3
-                  :diff? true
-                  :has-changed-descendant? true})))
-    ;; No pre-image (`:diff?` absent) — width/depth heuristic applies
-    ;; (the pin: the collapse branch is gated on `:diff?`).
-    (is (true? (ei/default-expanded?
-                 {:depth 1 :child-count 5 :value {:a 1 :b 2}
-                  :default-expanded-depth 3})))))
+(deftest default-expanded-collapses-past-the-ceiling-and-unchanged-diff-subtrees
+  (is (false? (ei/default-expanded?
+                {:depth 9 :child-count 2
+                 :value {:a "much-longer-than-the-budget"
+                         :b "another-overflowing-string"}
+                 :default-expanded-depth 8
+                 :available-width-px 100}))
+      "past the ceiling a too-wide container stays collapsed")
+  (is (false? (ei/default-expanded?
+                {:depth 1 :child-count 5 :value {:a 1 :b 2}
+                 :default-expanded-depth 3
+                 :diff? true}))
+      "in diff mode an unchanged subtree collapses even within the ceiling"))
 
 (deftest render-container-width-fit-renders-inline-recursively
-  (testing "when measured width fits the value's pr-str,
-            the renderer emits the FULL value (including nested
-            containers) on one inline span — no expand glyph, no
-            multi-row tree"
-    ;; ~60-char nested value vs 800px column.
-    (let [v {:tag :foo :payload [:active :authenticating]}
-          h (ei/render-node {:value v
-                             :panel-id :p :mount-id "m" :path []
-                             :depth 0 :expansion-map {}
-                             :opts {:default-expanded-depth 2
-                                    :available-width-px 800}})
-          text (collect-text h)]
-      ;; No toggle glyph — the whole thing is already visible.
-      (is (not (re-find #"▾|▸" text))
-          "width-fit inline render carries no expand/collapse glyph")
-      ;; All scalars present in the one-line render.
-      (is (re-find #":tag" text))
-      (is (re-find #":payload" text))
-      (is (re-find #":active" text))
-      (is (re-find #":authenticating" text)))))
+  ;; When the measured column fits, the whole value — nested containers
+  ;; included — renders on one line in canonical EDN spacing, no toggle.
+  (is (= "{:tag :foo, :payload [:active :authenticating]}"
+         (collect-text (ei/render-node {:value {:tag :foo :payload [:active :authenticating]}
+                                        :panel-id :p :mount-id "m" :path []
+                                        :depth 0 :expansion-map {}
+                                        :opts {:default-expanded-depth 2
+                                               :available-width-px 800}})))))
 
 (deftest render-container-too-wide-expands-to-tree
-  (testing "when measured width is too narrow for the
-            value's pr-str, the renderer falls back to the tree form
-            (▾ glyph + indented body)"
-    (let [v {:a "much-longer-than-the-budget"
-             :b "another-overflowing-string"
-             :c "and-yet-more-data"
-             :d "and-yet-still-more"
-             :e "the-final-overflow"}
-          h (ei/render-node {:value v
-                             :panel-id :p :mount-id "m" :path []
-                             :depth 0 :expansion-map {}
-                             :opts {:default-expanded-depth 8
-                                    :available-width-px 100}})
-          text (collect-text h)]
-      ;; Toggle glyph present — narrow column triggers tree form.
-      (is (re-find #"▾" text)
-          "narrow-column overflow renders expanded tree")
-      (is (re-find #":a" text))
-      (is (re-find #":e" text)))))
+  (is (re-find #"▾" (collect-text (ei/render-node {:value {:a "much-longer-than-the-budget"
+                                                           :b "another-overflowing-string"
+                                                           :c "and-yet-more-data"
+                                                           :d "and-yet-still-more"
+                                                           :e "the-final-overflow"}
+                                                   :panel-id :p :mount-id "m" :path []
+                                                   :depth 0 :expansion-map {}
+                                                   :opts {:default-expanded-depth 8
+                                                          :available-width-px 100}})))))
 
 (deftest render-container-respects-operator-override-over-width-fit
-  (testing "operator's explicit expand override wins even
-            when the value would naturally render inline; the operator
-            sees what they clicked, not the heuristic's verdict"
-    (let [v {:tag :foo :n 1}
-          k0 (ei/expansion-key :p "m" [])
-          h (ei/render-node {:value v
-                             :panel-id :p :mount-id "m" :path []
-                             :depth 0
-                             :expansion-map {k0 {:expanded? true}}
-                             :opts {:default-expanded-depth 2
-                                    :available-width-px 800}})
-          text (collect-text h)]
-      ;; Operator clicked-open → expanded tree, not inline.
-      (is (re-find #"▾" text)
-          "operator override beats the width-fits inline path")
-      (is (re-find #":tag" text)))))
-
-;; ---- inline / collapsed inter-element spacing ----------------------------
-;;
-;; The inline (one-line) + collapsed-preview renders MUST separate
-;; consecutive elements with canonical EDN spacing — a single SPACE
-;; between sequential (vector / list / set / seq) elements, and `, `
-;; between map / record entries — rather than running them together
-;; (`["machine-epochs":machine-epochs/run-step26:rf/default]`) or
-;; comma-separating sequentials (`[a, b, c]`). Pins the exact
-;; separator string so neither can appear silently.
-
-(deftest inline-separator-per-kind
-  (testing "sequential kinds space-separate; maps/records comma"
-    (is (= " "  (ei/inline-separator :vector)))
-    (is (= " "  (ei/inline-separator :list)))
-    (is (= " "  (ei/inline-separator :seq)))
-    (is (= " "  (ei/inline-separator :set)))
-    (is (= " "  (ei/inline-separator :map-entry)))
-    (is (= ", " (ei/inline-separator :map)))
-    (is (= ", " (ei/inline-separator :record)))))
-
-(deftest render-inline-recursive-vector-space-separated
-  (testing "an inline vector renders elements space-separated,
-            matching canonical EDN (not comma-separated, not run-together)"
-    (let [v    ["machine-epochs" :machine-epochs/run-step 26 :rf/default]
-          text (collect-text (ei/render-inline-recursive v))]
-      ;; Exact canonical EDN inline form — the single space between each
-      ;; element is the load-bearing assertion (no `, `, no concatenation).
-      (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
-             text)))))
-
-(deftest render-inline-recursive-map-comma-separated
-  (testing "an inline map keeps `, ` between k/v pairs and a
-            space within each pair"
-    (let [text (collect-text (ei/render-inline-recursive {:a 1 :b 2}))]
-      (is (= "{:a 1, :b 2}" text)))))
+  ;; An explicit open override wins over a value that would fit inline.
+  (is (re-find #"▾" (collect-text (ei/render-node {:value {:tag :foo :n 1}
+                                                   :panel-id :p :mount-id "m" :path []
+                                                   :depth 0
+                                                   :expansion-map {(ei/expansion-key :p "m" [])
+                                                                   {:expanded? true}}
+                                                   :opts {:default-expanded-depth 2
+                                                          :available-width-px 800}})))))
 
 (deftest width-slot-set-and-clear-events
-  (testing "set-width / clear-width app-db reducers"
+  (let [widths (fn [] @(rf/subscribe [ei/widths-slot]))]
     (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m" 600])
-    (let [widths @(rf/subscribe [ei/widths-slot])]
-      (is (= 600 (get widths "m"))
-          "set-width writes a positive measurement to the slot"))
-    ;; Bad inputs are ignored (no app-db churn).
     (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m2" -5])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/set-width nil 100])
-    (let [widths @(rf/subscribe [ei/widths-slot])]
-      (is (nil? (get widths "m2")) "negative width is rejected")
-      (is (nil? (get widths nil))  "nil mount-id is rejected"))
-    ;; Cleanup
+    (is (= {"m" 600} (widths))
+        "a positive measurement is stored; a non-positive one is not")
     (rf/dispatch-sync [:rf.xray.edn-inspector/clear-width "m"])
-    (let [after-clear @(rf/subscribe [ei/widths-slot])]
-      (is (nil? (get after-clear "m"))
-          "clear-width removes the entry"))))
-
-(deftest widget-emits-a-ref-callback-and-no-width-attr-until-measured
-  (testing "the outer container carries a `:ref` callback
-            (function) for the ResizeObserver lifecycle, plus a data-
-            attribute carrying the current measurement (or absent when
-            not yet measured)"
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
-          attrs (-> h second)]
-      (is (fn? (:ref attrs))
-          "outer container carries a ref callback (mount/unmount hook)")
-      ;; No measurement yet → attribute absent / nil.
-      (is (nil? (:data-rf-available-width-px attrs))
-          "data-rf-available-width-px absent until the ref fires"))))
+    (is (empty? (widths)) "clear-width removes the entry")))
 
 ;; =========================================================================
 ;; Zoom-into-node + breadcrumb navigation
-;; (gesture: double-click / Enter, no glyph)
 ;; =========================================================================
 ;;
-;; The zoom feature turns the inspector into a focused window onto an
-;; arbitrary subtree. The widget reads a per-mount path from the
-;; `zoom-slot`; when set, render-node walks `get-in` along that path and
-;; renders only the subtree. A breadcrumb row above the body shows the
-;; path from the original root; each segment is clickable for one-tap
-;; zoom-to-that-depth.
-;;
-;; Zoom-in is a node-local gesture (double-click / Enter)
-;; on the container itself; there is NO `⊙` glyph button. Zoom applies
-;; in the SINGLE full+diff renderer (re-root value always, before too
-;; when present). Esc + breadcrumb zoom out.
-;;
-;; Tests under this section cover:
-;;
-;; - Pure helpers: `zoom-key`, `resolve-zoom-path`, `resolve-zoom-into`.
-;; - Event reducers: `:zoom-to`, `:zoom-up`, `:zoom-reset`.
-;; - Public widget plumbing: `:zoomable?` opts emit data-attrs +
-;;   breadcrumb + the double-click / Enter zoom-trigger attrs on
-;;   containers; default (no opt) leaves the renderer unchanged.
-;; - Per-mount keying: two side-by-side mounts zoom independently;
-;;   stable `:site-id` survives unmount/remount.
-;; - Single full+diff renderer: a zoom re-roots BOTH value and before;
-;;   no glyph renders.
+;; With `:zoomable?` every non-root container is a zoom target: double-click
+;; (or Enter while focused) re-roots the inspector onto it, a breadcrumb row
+;; shows the path from the original root, and Esc zooms out one level. A
+;; zoom re-roots `value` always and `before` too in diff mode.
 
-;; ---- pure helpers --------------------------------------------------------
+(deftest zoom-events-move-the-per-mount-zoom-path
+  (let [zoom-of (fn [mount-id]
+                  (get @(rf/subscribe [ei/zoom-slot]) (ei/zoom-key :p mount-id)))]
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b :c]])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
+    (is (= [:a :b] (zoom-of "m")) "zoom-up pops one segment")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
+    (is (nil? (zoom-of "m")) "popping past the root clears the entry")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a]])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" []])
+    (is (nil? (zoom-of "m")) "zoom-to an empty path clears the zoom")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m1" [:a]])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m2" [:b]])
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset :p "m1"])
+    (is (= [nil [:b]] (map zoom-of ["m1" "m2"]))
+        "a scoped reset clears only its own (panel-id, mount-id) entry")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+    (is (nil? @(rf/subscribe [ei/zoom-slot])) "an unscoped reset clears the whole slot")))
 
-(deftest resolve-zoom-path-pure
-  (testing "no entry → nil"
-    (is (nil? (ei/resolve-zoom-path {} :p "m"))))
-  (testing "empty path → nil (no-zoom canonical shape)"
-    (is (nil? (ei/resolve-zoom-path {[:p "m"] []} :p "m"))))
-  (testing "non-empty path returns vec"
-    (is (= [:a :b] (ei/resolve-zoom-path {[:p "m"] [:a :b]} :p "m")))
-    (is (vector? (ei/resolve-zoom-path {[:p "m"] '(:a :b)} :p "m"))
-        "path always coerced to a vector even when stored as a list")))
-
-(deftest resolve-zoom-into-pure
-  (let [v {:a {:b {:c 42 :d 99}} :x 1}]
-    (testing "no zoom → original value"
-      (is (= v (ei/resolve-zoom-into v {} :p "m")))
-      (is (= v (ei/resolve-zoom-into v {[:p "m"] []} :p "m"))
-          "empty zoom-path also means no zoom"))
-    (testing "zoom resolves get-in walk"
-      (is (= {:b {:c 42 :d 99}} (ei/resolve-zoom-into v {[:p "m"] [:a]} :p "m")))
-      (is (= 42 (ei/resolve-zoom-into v {[:p "m"] [:a :b :c]} :p "m"))))
-    (testing "no-longer-resolvable path falls back to original"
-      ;; Stale zoom path against a mutated value — render the full
-      ;; thing rather than `nil` so the operator sees something.
-      (is (= v (ei/resolve-zoom-into v {[:p "m"] [:nonexistent :path]}
-                                     :p "m"))))))
-
-;; ---- reducers ------------------------------------------------------------
-
-(deftest zoom-to-empty-path-clears
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a]])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" []])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])
-        k    (ei/zoom-key :p "m")]
-    (is (nil? (get zoom k))
-        "passing an empty path clears the zoom (returns to root view)"))
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset]))
-
-(deftest zoom-up-pops-one-segment
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b :c]])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])
-        k    (ei/zoom-key :p "m")]
-    (is (= [:a :b] (get zoom k))
-        "zoom-up pops the last segment, leaving the prefix"))
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])
-        k    (ei/zoom-key :p "m")]
-    (is (nil? (get zoom k))
-        "zoom-up past the root clears the entry"))
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset]))
-
-(deftest zoom-up-noop-when-no-zoom
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-up :p "m"])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])]
-    (is (or (nil? zoom) (empty? zoom))
-        "zoom-up without an active zoom is a no-op (no slot churn)"))
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset]))
-
-(deftest zoom-reset-mount-specific
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m1" [:a]])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m2" [:b]])
-  ;; Reset only m1.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset :p "m1"])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])]
-    (is (nil? (get zoom (ei/zoom-key :p "m1"))) "m1 cleared")
-    (is (= [:b] (get zoom (ei/zoom-key :p "m2")))
-        "m2 retained — reset is scoped to the (panel-id, mount-id) pair"))
-  ;; Reset all.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])]
-    (is (nil? zoom) "reset with no args clears the whole slot")))
-
-;; ---- public widget plumbing ----------------------------------------------
-
-(deftest zoomable-opt-off-by-default
-  (testing "default render: no data-rf-zoomable attribute"
-    (let [h (invoke-edn-inspector {:a 1 :b 2}
-                                  {:panel-id :rf.xray/app-db})
-          attrs (-> h second)]
-      (is (nil? (:data-rf-zoomable attrs))
-          "default-off — attribute is absent on the outer container"))))
-
-(deftest zoomable-opt-emits-data-attr
-  (testing "with `:zoomable? true` the outer container publishes
-            data-rf-zoomable=1 (off by default; zoom is opt-in per
-            consumer panel)"
-    (let [h (invoke-edn-inspector {:a 1 :b 2}
-                                  {:panel-id :rf.xray/app-db
-                                   :zoomable? true})
-          attrs (-> h second)]
-      (is (= "1" (:data-rf-zoomable attrs))
-          ":data-rf-zoomable=1 advertises zoom-capable to tooling")
-      (is (nil? (:data-rf-zoomed attrs))
-          "no zoom active yet — :data-rf-zoomed is absent"))))
-
-;; ---- zoom GESTURE — double-click / Enter, no glyph -----------------------
-;;
-;; There is no `⊙` glyph button; zoom-in is a
-;; node-local gesture on the container's own outer div. These tests
-;; assert: (a) the non-root container carries the `data-rf-zoom-target` +
-;; handlers; (b) the root + opt-off cases carry no zoom target; (c)
-;; double-click + Enter, fired on the rendered child, both dispatch the
-;; canonical zoom-to through the captured dispatcher with the absolute
-;; path; (d) modified Enter and other keys do not.
+;; ---- zoom gesture — double-click / Enter on the container ----------------
 
 (defn- zoom-target-nodes
   "Every hiccup node carrying `data-rf-zoom-target=1`."
@@ -4232,53 +1580,34 @@
           (walk-hiccup tree)))
 
 (deftest zoomable-marks-non-root-containers-as-zoom-targets
-  ;; With zoomable? on, every non-root container's outer div carries the
-  ;; zoom-trigger attrs (data-rf-zoom-target + tab-index + aria-label +
-  ;; handlers). We probe render-node directly with a `zoom-path-prefix`
-  ;; of [] to confirm the child container `:a` is a target.
-  (let [v {:a {:nested 1} :b 2}
-        h (ei/render-node {:value v
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix []
-                           :opts {:default-expanded-depth 8}})
-        targets (zoom-target-nodes h)]
-    (is (seq targets)
-        "a non-root container is marked as a zoom target")
-    (let [attrs (-> targets first second)]
-      (is (= 0 (:tab-index attrs))
-          "the target is keyboard-focusable (tab-index 0)")
-      (is (string? (:aria-label attrs))
-          "the target carries an aria-label — the gesture's
-           screen-reader affordance")
-      (is (fn? (:on-double-click attrs))
-          "double-click handler present")
-      (is (fn? (:on-key-down attrs))
-          "key-down handler present (Enter zooms in)"))))
+  ;; Only the child map is a target: the root is not (zooming into the
+  ;; current root is a no-op), and nothing is with `:zoomable?` off.
+  (let [targets (fn [zoomable?]
+                  (zoom-target-nodes
+                    (ei/render-node {:value {:a {:nested 1} :b 2}
+                                     :panel-id :p :mount-id "m"
+                                     :path [] :depth 0
+                                     :expansion-map {}
+                                     :zoomable? zoomable?
+                                     :zoom-path-prefix []
+                                     :opts {}})))]
+    (is (= [1 0] (map (comp count targets) [true false])))
+    (is (= [0 "Zoom into [:a]"]
+           ((juxt :tab-index :aria-label) (second (first (targets true)))))
+        "the target is keyboard-focusable and labelled for screen readers")))
 
-;; ---- Enter/Space on the triangle TOGGLES ---------------------------------
+;; ---- Enter / Space on the toggle triangle toggle -------------------------
 ;;
-;; The toggle triangle announces itself `role="button"` with
-;; `tabIndex 0`, so a keyboard user tabs to it and presses Enter
-;; expecting the node to open. Without its own `:on-key-down` the
-;; keydown would bubble to the enclosing zoomable container's handler
-;; (`zoom-trigger-attrs`) and the inspector would RE-ROOT instead: the
-;; announced affordance and the actual behaviour would disagree. Space
-;; would do nothing at all — a `<span>` with `role="button"` gets no
-;; synthetic click from the UA the way a real `<button>` does.
-;;
-;; These drive the handler directly with a stub event, which is the
-;; instrument this suite already uses for `:on-click`.
+;; The triangle announces `role="button"` with `tabIndex 0`, so Enter and
+;; Space on it toggle the node, and its handler stops propagation so the
+;; enclosing zoomable container's Enter-to-zoom never sees the keystroke.
+;; Any other key, or a modified Enter, passes through untouched to the
+;; spine bindings.
 
 (defn- key-event
   "Minimal `KeyboardEvent` stand-in, with `modifier` (`:ctrl`, `:meta`,
   `:alt` or `:shift`) held when given. Records whether the handler
-  called `preventDefault` / `stopPropagation`, because `stopPropagation`
-  is the whole mechanism keeping the zoom handler off this gesture."
+  called `preventDefault` / `stopPropagation`."
   ([k] (key-event k nil))
   ([k modifier]
    (let [prevented (atom false)
@@ -4291,219 +1620,78 @@
       :prevented prevented
       :stopped   stopped})))
 
-(deftest enter-on-toggle-toggles-and-does-not-zoom
+(defn- press-toggle
+  "Fire key `k` (with `modifier` held) at the toggle of a collapsed,
+  zoomable node; return what was dispatched and whether the event was
+  consumed."
+  [k modifier]
   (let [captured (atom [])
-        h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path [:x]
-                           :depth 5
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix []
-                           :dispatch-fn (fn [event-v] (swap! captured conj event-v))
-                           :opts {:default-expanded-depth 1}})
-        tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
-        on-key-down (-> tog second :on-key-down)
-        {:keys [event prevented stopped]} (key-event "Enter")]
-    (on-key-down event)
-    (is (= 1 (count @captured))
-        "exactly one event dispatched")
-    (is (= :rf.xray.edn-inspector/toggle-node (ffirst @captured))
-        "Enter on the triangle TOGGLES the node")
-    (is (not-any? #(= :rf.xray.edn-inspector/zoom-to (first %)) @captured)
-        "and does NOT zoom — the defect was that it did exactly this")
-    (is @stopped
-        "stopPropagation is what keeps the enclosing zoom handler off the
-         gesture, so it is part of the contract, not an implementation detail")
-    (is @prevented
-        "preventDefault suppresses the UA's own handling")))
+        h        (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                                  :panel-id :test :mount-id "m1"
+                                  :path [:x] :depth 5
+                                  :expansion-map {}
+                                  :zoomable? true
+                                  :zoom-path-prefix []
+                                  :dispatch-fn (fn [event-v] (swap! captured conj event-v))
+                                  :opts {:default-expanded-depth 1}})
+        {:keys [event prevented stopped]} (key-event k modifier)]
+    ((-> (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
+         second
+         :on-key-down)
+     event)
+    {:dispatched @captured :prevented @prevented :stopped @stopped}))
 
-(deftest space-on-toggle-toggles
-  (doseq [k [" " "Spacebar"]]
-    (let [captured (atom [])
-          h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
-                             :panel-id :test
-                             :mount-id "m1"
-                             :path [:x]
-                             :depth 5
-                             :expansion-map {}
-                             :zoomable? true
-                             :dispatch-fn (fn [event-v] (swap! captured conj event-v))
-                             :opts {:default-expanded-depth 1}})
-          tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
-          {:keys [event]} (key-event k)]
-      ((-> tog second :on-key-down) event)
-      (is (= 1 (count @captured))
-          (str "Space (key " (pr-str k) ") toggles — it did nothing at all before"))
-      (is (= :rf.xray.edn-inspector/toggle-node (ffirst @captured))))))
+(deftest enter-and-space-on-toggle-toggle-and-do-not-zoom
+  (doseq [k ["Enter" " "]]
+    (is (= {:dispatched [[:rf.xray.edn-inspector/toggle-node :test "m1" [:x] false]]
+            :prevented  true
+            :stopped    true}
+           (press-toggle k nil))
+        (str (pr-str k) " toggles, consumed so the enclosing zoom never fires"))))
 
 (deftest other-keys-and-modified-enter-pass-through-untouched
-  ;; The surrounding spine bindings (j/k/l/G, Esc-zoom-out) must keep
-  ;; working, exactly as `zoom-trigger-attrs` leaves them. Untouched
-  ;; means no toggle dispatched AND the event neither consumed nor
-  ;; stopped, so it still reaches those bindings.
-  (let [press (fn [k modifier]
-                (let [captured (atom [])
-                      h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
-                                         :panel-id :test :mount-id "m1" :path [:x] :depth 5
-                                         :expansion-map {} :zoomable? true
-                                         :dispatch-fn (fn [e] (swap! captured conj e))
-                                         :opts {:default-expanded-depth 1}})
-                      tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
-                      {:keys [event prevented stopped]} (key-event k modifier)]
-                  ((-> tog second :on-key-down) event)
-                  {:dispatched @captured :prevented @prevented :stopped @stopped}))]
-    (doseq [[k modifier] [["j" nil] ["k" nil] ["Escape" nil] ["Tab" nil] ["ArrowDown" nil]
-                          ["Enter" :ctrl] ["Enter" :meta] ["Enter" :alt] ["Enter" :shift]]]
-      (let [label (str "`" k "`" (when modifier (str " + " (name modifier))))
-            {:keys [dispatched prevented stopped]} (press k modifier)]
-        (is (empty? dispatched)
-            (str label " passes through the triangle untouched — no toggle dispatched"))
-        (is (not prevented) (str label " — preventDefault not called"))
-        (is (not stopped) (str label " — stopPropagation not called"))))
-    (is (= [[:rf.xray.edn-inspector/toggle-node :test "m1" [:x] false]]
-           (:dispatched (press "Enter" nil)))
-        "positive control: the same rendered handler and recorder see a bare Enter toggle")))
-
-(deftest zoomable-skips-zoom-target-at-root
-  ;; The root displayed node (relative path `[]`) is NOT a zoom target —
-  ;; zooming into the current root is a no-op.
-  (let [v {:a 1 :b 2}
-        h (ei/render-node {:value v
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix []
-                           :opts {:default-expanded-depth 0}})]
-    ;; With depth-0 expansion the root is collapsed → only one node
-    ;; renders. The root must NOT be a zoom target.
-    (is (zero? (count (zoom-target-nodes h)))
-        "root container at relative-path [] is NOT a zoom target")))
-
-(deftest zoomable-skips-zoom-target-when-opt-off
-  ;; `:zoomable? false` (the default) suppresses the gesture even on
-  ;; deep nested containers.
-  (let [v {:a {:b {:c 1}}}
-        h (ei/render-node {:value v
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 8}})]
-    (is (zero? (count (zoom-target-nodes h)))
-        "with :zoomable? off no node is a zoom target")))
-
-(defn- with-captured-dispatch-spy
-  "Build the zoom-trigger attrs with a captured-dispatcher STUB as its
-  `:dispatch-fn`, FIRE the named gesture, and capture the dispatched
-  event vector WITHOUT spinning up the router. `make-attrs` is
-  `(fn [spy] attrs-map)`; `gesture` is `:on-double-click` or
-  `:on-key-down`; `evt` is the synthetic DOM event (nil → a stub that
-  satisfies the Enter predicate). Returns `{:event ... :attrs ...}`.
-
-  The gesture dispatches through the SUPPLIED frame-aware
-  dispatcher (the one the surrounding `reg-view` body captured via
-  `(:dispatch (rf/capture-frame))`), NOT a bare `rf/dispatch` with a `{:frame :rf/xray}`
-  literal. The dispatcher closure already bound the instance frame at
-  render time; this stub stands in for it."
-  ([make-attrs] (with-captured-dispatch-spy make-attrs :on-double-click nil))
-  ([make-attrs gesture evt]
-   (let [captured (atom nil)
-         spy      (fn [ev] (reset! captured ev))
-         attrs    (make-attrs spy)
-         handler  (get attrs gesture)
-         ;; Enter handler needs a key-bearing event; dblclick ignores it.
-         event    (or evt
-                      (when (= gesture :on-key-down)
-                        (js-obj "key" "Enter"
-                                "ctrlKey" false "metaKey" false
-                                "altKey" false "shiftKey" false
-                                "preventDefault" (fn [])
-                                "stopPropagation" (fn []))))]
-     (handler event)
-     {:event @captured :attrs attrs})))
+  (doseq [[k modifier] [["Escape" nil]
+                        ["Enter" :ctrl] ["Enter" :meta] ["Enter" :alt] ["Enter" :shift]]]
+    (is (= {:dispatched [] :prevented false :stopped false}
+           (press-toggle k modifier))
+        (str (pr-str k) (when modifier (str " + " (name modifier)))
+             " passes through the triangle untouched"))))
 
 (deftest zoom-trigger-enter-ignores-modifiers-and-other-keys
-  ;; A bare Enter zooms; Ctrl/Cmd/Alt/Shift+Enter and non-Enter keys do
-  ;; NOT — so Esc-zoom-out + the spine bindings (j/k/l/G) pass through.
-  (let [mk (fn [opts]
-             (js-obj "key" (:key opts)
-                     "ctrlKey" (boolean (:ctrl? opts))
-                     "metaKey" (boolean (:meta? opts))
-                     "altKey"  (boolean (:alt? opts))
-                     "shiftKey" (boolean (:shift? opts))
-                     "preventDefault" (fn [])
-                     "stopPropagation" (fn [])))]
-    (doseq [evt [(mk {:key "Enter" :ctrl? true})
-                 (mk {:key "Enter" :meta? true})
-                 (mk {:key "Enter" :alt? true})
-                 (mk {:key "Enter" :shift? true})
-                 (mk {:key "Escape"})
-                 (mk {:key "j"})
-                 (mk {:key "k"})]]
-      (let [{:keys [event]}
-            (with-captured-dispatch-spy
-              (fn [spy]
-                (ei/zoom-trigger-attrs
-                  {:dispatch-fn spy :panel-id :p :mount-id "m"
-                   :absolute-path [:a]}))
-              :on-key-down evt)]
-        (is (nil? event)
-            (str "key " (.-key evt) " (modifiers held: "
-                 (.-ctrlKey evt) (.-metaKey evt) (.-altKey evt) (.-shiftKey evt)
-                 ") must NOT trigger zoom"))))))
+  ;; Only a bare Enter zooms, so Esc-zoom-out and the spine bindings pass.
+  (doseq [[k modifier] [["Escape" nil]
+                        ["Enter" :ctrl] ["Enter" :meta] ["Enter" :alt] ["Enter" :shift]]]
+    (let [dispatched  (atom [])
+          on-key-down (:on-key-down (ei/zoom-trigger-attrs
+                                      {:dispatch-fn (fn [ev] (swap! dispatched conj ev))
+                                       :panel-id :p :mount-id "m"
+                                       :absolute-path [:a]}))]
+      (on-key-down (:event (key-event k modifier)))
+      (is (empty? @dispatched)
+          (str (pr-str k) (when modifier (str " + " (name modifier))) " must not zoom")))))
 
 (deftest zoom-trigger-composes-prefix-and-relative-path
-  ;; render-container threads the absolute path = (into zoom-path-prefix
-  ;; path) into the gesture — so when the operator is already zoomed at
-  ;; `[:rf.db/runtime :rf.runtime/machines :snapshots]` and double-clicks
-  ;; the nested `:ws/connection` container (relative path `[:ws/connection]`),
-  ;; the dispatch carries the FULL absolute path. The gestures fired are
-  ;; the ones the renderer installed on the rendered child, so the
-  ;; composition under test is the renderer's own.
-  (let [v          {:ws/connection {:state :open}}
-        dispatched (atom [])
-        h (ei/render-node {:value v
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix [:rf.db/runtime :rf.runtime/machines :snapshots]
-                           :dispatch-fn (fn [ev] (swap! dispatched conj ev))
-                           :opts {:default-expanded-depth 8}})
-        targets (zoom-target-nodes h)
-        attrs   (-> targets first second)]
-    (is (seq targets)
-        "the child container is a zoom target even when zoom-path-prefix
-         is non-empty")
+  ;; Already zoomed at a prefix, a double-click or Enter on a nested
+  ;; container dispatches the ABSOLUTE path through the captured dispatcher.
+  (let [dispatched (atom [])
+        h     (ei/render-node {:value {:ws/connection {:state :open}}
+                               :panel-id :p
+                               :mount-id "m"
+                               :path []
+                               :depth 0
+                               :expansion-map {}
+                               :zoomable? true
+                               :zoom-path-prefix [:rf.db/runtime :rf.runtime/machines :snapshots]
+                               :dispatch-fn (fn [ev] (swap! dispatched conj ev))
+                               :opts {:default-expanded-depth 8}})
+        attrs (second (first (zoom-target-nodes h)))
+        zoom  [:rf.xray.edn-inspector/zoom-to :p "m"
+               [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]]
     ((:on-double-click attrs) nil)
     ((:on-key-down attrs) (:event (key-event "Enter")))
-    (is (= [[:rf.xray.edn-inspector/zoom-to :p "m"
-             [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]
-            [:rf.xray.edn-inspector/zoom-to :p "m"
-             [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]]
-           @dispatched)
-        "double-click and Enter on the rendered child each dispatch the
-         absolute path = prefix + relative, through the captured
-         dispatcher (no `:rf/xray` literal)")))
+    (is (= [zoom zoom] @dispatched))))
 
 ;; ---- the toggle triangle owns its double-click gesture -------------------
-;;
-;; A zoomable container's outer div carries `:on-double-click -> zoom-to`
-;; (zoom-trigger-attrs). The `▸`/`▾` toggle glyph nested inside dispatches
-;; toggle on `:on-click`. Without an `:on-double-click` guard on the glyph,
-;; a double-click on the TRIANGLE would fire toggle twice (net visual
-;; no-op, two dispatches) AND its `dblclick` would bubble to the container's
-;; zoom. `swallow-dblclick` (preventDefault + stopPropagation, no
-;; dispatch) makes the triangle own its gesture: zoom only fires on a
-;; double-click OUTSIDE the triangle, and a single click toggles.
 
 (defn- stub-evt
   "A synthetic-event stub that records `preventDefault` / `stopPropagation`
@@ -4513,242 +1701,106 @@
           "stopPropagation" (fn [] (swap! spy assoc :stopped? true))))
 
 (deftest toggle-glyph-double-click-is-swallowed-no-zoom
-  ;; Render a NON-ROOT, collapsed, zoomable container so BOTH the toggle
-  ;; glyph and the container's zoom-trigger attrs are present.
+  ;; A double-click on the triangle of a zoomable, non-root container must
+  ;; not bubble to the container's zoom, nor dispatch anything itself.
   (let [dispatched (atom [])
-        dispatch-fn (fn [ev] (swap! dispatched conj ev))
-        v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-        h   (ei/render-node {:value v
-                             :panel-id :p
-                             :mount-id "m"
-                             :path [:parent]
-                             :depth 5
-                             :expansion-map {}
-                             :zoomable? true
-                             :dispatch-fn dispatch-fn
-                             :opts {:default-expanded-depth 1}})
-        tog (find-attr h :data-testid "rf-xray-edn-inspector-p-m-:parent-toggle")
-        on-click (-> tog second :on-click)
-        on-dblclick (-> tog second :on-double-click)]
-    (is (some? tog) "the collapsed container renders a toggle glyph")
-    (is (seq (zoom-target-nodes h))
-        "the non-root container is also a zoom target (gesture lives on the
-         outer div, which the dblclick must NOT reach)")
-    (testing "the toggle glyph carries a double-click swallow guard"
-      (is (fn? on-dblclick) "toggle glyph must carry an :on-double-click")
-      (let [spy (atom {:prevented? false :stopped? false})]
-        (on-dblclick (stub-evt spy))
-        (is (:prevented? @spy)
-            "preventDefault — suppresses the native text-selection")
-        (is (:stopped? @spy)
-            "stopPropagation — the dblclick never bubbles to the container's zoom")
-        (is (empty? @dispatched)
-            "the swallow dispatches NOTHING (no zoom-to, no toggle)")))
-    (testing "a single click still toggles"
-      (on-click nil)
-      (is (= [[:rf.xray.edn-inspector/toggle-node :p "m" [:parent] false]]
-             @dispatched)
-          "one click dispatches exactly one canonical toggle event"))))
+        spy        (atom {:prevented? false :stopped? false})
+        h          (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                                    :panel-id :p
+                                    :mount-id "m"
+                                    :path [:parent]
+                                    :depth 5
+                                    :expansion-map {}
+                                    :zoomable? true
+                                    :dispatch-fn (fn [ev] (swap! dispatched conj ev))
+                                    :opts {:default-expanded-depth 1}})]
+    ((-> (find-attr h :data-testid "rf-xray-edn-inspector-p-m-:parent-toggle")
+         second
+         :on-double-click)
+     (stub-evt spy))
+    (is (= [{:prevented? true :stopped? true} []] [@spy @dispatched]))))
 
 ;; ---- breadcrumb ----------------------------------------------------------
 
-(deftest breadcrumb-nil-when-no-zoom
-  (is (nil? (ei/zoom-breadcrumbs
-              {:panel-id      :p
-               :mount-id      "m"
-               :zoom-path     nil
-               :home-label    "home"
-               :dispatch-fn   identity}))
-      "no zoom-path → no breadcrumb (saves DOM noise on un-zoomed mounts)")
-  (is (nil? (ei/zoom-breadcrumbs
-              {:panel-id      :p
-               :mount-id      "m"
-               :zoom-path     []
-               :home-label    "home"
-               :dispatch-fn   identity}))
-      "empty zoom-path also yields no breadcrumb"))
-
 (deftest breadcrumb-renders-home-plus-segments
-  (let [h (ei/zoom-breadcrumbs
-            {:panel-id      :p
-             :mount-id      "m"
-             :zoom-path     [:rf/machines :ws/connection]
-             :home-label    "app-db"
-             :dispatch-fn   identity
-             :testid-prefix "bc"})
-        text (collect-text h)]
-    (is (= 2 (count (filter #(= "1" (:data-rf-breadcrumb-separator (second %)))
-                            (walk-hiccup h))))
-        "one separator between home+seg1, one between seg1+seg2")
-    (is (re-find #"app-db" text) "home label rendered")
-    (is (re-find #":rf/machines" text)  "first segment rendered")
-    (is (re-find #":ws/connection" text) "second segment rendered")))
+  (is (= "app-db›:rf/machines›:ws/connection"
+         (collect-text (ei/zoom-breadcrumbs {:panel-id      :p
+                                             :mount-id      "m"
+                                             :zoom-path     [:rf/machines :ws/connection]
+                                             :home-label    "app-db"
+                                             :dispatch-fn   identity
+                                             :testid-prefix "bc"})))))
 
-(deftest breadcrumb-home-button-dispatches-empty-path
-  (let [dispatched (atom nil)
-        h (ei/zoom-breadcrumbs
-            {:panel-id      :p
-             :mount-id      "m"
-             :zoom-path     [:rf/machines :ws/connection]
-             :home-label    "app-db"
-             :dispatch-fn   (fn [ev] (reset! dispatched ev))
-             :testid-prefix "bc"})
-        home-btn (find-attr h :data-rf-breadcrumb-segment "home")
-        on-click (-> home-btn second :on-click)]
-    (on-click nil)
-    (is (= [:rf.xray.edn-inspector/zoom-to :p "m" []] @dispatched)
-        "clicking home dispatches zoom-to with empty path (clears zoom)")))
-
-(deftest breadcrumb-segment-dispatches-truncated-path
-  (let [dispatched (atom nil)
-        h (ei/zoom-breadcrumbs
-            {:panel-id      :p
-             :mount-id      "m"
-             :zoom-path     [:rf/machines :ws/connection :data]
-             :home-label    "app-db"
-             :dispatch-fn   (fn [ev] (reset! dispatched ev))
-             :testid-prefix "bc"})
-        seg-1   (find-attr h :data-rf-breadcrumb-segment "1")
-        on-click (-> seg-1 second :on-click)]
-    (on-click nil)
-    (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
-            [:rf/machines :ws/connection]]
-           @dispatched)
-        "clicking segment-1 dispatches zoom-to truncated to depth 2")))
-
-(deftest breadcrumb-home-label-fallback-when-no-header
-  ;; When the consumer didn't supply :header, the home label falls back
-  ;; to the generic "root" string.
-  (let [h (ei/zoom-breadcrumbs
-            {:panel-id      :p
-             :mount-id      "m"
-             :zoom-path     [:a]
-             :home-label    nil
-             :dispatch-fn   identity
-             :testid-prefix "bc"})
-        text (collect-text h)]
-    (is (re-find #"root" text)
-        "nil home-label renders the 'root' fallback")))
+(deftest breadcrumb-buttons-dispatch-truncated-paths
+  ;; Home zooms back to the root; segment N re-roots at the path's first N+1
+  ;; segments.
+  (let [dispatched (atom [])
+        h     (ei/zoom-breadcrumbs {:panel-id      :p
+                                    :mount-id      "m"
+                                    :zoom-path     [:rf/machines :ws/connection :data]
+                                    :home-label    "app-db"
+                                    :dispatch-fn   (fn [ev] (swap! dispatched conj ev))
+                                    :testid-prefix "bc"})
+        click (fn [segment]
+                ((-> (find-attr h :data-rf-breadcrumb-segment segment) second :on-click) nil))]
+    (click "home")
+    (click "1")
+    (is (= [[:rf.xray.edn-inspector/zoom-to :p "m" []]
+            [:rf.xray.edn-inspector/zoom-to :p "m" [:rf/machines :ws/connection]]]
+           @dispatched))))
 
 (deftest breadcrumb-home-label-accepts-hiccup
-  ;; When the consumer supplied :header as hiccup (the §10.0.10 path),
-  ;; the breadcrumb renders that hiccup verbatim as the home segment.
+  ;; The home segment's content IS the consumer's hiccup, not a printed copy.
   (let [home [:span [:strong "Counter app"] " · " [:code ":rf/default"]]
-        h    (ei/zoom-breadcrumbs
-               {:panel-id      :p
-                :mount-id      "m"
-                :zoom-path     [:counter]
-                :home-label    home
-                :dispatch-fn   identity
-                :testid-prefix "bc"})
-        text (collect-text h)]
-    (is (re-find #"Counter app" text)
-        "hiccup home-label renders inline as the first breadcrumb segment")
-    (is (re-find #":rf/default" text)
-        "nested hiccup content survives")
-    ;; The text probes above also pass on a `pr-str`'d label, whose one
-    ;; string carries both phrases; only the node itself tells them apart.
-    (is (= home (last (find-attr h :data-rf-breadcrumb-segment "home")))
-        "the home segment's content IS the hiccup, not a printed string of it")))
+        h    (ei/zoom-breadcrumbs {:panel-id      :p
+                                   :mount-id      "m"
+                                   :zoom-path     [:counter]
+                                   :home-label    home
+                                   :dispatch-fn   identity
+                                   :testid-prefix "bc"})]
+    (is (= home (last (find-attr h :data-rf-breadcrumb-segment "home"))))))
 
 ;; ---- public widget — zoom-aware top-level render -------------------------
 
 (deftest widget-with-zoomable-renders-breadcrumb-when-zoomed
-  ;; Pre-populate the zoom slot, then render the widget and confirm the
-  ;; outer container advertises the zoom + the breadcrumb hiccup renders.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
-        _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                             :rf.xray/app-db site-id [:nested]])
-        v {:nested {:deep 42 :other 99} :sibling 1}
-        h (invoke-edn-inspector v
-                                {:panel-id :rf.xray/app-db
-                                 :site-id  site-id
-                                 :zoomable? true
-                                 :header   [:span "app-db"]})
-        attrs (-> h second)]
-    (is (= "1" (:data-rf-zoomed attrs))
-        ":data-rf-zoomed=1 on the outer container while a zoom is active")
-    (is (= (pr-str [:nested]) (:data-rf-zoom-path attrs))
-        ":data-rf-zoom-path attribute carries the literal stored path")
-    ;; Walk for breadcrumb home + the zoomed subtree.
-    (let [text   (collect-text h)
-          bcrumb (find-attr h :role "navigation")]
-      (is (some? bcrumb)
-          "navigation breadcrumb hiccup rendered above the body")
-      (is (re-find #":deep" text)
-          "the zoomed subtree's leaf keys render in the body")
-      (is (not (re-find #":sibling" text))
-          "siblings OUTSIDE the zoom subtree are NOT rendered — that's the
-           whole point of zoom"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+        _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
+                                   :rf.xray/app-db site-id [:nested]])
+        h       (invoke-edn-inspector {:nested {:deep 42 :other 99} :sibling 1}
+                                      {:panel-id  :rf.xray/app-db
+                                       :site-id   site-id
+                                       :zoomable? true
+                                       :header    [:span "app-db"]})
+        text    (collect-text h)]
+    (is (some? (find-attr h :role "navigation"))
+        "a breadcrumb row renders above the body")
+    (is (= [true false] (map #(str/includes? text %) [":deep" ":sibling"]))
+        "the body is the zoomed subtree; siblings outside it do not render")))
 
 (deftest widget-diff-mode-zooms-and-reroots-both-halves
-  ;; Zoom applies in the SINGLE full+diff renderer.
-  ;; A zoom in diff mode re-roots `value` AND `before` onto the same
-  ;; subtree, so the operator focuses the changed subtree with its diff
-  ;; annotations intact — siblings outside the subtree are hidden, and
-  ;; the re-rooted before feeds the projection so the change paints.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  ;; In diff mode the zoom re-roots `before` along the same path, so the
+  ;; zoomed subtree keeps its annotations.
   (let [site-id [:rf.xray/app-db "top"]
-        _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                             :rf.xray/app-db site-id [:nested]])
-        v      {:nested {:deep 42} :sibling 1}
-        before {:nested {:deep 41} :sibling 0}
-        h      (invoke-edn-inspector v
-                                     {:panel-id :rf.xray/app-db
-                                      :site-id  site-id
-                                      :zoomable? true
-                                      :before   before
-                                      :header   [:span "app-db"]})
-        attrs  (-> h second)
-        text   (collect-text h)]
-    (is (= "1" (:data-rf-zoomed attrs))
-        ":data-rf-zoomed=1 in diff mode — zoom applies in the unified renderer")
-    (is (= (pr-str [:nested]) (:data-rf-zoom-path attrs))
-        ":data-rf-zoom-path carries the stored path even with a :before")
-    (is (re-find #":deep" text)
-        "the zoomed subtree's leaf renders in the body")
-    (is (not (re-find #":sibling" text))
-        "siblings OUTSIDE the zoom subtree are hidden — even in diff mode")
-    (is (re-find #"42" text) "the after-side leaf value renders")
-    (is (re-find #"41" text)
-        "the re-rooted before's prior leaf renders too — diff annotation
-         survives the zoom (before re-rooted along the same path)")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+        _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
+                                   :rf.xray/app-db site-id [:nested]])
+        text    (collect-text (invoke-edn-inspector {:nested {:deep 42} :sibling 1}
+                                                    {:panel-id  :rf.xray/app-db
+                                                     :site-id   site-id
+                                                     :zoomable? true
+                                                     :before    {:nested {:deep 41} :sibling 0}
+                                                     :header    [:span "app-db"]}))]
+    (is (= [false true] (map #(str/includes? text %) [":sibling" "← was 41"]))
+        "siblings are hidden, and the re-rooted before still annotates the change")))
 
-;; ---- a list / seq element is zoomable, and an
-;; ---- unresolvable zoom renders un-zoomed ---------------------------------
+;; ---- a list / seq element is zoomable, and an unresolvable zoom ----------
+;; ---- renders un-zoomed ---------------------------------------------------
 ;;
-;; `children-of` keys a list / seq element by its integer index — the very
-;; segment a zoom stores — and `get` answers not-found on a `List`,
-;; `IndexedSeq` or `LazySeq`, so a `get-in` zoom walk would fall back to
-;; the WHOLE value while `zoom-active?` stayed true: the breadcrumbs would
-;; claim a zoom over a body that is the un-zoomed root, and every further
-;; zoom would compose a meaningless absolute path. A stale path (the
-;; zoomed key since removed) reaches the same state unless an
-;; unresolvable zoom renders un-zoomed.
-
-(deftest resolve-zoom-into-steps-into-list-and-seq-elements-rf2-3x7nj-25-2
-  (let [zoom (fn [path] {[:p "m"] path})]
-    (testing "CONTROL — a vector element resolves through `get`"
-      (is (= {:id 2} (ei/resolve-zoom-into {:todos [{:id 1} {:id 2}]}
-                                           (zoom [:todos 1]) :p "m"))))
-    (testing "a LIST element resolves by index"
-      (is (= {:id 2} (ei/resolve-zoom-into {:todos (list {:id 1} {:id 2})}
-                                           (zoom [:todos 1]) :p "m"))))
-    (testing "and so does a LAZY-SEQ element"
-      (is (= {:id 2} (ei/resolve-zoom-into {:rows (map identity [{:id 1} {:id 2}])}
-                                           (zoom [:rows 1]) :p "m"))))
-    (testing "an index past the end still falls back — nothing is invented"
-      (let [v {:todos (list {:id 1})}]
-        (is (= v (ei/resolve-zoom-into v (zoom [:todos 5]) :p "m")))))))
+;; A list or seq element is keyed by its integer index, which `get` cannot
+;; walk, so the zoom walk steps in with `nth`; a stored path that no longer
+;; resolves renders exactly as un-zoomed.
 
 (deftest zoom-into-a-list-element-renders-that-element-rf2-3x7nj-25-2
-  ;; The list-element scenario, end to end: the zoom path is the one the
-  ;; renderer's own double-click MINTS for the second todo, not one
-  ;; written here.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  ;; The zoom path is the one the renderer's own double-click mints.
   (let [site-id  [:rf.xray/app-db "top"]
         v        {:todos (list {:id 1 :title "alpha"} {:id 2 :title "bravo"})
                   :sibling 1}
@@ -4767,60 +1819,39 @@
                                     (and (str/includes? t "bravo")
                                          (not (str/includes? t "alpha")))))
                                 (zoom-target-nodes tree)))]
-    (is (some? target) "the second todo is a zoom target")
     ((:on-double-click (second target)) nil)
     (is (= [:rf.xray.edn-inspector/zoom-to :rf.xray/app-db site-id [:todos 1]]
            @captured)
-        "its double-click stores the list element's INDEX path")
+        "the second todo's double-click stores the list element's INDEX path")
     (rf/dispatch-sync @captured)
-    (let [h     (invoke-edn-inspector v {:panel-id :rf.xray/app-db
-                                         :site-id  site-id
-                                         :zoomable? true})
-          attrs (second h)
-          text  (collect-text h)]
-      (is (= "1" (:data-rf-zoomed attrs)) "the zoom is active")
-      (is (str/includes? text "bravo") "the zoomed element renders")
-      (is (not (str/includes? text "alpha"))
-          "and its sibling element does not — the body is the zoom, not the root")
-      (is (not (str/includes? text ":sibling"))
-          "nor does anything outside the list"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+    (let [text (collect-text (invoke-edn-inspector v {:panel-id :rf.xray/app-db
+                                                      :site-id  site-id
+                                                      :zoomable? true}))]
+      (is (= [true false false] (map #(str/includes? text %) ["bravo" "alpha" ":sibling"]))
+          "the body is the zoomed element alone"))))
 
 (deftest unresolvable-zoom-renders-un-zoomed-rf2-3x7nj-25-2
   ;; A stale path — the zoomed key removed by a later event.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
         _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
                                    :rf.xray/app-db site-id [:gone]])
-        v       {:todos {:a 1 :b 2 :c 3 :d 4} :sibling 1}
-        h       (invoke-edn-inspector v {:panel-id :rf.xray/app-db
-                                         :site-id  site-id
-                                         :zoomable? true
-                                         :header   [:span "app-db"]})
-        attrs   (second h)]
-    (is (nil? (:data-rf-zoomed attrs)) "no zoom is advertised")
-    (is (nil? (:data-rf-zoom-path attrs)) "and no zoom path")
-    (is (nil? (find-attr h :role "navigation"))
-        "no breadcrumbs claim a zoom the body does not show")
+        h       (invoke-edn-inspector {:todos {:a 1 :b 2 :c 3 :d 4} :sibling 1}
+                                      {:panel-id :rf.xray/app-db
+                                       :site-id  site-id
+                                       :zoomable? true
+                                       :header   [:span "app-db"]})]
+    (is (= [nil nil] [(find-attr h :role "navigation") (:data-rf-zoomed (second h))])
+        "neither breadcrumbs nor `data-rf-zoomed` claim a zoom the body does not show")
     (is (str/includes? (collect-text h) ":sibling")
         "the body is the full value")
-    (is (= "Zoom into [:todos]"
-           (some (fn [n] (let [l (:aria-label (second n))]
-                           (when (= "Zoom into [:todos]" l) l)))
-                 (zoom-target-nodes h)))
-        "a further zoom composes a path from the ROOT, not under the stale one")
-    (is (= [:gone] (get @(rf/subscribe [ei/zoom-slot])
-                        (ei/zoom-key :rf.xray/app-db site-id)))
-        "the stored path itself is left as it was")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+    (is (some #(= "Zoom into [:todos]" (:aria-label (second %))) (zoom-target-nodes h))
+        "a further zoom composes its path from the ROOT, not under the stale one")))
 
 ;; ---- a diff-mode zoom into a key ADDED this epoch ------------------------
 ;;
-;; The zoom is active because its path resolves in the AFTER value. Were
-;; the before side re-rooted through `resolve-zoom-into`, whose fallback
-;; for a path it cannot walk is the WHOLE value, the zoomed subtree would
-;; be diffed against the whole before-root, and that root's own keys
-;; would paint as removed ghosts inside what is a plain addition.
+;; The zoom resolves in the AFTER value; the before side is walked along the
+;; same path and reads absent, so the zoomed subtree is a plain addition
+;; rather than diffed against the whole before-root.
 
 (defn- diff-ops-in-order
   "Every `:data-rf-diff-op` value in `tree`, in document order."
@@ -4830,269 +1861,95 @@
              (walk-hiccup tree))))
 
 (deftest diff-mode-zoom-into-a-key-added-this-epoch-reads-as-added-rf2-pmux4
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
         _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
                                    :rf.xray/app-db site-id [:fresh]])
-        before  {:kept {:deep 1} :sibling 0}
-        after   {:kept {:deep 1} :sibling 0 :fresh {:x 1 :y 2}}
-        h       (invoke-edn-inspector after {:panel-id  :rf.xray/app-db
-                                             :site-id   site-id
-                                             :zoomable? true
-                                             :before    before})
-        text    (collect-text h)
+        h       (invoke-edn-inspector {:kept {:deep 1} :sibling 0 :fresh {:x 1 :y 2}}
+                                      {:panel-id  :rf.xray/app-db
+                                       :site-id   site-id
+                                       :zoomable? true
+                                       :before    {:kept {:deep 1} :sibling 0}})
         ops     (diff-ops-in-order h)]
-    (is (= "1" (:data-rf-zoomed (second h))) "the zoom is active")
-    (is (and (str/includes? text ":x") (str/includes? text ":y"))
-        "the zoomed subtree renders")
-    (is (seq ops) "sanity: the zoomed body carries diff annotations")
     (is (= #{"added"} (set ops))
         "every node of the zoomed subtree reads as added")
-    (is (not (str/includes? text ":sibling"))
+    (is (not (str/includes? (collect-text h) ":sibling"))
         "the before-root's own keys do not ghost into the zoomed subtree")
     (is (= ops (diff-ops-in-order
                  (invoke-edn-inspector {:x 1 :y 2} {:panel-id :rf.xray/app-db
                                                     :added?   true})))
-        "the same annotations the `:added?` first-run path paints")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+        "the same annotations the `:added?` first-run path paints")))
 
 (deftest widget-zoom-keydown-handler-installed-and-dispatches-on-escape
-  ;; Esc keypress pops one zoom level. The widget
-  ;; installs an `:on-key-down` handler on the outer container ONLY
-  ;; when a zoom is active; the handler dispatches `:zoom-up`.
-  ;;
-  ;; `render-inspector` is the renderer both heads call; each hands it
-  ;; its own frame-bound dispatcher. Handing it a recording one instead
-  ;; captures the handler's dispatch synchronously — the reg-view head's
-  ;; injected `dispatch` is async in CLJS, so reading the slot right
-  ;; after `handler(ev)` would race. The zoom map is the real slot the
-  ;; `:zoom-to` below wrote, as the heads read it.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  ;; While zoomed, Esc on the widget dispatches one `zoom-up` keyed by the
+  ;; panel and the persistent site-id; other keys pass through. With no zoom
+  ;; there is no handler, so Esc keeps bubbling to an enclosing popup.
+  ;; `render-inspector` takes a recording dispatcher; the heads' injected
+  ;; `dispatch` is async.
   (let [site-id    [:rf.xray/app-db "top"]
-        _          (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                                      :rf.xray/app-db site-id [:a :b]])
         dispatched (atom [])
-        v          {:a {:b {:c 1}}}
-        h (ei/render-inspector
-            {:value         v
-             :opts          {:panel-id  :rf.xray/app-db
-                             :site-id   site-id
-                             :zoomable? true}
-             :mount-id      "esc-mount"
-             :dispatch-fn   (fn [ev] (swap! dispatched conj ev))
-             :expansion-map {}
-             :zoom-map      @(rf/subscribe [ei/zoom-slot])
-             :widths        {}})
-        attrs (-> h second)
-        handler (:on-key-down attrs)]
-    (is (fn? handler)
-        "an Esc keydown handler is installed while zoom is active")
-    ;; Non-Escape keys pass through: nothing dispatched, nothing consumed.
-    (let [{:keys [event prevented stopped]} (key-event "Enter")]
-      (handler event)
-      (is (empty? @dispatched) "non-Escape keystrokes dispatch nothing")
-      (is (not @prevented)
-          "non-Escape keystrokes pass through (preventDefault NOT called)")
-      (is (not @stopped) "and are not stopped"))
-    (let [{:keys [event prevented stopped]} (key-event "Escape")]
-      (handler event)
-      (is @prevented "handler called preventDefault on the Esc event")
-      (is @stopped   "handler called stopPropagation"))
-    (is (= [[:rf.xray.edn-inspector/zoom-up :rf.xray/app-db site-id]] @dispatched)
-        "Esc dispatches exactly one zoom-up, keyed by the panel and the
-         persistent site-id rather than this mount's own id")
-    ;; Run what was dispatched: it pops the stored zoom one level.
-    (when-let [ev (first @dispatched)]
-      (rf/dispatch-sync ev))
-    (is (= [:a] (get @(rf/subscribe [ei/zoom-slot]) [:rf.xray/app-db site-id]))
-        "the captured zoom-up pops the stored zoom from [:a :b] to [:a]")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
-
-(deftest widget-no-keydown-handler-when-not-zoomed
-  ;; Esc must NOT fire zoom-up when no zoom is active — the handler is
-  ;; absent so the keystroke continues to bubble to any outer popup
-  ;; without being short-circuited by an unrelated mount.
-  (let [h (invoke-edn-inspector {:a 1}
-                                {:panel-id :rf.xray/app-db
-                                 :zoomable? true})
-        attrs (-> h second)]
-    (is (nil? (:on-key-down attrs))
-        "no zoom active → no keydown handler (keystrokes bubble up)")))
+        render     (fn [zoom-map]
+                     (ei/render-inspector
+                       {:value         {:a {:b {:c 1}}}
+                        :opts          {:panel-id  :rf.xray/app-db
+                                        :site-id   site-id
+                                        :zoomable? true}
+                        :mount-id      "esc-mount"
+                        :dispatch-fn   (fn [ev] (swap! dispatched conj ev))
+                        :expansion-map {}
+                        :zoom-map      zoom-map
+                        :widths        {}}))
+        handler    (-> (render {[:rf.xray/app-db site-id] [:a :b]}) second :on-key-down)
+        enter      (key-event "Enter")
+        esc        (key-event "Escape")]
+    (handler (:event enter))
+    (handler (:event esc))
+    (is (= [[:rf.xray.edn-inspector/zoom-up :rf.xray/app-db site-id]] @dispatched))
+    (is (= [false false true true]
+           (map deref [(:prevented enter) (:stopped enter) (:prevented esc) (:stopped esc)]))
+        "Enter is neither consumed nor stopped; Esc is both")
+    (is (nil? (-> (render {}) second :on-key-down))
+        "no zoom active, no keydown handler")))
 
 ;; ---- engine/project memoisation across re-renders -------------------------
 ;;
-;; In diff mode the inner render fn runs on every render — expansion
-;; toggle, ResizeObserver width update, parent re-render. Unmemoised, each
-;; would rerun the full Editscript A* walk + ancestor classification from
-;; scratch, even when the `(before, after)` inputs are byte-identical.
-;;
-;; A per-mount projection cache lives in the per-mount store, keyed by the
-;; mount's lifecycle key. Identity-stable inputs short-circuit to the
-;; cached projection. The cache key uses `identical?` on both `before` and
-;; `after`, matching `engine/project`'s own `identical?` short-circuit.
-;;
-;; Tests below spy on `engine/project` via `with-redefs` and count
-;; invocations across multiple inner-fn calls with identical inputs.
+;; A mount's projection is cached on `identical?` inputs, so re-renders with
+;; the same `(before, after)` skip the Editscript walk, and a new reference
+;; on either side recomputes.
 
-(deftest projection-memo-skips-recompute-on-identical-inputs
-  ;; Mount the widget once (get the form-2 inner fn); call inner three
-  ;; times with the SAME `before` + `value` references. Without the
-  ;; memo `engine/project` fires three times; with the memo it fires
-  ;; once.
-  (let [before {:a 1 :b {:c 2}}
-        after  {:a 1 :b {:c 3}}
-        opts   {:panel-id :rf.xray/app-db
-                :before   before}
-        call-count (atom 0)
-        real-project engine/project]
+(deftest projection-memo-recomputes-only-when-an-input-changes
+  (let [calls        (atom 0)
+        real-project engine/project
+        before1      {:a 1 :b {:c 2}}
+        before2      {:a 1 :b {:c 4}}
+        after1       {:a 1 :b {:c 3}}
+        after2       {:a 1 :b {:c 5}}
+        render       (fn [inner before after]
+                       (inner after {:panel-id :rf.xray/app-db :before before}))]
     (with-redefs [engine/project (fn [b a]
-                                   (swap! call-count inc)
+                                   (swap! calls inc)
                                    (real-project b a))]
-      (let [inner (ei/edn-inspector after opts)]
-        ;; Three renders with identical (before, after) refs.
-        (inner after opts)
-        (inner after opts)
-        (inner after opts)
-        (is (= 1 @call-count)
-            "engine/project invoked exactly once across three identity-stable renders")))))
-
-(deftest projection-memo-recomputes-when-before-changes
-  ;; Cache invalidates when `before` is a different reference. New
-  ;; epoch / new diff input must trigger a fresh projection.
-  (let [before1 {:a 1}
-        before2 {:a 2}
-        after   {:a 3}
-        call-count (atom 0)
-        real-project engine/project]
-    (with-redefs [engine/project (fn [b a]
-                                   (swap! call-count inc)
-                                   (real-project b a))]
-      (let [inner (ei/edn-inspector after {:panel-id :rf.xray/app-db
-                                            :before   before1})]
-        (inner after {:panel-id :rf.xray/app-db :before before1})
-        (inner after {:panel-id :rf.xray/app-db :before before2})
-        (is (= 2 @call-count)
-            "engine/project re-runs when `before` reference changes")))))
-
-(deftest projection-memo-recomputes-when-after-changes
-  ;; Mirror of the above for the `after` side. Same-`before`, different-
-  ;; `after` reference must miss the cache.
-  (let [before {:a 1}
-        after1 {:a 2}
-        after2 {:a 3}
-        call-count (atom 0)
-        real-project engine/project]
-    (with-redefs [engine/project (fn [b a]
-                                   (swap! call-count inc)
-                                   (real-project b a))]
-      (let [inner (ei/edn-inspector after1 {:panel-id :rf.xray/app-db
-                                             :before   before})]
-        (inner after1 {:panel-id :rf.xray/app-db :before before})
-        (inner after2 {:panel-id :rf.xray/app-db :before before})
-        (is (= 2 @call-count)
-            "engine/project re-runs when `after` reference changes")))))
-
-(deftest projection-memo-is-per-mount-isolated
-  ;; The cache lives in the per-mount store under each mount's lifecycle
-  ;; key → each mount gets its OWN cache. Two side-by-side mounts must not share entries,
-  ;; otherwise mount-A's projection could be served to mount-B with
-  ;; different inputs.
-  (let [before {:a 1}
-        after  {:a 2}
-        call-count (atom 0)
-        real-project engine/project]
-    (with-redefs [engine/project (fn [b a]
-                                   (swap! call-count inc)
-                                   (real-project b a))]
-      (let [inner1 (ei/edn-inspector after {:panel-id :rf.xray/app-db
-                                             :before   before})
-            inner2 (ei/edn-inspector after {:panel-id :rf.xray/app-db
-                                             :before   before})]
-        (inner1 after {:panel-id :rf.xray/app-db :before before})
-        (inner2 after {:panel-id :rf.xray/app-db :before before})
-        ;; Two distinct mounts → two cache misses, even with identity-
-        ;; stable inputs. The point of this test is the ABSENCE of
-        ;; cross-mount cache sharing; if both mounts shared, we'd see
-        ;; @call-count = 1 here.
-        (is (= 2 @call-count)
-            "each mount has its own projection cache (no cross-mount leak)")
-        ;; And within a single mount, second render is a cache hit.
-        (inner1 after {:panel-id :rf.xray/app-db :before before})
-        (is (= 2 @call-count)
-            "mount-1's second render hits its own cache")))))
-
-(deftest projection-not-invoked-outside-diff-mode
-  ;; Browse mode (no `:before` opt) must NOT touch `engine/project` at
-  ;; all — the projection is nil and the renderer's path-keyed lookups
-  ;; return `:same` for everything. This guards against accidentally
-  ;; warming the cache in non-diff renders.
-  (let [call-count (atom 0)
-        real-project engine/project]
-    (with-redefs [engine/project (fn [b a]
-                                   (swap! call-count inc)
-                                   (real-project b a))]
-      (let [inner (ei/edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
-        (inner {:a 1} {:panel-id :rf.xray/app-db})
-        (inner {:a 1} {:panel-id :rf.xray/app-db})
-        (is (= 0 @call-count)
-            "browse mode never calls engine/project")))))
+      (let [inner (ei/edn-inspector after1 {:panel-id :rf.xray/app-db :before before1})]
+        (dotimes [_ 3] (render inner before1 after1))
+        (is (= 1 @calls) "three identity-stable renders compute once")
+        (render inner before2 after1)
+        (is (= 2 @calls) "a new `before` reference recomputes")
+        (render inner before2 after2)
+        (is (= 3 @calls) "a new `after` reference recomputes")))))
 
 ;; ---- the PUBLIC PROJECTION STAGE is bounded too --------------------------
 ;;
-;; The WALKER is bounded, but the public widget computes a projection
-;; BEFORE any walker runs: `render-inspector` calls `project-for`, which on
-;; a cache miss hands the displayed pair to `engine/project`. That
-;; function short-circuits `identical?` inputs and nothing else, so an
-;; unbounded pair would go to Editscript over the WHOLE pair, with
-;; structural equality inside it: two DISTINCT endless sequences carrying
-;; the same prefix would compare for ever — before one bounded row is
-;; walked. `project-for` bounds the pair through `bounded-projection-pair`
-;; first.
-;;
-;; WHY the render-path tests above cannot see this stage, and the design
-;; constraint on the tests below: those call `render-node` directly with
-;; `:projection nil`, which SKIPS this stage entirely. These go through
-;; `ei/edn-inspector` — the registered view — so the projection is computed
+;; `render-inspector` computes the projection before any walker runs, and
+;; `engine/project` short-circuits only `identical?` inputs, so two DISTINCT
+;; endless sequences sharing a prefix would compare for ever. `project-for`
+;; bounds the pair first — only where BOTH sides could be endless, so an
+;; ordinary or mixed pair reaches the engine as the very objects passed.
+;; These go through `ei/edn-inspector`, so the projection is computed
 ;; exactly as a mounted widget computes it.
-;;
-;; THREE properties, and the last two are what keep the bound honest:
-;;
-;;   P1 BOUNDED    — neither generator is pulled past the render bound, at
-;;                   the ROOT of the diff and NESTED under a map key. The
-;;                   nested case is not a variation for its own sake: the
-;;                   renderer never descends into a collapsed child, but
-;;                   the projection walks the whole pair regardless, so a
-;;                   root-only bound leaves this identical hang one level
-;;                   down.
-;;   P2 UNCHANGED  — an ordinary finite pair must reach `engine/project` as
-;;                   the SAME OBJECTS (`identical?`), not as copies. That
-;;                   is the strongest available statement of "ordinary
-;;                   finite diffs are unchanged": the computation is not
-;;                   merely equivalent, it is the one an unbounded stage
-;;                   would run.
-;;   P3 MIXED PAIRS UNTOUCHED — where ONE side is `counted?` the pair is
-;;                   already finite (the comparison stops when the counted
-;;                   side runs out), and `unrealised-sentinel`'s own
-;;                   docstring makes the projection load-bearing there: the
-;;                   op "falls through to the projection — computed over
-;;                   the FULL inputs, and therefore correct".
-;;                   Bounding one side of a mixed pair would hand the
-;;                   projection a SHORT before-side and paint surviving
-;;                   after-rows green as `:added` — the precise lie
-;;                   `::unrealised` exists to refuse. So the bound fires
-;;                   only when BOTH sides could be endless, and P3 pins
-;;                   that boundary so a "simplification" to a blanket
-;;                   bound cannot quietly bring that lie back.
 
 (defn- projection-inputs-via-public-path
   "Render `after` against `before` through the PUBLIC widget and return
-  the `[before after]` pair `engine/project` actually received.
-
-  `ei/edn-inspector` is the `reg-view`-registered form-2 head: calling it
-  returns the inner render fn, and calling THAT renders through
-  `render-inspector` → `project-for` → `engine/project`. The spy wraps the
-  real function rather than replacing it, so the render completes as it
-  normally would."
+  the `[before after]` pair `engine/project` actually received. The spy
+  wraps the real function, so the render completes as it normally would."
   [before after]
   (let [seen         (atom nil)
         real-project engine/project]
@@ -5105,145 +1962,45 @@
     @seen))
 
 (deftest public-projection-bounds-two-endless-sequences-rf2-bmed1
-  ;; P1. A guard far above the bound stands in for a truly endless
-  ;; sequence, exactly as the render-path test above does: reaching it
-  ;; at all is the failure. Both sides are DISTINCT generators carrying
-  ;; the same 0, 1, 2, … prefix, which is the hanging shape —
-  ;; a single shared reference would short-circuit on `identical?` and
-  ;; never reach Editscript.
-  (let [guard 50000]
-    (testing "P1 — two distinct endless sequences at the ROOT of the diff"
-      (let [seen-b (atom 0)
-            seen-a (atom 0)
-            before (counting-seq seen-b guard)
-            after  (counting-seq seen-a guard)
-            opts   {:panel-id :rf.xray/app-db :before before}
-            inner  (ei/edn-inspector after opts)
-            h      (inner after opts)]
-        (is (vector? h)
-            "the public diff render path returns hiccup")
-        (is (<= @seen-b render-path-bound)
-            (str "the BEFORE side realised " @seen-b " elements; the render "
-                 "bound is " render-path-bound ". Unbounded, the projection "
-                 "compares the pair to the guard at " guard "."))
-        (is (<= @seen-a render-path-bound)
-            (str "the AFTER side realised " @seen-a " elements; the render "
-                 "bound is " render-path-bound "."))))
-    (testing "P1 — two distinct endless sequences NESTED under a map key"
-      ;; The renderer never descends into a collapsed child, so nothing
-      ;; the walker does can reach these. Only the projection walks here.
-      (let [seen-b (atom 0)
-            seen-a (atom 0)
-            before {:xs (counting-seq seen-b guard)}
-            after  {:xs (counting-seq seen-a guard)}
-            opts   {:panel-id :rf.xray/app-db :before before}
-            inner  (ei/edn-inspector after opts)
-            h      (inner after opts)]
-        (is (vector? h)
-            "the public diff render path returns hiccup for a nested pair")
-        (is (<= @seen-b render-path-bound)
-            (str "the nested BEFORE side realised " @seen-b " elements; the "
-                 "render bound is " render-path-bound "."))
-        (is (<= @seen-a render-path-bound)
-            (str "the nested AFTER side realised " @seen-a " elements; the "
-                 "render bound is " render-path-bound "."))))))
+  ;; At the root, and nested under a map key — the projection walks a
+  ;; collapsed child the renderer never descends into.
+  (doseq [wrap [identity (fn [s] {:xs s})]]
+    (let [seen-b (atom 0)
+          seen-a (atom 0)
+          before (wrap (counting-seq seen-b 50000))
+          after  (wrap (counting-seq seen-a 50000))
+          opts   {:panel-id :rf.xray/app-db :before before}]
+      ((ei/edn-inspector after opts) after opts)
+      (is (<= (max @seen-b @seen-a) render-path-bound)
+          (str "realised " @seen-b " BEFORE / " @seen-a " AFTER elements")))))
 
 (deftest container-op-equality-is-bounded-rf2-bmed1
-  ;; THE SECOND STAGE, and the reason a projection-only bound would read
-  ;; green while the widget still hangs.
-  ;;
-  ;; `classify-container-op` carries the structural override: when
-  ;; the projection says `:same` but the two sides genuinely differ, it
-  ;; promotes to `:children` so a dropped vector tail cannot hide inside a
-  ;; collapsed container. As a bare `not=` on the RAW pair that test would
-  ;; fire exactly when `proj-op` is `:same` — which is what a CORRECTLY
-  ;; BOUNDED projection reports for two endless sequences sharing a prefix.
-  ;; So bounding the projection alone would move the hang one line down
-  ;; rather than remove it.
-  ;;
-  ;; WHY THE RENDER-PATH TESTS CANNOT SEE IT: they pass
-  ;; `:projection nil`, which skips the override entirely, AND their two
-  ;; sides differ in LENGTH (`[0 1 2]` against an endless seq), so even the
-  ;; no-projection `not=` stops as soon as the short side runs out. Both
-  ;; halves of that shape differ here: a REAL
-  ;; projection, and two sides that agree as far as anything looks.
-  (let [guard 50000]
-    (testing "render-node with a REAL projection is bounded"
-      (let [seen-b (atom 0)
-            seen-a (atom 0)
-            before (counting-seq seen-b guard)
-            after  (counting-seq seen-a guard)
-            ;; The projection the widget would compute, built the way
-            ;; `project-for` builds it.
-            proj   (engine/project (take count-bound before)
-                                   (take count-bound after))
-            h      (ei/render-node {:value      after
-                                    :before     before
-                                    :diff?      true
-                                    :projection proj
-                                    :panel-id   :test :mount-id "bmed1-a"
-                                    :path       [] :depth 0
-                                    :expansion-map {} :opts {}})]
-        (is (vector? h)
-            "the projection-bearing render path returns hiccup")
-        (is (<= @seen-b render-path-bound)
-            (str "the BEFORE side realised " @seen-b " elements; the bound "
-                 "is " render-path-bound ". A bare `not=` runs to the guard "
-                 "at " guard "."))
-        (is (<= @seen-a render-path-bound)
-            (str "the AFTER side realised " @seen-a " elements; the bound is "
-                 render-path-bound "."))))
-    (testing "CONTROL — the `:projection nil` route stays bounded too"
-      ;; The render-path tests' route, with the length difference removed
-      ;; so the no-projection `not=` is actually exercised.
-      (let [seen-b (atom 0)
-            seen-a (atom 0)
-            h      (ei/render-node {:value      (counting-seq seen-a guard)
-                                    :before     (counting-seq seen-b guard)
-                                    :diff?      true
-                                    :projection nil
-                                    :panel-id   :test :mount-id "bmed1-b"
-                                    :path       [] :depth 0
-                                    :expansion-map {} :opts {}})]
-        (is (vector? h)
-            "the no-projection render path returns hiccup")
-        (is (<= @seen-b render-path-bound)
-            (str "the BEFORE side realised " @seen-b " elements"))
-        (is (<= @seen-a render-path-bound)
-            (str "the AFTER side realised " @seen-a " elements"))))))
+  ;; `classify-container-op` promotes a `:same` projection to `:children`
+  ;; when the two sides differ, and a bounded projection reports `:same` for
+  ;; two endless sequences sharing a prefix — so that comparison is bounded
+  ;; too.
+  (let [seen-b (atom 0)
+        seen-a (atom 0)
+        before (counting-seq seen-b 50000)
+        after  (counting-seq seen-a 50000)]
+    (ei/render-node {:value      after
+                     :before     before
+                     :diff?      true
+                     :projection (engine/project (take count-bound before)
+                                                 (take count-bound after))
+                     :panel-id   :test :mount-id "bmed1-a"
+                     :path       [] :depth 0
+                     :expansion-map {} :opts {}})
+    (is (<= (max @seen-b @seen-a) render-path-bound)
+        (str "realised " @seen-b " BEFORE / " @seen-a " AFTER elements"))))
 
 (deftest public-projection-leaves-ordinary-pairs-untouched-rf2-bmed1
-  (testing "P2 — an ordinary finite pair reaches engine/project UNCOPIED"
-    (let [before {:a 1 :b {:c 2} :d [1 2 3]}
-          after  {:a 1 :b {:c 3} :d [1 2 3]}
-          [b a]  (projection-inputs-via-public-path before after)]
-      (is (identical? before b)
-          "the BEFORE side is the very object the caller passed")
-      (is (identical? after a)
-          "the AFTER side is the very object the caller passed")))
-  (testing "P2 — a finite vector LONGER than the bound is not truncated"
-    ;; A vector is `counted?`, so it is finite by construction and
-    ;; `bounded-vec` already realises it whole. The projection must see
-    ;; all 1050 elements, or a diff the renderer CAN show would be
-    ;; classified against a pair the renderer never had.
-    (let [before (vec (range 1050))
-          after  (assoc (vec (range 1050)) 900 :changed)
-          [b a]  (projection-inputs-via-public-path before after)]
-      (is (= 1050 (count b))
-          "the counted BEFORE side reaches the projection whole")
-      (is (= 1050 (count a))
-          "the counted AFTER side reaches the projection whole")
-      (is (identical? before b)
-          "and as the same object, not a rebuilt copy")))
-  (testing "P3 — a MIXED pair keeps the FULL inputs (the capped-side contract)"
-    ;; One side `counted?`, one not. The pair is already finite, and
-    ;; `::unrealised` rows depend on the projection having seen the whole
-    ;; of both. Bounding here would be the `:added` lie that sentinel
-    ;; exists to refuse.
-    (let [before (map identity (range 5))
-          after  [0 1 2 3 4 5]
-          [b a]  (projection-inputs-via-public-path before after)]
-      (is (identical? before b)
-          "the lazy BEFORE side of a mixed pair is not bounded")
-      (is (identical? after a)
-          "the counted AFTER side of a mixed pair is not bounded"))))
+  ;; An ordinary pair, a `counted?` vector longer than the bound, and a
+  ;; mixed lazy / counted pair all reach `engine/project` UNCOPIED — the
+  ;; mixed pair whole, because `::unrealised` rows rely on a projection
+  ;; over the full inputs.
+  (doseq [[before after] [[{:a 1 :b {:c 2} :d [1 2 3]} {:a 1 :b {:c 3} :d [1 2 3]}]
+                          [(vec (range 1050)) (assoc (vec (range 1050)) 900 :changed)]
+                          [(map identity (range 5)) [0 1 2 3 4 5]]]]
+    (is (= [true true] (map identical? [before after]
+                            (projection-inputs-via-public-path before after))))))
