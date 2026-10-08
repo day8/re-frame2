@@ -1,29 +1,19 @@
 (ns re-frame.subs-tooling-inspected-frame-metadata-cljs-test
-  "The two live subscription-cache readers must resolve registration
-  METADATA through the frame they were asked about, not through whichever
-  registrar generation happens to be ambient.
+  "The two live subscription-cache readers, `sub-cache-snapshot` and
+  `sub-cache-algebra-view`, resolve registration METADATA through the frame
+  they were asked about, not through whichever registrar generation is ambient.
 
-  `sub-cache-snapshot` and `sub-cache-algebra-view` both take a frame-id and read
-  THAT frame's cached reactions, then join each entry against
-  `rf.registrar/registrations :sub` for `:input-kind`, `:doc`, `:schema`,
-  `:derive` and the source coordinates. That read is generation-routed, so a
-  reader that did not supply the target generation would take the values from
-  frame A and the metadata from the global pool, or from whatever frame the
-  INSPECTOR was rendering in.
-
-  The result would be internally inconsistent evidence rather than a wrong app
-  value: an image-local sub with declared `:inputs` reported `:input-kind :db`,
-  and the algebra view attaching a conflicting same-id global's doc and handler
-  to the inspected frame's live node. Correct values cannot vouch for it, because
-  `subscribe` establishes the target generation on its own path.
-
-  Xray's derivation-graph contributor and the Pair preload's `sub-cache-info`
-  both call these readers from OUTSIDE the frame they are inspecting, which is
-  why the target has to be passed rather than inherited — the third deftest
-  drives exactly that shape, from inside a different frame's generation binding.
+  Both read the target frame's cached reactions, then join each entry against
+  the generation-routed `rf.registrar/registrations :sub` for `:input-kind`,
+  `:doc`, `:schema`, `:derive` and the source coordinates. Xray's
+  derivation-graph contributor and the Pair preload's `sub-cache-info` call
+  them from OUTSIDE the inspected frame, so the target has to be passed rather
+  than inherited. A wrong join is inconsistent evidence rather than a wrong app
+  value, which correct values cannot vouch for, because `subscribe` establishes
+  the target generation on its own path.
 
   CLJS-only: both readers are `#?(:cljs …)`-bodied and return nil on the JVM."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.image :as rf.image]
             [re-frame.live-frame :as rf.live-frame]
@@ -41,14 +31,9 @@
 (def ^:private local-q [:review/image-only])
 
 (defn- review-image
-  "An image whose inline registrations are a layer-1 `:review/base` reader and a
-  DECLARED-INPUT `:review/value` over it, both carrying `doc`. `:review/value`'s
-  `:inputs` is what makes its `:input-kind` `:static` — the discriminator the
-  global registration below deliberately contradicts.
-
-  `:review/image-only` exists ONLY here: nothing registers it globally, so a
-  reader that consults the global pool finds no metadata at all and falls back
-  to the `:db` default."
+  "Inline registrations: a layer-1 `:review/base`, and `:review/value` and
+  `:review/image-only` declaring `:inputs` over it (so `:input-kind :static`),
+  all carrying `doc`. Nothing registers `:review/image-only` globally."
   [image-id doc base-value]
   (rf.image/image
     {:id            image-id
@@ -60,73 +45,40 @@
 (defn- install-frame! [frame-id image]
   (rf.live-frame/make-frame {:id frame-id :images [image]} []))
 
-(defn- register-conflicting-global! []
-  ;; SAME id, DIFFERENT everything: a layer-1 app-db reader with its own doc.
-  ;; A reader that resolves metadata globally reports THIS for the image-local
-  ;; subscription above.
-  (rf/reg-sub :review/value {:doc "GLOBAL"} (fn [db _q] (:global db))))
+(defn- inspected
+  "What the two readers report for `frame-id`'s `:review/value` entry. `:derive`
+  is applied to `[42]`: the image's body returns 42, the global's nil."
+  [frame-id]
+  (let [node (get (rf.subs.tooling/sub-cache-algebra-view frame-id) value-q)]
+    {:snapshot-kind (:input-kind (get (rf.subs.tooling/sub-cache-snapshot frame-id) value-q))
+     :kind          (:input-kind node)
+     :doc           (:doc node)
+     :inputs        (:inputs node)
+     :derived       ((:derive node) [42] value-q)
+     :value         (:value node)}))
 
-(defn- snapshot-entry [frame-id query-v]
-  (get (rf.subs.tooling/sub-cache-snapshot frame-id) query-v))
-
-(defn- algebra-node [frame-id query-v]
-  (get (rf.subs.tooling/sub-cache-algebra-view frame-id) query-v))
-
-(deftest snapshot-reports-an-image-only-sub-absent-from-the-global-pool
-  (testing "a sub that exists ONLY in the image is classified from the image —
-            the :db default is what an unresolved global lookup produces"
-    (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
-    (is (= 6 @(rf/subscribe local-q {:frame :review/frame-a})))
-    (is (not (contains? (rf.registrar/registrations :sub) :review/image-only))
-        "control — :review/image-only is ABSENT from the global pool, so an
-         ambient read finds nothing for it and would default it to :db.
-         Scoped to THIS id rather than asserting an empty pool: the shared
-         :node-test build loads every test namespace into one registrar, so
-         `= {}` would test the build's namespace loading, not this sub")
-    (let [entry (snapshot-entry :review/frame-a local-q)]
-      (is (= :static (:input-kind entry))
-          "the image-only sub is classified from the frame that owns it")
-      (is (= [base-q] (:realized-inputs entry))))))
-
-(deftest readers-resolve-the-explicit-target-from-inside-another-frames-generation
-  (testing "two frames materialize the same sub id from DIFFERENT images; each is
-            inspected correctly from no binding at all and from inside the
-            other's generation binding — the shape Xray's contributor and the
-            Pair preload are in, since neither renders inside its target"
-    (register-conflicting-global!)
-    (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
-    (install-frame! :review/frame-b (review-image :review/image-b "IMAGE B" 50))
-    (is (= 5  @(rf/subscribe value-q {:frame :review/frame-a})))
-    (is (= 50 @(rf/subscribe value-q {:frame :review/frame-b})))
-    (testing "outside any generation binding"
-      (is (= :static (:input-kind (snapshot-entry :review/frame-a value-q))))
-      (is (= :static (:input-kind (snapshot-entry :review/frame-b value-q))))
-      (is (= "IMAGE A" (:doc (algebra-node :review/frame-a value-q)))
-          "A's node carries A's declaration, not the global's")
-      (is (= "IMAGE B" (:doc (algebra-node :review/frame-b value-q)))
-          "B's node carries B's declaration"))
-    (testing "from INSIDE frame B's generation binding — the explicit target wins"
-      (rf.live-frame/call-with-frame-resolution :review/frame-b
-        (fn []
-          (is (= "IMAGE A" (:doc (algebra-node :review/frame-a value-q)))
-              "inspecting A from within B still reports A's declaration")
-          (is (= :static (:input-kind (snapshot-entry :review/frame-a value-q)))
-              "and A's classification"))))))
-
-(deftest algebra-view-attaches-the-inspected-frames-derivation
-  (testing "the algebra view's :derive / :doc / :inputs describe the derivation
-            the inspected frame actually RUNS, not a same-id global's"
-    (register-conflicting-global!)
-    (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
-    (is (= 5 @(rf/subscribe value-q {:frame :review/frame-a})))
-    (let [node (algebra-node :review/frame-a value-q)]
-      (is (some? node))
-      (is (= "IMAGE A" (:doc node)) "the image-local doc, not \"GLOBAL\"")
-      (is (= 42 (when-let [body (:derive node)] (body [42] value-q)))
-          "the image's body (fn [[n] _q] n), not the global's (fn [db _q] (:global db))")
-      (is (= :static (:input-kind node)))
-      (is (= [[:sub base-q]] (:inputs node))
-          "the declared edges of the derivation this frame runs, in the
-           algebra view's documented edge shape — `declared-inputs` lowers a
-           live entry's realized query-vectors to [:sub query-vector]")
-      (is (= 5 (:value node)) "the value is unchanged"))))
+(deftest readers-resolve-metadata-through-the-inspected-frame
+  ;; Two frames materialize :review/value from different images over a
+  ;; conflicting same-id global. Each is inspected from no binding and from
+  ;; inside the other frame's generation binding.
+  (rf/reg-sub :review/value {:doc "GLOBAL"} (fn [db _q] (:global db)))
+  (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
+  (install-frame! :review/frame-b (review-image :review/image-b "IMAGE B" 50))
+  (is (= [5 50 6] [@(rf/subscribe value-q {:frame :review/frame-a})
+                   @(rf/subscribe value-q {:frame :review/frame-b})
+                   @(rf/subscribe local-q {:frame :review/frame-a})]))
+  (let [expected (fn [doc value]
+                   {:snapshot-kind :static :kind :static :doc doc
+                    :inputs [[:sub base-q]] :derived 42 :value value})]
+    (is (= [(expected "IMAGE A" 5) (expected "IMAGE B" 50) (expected "IMAGE A" 5)]
+           [(inspected :review/frame-a)
+            (inspected :review/frame-b)
+            (rf.live-frame/call-with-frame-resolution :review/frame-b
+              #(inspected :review/frame-a))])))
+  ;; An image-only sub has no global metadata to fall back to, so an ambient
+  ;; read would default it to :db. Scoped to this id: the shared :node-test
+  ;; build loads every test namespace into one registrar.
+  (is (= [false :static [base-q]]
+         [(contains? (rf.registrar/registrations :sub) :review/image-only)
+          (:input-kind (get (rf.subs.tooling/sub-cache-snapshot :review/frame-a) local-q))
+          (:realized-inputs (get (rf.subs.tooling/sub-cache-snapshot :review/frame-a) local-q))])))
