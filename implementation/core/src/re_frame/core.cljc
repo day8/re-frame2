@@ -2242,15 +2242,12 @@
   interceptors."}
   unwrap-interceptor rf.std-interceptors/unwrap-removed!)
 
-;; EP-0015 §7: there is no public `redact-interceptor`.
+;; EP-0015 §7: there is no `redact-interceptor`.
 ;; A positional "redact for the trace but not the handler"
 ;; interceptor would make privacy depend on interceptor placement rather than on
 ;; the owner of the payload shape; registration-owned `:sensitive` payload
 ;; classification + centralized `project-egress` at egress boundaries
-;; do that job. The `re-frame.privacy/redact-interceptor` fn (and the
-;; router's internal `collect-redaction-paths` consumer, which matches
-;; `redact-interceptor-id` itself) are internal plumbing, not
-;; published from this façade.
+;; do that job.
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 

@@ -5,17 +5,16 @@
   privacy suites read nothing under `-Dre-frame.debug=false`. Every assertion
   here is posture-independent and runs in both lanes.
 
-  Three independent producers feed that slot, and each is observed alone:
+  Two independent producers feed that slot, and each is observed alone:
 
     1. EP-0025 classification: the router's unconditional
        `schema-redaction-interceptor` over a path-scoped handler's slice.
-    2. The user-installed `rf.privacy/redact-interceptor`.
-    3. `rf.elision/elide-wire-value`, run inside `dispatch-on-error!` on every
+    2. `rf.elision/elide-wire-value`, run inside `dispatch-on-error!` on every
        emission, which covers sites with no interceptor chain.
 
-  Producer 3 runs on every emission, so it could mask 1 and 2. Their tests
-  open with a CONTROL showing the walker leaves the same event untouched; if
-  one reds, move that test to a coordinate the walker cannot reach rather
+  Producer 2 runs on every emission, so it could mask 1. Producer 1's test
+  opens with a CONTROL showing the walker leaves the same event untouched; if
+  it reds, move that test to a coordinate the walker cannot reach rather
   than narrowing the walker.
 
   Each secret is a distinctive sentinel asserted absent from the WHOLE record,
@@ -27,7 +26,6 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -63,7 +61,6 @@
     (first (filter #(= error-kw (:error %)) @seen))))
 
 (def ^:private chain-secret     "rf2-sentinel-chain-0f3a91")
-(def ^:private user-secret      "rf2-sentinel-user-7c21bd")
 (def ^:private chainless-secret "rf2-sentinel-chainless-4e88fa")
 
 (defn- leaked? [record secret]
@@ -97,29 +94,8 @@
                (:event err)))
         (is (not (leaked? err chain-secret)))))))
 
-(deftest always-on-record-honours-user-redact-interceptor
-  (testing "producer 2 — a user-installed `redact-interceptor` extends
-            `:rf/redacted-event`, and the union of its paths reaches the
-            record"
-    (rf/reg-interceptor :rf/redact-interceptor
-      (rf.privacy/redact-interceptor [[:password] [:token]]))
-    (rf/reg-event :auth/explode
-      {:interceptors [:rf/redact-interceptor]}
-      (fn [_ _] (throw (ex-info "boom" {}))))
-    (let [event [:auth/explode {:username "ada"
-                                :password user-secret
-                                :token    user-secret}]]
-      (is (= event (rf.elision/elide-wire-value event {:frame :rf/default}))
-          (str "CONTROL — this frame declares no sensitive app-db path, so the "
-               "walker is the identity here"))
-      (let [err (always-on-error :rf.error/handler-exception
-                                 #(rf/dispatch-sync event))]
-        (is (= [:auth/explode {:username "ada" :password :rf/redacted :token :rf/redacted}]
-               (:event err)))
-        (is (not (leaked? err user-secret)))))))
-
 (deftest always-on-record-honours-wire-walker-without-a-chain
-  (testing "producer 3 — `:rf.error/no-such-handler` is emitted before any
+  (testing "producer 2 — `:rf.error/no-such-handler` is emitted before any
             chain is assembled, yet the record is redacted by the walker over
             the frame's declarations"
     ;; The secret sits at [:attempts 0 :token] under the declaration

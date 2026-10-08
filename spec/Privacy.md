@@ -206,9 +206,8 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       at :rf/redacted-event for every handler whose registration-owned      │
 │       :sensitive paths (or a frame-sensitive app-db path the slice          │
 │       overlaps) match the event payload.                                    │
-│     - (There is no public positional `redact-interceptor` (EP-0015 §7);     │
-│       re-frame.privacy/redact-interceptor is internal router plumbing       │
-│       only — registration-owned :sensitive is the public route.)            │
+│     - (There is no positional `redact-interceptor` (EP-0015 §7);            │
+│       registration-owned :sensitive is the route.)                          │
 │     - Trace assembly reads :rf/redacted-event (not :event) when building    │
 │       :rf.event/* and :rf.event/db-changed tag shapes.                      │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -522,7 +521,7 @@ Surfaces that do not exist, listed so readers don't search for them.
 | `add-marks` / `set-marks` (public app-db path-mark API) | Durable app-db egress policy is declared by the **four commit-plane effects** (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, returned by a handler alongside `:db`), not a post-creation imperative mutation. There is no marks API or `marks.cljc` namespace; the projection substrate is the elision engine. |
 | `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) | App-specific HTTP carrier names belong on the **`:rf.http/managed` `reg-fx` registration** (`:carriers {:headers […] :query-params […]}`), union onto the immutable built-in defaults — not process-global mutation and not a frame annotation. |
 | frame `:sensitive {:http …}` carrier block | A frame config carries no `:sensitive {:http …}` carrier block (there is no `:sensitive` frame key at all). App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case). A frame config `:sensitive` is rejected fail-loud. |
-| `redact-interceptor` (public positional interceptor) | Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. `re-frame.privacy/redact-interceptor` is internal router plumbing only (not façade-published). |
+| `redact-interceptor` (public positional interceptor) | Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. |
 | Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | Schemas describe shape; durable app-db egress policy rides the four commit-plane effects. Per-slot props classify only an HTTP `:decode` body and redact a schema's own validation-failure traces; they are not a route for durable app-db, machine or resource state. There are no schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`). |
 | `inject-cofx` (public cofx-injection interceptor) | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. There is no `inject-cofx` (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
 | Handler-meta `:sensitive?` registration flag | Use Spec 015 per-path declarations. A handler that is the unit of sensitivity (the rare "this whole run is sensitive" case) declares the path-marks that the handler reads / writes. |
