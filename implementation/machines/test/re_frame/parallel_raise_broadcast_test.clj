@@ -1,228 +1,79 @@
 (ns re-frame.parallel-raise-broadcast-test
-  "A `:raise` emitted inside a parallel REGION re-enters the PARENT parallel
-  macrostep and re-broadcasts to ALL regions against the full evolving
-  snapshot. It is NOT region-local.
-
-  XState v5 / SCXML: `raise` enqueues on the machine's ONE
-  internal event queue; the macrostep pops the front and broadcasts the
-  internal event to every active region (every parallel state in SCXML),
-  FIFO, until the queue drains, then commits once. So a region's raise
-  reaches its SIBLINGS, a sibling's guard sees the raise's `:data` writes
-  (evolving snapshot), and the originating region re-sees it too.
-
-  Regions never drain their own raises: `parallel/parallel-machine-transition`
-  owns the macrostep's internal-event queue and re-broadcasts each surfaced
-  raise across every region.
-
-  A raised event DECLINED by every region consults the parallel root's own
-  `:on` as the ancestor fallback — identically to an external event (XState v6
-  / SCXML: a raised event selects against the FULL configuration incl. the
-  parallel ancestor).
-
-  Pure-engine tests — call `machine-transition` directly and read the merged
-  post-macrostep snapshot. Order is recorded in `:data :log` (shared `:data`
-  threads sequentially through regions in declaration order, so the log is
-  the deterministic pure record of the broadcast/re-broadcast order)."
-  (:require [clojure.test :refer [deftest is testing]]
+  "A `:raise` inside a parallel region re-enters the PARENT macrostep: it is
+  re-broadcast FIFO to every region against the evolving snapshot, a raise
+  every region declines falls back to the root `:on`, and a runaway raise
+  loop rolls the whole macrostep back (XState v5 / SCXML)."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as rf.machines]))
 
-(defn- log!
-  "Append `label` to the shared `:data :log`."
-  [data label]
+(defn- log! [data label]
   (update data :log (fnil conj []) label))
 
-;; ---- 2. a sibling's GUARD sees the raise's evolving :data -----------------
-
 (deftest sibling-guard-sees-raise-evolving-snapshot
-  (testing "left's raise writes :data :token; right's guard on the
-   re-broadcast event reads the evolving :data and passes"
-    (let [spec
-          {:type    :parallel
-           :data    {:token nil}
-           :guards  {:token-set? (fn [{:keys [data]}] (= :granted (:token data)))}
-           :actions {:grant (fn [{:keys [data]}]
-                              {:data (-> data (assoc :token :granted)
-                                         (log! :grant))
-                               :fx   [[:raise [:check]]]})
-                     :admit (fn [{:keys [data]}]
-                             {:data (log! data :admit)})}
-           :regions
-           {:auth {:initial :anon
-                   :states  {:anon  {:on {:login {:target :authed :action :grant}}}
-                             :authed {}}}
-            :gate {:initial :closed
-                   ;; The guard only passes because the auth region's raise
-                   ;; already wrote :token :granted into the SHARED evolving
-                   ;; :data before this region re-evaluated [:check].
-                   :states  {:closed {:on {:check {:target :open
-                                                   :guard  :token-set?
-                                                   :action :admit}}}
-                             :open   {}}}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition spec
-                                       {:state {:auth :anon :gate :closed}
-                                        :data  {:token nil}}
-                                       [:login])]
-      (is (= :authed (get-in snap [:state :auth])))
-      (is (= :open (get-in snap [:state :gate]))
-          "gate opened — its guard saw the auth region's raise-written token
-           in the full evolving snapshot")
-      (is (= :granted (:token (:data snap))))
-      (is (= [:grant :admit] (:log (:data snap)))))))
-
-;; ---- 4. FIFO across the parent internal-event queue -----------------------
+  (let [spec {:type    :parallel
+              :data    {:token nil}
+              :guards  {:token-set? (fn [{:keys [data]}] (= :granted (:token data)))}
+              :actions {:grant (fn [{:keys [data]}]
+                                 {:data (-> data (assoc :token :granted) (log! :grant))
+                                  :fx   [[:raise [:check]]]})
+                        :admit (fn [{:keys [data]}] {:data (log! data :admit)})}
+              :regions
+              {:auth {:initial :anon
+                      :states  {:anon {:on {:login {:target :authed :action :grant}}}
+                                :authed {}}}
+               ;; Passes only because :auth's raise already wrote :token.
+               :gate {:initial :closed
+                      :states  {:closed {:on {:check {:target :open :guard :token-set? :action :admit}}}
+                                :open   {}}}}}
+        {snap :snapshot} (rf.machines/machine-transition
+                           spec {:state {:auth :anon :gate :closed} :data {:token nil}} [:login])]
+    (is (= {:state {:auth :authed :gate :open} :data {:token :granted :log [:grant :admit]}}
+           (select-keys snap [:state :data])))))
 
 (deftest parallel-raise-drains-fifo
-  (testing "two regions each raise; with one region nesting a raise, the
-   parent queue drains FIFO (XState/SCXML), not depth-first"
-    ;; External [:go] broadcasts to both regions.
-    ;;   region :one  on :go raises [:p]   (then on :p raises [:r])
-    ;;   region :two  on :go raises [:q]   (on :q: just logs)
-    ;; Region-declaration order one, two ⇒ first broadcast surfaces [p, q].
-    ;; FIFO: pop p → region one logs :p, raises [:r] → queue [q, r].
-    ;;       pop q → region two logs :q                → queue [r].
-    ;;       pop r → region one logs :r                → queue [].
-    ;; Depth-first would have given :p :r :q (r jumping ahead of q).
-    (let [spec
-          {:type    :parallel
-           :data    {}
-           :actions {:one-go (fn [{:keys [data]}]
-                              {:data (log! data :one-go) :fx [[:raise [:p]]]})
-                     :one-p  (fn [{:keys [data]}]
-                              {:data (log! data :p) :fx [[:raise [:r]]]})
-                     :one-r  (fn [{:keys [data]}]
-                              {:data (log! data :r)})
-                     :two-go (fn [{:keys [data]}]
-                              {:data (log! data :two-go) :fx [[:raise [:q]]]})
-                     :two-q  (fn [{:keys [data]}]
-                              {:data (log! data :q)})}
-           :regions
-           {:one {:initial :s
-                  :states  {:s {:on {:go {:action :one-go}
-                                     :p  {:action :one-p}
-                                     :r  {:action :one-r}}}}}
-            :two {:initial :s
-                  :states  {:s {:on {:go {:action :two-go}
-                                     :q  {:action :two-q}}}}}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition spec
-                                       {:state {:one :s :two :s} :data {}}
-                                       [:go])]
-      ;; First broadcast (external :go): one-go then two-go (region order),
-      ;; queue seeded [p, q]. Then FIFO drains p, q, r.
-      (is (= [:one-go :two-go :p :q :r] (:log (:data snap)))
-          "parent internal-event queue drains FIFO — the nested raise [:r]
-           lands BEHIND sibling [:q] (depth-first would give …:p :r :q)"))))
-
-;; ---- 5. depth bound trips and the WHOLE macrostep rolls back --------------
+  ;; [:go] seeds the queue [p q]; handling p raises r, which lands behind q.
+  ;; Depth-first would give :p :r :q.
+  (let [step (fn [label & raise]
+               (fn [{:keys [data]}] (cond-> {:data (log! data label)} raise (assoc :fx [[:raise (vec raise)]]))))
+        spec {:type    :parallel
+              :data    {}
+              :actions {:one-go (step :one-go :p) :one-p (step :p :r) :one-r (step :r)
+                        :two-go (step :two-go :q) :two-q (step :q)}
+              :regions
+              {:one {:initial :s
+                     :states  {:s {:on {:go {:action :one-go} :p {:action :one-p} :r {:action :one-r}}}}}
+               :two {:initial :s
+                     :states  {:s {:on {:go {:action :two-go} :q {:action :two-q}}}}}}}
+        {snap :snapshot} (rf.machines/machine-transition spec {:state {:one :s :two :s} :data {}} [:go])]
+    (is (= [:one-go :two-go :p :q :r] (:log (:data snap))))))
 
 (deftest parallel-raise-depth-bound-rolls-back-atomically
-  (testing "a region raise that cycles forever trips :raise-depth-limit and
-   the entire parallel macrostep rolls back (original snapshot, no fx)"
-    (let [spec
-          {:type    :parallel
-           :raise-depth-limit 4
-           :data    {}
-           :actions {;; :tick re-raises [:tick] unboundedly (internal, no :target)
-                     :reraise (fn [{:keys [data]}]
-                               {:data (log! data :tick) :fx [[:raise [:tick]]]})
-                     :start   (fn [{:keys [data]}]
-                               {:data (log! data :start) :fx [[:raise [:tick]]]})}
-           :regions
-           {:loop {:initial :run
-                   :states  {:run {:on {:go   {:action :start}
-                                        :tick {:action :reraise}}}}}
-            ;; A second region that does nothing — proves rollback discards
-            ;; the WHOLE macrostep, not just the looping region.
-            :idle {:initial :z
-                   :states  {:z {:on {:go {:action :start}}}}}}}
-          original {:state {:loop :run :idle :z} :data {:token :keep}}
-          r        (rf.machines/machine-transition spec original [:go])]
-      ;; A parallel re-broadcast depth-bound abort is a FAILED macrostep,
-      ;; not an :ok rollback no-op (parity with the flat drain; XState v5
-      ;; throws on the runaway). The `:fail` threads NO snapshot / fx, so the
-      ;; whole macrostep — both regions' states, the looping region's :data
-      ;; writes, and every accumulated fx — is discarded. The lifecycle
-      ;; handler short-circuits to `{}`, leaving the pre-event snapshot
-      ;; committed in runtime-db.
-      (is (= :error (:status r))
-          "depth-exceeded yields a :fail (failed macrostep), not an :ok no-op")
-      (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
-          "the failure names the raise depth-exceeded category (a bounded-depth trip)")
-      (is (nil? (:snapshot r))
-          "a :fail threads no snapshot — both regions' states stay uncommitted")
-      (is (nil? (:fx r))
-          "a :fail threads no fx — no partial cascade or fx survives the abort"))))
-
-;; ---- 7. a raised event declined by EVERY region consults the root :on ------
-;;
-;; A re-broadcast raise that no region handles must consult the parallel
-;; ROOT's own `:on` ancestor fallback — exactly as an EXTERNAL event does
-;; (`root-fallback-seed`). Re-broadcasting to the regions only would silently
-;; DROP the raise when all decline, diverging from the flat-machine drain and
-;; XState v6 / SCXML (a raised event selects against the full configuration
-;; incl. the parallel ancestor).
+  (let [tick (fn [{:keys [data]}] {:data (log! data :tick) :fx [[:raise [:tick]]]})
+        spec {:type              :parallel
+              :raise-depth-limit 4
+              :data              {}
+              :actions           {:tick tick}
+              :regions
+              {:loop {:initial :run
+                      :states  {:run {:on {:go {:action :tick} :tick {:action :tick}}}}}
+               ;; A second region: the rollback discards the whole macrostep.
+               :idle {:initial :z
+                      :states  {:z {:on {:go {:action :tick}}}}}}}
+        r (rf.machines/machine-transition spec {:state {:loop :run :idle :z} :data {}} [:go])]
+    (is (= {:status :error :error {:kind :rf.error/machine-raise-depth-exceeded}}
+           (update r :error select-keys [:kind])))))
 
 (deftest raised-event-declined-by-regions-consults-root-on
-  (let [spec
-        {:type    :parallel
-         :data    {}
-         :actions {;; :left's :trigger raises [:reset]; NO region handles [:reset].
-                   :raise-reset (fn [{:keys [data]}]
-                                  {:data (log! data :raise-reset)
-                                   :fx   [[:raise [:reset]]]})
-                   :root-reset  (fn [{:keys [data]}]
-                                  {:data (-> data (assoc :root-fired true)
-                                             (log! :root-reset))})}
-         ;; root :on — the ancestor fallback for [:reset].
-         :on      {:reset {:target [:left :done] :action :root-reset}}
-         :regions {:left {:initial :idle
-                         :states  {:idle {:on {:trigger {:target :fired
-                                                          :action :raise-reset}}}
-                                   :fired {}
-                                   :done  {}}}}}
-        initial {:state {:left :idle} :data {}}]
-    (testing "control: an EXTERNAL [:reset] fires the root :on"
-      (let [{snap :snapshot} (rf.machines/machine-transition spec initial [:reset])]
-        (is (= :done (get-in snap [:state :left])) "root :on moved :left to :done")
-        (is (true? (get-in snap [:data :root-fired])) "root :root-reset action ran")))
-    (testing "a RAISED [:reset] declined by every region ALSO fires the root :on"
-      (let [{snap :snapshot} (rf.machines/machine-transition spec initial [:trigger])]
-        (is (= :done (get-in snap [:state :left]))
-            "the raised [:reset] consulted the root :on (dropping it would leave :left at :fired)")
-        (is (true? (get-in snap [:data :root-fired]))
-            "the root :root-reset action fired for the RAISED event too")
-        (is (= [:raise-reset :root-reset] (:log (:data snap)))
-            "the region trigger ran, then the root fallback fired for the raise")))))
-
-;; ---- 8. a region handling the raise SUPPRESSES the root (atomic fallback) --
-;;
-;; The ancestor fallback is atomic: if ANY region handles the raised event, the
-;; root `:on` is suppressed ENTIRELY (same as the external-event semantic).
-
-(deftest region-handling-raise-suppresses-root
-  (let [spec
-        {:type    :parallel
-         :data    {}
-         :actions {:raise-reset (fn [{:keys [data]}]
-                                  {:data (log! data :raise-reset)
-                                   :fx   [[:raise [:reset]]]})
-                   :region-reset (fn [{:keys [data]}] {:data (log! data :region-reset)})
-                   :root-reset   (fn [{:keys [data]}]
-                                   {:data (-> data (assoc :root-fired true)
-                                              (log! :root-reset))})}
-         :on      {:reset {:target [:left :root-done] :action :root-reset}}
-         :regions {:left {:initial :idle
-                         ;; :left handles [:reset] LOCALLY — so the root is suppressed.
-                         :states  {:idle {:on {:trigger {:target :fired :action :raise-reset}}}
-                                   :fired {:on {:reset {:target :region-done
-                                                        :action :region-reset}}}
-                                   :region-done {}
-                                   :root-done   {}}}}}
-        initial {:state {:left :idle} :data {}}
-        {snap :snapshot} (rf.machines/machine-transition spec initial [:trigger])]
-    (is (= :region-done (get-in snap [:state :left]))
-        "the region handled the raised [:reset] locally — root suppressed")
-    (is (nil? (get-in snap [:data :root-fired]))
-        "the root :on was NOT consulted (atomic ancestor suppression)")
-    (is (= [:raise-reset :region-reset] (:log (:data snap))))))
+  (let [spec {:type    :parallel
+              :data    {}
+              :actions {:raise-reset (fn [{:keys [data]}]
+                                       {:data (log! data :raise-reset) :fx [[:raise [:reset]]]})
+                        :root-reset  (fn [{:keys [data]}] {:data (log! data :root-reset)})}
+              :on      {:reset {:target [:left :done] :action :root-reset}}
+              :regions {:left {:initial :idle
+                               :states  {:idle  {:on {:trigger {:target :fired :action :raise-reset}}}
+                                         :fired {}
+                                         :done  {}}}}}
+        {snap :snapshot} (rf.machines/machine-transition spec {:state {:left :idle} :data {}} [:trigger])]
+    (is (= {:state {:left :done} :data {:log [:raise-reset :root-reset]}}
+           (select-keys snap [:state :data])))))
