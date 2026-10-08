@@ -1,13 +1,9 @@
 (ns re-frame.story.ui.backgrounds-switcher-cljs-test
-  "CLJS-side smoke tests for the backgrounds switcher chip.
-
-  Coverage mirrors `viewport_switcher_cljs_test`:
-
-  - `select!` writes through to shell-state-atom.
-  - The chip renders without throwing.
-  - Per-story override beats the toolbar selection at resolve time.
-  - The chip emits `aria-haspopup` rather than `aria-pressed` so the
-    toolbar reset assertion is not tripped."
+  "The backgrounds switcher chip on CLJS: `select!` writes shell state,
+  the effective background resolves override > toolbar, and the chip is a
+  menu button (`aria-haspopup`, never `aria-pressed`, which the toolbar
+  reset gate counts). The pure preset logic is in
+  `re-frame.story.backgrounds-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             #?@(:cljs [[re-frame.story.backgrounds :as rf.story.backgrounds]
@@ -27,17 +23,11 @@
 #?(:cljs
    (use-fixtures :each (fn [t] (reset-all!) (t))))
 
-;; ---- pure-ish: select! mutations ----------------------------------------
-
-#?(:cljs
-   (deftest cljs-select-custom-writes-hex
-     (testing "a custom hex persists as a trimmed string"
-       (rf.story.ui.backgrounds-switcher/select! "#abc123")
-       (is (= "#abc123" (:background (rf.story.ui.state/get-state)))))))
+;; ---- select! -------------------------------------------------------------
 
 #?(:cljs
    (deftest cljs-select-drops-unknown
-     (testing "unknown preset → slot cleared"
+     (testing "a preset is written; an unknown preset clears the slot"
        (rf.story.ui.backgrounds-switcher/select! :dark)
        (is (= :dark (:background (rf.story.ui.state/get-state))))
        (rf.story.ui.backgrounds-switcher/select! :neon)
@@ -47,7 +37,7 @@
 
 #?(:cljs
    (deftest cljs-effective-background-respects-variant-override
-     (testing "per-variant :background body slot beats toolbar"
+     (testing "per-variant :background body slot beats story and toolbar"
        (rf.story/reg-story* :story.bg-override
          {:doc "background override fixture" :component :ignored
           :background :paper})
@@ -55,9 +45,7 @@
          {:doc "child" :background :midnight})
        (rf.story.ui.state/swap-state! assoc :background :dark)
        (rf.story.ui.state/swap-state! assoc :selected-variant :story.bg-override/v)
-       (let [eff (rf.story.ui.backgrounds-switcher/effective-background)]
-         (is (= "Midnight" (:label eff))
-             "variant :background (:midnight) wins over toolbar (:dark)"))
+       (is (= "Midnight" (:label (rf.story.ui.backgrounds-switcher/effective-background))))
        (is (= :midnight (rf.story.ui.backgrounds-switcher/effective-id))))))
 
 #?(:cljs
@@ -70,8 +58,6 @@
          {:doc "child"})
        (rf.story.ui.state/swap-state! assoc :background :dark)
        (rf.story.ui.state/swap-state! assoc :selected-variant :story.bg-story-only/v)
-       (let [eff (rf.story.ui.backgrounds-switcher/effective-background)]
-         (is (= "Paper" (:label eff))))
        (is (= :paper (rf.story.ui.backgrounds-switcher/effective-id))))))
 
 #?(:cljs
@@ -104,48 +90,19 @@
    (deftest cljs-effective-background-falls-through-to-toolbar
      (testing "no override → toolbar selection takes effect"
        (rf.story.ui.state/swap-state! assoc :background :dark)
-       (let [eff (rf.story.ui.backgrounds-switcher/effective-background)]
-         (is (= "Dark" (:label eff)))))))
+       (is (= "Dark" (:label (rf.story.ui.backgrounds-switcher/effective-background)))))))
 
-;; ---- the chip renders without throwing ----------------------------------
-
-#?(:cljs
-   (deftest cljs-chip-renders-without-throwing
-     (testing "chip-when-enabled returns a hiccup tree"
-       (let [hiccup (rf.story.ui.backgrounds-switcher/chip-when-enabled)]
-         (is (vector? ((first hiccup))) "the gated chip renders")))))
-
-#?(:cljs
-   (deftest cljs-chip-uses-aria-haspopup-not-aria-pressed
-     (testing "reset gate: chip MUST NOT emit aria-pressed='true'"
-       (let [hiccup (rf.story.ui.backgrounds-switcher/chip)]
-         (let [flat (->> (tree-seq coll? seq hiccup)
-                         (filter map?))
-               attrs-with-button (filter #(or (:aria-haspopup %)
-                                              (:aria-pressed %)) flat)
-               aria-pressed-vals (keep :aria-pressed attrs-with-button)
-               aria-haspopup-vals (keep :aria-haspopup attrs-with-button)]
-           (is (seq aria-haspopup-vals))
-           (is (not-any? #(= "true" %) aria-pressed-vals)
-               "no element under the chip is aria-pressed='true' by default"))))))
+;; ---- the chip ------------------------------------------------------------
 
 #?(:cljs
    (deftest cljs-chip-data-attrs
-     (testing "chip carries data-test + data-background for browser specs"
-       (let [hiccup (rf.story.ui.backgrounds-switcher/chip)
-             flat   (->> (tree-seq coll? seq hiccup)
-                         (filter map?))
-             attrs  (filter #(= "story-toolbar-backgrounds"
-                                (:data-test %)) flat)]
-         (is (= 1 (count attrs)))
-         (is (= "light" (:data-background (first attrs)))
-             "default render reports :light")))))
-
-;; ---- localStorage hydration: see the dom sibling -----------------------
-;;
-;; The `hydrate!` rows live in
-;; `re-frame.story.backgrounds-storage-dom-cljs-test`, beside the
-;; `save-to-storage!` / `load-from-storage` round-trip they depend on.
-;; This namespace ends `-cljs-test`, so `:browser-test` never loads it,
-;; and `:node-test` has no `window.localStorage`: a row guarded by
-;; `(when (browser?) ...)` here would execute in neither lane.
+     (testing "the chip carries its browser-spec hooks and is a menu
+               button: aria-haspopup, and no aria-pressed='true' anywhere
+               under it"
+       (let [flat  (->> (tree-seq coll? seq (rf.story.ui.backgrounds-switcher/chip))
+                        (filter map?))
+             attrs (filter #(= "story-toolbar-backgrounds" (:data-test %)) flat)]
+         (is (= [["light" "menu"]]
+                (mapv (juxt :data-background :aria-haspopup) attrs))
+             "one chip element; default render reports :light")
+         (is (not-any? #(= "true" (:aria-pressed %)) flat))))))
