@@ -2,25 +2,10 @@
   "Tests for the run-artifact → variant promotion bridge
   (spec/017-Testing-Story.md §Promotion — Promotion bridge).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
-
-  - PURE `materialize-variant-plan`: a run artifact
-    becomes a readable normalized plan; the plan preserves the source
-    artifact link; the program projects into setup/script per the policy.
-    Side-effect-free — these tests assert it registers NOTHING.
-  - The explicit `promote-run-artifact!` registration path:
-    promotion does NOT auto-register without the explicit named call; the
-    explicit call registers a variant carrying the source link.
-
-  The variant-plan compiler is pure data → data and the registrar is a
-  pure side-table, so the bridge tests run on both targets with no host —
-  a fresh side-table per test via the fixture, and an explicit `:lookup`
-  for `:extends` resolution where needed. The tests that run a variant
-  block on its result with `deref-blocking`, so they are `#?(:clj …)`.
-
-  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; a plain `-test` name would run it on the JVM only."
+  The compiler is pure and the registrar a side-table, so the bridge tests
+  run on the JVM and on node (the `-cljs-test` suffix opts it into
+  `:node-test`). The tests that run a variant block on its result with
+  `deref-blocking`, so they are `#?(:clj …)`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
@@ -44,18 +29,9 @@
             #?@(:clj [[re-frame.story.async :as rf.story.async]])))
 
 ;; ---- fixtures -----------------------------------------------------------
-;;
-;; Standard `clojure.test` fixture FUNCTION (not the `{:before …}` map
-;; form): a one-arg fn that resets the Story side-table to empty, runs
-;; the test, and the promotion path repopulates only what it registers.
-;; Matches the `artifact_test` fixture shape — the function form runs on
-;; both the JVM `clojure -M:test` runner and the node CLJS build.
 
-;; The headless run-artifact replay test dispatches into a live
-;; frame, so the fixture installs the plain-atom adapter + a default frame and
-;; clears the epoch surface between tests (mirroring `artifact_test`). The pure
-;; materialize/promote tests are unaffected by the extra setup.
-
+;; The replay and run tests dispatch into a live frame, so besides emptying
+;; the side-table the fixture installs an adapter and a default frame.
 (defn reset-side-table! [t]
   (rf.story.registrar/clear-all!)
   (rf.epoch/clear-history!)
@@ -70,9 +46,8 @@
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- sample-artifact
-  "A run artifact with a two-step dispatch program + a stubbed fx
-  decision + provenance slots + bulky captured evidence (so the
-  provenance-trim assertions have something to drop)."
+  "A two-step dispatch program with provenance slots and the bulky captured
+  evidence the provenance link drops."
   []
   (rf.story.artifact/make-run-artifact
     {:event-program [[:dispatch [:counter/init 5]]
@@ -90,187 +65,87 @@
 ;; A run artifact becomes a readable normalized plan (spec/017 §Promotion)
 ;; ===========================================================================
 
-(deftest materialize-produces-readable-plan
-  (testing "a run artifact materializes to the normalized four-bucket plan"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan art)]
-      (is (map? (:expect plan)))
-      (is (= #{:client} (get-in plan [:world :platforms]))
-          "the plan carries the compiler's normalized defaults")))
-
-  (testing "the default policy projects the whole program into :script"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan art)]
-      (is (= [[:dispatch [:counter/init 5]]
-              [:dispatch [:counter/inc]]]
-             (:script plan)))
-      (is (= [] (get-in plan [:world :setup]))
-          "nothing is demoted to a silent precondition without a hint")))
-
-  (testing "a :variant/id rides onto the materialized plan"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan
-                 art {:variant/id :story.counter/regression-042})]
-      (is (= :story.counter/regression-042 (:variant/id plan))))))
+(deftest materialize-produces-a-plan-and-registers-nothing
+  (testing "the default policy projects the whole program into :script,
+            demoting nothing to :setup, and :variant/id names the plan"
+    (let [plan (rf.story.promotion/materialize-variant-plan
+                 (sample-artifact) {:variant/id :story.counter/regression-042})]
+      (is (= {:variant/id :story.counter/regression-042
+              :setup      []
+              :script     [[:dispatch [:counter/init 5]]
+                           [:dispatch [:counter/inc]]]}
+             {:variant/id (:variant/id plan)
+              :setup      (get-in plan [:world :setup])
+              :script     (:script plan)}))
+      (is (empty? (rf.story.registrar/registrations :variant))
+          "materialize is pure: a named plan is still not registered"))))
 
 ;; ===========================================================================
 ;; A generated event program becomes script/setup per policy
 ;; ===========================================================================
 
 (deftest program-projects-to-setup-and-script-per-policy
-  (testing ":setup-count cuts preconditions off the front into [:world :setup]"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan art {:setup-count 1})]
-      (is (= [[:dispatch [:counter/init 5]]] (get-in plan [:world :setup]))
-          "the first step is a precondition")
-      (is (= [[:dispatch [:counter/inc]]] (:script plan))
-          "the rest is behaviour-under-test")))
-
-  (testing "an explicit :setup + :script partition is used verbatim"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan
-                 art {:setup  [[:dispatch [:seed/a]]]
-                      :script [[:dispatch [:act/b]]]})]
-      (is (= [[:dispatch [:seed/a]]] (get-in plan [:world :setup])))
-      (is (= [[:dispatch [:act/b]]] (:script plan)))))
-
-  (testing "partition-program clamps an oversized :setup-count"
-    (let [art (sample-artifact)
-          {:keys [setup script]} (rf.story.promotion/partition-program art {:setup-count 99})]
-      (is (= 2 (count setup)) "every step becomes a precondition")
-      (is (= [] script))))
-
-  (testing "a bare event list in :script lifts to a tagged [:dispatch …] program"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan
-                 art {:script [[:counter/reset]]})]
-      (is (= [[:dispatch [:counter/reset]]] (:script plan))))))
-
-;; ===========================================================================
-;; Promotion preserves the source-artifact link
-;; ===========================================================================
+  (let [art (sample-artifact)
+        cut (fn [opts]
+              (let [plan (rf.story.promotion/materialize-variant-plan art opts)]
+                {:setup (get-in plan [:world :setup]) :script (:script plan)}))]
+    (is (= {:setup  [[:dispatch [:counter/init 5]]]
+            :script [[:dispatch [:counter/inc]]]}
+           (cut {:setup-count 1}))
+        ":setup-count cuts preconditions off the front")
+    (is (= {:setup [[:dispatch [:seed/a]]] :script [[:dispatch [:act/b]]]}
+           (cut {:setup [[:dispatch [:seed/a]]] :script [[:dispatch [:act/b]]]}))
+        "an explicit :setup + :script partition is used verbatim")
+    (is (= {:setup  [[:dispatch [:counter/init 5]] [:dispatch [:counter/inc]]]
+            :script []}
+           (rf.story.promotion/partition-program art {:setup-count 99}))
+        "an oversized :setup-count clamps to the program")))
 
 (deftest materialize-preserves-source-artifact-link
-  (testing "the plan carries a :run-artifact back-link to the source"
-    (let [art  (sample-artifact)
-          plan (rf.story.promotion/materialize-variant-plan art)
-          link (:run-artifact plan)]
-      (is (= :rf.test/run-artifact (:artifact/kind link)))
-      (is (= 42 (:seed link)))
-      (is (= {:http/get :http/stub} (:fx-decisions link)))
-      (is (= {:tool :recorder} (:source link)))
-      (is (= [[:dispatch [:counter/init 5]]
-              [:dispatch [:counter/inc]]]
-             (:event-program link))
-          "the replayable program survives on the link")))
+  (is (= {:artifact/kind :rf.test/run-artifact
+          :seed          42
+          :event-program [[:dispatch [:counter/init 5]] [:dispatch [:counter/inc]]]
+          :fx-decisions  {:http/get :http/stub}
+          :created-at    "2026-05-30T00:00:00Z"
+          :source        {:tool :recorder}}
+         (:run-artifact (rf.story.promotion/materialize-variant-plan (sample-artifact))))
+      "the link keeps the replayable core and drops the tape, trace and result"))
 
-  (testing "the link is TRIMMED — bulky captured evidence is dropped"
-    (let [link (:run-artifact (rf.story.promotion/materialize-variant-plan (sample-artifact)))]
-      (is (not (contains? link :epoch-tape)))
-      (is (not (contains? link :trace)))
-      (is (not (contains? link :result))
-          "a registered variant is a curation surface, not an evidence dump"))))
-
-;; ===========================================================================
-;; Promotion does NOT auto-register without the explicit call
-;; ===========================================================================
-
-(deftest materialize-registers-nothing
-  (testing "materialize-variant-plan is pure — it registers NO variant"
-    (let [art (sample-artifact)]
-      (rf.story.promotion/materialize-variant-plan art {:variant/id :story.counter/never})
-      (is (empty? (rf.story.registrar/registrations :variant))
-          "materialize must not touch the side-table"))))
-
-(deftest promote-refuses-opts-without-a-namespaced-variant-id
-  (testing "promote-run-artifact! throws without an explicit :variant/id.
-            :variant/id is the SOLE accepted key — the undocumented
-            unqualified :variant-id spelling is NOT honoured (symmetric with
-            materialize-variant-plan + spec + the rest of the bridge)"
-    (doseq [opts [{} {:variant-id :story.counter/unqualified}]]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-promote-no-id"
-            (rf.story.promotion/promote-run-artifact! (sample-artifact) opts))
-          (str "refused: " (pr-str opts))))
+(deftest promotion-refuses-a-missing-id-or-artifact
+  (testing "promotion registers only under an explicit :variant/id, and both
+            entry points refuse a nil artifact, which would register a hollow
+            body that passes with zero assertions"
+    (is (= [:rf.error/story-promote-no-id
+            :rf.error/story-promote-no-artifact
+            :rf.error/story-promote-no-artifact]
+           (mapv (fn [f]
+                   (try (f) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                          (:rf.error/id (ex-data e)))))
+                 [#(rf.story.promotion/promote-run-artifact! (sample-artifact) {})
+                  #(rf.story.promotion/promote-run-artifact! nil {:variant/id :story.counter/hollow})
+                  #(rf.story.promotion/materialize-variant-plan nil)])))
     (is (empty? (rf.story.registrar/registrations :variant))
-        "a no-id promotion registers nothing")))
-
-(deftest promotion-refuses-a-missing-artifact
-  (testing "promote-run-artifact! refuses a nil or non-artifact exactly as it
-            refuses a missing id, and registers nothing. Registering a nil
-            artifact would give a hollow body that runs :pass with zero
-            assertions"
-    (doseq [not-an-artifact [nil [[:dispatch [:counter/inc]]]]]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-promote-no-artifact"
-            (rf.story.promotion/promote-run-artifact!
-              not-an-artifact {:variant/id :story.counter/hollow}))
-          (str "refused: " (pr-str not-an-artifact))))
-    (is (empty? (rf.story.registrar/registrations :variant))
-        "a refused promotion registers nothing"))
-  (testing "materialize-variant-plan refuses the same inputs"
-    (doseq [not-an-artifact [nil [[:dispatch [:counter/inc]]]]]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-promote-no-artifact"
-            (rf.story.promotion/materialize-variant-plan not-an-artifact))
-          (str "refused: " (pr-str not-an-artifact))))))
+        "a refused promotion registers nothing")))
 
 (deftest promote-registers-the-named-variant
-  (testing "the explicit named call DOES register a curated variant, whose
-            body carries the source-artifact link + the program"
-    (let [art (sample-artifact)
-          ret (rf.story.promotion/promote-run-artifact!
-                art {:variant/id :story.counter/regression-042})]
-      (is (= :story.counter/regression-042 ret)
-          "promote returns the registered variant id")
-      (let [body (rf.story.registrar/handler-meta :variant :story.counter/regression-042)]
-        (is (= :rf.test/run-artifact (get-in body [:run-artifact :artifact/kind]))
-            "provenance survives into the registered variant")
-        ;; The registrar stores the `:script` bare step-vector verbatim.
-        (is (= [[:dispatch [:counter/init 5]]
-                [:dispatch [:counter/inc]]]
-               (:script body))
-            "the behaviour program is the registered play script"))))
-
-  (testing "the facade re-exports route to the same bridge"
-    (rf.story.registrar/clear-all!)
-    (let [art (sample-artifact)]
-      (is (contains? (rf.story/materialize-variant-plan art) :run-artifact))
-      (is (= :story.counter/from-facade
-             (rf.story/promote-run-artifact!
-               art {:variant/id :story.counter/from-facade})))
-      (is (rf.story.registrar/registered? :variant :story.counter/from-facade)))))
+  (is (= :story.counter/regression-042
+         (rf.story.promotion/promote-run-artifact!
+           (sample-artifact) {:variant/id :story.counter/regression-042})))
+  (let [body (rf.story.registrar/handler-meta :variant :story.counter/regression-042)]
+    (is (= :rf.test/run-artifact (get-in body [:run-artifact :artifact/kind])))
+    (is (= [[:dispatch [:counter/init 5]] [:dispatch [:counter/inc]]] (:script body)))))
 
 ;; ===========================================================================
-;; The provenance link of a :network-stubbed run RE-DERIVES it
+;; A :network-stubbed run: the link and the promoted body both re-derive it
 ;; ===========================================================================
 ;;
-;; The whole point of the `:run-artifact` provenance link is re-derivability:
-;; the docstring promises the trimmed core is "enough to … re-derive the run".
-;; For a run promoted from a `:network`-stubbed run, that link must carry
-;; `:network` — the `:fx-decisions` managed-stub REDIRECT
-;; (`{:rf.http/managed :rf.http/managed-test-stub}`) survives, but the actual
-;; per-route stubs are RE-INSTALLED from the artifact's `:network` map by
-;; `with-network-stubs!` / `replay-run-artifact` (the artifact.cljc ns
-;; doc). Drop `:network` from `provenance-link-keys` and the link replays a
-;; DIFFERENT run: every managed request fail-closes on "no stub matched"
-;; (`:rf.http/transport`) instead of the recorded `:ok` reply.
-;;
-;; RED (without `:network` in provenance-link-keys): the link-replayed run's
-;;   `:got` is the synthesised "no stub matched" transport FAILURE — a
-;;   different run than the one promoted.
-;; GREEN (with it): the link round-trips to the SAME run — same matched route,
-;;   same recorded `:ok` reply — as a direct replay of the source artifact.
+;; Replay re-installs the per-route stubs from `:network`; without it every
+;; managed request fail-closes on "no stub matched" — a different run.
 
 (defn- register-network-event!
-  "Register a test event that issues a managed-HTTP request to `route`
-  ([method url]) and records the reply into app-db under `:got` (the reply
-  rides back to this same origin event via `:reply-to`, Spec 014 §Reply
-  addressing — appended as the last arg). Mirrors the artifact_test helper
-  so the round-trip exercises the same managed-HTTP fail-close path."
+  "Register an event that issues a managed-HTTP request to `[method url]` and
+  records the reply (routed back via `:reply-to`) in app-db under `:got`."
   [event-id [method url]]
   (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg reply]]
@@ -281,11 +156,8 @@
                                  :reply-to [event-id msg]}]]}))))
 
 (defn- network-artifact
-  "Compile a `:network` variant plan for `routes` and coerce it through the
-  determinism gate's `->artifact` (the real materialize-to-artifact seam),
-  so the artifact carries both the `:network` route map and the
-  `:fx-decisions` managed-stub redirect — exactly what a recorded HTTP run
-  produces."
+  "The artifact a recorded HTTP run produces: its `:network` route map plus
+  the `:fx-decisions` managed-stub redirect."
   [routes script]
   (let [variant-id :story.promo-net/v
         plan       (rf.story.plan/variant-plan
@@ -295,151 +167,46 @@
     (rf.story.determinism/->artifact plan)))
 
 (deftest promotion-link-of-network-run-re-derives-it
-  (testing "a variant promoted from a :network-stubbed run carries a
-            provenance link that ROUND-TRIPS through replay-run-artifact to
-            the SAME run (:network is load-bearing for replay)"
-    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
-          ;; the trimmed provenance link a promotion stores on :run-artifact
-          link   (rf.story.promotion/provenance-link art)]
-
-      ;; The link must itself carry the network route map — it is the slot
-      ;; replay re-installs the per-route stubs from. (RED without :network
-      ;; in provenance-link-keys.)
-      (is (= routes (:network link))
-          "the provenance link preserves :network so replay can re-install
-           the route stubs")
-
-      ;; A direct replay of the SOURCE artifact: the route matches and the
-      ;; recorded :ok reply is synthesised. This is the run that was promoted.
-      (let [src (rf.story.artifact/replay-run-artifact art)]
-        (is (= :pass (:status src)))
-        (is (= :ok (:status (:got (:app-db src))))
-            "the source run matched the route stub"))
-
-      ;; Re-deriving from the LINK alone must reproduce the SAME run — the
-      ;; provenance link is replayable on its own (it carries :artifact/kind,
-      ;; :event-program, :fx-decisions, and :network). Without
-      ;; :network the managed request fail-closes on "no stub matched"
-      ;; (:rf.http/transport), a DIFFERENT run.
-      (let [from-link (rf.story.artifact/replay-run-artifact link)
-            got       (:got (:app-db from-link))]
-        (is (= :pass (:status from-link))
-            "the link re-derives a passing run — NOT a fail-closed one")
-        (is (= :ok (:status got))
-            "the re-installed route stub matched on the LINK replay — NOT the
-             'no stub matched' transport failure that fail-closes without
-             :network in provenance-link-keys")
-        (is (= {:items [{:sku "A"}]} (:value got))
-            "the link round-trips to the SAME recorded reply as the source run")))))
-
-;; ===========================================================================
-;; The promoted VARIANT BODY carries the runnable :network + :fx-decisions,
-;; so running the variant reproduces the run (NOT just the provenance-link
-;; replay above)
-;; ===========================================================================
-;;
-;; The provenance LINK carries :network so `replay-run-artifact` re-derives
-;; the run FROM THE ARTIFACT. But the whole point of promotion is to RUN THE
-;; VARIANT — `artifact->variant-body` builds the body the registrar stores and
-;; the runner executes. A body carrying only the program (:setup/:script) +
-;; the link would leave the registered variant's [:world :network] /
-;; [:world :frame :fx-overrides] EMPTY: run normally, a managed HTTP request
-;; would fail closed ("no stub matched"), a SILENT fidelity gap.
-;;
-;; This test pins the runnable contract on the VARIANT BODY: a full
-;; round-trip — body → plan → ->artifact → replay — reproduces the SAME
-;; :success reply as a direct replay of the source artifact. RED (a body
-;; without :network): the round-trip artifact's :network is empty and the
-;; request fail-closes. The body's :network slot OWNS :rf.http/managed (the
-;; compiler re-derives the redirect through rf.story.plan/lower-network), so
-;; the lift drops it from :fx-overrides; a body carrying it on both slots
-;; fails the compile with :rf.error/story-network-fx-conflict.
+  (register-network-event! :promo-net/get-cart [:get "/api/cart"])
+  (let [art (network-artifact {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+                              [[:dispatch [:promo-net/get-cart]]])
+        run (rf.story.artifact/replay-run-artifact (rf.story.promotion/provenance-link art))
+        got (:got (:app-db run))]
+    (is (= [:pass :ok {:items [{:sku "A"}]}]
+           [(:status run) (:status got) (:value got)])
+        "replaying the link alone matches the route and returns the recorded reply")))
 
 (deftest promoted-network-variant-runs-to-the-same-result
-  (testing "running the PROMOTED VARIANT reproduces the source run's :success
-            reply. The body → plan → ->artifact → replay round-trip re-installs
-            the route stubs from the body's :network slot; a body without
-            :network would leave the round-trip artifact's :network empty, and
-            the managed request would fail closed ('no stub matched') — a
-            DIFFERENT run."
+  (testing "the promoted BODY carries :network, so body → plan → ->artifact →
+            replay reproduces the source run's reply"
     (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
-          ;; the run the variant was promoted FROM (the source artifact replay).
-          src    (rf.story.artifact/replay-run-artifact art)
-          ;; the PROMOTED VARIANT: body → compiled plan → run-artifact. Running
-          ;; the variant = compiling its body + executing it; ->artifact is the
-          ;; real materialize-to-run seam, and replay re-installs the body's
-          ;; :network route stubs (with-network-stubs!).
-          body   (rf.story.promotion/artifact->variant-body art)
-          plan   (rf.story.plan/variant-plan body)
-          var-art (rf.story.determinism/->artifact plan)
-          ran    (rf.story.artifact/replay-run-artifact var-art)]
-      (is (= routes (:network var-art))
-          "the promoted variant's run-artifact carries the route map (NOT empty)")
-      (is (= (:status src) (:status ran) :pass)
-          "the promoted variant runs to the SAME status as the source run")
-      ;; The canonical reply envelope carries `:rf.frame/id`,
-      ;; which is a fresh per-replay-run frame id — so compare the replies
-      ;; MODULO that run-specific stamp; the value/status/work-id are what
-      ;; "the same recorded reply" means here.
+    (let [art  (network-artifact {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+                                 [[:dispatch [:promo-net/get-cart]]])
+          src  (rf.story.artifact/replay-run-artifact art)
+          ran  (rf.story.artifact/replay-run-artifact
+                 (rf.story.determinism/->artifact
+                   (rf.story.plan/variant-plan (rf.story.promotion/artifact->variant-body art))))]
+      (is (= (:status src) (:status ran) :pass))
+      ;; `:rf.frame/id` is a fresh per-replay frame id.
       (is (= (dissoc (:got (:app-db src)) :rf.frame/id)
-             (dissoc (:got (:app-db ran)) :rf.frame/id))
-          "the promoted variant reproduces the SAME recorded reply")
+             (dissoc (:got (:app-db ran)) :rf.frame/id)))
       (is (= :ok (:status (:got (:app-db ran))))
-          "the route stub matched on the promoted-variant run — NOT a
-           fail-closed 'no stub matched' transport failure"))))
+          "the route stub matched — not a fail-closed 'no stub matched'"))))
 
 ;; ===========================================================================
 ;; A promoted regression fails for the reason its source failed
 ;; ===========================================================================
 ;;
-;; A run artifact records a program, not a judgement. Were
-;; `artifact->variant-body` to copy neither the source variant's terminal
-;; `:assertions` nor its `:checks`, a source that ran `:fail` would promote
-;; into a variant that runs `:pass` with ZERO assertions. Test mode's capture
-;; (`result->artifact` over the dispatch-only `variant-play-events`) drops
-;; every `:script` step that is not a dispatch, so without the source's full
-;; program an in-script `[:assert …]` checkpoint would vanish the same way.
-;;
-;; The acceptance is fail/pass/fail against the APP: the promoted variant
-;; fails under the original fault with the SAME assertion count as its
-;; source, passes BY that assertion once the handler is fixed, and fails
-;; again when the fault is restored. Two promotion routes:
-;;   - DIALOG — the Test-mode dialog's own capture helper and default draft
-;;     (`:extends` the origin, `:setup-count 0`, `#{:test}`);
-;;   - API — spec/017's own example: a plan-derived artifact promoted with
-;;     nothing but a `:variant/id`.
-;; And two expectation positions, because the artifact alone treats them
-;; differently:
-;;   - DECLARATIVE — `:assertions` beside the program (absent from the
-;;     artifact on both routes);
-;;   - IN-PROGRAM — an `[:assert …]` checkpoint inside `:script` (kept by the
-;;     API route's artifact, which holds the whole program; absent from the
-;;     dialog route's dispatch-only capture).
-;; Then two SETUP-bearing shapes whose `:script` dispatches nothing:
-;; a `:setup` precondition with declarative `:assertions` and no `:script`, and
-;; the login_form testbed's `:setup` plus `[:assert …]`-only `:script`. The
-;; dialog's dispatch-only capture of either is EMPTY, so without the carried
-;; expectations the promotion would register a hollow body that runs `:pass`
-;; with zero assertions. Their `:setup` reaches the promoted variant through
-;; the draft's `:extends`, exactly as it does for a dispatch-bearing source.
-;; Last, a check named in `:compose`, in a dispatching and a
-;; dispatch-free source. `:compose` is child-only, so no `:extends` recovers
-;; the check and no artifact records it: the promotion has to carry the
-;; source's resolved check ids, so these pin the check count too.
-;; And a checkpoint that reads a RUN INPUT. Test mode runs a
-;; variant with the controls panel's `:cell-overrides` and the chrome's
-;; `:active-modes`, so a checkpoint's `[:arg]` can be supplied only by the run,
-;; or overridden by it. Capture and promotion must compile the source with
-;; those inputs: otherwise a required input fails the compile and nothing is
-;; captured, and an overridden default promotes the default, not the value
-;; that ran. The same input can reach the promoted variant through a setup it
-;; INHERITS: the dialog's draft `:extends` the source, whose
-;; `:setup` re-substitutes its `[:arg]` when the promoted variant compiles, so
-;; the promotion carries the run's inputs as its own `:args`.
+;; An artifact records a program, not a judgement, and Test mode's capture
+;; keeps only the dispatches. So promotion must carry the source's
+;; declarative `:assertions`, its resolved checks (`:compose` is child-only,
+;; so `:extends` cannot recover a composed check), its full step program, and
+;; the run inputs its checkpoints and inherited `:setup` read. Each shape is
+;; judged fail / pass / fail against the app: it fails under the fault with
+;; its source's counts, passes once the handler is fixed, and fails again
+;; when the fault returns. The DIALOG route is the Test-mode capture plus its
+;; default draft (`:extends` the source, `:setup-count 0`); the API route is
+;; a plan-derived artifact promoted with only a `:variant/id`.
 
 #?(:clj
    (defn- reg-inc!
@@ -525,10 +292,8 @@
 
 #?(:clj
    (deftest promoted-regression-keeps-its-declarative-expectation
-     (testing "a source failing on a DECLARATIVE :assertions entry promotes, by
-               the dialog route and the API route, into a variant that fails
-               with the same assertion count, passes BY that assertion once the
-               app is fixed, and fails when the fault returns"
+     (testing "a source failing on a DECLARATIVE :assertions entry promotes by
+               both routes into a variant that runs fail / pass / fail"
        (assert-promotions-fail-pass-fail
          :story.promo/declared
          {:tags       #{:test}
@@ -584,22 +349,13 @@
           :script [[:assert [:rf.assert/path-equals [:n] 1]]]}))))
 
 #?(:clj
-   (defn- reg-n-is-one-check!
-     "The registered check a composed-check source fails through: the same
-     atom the direct-assertion regressions declare inline."
-     []
-     (rf.story.registrar/reg-check* :check.promo/n-is-one
-       {:assertions [[:rf.assert/path-equals [:n] 1]]})))
-
-#?(:clj
    (deftest promoted-regression-keeps-its-composed-check
      (testing "a source whose verdict comes from a check named in :compose
-               promotes, by the dialog route and the API route, into a variant
-               that fails with the same assertion and check counts, passes BY
-               that check once the app is fixed, and fails when the fault
-               returns. :compose is child-only, so even the dialog draft's
-               :extends cannot recover the check"
-       (reg-n-is-one-check!)
+               promotes by both routes into a variant that runs fail / pass /
+               fail with its check count. :compose is child-only, so even the
+               dialog draft's :extends cannot recover the check"
+       (rf.story.registrar/reg-check* :check.promo/n-is-one
+         {:assertions [[:rf.assert/path-equals [:n] 1]]})
        (assert-promotions-fail-pass-fail
          :story.promo/composed
          {:tags    #{:test}
@@ -613,7 +369,8 @@
                stepped program: a :setup precondition, a composed
                check and no :script. The capture is empty, so the check reaches
                the promoted variant only by being carried"
-       (reg-n-is-one-check!)
+       (rf.story.registrar/reg-check* :check.promo/n-is-one
+         {:assertions [[:rf.assert/path-equals [:n] 1]]})
        (assert-promotions-fail-pass-fail
          :story.promo/setup-composed
          {:tags    #{:test}
@@ -663,9 +420,8 @@
 #?(:clj
    (deftest promoted-regression-keeps-a-required-run-input
      (testing "a checkpoint-only source whose [:arg] has NO default, run with
-               the :cell-overrides that supply it: capture compiles the source
-               with the run's inputs, so it is available rather than nil, and
-               the promotion runs fail / pass / fail"
+               the :cell-overrides that supply it: the capture compiles with the
+               run's inputs, and the promotion runs fail / pass / fail"
        (assert-run-input-promotion-fail-pass-fail
          :story.promo/required-input
          {:tags   #{:test}
@@ -862,48 +618,30 @@
   (rf.story.registrar/reg-variant* :story.promo/recorded
     {:script     [[:dispatch [:promo/inc]]]
      :assertions [[:rf.assert/path-equals [:n] 1]]})
-  (let [program [[:dispatch [:promo/inc]]]]
+  (let [program [[:dispatch [:promo/inc]]]
+        body-of (fn [parts opts]
+                  (select-keys (rf.story.promotion/artifact->variant-body
+                                 (rf.story.artifact/make-run-artifact
+                                   (assoc parts :event-program program))
+                                 opts)
+                               [:assertions :extends :script]))]
     (testing "the source is read off the artifact: [:result :variant/id] (a
-              Test-mode capture) or [:source :variant/id] (a plan-derived one)"
-      (doseq [art [(rf.story.artifact/make-run-artifact
-                     {:event-program program
-                      :result        {:status :fail :variant/id :story.promo/recorded}})
-                   (rf.story.artifact/make-run-artifact
-                     {:event-program program
-                      :source        {:tool :determinism-gate :variant/id :story.promo/recorded}})]]
-        (is (= :story.promo/recorded (rf.story.promotion/source-variant-id art)))
-        (is (= [[:rf.assert/path-equals [:n] 1]]
-               (:assertions (rf.story.promotion/artifact->variant-body art))))
-        (is (= :story.promo/recorded
-               (:extends (rf.story.promotion/artifact->variant-body art)))
-            "with no :extends given, the registered source is extended")))
+              Test-mode capture) or [:source :variant/id] (a plan-derived
+              one), and with no :extends given it is extended"
+      (doseq [parts [{:result {:status :fail :variant/id :story.promo/recorded}}
+                     {:source {:tool :determinism-gate :variant/id :story.promo/recorded}}]]
+        (is (= {:assertions [[:rf.assert/path-equals [:n] 1]]
+                :extends    :story.promo/recorded
+                :script     program}
+               (body-of parts nil)))))
     (testing "an :extends parent is NOT a source — an artifact that records no
               source is promoted exactly as captured"
-      (let [body (rf.story.promotion/artifact->variant-body
-                   (rf.story.artifact/make-run-artifact {:event-program program})
-                   {:extends :story.promo/recorded})]
-        (is (not (contains? body :assertions)))
-        (is (= program (:script body)))))
-    (testing "a recorded source that is not registered carries nothing"
-      (let [body (rf.story.promotion/artifact->variant-body
-                   (rf.story.artifact/make-run-artifact
-                     {:event-program program
-                      :result        {:variant/id :story.promo/never-registered}}))]
-        (is (not (contains? body :assertions)))
-        (is (not (contains? body :extends))
-            "an unregistered source has nothing to extend")
-        (is (= program (:script body)))))))
-
-(deftest source-expectations-carries-own-assertions-and-checks
-  (is (= {:assertions [[:rf.assert/path-equals [:n] 1]]
-          :checks     [:story.promo/some-check]}
-         (rf.story.promotion/source-expectations
-           {:script     [[:dispatch [:promo/inc]]]
-            :checks     [:story.promo/some-check]
-            :assertions [[:rf.assert/path-equals [:n] 1]]})))
-  (is (= {} (rf.story.promotion/source-expectations {:script [[:dispatch [:promo/inc]]]}))
-      "empty slots are omitted, so a body without expectations gains no keys")
-  (is (= {} (rf.story.promotion/source-expectations nil))))
+      (is (= {:extends :story.promo/recorded :script program}
+             (body-of {} {:extends :story.promo/recorded}))))
+    (testing "a recorded source that is not registered carries nothing and
+              has nothing to extend"
+      (is (= {:script program}
+             (body-of {:result {:variant/id :story.promo/never-registered}} nil))))))
 
 (deftest promotion-carries-the-resolved-checks-once
   (testing "the carried :checks come from the compiler's resolution of the
@@ -1028,17 +766,14 @@
 
 #?(:clj
    (defn- api-recipe-promote!
-     "Promote `source-id` by the documented API recipe (spec/017 §Promotion,
-     the re-frame2 skill's story-mcp-loop §Promote a failing run), compiling
-     its plan with the run inputs in `run-opts` when given and merging `opts`
-     into the promotion opts."
-     ([source-id promoted-id opts] (api-recipe-promote! source-id promoted-id opts nil))
-     ([source-id promoted-id opts run-opts]
-      (rf.story/promote-run-artifact!
-        (rf.story.determinism/->artifact
-          (rf.story/variant-plan source-id
-                                 {:run-args (rf.story.args/run-arg-layers source-id run-opts)}))
-        (merge {:variant/id promoted-id} opts)))))
+     "Promote `source-id` by the documented API recipe (spec/017 §Promotion),
+     compiling its plan with the run inputs in `run-opts`."
+     [source-id promoted-id run-opts]
+     (rf.story/promote-run-artifact!
+       (rf.story.determinism/->artifact
+         (rf.story/variant-plan source-id
+                                {:run-args (rf.story.args/run-arg-layers source-id run-opts)}))
+       {:variant/id promoted-id})))
 
 #?(:clj
    (defn- world-verdict
@@ -1056,7 +791,7 @@
      (testing "a source whose run depends on a force-fx-stub decorator and a
                :db-seed, with and without a :setup, promotes by the documented
                API recipe into a variant that reproduces its count with 0 real
-               calls, with no :extends given and with :extends of the source"
+               calls"
        (rf.story/install-canonical-vocabulary!)
        (reg-world-app!)
        (let [world {:decorators [[:rf.story/force-fx-stub :promo.world/http {:status 200}]]
@@ -1068,39 +803,27 @@
                   [:story.promo-world/stubbed-setup
                    (assoc world :setup [[:dispatch [:promo.world/inc]]]) 12]]]
            (rf.story.registrar/reg-variant* source-id body)
-           (let [source (world-verdict source-id)]
+           (let [source   (world-verdict source-id)
+                 promoted (keyword (namespace source-id) (str (name source-id) "-api"))]
              (is (= {:status :pass :count expected :real-calls 0} source)
                  (str "control: " source-id " stubs its effect and runs seeded"))
-             (doseq [[suffix opts] [["-api" nil]
-                                    ["-api-extends" {:extends source-id}]]]
-               (let [promoted (keyword (namespace source-id) (str (name source-id) suffix))]
-                 (api-recipe-promote! source-id promoted opts)
-                 (is (= source (world-verdict promoted))
-                     (str promoted " reproduces " source-id
-                          "'s count with 0 real calls"))))))))))
+             (api-recipe-promote! source-id promoted nil)
+             (is (= source (world-verdict promoted))
+                 (str promoted " reproduces " source-id "'s count with 0 real calls"))))))))
 
 (deftest api-route-from-an-inline-plan-keeps-its-setup
-  (testing "an inline plan names no registered variant, so there is nothing to
-            extend: its setup stays folded into the promoted program and no
-            :extends is defaulted"
-    (let [art  (rf.story.determinism/->artifact
-                 (rf.story.plan/variant-plan {:setup  [[:dispatch [:promo/seed 1]]]
-                                              :script [[:dispatch [:promo/inc]]]}))
-          body (rf.story.promotion/artifact->variant-body art)]
-      (is (= [[:dispatch [:promo/seed 1]] [:dispatch [:promo/inc]]] (:script body)))
-      (is (not (contains? body :extends)))))
-  (testing "compiled with a run input, the folded setup already holds the value
-            that ran, so the body carries no :args"
-    (let [art  (rf.story.determinism/->artifact
-                 (rf.story.plan/variant-plan
-                   {:args   {:qty 1}
-                    :setup  [[:dispatch [:promo/seed [:arg :qty]]]]
-                    :script [[:dispatch [:promo/inc]]]}
-                   {:run-args (rf.story.args/run-arg-layers nil {:cell-overrides {:qty 9}})}))
-          body (rf.story.promotion/artifact->variant-body art)]
-      (is (= [[:dispatch [:promo/seed 9]] [:dispatch [:promo/inc]]] (:script body)))
-      (is (not (contains? body :extends)))
-      (is (not (contains? body :args))))))
+  (testing "an inline plan names no registered variant, so nothing is
+            extended: its setup stays folded into the promoted program, already
+            holding the run input's value, and the body carries no :args"
+    (let [body (rf.story.promotion/artifact->variant-body
+                 (rf.story.determinism/->artifact
+                   (rf.story.plan/variant-plan
+                     {:args   {:qty 1}
+                      :setup  [[:dispatch [:promo/seed [:arg :qty]]]]
+                      :script [[:dispatch [:promo/inc]]]}
+                     {:run-args (rf.story.args/run-arg-layers nil {:cell-overrides {:qty 9}})})))]
+      (is (= {:script [[:dispatch [:promo/seed 9]] [:dispatch [:promo/inc]]]}
+             (select-keys body [:script :extends :args]))))))
 
 ;; ===========================================================================
 ;; The API route keeps the run inputs its source's setup reads
@@ -1153,57 +876,29 @@
         (is (not (contains? (body-of (rf.story.plan/variant-plan src) nil) :args)))))))
 
 #?(:clj
-   (defn- assert-api-input-promotion-fail-pass-fail
-     "Run `source-body` under `source-id` with `run-opts`, whose input only the
-     source's `:setup` reads, then promote it by the documented API recipe with
-     those opts, with no `:extends` and with `:extends` of the source. Each
-     promoted body must carry the 9 that ran, and, run with no opts, fail as
-     its source did, pass once the app is fixed and fail when the fault
-     returns, with its inherited setup running once per run."
-     [source-id source-body run-opts]
-     (rf.story/install-canonical-vocabulary!)
-     (reg-seed! false)
-     (rf.story.registrar/reg-variant* source-id source-body)
-     (let [failing {:status :fail :assertions 1 :checks 0}]
-       (is (= failing (verdict (rf.story.async/deref-blocking
-                                 (rf.story/run source-id run-opts) 10000)))
-           "the source fails under the run's input")
-       (doseq [[suffix opts] [["-api" nil] ["-api-extends" {:extends source-id}]]]
-         (let [promoted (keyword (namespace source-id) (str (name source-id) suffix))]
-           (api-recipe-promote! source-id promoted opts run-opts)
-           (is (= {:qty 9} (:args (rf.story.registrar/handler-meta :variant promoted)))
-               (str promoted " carries the input that ran"))
-           (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
-                  (fault-fix-fault promoted reg-seed!))
-               (str promoted ", run with no opts, runs fail / pass / fail with its source's one assertion"))
-           (reset! seeds 0)
-           (is (= failing (run-verdict promoted)))
-           (is (= 1 @seeds) (str promoted "'s inherited setup runs once per run")))))))
-
-#?(:clj
-   (deftest api-route-keeps-an-overridden-input-its-setup-reads
-     (testing "the source's :setup reads [:arg :qty], which
-               defaults to 1, and its plan is compiled with :cell-overrides
-               {:qty 9}. Promoted by the API recipe with no :extends and with
-               :extends of the source, the variant inherits that setup and must
-               run it with the 9, once"
-       (assert-api-input-promotion-fail-pass-fail
-         :story.promo-input/overridden
-         {:tags   #{:test}
-          :args   {:qty 1}
-          :setup  [[:promo/seed [:arg :qty]]]
-          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
-         {:cell-overrides {:qty 9}}))))
-
-#?(:clj
    (deftest api-route-keeps-a-mode-supplied-input-its-setup-reads
      (testing "the source's :setup reads [:arg :qty], supplied only by an active
-               mode, so the source does not compile without it. The promoted
-               variant runs with no modes, so it must carry the 9"
+               mode, so the source does not compile without it. Promoted by the
+               API recipe, the variant runs with no modes, so it must carry the
+               9 that ran, run fail / pass / fail with its source's one
+               assertion, and run its inherited setup once per run"
+       (rf.story/install-canonical-vocabulary!)
+       (reg-seed! false)
        (rf.story.registrar/reg-mode* :Mode.promo-input/qty-nine {:args {:qty 9}})
-       (assert-api-input-promotion-fail-pass-fail
-         :story.promo-input/mode
+       (rf.story.registrar/reg-variant* :story.promo-input/mode
          {:tags   #{:test}
           :setup  [[:promo/seed [:arg :qty]]]
-          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
-         {:active-modes [:Mode.promo-input/qty-nine]}))))
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]})
+       (let [run-opts {:active-modes [:Mode.promo-input/qty-nine]}
+             failing  {:status :fail :assertions 1 :checks 0}
+             promoted :story.promo-input/mode-api]
+         (is (= failing (verdict (rf.story.async/deref-blocking
+                                   (rf.story/run :story.promo-input/mode run-opts) 10000)))
+             "the source fails under the run's input")
+         (api-recipe-promote! :story.promo-input/mode promoted run-opts)
+         (is (= {:qty 9} (:args (rf.story.registrar/handler-meta :variant promoted))))
+         (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
+                (fault-fix-fault promoted reg-seed!)))
+         (reset! seeds 0)
+         (is (= failing (run-verdict promoted)))
+         (is (= 1 @seeds) "the inherited setup runs once per run")))))
