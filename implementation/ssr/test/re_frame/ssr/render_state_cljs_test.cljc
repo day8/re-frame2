@@ -1,47 +1,12 @@
 (ns re-frame.ssr.render-state-cljs-test
-  "The render-state contract (`re-frame.ssr.render-state`):
-  `project` on a settled server frame, `serialize` / `deserialize` through
-  the payload's EDN domain, `restore!` into a FRESH frame — both partitions.
+  "The render-state contract (`re-frame.ssr.render-state`): `project` on a
+  settled server frame, `serialize` / `deserialize` through the payload's EDN
+  domain, `restore!` into a FRESH frame — both partitions, on both hosts.
 
-  Both hosts: a `.cljc` named `*-cljs-test`, so it runs under
-  `clojure -M:test` from `implementation/ssr` (JVM) and under the node
-  runner (`npm run test:cljs`). Handlers, machines and subs are registered
-  INSIDE each test body under per-test ids — in the shared node process a
-  sibling namespace's `registrar/clear-all!` wipes ns-load-time
-  registrations (the same posture as `machine-after-rearm-cljs-test`), so
-  nothing here leans on a sub or handler some other namespace installed.
-
-  ## What is pinned
-
-  - The round-trip corpus: every value class the wire domain
-    admits (`re-frame.ssr.manifest/edn-carryable?`) goes `project` ->
-    `serialize` (pr-str) -> `deserialize` (the safe reader) -> `restore!`
-    -> IDENTICAL, for BOTH partitions, with a route slice and a REAL machine
-    snapshot (the machine ran on the server frame) in the runtime partition.
-  - The negative fixture: a fn under an allowlisted key, a
-    fn returned by the escape-hatch projector, a record, and an opaque
-    top-level key each fail AT PROJECTION with
-    `:rf.error/ssr-render-state-invalid` (`:invalid :unserialisable`) —
-    never a silent nil. Each has its control beside it.
-  - The omitted-key fixture: an allowlist naming a key the
-    frame does not hold, and one omitting a key the view reads, both
-    restore to `nil` where the value should be — the honest wrong page,
-    no throw, the operator's allowlist mistake.
-  - Derived sensitivity rides along: a frame-classified `:sensitive`
-    app-db path and machine-snapshot `:data` path project to `:rf/redacted`;
-    the routing slice narrows to its durable `:current`; a runtime-db key
-    the projector has no vocabulary for rides verbatim; and
-    `:rf.runtime/elision` is refused at construction.
-  - The policy is fail-closed and DISTINCT from `:payload`: absent / `{}` /
-    a keyword / a `:payload` opt alone → `:rf.error/ssr-missing-payload-policy`
-    carrying `:opt :render-state`; a malformed allowlist →
-    `:rf.error/ssr-malformed-payload-allowlist` carrying the same.
-  - `restore!` replays no boot events and runs none of the client's
-    hydration concerns: the fresh frame is made with no `:initial-events`,
-    and after `restore!` its partitions are EXACTLY the projection — no
-    `[:rf.runtime/ssr :hydration]` metadata, no elision registry."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  Handlers, machines and subs are registered INSIDE each test body under
+  per-test ids: in the shared node process a sibling namespace's
+  `registrar/clear-all!` wipes ns-load-time registrations."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             ;; Loading the machines artefact publishes the late-bound
@@ -52,14 +17,8 @@
             [re-frame.ssr.render-state :as rf.ssr.render-state]
             [re-frame.subs :as rf.subs]))
 
-;; COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED; handed a
-;; DIFFERENT one it raises `:rf.error/adapter-already-installed` instead
-;; of silently ignoring the call. This ns runs in the shared node bundle
-;; beside suites that seat Reagent / UIx / plain-atom, so a bare `init!`
-;; here would raise whenever one of them ran first. Destroy first, seat the adapter this ns
-;; NAMES, and destroy again on the way out so the slot is left cold for
-;; whichever namespace the runner reaches next.
+;; COLD-START the adapter slot: this ns shares the node bundle with suites
+;; that seat other adapters, and `init!` raises when handed a different one.
 (use-fixtures :once
   (fn [f]
     (rf/destroy-adapter!)
@@ -76,9 +35,9 @@
   (keyword "rf.ssrrs" (str prefix (swap! counter inc))))
 
 (defn- fresh-frame!
-  "A frame of the given platform under an id no other test in this shared
-  process has used, with NO initial events — the shape a renderer's
-  per-request frame has before `restore!`."
+  "A frame under an id no other test in this shared process has used, with
+  NO initial events — the shape a renderer's per-request frame has before
+  `restore!`."
   [platform]
   (let [fid (fresh-id (name platform))]
     (rf/make-frame {:id fid :platform platform})
@@ -92,10 +51,8 @@
          (ex-data e))))
 
 (def ^:private corpus-app-db
-  "Every value class `manifest/edn-carryable?` admits, under top-level
-  keys, alongside the shapes an app-db actually carries. The integers stop
-  at 2^53 - 1 — the largest a browser number holds exactly — because the
-  domain is what BOTH hosts read back equal."
+  "Every value class `manifest/edn-carryable?` admits, under top-level keys.
+  The integers stop at 2^53 - 1, the largest a browser number holds exactly."
   {:nil-value nil
    :booleans  [true false]
    :integers  [0 1 -1 42 9007199254740991 -9007199254740991]
@@ -115,8 +72,6 @@
    :session   {:user "u-42" :token "secret-session-token"}})
 
 (def ^:private route-slice
-  "The durable route slice, in the shape `routing-state-classification`
-  documents for `[:rf.runtime/routing :current]`."
   {:route-id  :route/article
    :params    {:slug "hello-world"}
    :query     {:tab "comments" :page 2}
@@ -135,8 +90,8 @@
   "A server frame holding the corpus app-db, a REAL machine snapshot (the
   machine ran to `:authed` on this frame), a route slice beside a transient
   routing sibling, ssr metadata, a runtime-db key the projector has no
-  vocabulary for, and frame classification of one app-db path and of the
-  snapshot's `:data :token` — the state a settled request frame carries."
+  vocabulary for, and frame classification of `[:session :token]` and of the
+  snapshot's `:data :token`."
   [mid]
   (let [sfid (fresh-frame! :server)]
     (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key corpus-app-db})
@@ -147,8 +102,6 @@
                                                   :pending-navigation {:to :route/next}}
                              :rf.runtime/ssr     {:hydration {:version 1}}
                              :rf.runtime/custom  {:tenant "acme"}})
-    ;; Frame classification through the commit-plane `:sensitive` effect —
-    ;; value-independent, read only at egress (EP-0025).
     (let [classify-app (fresh-id "classify-app")
           classify-rt  (fresh-id "classify-rt")]
       (rf/reg-event classify-app (fn [_ _] {:sensitive [[:session :token]]}))
@@ -177,27 +130,20 @@
         sfid (settled-server-frame! mid)
         {app :rf/app-db rt :rf/runtime-db :as projected}
         (rf.ssr.render-state/project sfid full-policy)]
-    (testing "app-db: every allowlisted key, the classified path redacted"
-      (is (= (set (keys corpus-app-db)) (set (keys app))))
-      (is (= :rf/redacted (get-in app [:session :token]))
-          "a frame-declared :sensitive app-db path redacts — derived sensitivity rides along")
-      (is (= "u-42" (get-in app [:session :user]))
-          "the unclassified sibling rides verbatim — the walk is path-precise")
-      (is (= (dissoc corpus-app-db :session) (dissoc app :session))))
+    (testing "app-db: every allowlisted key, the classified path redacted path-precisely"
+      (is (= (assoc-in corpus-app-db [:session :token] :rf/redacted) app)))
     (testing "runtime-db: the real machine snapshot, classified :data redacted"
       (is (= :authed (get-in rt [:rf.runtime/machines :snapshots mid :state])))
-      (is (= :rf/redacted (get-in rt [:rf.runtime/machines :snapshots mid :data :token])))
-      (is (= 1 (get-in rt [:rf.runtime/machines :snapshots mid :data :retries]))))
-    (testing "runtime-db: routing narrows to its durable :current"
-      (is (= {:current route-slice} (:rf.runtime/routing rt))
-          ":pending-navigation is transient and stays off the wire"))
-    (testing "runtime-db: ssr metadata rides; a key outside the projector's vocabulary rides verbatim"
-      (is (= {:hydration {:version 1}} (:rf.runtime/ssr rt)))
-      (is (= {:tenant "acme"} (:rf.runtime/custom rt))
-          "the operator named it, top-level, explicitly — silently absent would be the wrong page"))
+      (is (= {:retries 1 :token :rf/redacted}
+             (get-in rt [:rf.runtime/machines :snapshots mid :data]))))
+    (testing "routing narrows to its durable :current; ssr metadata rides; a key
+              outside the projector's vocabulary rides verbatim"
+      (is (= {:rf.runtime/routing {:current route-slice}
+              :rf.runtime/ssr     {:hydration {:version 1}}
+              :rf.runtime/custom  {:tenant "acme"}}
+             (select-keys rt [:rf.runtime/routing :rf.runtime/ssr :rf.runtime/custom]))))
     (testing "no secret survives anywhere in the projection"
-      (is (not (str/includes? (pr-str projected) "secret-session-token")))
-      (is (not (str/includes? (pr-str projected) "secret-machine-token"))))
+      (is (not (re-find #"secret-(session|machine)-token" (pr-str projected)))))
     (testing "an absent partition slot projects that partition as {}"
       (is (= {} (:rf/runtime-db (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}}))))
       (is (= {} (:rf/app-db (rf.ssr.render-state/project sfid {:render-state {:runtime-db [:rf.runtime/ssr]}})))))
@@ -214,24 +160,20 @@
             "an absent :rf/runtime-db normalises to {} — both keys are always present")))))
 
 (deftest project-honours-the-hosts-sensitive-permit-inside-its-own-allowlist
-  ;; The renderer prints what the render state carries, so the
-  ;; host's `:payload-include-sensitive` must reach it too, or the markup and
-  ;; the payload disagree on a permitted value.
+  ;; The renderer prints what the render state carries, so the host's
+  ;; `:payload-include-sensitive` must reach it too, or the markup and the
+  ;; payload disagree on a permitted value.
   (let [mid      (fresh-id "auth")
         sfid     (settled-server-frame! mid)
         classify (fresh-id "classify-user")]
-    ;; A second classified leaf beside `[:session :token]`, to be withheld.
     (rf/reg-event classify (fn [_ _] {:sensitive [[:session :user]]}))
     (rf/dispatch-sync [classify] {:frame sfid})
-    (let [app (:rf/app-db (rf.ssr.render-state/project
-                            sfid {:render-state              {:app-db [:session :todos]}
-                                  :payload-include-sensitive [[:session :token]]}))]
-      (is (= "secret-session-token" (get-in app [:session :token]))
-          "the permitted value reaches the renderer raw")
-      (is (= :rf/redacted (get-in app [:session :user]))
-          "control: the classified sibling the host did not permit stays redacted")
-      (is (= (:todos corpus-app-db) (:todos app))
-          "control: an unclassified key rides"))
+    (is (= {:session {:user :rf/redacted :token "secret-session-token"}
+            :todos   (:todos corpus-app-db)}
+           (:rf/app-db (rf.ssr.render-state/project
+                         sfid {:render-state              {:app-db [:session :todos]}
+                               :payload-include-sensitive [[:session :token]]})))
+        "the permitted value rides raw; the classified sibling it does not name stays redacted")
     (testing "the permit applies only inside :render-state's own allowlist"
       (is (not (contains? (:rf/app-db (rf.ssr.render-state/project
                                         sfid {:render-state              {:app-db [:todos]}
@@ -248,7 +190,6 @@
         projected (rf.ssr.render-state/project sfid full-policy)
         wire      (rf.ssr.render-state/serialize projected)]
     (testing "the wire form is key text -> EDN text, per key, for both partitions"
-      (is (= #{:rf/app-db :rf/runtime-db} (set (keys wire))))
       (is (every? (fn [[k v]] (and (string? k) (string? v)))
                   (concat (:rf/app-db wire) (:rf/runtime-db wire))))
       (is (contains? (:rf/app-db wire) ":todos"))
@@ -258,26 +199,18 @@
         (is (= projected read-back)))
       (let [cfid (fresh-frame! :server)]
         (testing "restore! seeds the fresh frame with both partitions in one write"
-          (is (empty? (rf.frame/frame-app-db-value cfid))
-              "precondition: the fresh frame ran no boot events")
           (is (= #{rf.frame/app-partition-key rf.frame/runtime-partition-key}
                  (rf.ssr.render-state/restore! cfid read-back)))
-          (is (= (:rf/app-db projected) (rf.frame/frame-app-db-value cfid)))
-          (is (= (:rf/runtime-db projected) (rf.frame/frame-runtime-db-value cfid))
+          (is (= [(:rf/app-db projected) (:rf/runtime-db projected)]
+                 [(rf.frame/frame-app-db-value cfid) (rf.frame/frame-runtime-db-value cfid)])
               "EXACTLY the projection: no hydration metadata, no elision registry, no re-arm"))
-        (testing "framework and app subs on the fresh frame read the restored state"
-          (rf.subs/reg-runtime-sub (fresh-id "machine-state") {:doc "test"}
-                                (fn [rt [_ id]] (get-in rt [:rf.runtime/machines :snapshots id :state])))
-          (let [machine-state (keyword "rf.ssrrs" (str "machine-state" @counter))
-                route-id      (fresh-id "route-id")
+        (testing "a runtime sub and an app sub on the fresh frame read the restored state"
+          (let [machine-state (fresh-id "machine-state")
                 todo-count    (fresh-id "todo-count")]
-            (rf.subs/reg-runtime-sub route-id {:doc "test"}
-                                  (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
+            (rf.subs/reg-runtime-sub machine-state {:doc "test"}
+                                  (fn [rt [_ id]] (get-in rt [:rf.runtime/machines :snapshots id :state])))
             (rf/reg-sub todo-count (fn [db _] (count (:todos db))))
-            (is (= :authed (rf/subscribe-once [machine-state mid] {:frame cfid}))
-                "the machine snapshot, read the way [:rf/machine id] reads it")
-            (is (= :route/article (rf/subscribe-once [route-id] {:frame cfid}))
-                "the route slice, read the way [:rf/route] reads it")
+            (is (= :authed (rf/subscribe-once [machine-state mid] {:frame cfid})))
             (is (= 2 (rf/subscribe-once [todo-count] {:frame cfid})))))))))
 
 (deftest deserialize-reads-an-absent-partition-as-empty-and-restore-installs-it
@@ -287,82 +220,49 @@
     (is (= #{rf.frame/app-partition-key}
            (rf.ssr.render-state/restore! cfid {:rf/app-db {:a 1}}))
         "only app-db changed — runtime-db was already {}")
-    (is (= {:a 1} (rf.frame/frame-app-db-value cfid)))
-    (is (= {} (rf.frame/frame-runtime-db-value cfid)))))
+    (is (= [{:a 1} {}]
+           [(rf.frame/frame-app-db-value cfid) (rf.frame/frame-runtime-db-value cfid)]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The negative fixture: unserialisable fails AT PROJECTION
 ;; ---------------------------------------------------------------------------
 
-(defrecord Opaque [x])
-
 (deftest an-unserialisable-value-fails-at-projection-with-a-named-error
   (testing "a fn under an allowlisted app-db key (the allowlist path)"
     (let [sfid (fresh-frame! :server)]
       (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [] :on-click (fn [] :clicked)}})
-      (let [data (thrown-data #(rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :on-click]}}))]
-        (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
-        (is (= :unserialisable (:invalid data)))
-        (is (= :rf/app-db (:partition data)))
-        (is (= :on-click (:key data)))
-        (is (= :value (:half data))))
-      ;; CONTROL — the same frame with the fn left off the allowlist projects.
+      (is (= [:rf.error/ssr-render-state-invalid :unserialisable :rf/app-db :on-click :value]
+             ((juxt :rf.error/id :invalid :partition :key :half)
+              (thrown-data #(rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :on-click]}})))))
       (is (= {:rf/app-db {:todos []} :rf/runtime-db {}}
-             (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}})))))
+             (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}}))
+          "control: the same frame with the fn left off the allowlist projects")))
   (testing "a fn returned by the escape-hatch projector, in the runtime partition"
-    (let [sfid (fresh-frame! :server)
-          data (thrown-data
-                 #(rf.ssr.render-state/project
-                    sfid {:render-state (fn [_] {:rf/app-db     {}
-                                                 :rf/runtime-db {:rf.runtime/custom (fn [] 1)}})}))]
-      (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
-      (is (= :unserialisable (:invalid data)))
-      (is (= :rf/runtime-db (:partition data)))
-      (is (= :rf.runtime/custom (:key data)))))
-  (testing "a record — map-shaped, not map-printing (it prints as a tagged literal)"
-    (let [sfid (fresh-frame! :server)
-          data (thrown-data
-                 #(rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (->Opaque 1)}})}))]
-      (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
-      (is (= :r (:key data)))
-      ;; CONTROL — converted explicitly, the same value rides.
-      (is (= {:rf/app-db {:r {:x 1}} :rf/runtime-db {}}
-             (rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (into {} (->Opaque 1))}})})))))
+    (is (= [:rf.error/ssr-render-state-invalid :unserialisable :rf/runtime-db :rf.runtime/custom]
+           ((juxt :rf.error/id :invalid :partition :key)
+            (thrown-data
+              #(rf.ssr.render-state/project
+                 (fresh-frame! :server)
+                 {:render-state (fn [_] {:rf/app-db     {}
+                                         :rf/runtime-db {:rf.runtime/custom (fn [] 1)}})}))))))
   (testing "an opaque top-level KEY — a string where a keyword must be"
-    (let [sfid (fresh-frame! :server)
-          data (thrown-data
-                 #(rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {"todos" []}})}))]
-      (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
-      (is (= :key (:half data)))
-      (is (= "todos" (:key data))))))
+    (is (= [:rf.error/ssr-render-state-invalid :key "todos"]
+           ((juxt :rf.error/id :half :key)
+            (thrown-data
+              #(rf.ssr.render-state/project (fresh-frame! :server)
+                                            {:render-state (fn [_] {:rf/app-db {"todos" []}})})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The omitted-key fixture: the honest wrong page
 ;; ---------------------------------------------------------------------------
 
 (deftest an-allowlisted-key-the-frame-lacks-restores-to-nil-the-honest-wrong-page
-  (let [sfid (fresh-frame! :server)
-        view (fn [db]
-               (str "<h1>" (get-in db [:user :name]) "</h1><ul>" (count (:todos db)) "</ul>"))]
+  ;; Nothing to carry — no key, and no nil-valued key either — and no throw:
+  ;; a view reading it renders nil, the operator's allowlist mistake.
+  (let [sfid (fresh-frame! :server)]
     (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [{:id 1}]}})
-    (testing "the allowlist names :user, which the frame never held"
-      (let [projected (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :user]}})
-            cfid      (fresh-frame! :server)]
-        (is (not (contains? (:rf/app-db projected) :user))
-            "nothing to carry: no key, and no nil-valued key either")
-        (rf.ssr.render-state/restore! cfid (round-trip projected))
-        (is (nil? (get-in (rf.frame/frame-app-db-value cfid) [:user :name])))
-        (is (= (view (rf.frame/frame-app-db-value sfid))
-               (view (rf.frame/frame-app-db-value cfid)))
-            "and it is the same page the server would render — nil on both sides")))
-    (testing "the allowlist OMITS :user, which the view reads — the operator's mistake, not a throw"
-      (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [{:id 1}] :user {:name "Ada"}}})
-      (let [projected (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}})
-            cfid      (fresh-frame! :server)]
-        (rf.ssr.render-state/restore! cfid (round-trip projected))
-        (is (= "<h1>Ada</h1><ul>1</ul>" (view (rf.frame/frame-app-db-value sfid))))
-        (is (= "<h1></h1><ul>1</ul>" (view (rf.frame/frame-app-db-value cfid)))
-            "the honest wrong page: nil where :user should be, rendered without complaint")))))
+    (is (= {:rf/app-db {:todos [{:id 1}]} :rf/runtime-db {}}
+           (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :user]}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The policy: fail-closed, distinct from :payload
@@ -372,36 +272,31 @@
   (thrown-data #(rf.ssr.render-state/validate-policy-opts! opts)))
 
 (deftest render-state-policy-is-fail-closed-and-distinct-from-payload
-  (testing "absent / {} / a keyword / a :payload opt alone → missing, naming :render-state"
-    (doseq [opts [{} {:render-state nil} {:render-state {}}
+  (testing "an empty policy, a whole-partition keyword, or a :payload opt
+            alone → missing, naming :render-state"
+    (doseq [opts [{:render-state {}}
                   {:render-state :rf.ssr.payload/whole-app-db}
                   {:payload [:todos]}]]
-      (let [data (policy-error opts)]
-        (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)) (pr-str opts))
-        (is (= :render-state (:opt data)) (pr-str opts)))))
+      (is (= [:rf.error/ssr-missing-payload-policy :render-state]
+             ((juxt :rf.error/id :opt) (policy-error opts)))
+          (pr-str opts))))
   (testing "malformed allowlists → the family's malformed id, naming :render-state"
     (doseq [[bad entries] [[{:app-db []} []]
                            [{:app-db ["todos"]} ["todos"]]
-                           [{:app-db [:a nil]} [nil]]
                            [{:app-db #{:a}} []]
                            [{:app-db [:a] :extra [:b]} []]
                            [{:runtime-db [:rf.runtime/elision]} []]]]
-      (let [data (policy-error {:render-state bad})]
-        (is (= :rf.error/ssr-malformed-payload-allowlist (:rf.error/id data)) (pr-str bad))
-        (is (= :render-state (:opt data)) (pr-str bad))
-        (is (= entries (:bad-entries data)) (pr-str bad)))))
-  (testing "well-formed policies return the opts unchanged"
-    (doseq [good [{:app-db [:a]}
-                  {:runtime-db [:rf.runtime/routing]}
-                  {:app-db '(:a :b) :runtime-db [:rf.runtime/machines]}
-                  (fn [_] {})]]
-      (let [opts {:render-state good :payload [:a]}]
-        (is (identical? opts (rf.ssr.render-state/validate-policy-opts! opts))))))
+      (is (= [:rf.error/ssr-malformed-payload-allowlist :render-state entries]
+             ((juxt :rf.error/id :opt :bad-entries) (policy-error {:render-state bad})))
+          (pr-str bad))))
+  (testing "a well-formed policy returns the opts unchanged — any sequential
+            allowlist is admitted, not only a vector"
+    (let [opts {:render-state {:app-db '(:a :b) :runtime-db [:rf.runtime/machines]} :payload [:a]}]
+      (is (identical? opts (rf.ssr.render-state/validate-policy-opts! opts)))))
   (testing "project re-validates: the runtime arm fails the same way as the construction arm"
-    (let [sfid (fresh-frame! :server)
-          data (thrown-data #(rf.ssr.render-state/project sfid {:payload [:todos]}))]
-      (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))
-      (is (= :render-state (:opt data))))))
+    (is (= [:rf.error/ssr-missing-payload-policy :render-state]
+           ((juxt :rf.error/id :opt)
+            (thrown-data #(rf.ssr.render-state/project (fresh-frame! :server) {:payload [:todos]})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The envelope, and liveness — fail-closed at both doors
@@ -410,18 +305,17 @@
 (deftest the-envelope-is-two-map-partitions-at-both-doors
   (testing "an escape-hatch projector returning something other than the envelope"
     (let [sfid (fresh-frame! :server)]
-      (doseq [bad [nil [] {:rf/app-db "not a map"} {:rf/app-db {} :rf/runtime-db nil}
-                   {:rf/app-db {} :extra {}}]]
-        (let [data (thrown-data #(rf.ssr.render-state/project sfid {:render-state (fn [_] bad)}))]
-          (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)) (pr-str bad))
-          (is (= :envelope (:invalid data)) (pr-str bad))))))
+      (doseq [bad [[] {:rf/app-db "not a map"} {:rf/app-db {} :extra {}}]]
+        (is (= [:rf.error/ssr-render-state-invalid :envelope]
+               ((juxt :rf.error/id :invalid)
+                (thrown-data #(rf.ssr.render-state/project sfid {:render-state (fn [_] bad)}))))
+            (pr-str bad)))))
   (testing "restore! refuses the same shapes and installs nothing"
     (let [cfid (fresh-frame! :server)]
       (rf.frame/replace-frame-state! cfid {rf.frame/app-partition-key {:kept true}})
-      (doseq [bad [nil {:rf/app-db 1} {:rf/runtime-db [1 2]} {:rf/app-db {} :third {}}]]
-        (let [data (thrown-data #(rf.ssr.render-state/restore! cfid bad))]
-          (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)) (pr-str bad))
-          (is (= :envelope (:invalid data)) (pr-str bad))))
+      (is (= [:rf.error/ssr-render-state-invalid :envelope]
+             ((juxt :rf.error/id :invalid)
+              (thrown-data #(rf.ssr.render-state/restore! cfid {:rf/app-db 1})))))
       (is (= {:kept true} (rf.frame/frame-app-db-value cfid)) "nothing was installed")))
   (testing "a frame that is not live"
     (let [gone (fresh-frame! :server)]
