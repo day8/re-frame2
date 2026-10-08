@@ -176,11 +176,9 @@
 
 (deftest the-single-pane-renders-inside-the-override-scope
   (testing "control — the single pane, whose scope the probe must see"
-    (let [tree  (canvas-tree :story.pinned/single)
-          scope (scope-around tree (attr= :data-test "probe-view"))]
-      (is (some? scope) "the pane's subject sits inside an override scope")
-      (is (= pinned (some-> scope scope-value))
-          "carrying the variant's pinned overrides"))
+    (let [tree (canvas-tree :story.pinned/single)]
+      (is (= pinned (some-> (scope-around tree (attr= :data-test "probe-view")) scope-value))
+          "the pane's subject sits inside a scope carrying the pinned overrides"))
     (rf.story/destroy-variant! :story.pinned/single)))
 
 (deftest the-substrate-grid-renders-inside-the-override-scope
@@ -189,13 +187,9 @@
             would leave every cell's `subscribe` reading the real app-db
             instead of the pinned value"
     (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree  (canvas-tree :story.pinned/multi)
-          scope (scope-around tree (attr= :role "group"))]
-      (is (contains-node? tree (attr= :role "group"))
-          "precondition: the canvas took its side-by-side grid branch")
-      (is (some? scope) "the grid sits inside an override scope")
-      (is (= pinned (some-> scope scope-value))
-          "carrying the variant's pinned overrides"))
+    (let [tree (canvas-tree :story.pinned/multi)]
+      (is (= pinned (some-> (scope-around tree (attr= :role "group")) scope-value))
+          "the side-by-side grid sits inside a scope carrying the pinned overrides"))
     (rf.story/destroy-variant! :story.pinned/multi)))
 
 ;; ===========================================================================
@@ -207,10 +201,6 @@
             renders the view inside the override scope; without it a
             devcards-style gallery of design states would paint each from
             its real app-db"
-    (let [tree  (cell-tree :story.pinned/cell)
-          scope (scope-around tree (attr= :data-test "probe-view"))]
-      (is (contains-node? tree (attr= :data-test "probe-view"))
-          "precondition: the cell rendered its subject")
-      (is (some? scope) "the cell's subject sits inside an override scope")
-      (is (= pinned (some-> scope scope-value))
-          "carrying the variant's pinned overrides"))))
+    (let [tree (cell-tree :story.pinned/cell)]
+      (is (= pinned (some-> (scope-around tree (attr= :data-test "probe-view")) scope-value))
+          "the cell's subject sits inside a scope carrying the pinned overrides"))))
