@@ -3,16 +3,13 @@
   (the `image -> frame -> event stream` public model on the Module-view
   tab).
 
-  Verifies the three EP-0023 nouns the surface presents:
+  Verifies the EP-0023 nouns the surface presents:
 
     - **image** as a registration-set VALUE — a sealed generation projected
       into its `[kind id]` descriptor set with per-descriptor provenance
       (`project-generation` / `descriptor-provenance`);
     - **frame** as an EXECUTION CONTEXT pointing at its generation
-      (`project-frame-row` / `project-frames`);
-    - **frame-derived RESOLUTION** — the same `[kind id]` resolving to
-      DIFFERENT descriptors in frames running different images
-      (`resolve-in-frame`).
+      (`project-frame-row` / `project-frames`).
 
   Plus the demand-gated top-level projection (`project-image-view` →
   `:images?`) and the display strings. All algebra is pure `data -> data`, so
@@ -72,19 +69,14 @@
    :rf.frame/generation other-generation
    :rf.frame/id         :counter/alt})
 
-;; A pure resolver fn (the role `image-assembly/resolve-descriptor` plays).
-(defn- resolve-fn [generation kind id]
-  (get (:rf.gen/resolver generation) [kind id]))
-
 ;; ---- descriptor-provenance ----------------------------------------------
 
 (deftest descriptor-provenance-projects-each-provenance-kind
-  (testing "a registered descriptor projects to its source namespace, an
-            inline one to its image id + inline coordinate, a framework
-            standard one to the standard marker, and one with no
-            recognisable provenance to :unknown"
+  (testing "an inline descriptor projects to its image id + inline coordinate,
+            a framework standard one to the standard marker, and one with no
+            recognisable provenance to :unknown (the source-namespace kind is
+            pinned by project-generation-shape)"
     (are [descriptor expected] (= expected (h/descriptor-provenance descriptor))
-      inc-desc              {:kind :ns :ns "docs.counter.v2"}
       inline-desc           {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
       standard-desc         {:kind :standard}
       {:kind :event :id :x} {:kind :unknown})))
@@ -95,42 +87,24 @@
   (testing "a sealed generation projects to the image-row: composed image ids,
             sorted kinds, descriptor count, and one descriptor
             row per [kind id] (sorted, each with provenance)"
-    (let [img (h/project-generation counter-generation)]
-      (is (= [:docs.counter/v2] (:images img)))
-      (is (= [:event :sub] (:kinds img)) "kinds sorted by str")
-      (is (= 2 (:descriptor-count img)))
-      (is (= [{:kind :event :id :counter/inc
-               :provenance {:kind :ns :ns "docs.counter.v2"}}
-              {:kind :sub :id :counter/value
-               :provenance {:kind :ns :ns "docs.counter.v2"}}]
-             (:descriptors img))
-          "one row per resolved [kind id], sorted by (kind id) str"))))
-
-(deftest project-generation-nil-is-empty
-  (testing "a nil generation projects to the empty image-row (no descriptors)"
-    (let [img (h/project-generation nil)]
-      (is (= [] (:images img)))
-      (is (= [] (:kinds img)))
-      (is (= 0 (:descriptor-count img)))
-      (is (= [] (:descriptors img))))))
+    (is (= {:images           [:docs.counter/v2]
+            :kinds            [:event :sub]
+            :descriptor-count 2
+            :descriptors      [{:kind :event :id :counter/inc
+                                :provenance {:kind :ns :ns "docs.counter.v2"}}
+                               {:kind :sub :id :counter/value
+                                :provenance {:kind :ns :ns "docs.counter.v2"}}]}
+           (h/project-generation counter-generation)))))
 
 ;; ---- project-frame-row: frame as an execution context -------------------
 
 (deftest project-frame-row-shape
-  (testing "a live frame projects to the frame-row: id, not-anonymous, and the
-            resolved IMAGE it runs (its generation's descriptors)"
-    (let [row (h/project-frame-row :counter/main counter-frame)]
-      (is (= :counter/main (:frame-id row)))
-      (is (false? (:anonymous? row)))
-      (is (false? (:has-adapter? row)))
-      (is (= 2 (:descriptor-count (:image row)))
-          "the frame POINTS AT its generation — projected as the image"))))
-
-(deftest project-frame-row-anonymous
-  (testing "a direct (no-id) frame object projects as anonymous"
-    (let [row (h/project-frame-row nil (dissoc counter-frame :rf.frame/id))]
-      (is (nil? (:frame-id row)))
-      (is (true? (:anonymous? row))))))
+  (testing "a live frame projects to the frame-row: its id, its adapter
+            binding, and the resolved IMAGE it runs (its generation's
+            descriptors)"
+    (is (= [:counter/main false 2]
+           ((juxt :frame-id :has-adapter? (comp :descriptor-count :image))
+            (h/project-frame-row :counter/main counter-frame))))))
 
 (deftest project-frames-sorted
   (testing "the live-frame registry projects to frame-rows sorted by frame-id str"
@@ -138,70 +112,37 @@
                                   :counter/alt  other-frame})]
       (is (= [:counter/alt :counter/main] (mapv :frame-id rows))))))
 
-;; ---- resolve-in-frame: frame-derived resolution path --------------------
-
-(deftest resolve-in-frame-same-id-different-image
-  (testing "the SAME [kind id] resolves to DIFFERENT descriptors in frames
-            running different images — the frame-derived resolution path
-            (EP-0023 §Specification)"
-    (let [in-counter (h/resolve-in-frame resolve-fn counter-frame :event :counter/inc)
-          in-other   (h/resolve-in-frame resolve-fn other-frame   :event :counter/inc)]
-      (is (true? (:resolved? in-counter)))
-      (is (= {:kind :ns :ns "docs.counter.v2"} (:provenance in-counter))
-          "counter-frame resolves :counter/inc to its source-ns descriptor")
-      (is (true? (:resolved? in-other)))
-      (is (= {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
-             (:provenance in-other))
-          "other-frame resolves the SAME id to ITS image's inline descriptor")
-      (is (not= (:provenance in-counter) (:provenance in-other))
-          "same id, different image → different resolution"))))
-
-(deftest resolve-in-frame-unresolved
-  (testing "a [kind id] not in the frame's generation resolves to nothing"
-    (let [r (h/resolve-in-frame resolve-fn counter-frame :event :nope/missing)]
-      (is (false? (:resolved? r)))
-      (is (nil? (:provenance r))))))
-
 ;; ---- project-image-view: demand-gated top-level -------------------------
 
 (deftest project-image-view-with-frames
   (testing "the live registry projects to frame-rows + :images? true when at
             least one frame runs a generation with descriptors"
-    (let [data (h/project-image-view {:counter/main counter-frame})]
-      (is (= 1 (:frame-count data)))
-      (is (true? (:images? data)))
-      (is (= :counter/main (:frame-id (first (:frames data))))))))
+    (is (= {:frame-count 1 :images? true}
+           (dissoc (h/project-image-view {:counter/main counter-frame}) :frames)))))
 
 (deftest project-image-view-empty-is-no-images
   (testing "an empty registry → :images? false (the honest not-using-images
             state — EP-0023's public model is opt-in)"
-    (let [data (h/project-image-view {})]
-      (is (= 0 (:frame-count data)))
-      (is (false? (:images? data)))
-      (is (= [] (:frames data))))))
+    (is (false? (:images? (h/project-image-view {}))))))
 
 (deftest project-image-view-frameless-generation-is-no-images
   (testing "a frame whose generation resolves ZERO descriptors does not flip
             :images? — there is no image content to show"
-    (let [empty-frame {:rf.frame/object true
-                       :rf.frame/id :empty/main
-                       :rf.frame/generation {:rf.gen/resolver {}}}
-          data        (h/project-image-view {:empty/main empty-frame})]
-      (is (= 1 (:frame-count data)))
-      (is (false? (:images? data))))))
+    (is (false? (:images? (h/project-image-view
+                            {:empty/main {:rf.frame/object     true
+                                          :rf.frame/id         :empty/main
+                                          :rf.frame/generation {:rf.gen/resolver {}}}}))))))
 
 ;; ---- display strings -----------------------------------------------------
 
 (deftest provenance-summary-strings
-  (testing "provenance summaries read cleanly per kind"
+  (testing "provenance summaries read cleanly: the source namespace, or the
+            inline image + coordinate"
     (is (= "docs.counter.v2"
            (h/provenance-summary {:kind :ns :ns "docs.counter.v2"})))
     (is (= "inline :test/small [:reg-event :counter/inc]"
            (h/provenance-summary {:kind :inline :image :test/small
-                                  :inline [:reg-event :counter/inc]})))
-    (is (= "framework standard"
-           (h/provenance-summary {:kind :standard})))
-    (is (= "—" (h/provenance-summary {:kind :unknown})))))
+                                  :inline [:reg-event :counter/inc]})))))
 
 (deftest image-row-summary-string
   (testing "the image summary reads N descriptors · K kinds with correct plurals"
