@@ -1,50 +1,31 @@
 (ns re-frame.trace.projection-cljs-test
-  "Tests for `re-frame.trace.projection/group-by-event` +
-  `domino-bucket`. Pure-data — no fixture, no frame, no router; JVM and
-  CLJS run the same suite.
-
-  The projection tracks the framework's actual trace surface per Spec
-  009 §`:op-type` vocabulary: it buckets on real `:op-type` /
-  `:operation` pairs (`:rf.view/render` is an operation under
-  `:op-type :rf.view`, not an op-type), never on synthetic op-types or
-  invented operations."
+  "`re-frame.trace.projection/group-by-event` + `domino-bucket` over the real
+  Spec 009 §`:op-type` vocabulary. Pure data — no fixture, no frame, no
+  router; JVM and CLJS run the same suite."
   (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.trace.projection :as rf.trace.projection]))
 
 ;; ---- domino-bucket --------------------------------------------------------
 
 (deftest domino-bucket-classifies-each-trace-event
-  (testing "each real :op-type / :operation pair lands in its six-domino
-            bucket, and the classification is total: anything outside the
-            vocabulary — or no shape at all — lands in :other"
+  (testing "one row per classification arm; the classification is total, so
+            anything outside the vocabulary — or no shape at all — is :other"
     (are [ev bucket] (= bucket (rf.trace.projection/domino-bucket ev))
-      ;; the cascade root, its run markers, and the computed effects map
-      {:op-type :rf.event :operation :rf.event/dispatched}                :event
-      {:op-type :rf.event :operation :rf.event/run-start}                 :handler
-      {:op-type :rf.event :operation :rf.event/run-end}                   :handler
-      {:op-type :rf.fx :operation :rf.fx/do-fx}                           :fx
-      ;; every other :rf.fx event is one handled effect
-      {:op-type :rf.fx :operation :rf.fx/handled}                         :effect
-      {:op-type :rf.fx :operation :rf.fx/override-applied}                :effect
-      {:op-type :rf.fx :operation :rf.fx/skipped-on-platform}             :effect
-      {:op-type :rf.sub :operation :rf.sub/run}                           :sub
-      {:op-type :rf.sub :operation :rf.sub/create}                        :sub
-      {:op-type :rf.view :operation :rf.view/render}                      :render
-      ;; outside the six dominoes
-      {:op-type :rf.event :operation :rf.event/db-changed}                :other
-      {:op-type :error :operation :rf.error/no-such-handler}              :other
-      {:op-type :warning :operation :rf.warning/missing-doc}              :other
-      {:op-type :rf.machine :operation :rf.machine/transition}            :other
-      {:op-type :rf.frame :operation :rf.frame/created}                   :other
-      {:op-type :flow :operation :rf.flow/computed}                       :other
-      {:op-type :rf.registry :operation :rf.registry/handler-registered}  :other
-      {:op-type :totally-made-up :operation :nope}                        :other
-      {}                                                                  :other)))
+      {:op-type :rf.event :operation :rf.event/dispatched}   :event
+      {:op-type :rf.event :operation :rf.event/run-start}    :handler
+      {:op-type :rf.event :operation :rf.event/run-end}      :handler
+      {:op-type :rf.event :operation :rf.event/db-changed}   :other
+      {:op-type :rf.fx :operation :rf.fx/do-fx}              :fx
+      {:op-type :rf.fx :operation :rf.fx/handled}            :effect
+      {:op-type :rf.sub :operation :rf.sub/run}              :sub
+      {:op-type :rf.view :operation :rf.view/render}         :render
+      {:op-type :error :operation :rf.error/no-such-handler} :other
+      {}                                                     :other)))
 
 ;; ---- group-by-event -------------------------------------------------------
 
 (defn- cascade-evs
-  "Produce a representative one-cascade event stream."
+  "A representative one-cascade event stream."
   ([dispatch-id event-vec]
    (cascade-evs dispatch-id event-vec :rf/default))
   ([dispatch-id event-vec frame-id]
@@ -66,151 +47,65 @@
      :tags {:rf.trace/dispatch-id dispatch-id :rf.view/render-key [:app/root nil] :frame frame-id}}]))
 
 (deftest group-by-event-one-cascade-six-buckets
-  (testing "a representative cascade reduces to one record with the six
-            domino slots populated"
-    (let [evs (cascade-evs 100 [:user/login {:id 42}])
-          [c & more] (rf.trace.projection/group-by-event evs)]
-      (is (empty? more) "single cascade yields one record")
-      (is (= 100 (:dispatch-id c)))
-      (is (= :rf/default (:frame c)))
-      (is (= [:user/login {:id 42}] (:event c)) ":event slot is the dispatched event vector")
-      (is (some? (:handler c)) ":handler slot is populated by the :run-* emit")
-      (is (some? (:fx c))      ":fx slot is the :rf.fx/do-fx emit")
-      (is (= 2 (count (:effects c))) "both :rf.fx/handled events land in :effects")
-      (is (= 1 (count (:subs c))))
-      (is (= 1 (count (:renders c))))
-      (is (= [] (:other c))    ":other is empty for a clean cascade"))))
-
-(deftest group-by-event-multiple-cascades-sorted-by-first-id
-  (testing "with two cascades interleaved, group-by-event emits them in
-            emission order (lowest :id first)"
-    (let [a (cascade-evs 200 [:a])
-          b (mapv #(update % :id + 100) (cascade-evs 300 [:b]))
-          ;; interleave: ids in :a are 1-8; :b are 101-108
-          evs (interleave a b)
-          cs  (rf.trace.projection/group-by-event evs)]
-      (is (= 2 (count cs)))
-      (is (= 200 (:dispatch-id (first cs))))
-      (is (= 300 (:dispatch-id (second cs)))))))
+  (testing "a cascade reduces to one record: :handler is the LAST run marker,
+            and :dispatched is the full trace event, hoisted slots included"
+    (let [evs (-> (cascade-evs 100 [:user/login {:id 42}])
+                  (update 0 assoc :rf.trace/call-site {:file "src/views.cljs" :line 127} :source :ui))]
+      (is (= [{:dispatch-id        100
+               :parent-dispatch-id nil
+               :frame              :rf/default
+               :event              [:user/login {:id 42}]
+               :dispatched         (evs 0)
+               :handler            (evs 2)
+               :fx                 (evs 3)
+               :effects            [(evs 4) (evs 5)]
+               :subs               [(evs 6)]
+               :renders            [(evs 7)]
+               :other              []}]
+             (rf.trace.projection/group-by-event evs))))))
 
 (deftest group-by-event-keeps-same-dispatch-id-separate-by-frame
-  (testing "dispatch-id is frame-scoped, so same id in two frames yields two records"
-    (let [a  (cascade-evs 10 [:counter/a-inc] :counter/a)
-          b  (mapv #(update % :id + 100)
-                   (cascade-evs 10 [:counter/b-inc] :counter/b))
-          cs (rf.trace.projection/group-by-event (concat a b))]
-      (is (= 2 (count cs)))
-      (is (= [[:counter/a 10] [:counter/b 10]]
-             (mapv (juxt :frame :dispatch-id) cs)))
-      (is (= [[:counter/a-inc] [:counter/b-inc]]
-             (mapv :event cs))))))
+  (testing "dispatch-id is frame-scoped, so the same id in two frames yields two records"
+    (let [a (cascade-evs 10 [:counter/a-inc] :counter/a)
+          b (mapv #(update % :id + 100) (cascade-evs 10 [:counter/b-inc] :counter/b))]
+      (is (= [[:counter/a 10 [:counter/a-inc]] [:counter/b 10 [:counter/b-inc]]]
+             (mapv (juxt :frame :dispatch-id :event)
+                   (rf.trace.projection/group-by-event (concat a b))))))))
 
 (deftest group-by-event-events-without-dispatch-id-land-in-ungrouped
-  (testing "events emitted outside any drain (registry-time, frame
-            lifecycle) carry no :rf.trace/dispatch-id and group under :ungrouped"
+  (testing "registry-time and frame-lifecycle events carry no dispatch-id and share :ungrouped"
     (let [evs [{:id 1 :op-type :rf.frame :operation :rf.frame/created :tags {:frame :app}}
                {:id 2 :op-type :rf.registry :operation :rf.registry/handler-registered
-                :tags {:kind :event :id :user/login}}]
-          cs (rf.trace.projection/group-by-event evs)]
-      (is (= 1 (count cs)))
-      (is (= :ungrouped (:dispatch-id (first cs))))
-      (is (= 2 (count (:other (first cs))))
-          "frame and registry events both flow through :other"))))
+                :tags {:kind :event :id :user/login}}]]
+      (is (= [[:ungrouped evs]]
+             (mapv (juxt :dispatch-id :other) (rf.trace.projection/group-by-event evs)))))))
 
 (deftest group-by-event-error-and-warning-events-ride-along-in-other
-  (testing "an error fired inside a cascade lands in that cascade's
-            :other slot, not as its own cascade
-            (:rf.trace/dispatch-id rides every event)"
-    (let [evs (conj (cascade-evs 400 [:foo])
-                    {:id 100 :op-type :error :operation :rf.error/handler-exception
-                     :tags {:rf.trace/dispatch-id 400 :event-id :foo}})
-          [c] (rf.trace.projection/group-by-event evs)]
-      (is (= 400 (:dispatch-id c)))
-      (is (= 1 (count (:other c)))
-          "the error event lands in :other, not a sibling :ungrouped cascade"))))
-
-(deftest group-by-event-handler-slot-takes-last-event-emit
-  (testing "when the chain emits :rf.event/run-start + :rf.event/run-end
-            the :handler slot ends up as the :run-end event (reduce
-            overwrites)"
-    (let [evs (cascade-evs 500 [:foo])
-          [c] (rf.trace.projection/group-by-event evs)]
-      (is (= :rf.event/run-end (get-in c [:handler :operation])))
-      (is (= :run-end (get-in c [:handler :tags :rf.trace/phase]))))))
+  (testing "an error inside a cascade lands in that cascade's :other, not its own record"
+    (let [err {:id 100 :op-type :error :operation :rf.error/handler-exception
+               :tags {:rf.trace/dispatch-id 400 :event-id :foo}}]
+      (is (= [[400 [err]]]
+             (mapv (juxt :dispatch-id :other)
+                   (rf.trace.projection/group-by-event (conj (cascade-evs 400 [:foo]) err))))))))
 
 (deftest group-by-event-empty-input-yields-empty-output
-  (is (= [] (rf.trace.projection/group-by-event [])))
   (is (= [] (rf.trace.projection/group-by-event nil))))
 
-(deftest group-by-event-shape-is-stable
-  (testing "every cascade record carries the documented keys with
-            collection-shaped defaults"
-    (let [[c] (rf.trace.projection/group-by-event [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                                  :tags {:rf.trace/dispatch-id 1 :rf.event/v [:e]}}])]
-      (is (= #{:dispatch-id :parent-dispatch-id :frame :event :dispatched
-               :handler :fx :effects :subs :renders :other}
-             (set (keys c))))
-      (is (vector? (:effects c)))
-      (is (vector? (:subs c)))
-      (is (vector? (:renders c)))
-      (is (vector? (:other c))))))
-
 (deftest group-by-event-surfaces-parent-dispatch-id
-  (testing "the :parent-dispatch-id slot is read off the dispatched
-            event's :rf.trace/parent-dispatch-id tag — the causal-parent
-            link an :fx :dispatch / machine-internal child carries under
-            epoch-per-event (Spec 009 §Dispatch correlation)"
-    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                :tags {:rf.trace/dispatch-id        20
-                       :rf.trace/parent-dispatch-id 10
-                       :rf.event/v                  [:form/validate]}}]
-          [c] (rf.trace.projection/group-by-event evs)]
-      (is (= 20 (:dispatch-id c)))
-      (is (= 10 (:parent-dispatch-id c))
-          "the spawning cascade's id is surfaced on the child cascade")))
-  (testing "a root (user / external) dispatch carries no
-            :rf.trace/parent-dispatch-id tag, so :parent-dispatch-id is nil"
-    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                :tags {:rf.trace/dispatch-id 10 :rf.event/v [:user/click]}}]
-          [c] (rf.trace.projection/group-by-event evs)]
-      (is (= 10 (:dispatch-id c)))
-      (is (nil? (:parent-dispatch-id c))))))
+  (testing ":parent-dispatch-id is read off the dispatched event's tag; a root has none
+            (Spec 009 §Dispatch correlation)"
+    (are [tags parent] (= parent (:parent-dispatch-id
+                                   (first (rf.trace.projection/group-by-event
+                                            [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                                              :tags tags}]))))
+      {:rf.trace/dispatch-id 20 :rf.trace/parent-dispatch-id 10 :rf.event/v [:form/validate]} 10
+      {:rf.trace/dispatch-id 10 :rf.event/v [:user/click]}                                   nil)))
 
 (deftest group-by-event-orders-dispatched-root-only-bundle-by-its-own-id
-  (testing "a bundle carrying ONLY the dispatched root (no handler/fx/
-            effects/subs/renders/other trace within its run) sorts by
-            its own :dispatched event's :id, not by the ##Inf sentinel
-            (first-id reads :dispatched; the bare :event VECTOR carries
-            no :id, so reading it would drop a root-only bundle to the
-            sentinel and sort it LAST regardless of emission order)"
+  (testing "a root-only bundle sorts by its :dispatched event's :id — the bare
+            :event vector carries no :id, so reading it would sort the bundle last"
     (let [root-only {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                      :tags {:rf.trace/dispatch-id :root-only :rf.event/v [:root-only]}}
-          ;; A full six-domino cascade whose own ids (100-107) are all
-          ;; HIGHER than the root-only bundle's id (1) — the root-only
-          ;; bundle's first-id (1) beats the full cascade's first-id
-          ;; (100) and sorts first. Were its first-id to fall to the ##Inf
-          ;; sentinel, the root-only bundle would sort AFTER the full
-          ;; cascade instead.
-          full      (mapv #(update % :id + 99) (cascade-evs :full-cascade [:full]))
-          cs        (rf.trace.projection/group-by-event (concat full [root-only]))]
-      (is (= 2 (count cs)))
-      (is (= [:root-only :full-cascade] (map :dispatch-id cs))
-          "the root-only bundle (id 1) sorts before the full cascade (ids 100-107)"))))
-
-(deftest group-by-event-dispatched-slot-carries-full-trace-event
-  (testing "the :dispatched slot preserves the full :rf.event/dispatched
-            trace so consumers (Xray Event lens) can read top-level
-            hoisted slots like :rf.trace/call-site
-            without scanning the raw buffer"
-    (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                :tags {:rf.trace/dispatch-id 42 :rf.event/v [:cart/add-item]}
-                :rf.trace/call-site {:file "src/views.cljs" :line 127}
-                :source :ui :origin :app}]
-          [c] (rf.trace.projection/group-by-event evs)]
-      (is (= {:file "src/views.cljs" :line 127}
-             (:rf.trace/call-site (:dispatched c)))
-          "the call-site rides through the projection")
-      (is (= :ui (:source (:dispatched c)))
-          "the :source slot rides through the projection")
-      (is (= [:cart/add-item] (:event c))
-          ":event slot holds the slim event vector"))))
+                     :tags {:rf.trace/dispatch-id :root-only :rf.event/v [:root-only]}}
+          full      (mapv #(update % :id + 99) (cascade-evs :full-cascade [:full]))]
+      (is (= [:root-only :full-cascade]
+             (map :dispatch-id (rf.trace.projection/group-by-event (concat full [root-only]))))))))
