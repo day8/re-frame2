@@ -120,13 +120,11 @@
     ;; yet so :resolved? stays false and the parent is still :working.
     (let [parent-snapshot (parent-machine-snapshot f)
           join-snapshot   (join-state f)]
-      (is (= :working   (:state parent-snapshot)))
-      (is (= #{:s1}     (:done join-snapshot)))
-      (is (false?       (:resolved? join-snapshot))))
+      (is (= [:working #{:s1} false]
+             [(:state parent-snapshot) (:done join-snapshot) (:resolved? join-snapshot)])))
 
     (dispatch-synthetic-child-completion! f :s2)
-    (is (= #{:s1 :s2} (:done (join-state f))))
-    (is (= :working   (:state (parent-machine-snapshot f))))
+    (is (= [#{:s1 :s2} :working] [(:done (join-state f)) (:state (parent-machine-snapshot f))]))
 
     ;; Third child done — :all resolves. The runtime sets :resolved?
     ;; true, builds per-sibling cancel fx for survivors (none, since
@@ -135,12 +133,11 @@
     ;; :work/all-done → :complete (with :stamp-outcome action).
     (dispatch-synthetic-child-completion! f :s3)
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :complete (:state parent-snapshot)))
-      (is (= :complete (-> parent-snapshot :data :outcome)))
       ;; The cascade tore down the invoke-all slot: after the exit
       ;; from :working, the destroy fx clears [:rf.db/runtime :rf.runtime/machines :spawned
       ;; :work/flow [:working]].
-      (is (nil? (join-state f))))))
+      (is (= [:complete :complete nil]
+             [(:state parent-snapshot) (-> parent-snapshot :data :outcome) (join-state f)])))))
 
 ;; ============================================================================
 ;; (2) MID-FLIGHT CANCELLATION CASCADE — :cancel tears every child down
@@ -158,11 +155,11 @@
     (rf/dispatch-sync [:work/flow [:progress :s3 10 100]] {:frame f})
 
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :working (:state parent-snapshot)))
-      (is (= {:s1 30 :s2 50 :s3 10} (-> parent-snapshot :data :progress)))
       ;; The aggregate-progress sub: (30+50+10)/(3*100) = 90/300.
-      (is (= 90  (rf/compute-sub [:work/items-done]   (rf/frame-state-value f))))
-      (is (= 300 (rf/compute-sub [:work/total-items] (rf/frame-state-value f)))))
+      (is (= [:working {:s1 30 :s2 50 :s3 10} 90 300]
+             [(:state parent-snapshot) (-> parent-snapshot :data :progress)
+              (rf/compute-sub [:work/items-done] (rf/frame-state-value f))
+              (rf/compute-sub [:work/total-items] (rf/frame-state-value f))])))
 
     ;; User clicks Cancel. The parent transitions :working →
     ;; :cancelled; the :spawn-all desugared :exit fires one
@@ -172,16 +169,12 @@
     ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] slot.
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :cancelled (:state parent-snapshot)))
-      (is (= :cancelled (-> parent-snapshot :data :outcome)))
-      ;; The destroy cascade cleared the join-state slot.
-      (is (nil? (join-state f)))
-      ;; Partial :progress is preserved on the parent's :data
-      ;; (cancellation is cooperative; the parent decides what to
-      ;; do with the partial result). The view shows where each
-      ;; shard got to at the moment of cancel.
-      (is (= {:s1 30 :s2 50 :s3 10}
-             (-> parent-snapshot :data :progress))))))
+      ;; The destroy cascade cleared the join-state slot. Partial :progress
+      ;; is preserved on the parent's :data (cancellation is cooperative;
+      ;; the parent decides what to do with the partial result).
+      (is (= [:cancelled :cancelled nil {:s1 30 :s2 50 :s3 10}]
+             [(:state parent-snapshot) (-> parent-snapshot :data :outcome)
+              (join-state f) (-> parent-snapshot :data :progress)])))))
 
 ;; ============================================================================
 ;; (3) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
@@ -195,9 +188,9 @@
 
     (rf/dispatch-sync [:work/flow [:reset]] {:frame f})
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :idle (:state parent-snapshot)))
-      (is (= {:s1 0 :s2 0 :s3 0} (-> parent-snapshot :data :progress)))
-      (is (nil? (-> parent-snapshot :data :outcome))))))
+      (is (= [:idle {:s1 0 :s2 0 :s3 0} nil]
+             [(:state parent-snapshot) (-> parent-snapshot :data :progress)
+              (-> parent-snapshot :data :outcome)])))))
 
 (deftest long-running-work-happy-path-join
   (testing "synthesised completion carriers resolve the :all join and stamp :complete"
