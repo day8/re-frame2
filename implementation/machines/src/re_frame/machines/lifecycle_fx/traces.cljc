@@ -41,8 +41,10 @@
   `:status :cancelled` reply (cancellation as DATA, not the absence of a
   reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
   reply-envelope facts (`:rf.reply/work-id` keyed on the destroyed actor instance,
-  `:rf.reply/status :cancelled`, `:rf.reply/work-status :cancelled`,
-  `:rf.reply/cancel-reason`) ride ADDITIVELY so the cancelled completion joins the
+  `:rf.reply/work-kind`, `:rf.reply/status :cancelled`,
+  `:rf.reply/work-status :cancelled`, `:rf.reply/cancelled?`,
+  `:rf.reply/cancel-reason` and `:rf.reply/correlation`) ride ADDITIVELY so the
+  cancelled completion joins the
   same uniform work/reply row the spawn started, classified the same way
   the single-`:spawn` `:rf.machine/done` reply is.
 
@@ -88,8 +90,9 @@
                                      :rf.reply/correlation (:correlation summary))))))
 
 (defn emit-destroy-bad-arg!
-  "Fail loud when a `:rf.machine/destroy` fx receives a MAP arg the runtime
-  cannot honour. The actor is NOT torn down and NO `:rf.machine/destroyed`
+  "Fail loud when a `:rf.machine/destroy` fx receives an arg the runtime
+  cannot honour: a map of the wrong shape, or a value that is neither a
+  keyword nor a map. The actor is NOT torn down and NO `:rf.machine/destroyed`
   trace fires — the fx refuses rather than silently choosing a semantic
   reason.
 
@@ -102,9 +105,10 @@
       and orphan every live child), or the spawn-all form resolving an
       actor-id KEYWORD.
 
-    - `:unknown-shape` — a map matching NONE of the known destroy shapes
+    - `:unknown-shape` — an arg matching NONE of the known destroy shapes
       (the keyword `actor-id` form, the tracked `{:rf/parent-id :rf/invoke-id}`
-      `:spawn` exit-cascade form, or the `:rf/spawn-all` form). Notably this is
+      `:spawn` exit-cascade form, or the `:rf/spawn-all` form), any
+      non-keyword, non-map value included. Notably this is
       the pre-auth forgery
       `{:rf/actor-id … :rf/reason …}`, which would otherwise mint a CALLER-chosen
       destroyed reason and thereby suppress the cancellation terminal of an

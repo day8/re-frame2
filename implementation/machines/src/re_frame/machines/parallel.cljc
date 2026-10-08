@@ -1059,44 +1059,40 @@
   local `:always` tail.
 
   Every taken regional transition gets its own rf.trace/cascade row, but all
-  co-selected transitions share `round-index`; the returned Result counts the
-  SET as exactly one `::microsteps` round."
+  co-selected transitions share `round-index`; the caller counts the SET as
+  exactly one microstep round."
   [machine snapshot matches round-index]
-  (let [round-r
-        (reduce-regions
-          machine snapshot
-          (fn [region-spec region-snap]
-            (let [rn    (:rf/region region-spec)
-                  match (get matches rn)
-                  from  (:state region-snap)
-                  step  (apply-region-transition
-                          region-spec region-snap nil match :always)]
-              (if (or (nil? match) (rf.machines.result/fail? step))
-                step
-                (rf.machines.result/with-ok [snap2 _] step
-                  (rf.trace/emit! :rf.machine :rf.machine.microstep/transition
-                               {:actor-id        (or (:rf/parent-id region-spec)
-                                                     (:id region-spec))
-                                :from            from
-                                :to              (:state snap2)
-                                :region          rn
-                                :microstep-index round-index
-                                :source          :always
-                                :frame           (:rf/frame region-spec)})
-                  (-> step
-                      ;; The parent owns the count. `reduce-regions` must not
-                      ;; sum one per selected region.
-                      (rf.machines.result/with-microsteps 0)
-                      (rf.machines.result/with-cascade
-                        [{:kind            :microstep
-                          :region          rn
-                          :microstep-index round-index
+  (reduce-regions
+    machine snapshot
+    (fn [region-spec region-snap]
+      (let [rn    (:rf/region region-spec)
+            match (get matches rn)
+            from  (:state region-snap)
+            step  (apply-region-transition
+                    region-spec region-snap nil match :always)]
+        (if (or (nil? match) (rf.machines.result/fail? step))
+          step
+          (rf.machines.result/with-ok [snap2 _] step
+            (rf.trace/emit! :rf.machine :rf.machine.microstep/transition
+                         {:actor-id        (or (:rf/parent-id region-spec)
+                                               (:id region-spec))
                           :from            from
                           :to              (:state snap2)
-                          :steps           (rf.machines.result/cascade step)}])))))))]
-    (if (rf.machines.result/fail? round-r)
-      round-r
-      (rf.machines.result/with-microsteps round-r 1))))
+                          :region          rn
+                          :microstep-index round-index
+                          :source          :always
+                          :frame           (:rf/frame region-spec)})
+            (-> step
+                ;; The parent owns the count. `reduce-regions` must not
+                ;; sum one per selected region.
+                (rf.machines.result/with-microsteps 0)
+                (rf.machines.result/with-cascade
+                  [{:kind            :microstep
+                    :region          rn
+                    :microstep-index round-index
+                    :from            from
+                    :to              (:state snap2)
+                    :steps           (rf.machines.result/cascade step)}]))))))))
 
 ;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
