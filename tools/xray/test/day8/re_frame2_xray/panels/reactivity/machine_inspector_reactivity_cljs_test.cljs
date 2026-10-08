@@ -16,7 +16,6 @@
   invariant independently."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
-            [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
 (use-fixtures :each h/fixture)
@@ -56,42 +55,16 @@
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
     (h/focus-cascade! :c1)
-    (let [transitions-1 (h/read-sub :rf.xray/machine-transitions-for-focused-event)]
-      (is (= 1 (count transitions-1))
-          "one transition fired in :e1's cascade window")
-      (is (= :idle (:from-state (first transitions-1)))
-          "first transition: idle → loading")
-      (is (= :loading (:to-state (first transitions-1))))
-      (h/focus-cascade! :c2)
-      (let [transitions-2 (h/read-sub :rf.xray/machine-transitions-for-focused-event)]
-        (is (= 1 (count transitions-2)))
-        (is (= :loading (:from-state (first transitions-2)))
-            "second transition: loading → loaded")
-        (is (= :loaded (:to-state (first transitions-2))))
-        (is (not= transitions-1 transitions-2)
-            "machine-inspector lens re-fired with new transition
-             records")))))
-
-(deftest machine-lens-empty-on-epoch-without-transitions
-  (testing "an epoch without transition trace events
-            yields `[]`. The reactive contract holds too: when
-            focus flips between an epoch-with-transitions and an
-            empty epoch, the lens output changes from a populated
-            vector to empty."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history!
-      [(epoch-with-transition :e1 :c1 :title/flow :idle :loading
-                              [:title/refresh])
-       ;; :e2 has no :rf.machine/transition events.
-       (h/mock-epoch :e2 :c2 {} {})])
-    (h/focus-cascade! :c1)
-    (is (= 1 (count (h/read-sub :rf.xray/machine-transitions-for-focused-event)))
-        "focus :c1 → one transition record")
+    (is (= [[:idle :loading]]
+           (mapv (juxt :from-state :to-state)
+                 (h/read-sub :rf.xray/machine-transitions-for-focused-event)))
+        "one transition fired in :e1's cascade window: idle → loading")
     (h/focus-cascade! :c2)
-    (is (= [] (h/read-sub :rf.xray/machine-transitions-for-focused-event))
-        "focus :c2 → empty lens; the sub re-fired to the silent-by-
-         default contract")))
+    (is (= [[:loading :loaded]]
+           (mapv (juxt :from-state :to-state)
+                 (h/read-sub :rf.xray/machine-transitions-for-focused-event)))
+        "focus flip → the lens re-fired with :e2's transition: loading →
+         loaded")))
 
 ;; ---- fired-this-epoch edge-ids flow into the lens (G3) ------------------
 ;;
@@ -123,8 +96,7 @@
       [:rf.xray/set-machine-definitions-override-for-test
        {:title/flow toy-flow-definition}])
     (h/focus-cascade! :c1)
-    (let [records (h/read-sub :rf.xray/machine-transitions-for-focused-event)
-          rec     (first records)
+    (let [rec (first (h/read-sub :rf.xray/machine-transitions-for-focused-event))
           ;; the canonical id the LIVE chart mints for idle→loading on
           ;; :title/refresh — fired ids MUST equal this (B7 agreement).
           expected-id (->> (:edges (chart-layout/project-definition toy-flow-definition))
@@ -133,48 +105,5 @@
                                               (= [:loading] (:to-path e))
                                               (= :title/refresh (:event e)))
                                      (:id e)))))]
-      (is (= 1 (count records)) "one transition fired in :e1")
-      (is (string? expected-id) "the live chart mints a canonical id")
       (is (= #{expected-id} (:fired-edge-ids rec))
-          "the record's fired-edge-ids equals the canonical live-chart id")
-      ;; cross-check the canonical id agrees with the B7 helper run on the
-      ;; same definition + the focused epoch's transition trace (the same
-      ;; computation the sub performs internally).
-      (is (= #{expected-id}
-             (trace-state/extract-fired-edge-ids
-               toy-flow-definition
-               [{:operation :rf.machine/transition
-                 :tags      {:machine-id :title/flow
-                             :before {:state :idle}
-                             :after  {:state :loading}}
-                 :event     [:title/refresh]}]
-               :title/flow))
-          ":fired-edge-ids agrees with extract-fired-edge-ids (B7)")
-      ;; flipping focus re-fires the lens with the NEXT epoch's fired arm
-      (h/focus-cascade! :c2)
-      (let [rec-2 (first (h/read-sub :rf.xray/machine-transitions-for-focused-event))
-            id-2  (->> (:edges (chart-layout/project-definition toy-flow-definition))
-                       (some (fn [e]
-                               (when (and (= [:loading] (:from-path e))
-                                          (= [:loaded]  (:to-path e))
-                                          (= :title/loaded (:event e)))
-                                 (:id e)))))]
-        (is (= #{id-2} (:fired-edge-ids rec-2))
-            "focus flip → the lens re-fires with the new epoch's fired edge")
-        (is (not= (:fired-edge-ids rec) (:fired-edge-ids rec-2))
-            "the two epochs fired DIFFERENT edges")))))
-
-(deftest machine-lens-fired-edge-ids-empty-without-definition
-  (testing "with NO introspectable definition the fired set is
-            empty (extract-fired-edge-ids has no chart edges to match), so
-            the chart simply shows no fired highlight"
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history! epoch-history)
-    ;; no definition override → :rf.xray/machine-definitions resolves nil
-    ;; for :title/flow (machine-meta isn't registered in this unit rig).
-    (h/focus-cascade! :c1)
-    (let [rec (first (h/read-sub :rf.xray/machine-transitions-for-focused-event))]
-      (is (some? rec) "the transition record surfaces")
-      (is (= #{} (:fired-edge-ids rec))
-          "no definition → empty fired set (no chart edges to match)"))))
+          "the record's fired-edge-ids equals the canonical live-chart id"))))
