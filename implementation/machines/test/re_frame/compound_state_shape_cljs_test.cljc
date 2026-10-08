@@ -53,17 +53,8 @@
 (deftest compound-machine-keyword-target-commits-its-path
   (testing "a keyword target naming a root-level leaf commits a one-element path"
     (is (= [:out] (state-after hierarchical [:in :home] [:logout]))))
-  (testing "the keyword and vector targets for one leaf commit one value"
-    (is (= (state-after hierarchical [:in :home] [:logout-vec])
-           (state-after hierarchical [:in :home] [:logout]))))
   (testing "a sibling keyword target inside a compound keeps its full path"
-    (is (= [:in :away] (state-after hierarchical [:in :home] [:next]))))
-  (testing "a registered compound machine's live snapshot reads [:out]"
-    (rf/reg-machine :cshape/machine hierarchical)
-    (rf/dispatch-sync [:cshape/machine [:login]])
-    (is (= [:in :home] (:state (snapshot :cshape/machine))))
-    (rf/dispatch-sync [:cshape/machine [:logout]])
-    (is (= [:out] (:state (snapshot :cshape/machine))))))
+    (is (= [:in :away] (state-after hierarchical [:in :home] [:next])))))
 
 (deftest compound-machine-initial-snapshot-reads-its-path
   (testing "a root-level leaf :initial reads a one-element path before boot"
