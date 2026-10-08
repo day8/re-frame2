@@ -188,7 +188,7 @@
 (deftest with-no-successor-the-delayed-repair-disposes-exactly
   (async done
     (incarnate! "A")
-    (let [{:keys [entry release]} (render+commit!)]
+    (let [{:keys [release]} (render+commit!)]
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
              (dissoc (rf.fresco.test.runtime/residue) :entries))
           "the commit acquired exactly one cell and one reader membership")
@@ -236,7 +236,7 @@
   ;; recovery a key that never had a cell gets.
   (async done
     (incarnate! "A")
-    (let [{:keys [entry release]} (render+commit!)]
+    (let [{:keys [release]} (render+commit!)]
       (rf/destroy-frame! frame-id)
       (is (nil? (rf.fresco.test.runtime/cell-reaction sub-key))
           "synchronous phase: reference dropped")
