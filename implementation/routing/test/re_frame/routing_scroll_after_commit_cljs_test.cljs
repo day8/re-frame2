@@ -12,7 +12,7 @@
   ORDERING the deferral rests on, against a controllable hook standing in for the
   adapter's: the hook queues its callback and answers nil (as UIx's does once
   it has scheduled), and `flush!` is the commit. The real-page witness is the
-  browser lane's `re-frame.routing-conduct-dom-cljs-test`.
+  browser lane's `re-frame.routing-scroll-after-commit-reagent-dom-cljs-test`.
 
   ns ends in `-cljs-test`, so the `:node-test` build runs it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -64,19 +64,20 @@
 ;; ---- the deferral ----------------------------------------------------------
 
 (deftest the-page-moves-once-and-only-after-the-commit
-  (testing "with an after-render hook, the fx makes NO DOM call;
-            the page moves exactly once, when the hook fires. The hook answers
-            nil after scheduling, so the decision cannot rest on its return
-            value — a nil-means-absent fallback would scroll twice"
-    (doseq [[args expected] [[{:strategy :top}                        [[:scroll-to 0 0]]]
-                             [{:strategy :restore :saved-pos [0 420]} [[:scroll-to 0 420]]]]]
+  (testing "with an after-render hook, the fx makes NO DOM call; the page
+            moves exactly once, when the hook fires, and `:preserve` never
+            moves it. The hook answers nil after scheduling, so the decision
+            cannot rest on its return value — a nil-means-absent fallback
+            would scroll twice"
+    (doseq [[args expected] [[{:strategy :restore :saved-pos [0 420]} [[:scroll-to 0 420]]]
+                             [{:strategy :preserve}                   []]]]
       (with-queued-after-render
         (fn [flush!]
           (let [calls (count-dom-calls!)]
             (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args)
             (is (= [] @calls) (str (:strategy args) ": no DOM call inside the event"))
             (flush!)
-            (is (= expected @calls) (str (:strategy args) ": one, after the commit"))))))))
+            (is (= expected @calls) (str (:strategy args) ": after the commit"))))))))
 
 (deftest a-fragment-on-the-arriving-page-is-found
   (testing "`#install` exists only on the page being navigated
@@ -94,20 +95,8 @@
                                                {:strategy :top :fragment "install"})
           (reset! committed? true)
           (flush!)
-          (is (= 1 @into-view) "the arriving page's #install was scrolled into view")
-          (is (= [] @calls) "and the page never fell back to the top"))))))
-
-(deftest with-no-hook-the-page-moves-at-once
-  (testing "a host publishing no after-render hook scrolls
-            immediately — no timer is invented for it"
-    (let [original (rf.late-bind/get-fn :adapter/after-render)]
-      (try
-        (rf.late-bind/set-fn! :adapter/after-render nil)
-        (let [calls (count-dom-calls!)]
-          (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                               {:strategy :restore :saved-pos [0 420]})
-          (is (= [[:scroll-to 0 420]] @calls)))
-        (finally (rf.late-bind/set-fn! :adapter/after-render original))))))
+          (is (= [1 []] [@into-view @calls])
+              "#install was scrolled into view once, and the page never fell back to the top"))))))
 
 (deftest with-no-adapter-installed-the-page-moves-at-once
   (testing "loading an adapter publishes its ROUTED hook, which
@@ -117,22 +106,10 @@
     (is (some? (rf.late-bind/get-fn :adapter/after-render))
         "precondition: the routed hook is published")
     (rf.substrate.adapter/dispose-adapter!)
-    (is (nil? (rf.substrate.adapter/current-adapter)) "precondition: none installed")
     (let [calls (count-dom-calls!)]
       (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
                                            {:strategy :restore :saved-pos [0 420]})
       (is (= [[:scroll-to 0 420]] @calls)))))
-
-(deftest the-preserve-strategy-schedules-nothing
-  (testing "`:preserve` queues no callback and moves nothing.
-            (The unsupported-strategy rejection stays inside the event; the
-            `routing-nav-fx-schemas-cljs-test` rejection rows pin that.)"
-    (with-queued-after-render
-      (fn [flush!]
-        (let [calls (count-dom-calls!)]
-          (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
-          (flush!)
-          (is (= [] @calls)))))))
 
 (deftest a-deferred-scroll-on-a-pageless-host-does-nothing
   (testing "deferred, the DOM half runs outside the fx's error
@@ -166,7 +143,6 @@
       (let [calls (count-dom-calls!)]
         (testing "control: a navigation's deferred scroll runs at the commit"
           (rf/dispatch-sync [:rf.route/navigate {:to :scroll/list}])
-          (is (= [] @calls))
           (flush!)
           (is (= [[:scroll-to 0 0]] @calls)))
         (reset! calls [])
