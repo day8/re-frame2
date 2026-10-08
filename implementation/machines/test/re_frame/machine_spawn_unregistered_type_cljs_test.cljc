@@ -97,7 +97,8 @@
             (rf.machines.test-support/machine-state :sup/card)
             (rf.machines.test-support/snapshot :card/ok#1)])
         "a childless reject sentinel stands in for the join, and the registered sibling is suppressed")
-    (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
-        "no child of the rejected invoke reaches the spawn cascade")
+    (is (= [[] []] (map rf.machines.test-support/events-of
+                        [:rf.machine.spawn/spawned :rf.machine.spawn-all/started]))
+        "no child of the rejected invoke reaches the spawn cascade, and no join starts")
     (rf/dispatch-sync [:sup/card [:back]])
     (is (nil? (slot)) "parent exit clears the reject sentinel")))
