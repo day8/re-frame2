@@ -1,33 +1,12 @@
 (ns re-frame.http-backoff-cancellation-test
-  "The retry backoff window is cancellable.
-
-  A sleeping request stays registered under a
-  handle whose `:abort-fn` cancels the pending retry timer and clears the
-  registry. User abort, actor destruction, and same-id supersession converge
-  on that closure.
-
-  Spec references:
-   - Spec 014 §Retry and backoff
-   - Spec 014 §Aborts (`:request-id` (internal), supersede)
-   - Spec 014 §Abort on actor destroy
-
-  Test strategy: a tiny in-process server that always returns 500 and
-  COUNTS its hits. A `:retry {:on #{:rf.http/http-5xx} :max-attempts 5
-  :backoff {:base-ms 2000 :factor 1 :max-ms 2000}}` config gives a
-  deterministic 2000ms backoff between attempts. After hit #1 lands the
-  request is sleeping in the backoff window (confirmed: it is present in
-  the in-flight registry and the hit count is exactly 1). The test fires
-  the cancel inside that window and asserts — past the backoff deadline —
-  that no second hit ever fired and the registry is clean.
-
-  Coverage matrix (each its own deftest):
-   1. :rf.http/managed-abort during backoff   → no retry, registry clear
-   2. abort-on-actor-destroy during backoff   → no retry, registry clear
-   3. supersede (same request-id) during backoff → old retry suppressed,
-      and the stale-suppressed trace carries the SLEEPING retry attempt's
-      work-id (issuance/attempt preserved), not a default `1 1`
-   4. GUARD: an uncancelled backoff retries normally"
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The retry backoff window is cancellable (Spec 014 §Retry and backoff,
+  §Aborts, §Abort on actor destroy). A request sleeping between attempts stays
+  registered under a handle whose `:abort-fn` cancels the pending retry timer;
+  user abort, actor destruction and same-id supersession converge on it. An
+  always-500 server counts hits, so a retry that fires after the cancel shows
+  as a second hit once the backoff deadline has passed. That an uncancelled
+  backoff retries is pinned by every retry-exhaustion round trip."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
@@ -39,16 +18,10 @@
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
 
-;; ---- per-test reset --------------------------------------------------------
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- hit-counting always-500 server ---------------------------------------
-
 (defn- start-counting-500-server!
-  "Start an HttpServer that always returns 500 and increments `hits` on
-  every request it serves. Returns `{:server :port :hits}`."
   []
   (let [hits   (AtomicInteger. 0)
         server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
@@ -72,11 +45,7 @@
 (defn- stop-server! [{:keys [^HttpServer server]}]
   (.stop server 0))
 
-;; ---- helpers --------------------------------------------------------------
-
-;; The backoff window. Long enough that the test can deterministically
-;; observe the sleeping state and fire a cancel well inside it; short
-;; enough to keep the test snappy.
+;; Long enough to observe the sleeping state and cancel well inside it.
 (def ^:private backoff-ms 2000)
 
 (def ^:private retry-config
@@ -92,37 +61,24 @@
    true))
 
 (defn- await-backoff-sleeping!
-  "Wait until attempt #1 has hit the server, then settle briefly so
-  `maybe-retry!` has armed the backoff timer. Returns with the request
-  squarely inside the (2000ms) backoff window.
-
-  Deliberately gates ONLY on the server hit count — NOT on registry
-  presence — because registry presence during backoff is the very
-  invariant under test. Gating
-  on it would let a buggy build hang this helper instead of failing the
-  downstream assertions."
+  "Wait for attempt #1's hit, then settle so the backoff timer is armed. It
+  gates on the hit count, not on registry presence, because presence during
+  backoff is the invariant under test."
   [^AtomicInteger hits]
   (await-condition! #(>= (.get hits) 1))
-  ;; Settle: let the 500 response classify + arm the backoff timer. Well
-  ;; inside the 2000ms window; the cancel fires immediately after.
   (Thread/sleep 150))
 
 (defn- assert-no-retry-fired!
-  "After a cancel inside the backoff window, wait past the backoff
-  deadline and assert the retry never fired (hit count frozen at 1)."
+  "A retry has no positive signal to poll on: wait past the backoff deadline
+  and assert only attempt #1 ever reached the server."
   [^AtomicInteger hits]
-  ;; Sleep past the full backoff window plus a margin — proving the
-  ;; ABSENCE of a retry, which has no positive signal to poll on
-  ;; (a timer-semantics sleep).
   (Thread/sleep (long (+ backoff-ms 600)))
-  (is (= 1 (.get hits))
-      "the retry MUST NOT fire after a cancel issued during the backoff window — exactly one hit ever reached the server"))
+  (is (= 1 (.get hits)) "no retry fired after the cancel"))
 
-;; ---- (1) :rf.http/managed-abort during backoff ----------------------------
+(def ^:private reply-shape (juxt :status (comp :kind :error) (comp :reason :error)))
 
 (deftest abort-during-backoff-cancels-pending-retry
-  (testing ":rf.http/managed-abort issued during the retry backoff window cancels the pending retry and clears the registry"
-    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
+  (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
         (rf/reg-event :reply/recorder
@@ -139,36 +95,23 @@
         (rf/reg-event :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
         (rf/dispatch-sync [:issue])
-        ;; Attempt #1 fails 500 → request sleeps in the backoff window.
         (await-backoff-sleeping! hits)
         (is (contains? (rf.http.registry/in-flight-snapshot) :race)
-            "the sleeping request is visible in the in-flight registry during backoff")
-        ;; Abort squarely inside the 2000ms window.
+            "the sleeping request stays registered during backoff")
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply)))
-          (is (= :rf.http/aborted (get-in reply [:error :kind]))
-              "abort during backoff dispatches the canonical :rf.http/aborted reply")
-          (is (= :user (get-in reply [:error :reason]))))
-        (is (empty? (rf.http.registry/in-flight-snapshot))
-            "the registry is cleared the instant the backoff is cancelled")
+        (is (empty? (rf.http.registry/in-flight-snapshot)) "the cancel clears the registry at once")
         (assert-no-retry-fired! hits)
-        (is (= 1 (count @replies))
-            "exactly one reply — the cancelled retry never produced a second outcome")
+        (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
         (finally
-          (stop-server! srv))))))
-
-;; ---- (2) abort-on-actor-destroy during backoff -----------------------------
+          (stop-server! srv)))))
 
 (deftest actor-destroy-during-backoff-cancels-pending-retry
-  (testing "destroying the issuing actor during the retry backoff window cancels the pending retry and clears the actor index"
-    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
+  (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        ;; Child actor issues the retrying request on entry.
         (rf/reg-machine :worker/race
           {:initial :idle
            :data    {:port (:port srv)}
@@ -189,34 +132,23 @@
                                         :start      [:start]}
                                :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/race [:start]])
-        ;; Attempt #1 fails 500 → request sleeps in the backoff window,
-        ;; registered under BOTH the request-id and actor-in-flight index.
         (await-backoff-sleeping! hits)
         (is (= 1 (count (rf.http.registry/actor-in-flight-snapshot)))
-            "the sleeping retry is indexed under its issuing actor during backoff")
-        ;; Destroy the actor squarely inside the backoff window.
+            "the sleeping retry stays indexed under its issuing actor")
         (rf/dispatch-sync [:sup/race [:cancel]])
         (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply)))
-          (is (= :rf.http/aborted (get-in reply [:error :kind])))
-          (is (= :actor-destroyed (get-in reply [:error :reason]))
-              "actor-destroy during backoff surfaces :reason :actor-destroyed"))
-        (is (empty? (rf.http.registry/actor-in-flight-snapshot))
-            "the actor index is clean — no stale entry left for a destroyed actor")
-        (is (empty? (rf.http.registry/in-flight-snapshot)))
+        (is (and (empty? (rf.http.registry/actor-in-flight-snapshot))
+                 (empty? (rf.http.registry/in-flight-snapshot))))
         (assert-no-retry-fired! hits)
-        (is (= 1 (count @replies)))
+        (is (= [[:cancelled :rf.http/aborted :actor-destroyed]] (mapv reply-shape @replies)))
         (finally
-          (stop-server! srv))))))
-
-;; ---- (3) supersede during backoff carries the sleeping attempt's work-id ---
+          (stop-server! srv)))))
 
 (deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id
-  (testing "superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"
-    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
-          ;; The superseding request targets a separate always-500 server, so
-          ;; its hit never counts against the old server's `hits`.
+  ;; A backoff handle that dropped :issuance / :attempt would default the
+  ;; carried work-id to a phantom attempt 1.
+  (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
+          ;; The superseding request's hit lands on a separate server.
           new-srv (start-counting-500-server!)
           replies (atom [])
           traces  (atom [])
@@ -234,9 +166,6 @@
                     :request-id :shared
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        ;; The superseding request: same :request-id, no retry, fresh endpoint.
-        ;; It allocates issuance 2 under :shared, so its work-id is
-        ;; [:rf.work/http :shared 2 1].
         (rf/reg-event :issue-new
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -246,87 +175,33 @@
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
         (rf/dispatch-sync [:issue-old])
-        ;; Drive the old request THROUGH attempt #1 (500 → backoff) and into
-        ;; attempt #2's backoff window: wait for 2 server hits (attempt #1 and
-        ;; the retried attempt #2), then settle so attempt #2's 500 has
-        ;; classified and `maybe-retry!` has re-armed the backoff timer. The
-        ;; sleeping handle now represents attempt #2 (issuance 1, attempt 2).
+        ;; Two hits, then settle: the old request now sleeps in attempt #2's backoff.
         (await-condition! #(>= (.get hits) 2))
         (Thread/sleep 150)
-        (is (contains? (rf.http.registry/in-flight-snapshot) :shared)
-            "the old request is still registered, sleeping in attempt #2's backoff window")
-        ;; Supersede with a fresh same-id request squarely inside that window.
+        (is (contains? (rf.http.registry/in-flight-snapshot) :shared))
         (rf/dispatch-sync [:issue-new])
         (rf.test-support/poll-until
           #(some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces)
           {:timeout-ms 5000 :label "supersede-backoff-stale"})
-        (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
-          (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded sleeping attempt")
-          (let [tags (:tags (first stale))]
-            (is (= :stale (:rf.reply/status tags)))
-            (is (= :suppressed (:rf.reply/work-status tags)))
-            (is (= :http (:rf.reply/work-kind tags)))
-            ;; The carried work-id must be the SLEEPING
-            ;; retry attempt's work-id — issuance 1, attempt 2. A
-            ;; backoff handle that dropped :issuance / :attempt would default
-            ;; the carried id to [:rf.work/http :shared 1 1] (a phantom attempt #1).
-            (is (= [:rf.work/http :shared 1 2] (:work/id (:rf.reply/carried tags)))
-                "carried work-id reflects the superseded SLEEPING retry attempt (attempt 2), not a default attempt 1")
-            ;; current = the superseding attempt's work-id (issuance 2, attempt 1).
-            (is (= [:rf.work/http :shared 2 1] (:work/id (:rf.reply/current tags)))
-                "current work-id is the superseding fresh issuance")
-            (is (not= (:work/id (:rf.reply/carried tags))
-                      (:work/id (:rf.reply/current tags)))
-                "carried (superseded) and current (superseding) work-ids are =-distinct")
-            ;; The canonical join key reads the carried (superseded) work-id.
-            (is (= [:rf.work/http :shared 1 2] (:rf.reply/work-id tags)))))
-        ;; The OLD server must NEVER receive a third hit — its sleeping retry
-        ;; was cancelled by the supersede.
+        (is (= [{:rf.reply/status      :stale
+                 :rf.reply/work-status :suppressed
+                 :rf.reply/work-kind   :http
+                 :rf.reply/work-id     [:rf.work/http :shared 1 2]
+                 :carried              [:rf.work/http :shared 1 2]
+                 :current              [:rf.work/http :shared 2 1]}]
+               (->> @traces
+                    (filter #(= :rf.http/stale-suppressed (:operation %)))
+                    (mapv (fn [{:keys [tags]}]
+                            (-> (select-keys tags [:rf.reply/status :rf.reply/work-status
+                                                   :rf.reply/work-kind :rf.reply/work-id])
+                                (assoc :carried (get-in tags [:rf.reply/carried :work/id])
+                                       :current (get-in tags [:rf.reply/current :work/id])))))))
+            "one stale row, carrying the sleeping attempt's work-id (issuance 1, attempt 2)")
         (Thread/sleep (long (+ backoff-ms 600)))
-        (is (= 2 (.get hits))
-            "the OLD request's backoff retry MUST NOT fire after being superseded (exactly attempts #1 + #2 hit the server)")
-        ;; The superseded request's app reply is suppressed.
+        (is (= 2 (.get hits)) "the superseded sleeping retry never fired")
         (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
-            "no :request-id-superseded reply is dispatched to the user")
+            "the superseded request's app reply is suppressed")
         (finally
           (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv)
-          (stop-server! new-srv))))))
-
-;; ---- (4) GUARD: an uncancelled backoff retries -----------------------------
-
-(deftest uncancelled-backoff-still-retries
-  (testing "guard — a normal (uncancelled) backoff retries; the cancellable backoff window does not break the happy path"
-    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
-                    :decode     :json
-                    ;; max-attempts 2 → exactly one retry, then exhaust.
-                    :retry      {:on           #{:rf.http/http-5xx}
-                                 :max-attempts 2
-                                 :backoff      {:base-ms 200 :factor 1 :max-ms 200}}
-                    :request-id :happy
-                    :on-failure [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue])
-        ;; The retry fires after the backoff — the server is hit twice.
-        (await-condition! #(= 2 (.get hits)) 5000)
-        (is (= 2 (.get hits))
-            "the uncancelled backoff retried — the second attempt reached the server")
-        ;; Retries exhausted → a single final :rf.http/http-5xx failure.
-        (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :error (:status reply)))
-          (is (= :rf.http/http-5xx (get-in reply [:error :kind]))
-              "after the retry exhausts, the final reply carries the real failure category, not :rf.http/aborted"))
-        (is (empty? (rf.http.registry/in-flight-snapshot))
-            "the registry is clean after the retry exhausts")
-        (is (= 1 (count @replies))
-            "exactly one final reply across the retry sequence")
-        (finally
-          (stop-server! srv))))))
+          (stop-server! new-srv)))))
