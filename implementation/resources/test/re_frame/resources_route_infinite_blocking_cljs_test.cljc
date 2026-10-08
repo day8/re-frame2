@@ -1,52 +1,15 @@
 (ns re-frame.resources-route-infinite-blocking-cljs-test
-  "Route ↔ INFINITE-feed BLOCKING integration (Spec 016 §Route integration +
-  §Infinite resources and load-more feeds). Cross-host (JVM + CLJS) so the
-  routing/resources seam behaves identically server- and client-side.
-
-  The scalar route-blocking surface (`resources_route_cljs_test.cljc`)
-  thoroughly covers a BLOCKING SCALAR resource: it holds the transition
-  `:loading`, drains `:idle` on success, and a blocking FIRST-load FAILURE
-  flips the route to `:error`. But a route blocking an INFINITE feed drains
-  through a DIFFERENT path — the PAGE reply handlers
-  (`:rf.resource.internal/page-succeeded` / `…/page-failed`), NOT the scalar
-  succeeded/failed handlers — and an infinite feed has a third error channel:
-  a load-more failure records `:page-error` and keeps the feed `:loaded`,
-  while a page-0 failure uses the scalar first-load `:error` channel.
-
-  THE CONTRACT this pins (Spec 016 first-load semantics):
-
-    1. a blocking infinite route holds the transition `:loading` on PAGE 0
-       in flight, and DRAINS (transition → `:idle`) when page-0 SUCCEEDS via
-       the PAGE reply handler (`entry-replace-page` append path), NOT the
-       scalar succeeded-handler;
-
-    2. a blocking page-0 FIRST-load FAILURE (no accumulated pages) uses the
-       FIRST-LOAD `:error` channel, NOT the load-more `:page-error` channel:
-       Spec 016 reserves `:error` / `:status :error` for first-load (page 0)
-       failure and `:page-error` for load-more (page N>0) failure only. So a
-       blocking infinite route whose required page 0 fails flips to route
-       `:error` (the feed settles `:status :error`, `:error` envelope, no
-       data) — EXACTLY like a blocking SCALAR resource;
-
-    3. a LOAD-MORE (page N>0) FAILURE with accumulated pages uses the
-       `:page-error` channel (the load-more suite's
-       `load-more-decode-failure-keeps-pages-records-page-error`); the route
-       blocks on page 0 only, so it has already drained.
-
-  The capturing transport REPLAYS the live managed-HTTP reply-append shape
-  (the transport conj's its result as the LAST arg of the internal reply
-  event — Spec 014 §Reply addressing), so the PAGE reply handlers run against
-  the genuine 3-element event addressed at `:rf.resource.internal/page-*`.
-
-  Named `*-cljs-test.cljc` so it is discovered by BOTH the JVM runner
-  (`.*-test$`) and the shadow-cljs `:node-test` build (`cljs-test$`)."
+  "A route blocking on an infinite feed (Spec 016 §Route integration, §Infinite
+  resources and load-more feeds). The feed drains through the page reply
+  handlers, not the scalar ones: page-0 success drains the route to :idle, and
+  a page-0 failure is a first load, so it settles the :error channel (never
+  :page-error) and flips the route to :error exactly as a blocking scalar
+  resource would."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the routing + resources
-   ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
    [re-frame.resources.route :as rf.resources.route]
    [re-frame.resources.state :as rf.resources.state]
@@ -58,19 +21,9 @@
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
-;; ---- capturing transport (REPLAYS the live page reply-append shape) -------
-
 (def ^:private last-managed-args (atom nil))
 
-(defn- init!
-  "Per-test setup (after adapter install, registrar live): re-register
-  `:rf/default` as the URL-owning app frame, reset the routing counters,
-  re-publish the late-bound routing integration, and stub managed-HTTP (a
-  CAPTURING stub, so page-0's reply can be driven) + push-url.
-
-  The resources host-side caches are cleared by the shared
-  `make-reset-runtime-fixture`'s post-dispose hook BEFORE this `:init-fn`."
-  []
+(defn- init! []
   (reset! last-managed-args nil)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Route-infinite-blocking suite default app frame."})
@@ -84,8 +37,6 @@
     {:adapter substrate/adapter
      :init-fn init!}))
 
-;; ---- helpers --------------------------------------------------------------
-
 (defn- slice []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
@@ -93,145 +44,71 @@
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entry-path scoped-key)))
 
 (defn- blocking-slot
-  "The live blocking slot for `nav-token`, projected to the SET of its scoped
-  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier;
-  these assertions ask a membership question the projection answers."
+  "The scoped keys in the live blocking slot for `nav-token`."
   [nav-token]
   (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      (rf.resources.route/blocking-path nav-token)))))
 
-(def ^:private next-cursor
-  (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
+(defn- page [items next-c] {:items items :page-info {:next-cursor next-c}})
 
-(defn- page
-  "An enveloped page: items + a page-info cursor envelope."
-  [items next-c]
-  {:items items :page-info {:next-cursor next-c}})
+(def ^:private k
+  (rf.resources.state/scoped-resource-key :rf.scope/global :feed/articles {:slug "intro"}))
 
-(defn- feed-spec
-  "A minimal valid infinite-feed resource spec (global scope, cursor
-  pagination via :page-info)."
-  [overrides]
-  (merge {:scope           :rf.scope/global
-          :infinite        true
-          :params-schema   [:map [:slug :string]]
-          :next-page-param next-cursor
-          :page->items     :items
-          :tags            (fn [{:keys [slug]} _data] #{[:feed slug]})}
-         overrides))
-
-(def ^:private feed-spec-request
-  (fn [{:keys [slug]} {:rf.resource/keys [page-param page-index]}]
-    {:request {:method :get :url (str "/api/feed/" slug)
-               :params (cond-> {:page-index page-index}
-                         page-param (assoc :cursor page-param))}}))
-
-(defn- feed-key [slug]
-  (rf.resources.state/scoped-resource-key :rf.scope/global :feed/articles {:slug slug}))
-
-(defn- reply-page-success!
-  "Dispatch the captured page reply's `:on-success` with the transport's
-  success result appended as the LAST arg — the live page reply shape
-  (addressed at `:rf.resource.internal/page-succeeded`)."
-  [pg]
+(defn- reply-page!
+  "Reply to the captured page-0 request through `callback` (:on-success or
+  :on-failure), first checking it is addressed at the page handler `handler`."
+  [callback handler reply]
   (let [args @last-managed-args]
-    (is (= :rf.resource.internal/page-succeeded (first (:on-success args)))
-        "page-0 of an infinite feed is addressed at the PAGE success handler")
-    (rf/dispatch-sync (conj (:on-success args) {:status :ok :value pg}))))
+    (is (= handler (first (callback args))) "page 0 is addressed at the page reply handler")
+    (rf/dispatch-sync (conj (callback args) reply))))
 
-(defn- reply-page-failure!
-  "Dispatch the captured page reply's `:on-failure` with the transport's
-  failure envelope appended as the LAST arg — the live page reply shape
-  (addressed at `:rf.resource.internal/page-failed`)."
-  [failure]
-  (let [args @last-managed-args]
-    (is (= :rf.resource.internal/page-failed (first (:on-failure args)))
-        "page-0 of an infinite feed is addressed at the PAGE failure handler")
-    (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
-
-(defn- register-blocking-infinite-route! []
-  (rf/reg-resource :feed/articles (feed-spec {}) feed-spec-request)
+(defn- navigate-to-blocking-feed!
+  "Register a route blocking on an infinite feed and navigate to it; return
+  the nav-token after asserting the route holds :loading on page 0."
+  []
+  (rf/reg-resource :feed/articles
+    {:scope           :rf.scope/global
+     :infinite        true
+     :params-schema   [:map [:slug :string]]
+     :next-page-param (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor]))
+     :page->items     :items
+     :tags            (fn [{:keys [slug]} _data] #{[:feed slug]})}
+    (fn [{:keys [slug]} {:rf.resource/keys [page-param page-index]}]
+      {:request {:method :get :url (str "/api/feed/" slug)
+                 :params (cond-> {:page-index page-index}
+                           page-param (assoc :cursor page-param))}}))
   (rf/reg-route :route/feed
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :feed/articles
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/feed/:slug"))
-
-;; ===========================================================================
-;; 1. blocking infinite route holds :loading on page 0, DRAINS on page-0 success
-;; ===========================================================================
+                              :blocking? true}]} "/feed/:slug")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
+  (let [nav-token (:nav-token (slice))]
+    (is (= [:loading true] [(:transition (slice)) (contains? (blocking-slot nav-token) k)])
+        "the route holds :loading while the blocking page 0 is in flight")
+    nav-token))
 
 (deftest blocking-infinite-route-holds-then-drains-on-page-0-success
-  ;; The blocking drain on an infinite feed runs through the
-  ;; PAGE reply handler (entry-replace-page append), NOT the scalar succeeded-
-  ;; handler — and the route transition must complete when page 0 lands.
-  (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
-  (let [nav-token (:nav-token (slice))
-        k         (feed-key "intro")]
-    (testing "the route holds :loading while page 0 of the infinite feed is in flight"
-      (is (= :loading (:transition (slice)))
-          "transition stays :loading while the blocking infinite feed's page 0 is pending")
-      (is (contains? (blocking-slot nav-token) k)
-          "the blocking infinite feed's scoped key is tracked under the nav-token")
-      (let [e (entry k)]
-        (is (rf.resources.state/infinite-entry? e) "ensured an INFINITE entry (page-0 fetch, not a scalar)")
-        (is (= :loading (:status e)) "first load (no data) is :loading")
-        (is (= [] (:data e)) "page vector empty (page-0 in flight)"))
-      (testing "the route owner is on the infinite feed entry"
-        (is (contains? (:active-owners (entry k)) [:route :route/feed nav-token])
-            "owner is [:route route-id nav-token]")))
-    (testing "page-0 SUCCESS drains the route via the PAGE reply handler → :idle"
-      (reply-page-success! (page [:a :b] "c1"))
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "feed settled :loaded")
-        (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data appended"))
-      (is (= :idle (:transition (slice)))
-          "the blocking infinite route drained to :idle on the page-0 reply")
-      (is (empty? (blocking-slot nav-token))
-          "the blocking slot drained when page 0 landed"))))
-
-;; ===========================================================================
-;; 2. blocking infinite route page-0 FIRST-load FAILURE errors the route
-;;    (the FIRST-load :error channel — parity with a scalar blocking resource)
-;; ===========================================================================
+  (let [nav-token (navigate-to-blocking-feed!)
+        e         (entry k)]
+    (is (= [true :loading [] true]
+           [(rf.resources.state/infinite-entry? e) (:status e) (:data e)
+            (contains? (:active-owners e) [:route :route/feed nav-token])])
+        "an infinite first-loading entry owned by the route")
+    (reply-page! :on-success :rf.resource.internal/page-succeeded {:status :ok :value (page [:a :b] "c1")})
+    (is (= [:loaded [(page [:a :b] "c1")] :idle #{}]
+           [(:status (entry k)) (:data (entry k)) (:transition (slice)) (blocking-slot nav-token)])
+        "page 0 landed and the route drained to :idle")))
 
 (deftest blocking-infinite-route-page-0-failure-errors-route
-  ;; The contract (Spec 016 §Status semantics + §Infinite resources): a
-  ;; blocking infinite page-0 FIRST-load FAILURE (no
-  ;; accumulated pages) settles the FIRST-load :error channel (`entry-failed`
-  ;; → :status :error, :error envelope, :data nil), which the readiness
-  ;; projection reads as a failed blocking first load and flips the route to
-  ;; :error — EXACTLY like a blocking SCALAR resource, through the same
-  ;; projector and with no infinite-specific readiness branch.
-  ;; Spec 016 reserves :error for first-load (page 0) and :page-error for
-  ;; load-more (page N>0) ONLY — page 0 is a first load, never a load-more.
-  (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
-  (let [nav-token (:nav-token (slice))
-        k         (feed-key "intro")
+  (let [nav-token (navigate-to-blocking-feed!)
         failure   {:kind :rf.http/server :status 503 :message "upstream down"}]
-    (testing "the route holds :loading on the in-flight blocking page 0"
-      (is (= :loading (:transition (slice))))
-      (is (contains? (blocking-slot nav-token) k)))
-    (reply-page-failure! failure)
-    (testing "the feed settles :status :error with the :error channel — NOT :page-error"
-      (let [e (entry k)]
-        (is (= :error (:status e))
-            "a page-0 first-load failure (no pages) is :status :error, never :loaded")
-        (is (= failure (:error e)) ":error records the first-load failure envelope")
-        (is (nil? (:page-error e)) "NOT the load-more :page-error channel (page 0 is not a load-more)")
-        (is (nil? (:refresh-error e)) "NOT the whole-feed :refresh-error channel")
-        (is (nil? (:data e)) "first-load failure clears data (no usable data)")
-        (is (= 0 (rf.resources.state/page-count e)) "no page accumulated — page 0 never landed")))
-    (testing "the BLOCKING ROUTE flips to :error (parity with a scalar blocking resource)"
-      (is (= :error (:transition (slice)))
-          "the blocking infinite route flips to :error on the page-0 first-load failure")
-      (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
-          ":rf.route/error carries the structured blocking-failure error")
-      (is (contains? (blocking-slot nav-token) (feed-key "intro"))
-          (str "the FAILED requirement stays outstanding — it is what holds the "
-               "route at :error, and a later successful load re-projects the "
-               "route to :idle. It cannot hang the route (:error is terminal for "
-               "this activation) and cannot leak (route leave clears the whole "
-               "nav-token slot)")))))
+    (reply-page! :on-failure :rf.resource.internal/page-failed {:status :error :error failure})
+    (is (= [:error failure nil nil nil]
+           ((juxt :status :error :page-error :refresh-error :data) (entry k)))
+        "a page-0 failure is a first-load :error, not a :page-error or :refresh-error")
+    ;; the failed requirement stays outstanding: it holds the route at :error,
+    ;; and route leave clears the whole nav-token slot
+    (is (= [:error :rf.error/resource-route-blocking true]
+           [(:transition (slice)) (:rf.error/id (:error (slice))) (contains? (blocking-slot nav-token) k)])
+        "the blocking route flips to :error")))
