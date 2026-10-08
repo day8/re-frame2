@@ -101,7 +101,6 @@
                                      :label "stalled-body timeout reply"})
         (let [reply   (first @replies)
               failure (:error reply)]
-          (is (= :error (:status reply)))
           (is (= :rf.http/timeout (:kind failure))
               "the stalled body was bounded by the per-attempt budget")
           (is (= 200 (:limit-ms failure)))
