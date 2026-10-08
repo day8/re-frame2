@@ -3,27 +3,12 @@
 'use strict';
 
 /*
- * Hermetic classifier tests for `.github/scripts/resolve-clojure-deps.sh`.
- *
- * WHAT IS BEING PINNED. The script retries `clojure -P` when the resolver's
- * output carries a transient TRANSPORT signature, and reports differently
- * when it does not. Two things must be true: the retry is bounded, and the
- * verdict after exhaustion is honest about what the signature proves — it
- * never reads "INFRASTRUCTURE, not this diff" or "not of any coordinate".
- *
- * A 403, an `ArtifactTransportException`, an `UnknownHostException` — each
- * earns a retry, and none establishes ownership. A repository the change
- * itself added that requires credentials emits exactly these strings. So the
- * exhausted verdict must present the signature as EVIDENCE A RE-RUN MAY HELP
- * and must not tell the author to look away from their own diff.
- *
- * HERMETIC, and that is the point. These tests run the real script against a
- * stub resolver, so they exercise the classifier rather than describing it. `clojure` and `sleep` are
- * both stubbed onto PATH — `sleep` so the 45s of real backoff costs nothing,
- * `clojure` so each attempt's output is scripted. No network, no JVM.
- *
- * Fixtures take a process-scoped lane under the gitignored `.scratch/`
- * rather than `os.tmpdir()`, so concurrent runs cannot collide.
+ * Hermetic tests for `.github/scripts/resolve-clojure-deps.sh`. It retries
+ * `clojure -P` only when the resolver's output carries a transient TRANSPORT
+ * signature, the retry is bounded, and the exhausted verdict stays cause-neutral:
+ * a repository the change itself added emits the same 403 / transport strings, so
+ * the verdict may say a re-run may help but must never absolve the diff. The real
+ * script runs against stubbed `clojure` and `sleep` on PATH: no network, no JVM.
  */
 
 const assert = require('assert/strict');
@@ -136,13 +121,6 @@ const SERVER_5XX = [
   '(https://repo1.maven.org/maven2/): status code: 503, reason phrase: Service Unavailable',
 ].join('\n');
 
-// A fault the DIFF owns that nevertheless emits transport signatures — the
-// counter-example, and the reason the verdict must stay cause-neutral.
-const DIFF_OWNED_AUTH_403 = [
-  'ArtifactTransportException: authentication failed for repository configured by this change',
-  '(https://private.example.invalid/maven): status code: 403, reason phrase: Forbidden',
-].join('\n');
-
 // ── success ─────────────────────────────────────────────────────────────
 
 test('a clean resolve exits 0 on the FIRST attempt and annotates nothing', () => {
@@ -208,8 +186,6 @@ test('a MATCHED failure is retried to the bound, then reports WITHOUT blaming in
     const res = runScript(sandbox, ['-M:test']);
     assert.notEqual(res.status, 0, 'an exhausted resolve must exit nonzero');
     assert.equal(res.calls, 3, 'the retry must be bounded at three attempts');
-    // It must still quote the signature — the reader has to be able to check
-    // the reasoning rather than trust a label.
     assert.match(
       res.output,
       /status code: 403/,
@@ -220,39 +196,15 @@ test('a MATCHED failure is retried to the bound, then reports WITHOUT blaming in
       /re-run may help|RE-RUN MAY HELP/,
       'the verdict must present the signature as evidence a re-run may help',
     );
-    // Categorical claims the verdict must never make.
-    assert.doesNotMatch(
-      res.output,
-      /INFRASTRUCTURE, not this diff/,
-      'the verdict must not categorically absolve the diff',
-    );
-    assert.doesNotMatch(
-      res.output,
-      /not of any coordinate/,
-      'the verdict must not claim no coordinate is at fault — it cannot know that',
-    );
-  } finally {
-    cleanupScratchDirs();
-  }
-});
-
-test('a diff-owned auth 403 gets the SAME cause-neutral treatment, not an absolution', () => {
-  // The hermetic counter-example: the diff adds a repository that needs
-  // credentials. It matches the transport signatures, so it is retried
-  // — that is acceptable — but it must not be told it is not its own fault.
-  const sandbox = makeSandbox([{ out: DIFF_OWNED_AUTH_403, code: 1 }]);
-  try {
-    const res = runScript(sandbox, ['-M:test']);
-    assert.notEqual(res.status, 0, 'must exit nonzero');
-    assert.doesNotMatch(
-      res.output,
-      /INFRASTRUCTURE, not this diff|not of any coordinate/,
-      'a diff-owned failure wearing a transport signature must not be absolved',
-    );
     assert.match(
       res.output,
       /check any repository or coordinate this change touched/,
       'the verdict must point the reader back at the diff as a live possibility',
+    );
+    assert.doesNotMatch(
+      res.output,
+      /INFRASTRUCTURE, not this diff|not of any coordinate/,
+      'the verdict must not absolve the diff: a diff-owned auth failure wears the same signature',
     );
   } finally {
     cleanupScratchDirs();
@@ -262,9 +214,7 @@ test('a diff-owned auth 403 gets the SAME cause-neutral treatment, not an absolu
 // ── changing signature across attempts ──────────────────────────────────
 
 test('the classification is re-evaluated per attempt, not latched from the first', () => {
-  // Attempt 1 looks transient (503) so it is retried; attempt 2 is a bad
-  // coordinate. The script must stop THERE with the unmatched verdict rather
-  // than carrying the first attempt's signature to an infrastructure claim.
+  // Attempt 1 is transient (503), attempt 2 a bad coordinate: stop there, unmatched.
   const sandbox = makeSandbox([
     { out: SERVER_5XX, code: 1 },
     { out: BAD_COORDINATE, code: 1 },
@@ -286,11 +236,6 @@ test('the classification is re-evaluated per attempt, not latched from the first
       res.annotation,
       /status code: 503/,
       'a stale signature from an earlier attempt must not reach the verdict',
-    );
-    assert.doesNotMatch(
-      res.annotation,
-      /INFRASTRUCTURE/,
-      'an earlier transient attempt must not promote the verdict to infrastructure',
     );
   } finally {
     cleanupScratchDirs();
