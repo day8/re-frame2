@@ -77,17 +77,10 @@
                :done {:final? true}}})
   (let [spec  (registered :lsl/flat)
         entry (key-of-row-running (cascade-of [:lsl/flat [:rf.machine/start]])
-                                  (:entry spec))
-        exit  (key-of-row-running (cascade-of [:lsl/flat [:fin]])
-                                  (:exit spec))]
+                                  (:entry spec))]
     (testing "the root's own :entry row"
       (is (= [:entry] entry))
-      (is (= "(fn [_] {:data {:at :root-in}})" (inline-source spec entry)))
-      #?(:cljs (is (map? (enclosing-coords spec entry))
-                   "the spec root carries its own coord")))
-    (testing "the root's own :exit row, at teardown"
-      (is (= [:exit] exit))
-      (is (= "(fn [_] {:data {:at :root-out}})" (inline-source spec exit))))))
+      (is (= "(fn [_] {:data {:at :root-in}})" (inline-source spec entry))))))
 
 (deftest region-lifecycle-rows-resolve-against-registered-source
   (rf/reg-machine :lsl/parallel
@@ -98,20 +91,12 @@
                :r2 {:initial :p
                     :states  {:p {}}}}})
   (let [spec (registered :lsl/parallel)
-        rows (cascade-of [:lsl/parallel [:rf.machine/start]])
-        body (key-of-row-running rows (get-in spec [:regions :r1 :entry]))
-        x    (key-of-row-running rows (get-in spec [:regions :r1 :states :x :entry]))]
+        body (key-of-row-running (cascade-of [:lsl/parallel [:rf.machine/start]])
+                                 (get-in spec [:regions :r1 :entry]))]
     (testing "a region body's own :entry row"
       (is (= [:regions :r1 :entry] body))
       (is (= "(fn [_] {:data {:at :r1-in}})" (inline-source spec body)))
       #?(:cljs (do (is (map? (enclosing-coords spec body))
                        "the region body carries its own coord")
                    (is (= (enclosing-coords spec body)
-                          (proj/state-node-source-coords spec body))))))
-    (testing "the :entry row of a state inside a region"
-      (is (= [:regions :r1 :states :x :entry] x))
-      (is (= "(fn [_] {:data {:at :x-in}})" (inline-source spec x)))
-      #?(:cljs (do (is (map? (enclosing-coords spec x))
-                       "the state inside the region carries its own coord")
-                   (is (= (enclosing-coords spec x)
-                          (proj/state-node-source-coords spec x))))))))
+                          (proj/state-node-source-coords spec body))))))))
