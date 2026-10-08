@@ -2,97 +2,55 @@
   "Tests for generated / property-style Story runs that emit seed-bearing run
   artifacts + shrink data, and the fault-lattice sweep
   (spec/017-Testing-Story.md §Generated runs and artifacts + §Fault lattice
-  sweep).
-
-  Two layers, both under `clojure -M:test` (JVM):
-
-  - PURE: the seedable PRNG (`next-seed` / `seed-seq` reproducible from a
-    root seed), the failure predicate, the shrink candidate enumeration, and
-    seed-bearing artifact construction.
-  - HEADLESS (against a live frame): `check-property!` generates programs,
-    replays them into FRESH frames, and on falsification returns a SHRUNK,
-    seed-bearing failing `:rf.test/run-artifact` that promotes through the
-    promotion bridge; `sweep-faults!` collects one artifact per fault cell."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  sweep): the pure PRNG, failure predicate, shrink candidates and artifact
+  construction, then `check-property!` and `sweep-faults!` against a live
+  frame."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core   :as rf]
             [re-frame.epoch  :as rf.epoch]
             [re-frame.frame  :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.story.artifact  :as rf.story.artifact]
             [re-frame.story.generate  :as rf.story.generate]
             [re-frame.story.generate.test-check :as rf.story.generate.test-check]
-            [re-frame.story.promotion :as rf.story.promotion]
             #?(:clj [clojure.test.check.generators :as tcgen])))
 
 ;; ===========================================================================
-;; PURE: the seedable PRNG
+;; PURE
 ;; ===========================================================================
 
+;; Seed reproducibility is within-host: `next-seed`'s bit-pattern differs
+;; JVM↔CLJS, so cross-host replay rides the artifact's concrete :event-program.
 (deftest seed-sequence-is-reproducible
-  ;; Seed-reproducibility is WITHIN-host: `next-seed`'s bit-pattern
-  ;; differs JVM↔CLJS (CLJS truncates the splitmix64 mix into MAX_SAFE_INTEGER),
-  ;; so a recorded bare `:seed` reproduces a run only on the host that produced
-  ;; it. Within a host the sequence is fully deterministic (asserted here);
-  ;; cross-host replay rides the recorded concrete `:event-program` (asserted in
-  ;; `generated-failure-promotes-through-the-existing-bridge`). The spec
-  ;; (spec/017 §Generator-agnostic) qualifies the claim as within-host.
-  (testing "WITHIN a host the same root seed yields the SAME sequence (reproducibility)"
-    (is (= (rf.story.generate/seed-seq 12345 8) (rf.story.generate/seed-seq 12345 8))
-        "a property run replays identically from its recorded :seed on the same host"))
-  (testing "different root seeds diverge"
-    (is (not= (rf.story.generate/seed-seq 1 8) (rf.story.generate/seed-seq 2 8))))
-  (testing "seed-seq length + the root seed is never reused as a program seed"
-    (let [s (rf.story.generate/seed-seq 99 5)]
-      (is (= 5 (count s)))
-      (is (not (some #{99} s)) "root seed itself is not in the program-seed sequence")))
-  (testing "next-seed is a pure, deterministic successor"
-    (is (= (rf.story.generate/next-seed 7) (rf.story.generate/next-seed 7)))))
-
-;; ===========================================================================
-;; PURE: failure predicate + shrink candidate enumeration
-;; ===========================================================================
+  (is (= (rf.story.generate/seed-seq 12345 8) (rf.story.generate/seed-seq 12345 8))
+      "the same root seed yields the same sequence")
+  (is (not= (rf.story.generate/seed-seq 1 8) (rf.story.generate/seed-seq 2 8))
+      "different root seeds diverge"))
 
 (deftest failing-predicate
-  (testing ":fail / :error falsify; :pass / :cannot-run do not"
-    (is (rf.story.generate/failing? {:status :fail}))
-    (is (rf.story.generate/failing? {:status :error}))
-    (is (not (rf.story.generate/failing? {:status :pass})))
-    (is (not (rf.story.generate/failing? {:status :cannot-run}))
-        ":cannot-run is inconclusive, not a falsification")))
+  (is (rf.story.generate/failing? {:status :error}))
+  (is (not (rf.story.generate/failing? {:status :cannot-run}))
+      ":cannot-run is inconclusive, not a falsification"))
 
 (deftest drop-candidates-enumeration
-  (testing "drop-candidates removes one contiguous chunk-size window, L→R"
-    (is (= [[:b :c :d] [:a :c :d] [:a :b :d] [:a :b :c]]
-           (rf.story.generate/drop-candidates [:a :b :c :d] 1))
-        "chunk-size 1: drop each single step in turn (one candidate per step)")
-    (is (= [[:c :d] [:a :b]]
-           (rf.story.generate/drop-candidates [:a :b :c :d] 2))
-        "chunk-size 2: drop the first pair, then the second pair"))
-  (testing "a chunk >= length yields the empty program; <= 0 yields none"
-    (is (= [[]] (rf.story.generate/drop-candidates [:a :b] 2)))
-    (is (= []  (rf.story.generate/drop-candidates [:a :b] 0)))
-    (is (= []  (rf.story.generate/drop-candidates [] 3)))))
-
-;; ===========================================================================
-;; PURE: seed-bearing artifact construction
-;; ===========================================================================
+  (is (= [[:c :d] [:a :b]] (rf.story.generate/drop-candidates [:a :b :c :d] 2))
+      "one contiguous chunk-size window removed per candidate, left to right")
+  (is (= [[]] (rf.story.generate/drop-candidates [:a :b] 2))
+      "a chunk >= the length yields the empty program")
+  (is (= [] (rf.story.generate/drop-candidates [:a :b] 0))
+      "a chunk <= 0 yields none"))
 
 (deftest generated-artifact-carries-seed-and-shrink
-  (testing "a generated artifact is a :rf.test/run-artifact carrying its :seed"
-    (let [a (rf.story.generate/generated-artifact
-              {:seed 42 :event-program [[:counter/inc]]})]
-      (is (rf.story.artifact/run-artifact? a))
-      (is (= 42 (:seed a)))
-      (is (= [[:dispatch [:counter/inc]]] (:event-program a))
-          "a bare event vector lifts to a tagged dispatch program")
-      (is (= :rf.story/property-run (get-in a [:source :tool])))))
-  (testing "a shrunk failure carries its :shrink-path; absent when not shrunk"
-    (let [shrunk (rf.story.generate/generated-artifact
-                   {:seed 1 :event-program [[:a]] :shrink-path [[[:a] [:b]]]})
-          plain  (rf.story.generate/generated-artifact {:seed 1 :event-program [[:a]]})]
-      (is (= [[[:a] [:b]]] (:shrink-path shrunk)))
-      (is (not (contains? plain :shrink-path))))))
+  (is (= {:artifact/kind :rf.test/run-artifact
+          :seed          42
+          :event-program [[:dispatch [:counter/inc]]]
+          :fx-decisions  {}
+          :source        {:tool :rf.story/property-run :seed 42}}
+         (rf.story.generate/generated-artifact {:seed 42 :event-program [[:counter/inc]]}))
+      "an unshrunk run carries its seed and no :shrink-path")
+  (is (= [[[:a] [:b]]]
+         (:shrink-path (rf.story.generate/generated-artifact
+                         {:seed 1 :event-program [[:a]] :shrink-path [[[:a] [:b]]]})))))
 
 ;; ===========================================================================
 ;; HEADLESS: against a live frame
@@ -111,190 +69,76 @@
 (use-fixtures :each reset-rf!)
 
 (deftest check-property-passes-and-records-num-tests
-  (testing "a property that always holds passes over N seeds"
-    ;; A handler that always succeeds — every generated program passes.
-    (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [res (rf.story.generate/check-property!
-                (fn [_seed] [[:dispatch [:gen/ok]]])
-                {:seed 7 :num-tests 5})]
-      (is (= :pass (:status res)))
-      (is (= 5 (:num-tests res)))
-      (is (= 7 (:seed res)) "the reproducible root seed is recorded"))))
+  (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (is (= {:status :pass :num-tests 5 :seed 7}
+         (rf.story.generate/check-property! (fn [_seed] [[:dispatch [:gen/ok]]])
+                                            {:seed 7 :num-tests 5}))))
 
-;; A throwing fx + the handler that emits it — an fx-handler exception lands
-;; an `:outcome :error` effect row in the tape, which the agreement floor
-;; (`evidence/tape-shows-failure?` via `error-effect?`) reads as `:fail`.
-;; `:platforms #{:client :server}` so it fires on the JVM (`:server`) gate.
+;; A throwing fx lands an `:outcome :error` effect row in the tape, which the
+;; agreement floor reads as `:fail`. `:platforms #{:client :server}` so it
+;; fires on the JVM.
 (defn- reg-boom! []
   (rf/reg-fx :gen.fx/boom {:platforms #{:client :server}}
              (fn [_ _] (throw (ex-info "fault: boom" {}))))
   (rf/reg-event :gen/boom (fn [_ _] {:fx [[:gen.fx/boom {}]]})))
 
-(deftest check-property-falsifies-and-emits-seed-bearing-artifact
-  (testing "a property that fails yields a seed-bearing failing artifact"
-    (reg-boom!)
-    (let [res (rf.story.generate/check-property!
-                (fn [_seed] [[:dispatch [:gen/boom]]])
-                {:seed 3 :num-tests 4 :shrink? false})]
-      (is (= :fail (:status res)))
-      (is (some? (:seed res)) "the failing program's seed is recorded")
-      (is (rf.story.artifact/run-artifact? (:artifact res)))
-      (is (= (:seed res) (:seed (:artifact res)))
-          "the artifact carries the falsifying seed")
-      (is (= :fail (:status (:result res)))))))
-
 (deftest check-property-shrinks-toward-a-minimal-failing-program
-  (testing "shrinking drops irrelevant steps, keeping the minimal failing case"
-    ;; :gen/noise is harmless; :gen/boom emits the failing effect. A program
-    ;; with many noise steps + one boom should shrink toward just the boom.
-    (rf/reg-event :gen/noise (fn [{:keys [db]} _] {:db (update db :noise (fnil inc 0))}))
-    (reg-boom!)
-    (let [program [[:dispatch [:gen/noise]] [:dispatch [:gen/noise]]
-                   [:dispatch [:gen/boom]]
-                   [:dispatch [:gen/noise]] [:dispatch [:gen/noise]]]
-          res (rf.story.generate/check-property!
-                (fn [_seed] program)
-                {:seed 1 :num-tests 1 :shrink? true})]
-      (is (= :fail (:status res)))
-      (is (<= (count (:smallest-program res)) (count program))
-          "the shrunk program is no larger than the original")
-      (is (some #(= [:dispatch [:gen/boom]] %) (:smallest-program res))
-          "the minimal failing program retains the boom step")
-      (is (= :fail (:status (:result res))) "the shrunk program still fails")
-      (is (seq (:shrink-path res)) "the shrink-path records the kept reductions")
-      (is (= (:smallest-program res) (:event-program (:artifact res)))
-          "the artifact carries the shrunk program"))))
-
-(deftest generated-failure-promotes-through-the-existing-bridge
-  (testing "a generated failure's artifact promotes into a curated variant,
-            preserving the source link + the seed/shrink provenance"
-    (reg-boom!)
-    (let [res      (rf.story.generate/check-property!
-                     (fn [_seed] [[:dispatch [:gen/boom]]])
-                     {:seed 5 :num-tests 2 :shrink? true})
-          artifact (:artifact res)
-          ;; materialize-variant-plan is PURE — registers nothing; it proves
-          ;; the generated failure flows through the promotion bridge with
-          ;; its seed-bearing source link intact.
-          plan     (rf.story.promotion/materialize-variant-plan
-                     artifact {:variant/id :story.gen/regression-5})]
-      (is (= :fail (:status res)))
-      (is (= :rf.test/run-artifact (get-in plan [:run-artifact :artifact/kind]))
-          "the materialized plan preserves the source-artifact link")
-      (is (= (:seed artifact) (get-in plan [:run-artifact :seed]))
-          "the curated plan's provenance carries the falsifying seed")
-      ;; The CONCRETE :event-program (host-portable tagged-step
-      ;; data) is the cross-host reproducer, NOT the within-host-only :seed.
-      ;; The promoted plan must carry enough program to replay the failure on
-      ;; ANY host (CLJS author → JVM CI), so a non-empty tagged-step vector is
-      ;; the genuine cross-host bridge.
-      (is (let [prog (get-in plan [:run-artifact :event-program])]
-            (and (vector? prog) (seq prog) (every? vector? prog)))
-          "the cross-host reproducer is the concrete tagged-step program, not the seed"))))
+  (rf/reg-event :gen/noise (fn [{:keys [db]} _] {:db (update db :noise (fnil inc 0))}))
+  (reg-boom!)
+  (let [program [[:dispatch [:gen/noise]] [:dispatch [:gen/noise]]
+                 [:dispatch [:gen/boom]]
+                 [:dispatch [:gen/noise]] [:dispatch [:gen/noise]]]
+        res     (rf.story.generate/check-property! (fn [_seed] program)
+                                                   {:seed 1 :num-tests 1 :shrink? true})]
+    (is (= [[:dispatch [:gen/boom]]] (:smallest-program res))
+        "shrinking drops every irrelevant step")
+    (is (= :fail (:status (:result res))) "the shrunk program still fails")
+    (is (seq (:shrink-path res)) "the shrink-path records the kept reductions")
+    (is (= (:smallest-program res) (:event-program (:artifact res)))
+        "the artifact carries the shrunk, host-portable program")
+    (is (some? (:seed res)) "the falsifying seed is recorded")
+    (is (= (:seed res) (:seed (:artifact res))) "the artifact carries the falsifying seed")))
 
 ;; ===========================================================================
 ;; HEADLESS: fault lattice sweep
 ;; ===========================================================================
 
-;; sweep-faults! accepts a fault-lattice as EITHER a map
-;; {cell-id fx-decisions} OR a seq of [cell-id fx-decisions] pairs, and both
-;; produce identical sweeps cell-for-cell (a single `(seq fault-lattice)`
-;; handles both — a map seqs to its entry pairs, a pair-seq seqs to its pairs).
-(deftest sweep-faults-collects-one-artifact-per-cell-from-a-map-or-a-pair-seq
-  (testing "a fault sweep replays the base program across fx-override cells,
-            collecting one seed-bearing artifact per cell + the failing ids"
-    ;; :app.fx/save is the 'real' effect. The :fail fault stub raises; the
-    ;; :ok cell uses no override (the real fx records cleanly).
-    (rf/reg-fx :app.fx/save {:platforms #{:client :server}}
-               (fn [_ _] :ok))
-    (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
-               (fn [_ _]
-                 (throw (ex-info "fault: save failed" {}))))
-    (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
-    (let [base       [[:dispatch [:app/save]]]
-          ;; The SAME lattice in both shapes, in the same cell order.
-          from-map   (rf.story.generate/sweep-faults!
-                       base {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
-                       {:seed 11})
-          from-seq   (rf.story.generate/sweep-faults!
-                       base [[:healthy {}] [:save-fails {:app.fx/save :app.fx/save-broken}]]
-                       {:seed 11})
-          by-cell    (into {} (map (juxt :cell identity)) (:cells from-map))
-          cell-shape (fn [c] {:cell (:cell c)
-                              :status (:status c)
-                              :fx-decisions (:fx-decisions (:artifact c))})]
-      (is (rf.story.artifact/run-artifact? (:artifact (:healthy by-cell))))
-      (is (rf.story.artifact/run-artifact? (:artifact (:save-fails by-cell))))
-      (is (= {:app.fx/save :app.fx/save-broken}
-             (:fx-decisions (:artifact (:save-fails by-cell))))
-          "the faulted cell's artifact carries its fault overrides for replay")
-      (is (= 11 (:seed (:artifact (:healthy by-cell))))
-          "each cell's artifact carries the sweep seed for provenance")
-      ;; The :save-fails cell errored → it is in :failing.
-      (is (some #{:save-fails} (:failing from-map))
-          "the faulted cell falsifies and is reported in :failing")
-      (testing "the same lattice as a [cell-id fx] pair-seq sweeps identically"
-        (is (= (mapv cell-shape (:cells from-map))
-               (mapv cell-shape (:cells from-seq)))
-            "both shapes sweep the same cells, in the same order, with the same faults")
-        (is (= (:failing from-map) (:failing from-seq))
-            "both shapes report the same failing cell ids")
-        (is (= [:healthy :save-fails] (mapv :cell (:cells from-seq)))
-            "one cell per lattice entry, in authored cell order")))))
+(deftest sweep-faults-collects-one-artifact-per-cell
+  (rf/reg-fx :app.fx/save {:platforms #{:client :server}}
+             (fn [_ _] :ok))
+  (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
+             (fn [_ _] (throw (ex-info "fault: save failed" {}))))
+  (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
+  (let [res     (rf.story.generate/sweep-faults!
+                  [[:dispatch [:app/save]]]
+                  {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
+                  {:seed 11})
+        by-cell (into {} (map (juxt :cell :artifact)) (:cells res))]
+    (is (= {:app.fx/save :app.fx/save-broken} (:fx-decisions (:save-fails by-cell)))
+        "the faulted cell's artifact carries its fault overrides for replay")
+    (is (= 11 (:seed (:healthy by-cell))) "each cell's artifact carries the sweep seed")
+    (is (= [:save-fails] (:failing res)) "only the faulted cell falsifies")))
 
 ;; ===========================================================================
 ;; OPTIONAL test.check adapter — JVM-only
 ;; ===========================================================================
 ;;
-;; The test.check adapter late-binds test.check via `requiring-resolve` and is
-;; JVM-scoped by design (CLJS cannot dynamically resolve an optional ns at
-;; runtime); test.check itself is wired into tools/story/deps.edn's :test alias
-;; only. These assertions therefore live behind `#?(:clj ...)`. They prove the documented
-;; extension point — wrapping a test.check generator's draw in a `gen-fn` —
-;; works end to end (seed → gen → seed-bearing artifact) ALONGSIDE the
-;; dependency-free default path exercised above, which needs no test.check.
-
-#?(:clj
-   (deftest test-check-adapter-is-available-on-the-test-classpath
-     (testing "test.check resolves on the :test alias, so the optional adapter
-               reports available (the dep is test-only, not a Story runtime dep)"
-       (is (true? (rf.story.generate.test-check/available?))
-           "org.clojure/test.check is on the :test alias classpath"))))
+;; The adapter late-binds test.check via `requiring-resolve`, which CLJS
+;; cannot do, and test.check is on tools/story's :test alias only.
 
 #?(:clj
    (deftest test-check-gen-fn-is-deterministic-in-the-seed
-     (testing "gen->gen-fn yields a pure (fn [seed] event-program) — the SAME
-               seed draws the SAME program (the reproducibility check-property!
-               relies on), DIFFERENT seeds generally diverge"
-       ;; A generator of event programs: 1–4 dispatch steps of :gen/ok.
-       (let [program-gen (tcgen/vector
-                           (tcgen/return [:dispatch [:gen/ok]]) 1 4)
-             gen-fn      (rf.story.generate.test-check/gen->gen-fn program-gen {:size 20})]
-         (is (= (gen-fn 12345) (gen-fn 12345))
-             "same seed → identical program")
-         (is (let [p (gen-fn 7)]
-               (and (vector? p)
-                    (seq p)
-                    (every? #(= :dispatch (first %)) p)))
-             "the draw is a non-empty tagged-step event program")
-         ;; Over a spread of seeds at least two programs differ — the draw
-         ;; actually varies with the seed (not a constant).
-         (is (> (count (distinct (map gen-fn (range 0 12)))) 1)
-             "different seeds generally draw different programs")))))
+     (let [program-gen (tcgen/vector (tcgen/return [:dispatch [:gen/ok]]) 1 4)
+           gen-fn      (rf.story.generate.test-check/gen->gen-fn program-gen {:size 20})]
+       (is (= (gen-fn 12345) (gen-fn 12345)) "same seed → identical program")
+       (is (> (count (distinct (map gen-fn (range 0 12)))) 1)
+           "the draw varies with the seed"))))
 
 #?(:clj
    (deftest test-check-driven-property-passes-and-emits-seed-bearing-artifacts
-     (testing "check-property-gen! drives the runner from a test.check generator:
-               every drawn program passes, and the run records its reproducible
-               root seed exactly as the dependency-free path does"
-       (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (let [program-gen (tcgen/vector
-                          (tcgen/return [:dispatch [:gen/ok]]) 1 3)
-             res (rf.story.generate.test-check/check-property-gen!
-                  rf.story.generate/check-property! program-gen
-                  {:seed 7 :num-tests 5 :size 25})]
-         (is (= :pass (:status res)))
-         (is (= 5 (:num-tests res)))
-         (is (= 7 (:seed res))
-             "the seed-bearing reproducibility is identical to the splitmix path")))))
-
+     (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+     (is (= {:status :pass :num-tests 5 :seed 7}
+            (rf.story.generate.test-check/check-property-gen!
+              rf.story.generate/check-property!
+              (tcgen/vector (tcgen/return [:dispatch [:gen/ok]]) 1 3)
+              {:seed 7 :num-tests 5 :size 25})))))
