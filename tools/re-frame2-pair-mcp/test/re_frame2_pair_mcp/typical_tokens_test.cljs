@@ -1,29 +1,16 @@
 (ns re-frame2-pair-mcp.typical-tokens-test
-  "Sanity check that every tool descriptor in re-frame2-pair-mcp's
-  `tool-descriptors` carries a positive-integer `:typicalTokens` hint
-  and that hint survives the `clj->js` projection in
-  `tool-descriptors-js` (so `tools/list` consumers see it on the wire
-  as `typicalTokens`).
-
-  `:typicalTokens` is informational only — a ballpark of the
-  response-payload size in tokens that AI clients use to budget calls
-  and pick size-conscious args (`max-tokens`, `cache`, `cursor`)
-  without trial-and-error. Not a cap; real budgets are enforced
-  elsewhere."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "Every descriptor `tools/list` ships carries a positive-integer
+  `typicalTokens` hint (spec/003-Tool-Catalogue.md §Universal:
+  `:typicalTokens` on every tool descriptor)."
+  (:require [cljs.test :refer-macros [deftest is]]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools :as tools]))
 
 (deftest typical-tokens-survives-js-projection
-  (testing "tool-descriptors-js surfaces typicalTokens to the wire"
-    (let [js-arr (tools/tool-descriptors-js)
-          n      (alength js-arr)]
-      (is (pos? n) "at least one descriptor exists")
-      (doseq [i (range n)]
-        (let [desc (aget js-arr i)
-              tt   (j/get desc :typicalTokens)
-              name (j/get desc :name)]
-          (is (number? tt)
-              (str "missing typicalTokens on tool " name))
-          (is (and (integer? tt) (pos? tt))
-              (str "non-positive-integer typicalTokens on tool " name)))))))
+  (let [descs (array-seq (tools/tool-descriptors-js))]
+    (is (seq descs))
+    (is (= [] (keep (fn [d]
+                      (let [tt (j/get d :typicalTokens)]
+                        (when-not (and (integer? tt) (pos? tt)) (j/get d :name))))
+                    descs))
+        "tools whose typicalTokens is missing or not a positive integer")))
