@@ -1,32 +1,15 @@
 (ns re-frame.resource-algebra-view-cljs-test
-  "Tests for the STATIC + LIVE derivation/process algebra view of resources
-  (EP-0014). Per [spec/Derivations.md] §Resources expose process nodes and
-  the `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
-
+  "The static and live derivation/process algebra view of resources
+  ([spec/Derivations.md] §Resources expose process nodes; the
+  `:rf/derivation-node` shape in [spec/Spec-Schemas.md]).
   `re-frame.resources.tooling/resource-algebra-view` lowers every registered
-  resource into the normalized PROCESS node every declared fact/process
-  shares — a resource is the canonical `:process` member of the algebra (NOT
-  a derivation): remote `:authority`, `:runtime-db` local storage, a
-  multi-trigger evaluation set, the `:scoped-resource-key` lifecycle, with
-  `:selectors` (the `:rf.resource/*` read facts) and `:commands` (the
-  transport descriptors). `…/resource-cache-algebra-view` reports one node
-  per live cache entry keyed by its CEDN-1 byte `key-id` (with the scoped
-  resource key carried on the node's `:id`), with the realized scope/param
-  edges, the entry status, the work-ledger link, and the host-transient
-  in-flight handle address.
-
-  These tests pin the registrar-derived projection: the fixed
-  classifications, the declared-input lowering (params + scope; `{:from-db}`
-  named-resolver enrichment; the inline-fn don't-execute marker), the
-  runtime-db output address, the selectors / commands / authority, the
-  opaque `:derive` request token, source coords, and the live entry view.
-
-  There is NO public accessor (EP-0014 issue-1): the views
-  live in the bundle-isolated `re-frame.resources.tooling` sibling and are
-  consumed by Xray + the conformance fixtures, which name that sibling
-  directly. There is no `re-frame.core/resource-algebra-view` public facade
-  export and no `re-frame.resources` JVM convenience alias either; `re-frame.derivation.graph` reaches the views by
-  `requiring-resolve`."
+  resource into the canonical `:process` node — remote authority, runtime-db
+  storage, a multi-trigger evaluation set, the scoped-resource-key lifecycle,
+  read-fact selectors and transport commands; `resource-cache-algebra-view`
+  reports one node per live cache entry keyed by its CEDN-1 byte `key-id`,
+  projected through the owner's classification before it leaves for a tool.
+  Both live only in the bundle-isolated tooling sibling: there is no public
+  accessor on `re-frame.core` or the `re-frame.resources` facade."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -101,10 +84,8 @@
 ;; ---- empty / shape contract ----------------------------------------------
 
 (deftest empty-registry-returns-empty-map
-  (testing "(resource-algebra-view) returns {} (not nil) when none registered"
-    (is (= {} (rf.resources.tooling/resource-algebra-view))))
-  (testing "(resource-algebra-view id) returns nil for an unregistered id"
-    (is (nil? (rf.resources.tooling/resource-algebra-view :nope/missing)))))
+  (is (= [{} nil] [(rf.resources.tooling/resource-algebra-view) (rf.resources.tooling/resource-algebra-view :nope/missing)])
+      "an empty map (not nil) with none registered, and nil for an unregistered id"))
 
 ;; ---- a registered resource exposes its process node ----------------------
 
@@ -114,44 +95,34 @@
                                                      :doc "an article by slug"})
                      article-spec-request)
     (let [node (rf.resources.tooling/resource-algebra-view :article/by-slug)]
-      (is (some? node) "the resource is present in the static view")
       (is (has-fixed-classifications? node)
-          "resource carries the fixed process / runtime-db / multi-trigger / resource-key / materialized classifications")
-      (is (= :article/by-slug (:id node)))
-      (is (= {:kind :reg-resource :id :article/by-slug} (:source-form node)))
-      (testing "output materializes the cache entries into runtime-db"
-        (is (= [:runtime [rf.resources.state/resources-key :entries]] (:output node))))
-      (testing "the remote authority axis names the external system + transport"
-        (is (= {:kind :remote :system :server :transport :rf.http/managed}
-               (:authority node))))
-      (testing "declared inputs lower to params + the scope policy"
-        (is (= [[:param :rf.params] [:scope :rf.scope/global]] (:inputs node))))
-      (testing "the :rf.resource/* read facts are listed as selectors"
-        (is (contains? (set (:selectors node)) :rf/resource))
-        (is (contains? (set (:selectors node)) :rf.resource/data))
-        (is (contains? (set (:selectors node)) :rf.resource/loading?)))
-      (testing "the transport command descriptor + its reply targets"
-        (is (= [{:effect  :rf.http/managed
-                 :replies {:success :rf.resource.internal/succeeded
-                           :failure :rf.resource.internal/failed}}]
-               (:commands node))))
-      (testing "the :request body fn is surfaced as an opaque :derive token"
-        (is (fn? (:derive node))))
-      (testing ":data-schema surfaces as the :schema fact; :doc passes through"
-        (is (= :app/article (:schema node)))
-        (is (= "an article by slug" (:doc node))))
-      (testing "source coords captured by reg-resource surface under :source"
-        (is (some? (get-in node [:source :ns])))))))
+          "the fixed process / runtime-db / multi-trigger / resource-key / materialized classifications")
+      (is (= {:id          :article/by-slug
+              :source-form {:kind :reg-resource :id :article/by-slug}
+              :output      [:runtime [rf.resources.state/resources-key :entries]]
+              :authority   {:kind :remote :system :server :transport :rf.http/managed}
+              :inputs      [[:param :rf.params] [:scope :rf.scope/global]]
+              :commands    [{:effect  :rf.http/managed
+                             :replies {:success :rf.resource.internal/succeeded
+                                       :failure :rf.resource.internal/failed}}]
+              :schema      :app/article
+              :doc         "an article by slug"}
+             (select-keys node [:id :source-form :output :authority :inputs :commands :schema :doc]))
+          "the cache-entry output, remote authority, params + scope inputs, transport command, schema and doc")
+      (is (= [true true true true true]
+             [(contains? (set (:selectors node)) :rf/resource) (contains? (set (:selectors node)) :rf.resource/data)
+              (contains? (set (:selectors node)) :rf.resource/loading?) (fn? (:derive node))
+              (some? (get-in node [:source :ns]))])
+          "the read facts are selectors, the :request fn an opaque :derive token, and the source coords captured"))))
 
 (deftest zero-arity-projects-every-resource
   (testing "(resource-algebra-view) lowers every registered resource"
     (rf/reg-resource :a/x (article-spec) article-spec-request)
     (rf/reg-resource :b/y (article-spec) article-spec-request)
     (let [view (rf.resources.tooling/resource-algebra-view)]
-      (is (= #{:a/x :b/y} (set (keys view))))
-      (is (every? has-fixed-classifications? (vals view)))
-      (is (= (rf.resources.tooling/resource-algebra-view :a/x) (:a/x view))
-          "the one-arity form equals that id's entry in the all-resources map"))))
+      (is (= [#{:a/x :b/y} true (rf.resources.tooling/resource-algebra-view :a/x)]
+             [(set (keys view)) (every? has-fixed-classifications? (vals view)) (:a/x view)])
+          "every resource is projected, each equal to its one-arity view"))))
 
 ;; ---- the don't-execute rule on scope -------------------------------------
 
@@ -179,12 +150,10 @@
                      (article-spec {:scope {:from-db :session/current-tenant}})
                      article-spec-request)
     (let [node (rf.resources.tooling/resource-algebra-view :tenant/article)]
-      (is (= [[:param :rf.params] [:scope {:from-db :session/current-tenant}]]
-             (:inputs node))
-          "the {:from-db <id>} reference is reported verbatim — a static fact")
-      (is (= :session/current-tenant (get-in node [:scope-resolver :id])))
-      (is (= [[:db [:session :tenant-id]]] (get-in node [:scope-resolver :inputs]))
-          "the resolver's declared [:db <rf-path>] inputs surface as static facts"))))
+      (is (= [[[:param :rf.params] [:scope {:from-db :session/current-tenant}]]
+              {:id :session/current-tenant :inputs [[:db [:session :tenant-id]]]}]
+             [(:inputs node) (select-keys (:scope-resolver node) [:id :inputs])])
+          "the reference is reported verbatim, with the resolver's declared inputs as static facts"))))
 
 ;; ---- the live cache view -------------------------------------------------
 
@@ -232,25 +201,18 @@
                                           {:status :loaded :owner [:route :route/article 17]})
           view       (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           node       (get view (rf.resources.state/key-id scoped-key))]
-      (is (some? node) "the live entry node is reachable by its byte key-id")
       (is (has-live-fixed-classifications? node)
-          "the live node keeps the fixed process classifications (lifecycle is the map form)")
-      (is (= scoped-key (:id node)) "the node id is the concrete scoped key (live fact identity)")
-      (testing "the realized scope + param edges"
-        (is (= [[:scope scope] [:param params]] (:inputs node))))
-      (testing "the concrete entry output address"
-        (is (= [:runtime (rf.resources.state/entry-path scoped-key)] (:output node))))
-      (testing "the live lifecycle map carries the active owners"
-        (is (= {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
-               (:lifecycle node))))
-      (testing "the entry status is surfaced"
-        (is (= :loaded (:status node))))
-      (testing "the remote authority is carried through from the static node"
-        (is (= {:kind :remote :system :server :transport :rf.http/managed}
-               (:authority node))))
-      (testing "a loaded (not in-flight) entry has no work-ledger / host-transient links"
-        (is (not (contains? node :work-ledger)))
-        (is (not (contains? node :host-transient)))))))
+          "the live node, reachable by its byte key-id, keeps the fixed classifications (lifecycle is the map form)")
+      (is (= {:id        scoped-key
+              :inputs    [[:scope scope] [:param params]]
+              :output    [:runtime (rf.resources.state/entry-path scoped-key)]
+              :lifecycle {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
+              :status    :loaded
+              :authority {:kind :remote :system :server :transport :rf.http/managed}}
+             (select-keys node [:id :inputs :output :lifecycle :status :authority]))
+          "the concrete scoped key, its realized edges and entry address, the active owners, status and authority")
+      (is (= [false false] [(contains? node :work-ledger) (contains? node :host-transient)])
+          "a loaded entry has no work-ledger or host-transient links"))))
 
 (deftest live-in-flight-entry-links-work-ledger-and-host-transient
   (testing "an in-flight entry links its work-ledger record + names the host-transient handle"
@@ -262,14 +224,12 @@
           node       (get (rf.resources.tooling/resource-cache-algebra-view :rf/default)
                           (rf.resources.state/key-id scoped-key))
           work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)]
-      (is (= :fetching (:status node)))
-      (testing "the work-ledger link carries the work id + a serializable record summary"
-        (is (= work-id (get-in node [:work-ledger :work/id])))
-        (is (= scoped-key (get-in node [:work-ledger :record :resource/key])))
-        (is (= :rf.http/managed (get-in node [:work-ledger :record :transport])))
-        (is (= #{[:route :route/article 9]} (get-in node [:work-ledger :record :owners]))))
-      (testing "the host-transient in-flight handle address names the work id"
-        (is (= [[:rf.http/in-flight work-id]] (:host-transient node)))))))
+      (is (= [:fetching work-id {:resource/key scoped-key :transport :rf.http/managed :owners #{[:route :route/article 9]}}
+              [[:rf.http/in-flight work-id]]]
+             [(:status node) (get-in node [:work-ledger :work/id])
+              (select-keys (get-in node [:work-ledger :record]) [:resource/key :transport :owners])
+              (:host-transient node)])
+          "the work-ledger link carries the work id and a record summary, and the host-transient handle names it"))))
 
 (deftest live-view-keeps-cedn-distinct-scoped-keys-distinct
   (testing "ADVERSARIAL: two live entries whose params differ ONLY by
@@ -286,21 +246,14 @@
           kl     (install-live-entry! :rf/default :article/by-slug scope pl
                                       {:status :loaded :owner [:app :l 1]})
           view   (rf.resources.tooling/resource-cache-algebra-view :rf/default)]
-      (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
-      (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
-          "their byte key-ids differ (v[…] vs l(…))")
-      (is (= 2 (count view)) "TWO distinct nodes — no =-collapse onto one map key")
-      (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys view)))
-          "the view is keyed on the byte key-ids of BOTH entries")
-      (testing "each node keeps its kind-preserving scoped-key on :id"
-        (let [nv (get view (rf.resources.state/key-id kv))
-              nl (get view (rf.resources.state/key-id kl))]
-          (is (= kv (:id nv)) "vector node keeps its vector key")
-          (is (= kl (:id nl)) "list node keeps its list key")
-          (is (vector? (-> nv :id (nth 2) :xs)) "vector-params node preserves vector kind")
-          (is (seq?    (-> nl :id (nth 2) :xs)) "list-params node preserves list kind")
-          (is (not= (:lifecycle nv) (:lifecycle nl))
-              "the two nodes carry their OWN distinct owner sets (not gated together)"))))))
+      (is (= [true false] [(= kv kl) (= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))])
+          "FIXTURE — the scoped-key vectors are Clojure-= while their byte key-ids differ")
+      (let [nv (get view (rf.resources.state/key-id kv))
+            nl (get view (rf.resources.state/key-id kl))]
+        (is (= [2 true true true false]
+               [(count view) (vector? (-> nv :id (nth 2) :xs)) (seq? (-> nl :id (nth 2) :xs))
+                (= [kv kl] [(:id nv) (:id nl)]) (= (:lifecycle nv) (:lifecycle nl))])
+            "two nodes keyed on both byte key-ids, each keeping its kind-preserving key and its own owners")))))
 
 ;; ---- EP-0015 egress redaction of the live graph snapshot -----------------
 ;;
@@ -341,18 +294,10 @@
                                           {:owner [:route :route/article 17] :in-flight? true})
           view       (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           node       (first (vals view))]
-      (is (= 1 (count view)) "exactly one live node")
-      (is (some? node))
-      (testing "no raw secret anywhere in the egressed view"
-        (is (not (contains-secret? view))))
-      (testing "the resource-id identity + graph connectivity survive projection"
-        (is (= :secret/article (nth (:id node) 1))
-            "resource-id preserved in the node :id 3-tuple")
-        (is (= :secret/article (second (:resource/key (:record (:work-ledger node))))
-               )
-            "resource-id preserved in the work-ledger record :resource/key"))
-      (testing "the node MAP KEY does not embed the raw secret"
-        (is (not (contains-secret? (keys view))))))))
+      (is (= [1 false :secret/article :secret/article]
+             [(count view) (contains-secret? view) (nth (:id node) 1)
+              (second (:resource/key (:record (:work-ledger node))))])
+          "one node, no raw secret anywhere (map keys included), the resource id surviving in :id and the work-ledger record"))))
 
 (deftest live-view-no-derived-sensitivity-inheritance
   (testing "EP-0025: a resource whose {:from-db <resolver>} scope
@@ -380,29 +325,8 @@
       (install-live-entry! :sens/frame :derived/article scope params
                            {:status :loaded :owner [:app :d 1]})
       (let [view (rf.resources.tooling/resource-cache-algebra-view :sens/frame)]
-        (is (= 1 (count view)) "one node")
-        (testing "the derived scope is NOT auto-redacted (no inheritance)"
-          (is (contains-secret? view)
-              "the raw derived-scope secret rides — no propagation"))))
-    (testing "confirm-by-revert: an OWNER-declared :sensitive? resource redacts
-              the whole scoped key (the coarse-claim boundary)"
-      ;; a FRESH frame so only the secret-article rides the view (its redacted
-      ;; key is content-addressed, so a raw-key lookup would miss — assert the
-      ;; whole frame view is secret-free instead).
-      (rf/make-frame {:id :sens/frame2 :doc "second frame for the revert check"})
-      (rf/reg-resource :derived/secret-article
-                       (article-spec {:scope      {:from-db :session/tenant}
-                                      :sensitive? true})
-                       article-spec-request)
-      (let [scope  [:rf.scope/tenant secret]
-            params {:slug "y"}]
-        (install-live-entry! :sens/frame2 :derived/secret-article scope params
-                             {:status :loaded :owner [:app :s 1]})
-        (let [view (rf.resources.tooling/resource-cache-algebra-view :sens/frame2)]
-          (is (= 1 (count view)) "one node in the fresh frame")
-          (testing "the owner-:sensitive? key redacts the secret"
-            (is (not (contains-secret? view))
-                "the owner coarse claim redacts the scope+params in the wire key")))))))
+        (is (= [1 true] [(count view) (contains-secret? view)])
+            "the raw derived-scope secret rides: no propagation")))))
 
 ;; ---- entries whose projected keys collide -------------------------------
 ;;
@@ -453,37 +377,24 @@
                         [scope-a scope-b params-a params-b])
           view     (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           nodes    (vals view)]
-      (is (= 4 (count (set digests))) "sanity: the four content digests are distinct")
-      (is (= 2 (count view)) "one node per live entry")
-      (is (= 2 (count (set (map :id nodes)))) "the two nodes carry distinct ids")
-      (is (= #{:loaded :fetching} (set (map :status nodes)))
-          "each node keeps its own entry's status")
-      (is (= #{#{[:app :alpha 1]} #{[:app :beta 2]}}
-             (set (map #(get-in % [:lifecycle :owners]) nodes)))
-          "each node keeps its own entry's owners")
-      (is (every? #(= :app/profile (nth (:id %) 1)) nodes)
-          "the resource-id survives in every node id")
-      (is (= #{0 1} (set (map #(get-in % [:id 2 :rf.resource/collision]) nodes)))
-          "the ids differ only by an ordinal within the collision group")
-      (testing "the in-flight node's work-ledger positions carry its own id"
-        (let [in-flight (first (filter :work-ledger nodes))]
-          (is (= (:id in-flight) (get-in in-flight [:work-ledger :record :resource/key])))
-          (is (= (:id in-flight) (nth (get-in in-flight [:work-ledger :work/id]) 1)))
-          (is (= [[:rf.http/in-flight (get-in in-flight [:work-ledger :work/id])]]
-                 (:host-transient in-flight)))))
-      (testing "no raw value and no content digest egresses"
-        (is (not (contains-any? raw view)))
-        (is (not (contains-any? digests view))))
-      (testing "the live derivation graph keeps both resource nodes"
-        (let [graph (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)]
-          (is (= 2 (count (resource-node-ids graph))))
-          (is (= #{:loaded :fetching}
-                 (set (map #(get-in graph [:nodes % :status]) (resource-node-ids graph)))))
-          (testing "and so does the graph a tool ships off-box"
-            (let [shipped (rf.derivation.egress/project-graph graph :rf/default)]
-              (is (= 2 (count (resource-node-ids shipped))))
-              (is (not (contains-any? raw shipped)))
-              (is (not (contains-any? digests shipped))))))))))
+      (is (= 4 (count (set digests))) "FIXTURE — the four content digests are distinct")
+      (is (= [2 2 #{:loaded :fetching} #{#{[:app :alpha 1]} #{[:app :beta 2]}} true #{0 1}]
+             [(count view) (count (set (map :id nodes))) (set (map :status nodes))
+              (set (map #(get-in % [:lifecycle :owners]) nodes)) (every? #(= :app/profile (nth (:id %) 1)) nodes)
+              (set (map #(get-in % [:id 2 :rf.resource/collision]) nodes))])
+          "one node per entry, with distinct ids differing only by a collision ordinal, each keeping its own status and owners")
+      (let [in-flight (first (filter :work-ledger nodes))
+            wid       (get-in in-flight [:work-ledger :work/id])]
+        (is (= [(:id in-flight) (:id in-flight) [[:rf.http/in-flight wid]]]
+               [(get-in in-flight [:work-ledger :record :resource/key]) (nth wid 1) (:host-transient in-flight)])
+            "the in-flight node's work-ledger positions carry its own id"))
+      (let [graph   (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)
+            shipped (rf.derivation.egress/project-graph graph :rf/default)]
+        (is (= [false false 2 #{:loaded :fetching} 2 false false]
+               [(contains-any? raw view) (contains-any? digests view) (count (resource-node-ids graph))
+                (set (map #(get-in graph [:nodes % :status]) (resource-node-ids graph)))
+                (count (resource-node-ids shipped)) (contains-any? raw shipped) (contains-any? digests shipped)])
+            "no raw value or content digest egresses, and the live graph, shipped off-box too, keeps both resource nodes")))))
 
 (deftest live-view-keeps-distinct-plain-entries-verbatim
   (testing "control: two entries of a NON-sensitive resource keep their
@@ -497,10 +408,9 @@
                                      {:status :error :owner [:app :b 2]})
           view  (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           graph (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)]
-      (is (= #{(rf.resources.state/key-id ka) (rf.resources.state/key-id kb)} (set (keys view))))
-      (is (= ka (:id (get view (rf.resources.state/key-id ka)))))
-      (is (= kb (:id (get view (rf.resources.state/key-id kb)))))
-      (is (= #{[:resource ka] [:resource kb]} (set (resource-node-ids graph)))))))
+      (is (= [#{(rf.resources.state/key-id ka) (rf.resources.state/key-id kb)} ka kb #{[:resource ka] [:resource kb]}]
+             [(set (keys view)) (:id (get view (rf.resources.state/key-id ka))) (:id (get view (rf.resources.state/key-id kb)))
+              (set (resource-node-ids graph))])))))
 
 ;; ---- registry semantics --------------------------------------------------
 
@@ -508,11 +418,9 @@
   (testing "(clear-resource id) removes the resource from the static view"
     (rf/reg-resource :a/x (article-spec) article-spec-request)
     (rf/reg-resource :b/y (article-spec) article-spec-request)
-    (is (contains? (rf.resources.tooling/resource-algebra-view) :a/x))
+    (is (contains? (rf.resources.tooling/resource-algebra-view) :a/x) "FIXTURE")
     (rf/clear :resource :a/x)
-    (let [view (rf.resources.tooling/resource-algebra-view)]
-      (is (not (contains? view :a/x)))
-      (is (contains? view :b/y)))))
+    (is (= #{:b/y} (set (keys (rf.resources.tooling/resource-algebra-view)))))))
 
 #?(:clj
    (deftest facade-publishes-no-algebra-view-alias
@@ -521,11 +429,9 @@
      ;; nodes): the `defn`s stay in `re-frame.resources.tooling` and the facade
      ;; re-exports neither, so `re-frame.derivation.graph` reaches them by
      ;; `requiring-resolve` and CLJS tools by a direct `:require`.
-     (testing "`re-frame.resources` re-exports neither resource algebra view"
-       (is (nil? (ns-resolve 're-frame.resources 'resource-algebra-view))
-           "resource-algebra-view is not a public name on the resources facade")
-       (is (nil? (ns-resolve 're-frame.resources 'resource-cache-algebra-view))
-           "resource-cache-algebra-view is not a public name on the resources facade"))
-     (testing "the tooling sibling still publishes both"
-       (is (some? (ns-resolve 're-frame.resources.tooling 'resource-algebra-view)))
-       (is (some? (ns-resolve 're-frame.resources.tooling 'resource-cache-algebra-view))))))
+     (is (= [nil nil true true]
+            [(ns-resolve 're-frame.resources 'resource-algebra-view)
+             (ns-resolve 're-frame.resources 'resource-cache-algebra-view)
+             (some? (ns-resolve 're-frame.resources.tooling 'resource-algebra-view))
+             (some? (ns-resolve 're-frame.resources.tooling 'resource-cache-algebra-view))])
+         "the facade re-exports neither view; the tooling sibling publishes both")))
