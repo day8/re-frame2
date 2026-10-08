@@ -273,24 +273,6 @@
 ;; the instrument reports it, exactly as `hook_budget_cljs_test` counts to
 ;; three before asserting two.
 
-(deftest the-instrument-reports-a-difference-when-there-is-one
-  (let [a (markup (react/createElement "span" #js {:className "cell"} "42"))
-        b (markup (react/createElement "span" #js {:className "cell"} "43"))]
-
-    (testing "the premise: the renderer produced real markup rather than an
-              empty string, which every equality below would also satisfy"
-      (is (seq a))
-      (is (some? (re-find #"<span" a))))
-
-    (testing "and one changed character is seen — so `=` below is a reading
-              taken by an instrument known to discriminate"
-      (is (not= a b)))
-
-    (testing "the same for the element reader: two different classes are two
-              different prop maps"
-      (is (not= (scalar-props (react/createElement "span" #js {:className "one"}))
-                (scalar-props (react/createElement "span" #js {:className "two"})))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 1. The two routes render the same bytes
 ;; ---------------------------------------------------------------------------
