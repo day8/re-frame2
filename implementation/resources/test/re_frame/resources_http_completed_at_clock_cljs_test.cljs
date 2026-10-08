@@ -1,38 +1,15 @@
 (ns re-frame.resources-http-completed-at-clock-cljs-test
-  "LIVE-path test: the managed-HTTP transport's reply-ctx
-  `:completed-at` must be WALL-CLOCK epoch ms (`interop/epoch-now-ms` =
-  `js/Date.now()`), NOT the perf clock (`interop/now-ms` =
-  `performance.now()`, origin-relative).
-
-  WHY A SEPARATE SUITE: the other `:completed-at` tests (e.g.
-  `resources-managed-http-cljs-test`, `http-reply-lowering`) SCRIPT the
-  reply token's `:completed-at` / `:rf.cofx` `:rf/time-ms` with an
-  explicit epoch value, bypassing the live `reply-ctx` clock read in
-  `re-frame.http.transport` — THE host-clock read at the transport
-  boundary. JVM cannot tell the two clocks apart (`now-ms` ==
-  `epoch-now-ms` there), so only the live CLJS chain exercises it.
-
-  This suite drives the REAL transport: it stubs ONLY `js/fetch` (the
-  production `:rf.http/managed` fx is NOT overridden), dispatches a resource
-  `ensure`, lets the genuine `reply-ctx` read the host clock, and asserts the
-  resulting durable resource `:loaded-at` / `:stale-at` are wall-clock-
-  meaningful — specifically that a JUST-loaded entry is NOT immediately stale
-  when freshness is checked against `js/Date.now` (the exact clock the
-  freshness readers in `resources/events.cljc`, `resources/subs.cljc`, and
-  `resources/ssr.cljc` use). A perf-clock `:stale-at` ≈ `performance.now()` +
-  window (~tens of thousands) would be dwarfed by `js/Date.now()` (~1.78e12),
-  so `entry-stale?` would return true the instant the load completes."
+  "The live managed-HTTP transport stamps `:completed-at` from the wall clock
+  (`js/Date.now`), not the perf clock, so a just-loaded entry is not stale
+  against the freshness readers' clock. Other suites script the reply time
+  and the JVM cannot tell the two clocks apart, so this drives the real
+  transport with only `js/fetch` stubbed."
   (:require
    [cljs.test :refer-macros [deftest is testing async]]
    [re-frame.adapter.reagent :as rf.adapter.reagent]
    [re-frame.core :as rf]
    [re-frame.frame :as rf.frame]
-   ;; production HTTP transport: registers the REAL `:rf.http/managed` fx
-   ;; (we deliberately do NOT override it — the genuine `reply-ctx` clock
-   ;; read is the unit under test).
    [re-frame.http.managed]
-   ;; load-bearing side-effecting require: registers the :rf.resource/*
-   ;; events + subs the ensure below drives.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.schemas]
@@ -41,8 +18,7 @@
 (def ^:private stale-after-ms 60000)
 
 (defn- json-200
-  "A minimal Fetch `Response` stand-in that resolves a 200 JSON body via
-  `.text()` (the text decode path the default `:auto` decode reads)."
+  "A minimal Fetch `Response` stand-in resolving a 200 JSON body via `.text()`."
   [text-val]
   #js {:ok          true
        :status      200
@@ -64,27 +40,12 @@
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (deftest live-completed-at-is-wall-clock-not-immediately-stale
-  (testing "a resource loaded through the LIVE managed-HTTP
-            transport gets a wall-clock-epoch :loaded-at / :stale-at, so it
-            is NOT stale immediately against `js/Date.now`. A reply-ctx
-            :completed-at read from `interop/now-ms` (performance.now() on
-            CLJS) would put :stale-at at ~perf-clock + window — far below
-            `js/Date.now()` — and the entry would read STALE the instant it
-            loaded."
+  (testing "a resource loaded through the live transport is not stale against js/Date.now"
     (async done
-      ;; COLD-START the slot: destroy, then seat. `init!` is idempotent
-      ;; only for the adapter ALREADY SEATED — handed a DIFFERENT one
-      ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
-      ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-      ;; and the SSR adapter, so a bare `init!` here would raise whenever a
-      ;; suite seating UIx or the SSR adapter ran first.
+      ;; The node bundle shares the adapter slot with suites seating other
+      ;; adapters, and init! refuses a different adapter, so cold-start it.
       (rf/destroy-adapter!)
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002: `init!` does not synthesise a `:rf/default`
-      ;; frame, and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; the dispatch below carries `{:frame
-      ;; :rf/default}` so the sync dispatch AND the async reply continuation
-      ;; both target it.
       (rf.frame/ensure-default-frame!)
       (let [scoped-key (rf.resources.state/scoped-resource-key
                          :rf.scope/global :clk/article {:slug "w"})
@@ -98,8 +59,7 @@
                            {:resource :clk/article :scope :rf.scope/global
                             :params {:slug "w"} :owner [:app :clk 1]}]
                           {:frame :rf/default})
-        (is (= :loading (:status (entry)))
-            "the ensure lowered to the real transport and is in flight")
+        (is (= :loading (:status (entry))) "precondition: in flight on the real transport")
         (-> (rf.test-support/poll-until
               #(= :loaded (:status (entry)))
               {:timeout-ms 2000 :label "live load settles :loaded"})
@@ -109,31 +69,12 @@
                       now-epoch (js/Date.now)
                       loaded-at (:loaded-at e)
                       stale-at  (:stale-at e)]
-                  (is (= {:title "Welcome"} (:data e))
-                      "the live transport reply decoded + landed the data")
-                  ;; The core regression assertion: freshness is checked
-                  ;; against `js/Date.now` (the freshness readers' clock).
-                  ;; A just-loaded entry MUST NOT be stale. A perf-clock
-                  ;; :stale-at (≪ js/Date.now()) would wrongly read as stale.
-                  (is (false? (rf.resources.state/entry-stale? e now-epoch))
-                      "a just-loaded resource is NOT stale against js/Date.now")
-                  ;; :loaded-at must be a wall-clock epoch value (within a
-                  ;; few seconds of `js/Date.now()`), not a small perf-clock
-                  ;; origin-relative number. The perf clock would be off by
-                  ;; ~12 orders of magnitude (~1e4 vs ~1.78e12).
-                  (is (number? loaded-at) ":loaded-at is present")
+                  (is (= {:title "Welcome"} (:data e)))
+                  (is (false? (rf.resources.state/entry-stale? e now-epoch)))
                   (is (< (js/Math.abs (- now-epoch loaded-at)) 10000)
-                      ":loaded-at is a wall-clock epoch ms (within 10s of js/Date.now)")
-                  ;; :stale-at = :loaded-at + window, and therefore lands in
-                  ;; the FUTURE relative to js/Date.now() (the window has not
-                  ;; elapsed). A perf-clock :stale-at would already be in the
-                  ;; deep past.
-                  (is (= (+ loaded-at stale-after-ms) stale-at)
-                      ":stale-at is :loaded-at + :stale-after-ms")
-                  (is (> stale-at now-epoch)
-                      ":stale-at is in the future against js/Date.now (window not elapsed)"))))
-            ;; Reports and releases; it never finishes. The fetch restore
-            ;; rides the single trailing step, which both arms reach.
+                      ":loaded-at is wall-clock epoch ms, not a perf-clock offset")
+                  (is (= (+ loaded-at stale-after-ms) stale-at)))))
+            ;; Reports and releases; the fetch restore rides the trailing step.
             (.catch
               (fn [err]
                 (is false (str "unexpected: " err))
