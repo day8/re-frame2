@@ -3,30 +3,11 @@
 'use strict';
 
 /*
- * Every `*_dom_cljs_test` namespace must be selected by the repo's one browser
- * DOM lane, and that lane must have an executor CI is held to running.
- *
- * `:browser-test` is the PR-blocking correctness gate and the ONLY browser DOM
- * lane: it selects every DOM suite outright with a plain `.*-dom-cljs-test$`.
- * So there is no partition to hold — see the note above the assertions for
- * what is asserted instead.
- *
- * WHAT THIS GATE IS FOR. An `:ns-regexp` and the namespaces it is meant to
- * select can drift apart later without anything going red: a new suffix, a
- * renamed namespace, a tightened prefix. That failure is silent in ordinary
- * CI — a namespace the lane no longer matches stops running in a browser
- * altogether, and no lane's exit code changes, because shadow-cljs's
- * `find-test-namespaces` reports nothing when a pattern selects less.
- *
- * A suite that silently stops running is worse than a slow lane, so the
- * relationship is asserted rather than commented.
- *
- * DERIVED, NEVER RESTATED: the pattern is read out of
- * `shadow-cljs.edn`, and the namespaces out of the `(ns ...)` forms of the
- * files themselves. A copy of either would be a second authority with nothing
- * holding it in step with the first.
- *
- * Discovered by `npm run test:scripts`.
+ * Every `*_dom_cljs_test` namespace must be selected by `:browser-test`, the one
+ * browser DOM lane, and that lane must have an executor CI is held to running. A
+ * pattern that stops selecting a namespace changes no exit code, so the relation
+ * is derived — the pattern from shadow-cljs.edn, the namespaces from the files'
+ * own (ns ...) forms — and asserted. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
@@ -39,11 +20,9 @@ const SHADOW_CLJS = path.join(IMPL_DIR, 'shadow-cljs.edn');
 const PACKAGE_JSON = path.join(IMPL_DIR, 'package.json');
 const GATE_SCHEDULING = path.join(REPO_ROOT, 'scripts', 'check_gate_scheduling.py');
 
-// The lane, and the build that owns it.
 const CORRECTNESS_BUILD = ':browser-test';
 
-// Trees that carry test sources. `out/`, `node_modules/` and `.shadow-cljs/`
-// hold compiled copies of the same files and would double-count.
+// Compiled copies under out/, node_modules/ and .shadow-cljs/ would double-count.
 const SEARCH_ROOTS = ['implementation', 'tools'];
 const SKIP_DIRS = new Set(['node_modules', 'out', '.shadow-cljs', '.git', 'target']);
 const DOM_TEST_RE = /_dom_cljs_test\.clj[sc]$/;
@@ -55,10 +34,7 @@ function test(name, fn) {
 
 // ---- deriving the selectors ------------------------------------------------
 
-// Each build in shadow-cljs.edn's `:builds` map opens with its keyword alone on
-// a two-space-indented line, which is what delimits one build's text from the
-// next. Slicing that way keeps a `:ns-regexp` from being attributed to a
-// neighbouring build.
+// A build's text runs from its two-space-indented keyword line to the next one.
 function buildBlock(text, buildKey) {
   const heads = [...text.matchAll(/^ {2}(:[A-Za-z0-9._/-]+)[ \t]*\r?$/gm)];
   const at = heads.findIndex((m) => m[1] === buildKey);
@@ -124,44 +100,12 @@ function domTestNamespaces() {
 
 // ---- deriving the executors ------------------------------------------------
 //
-// A lane's SELECTOR is not a proof that the lane EXECUTES, and the chain that
-// ends in a lane running is three links long:
-//
-//   the build id  ->  the npm script that compiles it  ->  a workflow `run:`
-//
-// The first two assertions below hold the FIRST link. The third delegates the
-// second link to `scripts/check_gate_scheduling.py`, which already enforces
-// that every `test:` / `bench:` / `build:` script in `package.json` is either
-// reachable from an executable `run:` or carries a checked `DISPOSITIONS`
-// entry — and which runs in `verify-skill-mcp-drift`, a `needs:` of the
-// required `All required checks passed` aggregator.
-//
-// WHY DELEGATE RATHER THAN RE-DERIVE. Reading workflow `run:` values here
-// would put a second authority on "what counts as executable text" beside the
-// Python one, and that rule is easy to get wrong: matching raw YAML would let
-// a `run:` line deleted while its explanatory paragraph stayed put leave the
-// gate reading as scheduled. Two
-// implementations of that rule can disagree, and the one that disagrees
-// downward is a false green. So the link is delegated, not copied — and the
-// delegation is HELD rather than asserted in prose, because a claim about the
-// world in a comment is exactly what this file exists to stop trusting: the
-// executor must carry a prefix that checker asks about, and must not carry a
-// `DISPOSITIONS` entry excusing it from the question. Both are read out of the
-// Python source rather than restated here, because a copy is a second
-// authority with nothing holding it in step.
-//
-// WHAT THIS DOES NOT CLOSE. Someone may still add a `DISPOSITIONS` entry for a
-// lane's executor — and this arm will red and make them argue it, which is the
-// whole difference between a decision and an accident. What it does close is
-// the silent path: without this arm, deleting a lane's workflow and the
-// `package.json` scripts it is the sole home of leaves every gate in the repo
-// green while the lane's mounted DOM suites run nowhere.
+// The chain is: build id -> the npm script that compiles it -> a workflow `run:`.
+// The last link is delegated to scripts/check_gate_scheduling.py, which requires
+// every scanned script to have an executable `run:` home unless it carries a
+// DISPOSITIONS entry; this suite holds the executor to that question.
 
-// `shadow-cljs <verb> <build-id> ...` is the only way a build id is executed.
-// Whole tokens, never a substring test: with `includes()`, a build id that is
-// a prefix of another (`browser-test` of a `browser-test-bench`) would report
-// the shorter lane's script as the longer lane's executor too — the same
-// prefix trap `check_gate_scheduling.py`'s `_PROBE_TAIL` guards against.
+// Whole tokens, so `browser-test` is not read as the executor of `browser-test-bench`.
 function buildIdsInvokedBy(body) {
   const ids = new Set();
   for (const m of body.matchAll(/shadow-cljs\s+(?:compile|release|watch)\s+([^&|;<>]*)/g)) {
@@ -184,7 +128,6 @@ function gatePrefixes() {
   const decl = src.match(/^GATE_PREFIXES\s*=\s*\(([^)]*)\)/m);
   assert.ok(decl, 'scripts/check_gate_scheduling.py declares no GATE_PREFIXES tuple');
   const prefixes = [...decl[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(prefixes.length > 0, 'GATE_PREFIXES parsed as empty — the derivation is broken');
   return prefixes;
 }
 
@@ -200,11 +143,6 @@ function dispositionKeys() {
 }
 
 // ---- the gate --------------------------------------------------------------
-
-// `:browser-test` is the only DOM lane and selects every `*_dom_cljs_test`
-// namespace outright, so there is no partition to assert. What is asserted is
-// that every DOM suite is selected, and that the lane has an executor CI is
-// held to running.
 
 test('every *_dom_cljs_test namespace is selected by the one browser DOM lane (rf2-mf4uy, rf2-0yp7w.6)', () => {
   const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
@@ -229,42 +167,22 @@ test('every *_dom_cljs_test namespace is selected by the one browser DOM lane (r
 });
 
 test('every browser DOM lane has an executor CI is held to running (rf2-j8os)', () => {
-  const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
   const scripts = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8')).scripts || {};
+  const buildId = CORRECTNESS_BUILD.slice(1);
+  const executors = executorsOf(scripts, buildId);
   const prefixes = gatePrefixes();
+  const asked = executors.filter((n) => prefixes.some((p) => n.startsWith(p)));
+  assert.ok(
+    asked.length > 0,
+    `the ${CORRECTNESS_BUILD} lane's executors (${executors.join(', ') || 'none'}) start with none of ` +
+      `${prefixes.join(' / ')}, so check_gate_scheduling.py never asks whether a workflow runs it`,
+  );
   const declared = dispositionKeys();
-  const namespaces = domTestNamespaces();
-
-  for (const buildKey of [CORRECTNESS_BUILD]) {
-    const buildId = buildKey.slice(1);            // `:browser-test` -> `browser-test`
-    const selector = selectorFor(text, buildKey);
-    const selected = namespaces.filter(({ ns }) => selector.test(ns)).map(({ ns }) => ns);
-    const carried = `it selects ${selected.length} DOM suite(s):\n  ${selected.join('\n  ')}`;
-
-    const executors = executorsOf(scripts, buildId);
-    assert.ok(
-      executors.length > 0,
-      `no script in implementation/package.json runs \`shadow-cljs compile|release|watch ` +
-        `${buildId}\`, so the ${buildKey} lane has nothing that executes it — and ${carried}`,
-    );
-
-    const asked = executors.filter((n) => prefixes.some((p) => n.startsWith(p)));
-    assert.ok(
-      asked.length > 0,
-      `the ${buildKey} lane is executed only by ${executors.join(', ')}, and no such name ` +
-        `starts with one of ${prefixes.join(' / ')} — so check_gate_scheduling.py never asks ` +
-        `whether a workflow runs it, and this lane can lose its CI home in silence. ` +
-        `Rename the script into a scanned family, or widen GATE_PREFIXES. Meanwhile ${carried}`,
-    );
-
-    const held = asked.filter((n) => !declared.has(n));
-    assert.ok(
-      held.length > 0,
-      `every executor of the ${buildKey} lane (${asked.join(', ')}) carries a DISPOSITIONS ` +
-        `entry in scripts/check_gate_scheduling.py, which excuses it from needing a workflow ` +
-        `home — so nothing now requires this lane to run anywhere in CI, and ${carried}`,
-    );
-  }
+  assert.ok(
+    asked.some((n) => !declared.has(n)),
+    `every executor of ${CORRECTNESS_BUILD} (${asked.join(', ')}) has a DISPOSITIONS entry in ` +
+      'scripts/check_gate_scheduling.py, so nothing requires the lane to run in CI',
+  );
 });
 
 let failed = 0;
