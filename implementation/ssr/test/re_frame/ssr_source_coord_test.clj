@@ -1,58 +1,19 @@
 (ns re-frame.ssr-source-coord-test
-  "Server-side (JVM) dev-mode view annotation, at the reg-view REGISTRATION
-  boundary.
-
-  ## What this pins
-
-  A registered view reached through its CALLABLE head — `[(rf/view :id) …]`
-  or a Var, the shape isomorphic pages actually compose with — renders on
-  the server WITH both dev-mode annotations: `data-rf2-source-coord`
+  "Server-side (JVM) dev-mode view annotation at the reg-view REGISTRATION
+  boundary. A registered view reached through its callable head —
+  `[(rf/view :id) …]` or a Var — renders with `data-rf2-source-coord`
   (Spec 006 §Source-coord annotation) and `data-rf-view` (Spec 006 §View
-  tagging contract). The client stamps the same two at React render time,
-  so the server markup byte-matches the dev client render and a dev SSR
-  page hydrates as a clean ADOPTION rather than an attribute mismatch.
+  tagging contract), the two attributes the dev client stamps, so a dev SSR
+  page hydrates as a clean adoption. There is no emitter-side injection: the
+  wrapper sits on the registered `:handler-fn`
+  (`re-frame.views.jvm-source-coord-annotation`).
 
-  ## Where the annotation lives
-
-  There is no emitter-side injection: a keyword head is a DOM element on
-  every host, so the emitter has no keyword-view branch to annotate from.
-  Annotation lives at the registration boundary on BOTH hosts (a
-  debug-gated wrapper on the registered `:handler-fn`,
-  `re-frame.views.jvm-source-coord-annotation`), and the production-gate
-  arm sits at that site.
-
-  A keyword head is NOT a view and NOT annotated — it is a DOM
-  element (`re-frame.ssr-keyword-head-contract-test` pins that rule).
-
-  ## Posture split
-
-  The annotations this namespace is named for are DEV-ONLY BY DESIGN: the
-  wrapper `re-frame.views/jvm-source-coord-annotation` is installed at
-  `reg-view` REGISTRATION time behind `interop/debug-enabled?`, which the JVM
-  reads once at namespace-load time.  Under the real
-  `-Dre-frame.debug=false` gate no view is ever wrapped, so no server markup
-  carries `data-rf2-source-coord` or `data-rf-view`.  That is the elision
-  working, not a defect.
-
-  So every assertion ABOUT an annotation — present or absent — lives inside a
-  `(when interop/debug-enabled? …)` arm.
-  The negative ones travel with the positive ones deliberately: \"the outer
-  view did not stamp itself\" and \"a fragment root is not annotated\" pass
-  VACUOUSLY under the gate, where nothing stamps anything, so leaving them
-  outside the arm would report a green that proved nothing.
-
-  What is posture-independent, and therefore what this namespace
-  contributes to `scripts/test-ssr-prod-gate.sh`, is the RENDER: which
-  element each head shape resolves to and what it emits.  A Form-2 view's
-  inner output is the thing rendered; a fragment root emits its children
-  unwrapped; a nested view-ref root
-  renders the inner view.  Those hold in both postures and are asserted
-  outside the arm.  `production-build-emits-no-annotation` gains a REAL-gate
-  arm (`when-not interop/debug-enabled?`) so the production posture is
-  witnessed by the gate itself rather than only by a `with-redefs` rebind,
-  which cannot reach a load-time gate."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  The annotations are DEV-ONLY: the wrapper is installed behind
+  `interop/debug-enabled?`, read once at namespace load, so under
+  `-Dre-frame.debug=false` no view is wrapped. Each render below is pinned to
+  its exact bytes in BOTH postures — annotated in dev, bare under the gate —
+  so this namespace also runs in `scripts/test-ssr-prod-gate.sh`."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
@@ -62,150 +23,68 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-(defn- source-coord? [html] (str/includes? html "data-rf2-source-coord="))
-(defn- view-id?      [html] (str/includes? html "data-rf-view="))
-(defn- both-annotations? [html] (and (source-coord? html) (view-id? html)))
-
-;; ---------------------------------------------------------------------------
-;; Exact byte shape for a programmatic (coordless) registration — degrade
-;; ---------------------------------------------------------------------------
+(defn- by-posture
+  "The expected markup: `dev` when the annotation wrapper is installed, the
+  bare `prod` markup under the production gate."
+  [dev prod]
+  (if rf.interop/debug-enabled? dev prod))
 
 (deftest coordless-programmatic-registration-degrades-to-question-marks
-  (testing "A `reg-view*` with no macro-captured coords still
-            annotates, degrading the source-coord to <ns>:<sym>:?:? so both
-            hosts match on the programmatic path too."
+  (testing "A `reg-view*` with no macro-captured coords still annotates,
+            degrading the source-coord to <ns>:<sym>:?:? as the client does"
     (rf/reg-view* :ssr-coord-test/prog {} (fn [] [:div "prog"]))
-    (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/prog)] {})]
-      ;; SEMANTIC, posture-independent: a programmatic
-      ;; registration renders at all, and renders its own root and body.
-      ;; The gate removes the ATTRIBUTES, never the element.
-      (is (str/starts-with? html "<div") (pr-str html))
-      (is (str/ends-with? html ">prog</div>") (pr-str html))
-
-      ;; Dev-instrumentation arm (see ns docstring). The exact
-      ;; byte shape of the `?:?` degrade is the whole point of this deftest
-      ;; and is a statement about the dev annotation dialect.
-      (when rf.interop/debug-enabled?
-        (is (= (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
-                    " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
-               html)
-            (str "coordless degrade must produce exactly the client shape; got: "
-                 (pr-str html)))))))
-
-;; ---------------------------------------------------------------------------
-;; Author-supplied attribute values are PRESERVED
-;; ---------------------------------------------------------------------------
+    (is (= (by-posture (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
+                            " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
+                       "<div>prog</div>")
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/prog)] {})))))
 
 (deftest author-supplied-annotation-values-are-preserved
-  (testing "An author who set data-rf2-source-coord / data-rf-view
-            on the root keeps THEIR value; the wrapper only fills a missing
-            key. Mirrors the client `inject-source-coord-attr` preservation."
+  (testing "An author who set data-rf-view on the root keeps THEIR value; the
+            wrapper only fills a missing key, as the client
+            `inject-source-coord-attr` does"
     (rf/reg-view* :ssr-coord-test/authored {}
                   (fn [] [:div {:data-rf-view "author-owned"
                                 :id           "x"} "a"]))
-    (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/authored)] {})]
-      ;; SEMANTIC, posture-independent: the author's OWN attribute
-      ;; map is emitted whatever the posture — `data-rf-view` here is an
-      ;; author-owned attribute that merely shares a name with the framework's,
-      ;; and `:id` is an ordinary one. Neither is elided by the gate.
-      (is (str/includes? html "data-rf-view=\"author-owned\"")
-          "the author's data-rf-view value survives")
-      (is (str/includes? html "id=\"x\"")
-          "the author's other attributes survive alongside it")
-
-      ;; Dev-instrumentation arm (see ns docstring). Both of these
-      ;; are about the WRAPPER: that it declined to overwrite, and that it
-      ;; filled the key the author left out. Under the gate no wrapper exists,
-      ;; so "did not overwrite" would pass vacuously.
-      (when rf.interop/debug-enabled?
-        (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/authored\""))
-            "the wrapper did not overwrite it")
-        (is (source-coord? html)
-            "the missing key IS still filled by the wrapper")))))
-
-;; ---------------------------------------------------------------------------
-;; Form-2 views: the inner render fn's output is annotated
-;; ---------------------------------------------------------------------------
+    (is (= (by-posture (str "<div data-rf-view=\"author-owned\" id=\"x\""
+                            " data-rf2-source-coord=\"ssr-coord-test:authored:?:?\">a</div>")
+                       "<div data-rf-view=\"author-owned\" id=\"x\">a</div>")
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/authored)] {})))))
 
 (deftest form-2-view-inner-output-is-annotated
-  (testing "A Form-2 view (outer fn returns an inner render fn)
-            has the INNER output annotated, mirroring the client Form-2
-            wrapper. The emitter unwraps the inner fn; the wrapper's Form-2
-            branch re-wraps so the inner hiccup gets the attributes."
+  (testing "A Form-2 view has its INNER output annotated, mirroring the
+            client Form-2 wrapper"
     (rf/reg-view* :ssr-coord-test/form2 {}
                   (fn [] (fn [] [:section "inner"])))
-    (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/form2)] {})]
-      ;; SEMANTIC, posture-independent: the emitter unwraps the
-      ;; outer fn and renders the INNER fn's hiccup. That is Form-2 support
-      ;; itself, and it holds with or without the annotation wrapper.
-      (is (str/starts-with? html "<section") (pr-str html))
-      (is (str/ends-with? html ">inner</section>") (pr-str html))
-
-      ;; Dev-instrumentation arm (see ns docstring). The wrapper's
-      ;; Form-2 branch re-wraps so the INNER hiccup gets the attributes; the
-      ;; trailing space in "<section " is what proves an attribute landed.
-      (when rf.interop/debug-enabled?
-        (is (both-annotations? html)
-            (str "Form-2 inner output must be annotated; got: " (pr-str html)))
-        (is (str/starts-with? html "<section "))))))
-
-;; ---------------------------------------------------------------------------
-;; Non-DOM roots (fragment, nested view-ref head) skip — documented exemption
-;; ---------------------------------------------------------------------------
+    (is (= (by-posture (str "<section data-rf2-source-coord=\"ssr-coord-test:form2:?:?\""
+                            " data-rf-view=\":ssr-coord-test/form2\">inner</section>")
+                       "<section>inner</section>")
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/form2)] {})))))
 
 (deftest fragment-root-is-not-annotated
-  (testing "A fragment `:<>` root is a non-DOM root: the wrapper
-            skips it (the exact exemption the client walk takes), so the
-            fragment's children emit unwrapped."
+  (testing "A fragment `:<>` root is a non-DOM root the wrapper skips, so its
+            children emit unwrapped"
     (rf/reg-view* :ssr-coord-test/frag {}
                   (fn [] [:<> [:p "a"] [:p "b"]]))
-    (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/frag)] {})]
-      ;; SEMANTIC, posture-independent: a `:<>` root emits its
-      ;; children and nothing else — no wrapper element is invented for it,
-      ;; and the exact bytes carry no annotation in either posture.
-      (is (= "<p>a</p><p>b</p>" html)))))
+    (is (= "<p>a</p><p>b</p>"
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/frag)] {})))))
 
 (deftest nested-view-ref-root-is-not-doubly-annotated
-  (testing "A view whose root is ANOTHER view-ref (a callable
-            head) skips at the outer wrapper: the head is a fn, not a
-            DOM-tag keyword. The inner view annotates its own root, so the
-            single annotated element is the inner one — no double-stamp."
+  (testing "A view whose root is another view-ref skips at the outer wrapper;
+            the inner view annotates its own root, once"
     (rf/reg-view* :ssr-coord-test/inner {} (fn [] [:span "in"]))
     (rf/reg-view* :ssr-coord-test/outer {}
                   (fn [] [(rf/view :ssr-coord-test/inner)]))
-    (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/outer)] {})]
-      ;; SEMANTIC, posture-independent: a view whose root is
-      ;; another view-ref resolves through to the inner view and emits the
-      ;; inner view's element ONCE — no wrapper element, no duplication.
-      (is (str/starts-with? html "<span") (pr-str html))
-      (is (str/ends-with? html ">in</span>") (pr-str html))
-      (is (= 1 (count (re-seq #"<span" html)))
-          (str "the inner view rendered exactly once; got: " (pr-str html)))
-
-      ;; Dev-instrumentation arm (see ns docstring). All three
-      ;; assertions here are about WHICH element carries the stamp; under
-      ;; the gate no element does, so the two negatives pass vacuously and the
-      ;; count is trivially 0.
-      (when rf.interop/debug-enabled?
-        (is (str/includes? html "data-rf-view=\":ssr-coord-test/inner\"")
-            "the inner view annotated its own root")
-        (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/outer\""))
-            "the outer view (callable-head root) did not stamp itself")
-        (is (= 1 (count (re-seq #"data-rf-view=" html)))
-            (str "exactly one annotated element; got: " (pr-str html)))))))
+    (is (= (by-posture (str "<span data-rf2-source-coord=\"ssr-coord-test:inner:?:?\""
+                            " data-rf-view=\":ssr-coord-test/inner\">in</span>")
+                       "<span>in</span>")
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/outer)] {})))))
 
 (deftest interop-head-roots-are-returned-untouched
-  (testing "Reagent's `:r>` (raw createElement) and `:f>`
-            (function component) interop heads carry the COMPONENT at
-            position 1, the slot a DOM root's attrs map is spliced into.
-            The walk must pass them through untouched, like `:>` and
-            `:<>`: splicing there would displace the component, so `:r>`
-            would hand React a map as the element type and `:f>` would
-            render the map instead of the user's fn."
-    ;; Posture-independent: this drives `annotate-root` directly, which is
-    ;; not itself gated on `interop/debug-enabled?` (only `wrap-handler-fn`
-    ;; is), so every assertion here means the same thing in both postures.
-    ;; The JVM emitter cannot render these heads, so there is no HTML arm.
+  (testing "Reagent's `:r>` and `:f>` interop heads carry the COMPONENT at
+            position 1, the slot a DOM root's attrs map is spliced into, so the
+            walk passes them through untouched, like `:>`"
+    ;; `annotate-root` is not itself gated on `interop/debug-enabled?`, so
+    ;; this means the same thing in both postures.
     (let [comp-fn  (fn [& _] nil)
           annotate #(rf.views.jvm-source-coord-annotation/annotate-root
                       :ssr-coord-test/interop "ssr-coord-test:interop:1:1"
@@ -215,99 +94,46 @@
                    [:> comp-fn {:a 1}]]]
         (is (identical? out (annotate out))
             (str (first out) " root must come back untouched, component still at position 1")))
-      ;; Control: a DOM-tag root IS annotated by the same call.
       (is (= [:div {:data-rf2-source-coord "ssr-coord-test:interop:1:1"
                     :data-rf-view          ":ssr-coord-test/interop"} "hi"]
-             (annotate [:div "hi"]))))))
-
-;; ---------------------------------------------------------------------------
-;; The streaming shell walker inherits annotation through the handler-fn
-;; ---------------------------------------------------------------------------
+             (annotate [:div "hi"]))
+          "control: a DOM-tag root IS annotated by the same call"))))
 
 (deftest streaming-shell-annotates-through-the-wrapped-handler
-  (testing "The streaming walker carries NO annotation logic; it
-            resolves callable heads through the SAME wrapped handler-fn, so a
-            streamed shell is annotated identically to the sync render. There
-            is no emitter-side asymmetry (two walkers, two copies): one
-            wrapper, both paths."
+  (testing "The streaming walker resolves callable heads through the SAME
+            wrapped handler-fn, so a streamed shell matches the sync render
+            byte for byte in either posture"
     (rf/reg-view ^{:rf/id :ssr-coord-test/shell} shell-view []
       [:main "shell"])
-    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [shell-view])
-          sync-html            (rf.ssr/render-to-string [shell-view] {})]
-      ;; SEMANTIC, posture-independent, and a STRONGER statement
-      ;; of this deftest's actual claim: the streaming walker carries no
-      ;; annotation logic of its own because it resolves callable heads
-      ;; through the same handler-fn as the sync path. Comparing the two
-      ;; renders proves "one wrapper, both paths" in EITHER posture — in dev
-      ;; both are annotated identically, under the gate both are bare.
-      (is (= sync-html shell-html)
-          (str "streamed shell must match the sync render byte for byte; got: "
-               (pr-str shell-html) " vs " (pr-str sync-html)))
-      (is (str/starts-with? shell-html "<main") (pr-str shell-html))
-      (is (str/ends-with? shell-html ">shell</main>") (pr-str shell-html))
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [shell-view])]
+      (is (= (rf.ssr/render-to-string [shell-view] {}) shell-html))
+      (is (if rf.interop/debug-enabled?
+            (re-matches #"<main data-rf2-source-coord=\"[^\"]+\" data-rf-view=\":ssr-coord-test/shell\">shell</main>"
+                        shell-html)
+            (= "<main>shell</main>" shell-html))
+          (pr-str shell-html)))))
 
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (both-annotations? shell-html)
-            (str "streamed shell must be annotated; got: " (pr-str shell-html)))
-        (is (str/includes? shell-html
-                           "data-rf-view=\":ssr-coord-test/shell\""))))))
-
-;; ---------------------------------------------------------------------------
-;; Production gate — at the registration site
-;; ---------------------------------------------------------------------------
-;;
-;; The gate is read at REGISTRATION time (mirroring the client
-;; `make-wrap-view`, which decides whether to wrap when the view is
-;; registered). So the production arm must REGISTER the view under a false
-;; `interop/debug-enabled?`; flipping it only around the render would not
-;; un-wrap an already-wrapped handler-fn. That registration-time semantics
-;; is itself the thing under test — a production SSR build reads the flag
-;; false at boot, before any view registers.
+;; The gate is read at REGISTRATION time, as the client `make-wrap-view`
+;; decides whether to wrap when the view is registered, so the production arm
+;; must REGISTER under a false `interop/debug-enabled?`.
 
 (deftest production-build-emits-no-annotation
-  (testing "A view REGISTERED under `interop/debug-enabled?`
-            false (the production SSR posture) stores an unwrapped
-            handler-fn, so its server markup carries neither annotation —
-            symmetric with the CLJS :advanced + goog.DEBUG=false build that
-            Closure DCEs the client walk. The dev arm annotates; the prod
-            arm does not."
-    ;; Dev-instrumentation arm (see ns docstring). Under the real
-    ;; `-Dre-frame.debug=false` gate there is no "debug ON at registration"
-    ;; to have: the flag was read before this namespace loaded.
-    (when rf.interop/debug-enabled?
-      (testing "debug ON at registration — annotated (the load-bearing arm)"
-        (rf/reg-view* :ssr-coord-test/gated-dev {} (fn [] [:h2 "g"]))
-        (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/gated-dev)] {})]
-          (is (str/starts-with? html "<h2 "))
-          (is (both-annotations? html)))))
+  (testing "A view REGISTERED under `interop/debug-enabled?` false stores an
+            unwrapped handler-fn, so its markup carries neither annotation"
+    (with-redefs [rf.interop/debug-enabled? false]
+      (rf/reg-view* :ssr-coord-test/gated-prod {} (fn [] [:h2 "g"])))
+    (is (= "<h2>g</h2>"
+           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {}))))
 
-    (testing "debug OFF at registration — NOT annotated"
-      (with-redefs [rf.interop/debug-enabled? false]
-        (rf/reg-view* :ssr-coord-test/gated-prod {} (fn [] [:h2 "g"])))
-      ;; render with debug back at its default — the wrap decision was made
-      ;; at registration, so the markup is unannotated regardless.
-      (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {})]
-        (is (= "<h2>g</h2>" html))))
-
-    ;; The REAL-gate arm, and the reason this deftest is worth
-    ;; running in `scripts/test-ssr-prod-gate.sh` at all. The `with-redefs`
-    ;; above rebinds the Var AFTER the framework has loaded; a load-time gate
-    ;; is invisible to that, so it proves the wrapper's own
-    ;; branch and nothing about the documented production posture. This arm
-    ;; runs only when the JVM was actually started with
-    ;; `-Dre-frame.debug=false`, and registers under it for real.
-    (when-not rf.interop/debug-enabled?
-      (testing "-Dre-frame.debug=false on the JVM — NOT annotated, for real"
-        (rf/reg-view* :ssr-coord-test/real-gate {} (fn [] [:h2 "g"]))
-        (let [html (rf.ssr/render-to-string
-                     [(rf/view :ssr-coord-test/real-gate)] {})]
-          (is (= "<h2>g</h2>" html)
-              (str "the real production gate must elide both annotations; got: "
-                   (pr-str html))))
-        (rf/reg-view ^{:rf/id :ssr-coord-test/real-gate-macro} real-gate-macro []
-          [:h3 "m"])
-        (let [html (rf.ssr/render-to-string [real-gate-macro] {})]
-          (is (= "<h3>m</h3>" html)
-              (str "…including on the macro path, which is where the coords "
-                   "would have come from; got: " (pr-str html))))))))
+  ;; `with-redefs` rebinds the Var after the framework has loaded, which a
+  ;; load-time gate never sees; this arm runs only on a JVM actually started
+  ;; with `-Dre-frame.debug=false`.
+  (when-not rf.interop/debug-enabled?
+    (testing "-Dre-frame.debug=false on the JVM — NOT annotated, for real"
+      (rf/reg-view* :ssr-coord-test/real-gate {} (fn [] [:h2 "g"]))
+      (is (= "<h2>g</h2>"
+             (rf.ssr/render-to-string [(rf/view :ssr-coord-test/real-gate)] {})))
+      (rf/reg-view ^{:rf/id :ssr-coord-test/real-gate-macro} real-gate-macro []
+        [:h3 "m"])
+      (is (= "<h3>m</h3>" (rf.ssr/render-to-string [real-gate-macro] {}))
+          "including on the macro path, where the coords would come from"))))
