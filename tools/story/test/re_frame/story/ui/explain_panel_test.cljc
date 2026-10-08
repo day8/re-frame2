@@ -68,7 +68,10 @@
   (is (every? :present? (rf.story.ui.explain-panel/explain-sections full-explain))
       "a fully-featured plan marks every section present")
   (is (not-any? :present? (rf.story.ui.explain-panel/explain-sections {}))
-      "an empty explain map marks every section absent (rendered 'not available', not dropped)"))
+      "an empty explain map marks every section absent (rendered 'not available')")
+  (is (= (mapv :id (rf.story.ui.explain-panel/explain-sections full-explain))
+         (mapv :id (rf.story.ui.explain-panel/explain-sections {})))
+      "absent sections are not dropped"))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-for — error trapping over the pure compiler
