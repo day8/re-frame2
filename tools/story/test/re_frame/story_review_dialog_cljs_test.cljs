@@ -1,30 +1,26 @@
 (ns re-frame.story-review-dialog-cljs-test
-  "CLJS-side tests for the shared review-then-commit dialog primitive.
-
-  Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The pure state machine and id parsing are `.cljc` with no reader
-  conditional on their path, and the JVM
-  `re-frame.story-review-dialog-test` covers them in full. This ns
-  covers the CLJS-only surface: the hiccup renderer the recorder +
-  save-variant flows both depend on, and the clipboard shim."
+  "CLJS tests for the review-then-commit dialog primitive's CLJS-only
+  surface: the hiccup renderer the recorder and save-variant flows share,
+  and the clipboard shim. The `.cljc` state machine and id parsing are
+  covered on the JVM by `re-frame.story-review-dialog-test`."
   (:require [cljs.test :refer [async] :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.review-dialog :as rf.story.review-dialog]))
 
 ;; ---- renderer: closed state ----------------------------------------------
 
+(def ^:private base-opts
+  {:title             "Save"
+   :snippet           "(snippet)"
+   :placeholder-id    :story.x/example
+   :placeholder-input ":story.x/sample"
+   :on-edit-id        (fn [_])
+   :on-copy           (fn [])
+   :on-close          (fn [])
+   :data-test-prefix  "test"})
+
 (deftest renderer-returns-nil-when-closed
-  (testing "the renderer returns nil for the idle state"
-    (is (nil? (rf.story.review-dialog/review-dialog
-                rf.story.review-dialog/initial-state
-                {:title             "Test"
-                 :snippet           "(snippet)"
-                 :placeholder-id    :story.x/example
-                 :placeholder-input ":story.x/sample"
-                 :on-edit-id        (fn [_])
-                 :on-copy           (fn [])
-                 :on-close          (fn [])
-                 :data-test-prefix  "test"})))))
+  (is (nil? (rf.story.review-dialog/review-dialog rf.story.review-dialog/initial-state base-opts))))
 
 ;; ---- renderer: opened state ----------------------------------------------
 
@@ -36,80 +32,28 @@
                       "saved"))
 
 (deftest renderer-returns-hiccup-when-open
-  (testing "the renderer returns a hiccup tree when :open? is true"
-    (let [hiccup (rf.story.review-dialog/review-dialog
-                   (opened-state)
-                   {:title             "Save"
-                    :hint              "the hint"
-                    :snippet           "(snippet)"
-                    :placeholder-id    :story.x/example
-                    :placeholder-input ":story.x/sample"
-                    :on-edit-id        (fn [_])
-                    :on-copy           (fn [])
-                    :on-close          (fn [])
-                    :data-test-prefix  "test"})
+  (testing "the open renderer emits every data-test slot, the snippet and the title"
+    (let [hiccup (rf.story.review-dialog/review-dialog (opened-state) (assoc base-opts :hint "the hint"))
           flat   (str hiccup)]
-      (is (vector? hiccup) "the renderer produces a hiccup vector")
-      (is (str/includes? flat "test-dialog"))
-      (is (str/includes? flat "test-id-input"))
-      (is (str/includes? flat "test-snippet"))
-      (is (str/includes? flat "test-copy"))
-      (is (str/includes? flat "test-close"))
-      (is (str/includes? flat "(snippet)")
-          "the rendered snippet string appears in the tree")
-      (is (str/includes? flat "Save")
-          "the title appears in the tree"))))
+      (is (vector? hiccup))
+      (doseq [s ["test-dialog" "test-id-input" "test-snippet" "test-copy" "test-close"
+                 "(snippet)" "Save"]]
+        (is (str/includes? flat s) s)))))
 
 (deftest renderer-without-on-discard-omits-discard-button
-  (testing "no :on-discard → no 'discard' button is rendered"
-    (let [flat (str (rf.story.review-dialog/review-dialog
-                      (opened-state)
-                      {:title             "Save"
-                       :snippet           "(snippet)"
-                       :placeholder-id    :story.x/example
-                       :placeholder-input ":story.x/sample"
-                       :on-edit-id        (fn [_])
-                       :on-copy           (fn [])
-                       :on-close          (fn [])
-                       :data-test-prefix  "test"}))]
-      (is (not (str/includes? flat "test-discard"))
-          "the discard data-test slot is absent"))))
-
-(deftest renderer-with-on-discard-renders-discard-button
-  (testing ":on-discard provided → 'discard' button renders"
-    (let [flat (str (rf.story.review-dialog/review-dialog
-                     (opened-state)
-                     {:title             "Save"
-                      :snippet           "(snippet)"
-                      :placeholder-id    :story.x/example
-                      :placeholder-input ":story.x/sample"
-                      :on-edit-id        (fn [_])
-                      :on-copy           (fn [])
-                      :on-discard        (fn [])
-                      :on-close          (fn [])
-                      :data-test-prefix  "test"}))]
-      (is (str/includes? flat "test-discard")))))
+  (testing "the discard button renders only when :on-discard is given"
+    (is (= [false true]
+           (map #(str/includes? (str (rf.story.review-dialog/review-dialog (opened-state) %))
+                                "test-discard")
+                [base-opts (assoc base-opts :on-discard (fn []))])))))
 
 (deftest renderer-uses-placeholder-when-draft-id-nil
-  (testing "with no draft-id seeded the input's default-value is the placeholder"
+  (testing "an unqualified source seeds no draft id, so the input falls back to
+            the placeholder id"
     (let [state (rf.story.review-dialog/open rf.story.review-dialog/initial-state
-                                    :unqualified-source
-                                    nil
-                                    0
-                                    "saved")
-          flat  (str (rf.story.review-dialog/review-dialog
-                       state
-                       {:title             "Save"
-                        :snippet           "(snippet)"
-                        :placeholder-id    :story.x/example
-                        :placeholder-input ":story.x/sample"
-                        :on-edit-id        (fn [_])
-                        :on-copy           (fn [])
-                        :on-close          (fn [])
-                        :data-test-prefix  "test"}))]
-      ;; unqualified source produces nil draft-id → renderer falls back
-      ;; to placeholder-id (`:story.x/example`).
-      (is (str/includes? flat ":story.x/example")))))
+                                             :unqualified-source nil 0 "saved")]
+      (is (str/includes? (str (rf.story.review-dialog/review-dialog state base-opts))
+                         ":story.x/example")))))
 
 (deftest copy-to-clipboard!-safe-on-node
   (testing "the shared copy helper is callable without a clipboard
@@ -138,40 +82,16 @@
        (map second)))
 
 (deftest renderer-stamps-role-dialog-and-aria-modal
-  (testing "the rendered modal carries role=dialog + aria-modal=true"
-    (let [maps  (attr-maps (rf.story.review-dialog/review-dialog
-                             (opened-state)
-                             {:title             "Save"
-                              :snippet           "(snippet)"
-                              :placeholder-id    :story.x/example
-                              :placeholder-input ":story.x/sample"
-                              :on-edit-id        (fn [_])
-                              :on-copy           (fn [])
-                              :on-close          (fn [])
-                              :data-test-prefix  "test"}))
+  (testing "the modal panel carries role=dialog, aria-modal=true and an
+            aria-labelledby naming the title element's id"
+    (let [maps  (attr-maps (rf.story.review-dialog/review-dialog (opened-state) base-opts))
           panel (first (filter #(= "dialog" (:role %)) maps))]
-      (is (some? panel)
-          "an element carries role=dialog")
-      (is (= "true" (:aria-modal panel))
-          "aria-modal flag is stamped on the modal panel")
-      (is (= "test-dialog-title" (:aria-labelledby panel))
-          "aria-labelledby threads the title id into the modal panel")
-      (is (some #(= "test-dialog-title" (:id %)) maps)
-          "the title element carries the id aria-labelledby names"))))
+      (is (= ["true" "test-dialog-title"] ((juxt :aria-modal :aria-labelledby) panel)))
+      (is (some #(= "test-dialog-title" (:id %)) maps)))))
 
 (deftest renderer-id-input-carries-aria-label
-  (testing "the variant-id input has an accessible name"
-    (let [maps  (attr-maps (rf.story.review-dialog/review-dialog
-                             (opened-state)
-                             {:title             "Save"
-                              :snippet           "(snippet)"
-                              :placeholder-id    :story.x/example
-                              :placeholder-input ":story.x/sample"
-                              :on-edit-id        (fn [_])
-                              :on-copy           (fn [])
-                              :on-close          (fn [])
-                              :data-test-prefix  "test"}))
-          input (first (filter #(= "test-id-input" (:data-test %)) maps))]
+  (testing "the variant-id input has an accessible name, not 'edit, blank'"
+    (let [input (first (filter #(= "test-id-input" (:data-test %))
+                               (attr-maps (rf.story.review-dialog/review-dialog (opened-state) base-opts))))]
       (is (some? input) "precondition: the id input is rendered")
-      (is (not (str/blank? (:aria-label input)))
-          "the input carries an aria-label so it's not announced as 'edit, blank'"))))
+      (is (not (str/blank? (:aria-label input)))))))
