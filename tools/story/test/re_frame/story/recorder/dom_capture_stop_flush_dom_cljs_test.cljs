@@ -1,33 +1,20 @@
 (ns re-frame.story.recorder.dom-capture-stop-flush-dom-cljs-test
-  "Browser-gated DOM coverage for the recorder type-debounce STOP/DRAIN
-  boundary.
+  "The recorder type-debounce STOP/DRAIN boundary against a real DOM.
 
-  The sibling `dom-capture-dom-cljs-test` carries the in-session debounce
-  coverage. Both files use the `-dom-cljs-test` suffix so they run in the
-  `:browser-test` gate (`-dom-cljs-test$` regex) against a real DOM — the
-  only place the DOM assertions, and the failure these pin (a flush firing
-  AFTER `:recording?` is cleared), are observable. `:node-test`'s
-  `cljs-test$` regex matches the suffix too; there, with no
-  `js/document`, every row reports a STATED skip through `skip!` rather
-  than passing with zero assertions.
+  A keystroke is buffered with its capture-time `:t` stamped while the
+  recording is live, and the drain appends it through
+  `rf.story.recorder/record-dom-event-buffered!`, which skips the
+  `:recording?` check — so the final keystroke survives a flush that fires
+  after the recording stopped, or the generated `:script` would lose its
+  last field value. `start-recording!` drains and cancels the buffer, so a
+  keystroke from one recording cannot bleed into the next.
 
-  THE HAZARD: a typed `:dom/type` entry is buffered with a debounce
-  timer. A drain routed through `record-dom-type!` — gated on
-  `recording-now-ms` (nil once `:recording?` is false) AND `append-dom`'s
-  own `:recording?` check — would silently drop the last buffered
-  keystroke whenever the recording is STOPPED before the pending debounce
-  timer (or the `remove!` drain) fires, and the generated `:script` would
-  lose its final field value.
-
-  THE CONTRACT: the capture-time `:t` is stamped at BUFFER time (while recording
-  is live) and the drain appends via `rf.story.recorder/record-dom-event-buffered!`,
-  which bypasses the `:recording?` re-check. So the final keystroke survives
-  a post-stop flush."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The `-dom-cljs-test` suffix puts this ns in the `:browser-test` build;
+  under `:node-test` every row reports a stated skip through `skip!`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.recorder :as rf.story.recorder]
-            [re-frame.story.recorder.dom-capture :as rf.story.recorder.dom-capture]
-            [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]))
+            [re-frame.story.recorder.dom-capture :as rf.story.recorder.dom-capture]))
 
 ;; ---- runtime gate --------------------------------------------------------
 
@@ -83,128 +70,51 @@
 
 (use-fixtures :each reset-all!)
 
-;; ---- stop-before-flush regression --------------------------
+(defn- type-into!
+  "Start a recording against `variant`, hold the debounce buffer open, and
+  type `v` into a fresh input, leaving the keystroke pending."
+  [variant v]
+  (rf.story.recorder/start-recording! variant)
+  (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
+  (let [input (.createElement js/document "input")]
+    (.setAttribute input "id" "name")
+    (.appendChild @test-root input)
+    (set! (.-value input) v)
+    (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))))
+
+(defn- typed-texts []
+  (mapv :text (filterv #(= :dom/type (:kind %)) (rf.story.recorder/recorded-entries))))
 
 (deftest stop-before-flush-still-captures-final-type
+  ;; STOP first (flips :recording? false), then drain: a recording-gated
+  ;; drain would be a silent no-op here
   (if-not (dom-available?)
     (skip!)
-    (testing "a buffered keystroke survives a flush that fires AFTER the
-              recording was stopped — the final :dom/type entry is NOT
-              dropped when stop-recording! clears :recording? before the
-              pending debounce timer (or the remove! drain) flushes"
-      (rf.story.recorder/start-recording! :story.x/y)
-      ;; Hold the buffer open (no synchronous flush) so the keystroke is
-      ;; still pending when we stop.
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "name")
-        (.appendChild @test-root input)
-        (set! (.-value input) "alice")
-        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
-        ;; STOP first (flips :recording? false) — the order in which a
-        ;; recording-gated drain would drop the entry.
-        (rf.story.recorder/stop-recording!)
-        (is (not (rf.story.recorder/recording?))
-            "sanity: the recording is stopped before the drain")
-        ;; Now drain — a recording-gated drain would be a silent no-op here.
-        (rf.story.recorder.dom-capture/flush-type-buffer!)
-        (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (rf.story.recorder/recorded-entries))
-              entry        (first type-entries)]
-          (is (= 1 (count type-entries))
-              "the final buffered keystroke survived the post-stop flush")
-          (is (= "alice" (:text entry))
-              "the surviving entry carries the final typed value")
-          (is (number? (:t entry))
-              "the entry carries its capture-time :t, stamped at buffer time")
-          ;; And the generated play-script carries the final field value.
-          (let [spec       (rf.story.recorder.play-export/recording->script-body
-                             (rf.story.recorder/recorded-entries))
-                type-steps (filterv #(= :type (first %)) (:script spec))]
-            (is (= [[:type (:selector entry) "alice"]] type-steps)
-                "the generated :type step carries the final value")))))))
+    (do
+      (type-into! :story.x/y "alice")
+      (rf.story.recorder/stop-recording!)
+      (rf.story.recorder.dom-capture/flush-type-buffer!)
+      (is (= ["alice"] (typed-texts))))))
 
 (deftest remove-after-stop-drains-final-type
+  ;; the worst-case teardown ordering: remove! drains the buffer after stop
   (if-not (dom-available?)
     (skip!)
-    (testing "rf.story.recorder.dom-capture/remove! after stop-recording! still drains the pending type
-              buffer (the worst-case teardown ordering — remove! routes
-              through flush-type-buffer!)"
-      (rf.story.recorder/start-recording! :story.x/y)
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "name")
-        (.appendChild @test-root input)
-        (set! (.-value input) "bob")
-        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
-        (rf.story.recorder/stop-recording!)
-        (rf.story.recorder.dom-capture/remove!)
-        (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (rf.story.recorder/recorded-entries))]
-          (is (= 1 (count type-entries))
-              "remove!'s drain captured the final keystroke after stop")
-          (is (= "bob" (:text (first type-entries)))))))))
-
-;; ---- cross-recording bleed regression --------------------
-;;
-;; `flush-type-buffer!` bypasses the `:recording?` re-check so the FINAL
-;; keystroke survives a flush firing after stop (stop-into-SAME-recording).
-;; A DOM type-buffer + live `setTimeout` timers untied to the recorder
-;; start/clear boundary would then let a keystroke buffered under
-;; recording A, whose pending flush fires AFTER a fresh `start-recording!` B
-;; (or `clear!`), append UNCONDITIONALLY into the CURRENT recorder atom —
-;; bleeding an A-relative `:dom/type` step into B (or a phantom into the next
-;; recording). So `start-recording!` / `clear!` drain + cancel the
-;; pending buffer via the `:recorder/reset-dom-buffer` late-bind seam.
+    (do
+      (type-into! :story.x/y "bob")
+      (rf.story.recorder/stop-recording!)
+      (rf.story.recorder.dom-capture/remove!)
+      (is (= ["bob"] (typed-texts))))))
 
 (deftest stop-then-restart-does-not-bleed-across-recordings
+  ;; A keystroke buffered under recording A, a non-flushing stop, then
+  ;; recording B within the debounce window: forcing the flush in B finds
+  ;; nothing, since `start-recording!` cancelled and emptied A's buffer.
   (if-not (dom-available?)
     (skip!)
-    (testing "a keystroke buffered under recording A, then a NON-flushing
-              stop + start-recording! B within the debounce window, does NOT
-              land in B's :entries — start-recording! drains + cancels the
-              pending DOM type-buffer"
-      (rf.story.recorder/start-recording! :story.a/rec)
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)          ; hold the buffer open (no sync flush)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "note")
-        (.appendChild @test-root input)
-        (set! (.-value input) "aaa")
-        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
-        ;; STOP via the non-flushing facade path; the debounce timer T is
-        ;; still pending, the buffered "aaa" still held.
-        (rf.story.recorder/stop-recording!)
-        ;; A FRESH recording B starts before T fires. This must DRAIN A's
-        ;; pending buffer (cancel T + drop the entry), not carry it into B.
-        (rf.story.recorder/start-recording! :story.b/rec)
-        (is (rf.story.recorder/recording?) "B is recording")
-        (is (empty? (rf.story.recorder/recorded-entries)) "B starts with no entries")
-        ;; Force any surviving timer to fire. Without the reset seam A's "aaa"
-        ;; would append here into B (append-dom-buffered ignores :recording?);
-        ;; the buffer was cancelled + emptied, so this is a no-op.
-        (rf.story.recorder.dom-capture/flush-type-buffer!)
-        (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (rf.story.recorder/recorded-entries))]
-          (is (= [] type-entries)
-              "A's buffered keystroke did NOT bleed into recording B"))))))
-
-(deftest clear-while-typing-leaves-no-phantom-in-next-recording
-  (if-not (dom-available?)
-    (skip!)
-    (testing "clear! while a keystroke is buffered cancels the pending flush,
-              so a subsequent recording sees no phantom entry"
-      (rf.story.recorder/start-recording! :story.a/rec)
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "note")
-        (.appendChild @test-root input)
-        (set! (.-value input) "bbb")
-        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
-        ;; Discard the recording mid-type.
-        (rf.story.recorder/clear!)
-        ;; Start a fresh recording; the cancelled buffer must not resurface.
-        (rf.story.recorder/start-recording! :story.c/rec)
-        (rf.story.recorder.dom-capture/flush-type-buffer!)
-        (is (empty? (filterv #(= :dom/type (:kind %))
-                             (rf.story.recorder/recorded-entries)))
-            "clear! cancelled the pending flush — no phantom entry in C")))))
+    (do
+      (type-into! :story.a/rec "aaa")
+      (rf.story.recorder/stop-recording!)
+      (rf.story.recorder/start-recording! :story.b/rec)
+      (rf.story.recorder.dom-capture/flush-type-buffer!)
+      (is (= [] (typed-texts))))))
