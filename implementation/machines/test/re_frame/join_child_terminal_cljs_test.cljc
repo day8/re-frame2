@@ -1,45 +1,12 @@
 (ns re-frame.join-child-terminal-cljs-test
-  "Every non-decisive `:spawn-all` child gets exactly one
-  canonical JOIN-SIDE work terminal.
-
-  Emitting terminal work-reply facts ONLY through the final resolution
-  trace would leave a gap. In an `:all` join, a child completing before the
-  decisive child would be folded into `:done` silently — never receiving a
-  canonical `:completed` reply — and later reaped without cancellation, so
-  its work attempt would end with NO terminal status at all. A failed
-  non-decisive fold would likewise miss its `:failed` fact. That would
-  contradict the closed one-terminal-per-work-attempt contract and
-  strand work-ledger/Xray projections.
-
-  So the join publishes its terminal exactly once at the FIRST valid
-  fold via `:rf.machine.spawn-all/child-completed` when the fold is
-  non-decisive, while the decisive child's rides the resolution trace — the
-  two emits sit on opposite arms of the fold's `(:resolved? resolution)`
-  split, so the join never double-publishes a child.
-  Duplicate pre-resolution signals are suppressed by the exact-attempt
-  fold fence; post-resolution arrivals are `:stale`; survivors
-  cancelled by `:any`/failure resolution close exactly once as
-  `:cancelled`.
-
-  ONE OUTCOME, TWO ATTRIBUTIONS. Completion is finality (Spec 005 §Child
-  completion protocol): a join child reaches a `:final?` state, publishes its
-  OWN `:rf.machine/done` reply and tears itself down, and only then does the
-  runtime-minted carrier reach the parent's join. So a completing child's
-  work-id carries TWO agreeing terminal rows — its own finality and the
-  join's — exactly as a cancelled survivor carries two
-  (`:rf.machine.spawn/cancelled-on-join-resolution` + its own
-  `:rf.machine/destroyed`). What this suite pins is the JOIN-side row
-  (`join-terminals-for`), and that the rows never disagree on KIND; a raw
-  count of rows on the work-id is not the invariant.
-
-  The file is named `*-cljs-test.cljc` so it's discovered by both
-  cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
+  "Every `:spawn-all` child gets exactly one JOIN-side terminal beside its own
+  `:rf.machine/done` finality row: a non-decisive fold publishes it at fold time
+  (`child-completed`), a decisive fold through the resolution trace, and
+  duplicate or post-resolution carriers add none."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   ;; load the machines artefact so its fx handlers + late-bind hooks are
-   ;; installed when this ns runs in isolation.
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -51,262 +18,92 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   rf.machines.test-support/trace-capture-fixture)
 
-(def ^:private terminal-work-statuses
-  "The closed TERMINAL work-status set — a child attempt closes on exactly
-  one of these (`:suppressed` is the stale/duplicate non-terminal drop)."
-  #{:completed :failed :cancelled})
-
-(defn- work-statuses-for
-  "Every `:rf.reply/work-status` carried by a captured trace whose
-  `:rf.reply/work-id` names `spawned-id` (its 2nd element — the child's
-  spawned instance address), across ALL trace ops — how a durable
-  work-ledger / Xray projection groups one child attempt's reply facts."
-  [spawned-id]
-  (into []
-        (comp (map :tags)
-              (filter #(= spawned-id (second (:rf.reply/work-id %))))
-              (keep :rf.reply/work-status))
-        (or (rf.machines.test-support/captured-events) [])))
-
 (defn- terminal-rows-for
-  "Every TERMINAL reply row on `spawned-id`'s work-id as `[<trace-op>
-  <work-status>]` pairs, naming which trace published each row, so a test can
-  pin WHICH authority spoke and not merely how many rows there were."
+  "Every terminal reply row on `spawned-id`'s work-id, as `[<trace-op> <work-status>]`."
   [spawned-id]
   (into []
         (comp (filter #(= spawned-id (second (:rf.reply/work-id (:tags %)))))
               (keep (fn [ev]
-                      (when-let [st (:rf.reply/work-status (:tags ev))]
-                        (when (terminal-work-statuses st)
+                      (let [st (:rf.reply/work-status (:tags ev))]
+                        (when (#{:completed :failed :cancelled} st)
                           [(:operation ev) st])))))
-        (or (rf.machines.test-support/captured-events) [])))
+        (rf.machines.test-support/captured-events)))
 
-(defn- join-terminals-for
-  "The terminal statuses the JOIN published for `spawned-id` — its fold /
-  resolution / survivor-cancellation authority — with the child's OWN
-  `:rf.machine/done` finality row removed. Completion IS finality, so
-  every join child publishes that actor-side row itself; what this suite pins
-  is the JOIN-side row beside it."
-  [spawned-id]
-  (into [] (comp (remove #(= :rf.machine/done (first %))) (map second))
-        (terminal-rows-for spawned-id)))
-
-(defn- child-completed-traces []
-  (rf.machines.test-support/events-of :rf.machine.spawn-all/child-completed))
+(defn- child-completed-tags []
+  (:tags (first (rf.machines.test-support/events-of :rf.machine.spawn-all/child-completed))))
 
 (defn- join-state [parent-id]
   (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
-(defn- mk-child
-  "A join child that completes the ONE way every machine completes: on `:go`
-  it reaches the top-level `:final?` leaf `:done` (`:output-key :id` selects
-  its result), on `:fail` the `:error? true` leaf `:failed`. It dispatches
-  nothing and carries no parent vocabulary — the runtime's finalize cascade
-  mints the completion carrier the parent's join folds."
-  []
-  {:initial :running
-   :data    {:id nil}
-   :actions {:record-id (fn [{data :data ev :event}]
-                          {:data (assoc data :id (second ev))})}
-   :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done}
-                            :fail   {:target :failed}}}
-             :done   {:final? true :output-key :id}
-             :failed {:final? true :error? true :output-key :id}}})
-
 (defn- reg-join-parent!
-  "Register a two-child join parent (join mode + resolution keys via
-  `spawn-all-extra`) + `:final?`-completing children and start it. The parent
-  stays on `:racing` at resolution (no `:on` for the resolution events).
-  Returns the seeded join state."
-  [parent-kw child-a-kw child-b-kw spawn-all-extra]
-  (rf/reg-machine child-a-kw (mk-child))
-  (rf/reg-machine child-b-kw (mk-child))
+  "Register and start a two-child join parent (`spawn-all-extra` adds the mode and
+  resolution keys); children finish on `:go` and fail on `:fail`. The parent has
+  no `:on` for resolution, so the join slot survives. Returns the join state."
+  [parent-kw child-kw spawn-all-extra]
+  (rf/reg-machine child-kw {:initial :running
+                            :states  {:running {:on {:go :done :fail :failed}}
+                                      :done    {:final? true}
+                                      :failed  {:final? true :error? true}}})
   (rf/reg-machine parent-kw
     {:initial :idle
      :states  {:idle   {:on {:start :racing}}
-               :racing {:spawn-all
-                        (merge
-                          {:children       [{:id :a :machine-id child-a-kw :start [:set-id :a]}
-                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]}
-                          spawn-all-extra)}}})
+               :racing {:spawn-all (merge {:children [{:id :a :machine-id child-kw}
+                                                      {:id :b :machine-id child-kw}]}
+                                          spawn-all-extra)}}})
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw))
 
-(defn- dispatch-forged!
-  "Hand-dispatch the reserved completion carrier
-  `[<parent> [:rf.machine.spawn/done <invoke-id> <completion>]]` that
-  `lifecycle-fx.finalize` mints at a child's finality — here with a
-  hand-authored `completion`, to drive a duplicate / post-resolution arrival
-  the runtime itself would never re-mint."
-  [parent-kw completion]
-  (rf/dispatch-sync [parent-kw [:rf.machine.spawn/done [:racing] completion]]))
-
-(defn- exact-completion
-  "The `:done` completion the runtime WOULD mint for `child-id` at the CURRENT
-  attempt of the join at `[parent-kw [:racing]]` — every coordinate field read
-  straight off live runtime state, so the carrier is EXACT-CURRENT and passes
-  the exact-attempt fence."
+(defn- redeliver!
+  "Hand-deliver the exact-current completion carrier the runtime minted for `child-id`."
   [parent-kw child-id]
   (let [j (join-state parent-kw)]
-    {:result     child-id
-     :error?     false
-     :child-id   child-id
-     :parent-id  parent-kw
-     :invoke-id  [:racing]
-     :spawned-id (get-in j [:children child-id])
-     :attempt    (:rf/attempt j)}))
-
-;; ---------------------------------------------------------------------------
-;; two-child :all success
-;; ---------------------------------------------------------------------------
+    (rf/dispatch-sync [parent-kw [:rf.machine.spawn/done [:racing]
+                                  {:result     child-id
+                                   :error?     false
+                                   :child-id   child-id
+                                   :parent-id  parent-kw
+                                   :invoke-id  [:racing]
+                                   :spawned-id (get-in j [:children child-id])
+                                   :attempt    (:rf/attempt j)}]])))
 
 (deftest non-decisive-completed-child-gets-exactly-one-completed-terminal
-  (testing "two-child :all success: the NON-DECISIVE first
-            child A gets exactly ONE join-side :completed terminal, published
-            at fold time; the DECISIVE child B gets exactly one, published by
-            the resolution trace. Neither is double-published by the join and
-            neither is ever :cancelled. Beside each sits the child's OWN
-            `:rf.machine/done` finality row — completion IS finality, so the
-            actor closes itself — and both rows carry the SAME work-id and the
-            SAME status: one closed outcome, two agreeing attributions."
-    (let [j (reg-join-parent! :jct/p1 :jct/p1a :jct/p1b
-                              {:join :all :on-all-complete [:all/done]})
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
-      ;; A folds first — non-decisive in a 2-child :all.
-      (rf/dispatch-sync [a [:go]])
-      (is (= [:completed] (join-terminals-for a))
-          (str "non-decisive child A gets exactly one JOIN-side :completed at "
-               "fold time; saw " (terminal-rows-for a)))
-      (is (= [[:rf.machine/done :completed]
-              [:rf.machine.spawn-all/child-completed :completed]]
-             (terminal-rows-for a))
-          "A's own finality row + the join's fold row, in that order, agreeing")
-      (let [fold-traces (child-completed-traces)]
-        (is (= 1 (count fold-traces)) "one child-completed fold trace for A")
-        (let [tags (:tags (first fold-traces))]
-          (is (= :a (:child-id tags)))
-          (is (= a (:spawned-id tags)))
-          (is (= :done (:kind tags)))
-          (is (= :ok (:rf.reply/status tags)) "canonical :ok reply facts")
-          (is (= :completed (:rf.reply/work-status tags)))
-          (is (some? (:rf.reply/work-id tags)))))
-      ;; B resolves — decisive; its join-side terminal rides the resolution
-      ;; trace only.
-      (rf/dispatch-sync [b [:go]])
-      (is (true? (:resolved? (join-state :jct/p1))))
-      (is (= [[:rf.machine/done :completed]
-              [:rf.machine.spawn-all/child-completed :completed]]
-             (terminal-rows-for a))
-          "A's rows are UNCHANGED after resolution — it closed itself at its
-           own finality, so the resolution neither reaps nor re-publishes it")
-      (is (= [[:rf.machine/done :completed]
-              [:rf.machine.spawn-all/all-completed :completed]]
-             (terminal-rows-for b))
-          "decisive child B: its own finality row + the resolution authority")
-      (is (= 1 (count (child-completed-traces)))
-          "NO fold-time child-completed for the decisive child — one authority per child")
-      (is (not-any? #{:cancelled} (work-statuses-for a))
-          "completed child A is never cancelled")
-      (is (not-any? #{:cancelled} (work-statuses-for b))))))
-
-;; ---------------------------------------------------------------------------
-;; non-decisive failure
-;; ---------------------------------------------------------------------------
+  (let [j      (reg-join-parent! :jct/p1 :jct/p1c {:join :all :on-all-complete [:all/done]})
+        a      (get-in j [:children :a])
+        b      (get-in j [:children :b])
+        a-rows [[:rf.machine/done :completed]
+                [:rf.machine.spawn-all/child-completed :completed]]]
+    (rf/dispatch-sync [a [:go]])
+    (redeliver! :jct/p1 :a)
+    (is (= a-rows (terminal-rows-for a)) "published at fold time; the duplicate adds none")
+    (is (= {:child-id :a :spawned-id a :kind :done :rf.reply/status :ok}
+           (select-keys (child-completed-tags) [:child-id :spawned-id :kind :rf.reply/status])))
+    (rf/dispatch-sync [b [:go]])
+    (redeliver! :jct/p1 :a)
+    (is (= [a-rows
+            [[:rf.machine/done :completed] [:rf.machine.spawn-all/all-completed :completed]]
+            [:stale]]
+           [(terminal-rows-for a)
+            (terminal-rows-for b)
+            (mapv (comp :rf.reply/status :tags)
+                  (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))])
+        "the decisive B closes through the resolution trace; A's post-resolution straggler is :stale")))
 
 (deftest non-decisive-failed-child-gets-exactly-one-failed-terminal
-  (testing "an :all join with NO :on-any-failed folds a failure
-            without resolving: the failed child closes exactly one :failed
-            terminal at fold time"
-    (let [j (reg-join-parent! :jct/p2 :jct/p2a :jct/p2b
-                              {:join :all :on-all-complete [:all/done]})
-          a (get-in j [:children :a])]
-      (rf/dispatch-sync [a [:fail]])
-      (is (false? (:resolved? (join-state :jct/p2)))
-          "the failure fold did not resolve (no :on-any-failed)")
-      (is (= [:failed] (join-terminals-for a))
-          (str "non-decisive failed child gets exactly one JOIN-side :failed; "
-               "saw " (terminal-rows-for a)))
-      (is (= [[:rf.machine/done :failed]
-              [:rf.machine.spawn-all/child-completed :failed]]
-             (terminal-rows-for a))
-          "the error leaf's own finality row + the join's fold row, agreeing")
-      (let [tags (:tags (first (child-completed-traces)))]
-        (is (= :failed (:kind tags)))
-        (is (= :error (:rf.reply/status tags)) "canonical :error reply facts")
-        (is (= :failed (:rf.reply/work-status tags)))))))
-
-;; ---------------------------------------------------------------------------
-;; decisive success / decisive failure — the resolution authority
-;; ---------------------------------------------------------------------------
+  (let [a (get-in (reg-join-parent! :jct/p2 :jct/p2c {:join :all :on-all-complete [:all/done]})
+                  [:children :a])]
+    (rf/dispatch-sync [a [:fail]])
+    (is (= [[[:rf.machine/done :failed] [:rf.machine.spawn-all/child-completed :failed]]
+            {:kind :failed :rf.reply/status :error}]
+           [(terminal-rows-for a)
+            (select-keys (child-completed-tags) [:kind :rf.reply/status])]))))
 
 (deftest decisive-folds-keep-the-resolution-authority
-  (testing "decisive folds publish through the resolution trace
-            ONLY: an :any success and an :on-any-failed failure each close
-            the decisive child exactly once, with NO fold-time
-            child-completed trace"
-    ;; :any success — the first completion is decisive.
-    (let [j (reg-join-parent! :jct/p3 :jct/p3a :jct/p3b
-                              {:join :any :on-some-complete [:race/won]})
-          a (get-in j [:children :a])]
-      (rf/dispatch-sync [a [:go]])
-      (is (true? (:resolved? (join-state :jct/p3))))
-      (is (= [:completed] (join-terminals-for a))
-          "decisive :any child gets exactly one JOIN-side :completed")
-      (is (= [[:rf.machine/done :completed]
-              [:rf.machine.spawn-all/some-completed :completed]]
-             (terminal-rows-for a))
-          "its own finality row + the :any resolution authority")
-      (is (empty? (child-completed-traces))
-          "no fold-time trace for a decisive fold"))
-    (rf.machines.test-support/reset-captured!)
-    ;; :on-any-failed failure — the first failure is decisive.
-    (let [j (reg-join-parent! :jct/p4 :jct/p4a :jct/p4b
-                              {:join :all :on-all-complete [:all/done]
-                               :on-any-failed [:all/failed]})
-          a (get-in j [:children :a])]
-      (rf/dispatch-sync [a [:fail]])
-      (is (true? (:resolved? (join-state :jct/p4))))
-      (is (= [:failed] (join-terminals-for a))
-          "decisive failed child gets exactly one JOIN-side :failed")
-      (is (= [[:rf.machine/done :failed]
-              [:rf.machine.spawn-all/any-failed :failed]]
-             (terminal-rows-for a))
-          "its own finality row + the :on-any-failed resolution authority")
-      (is (empty? (child-completed-traces))
-          "no fold-time trace for the decisive failure either"))))
-
-;; ---------------------------------------------------------------------------
-;; duplicates and post-resolution stragglers add no terminals
-;; ---------------------------------------------------------------------------
-
-(deftest duplicate-and-post-resolution-signals-add-no-terminals
-  (testing "a duplicate pre-resolution completion (suppressed
-            :duplicate-completion) and a post-resolution straggler
-            (:stale late-completion) leave the child's join-side terminal
-            count at exactly one, and add no row of any kind"
-    (let [j (reg-join-parent! :jct/p5 :jct/p5a :jct/p5b
-                              {:join :all :on-all-complete [:all/done]})
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])
-          expected [[:rf.machine/done :completed]
-                    [:rf.machine.spawn-all/child-completed :completed]]]
-      (rf/dispatch-sync [a [:go]])
-      (is (= expected (terminal-rows-for a)))
-      ;; Exact-current duplicate, pre-resolution — the coordinate rides ON THE
-      ;; CARRIER, which is the only slot the fold reads.
-      (dispatch-forged! :jct/p5 (exact-completion :jct/p5 :a))
-      (is (= expected (terminal-rows-for a))
-          "the duplicate added NO second terminal (suppressed, not re-published)")
-      ;; Resolve, then :a's EXACT-CURRENT completion re-arrives post-resolution
-      ;; (the late-completion path is gated on the exact-attempt fence).
-      (rf/dispatch-sync [b [:go]])
-      (is (true? (:resolved? (join-state :jct/p5))))
-      (dispatch-forged! :jct/p5 (exact-completion :jct/p5 :a))
-      (is (= expected (terminal-rows-for a))
-          "the post-resolution straggler stayed :stale — still one join-side terminal")
-      (is (some #(= :stale (:rf.reply/status (:tags %)))
-                (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))
-          "the straggler was classified through the stale late-completion path"))))
+  (doseq [[parent-kw child-kw extra event rows]
+          [[:jct/p3 :jct/p3c {:join :any :on-some-complete [:race/won]} :go
+            [[:rf.machine/done :completed] [:rf.machine.spawn-all/some-completed :completed]]]
+           [:jct/p4 :jct/p4c {:join :all :on-all-complete [:all/done] :on-any-failed [:all/failed]} :fail
+            [[:rf.machine/done :failed] [:rf.machine.spawn-all/any-failed :failed]]]]]
+    (let [a (get-in (reg-join-parent! parent-kw child-kw extra) [:children :a])]
+      (rf/dispatch-sync [a [event]])
+      (is (= rows (terminal-rows-for a)) (str extra)))))
