@@ -61,9 +61,7 @@
         @(rf/subscribe [:rf2-9hoos/b])
         [:span "ok"])
       ((rf/view :rf2-9hoos/reader))
-      (let [ev   (first (:rf.view/rendered @observed))
-            subs (get-in ev [:tags :rf.view/deref-subs])]
-        (is (some? ev) "an :rf.view/rendered event was emitted")
+      (let [subs (get-in (first (:rf.view/rendered @observed)) [:tags :rf.view/deref-subs])]
         (is (vector? subs) ":rf.view/deref-subs is a vector")
         (is (= #{[:rf2-9hoos/a] [:rf2-9hoos/b]} (set subs))
             ":rf.view/deref-subs lists exactly the two subs the view deref'd")))))
@@ -156,16 +154,13 @@
       (let [rea (rf.views/install-unmount-hook! :rf2-9hoos/lifecycle
                                              [:rf2-9hoos/lifecycle 1]
                                              :rf/default)]
-        (is (some? rea)
-            "a lifecycle reaction is created under the Reagent reaction primitive")
         (is (empty? (:rf.view/unmounted @observed))
             "no unmount emit before disposal")
-        ;; Deref once so the reaction is realised, then dispose — the
-        ;; teardown signal a real componentWillUnmount sends.
         @rea
         (rf.interop/dispose! rea)
-        (let [ev (first (:rf.view/unmounted @observed))]
-          (is (some? ev) ":rf.view/unmounted fired on reaction disposal")
-          (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :rf.view/id])))
-          (is (= :rf/default (get-in ev [:tags :frame])) ":frame present")
-          (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :rf.view/render-key]))))))))
+        (is (= {:rf.view/id         :rf2-9hoos/lifecycle
+                :frame              :rf/default
+                :rf.view/render-key [:rf2-9hoos/lifecycle 1]}
+               (-> (:rf.view/unmounted @observed) first :tags
+                   (select-keys [:rf.view/id :frame :rf.view/render-key])))
+            ":rf.view/unmounted fired on reaction disposal")))))
