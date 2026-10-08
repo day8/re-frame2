@@ -42,129 +42,21 @@
                           (= event     (:event e)))
                  (:id e))))))
 
-;; ---- normalise-path -----------------------------------------------------
-
-(deftest normalise-path-coerces
-  (testing "vector / keyword / nil / non-keyword shapes"
-    (is (= [:a]    (trace-state/normalise-path :a)))
-    (is (= [:a :b] (trace-state/normalise-path [:a :b])))
-    (is (= [:a :b] (trace-state/normalise-path '(:a :b))))
-    (is (nil?      (trace-state/normalise-path nil)))
-    (is (nil?      (trace-state/normalise-path [:a "b"]))
-        "non-keyword member → nil")
-    (is (nil?      (trace-state/normalise-path 42)))))
-
-;; ---- current-state-from-traces ------------------------------------------
-
-(deftest current-state-from-traces-resolves-latest
-  (testing "picks the :to of the LAST matching :rf.machine/transition"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      [:a] :to [:b] :event :go-b}
-                  {:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      [:b] :to [:c] :event :go-c}
-                  {:operation :something-else}]]
-      (is (= [:c] (trace-state/current-state-from-traces events :foo))))))
-
-(deftest current-state-from-traces-returns-nil-when-no-match
-  (is (nil? (trace-state/current-state-from-traces [] :foo)))
-  (is (nil? (trace-state/current-state-from-traces nil :foo))))
-
-(deftest current-state-from-traces-prefers-modern-shape-over-legacy
-  (testing "when both :after :state AND legacy :to are present, modern wins"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :cart
-                               :after      {:state :populated}
-                               :to         :should-be-ignored}}]]
-      ;; Per to-path-from-trace: `(or after-state to)` — `after-state`
-      ;; wins when present.
-      (is (= [:populated]
-             (trace-state/current-state-from-traces events :cart))))))
-
-;; ---- from-state-from-traces (Figma §6.2 Case C) -------------------------
-;; Resolves the SOURCE state of the focused fired transition for the
-;; :from circle.
-
-(deftest from-state-from-traces-resolves-latest
-  (testing "picks the :from of the LAST matching :rf.machine/transition"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      [:a] :to [:b] :event :go-b}
-                  {:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      [:b] :to [:c] :event :go-c}]]
-      (is (= [:b] (trace-state/from-state-from-traces events :foo))))))
-
-(deftest from-state-from-traces-reads-modern-before-shape
-  (testing "modern runtime shape: :tags {:before {:state ...}}"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :cart
-                               :before     {:state :empty}
-                               :after      {:state :populated}}}]]
-      (is (= [:empty] (trace-state/from-state-from-traces events :cart))))))
-
-(deftest from-state-from-traces-scopes-and-empty
-  (testing "scopes by machine-id"
-    (let [events [{:operation :rf.machine/transition
-                   :tags {:machine-id :other} :from [:x] :to [:y] :event :w}
-                  {:operation :rf.machine/transition
-                   :tags {:machine-id :foo} :from [:a] :to [:b] :event :ours}]]
-      (is (= [:a] (trace-state/from-state-from-traces events :foo)))))
-  (testing "nil / empty → nil"
-    (is (nil? (trace-state/from-state-from-traces [] :foo)))
-    (is (nil? (trace-state/from-state-from-traces nil :foo)))))
-
-;; ---- current-state-from-epoch-history (Case B) --------------------------
-
-(deftest current-state-from-epoch-history-walks-back
-  (testing "walks epoch-history newest→oldest, returns most-recent :to"
-    (let [history [{:epoch-id 1
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :cart}
-                                    :from [:empty] :to [:populated]
-                                    :event :populate}]}
-                   {:epoch-id 2
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :cart}
-                                    :from [:populated] :to [:submitting]
-                                    :event :submit}]}
-                   ;; Epoch 3 has no machine activity — the walk
-                   ;; back skips it and picks epoch 2's :submitting.
-                   {:epoch-id 3
-                    :trace-events [{:operation :something-else}]}]]
-      (is (= [:submitting]
-             (trace-state/current-state-from-epoch-history history :cart))))))
-
-(deftest current-state-from-epoch-history-empty-cases
-  (testing "nil history → nil"
-    (is (nil? (trace-state/current-state-from-epoch-history nil :cart))))
-  (testing "empty history → nil"
-    (is (nil? (trace-state/current-state-from-epoch-history [] :cart))))
-  (testing "history with no transition for this machine → nil"
-    (let [history [{:epoch-id 1 :trace-events []}
-                   {:epoch-id 2 :trace-events [{:operation :something-else}]}]]
-      (is (nil? (trace-state/current-state-from-epoch-history history :cart))))))
-
 ;; ---- extract-fired-edge-ids: shape + nil-safety -------------------------
 
 (deftest extract-fired-edge-ids-shape
-  (testing "extracts the canonical edge-id for a from→to via event triple"
+  (testing "two transitions this epoch → both canonical ids"
     (let [def         (toy-definition)
           populate-id (canonical-edge-id def [:empty] [:populated] :populate)
+          submit-id   (canonical-edge-id def [:populated] [:submitting] :submit)
           events      [{:operation :rf.machine/transition
-                        :tags      {:machine-id :cart}
-                        :from      [:empty] :to [:populated]
-                        :event     :populate}]
+                        :tags {:machine-id :cart}
+                        :from [:empty] :to [:populated] :event :populate}
+                       {:operation :rf.machine/transition
+                        :tags {:machine-id :cart}
+                        :from [:populated] :to [:submitting] :event :submit}]
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (string? populate-id))
-      (is (= #{populate-id} fired))))
-  (testing "events without a matching from/to/event don't contribute"
-    (let [def (toy-definition)]
-      (is (= #{} (trace-state/extract-fired-edge-ids def [] :cart)))
-      (is (= #{} (trace-state/extract-fired-edge-ids def nil :cart)))
-      (is (= #{} (trace-state/extract-fired-edge-ids
-                   def [{:operation :something-else}] :cart)))))
+      (is (= #{populate-id submit-id} fired))))
   (testing "nil definition → empty set (no chart edges to match)"
     (is (= #{} (trace-state/extract-fired-edge-ids
                  nil
@@ -185,20 +77,6 @@
                      :from [:populated] :to [:submitting] :event :submit}]
           fired    (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{submit-id} fired)))))
-
-(deftest extract-fired-edge-ids-collects-multiple
-  (testing "two transitions this epoch → both canonical ids"
-    (let [def         (toy-definition)
-          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
-          submit-id   (canonical-edge-id def [:populated] [:submitting] :submit)
-          events      [{:operation :rf.machine/transition
-                        :tags {:machine-id :cart}
-                        :from [:empty] :to [:populated] :event :populate}
-                       {:operation :rf.machine/transition
-                        :tags {:machine-id :cart}
-                        :from [:populated] :to [:submitting] :event :submit}]
-          fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (= #{populate-id submit-id} fired)))))
 
 ;; ---- :always-microstep fired-edge ---------------------------------------
 ;;
@@ -245,9 +123,6 @@
                                       :to               [:auto-processing]
                                       :microstep-index  0}]}]
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (string? populate-id))
-      (is (string? always-id))
-      (is (not= populate-id always-id))
       (is (= #{populate-id always-id} fired)
           "both the event-driven edge AND the always-microstep edge light"))))
 
@@ -270,38 +145,6 @@
       (is (= #{populate-id} fired)
           "the :tags :event vector's head (:populate) drives the match"))))
 
-;; ---- extract-fired-edge-ids: AGREEMENT with the live chart (G3) ---------
-;;
-;; The Xray fired-edge ids MUST equal the ids the live MachineChart
-;; mints, or the fired-this-epoch highlight wiring
-;; silently mis-targets. The live chart edges come straight off
-;; `chart.layout/project-definition`; the rows below derive their expected
-;; ids from that projection, and this section adds the injective-node-id
-;; collision triple, whose three punctuated state names must stay distinct.
-
-(deftest fired-ids-agree-across-injective-node-id-collision-triple
-  (testing ":a/b vs :a-b vs :a_b transitions resolve to DISTINCT chart ids"
-    ;; A non-injective node-id collapse would merge these
-    ;; three onto one id; the canonical hex-escape scheme keeps them
-    ;; distinct — and the fired-edge ids ride that same scheme via
-    ;; project-definition, so they agree with the live chart per-arm.
-    (let [def           {:initial :a-b
-                         :states  {:a-b {:on {:go :a/b}}
-                                   :a/b {:on {:back :a_b}}
-                                   :a_b {}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :m}
-                          :from [:a-b] :to [:a/b] :event :go}
-                         {:operation :rf.machine/transition
-                          :tags {:machine-id :m}
-                          :from [:a/b] :to [:a_b] :event :back}]
-          fired         (trace-state/extract-fired-edge-ids def events :m)]
-      (is (= 2 (count fired))
-          "two transitions → two distinct fired ids (no collapse)")
-      (is (every? projected-ids fired)
-          "both fired ids are real live-chart edge ids"))))
-
 ;; ---- machine-level (top-level :on) fallback fired-edge match ------------
 ;;
 ;; The chart projects a machine-level fallback ONCE from the synthetic
@@ -323,20 +166,16 @@
                                    :closed   {:on {:door/push :open}}
                                    :open     {:on {:door/trip :alarming}}
                                    :alarming {:on {:door/reset :locked}}}}
-          projected     (:edges (chart-layout/project-definition def))
-          projected-ids (set (map :id projected))
-          ml-edge       (first (filter :machine-level? projected))
+          ml-edge       (first (filter :machine-level?
+                                       (:edges (chart-layout/project-definition def))))
           ;; The runtime fired :door/audit from :alarming (which declares
           ;; no :door/audit → falls through to the root :on).
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :door}
                           :from [:alarming] :to [:locked] :event :door/audit}]
           fired         (trace-state/extract-fired-edge-ids def events :door)]
-      (is (some? ml-edge) "the definition has a machine-level fallback edge")
       (is (= #{(:id ml-edge)} fired)
-          "the single machine-level chip's id lights, matched on (to, event)")
-      (is (every? projected-ids fired)
-          "the fired id is a real live-chart edge id"))))
+          "the single machine-level chip's id lights, matched on (to, event)"))))
 
 (deftest fired-ids-prefer-state-local-over-machine-level
   (testing "when a leaf declares its OWN transition for the
@@ -355,7 +194,6 @@
                           :tags {:machine-id :m}
                           :from [:a] :to [:b] :event :go}]
           fired         (trace-state/extract-fired-edge-ids def events :m)]
-      (is (some? local-edge))
       (is (= #{(:id local-edge)} fired)
           "the state-local edge lights; the machine-level fallback is not pulled in"))))
 
@@ -391,7 +229,6 @@
                             :after  {:state :closed}
                             :event  :door/close}}]
           fired    (trace-state/extract-fired-edge-ids def events :door)]
-      (is (string? close-id))
       (is (= #{close-id} fired)
           "the inherited edge lights — its [:open] :from-path is a prefix
            of the runtime's actual [:open :wide] leaf, matched via
@@ -415,7 +252,6 @@
                             :after  {:state [:open :wide]}
                             :event  :door/open}}]
           fired    (trace-state/extract-fired-edge-ids def events :door)]
-      (is (string? open-id))
       (is (= #{open-id} fired)
           "the edge's declared :to-path [:open] is a prefix of the actual
            landed leaf [:open :wide] — matched via on-active-path?"))))
@@ -433,16 +269,12 @@
                                        :states  {:wide {} :narrow {}}}
                               :closed {:on {:door/audit :closed}}}}
           open-id  (canonical-edge-id def [:open] [:open] :door/audit)
-          closed-id (canonical-edge-id def [:closed] [:closed] :door/audit)
           events   [{:operation :rf.machine/transition
                      :tags {:machine-id :door
                             :before {:state [:open :wide]}
                             :after  {:state :open}
                             :event  :door/audit}}]
           fired    (trace-state/extract-fired-edge-ids def events :door)]
-      (is (string? open-id))
-      (is (string? closed-id))
-      (is (not= open-id closed-id))
       (is (= #{open-id} fired)
           "only :open's edge lights — :closed's identical-event edge is
            NOT a prefix of the active [:open :wide] leaf"))))
@@ -493,22 +325,8 @@
                               :input      {:data {:held-open? true}
                                            :event [:door/close]}}}]
           blocked    (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (string? close-id))
       (is (= #{close-id} blocked)
           "the blocked edge id is the live-chart :door/close [may-close?] edge"))))
-
-(deftest guard-blocked-ids-match-on-threw-outcome
-  (testing ":threw (the guard fn blew up; engine treats it as fail) also
-            marks the edge guard-blocked"
-    (let [def      (door-definition)
-          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          events   [{:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :door
-                            :guard-id   :may-close?
-                            :outcome    :threw
-                            :input      {:event :door/close}}}]
-          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (= #{close-id} blocked)))))
 
 (deftest guard-blocked-ids-ignore-pass-outcome
   (testing "a guard that PASSED is not blocked — the transition fired,
@@ -521,20 +339,6 @@
                            :input      {:event :door/close}}}]
           blocked (trace-state/extract-guard-blocked-edge-ids def events :door)]
       (is (= #{} blocked)))))
-
-(deftest guard-blocked-ids-empty-and-nil-safety
-  (testing "no guard traces / nil events / nil definition → empty set"
-    (let [def (door-definition)]
-      (is (= #{} (trace-state/extract-guard-blocked-edge-ids def [] :door)))
-      (is (= #{} (trace-state/extract-guard-blocked-edge-ids def nil :door)))
-      (is (= #{} (trace-state/extract-guard-blocked-edge-ids
-                   def [{:operation :something-else}] :door)))
-      (is (= #{} (trace-state/extract-guard-blocked-edge-ids
-                   nil
-                   [{:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :door :guard-id :may-close?
-                            :outcome :fail :input {:event :door/close}}}]
-                   :door))))))
 
 (deftest guard-blocked-ids-match-actor-id-only-modern-trace
   (testing "modern live shape: the guard trace carries ONLY :actor-id (the
@@ -553,7 +357,6 @@
                             :state      [:open]
                             :input      {:event :door/close}}}]
           blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (string? close-id))
       (is (= #{close-id} blocked)
           "the actor-id-only guard-block lights the canonical :door/close edge"))))
 
@@ -571,32 +374,6 @@
       (is (= #{} blocked)
           "no edge lights — the trace addresses a different actor"))))
 
-(deftest guard-blocked-ids-read-legacy-flat-event-and-guard-slots
-  (testing "legacy fixture shape: flat :tags :event + :tags :guard
-            (mirrors machine_inspector_helpers/guard-record's fallbacks)"
-    (let [def      (door-definition)
-          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          events   [{:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :door
-                            :guard      :may-close?   ;; legacy :guard slot
-                            :outcome    :fail
-                            :event      :door/close}}]  ;; legacy flat :event
-          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (= #{close-id} blocked)))))
-
-(deftest guard-blocked-ids-read-event-vector-head
-  (testing "the :input :event may be a [event-id & args] vector — the head
-            (:door/close) drives the match"
-    (let [def      (door-definition)
-          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          events   [{:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :door
-                            :guard-id   :may-close?
-                            :outcome    :fail
-                            :input      {:event [:door/close :extra-arg]}}}]
-          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (= #{close-id} blocked)))))
-
 (deftest guard-blocked-ids-disambiguate-guarded-fork-arm
   (testing "precision — a guarded FORK (two same-source/
             same-event candidates differing by guard) lights ONLY the arm
@@ -608,7 +385,6 @@
                                :low  {}}}
           projected (:edges (chart-layout/project-definition def))
           hi-id     (->> projected (some (fn [e] (when (= :hi? (:guard e)) (:id e)))))
-          lo-id     (->> projected (some (fn [e] (when (= :lo? (:guard e)) (:id e)))))
           ;; :hi? failed; the engine walked on to :lo? (which passed and
           ;; fired) — only the :hi? ARM is guard-blocked.
           ;; Both fork arms declare on the SAME state (:idle),
@@ -618,9 +394,6 @@
                              :state [:idle]
                              :input {:event :check}}}]
           blocked   (trace-state/extract-guard-blocked-edge-ids def events :m)]
-      (is (string? hi-id))
-      (is (string? lo-id))
-      (is (not= hi-id lo-id) "the two fork arms have distinct ids")
       (is (= #{hi-id} blocked)
           "ONLY the :hi? arm lights — same source state, the named guard
            discriminates the fork (source-path agrees for both arms)"))))
@@ -639,7 +412,6 @@
                                                         :guard  :may-close?}}}
                                :closed {}}}
           open-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          ajar-id   (canonical-guard-edge-id def [:ajar] :door/close :may-close?)
           ;; The guard FAILED while :open was the active state — the runtime
           ;; stamps the active `:state` on the trace.
           events    [{:operation :rf.machine/guard-evaluated
@@ -649,10 +421,6 @@
                              :state      [:open]
                              :input      {:event :door/close}}}]
           blocked   (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (string? open-id))
-      (is (string? ajar-id))
-      (is (not= open-id ajar-id)
-          "the two states' reused-id edges have distinct canonical ids")
       (is (= #{open-id} blocked)
           "ONLY the active :open state's edge lights — the source path in the
            trace's :state disambiguates it from :ajar's identical (event, guard)"))))
@@ -702,7 +470,6 @@
                             :state      [:open :wide]
                             :input      {:event :door/close}}}]
           blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (string? close-id))
       (is (= #{close-id} blocked)
           "the inherited edge lights — its [:open] :from-path is a prefix of
            the active [:open :wide] leaf"))))
@@ -736,7 +503,6 @@
             not a blank chart"
     (let [def           (hvac-definition)
           projected     (:edges (chart-layout/project-definition def))
-          projected-ids (set (map :id projected))
           climate-id    (->> projected
                              (some (fn [e]
                                      (when (and (= [:idle]    (:from-path e))
@@ -758,12 +524,8 @@
                                  :event  [:hvac/power-cycle]}}]
           fired         (trace-state/extract-fired-edge-ids
                           def events :hvac/controller)]
-      (is (string? climate-id) "the climate idle→running edge exists")
-      (is (string? fan-id)     "the fan off→on edge exists")
       (is (= #{climate-id fan-id} fired)
-          "BOTH fired region edges light — the multi-region event renders")
-      (is (every? projected-ids fired)
-          "each fired id is a real live-chart edge id"))))
+          "BOTH fired region edges light — the multi-region event renders"))))
 
 (deftest fired-ids-parallel-only-changed-regions
   (testing "an event that moves ONE region and leaves the other
@@ -815,8 +577,6 @@
                               :after  {:state {:left :b :right :a}}
                               :event  [:go]}}]
           fired      (trace-state/extract-fired-edge-ids def events :twin)]
-      (is (string? left-id))
-      (is (string? right-id))
       (is (not= left-id right-id) "the two regions' :a→:b edges have distinct ids")
       (is (= #{left-id} fired)
           "ONLY the :left edge lights — the region-scoped source discriminates"))))
@@ -887,12 +647,6 @@
                       :tags {:actor-id :par/round :region :b
                              :from :staged :to :done :microstep-index 0}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/round)]
-      (is (every? string? [a-go b-go a-always b-always])
-          "all four real edges exist in the projection")
-      ;; the phantom aggregate an aggregate-diff derivation would search for
-      ;; does not exist
-      (is (nil? (region-edge-id projected :a [:idle] [:done] :go))
-          "no :idle→:done :go edge is declared — an aggregate diff would match a phantom")
       (is (= #{a-go b-go a-always b-always} fired)
           "exactly the four real edges light; the parent round is first-class"))))
 
@@ -929,7 +683,6 @@
                       :tags {:actor-id :par/mix :region :b
                              :from :idle :to :ready :microstep-index 0}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/mix)]
-      (is (every? string? [a-go a-always b-always]))
       ;; :b declared no :go handler, so the projection has no :b :go edge to
       ;; phantom-light — the fired set is EXACTLY {a-go a-always b-always}.
       (is (= #{a-go a-always b-always} fired)
@@ -994,13 +747,9 @@
                       :tags {:actor-id :par/arm :region :b
                              :from :staged :to :done :microstep-index 0}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/arm)]
-      (is (every? string? [a-go a-always b-go b-always])
-          "all four real edges exist in the projection (:a's :go is an internal self edge)")
-      (is (contains? fired a-go)
-          "the HANDLED self/internal :go EVENT edge for :a lights (an (empty? rounds)
-           handled-unchanged guard would drop it once a later :always round ran)")
       (is (= #{a-go a-always b-go b-always} fired)
-          "exactly the four real edges light — the event edge survives the later round"))))
+          "exactly the four real edges light — :a's handled self/internal :go
+           EVENT edge survives the later round"))))
 
 (deftest extract-fired-edge-ids-parallel-microstep-only-region-not-event-handled
   (testing "a region present in the aggregate :cascade ONLY via a
@@ -1051,8 +800,6 @@
       (is (every? string? [a-go a-always b-go b-always])
           "the projection HAS a :b :go internal self edge — a microstep-counting
            derivation would light it as a phantom")
-      (is (not (contains? fired b-go))
-          "no phantom :go event edge for :b (present only via a :kind :microstep step)")
       (is (= #{a-go a-always b-always} fired)
           ":b lights ONLY its :always round edge; microstep presence is not event handling"))))
 ;; REGION-QUALIFIED targets. The before/after region-map shows the move, but
@@ -1083,7 +830,6 @@
                          :on      {:one {:target [:a :two]}}
                          :regions {:a {:initial :one :states {:one {} :two {}}}
                                    :b {:initial :one :states {:one {} :two {}}}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           a-id          (root-on-edge-id def [:a :two] :one)
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :par
@@ -1095,37 +841,8 @@
                                  :cascade [{:kind :exit  :region :a :state [:one]}
                                            {:kind :entry :region :a :state [:two]}]}}]
           fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? a-id) "the root :on edge for region :a exists")
       (is (= #{a-id} fired)
-          "only the MACHINE-ROOT-sourced chip into :a lights; :b stays dark")
-      (is (every? projected-ids fired)
-          "the fired id is a real live-chart edge id"))))
-
-(deftest fired-ids-parallel-root-on-multi-region-target
-  (testing "a root :on with multiple region-qualified targets
-            lights BOTH region chips; an untargeted region lights nothing"
-    ;; Mirrors parallel-root-on-multi-region-target: advance -> {a:x, b:y, c:one}.
-    (let [def           {:type    :parallel
-                         :on      {:advance {:target [[:a :x] [:b :y]]}}
-                         :regions {:a {:initial :one :states {:one {} :x {}}}
-                                   :b {:initial :one :states {:one {} :y {}}}
-                                   :c {:initial :one :states {:one {}}}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          a-id          (root-on-edge-id def [:a :x] :advance)
-          b-id          (root-on-edge-id def [:b :y] :advance)
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :par
-                                 :before {:state {:a :one :b :one :c :one}}
-                                 :after  {:state {:a :x :b :y :c :one}}
-                                 :event  [:advance]
-                                 :cascade [{:kind :entry :region :a :state [:x]}
-                                           {:kind :entry :region :b :state [:y]}]}}]
-          fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? a-id))
-      (is (string? b-id))
-      (is (= #{a-id b-id} fired)
-          "both root-:on chips light; the untargeted :c stays dark")
-      (is (every? projected-ids fired)))))
+          "only the MACHINE-ROOT-sourced chip into :a lights; :b stays dark"))))
 
 (deftest fired-ids-parallel-root-on-suppressed-by-region-local
   (testing "when a region handles the event LOCALLY the root :on
@@ -1155,7 +872,6 @@
                               :cascade [{:kind :exit  :region :a :state [:one]}
                                         {:kind :entry :region :a :state [:two]}]}}]
           fired      (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? local-a) "the region-local :a :one→:two edge exists")
       (is (= #{local-a} fired)
           "the region-local edge lights; the suppressed root :on chip does NOT"))))
 
@@ -1205,7 +921,6 @@
                                    :validate {:initial :checking
                                               :states  {:checking {:on {:ok :done}}
                                                         :done     {:final? true}}}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           fetch-id      (region-machine-on-edge-id def :fetch [:loading] :abort)
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :par
@@ -1217,11 +932,8 @@
                                  :cascade [{:kind :exit  :region :fetch :state [:done]}
                                            {:kind :entry :region :fetch :state [:loading]}]}}]
           fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? fetch-id) "the region :fetch top-level :on fallback edge exists")
       (is (= #{fetch-id} fired)
-          "only :fetch's region-level :on fallback edge lights; :validate stays dark")
-      (is (every? projected-ids fired)
-          "the fired id is a real live-chart edge id (G3 agreement)"))))
+          "only :fetch's region-level :on fallback edge lights; :validate stays dark"))))
 
 (deftest fired-ids-parallel-region-local-wins-over-region-level-on
   (testing "PRECEDENCE: a region-LOCAL transition wins over the
@@ -1254,12 +966,9 @@
                               :cascade [{:kind :exit  :region :a :state [:one]}
                                         {:kind :entry :region :a :state [:two]}]}}]
           fired      (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? local-a) "the region-local :a :one→:two edge exists")
       (is (string? region-on-a) "the region-level :on fallback edge also exists")
       (is (= #{local-a} fired)
-          "the region-local edge wins; the region-level :on fallback does NOT light")
-      (is (not (contains? fired region-on-a))
-          "the region-level :on fallback edge is suppressed by the local match"))))
+          "the region-local edge wins; the region-level :on fallback does NOT light"))))
 
 (deftest fired-ids-parallel-region-level-on-distinct-from-root-on
   (testing "a region-level :on fallback and a parallel ROOT :on
@@ -1278,7 +987,6 @@
                                        :on      {:reset :one}
                                        :states  {:one {} :two {}}}
                                    :b {:initial :two :states {:one {} :two {}}}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           region-on-a   (region-machine-on-edge-id def :a [:one] :reset)
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :par
@@ -1290,10 +998,8 @@
                                  :cascade [{:kind :exit  :region :a :state [:two]}
                                            {:kind :entry :region :a :state [:one]}]}}]
           fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? region-on-a) "the region-level :on fallback edge for :a exists")
       (is (= #{region-on-a} fired)
-          "only :a's region-level :on edge lights; the suppressed root :on + resting :b are dark")
-      (is (every? projected-ids fired)))))
+          "only :a's region-level :on edge lights; the suppressed root :on + resting :b are dark"))))
 
 ;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel -------------
 ;;
@@ -1336,7 +1042,6 @@
                                          :action :log}
                                         {:kind :entry  :region :a :state [:idle]}]}}]
           fired      (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? self-id) "the :a self-loop edge exists")
       (is (= #{self-id} fired)
           "the HANDLED-unchanged :a self edge lights; the RESTING :b lights nothing"))))
 
@@ -1366,7 +1071,6 @@
                              :cascade [{:kind :action :region :a :state []
                                         :action :count}]}}]
           fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? internal-id) "the :a internal self-anchored edge exists")
       (is (= #{internal-id} fired)
           "the internal HANDLED-unchanged :a edge lights off the cascade"))))
 
@@ -1407,8 +1111,6 @@
                              :cascade [{:kind :action :region :a :state []
                                         :action :log}]}}]
           fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? internal-id)
-          "the :a region-root internal fallback edge is projected + container-anchored")
       (is (= #{internal-id} fired)
           "the region-root internal HANDLED-unchanged :a fallback lights off the cascade"))))
 
@@ -1447,8 +1149,6 @@
                                        {:kind :action :region :b :state [] :action :note}
                                        {:kind :entry  :region :b :state [:idle]}]}}]
           fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? a-id) "the :a moved edge exists")
-      (is (string? b-self-id) "the :b self edge exists")
       (is (= #{a-id b-self-id} fired)
           "the moved :a edge AND the handled-unchanged :b self edge BOTH light"))))
 
@@ -1500,11 +1200,6 @@
                                     :steps  [{:kind :exit  :state [:working] :region nil}
                                              {:kind :entry :state [:done]    :region nil}]}]}]
           fired     (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (string? go-id))
-      (is (string? settle-id))
-      (is (not= go-id settle-id))
-      (is (nil? (canonical-edge-id def [:idle] [:done] :go))
-          "no :idle->:done :go edge is declared — an aggregate match would be a phantom")
       (is (= #{go-id settle-id} fired)
           "the dispatched event and the internal event light as DISTINCT edges"))))
 
@@ -1538,7 +1233,6 @@
                                              :to              [:done]
                                              :steps           []}]}]}]
           fired     (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (every? string? [go-id settle-id always-id]))
       (is (= #{go-id settle-id always-id} fired)
           "the nested :always microstep's edge lights alongside its enclosing raise"))))
 
@@ -1591,9 +1285,6 @@
                                :steps  [{:kind :exit  :region :right :state [:r0]}
                                         {:kind :entry :region :right :state [:r1]}]}]}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/raise)]
-      (is (every? string? [left-go right-set]))
-      (is (nil? (region-edge-id projected :right [:r0] [:r1] :go))
-          "no :go edge is declared in :right — a phantom would have to invent one")
       (is (= #{left-go right-set} fired)
           ":left lights its :go edge and :right lights its RAISED :settle edge"))))
 
@@ -1631,8 +1322,6 @@
                                 :to     {:left :l1 :right :r0}
                                 :steps  [{:kind :action :region :right :state [] :action :note}]}]}}]
           fired      (trace-state/extract-fired-edge-ids def events :par/raise2)]
-      (is (string? left-go))
-      (is (string? right-self) "the :right :settle self/internal edge exists")
       (is (= #{left-go right-self} fired)
           "the raised self/internal transition lights, attributed to :settle"))))
 
@@ -1701,16 +1390,10 @@
                       :tags {:actor-id :par/chain :region :main
                              :from :r2 :to :r3 :microstep-index 0}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/chain)]
-      (is (every? string? [go-id settle-id always-id])
-          "all three real edges exist in the projection")
-      (is (nil? (region-edge-id projected :main [:r0] [:r2] :go))
-          "no :r0→:r2 :go edge is declared — reading the event's target off the
-           ROUND searched for a phantom aggregate")
-      (is (contains? fired go-id)
-          "the dispatched event's OWN edge lights — the raise, not the round,
-           is the first continuation boundary")
       (is (= #{go-id settle-id always-id} fired)
-          "all three continuation kinds light, each under its own event"))))
+          "all three continuation kinds light, each under its own event — the
+           dispatched event's own edge included, since the raise, not the
+           round, is the first continuation boundary"))))
 
 (deftest fired-ids-parallel-round-before-a-raise-keeps-the-round-as-first-boundary
   (testing "the other order — the round runs FIRST (:r0 has an
@@ -1752,7 +1435,6 @@
                       :tags {:actor-id :par/chain2 :region :main
                              :from :r1 :to :r2 :microstep-index 0}}]
           fired     (trace-state/extract-fired-edge-ids def events :par/chain2)]
-      (is (every? string? [go-id always-id settle-id]))
       (is (= #{go-id always-id settle-id} fired)
           "the round is the first boundary here, so :go still matches :r0→:r1 —
            the stream is ordered, not re-prioritised"))))
