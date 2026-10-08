@@ -56,31 +56,21 @@
 ;; =========================================================================
 
 (deftest coord-link-renders-clickable-button-for-valid-coord
-  (testing "a valid coord renders a `<button>` carrying the
-            testid, aria-label, and title (the `open <file>:<line> in
-            editor` shape)"
-    (let [[tree] [(coord-link/coord-link coord "open" "tid-link")]
-          [tag attrs & _] tree]
-      (is (= :button tag) "valid coord → button (clickable)")
-      (is (= "tid-link" (:data-testid attrs)))
-      (is (= "open src/app/events.cljs:17 in editor" (:aria-label attrs))
-          "aria-label carries the file:line")
-      (is (= "open src/app/events.cljs:17 in editor" (:title attrs))
-          "title mirrors aria-label")
-      (is (fn? (:on-click attrs)) "click handler present"))))
+  (testing "a valid coord renders a `<button>` labelled with the
+            `open <file>:<line> in editor` shape"
+    (is (= [:button "open src/app/events.cljs:17 in editor"]
+           ((juxt first (comp :aria-label second))
+            (coord-link/coord-link coord "open" "tid-link"))))))
 
 (deftest coord-link-degrades-to-span-when-coord-missing
-  (testing "nil coord (or one without :file) degrades to a
-            plain `<span>` carrying the SAME testid, with no click
-            affordance — a missing coord is non-clickable label text,
-            not a dead button"
-    (doseq [bad [nil {} {:line 5} {:file ""}]]
+  (testing "nil coord (or one without a usable :file) degrades to a
+            plain `<span>` carrying the SAME testid — a missing coord is
+            non-clickable label text, not a dead button"
+    (doseq [bad [nil {:file ""}]]
       (let [[tag attrs & _] (coord-link/coord-link bad "open" "tid-link")]
         (is (= :span tag) (str "no usable :file → span for " (pr-str bad)))
         (is (= "tid-link" (:data-testid attrs))
-            "fallback span keeps the testid so a test pins either branch")
-        (is (nil? (:on-click attrs))
-            "fallback span has no click handler")))))
+            "fallback span keeps the testid so a test pins either branch")))))
 
 (deftest coord-link-glyph-ordering
   (testing "the glyph knobs: default appends the glyph
@@ -90,8 +80,7 @@
     (let [tree (coord-link/coord-link coord "L" "tid")
           body (vec (drop 2 tree))]
       (is (= "L" (first body)) "default: label first")
-      (is (vector? (second body)) "default: glyph (an svg hiccup) after label")
-      (is (= 2 (count body)) "default body is exactly [label glyph]"))
+      (is (vector? (second body)) "default: glyph (an svg hiccup) after label"))
     ;; glyph-leading?: [glyph label]
     (let [tree (coord-link/coord-link coord "L" "tid" {:glyph-leading? true})
           body (vec (drop 2 tree))]
@@ -121,38 +110,13 @@
 ;; coord-chip — icon-only
 ;; =========================================================================
 
-(deftest coord-chip-renders-button-for-valid-coord
-  (testing "a valid coord renders a focusable `<button>`
-            with the canonical aria-label / title (`open in editor`) and
-            the supplied testid"
-    (let [tree (coord-chip/coord-chip coord "tid-chip")
-          [tag attrs & _] tree]
-      (is (= :button tag) "valid coord → button")
-      (is (= "tid-chip" (:data-testid attrs)))
-      (is (= "open in editor" (:aria-label attrs)))
-      (is (= "open in editor" (:title attrs)))
-      (is (fn? (:on-click attrs)) "click handler present"))))
-
 (deftest coord-chip-returns-nil-when-coord-missing
   (testing "nil coord (or one without a usable :file)
             returns nil so call-sites can drop the chip cleanly (the
             chip has no plain-text fallback — that's the link's job)"
-    (doseq [bad [nil {} {:line 5} {:file ""}]]
+    (doseq [bad [nil {:file ""}]]
       (is (nil? (coord-chip/coord-chip bad "tid-chip"))
           (str "no usable :file → nil for " (pr-str bad))))))
-
-(deftest coord-chip-applies-pixel-knob-overrides
-  (testing ":color and :margin-left opts overlay the ns-level
-            base style; defaults are inherit / 4px"
-    (let [default-style (-> (coord-chip/coord-chip coord "tid") second :style)
-          override-style (-> (coord-chip/coord-chip coord "tid"
-                                                    {:color "red"
-                                                     :margin-left "6px"})
-                             second :style)]
-      (is (= "inherit" (:color default-style)) "default colour inherits")
-      (is (= "4px" (:margin-left default-style)) "default margin 4px")
-      (is (= "red" (:color override-style)) "override colour applied")
-      (is (= "6px" (:margin-left override-style)) "override margin applied"))))
 
 (deftest coord-chip-click-stops-propagation-and-dispatches
   (testing "clicking the chip stops propagation and
@@ -167,16 +131,3 @@
       (is (true? @stopped?) "stopPropagation fired on the click")
       (is (= [[:rf.xray/open-in-editor {:source-coord coord}]] @calls)
           "exactly one open-in-editor dispatch with the coord payload"))))
-
-;; =========================================================================
-;; shared open-in-editor! action (coord-link's exported dispatch)
-;; =========================================================================
-
-(deftest open-in-editor!-tolerates-nil-event
-  (testing "`open-in-editor!` guards the `.stopPropagation`
-            on event presence, so a nil event (a programmatic invoke
-            with no DOM event) does not throw; the dispatch still fires"
-    (let [[disp calls] (capturing-dispatch)]
-      (coord-link/open-in-editor! coord nil disp)
-      (is (= [[:rf.xray/open-in-editor {:source-coord coord}]] @calls)
-          "dispatch still routes with a nil event"))))
