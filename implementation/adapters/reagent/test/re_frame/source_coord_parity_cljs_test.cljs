@@ -10,31 +10,16 @@
   side rendering or client-side Reagent — divergent formats would
   silently break the source-mapping contract.
 
-  Server-side annotation happens at the reg-view registration boundary
-  and the SSR side emits `data-rf-view` too, so both hosts emit BOTH
-  attributes. This file pins BOTH formatters from the CLJS side; the
-  JVM-side counterpart lives at
-  `implementation/ssr/test/re_frame/source_coord_parity_test.clj` and pins
-  the same canonical literals.
-
-  Strategy: this CLJS test runs the one CLJS formatter implementation —
-  which `re-frame.views/format-source-coord` and
-  `re-frame.views.source-coord-annotation/format-view-id` alias — against
-  fixture inputs and asserts single canonical literals. The companion JVM
-  test exercises the JVM formatters against the SAME fixtures and asserts
-  the SAME literals. If either host's formatter drifts, its test fails.
-  The literals ARE the byte-comparison point — both sides pin independently."
+  Both hosts emit both attributes. This file pins the CLJS formatters to
+  canonical literals; `implementation/ssr/test/re_frame/source_coord_parity_test.clj`
+  pins the JVM ones to the same literals, which are the byte-comparison
+  point."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.views]))
 
-;; ---- the canonical attribute-value shape (shared spec) -------------------
-;;
-;; These three values mirror the JVM-side parity test exactly. The
-;; literal `expected-attr` IS the cross-host byte-comparison point —
-;; if either helper diverges from this shape, the corresponding host's
-;; test fails.
+;; ---- the canonical attribute-value shape (shared with the JVM test) ------
 
 (def fixture-id :rf.parity-test/sample-view)
 
@@ -62,14 +47,8 @@
 ;; ---- CLJS side: degraded shape (no line / col) pins the canonical -------
 
 (deftest cljs-format-source-coord-degraded-shape-byte-identical
-  (testing "When :line / :column are absent (programmatic reg-view*
-            without macro coords), the CLJS helper degrades to
-            <ns>:<sym>:?:? — byte-identical to the SSR-side helper's
-            degraded shape. Per Spec 006 §Source-coord annotation:
-            'A registration that bypassed the macro path … still
-            annotates with <ns>:<sym>:?:? — degrading gracefully so
-            pair tools can still resolve <ns>/<sym> via the
-            registrar's :rf/id lookup.'"
+  (testing "with no :line / :column (a programmatic reg-view*), the CLJS
+            helper degrades to <ns>:<sym>:?:?, as the SSR helper does"
     (let [cljs-format #'re-frame.views/format-source-coord
           cljs-output (cljs-format fixture-id fixture-meta-no-line-no-col)]
       (is (= expected-attr-no-line-no-col cljs-output)
@@ -79,13 +58,8 @@
 
 ;; ---- convergence: source-coords is the single cross-host owner -
 ;;
-;; The CLJS formatters (in `re-frame.adapter.context`) and the JVM formatters
-;; (in `re-frame.views.jvm-source-coord-annotation`) alias one `.cljc`
-;; implementation in `re-frame.source-coords`, so a CLJS copy cannot drift from
-;; the JVM host — with two hand-kept copies, a canonical-literal test could only
-;; catch a drift AFTER it shipped. Prove it: the neutral
-;; owner emits the canonical literals directly, and the adapter.context vars ARE
-;; that same fn object (`identical?` on fn references, not a keyword literal).
+;; Both hosts' formatters alias one `.cljc` implementation in
+;; `re-frame.source-coords`, so a CLJS copy cannot drift from the JVM's.
 
 (deftest neutral-owner-is-the-single-cljs-formatter-implementation
   (testing "the CLJS adapter.context vars (and the re-frame.views /
@@ -93,15 +67,11 @@
             implementation in re-frame.source-coords; the neutral owner emits
             the canonical literals and the adapter.context var is the identical
             fn object."
-    (is (= expected-attr
-           (rf.source-coords/format-source-coord fixture-id fixture-meta))
-        "neutral owner must emit the canonical data-rf2-source-coord literal")
-    (is (= expected-view-id
-           (rf.source-coords/format-view-id fixture-id))
-        "neutral owner must emit the canonical data-rf-view literal")
-    (is (identical? rf.source-coords/format-source-coord
-                    rf.adapter.context/format-source-coord)
-        "CLJS format-source-coord must be an alias of the neutral owner")
-    (is (identical? rf.source-coords/format-view-id
-                    rf.adapter.context/format-view-id)
-        "CLJS format-view-id must be an alias of the neutral owner")))
+    (is (= [expected-attr expected-view-id true true]
+           [(rf.source-coords/format-source-coord fixture-id fixture-meta)
+            (rf.source-coords/format-view-id fixture-id)
+            (identical? rf.source-coords/format-source-coord
+                        rf.adapter.context/format-source-coord)
+            (identical? rf.source-coords/format-view-id
+                        rf.adapter.context/format-view-id)])
+        "the neutral owner emits both canonical literals, and the adapter.context formatters are the identical fn objects")))
