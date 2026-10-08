@@ -6,10 +6,7 @@
   and cascades to its inputs. The ratom adapters reach the same lifetime
   through their on-dispose hook; their deftests are
   `re-frame.sub-dispose-view-cljs-test` and
-  `re-frame.adapter.reagent-slim-sub-explicit-hold-cljs-test`.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up; no
-  DOM required."
+  `re-frame.adapter.reagent-slim-sub-explicit-hold-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -43,10 +40,9 @@
         (is (= 7 @held) "precondition: the sub computes")
         (add-watch held ::w (fn [_ _ _ _] nil))
         (remove-watch held ::w)
-        (is (empty? @traces) "dropping the watch evicted nothing")
-        (is (= 1 (:ref-count (slot [::sum]))) "the explicit hold remains")
+        (is (= [0 1] [(count @traces) (:ref-count (slot [::sum]))])
+            "dropping the watch evicted nothing; the explicit hold remains")
         (rf/unsubscribe [::sum])
-        (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
-            "the unsubscribe evicted the sub and both inputs, each exactly once")
-        (is (every? nil? (map slot [[::sum] [::a] [::b]]))
-            "no slot survives the unsubscribe")))))
+        (is (= [{::sum 1 ::a 1 ::b 1} [nil nil nil]]
+               [(dispose-counts @traces) (mapv slot [[::sum] [::a] [::b]])])
+            "the unsubscribe evicted the sub and both inputs, each exactly once")))))
