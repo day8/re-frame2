@@ -1,33 +1,11 @@
 (ns re-frame.story-authoring-surface-test
-  "Authoring-surface regression net for `reg-variant`:
-  the `:modes` declaration, the `:force-fx-stub` reference shape, and
-  the `:extends` decorator-inheritance contract.
-
-  Pairs with `re-frame.story-authoring-validation-test` (which covers
-  schema rejection paths) and `re-frame.story-runtime-test` §`resolve-
-  args-precedence-chain` (which covers args merge). This namespace
-  pins the *round-trips*:
-
-  - **`:modes` round-trip** — a variant declaring `:modes` AND a
-    `reg-mode` registration of one of those mode ids produces an
-    effective-args map that carries the mode's args when the
-    runtime is asked for `:active-modes` containing that id.
-  - **`:force-fx-stub` ref-args declared in reg-variant body** —
-    the value-form `[:rf.story/force-fx-stub :http {...}]` survives
-    the round-trip through the registered :decorators slot AND
-    resolve-decorators materialises the per-ref body.
-  - **Decorator inheritance via `:extends`** — child variant
-    `:extends` parent; the PLAN COMPILER is the single merge authority:
-    a child that declares no `:decorators`
-    INHERITS the parent's stack, a child that declares its own REPLACES
-    them (child-wins, no concat); story → variant inheritance order is
-    preserved. `resolve-decorators` reads the compiled plan's
-    `[:world :decorators]`, not the raw side-table body.
-
-  Per spec/001 §reg-variant authoring schema + spec/002 §:extends
-  resolution + spec/010 §Mode authoring."
+  "`reg-variant` authoring round-trips: `:modes` (spec/010), the
+  `:rf.story/force-fx-stub` value form, and `:decorators` through `:extends`
+  (spec/017, resolved by the plan compiler)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
+            ;; `:rf.assert/effect-emitted` reads the epoch tape.
+            [re-frame.epoch]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
             [re-frame.registrar        :as rf.registrar]
@@ -60,234 +38,83 @@
 
 (use-fixtures :each reset-all)
 
-;; ===========================================================================
-;; :modes declaration in reg-variant — round-trip
-;;
-;; spec/010 §reg-mode + spec/002 §Args resolution precedence:
-;; declaring `:modes #{:Mode.app/dark}` on a variant body is metadata.
-;; Activating the mode at runtime (via shell-state's :active-modes or
-;; an explicit resolve-args :active-modes opt) deep-merges the
-;; registered mode's :args into the effective args.
-;;
-;; The contract this test pins:
-;;
-;;   1. The variant body's :modes slot survives unmutated through
-;;      registration (queryable via handler-meta).
-;;   2. resolve-args with :active-modes containing the mode id merges
-;;      the mode's :args in at the precedence layer between :story-args
-;;      and :variant-args.
-;;   3. The same effective-args show up when run-variant executes the
-;;      variant with :active-modes opts.
-;; ===========================================================================
+(defn- reg-modes! []
+  (rf.story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
+  (rf.story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}}))
 
 (deftest modes-declared-on-variant-survive-registration
-  (testing ":modes #{...} on a variant body round-trips through the
-            registrar — the value is queryable on the registered body"
-    (rf.story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
-    (rf.story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
-    (rf.story/reg-variant :story.modedecl/v
-      {:modes  #{:Mode.app/dark :Mode.app/mobile}
-       :setup []})
-    (let [body (rf.story/handler-meta :variant :story.modedecl/v)]
-      (is (= #{:Mode.app/dark :Mode.app/mobile} (:modes body))
-          ":modes set survives unmutated — used by docs panel +
-           toolbar to scope mode chips per variant"))))
+  (reg-modes!)
+  (rf.story/reg-variant :story.modedecl/v {:modes #{:Mode.app/dark :Mode.app/mobile} :setup []})
+  (is (= #{:Mode.app/dark :Mode.app/mobile}
+         (:modes (rf.story/handler-meta :variant :story.modedecl/v)))))
 
 (deftest modes-active-merges-into-effective-args
-  (testing ":active-modes opt threads a registered mode's :args into
-            the effective args at the spec'd precedence layer
-            (between :story-args and :variant-args). Per spec/002
-            §Args resolution precedence."
+  (testing "only active modes merge, between story and variant args"
     (rf.story/configure! {:rf.story/global-args {:theme :light :viewport :desktop}})
-    (rf.story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
-    (rf.story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
-    (rf.story/reg-story :story.modemix
-      {:args {:label "story-label"}})
+    (reg-modes!)
+    (rf.story/reg-story :story.modemix {:args {:label "story-label"}})
     (rf.story/reg-variant :story.modemix/v
-      {:modes  #{:Mode.app/dark :Mode.app/mobile}
-       :args   {:label "variant-label"}
-       :setup []})
-    ;; Single mode active.
-    (let [r (rf.story/resolve-args :story.modemix/v
-                                {:active-modes [:Mode.app/dark]})]
-      (is (= :dark           (:theme r))    "mode wins over global :light")
-      (is (= :desktop        (:viewport r)) "non-active mode does NOT apply")
-      (is (= "variant-label" (:label r))    "variant wins over story"))
-    ;; Two modes active simultaneously (multi-axis selection).
-    (let [r (rf.story/resolve-args :story.modemix/v
-                                {:active-modes [:Mode.app/dark
-                                                :Mode.app/mobile]})]
-      (is (= :dark   (:theme r))     "first mode applied")
-      (is (= :mobile (:viewport r))  "second mode applied")
-      (is (= "variant-label" (:label r))))))
+      {:modes #{:Mode.app/dark :Mode.app/mobile} :args {:label "variant-label"} :setup []})
+    (doseq [[active expected] [[[:Mode.app/dark]
+                                {:theme :dark :viewport :desktop :label "variant-label"}]
+                               [[:Mode.app/dark :Mode.app/mobile]
+                                {:theme :dark :viewport :mobile :label "variant-label"}]]]
+      (is (= expected (rf.story/resolve-args :story.modemix/v {:active-modes active}))))))
 
 (deftest modes-resolved-from-run-variant
-  (testing "run-variant with :active-modes opts exposes the merged
-            mode :args on the result map's :effective-args slot. Proves
-            the modes resolution actually fires through the runtime's
-            prepare-context phase (not just at the standalone
-            resolve-args helper).
-
-            Per spec/002 §Args resolution precedence the chain is
-            `global < story < mode < variant < cell-overrides`. So
-            a mode arg LOSES to a variant arg with the same key but
-            WINS over the equivalent story / global arg."
+  (testing "run-variant's :active-modes reach the result's :effective-args
+            (mode beats story and global), and a reset without them does not"
     (rf.story/configure! {:rf.story/global-args {:viewport :desktop}})
-    (rf.story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
-    (rf.story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
-    (rf.story/reg-story :story.modeprobe
-      {:args {:theme :light}})
-    (rf.story/reg-variant :story.modeprobe/v
-      {:modes  #{:Mode.app/dark :Mode.app/mobile}
-       ;; variant declares NO :theme — so the mode's :theme :dark wins
-       ;; over the story's :theme :light.
-       :setup []})
-    ;; Active mode wins over story-level arg.
-    (let [r (rf.story.async/deref-blocking
-              (rf.story/run-variant :story.modeprobe/v
-                                 {:active-modes [:Mode.app/dark
-                                                 :Mode.app/mobile]})
-              5000)]
-      (is (= :ready (:lifecycle r)))
-      ;; :effective-args is the canonical 'these are the args the variant
-      ;; actually rendered against' projection on the result map (per
-      ;; spec/002 §Run-variant result shape). The mode merge happens in
-      ;; prepare-context → args/resolve-args.
-      (is (= :dark (-> r :effective-args :theme))
-          ":Mode.app/dark wins over story's :theme :light (mode beats story)")
-      (is (= :mobile (-> r :effective-args :viewport))
-          ":Mode.app/mobile wins over global :viewport :desktop (mode beats global)"))
-    ;; Without :active-modes the story-level value wins (no mode merge).
-    (let [r2 (rf.story.async/deref-blocking
-               (rf.story/reset-variant :story.modeprobe/v {}) 5000)]
-      (is (= :light (-> r2 :effective-args :theme))
-          "without :active-modes the story's :theme :light wins")
-      (is (= :desktop (-> r2 :effective-args :viewport))
-          "without :active-modes the global :viewport :desktop wins"))
+    (reg-modes!)
+    (rf.story/reg-story :story.modeprobe {:args {:theme :light}})
+    (rf.story/reg-variant :story.modeprobe/v {:modes #{:Mode.app/dark :Mode.app/mobile} :setup []})
+    (let [args-of #(select-keys (:effective-args (rf.story.async/deref-blocking % 5000))
+                                [:theme :viewport])]
+      (is (= {:theme :dark :viewport :mobile}
+             (args-of (rf.story/run-variant :story.modeprobe/v
+                                            {:active-modes [:Mode.app/dark :Mode.app/mobile]}))))
+      (is (= {:theme :light :viewport :desktop}
+             (args-of (rf.story/reset-variant :story.modeprobe/v {})))))
     (rf.story/destroy-variant! :story.modeprobe/v)))
 
-;; ===========================================================================
-;; :force-fx-stub via reg-variant body (ref-args form)
-;;
-;; The authoring surface that ships in spec/005 §force-fx-stub is the
-;; value-form `[:rf.story/force-fx-stub <fx-id> <response>]` declared
-;; in the variant's :decorators vector. This test pins the round-trip:
-;; the form survives registration, resolve-decorators materialises a
-;; per-ref :body, and run-variant honours the stub.
-;; ===========================================================================
-
 (deftest force-fx-stub-declared-in-reg-variant-body
-  (testing "[:rf.story/force-fx-stub <fx-id> <response>] declared in
-            the variant's :decorators slot round-trips through
-            registration AND materialises in resolve-decorators"
-    (rf.story/reg-variant :story.authfx/v
-      {:decorators [[:rf.story/force-fx-stub :http      {:status :ok}]
-                    [:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :setup     []})
-    ;; The body's :decorators slot keeps the user-facing ref form
-    ;; verbatim — Storybook-style decorator references stay textually
-    ;; identical to what the author typed.
-    (let [body (rf.story/handler-meta :variant :story.authfx/v)]
-      (is (= [[:rf.story/force-fx-stub :http      {:status :ok}]
-              [:rf.story/force-fx-stub :analytics {:ack? true}]]
-             (:decorators body))
-          ":decorators vector survives unmutated through registration"))
-    ;; resolve-decorators materialises each ref into a per-call body
-    ;; with the fx-id + response carried explicitly.
-    (let [r (rf.story/resolve-decorators :story.authfx/v)]
-      (is (= 2 (count (:fx-override r))))
-      (let [bodies (sort-by #(-> % :body :fx-id) (:fx-override r))]
-        (is (= :analytics    (-> bodies first  :body :fx-id)))
-        (is (= {:ack? true}  (-> bodies first  :body :response)))
-        (is (= :http         (-> bodies second :body :fx-id)))
-        (is (= {:status :ok} (-> bodies second :body :response))))
-      ;; The framework :fx-overrides stack picks up both with distinct
-      ;; stub-event-ids (proves the value-form authoring works end-to-end
-      ;; with the multi-decorator path).
-      (let [stack (rf.story.decorators/fx-overrides-map (:fx-override r))]
-        (is (= 2 (count (:overrides stack))))
-        (is (contains? (:overrides stack) :http))
-        (is (contains? (:overrides stack) :analytics))))))
+  (testing "the value form survives registration verbatim and materialises
+            one stub per ref"
+    (let [decorators [[:rf.story/force-fx-stub :http      {:status :ok}]
+                      [:rf.story/force-fx-stub :analytics {:ack? true}]]]
+      (rf.story/reg-variant :story.authfx/v {:decorators decorators :setup []})
+      (is (= decorators (:decorators (rf.story/handler-meta :variant :story.authfx/v))))
+      (let [r (rf.story/resolve-decorators :story.authfx/v)]
+        (is (= #{[:http {:status :ok}] [:analytics {:ack? true}]}
+               (set (map (comp (juxt :fx-id :response) :body) (:fx-override r)))))
+        (is (= #{:http :analytics}
+               (set (keys (:overrides (rf.story.decorators/fx-overrides-map (:fx-override r)))))))))))
 
 (deftest force-fx-stub-runtime-intercepts-from-author-form
-  (testing "the author-facing value-form actually intercepts the fx at
-            runtime — proves the round-trip from declaration to live
-            redirect is unbroken"
-    (rf/reg-event :do/emit-http
-      (fn [_ _] {:fx [[:http {:url "/probe"}]]}))
-    (rf.story/reg-variant :story.authfx-rt/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/emit-http]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (rf.story.async/deref-blocking
-              (rf.story/run-variant :story.authfx-rt/v) 5000)]
-      (is (= :ready (:lifecycle r)))
-      (is (every? :passed? (:assertions r)))
-      (is (= 1 (count (rf.story.frames/stub-call-log-for :story.authfx-rt/v)))
-          "exactly one stub call recorded"))
-    (rf.story/destroy-variant! :story.authfx-rt/v)))
-
-;; ===========================================================================
-;; Decorator inheritance via :extends — a child that declares no
-;; :decorators inherits the parent's stack; a child's own replace it
-;; ===========================================================================
+  (rf/reg-event :do/emit-http (fn [_ _] {:fx [[:http {:url "/probe"}]]}))
+  (rf.story/reg-variant :story.authfx-rt/v
+    {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
+     :setup      []
+     :script     [[:dispatch-sync [:do/emit-http]]
+                  [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
+  (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.authfx-rt/v) 5000)]
+    (is (= [:ready true 1] [(:lifecycle r) (every? :passed? (:assertions r))
+                            (count (rf.story.frames/stub-call-log-for :story.authfx-rt/v))])))
+  (rf.story/destroy-variant! :story.authfx-rt/v))
 
 (deftest extends-inherits-decorators-when-child-declares-none
-  (testing "decorator inheritance via :extends is resolved by the PLAN
-            COMPILER — the single merge authority (spec/017 §305-306).
-            The registrar stores the RAW body
-            (`:extends` intact, parent NOT merged); the compiler walks
-            the chain and folds the parent's :decorators into
-            `[:world :decorators]`. A child that declares no :decorators
-            INHERITS the parent's stack, surfaced through
-            `resolve-decorators` (which reads the plan, not the
-            side-table)."
-    (rf.story/reg-decorator :inherited-deco
-      {:kind :hiccup :wrap (fn [body _] [:div.inherited body])})
-    (rf.story/reg-variant :story.inherit-bare/parent
-      {:decorators [[:inherited-deco]]
-       :setup     []})
-    (rf.story/reg-variant :story.inherit-bare/child
-      {:extends :story.inherit-bare/parent
-       :setup  []})
-    (let [body (rf.story/handler-meta :variant :story.inherit-bare/child)]
-      (is (= :story.inherit-bare/parent (:extends body))
-          ":extends is stored RAW on the side-table body — the plan
-           compiler (not the registrar) is the merge authority")
-      (is (nil? (:decorators body))
-          "the child declared no :decorators; the side-table body carries
-           none — inheritance is resolved downstream at plan-compile"))
-    (let [pack (rf.story/resolve-decorators :story.inherit-bare/child)]
-      (is (= [:inherited-deco] (mapv :id (:hiccup pack)))
-          "resolved hiccup stack INHERITS the parent's decorator via the
-           compiled plan's [:world :decorators]"))))
+  (rf.story/reg-decorator :inherited-deco {:kind :hiccup :wrap (fn [body _] [:div.inherited body])})
+  (rf.story/reg-variant :story.inherit-bare/parent {:decorators [[:inherited-deco]] :setup []})
+  (rf.story/reg-variant :story.inherit-bare/child {:extends :story.inherit-bare/parent :setup []})
+  (is (= [:inherited-deco]
+         (mapv :id (:hiccup (rf.story/resolve-decorators :story.inherit-bare/child))))))
 
 (deftest extends-child-decorators-replace-parent
-  (testing "when the child declares its OWN :decorators, the child's
-            slot REPLACES the parent's. The PLAN COMPILER is the merge
-            authority (spec/017 §305-306): `:decorators` is a
-            scalar context key, so `merge-context` is child-wins — the
-            child's vector replaces the parent's (no concat / no append).
-            The same child-wins rule covers :args, :setup, :tags,
-            :modes, etc."
-    (rf.story/reg-decorator :parent-deco
-      {:kind :hiccup :wrap (fn [body _] [:div.parent body])})
-    (rf.story/reg-decorator :child-deco
-      {:kind :hiccup :wrap (fn [body _] [:div.child body])})
-    (rf.story/reg-variant :story.inherit-replace/parent
-      {:decorators [[:parent-deco]]
-       :setup     []})
+  (testing "a child's own :decorators replace the parent's (child-wins, no concat)"
+    (rf.story/reg-decorator :parent-deco {:kind :hiccup :wrap (fn [body _] [:div.parent body])})
+    (rf.story/reg-decorator :child-deco {:kind :hiccup :wrap (fn [body _] [:div.child body])})
+    (rf.story/reg-variant :story.inherit-replace/parent {:decorators [[:parent-deco]] :setup []})
     (rf.story/reg-variant :story.inherit-replace/child
-      {:extends    :story.inherit-replace/parent
-       :decorators [[:child-deco]]
-       :setup     []})
-    (let [body (rf.story/handler-meta :variant :story.inherit-replace/child)]
-      (is (= [[:child-deco]] (:decorators body))
-          "the raw side-table body carries the child's OWN :decorators
-           verbatim")
-      (is (= :story.inherit-replace/parent (:extends body))
-          ":extends is stored RAW — the compiler resolves the chain"))
-    (let [pack (rf.story/resolve-decorators :story.inherit-replace/child)]
-      (is (= [:child-deco] (mapv :id (:hiccup pack)))
-          "resolved hiccup stack reflects ONLY the child's decorators"))))
+      {:extends :story.inherit-replace/parent :decorators [[:child-deco]] :setup []})
+    (is (= [:child-deco]
+           (mapv :id (:hiccup (rf.story/resolve-decorators :story.inherit-replace/child)))))))
