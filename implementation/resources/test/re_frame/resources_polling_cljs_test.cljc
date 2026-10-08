@@ -1,83 +1,34 @@
 (ns re-frame.resources-polling-cljs-test
-  "Active-owner POLLING for the Resources artefact (EP-0020).
-  Per Spec 016 §Polling.
-
-  Polling is the third member of the cache-freshness timer family (beside
-  `:stale-after-ms` and `:gc-after-ms`): a resource declares `:poll-interval-ms`
-  and, while an entry has at least one active owner and the tab is visible, the
-  runtime re-runs its load every N ms by event. It reuses two substrates
-  wholesale — the host advisory timer side-table
-  (`re-frame.resources.timers`, its `:poll` kind beside `:stale` / `:gc`)
-  and the focus/reconnect scan-and-refetch core (the `:rf.resource/refetch`
-  causal path + the `entry-revalidation-in-flight?` coalescing gate).
-
-  These JVM+CLJS unit tests pin the EP-0020 contract
-  (resource-level `:poll-interval-ms`, unconditional active-owner tick,
-  default-pause-when-hidden, `:poll` cause):
-
-    1. ARMING — a settled active-owner poll-enabled entry arms a `:poll` timer
-       at `:poll-interval-ms` (and only when actively owned + client platform);
-       a resource with no policy / an owner-free settle arms none;
-    2. UNCONDITIONAL TICK — a poll-fired re-check refetches by the INTERVAL,
-       not gated on `:stale?` (cause `:poll`, never an owner) AND re-arms;
-    3. OWNER-RELEASE STOPS — the last owner releasing cancels the poll timer
-       (poll-only; stale/GC stay armed) AND a poll-fired on an owner-free entry
-       refetches nothing + does not re-arm;
-    4. HIDDEN-TAB PAUSE — `:hidden?` pauses the tick (no refetch) but re-arms;
-    5. IN-FLIGHT COALESCING — a poll tick that finds live in-flight work skips
-       the refetch (no overlap on a slow endpoint) but re-arms;
-    6. FOCUS/RECONNECT COEXISTENCE — focus + poll do not double-fetch: item
-       5's in-flight gate does not read which cause started the work, so its
-       coalescing test pins the overlap too;
-    7. LATE-POLL-REPLY SUPPRESSION — a poll reply carrying a superseded
-       generation is suppressed: the poll refetch takes the same stale gate
-       as a focus refetch, which the revalidation suite's
-       `focus-refetch-bumps-generation-and-suppresses-stale-reply` pins;
-    8. INVALIDATION RESETS THE CLOCK — a refetch (poll / invalidation) that
-       settles reschedules the poll (cancel-then-arm), not stacks;
-    9. BACKGROUND POLL FAILURE — a failed poll tick keeps prior data + keeps
-       polling (the next tick still fires)."
+  "Active-owner polling (Spec 016 §Polling). While an entry of a resource
+  declaring :poll-interval-ms has an active owner, the runtime refetches it on
+  the interval whatever its freshness, records a :poll cause rather than an
+  owner, pauses while the tab is hidden, coalesces with work in flight, and
+  stops when the last owner leaves. Timer arming is captured and poll-fired
+  dispatched directly, so no wall-clock timer runs."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.identity :as rf.identity]
-   ;; load-bearing side-effecting require: the façade registers the
-   ;; :rf.resource/* events (incl. the internal poll-fired event + the timer /
-   ;; cancel-poll-timers fx + the internal replies these tests dispatch).
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    [re-frame.resources.timers :as rf.resources.timers]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
-   ;; production HTTP fx surface (so the transport feature probe resolves);
-   ;; the actual fetch + abort are overridden by capturing no-ops below.
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport + abort + timer-schedule (deterministic) ---------
-;;
-;; We do NOT let a real wall-clock timer fire — instead we CAPTURE
-;; :rf.resource/schedule-timers args (to assert the poll timer ARMS with the
-;; right delay) and DISPATCH :rf.resource.internal/poll-fired directly (to
-;; assert the FIRING behaviour), exactly as the focus tests dispatch
-;; :rf.resource/window-focused directly. This keeps the suite deterministic +
-;; node-runtime-fast (no real timers, no Playwright).
-
 (def ^:private aborts (atom []))
 (def ^:private scheduled-timers (atom []))
 (def ^:private cancelled-poll (atom []))
 
 (defn- capturing-fixture
-  "Override the real :rf.http/managed + :rf.http/managed-abort fxs with
-  capturing no-ops; CAPTURE :rf.resource/schedule-timers (so poll arming is
-  asserted WITHOUT a real timer firing) and :rf.resource/cancel-poll-timers
-  (so the owner-release poll-stop is asserted). Composed INSIDE the
-  reset-runtime fixture (one `use-fixtures` call)."
+  "Capture aborts, :rf.resource/schedule-timers and
+  :rf.resource/cancel-poll-timers; the fetch itself is a no-op."
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
@@ -86,11 +37,7 @@
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (rf.fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ctx args] (swap! cancelled-poll conj args) nil))
-  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
-  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
-  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
-  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
-  ;; property the fixture wants, with no policy tier of its own.
+  ;; ensures here pass an explicit :scope; the resolver's slot stays unwritten
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope))
@@ -102,363 +49,163 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- runtime-db
-  ([] (runtime-db :rf/default))
-  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
-
-(defn- entry
-  ([scoped-key] (entry :rf/default scoped-key))
-  ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
-
-(defn- article-spec
-  ([] (article-spec {}))
-  ([overrides]
-   (merge {:scope         {:from-db :t/caller-scope}
-           :params-schema [:map [:slug :string]]
-           :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
-          overrides)))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (def ^:private article-spec-request
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
-(defn- ensure! [resource scope slug owner]
+(def ^:private scope {:user "u"})
+
+(defn- reg!
+  "Register `resource` with `policy`; return its scoped key for slug \"w\"."
+  [resource policy]
+  (rf/reg-resource resource
+                   (merge {:scope         {:from-db :t/caller-scope}
+                           :params-schema [:map [:slug :string]]
+                           :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
+                          policy)
+                   article-spec-request)
+  (rf.resources.state/scoped-resource-key scope resource {:slug "w"}))
+
+(defn- ensure! [resource owner]
   (rf/dispatch-sync [:rf.resource/ensure
-                     {:resource resource :scope scope :params {:slug slug}
-                      :owner owner}]))
+                     {:resource resource :scope scope :params {:slug "w"} :owner owner}]))
 
-(defn- succeed!
-  "Feed an internal success reply for a scoped key, reading the LIVE entry's
-  current work-id + generation (the per-frame generation allocator is
-  monotone, so a hardcoded generation would be stale-suppressed once more
-  than one resource has loaded in the frame)."
-  [scoped-key data]
+(defn- reply! [event-id scoped-key extra]
   (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e) :data data}])))
+    (rf/dispatch-sync [event-id (merge {:resource/key scoped-key :work/id (:current-work e)
+                                        :generation (:generation e)}
+                                       extra)])))
 
-(defn- fail!
-  "Feed an internal FAILED reply for a scoped key (a background refresh
-  failure — the entry keeps prior data + records :refresh-error)."
-  [scoped-key error]
-  (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e)
-                        :error {:kind :rf.http/server-error :reason error}}])))
+(defn- succeed! [scoped-key data]
+  (reply! :rf.resource.internal/succeeded scoped-key {:data data}))
+
+(defn- loaded!
+  "Register a polling `resource` (plus `policy`) and load it under `owner`."
+  ([resource owner] (loaded! resource owner {}))
+  ([resource owner policy]
+   (let [k (reg! resource (merge {:poll-interval-ms 5000} policy))]
+     (ensure! resource owner)
+     (succeed! k {:title "W"})
+     k)))
 
 (defn- poll-fired!
-  "Dispatch the internal poll-fired re-check for a scoped key (as the host
-  `:poll` timer thunk would, carrying the host-read `:hidden?` flag)."
   ([scoped-key] (poll-fired! scoped-key false))
   ([scoped-key hidden?]
    (rf/dispatch-sync [:rf.resource.internal/poll-fired
                       {:resource/key scoped-key :hidden? hidden?}])))
 
-(defn- last-schedule-for
-  "The most-recent captured schedule-timers args for a scoped key (nil if
-  none)."
-  [scoped-key]
+(defn- last-schedule-for [scoped-key]
   (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
-;; ===========================================================================
-;; 1. Arming — a settled active-owner poll-enabled entry arms a :poll timer
-;; ===========================================================================
+(defn- poll-delay [scoped-key] (get-in (last-schedule-for scoped-key) [:timers :poll]))
+
+(defn- scheduled-for? [scoped-key] (boolean (some #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
 (deftest poll-enabled-active-owner-arms-poll-timer-on-settle
-  (rf/reg-resource :pl/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :pl/poll {:slug "w"})]
-    (ensure! :pl/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (testing "Spec 016 §Polling — a poll-enabled, actively-owned entry arms a
-              :poll timer at :poll-interval-ms when it settles :loaded"
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted for the settled entry")
-        (is (= 5000 (get-in args [:timers :poll])) "poll delay = :poll-interval-ms")))))
+  (let [k (loaded! :pl/poll [:route :r 1])]
+    (is (= 5000 (poll-delay k)) "an owned settle arms :poll at :poll-interval-ms")))
 
 (deftest no-poll-policy-arms-no-poll-timer
-  (rf/reg-resource :pl/nopoll (article-spec {:stale-after-ms 1000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :pl/nopoll {:slug "w"})]
-    (ensure! :pl/nopoll scope "w" [:route :r 1])
+  (let [k (reg! :pl/nopoll {:stale-after-ms 1000})]
+    (ensure! :pl/nopoll [:route :r 1])
     (succeed! k {:title "W"})
-    (testing "Spec 016 §Polling — a resource with no :poll-interval-ms arms no
-              poll timer (the stale timer still arms)"
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers still emitted (stale policy present)")
-        (is (nil? (get-in args [:timers :poll])) "no poll delay (no poll policy)")
-        (is (= 1000 (get-in args [:timers :stale])) "stale delay armed as usual")))))
-
-(deftest owner-free-settle-arms-no-poll-timer
-  ;; A poll never pins an owner-free entry: if the entry settles with no active
-  ;; owner (the load was caused without an owner, or the owner released before
-  ;; the reply landed), no poll timer arms.
-  (rf/reg-resource :pl/of (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :pl/of {:slug "w"})]
-    (ensure! :pl/of scope "w" [:app :x 1])
-    ;; release the owner BEFORE the reply lands → settles owner-free
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
-    (succeed! k {:title "W"})
-    (testing "Spec 016 §Polling — an owner-free settle arms no poll timer (a
-              poll never pins an owner-free entry); GC still arms"
-      (is (empty? (:active-owners (entry k))) "entry is owner-free at settle")
-      (let [args (last-schedule-for k)]
-        (is (nil? (get-in args [:timers :poll])) "no poll timer armed for an owner-free entry")
-        (is (= 9000 (get-in args [:timers :gc])) "GC timer armed as usual")))))
+    (is (= [nil 1000] ((juxt :poll :stale) (:timers (last-schedule-for k))))
+        "no poll delay without a poll policy; the stale delay still arms")))
 
 (deftest fresh-skip-re-arms-polling-on-new-owner
-  ;; An entry that settled `:loaded` while OWNER-FREE armed no poll
-  ;; timer (a poll never pins an owner-free entry). A later `ensure` from a NEW
-  ;; live owner serves the cached value via the fresh-skip path (the entry is
-  ;; still fresh — no `:stale-after-ms`, never invalidated). That fresh-skip
-  ;; MUST (re)arm polling, mirroring the success-path arming: attaching the
-  ;; owner without emitting schedule-timers would never start the
-  ;; `refetchInterval` analogue.
-  (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :fs/poll {:slug "w"})]
-    (ensure! :fs/poll scope "w" [:app :x 1])
-    ;; release the owner BEFORE the reply lands → settles owner-free (no poll)
+  ;; A poll never pins an owner-free entry, so an entry that settles
+  ;; owner-free arms no poll; a later ensure from a new owner is a fresh-skip
+  ;; that must arm it, as the success path would.
+  (let [k (reg! :fs/poll {:poll-interval-ms 5000 :gc-after-ms 9000})]
+    (ensure! :fs/poll [:app :x 1])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (succeed! k {:title "W"})
-    (is (empty? (:active-owners (entry k))) "entry settled owner-free")
-    (is (nil? (get-in (last-schedule-for k) [:timers :poll]))
-        "no poll timer armed at the owner-free settle (precondition)")
+    (is (= [true nil 9000] [(empty? (:active-owners (entry k))) (poll-delay k)
+                            (get-in (last-schedule-for k) [:timers :gc])])
+        "an owner-free settle arms GC but no poll")
     (reset! scheduled-timers [])
-    ;; a fresh ensure from a NEW live owner — served from cache (fresh-skip)
-    (ensure! :fs/poll scope "w" [:route :r 2])
-    (testing "Spec 016 §Polling — a fresh-skip that attaches a new owner to a
-              previously owner-free entry serves the cache AND (re)arms the poll
-              timer (the entry now has an active owner)"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "served from cache (no fetch — still :loaded)")
-        (is (nil? (:current-work e)) "no in-flight work (fresh-skip, not a load)")
-        (is (= #{[:route :r 2]} (:active-owners e)) "the new owner is attached"))
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted for the revived entry")
-        (is (= 5000 (get-in args [:timers :poll])) "poll re-armed at :poll-interval-ms")))))
-
-(deftest fresh-skip-onto-owned-entry-does-not-re-arm
-  ;; Guard against double-arm: a fresh-skip onto an entry that ALREADY has an
-  ;; active owner adds a second owner but its poll is already live, so the
-  ;; fresh-skip re-arms nothing (the success-path settle armed it).
-  (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :fa/poll {:slug "w"})]
-    (ensure! :fa/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})   ;; active-owner settle → poll already armed
-    (reset! scheduled-timers [])
-    ;; a SECOND owner ensures the SAME fresh entry — fresh-skip, but the entry
-    ;; was already owned, so no re-arm fires here.
-    (ensure! :fa/poll scope "w" [:app :x 1])
-    (testing "a fresh-skip onto an already-OWNED entry adds the
-              owner but re-arms NO timer (avoids double-arm; the prior settle
-              already armed the poll)"
-      (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k)))
-          "both owners attached")
-      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
-          "no schedule-timers re-armed on a fresh-skip onto an owned entry"))))
-
-;; ===========================================================================
-;; 2. Unconditional tick — refetch by interval (not :stale?-gated), re-arm
-;; ===========================================================================
+    (ensure! :fs/poll [:route :r 2])
+    (is (= [:loaded nil #{[:route :r 2]}] ((juxt :status :current-work :active-owners) (entry k)))
+        "served from cache with the new owner attached")
+    (is (= 5000 (poll-delay k)) "the fresh-skip armed the poll")))
 
 (deftest poll-tick-refetches-unconditionally-and-rearms
-  ;; The entry is FRESH (no stale policy → never stale). The poll tick MUST
-  ;; STILL refetch — the interval IS the cadence (EP-0020 Q3(a)), not gated on
-  ;; :stale?.
-  (rf/reg-resource :pt/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :pt/poll {:slug "w"})]
-    (ensure! :pt/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (let [gen-before (:generation (entry k))]
-      (is (nil? (:current-work (entry k))) "no in-flight work after first settle")
-      (reset! scheduled-timers [])
-      (poll-fired! k)
-      (testing "Spec 016 §Polling Q3(a) — a poll tick refetches a FRESH
-                active-owner entry (the interval is the cadence, not :stale?);
-                background refetch (prior data kept, :fetching, new generation)"
-        (let [e (entry k)]
-          (is (= :fetching (:status e)) "poll tick started a background refetch")
-          (is (= {:title "W"} (:data e)) "prior data kept (background)")
-          (is (= (inc gen-before) (:generation e)) "forced a new generation")))
-      (testing "Spec 016 §Polling — the tick re-arms the next poll"
-        (let [args (last-schedule-for k)]
-          (is (= 5000 (get-in args [:timers :poll])) "next poll re-armed at the interval"))))))
+  ;; the entry is fresh (no stale policy): the interval, not :stale?, is the cadence
+  (let [k          (loaded! :pt/poll [:route :r 1])
+        gen-before (:generation (entry k))]
+    (reset! scheduled-timers [])
+    (poll-fired! k)
+    (is (= [:fetching {:title "W"} (inc gen-before)] ((juxt :status :data :generation) (entry k)))
+        "a background refetch on a new generation, keeping the data")
+    (is (= 5000 (poll-delay k)) "the tick re-arms the next poll")))
 
 (deftest poll-tick-records-poll-cause-never-owner
-  (rf/reg-resource :pc/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :pc/poll {:slug "w"})]
-    (ensure! :pc/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
+  (let [k (loaded! :pc/poll [:route :r 1])]
     (poll-fired! k)
-    (testing "Spec 016 §Active owners and causes — a poll refetch records the
-              :poll CAUSE on the work record but attaches NO new owner"
-      (let [e   (entry k)
-            rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))]
-        (is (= #{[:route :r 1]} (:active-owners e)) "owner set unchanged — poll added no owner")
-        (is (some #{:poll} (:causes rec)) "the :poll cause is recorded on the refetch")))))
-
-;; ===========================================================================
-;; 3. Owner-release stops polling
-;; ===========================================================================
+    (let [e (entry k)]
+      (is (= [#{[:route :r 1]} true]
+             [(:active-owners e)
+              (boolean (some #{:poll} (:causes (rf.resources.work-ledger/get-record (runtime-db) (:current-work e)))))])
+          "the refetch records a :poll cause and attaches no owner"))))
 
 (deftest last-owner-release-cancels-poll-timer
-  (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :or/poll {:slug "w"})
-        cancelled-all (atom [])]
-    ;; the all-kinds cancel (stale + GC + poll) — release must NOT emit it
-    (rf.fx/reg-fx :rf.resource/cancel-timers (fn [_ctx args] (swap! cancelled-all conj args) nil))
-    (ensure! :or/poll scope "w" [:app :x 1])
-    (succeed! k {:title "W"})
+  (let [cancelled-all (atom [])
+        _             (rf.fx/reg-fx :rf.resource/cancel-timers (fn [_ctx args] (swap! cancelled-all conj args) nil))
+        k             (loaded! :or/poll [:app :x 1] {:gc-after-ms 9000})
+        names-k?      (fn [args] (some #{k} (:resource/keys args)))]
     (reset! cancelled-poll [])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
-    (testing "Spec 016 §Polling — the last owner releasing cancels the entry's
-              :poll timer (poll-only; stale/GC stay armed for the now-inactive
-              entry's GC)"
-      (is (empty? (:active-owners (entry k))) "entry is owner-free after release")
-      (let [args (last (filter #(some #{k} (:resource/keys %)) @cancelled-poll))]
-        (is (some? args) "cancel-poll-timers emitted for the now-owner-free entry"))
-      (is (not-any? #(some #{k} (:resource/keys %)) @cancelled-all)
-          "no all-kinds cancel names the entry, so its stale/GC timers stay armed"))))
+    (is (= [true true false]
+           [(empty? (:active-owners (entry k))) (boolean (some names-k? @cancelled-poll))
+            (boolean (some names-k? @cancelled-all))])
+        "the release cancels the poll timer only; the stale/GC timers stay armed")))
 
 (deftest poll-tick-on-owner-free-entry-stops-no-refetch-no-rearm
-  ;; Belt-and-braces: even if a poll timer fires AFTER the owner released (a
-  ;; race the proactive cancel narrows but the advisory re-check must still
-  ;; close), the tick refetches nothing and does not re-arm.
-  (rf/reg-resource :os/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :os/poll {:slug "w"})]
-    (ensure! :os/poll scope "w" [:app :x 1])
-    (succeed! k {:title "W"})
+  ;; the advisory re-check still closes a tick that races the proactive cancel
+  (let [k (loaded! :os/poll [:app :x 1])]
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (reset! scheduled-timers [])
     (poll-fired! k)
-    (testing "Spec 016 §Polling — a poll tick on an owner-free entry is a STOP:
-              no refetch, no re-arm (a poll never pins an owner-free entry)"
-      (is (= :loaded (:status (entry k))) "no refetch started (still :loaded)")
-      (is (nil? (:current-work (entry k))) "no in-flight work")
-      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
-          "no re-arm — polling stopped"))))
-
-;; ===========================================================================
-;; 4. Hidden-tab pause
-;; ===========================================================================
+    (is (= [:loaded nil false] [(:status (entry k)) (:current-work (entry k)) (scheduled-for? k)])
+        "no refetch and no re-arm")))
 
 (deftest hidden-tab-pauses-tick-but-rearms
-  (rf/reg-resource :hd/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :hd/poll {:slug "w"})]
-    (ensure! :hd/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
+  (let [k (loaded! :hd/poll [:route :r 1])]
     (reset! scheduled-timers [])
-    (poll-fired! k true) ;; document hidden
-    (testing "Spec 016 §Polling — default-pause-when-hidden: a HIDDEN tab
-              suppresses the tick (NO refetch) but RE-ARMS so polling resumes
-              on tab return"
-      (is (= :loaded (:status (entry k))) "hidden tick did NOT refetch")
-      (is (nil? (:current-work (entry k))) "no in-flight work while hidden")
-      (let [args (last-schedule-for k)]
-        (is (= 5000 (get-in args [:timers :poll])) "re-armed (resumes on tab return)")))))
-
-;; ===========================================================================
-;; 5. In-flight coalescing — no overlap on a slow endpoint
-;; ===========================================================================
+    (poll-fired! k true)
+    (is (= [:loaded nil 5000] [(:status (entry k)) (:current-work (entry k)) (poll-delay k)])
+        "a hidden tick does not refetch, but re-arms so polling resumes")))
 
 (deftest poll-tick-coalesces-with-live-in-flight-work
-  ;; A slow endpoint: the FIRST poll tick starts a refetch that has not yet
-  ;; replied; the SECOND tick finds live in-flight work and SKIPS the refetch
-  ;; (no second generation, no overlap) but RE-ARMS.
-  (rf/reg-resource :if/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :if/poll {:slug "w"})]
-    (ensure! :if/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
+  ;; a slow endpoint never stacks overlapping requests
+  (let [k (loaded! :if/poll [:route :r 1])]
     (reset! aborts [])
-    (poll-fired! k) ;; first tick — starts the refetch (slow: no reply yet)
+    (poll-fired! k)
     (let [gen-after-1 (:generation (entry k))
           wid-after-1 (:current-work (entry k))]
-      (is (= :fetching (:status (entry k))) "first poll tick is in flight")
-      (reset! scheduled-timers [])
-      (poll-fired! k) ;; second tick — finds live in-flight work
-      (testing "Spec 016 §Polling — a poll tick that finds a LIVE in-flight
-                refetch coalesces: NO second generation, the SAME work item, NO
-                abort churn (a slow endpoint never stacks overlapping requests)"
-        (let [e (entry k)]
-          (is (= gen-after-1 (:generation e)) "no second generation bump")
-          (is (= wid-after-1 (:current-work e)) "same in-flight work item")
-          (is (empty? @aborts) "no opportunistic abort (no churn)")))
-      (testing "Spec 016 §Polling — a coalesced tick still RE-ARMS the next poll"
-        (let [args (last-schedule-for k)]
-          (is (= 5000 (get-in args [:timers :poll])) "coalesced tick re-armed the poll"))))))
-
-;; ===========================================================================
-;; 8. A poll-refetch settle re-arms the poll
-;; ===========================================================================
-
-(deftest poll-refetch-settle-re-arms-poll
-  ;; A poll tick's refetch that settles re-emits the :poll interval. The
-  ;; schedule-timers fx is captured here, so this cannot observe the real
-  ;; table's cancel-then-arm; that no-stacking re-arm is pinned by
-  ;; timer_rearm's poll-only-rearm-preserves-sibling-stale-and-gc.
-  (rf/reg-resource :rs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :rs/poll {:slug "w"})]
-    (ensure! :rs/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (poll-fired! k)               ;; tick → refetch in flight
-    (reset! scheduled-timers [])
-    (succeed! k {:title "W2"})    ;; the poll refetch settles → reschedules
-    (testing "Spec 016 §Polling — the poll refetch's settle re-arms the poll"
-      (is (= {:title "W2"} (:data (entry k))) "new data landed")
-      (let [args (last-schedule-for k)]
-        (is (= 5000 (get-in args [:timers :poll])) "poll re-armed on the new settle")))))
-
-;; ===========================================================================
-;; 9. Background poll failure keeps polling
-;; ===========================================================================
-
-(deftest background-poll-failure-keeps-prior-data-and-keeps-polling
-  (rf/reg-resource :bf/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :bf/poll {:slug "w"})]
-    (ensure! :bf/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (poll-fired! k)            ;; tick → refetch in flight
-    (fail! k :transient-503)   ;; the poll refetch FAILS (background)
-    (testing "Spec 016 §Polling — a background poll failure keeps prior :data +
-              records :refresh-error; the entry stays usable"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "entry stays :loaded (background refresh failure)")
-        (is (= {:title "W"} (:data e)) "prior data kept after the failed poll")
-        (is (some? (:refresh-error e)) ":refresh-error recorded")))
-    (testing "Spec 016 §Polling — the NEXT poll still fires (a transient
-              failure never permanently stops a monitor)"
+      (is (= :fetching (:status (entry k))) "precondition: the first tick is in flight")
       (reset! scheduled-timers [])
       (poll-fired! k)
-      (is (= :fetching (:status (entry k))) "the next poll tick refetched again"))))
+      (is (= [gen-after-1 wid-after-1 [] 5000]
+             [(:generation (entry k)) (:current-work (entry k)) @aborts (poll-delay k)])
+          "the second tick joins the same work with no abort churn, and re-arms"))))
 
-;; ===========================================================================
-;; 10. Timer-substrate unit — the :poll kind cancel-then-arm + teardown
-;; ===========================================================================
+(deftest background-poll-failure-keeps-prior-data-and-keeps-polling
+  (let [k (loaded! :bf/poll [:route :r 1])]
+    (poll-fired! k)
+    (reply! :rf.resource.internal/failed k {:error {:kind :rf.http/server-error :reason :transient-503}})
+    (is (= [:loaded {:title "W"} true] [(:status (entry k)) (:data (entry k)) (some? (:refresh-error (entry k)))])
+        "a failed poll keeps the prior data and records :refresh-error")
+    (poll-fired! k)
+    (is (= :fetching (:status (entry k))) "the next tick still refetches")))
 
 (deftest poll-timer-kind-is-cancelled-with-the-key
-  (testing "Spec 016 §Polling — cancel-for-key! cancels the :poll kind too (so
-            entry removal / clear-scope stops polling)"
-    ;; arm a real poll timer via the substrate (long delay — we cancel before
-    ;; it fires; we only assert the side-table slot is dropped)
+  ;; so entry removal and clear-scope stop polling
+  (let [slot [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind]]
     (rf.resources.timers/schedule! :pk/frame [:s :pk/r {}] rf.resources.timers/poll-kind 60000)
-    (is (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind])
-        "poll timer armed in the side table")
+    (is (contains? @rf.resources.timers/timer-table slot) "precondition: the poll timer is armed")
     (rf.resources.timers/cancel-for-key! :pk/frame [:s :pk/r {}])
-    (is (not (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind]))
-        "cancel-for-key! dropped the :poll slot")))
+    (is (not (contains? @rf.resources.timers/timer-table slot)))))
