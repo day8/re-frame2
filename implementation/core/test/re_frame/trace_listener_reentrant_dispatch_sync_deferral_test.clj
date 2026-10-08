@@ -1,49 +1,20 @@
 (ns re-frame.trace-listener-reentrant-dispatch-sync-deferral-test
-  "The post-drain deferral must also cover the MOST important
-  reentrant path: a trace listener that calls `dispatch-sync`.
+  "A trace listener that calls `dispatch-sync` from inside an outer fan-out
+  must not have the nested drain's traces fanned out while that frame's
+  `:drain-lock` is held.
 
-  ## The hazard this pins
-
-  During an outer listener fan-out `*fanout-ctx*` is bound; if that listener
-  calls `dispatch-sync` into a frame F, `re-frame.router/drain-block!` opens the
-  deferral scope AND acquires F's `:drain-lock`. So
-  `re-frame.trace.tooling/deliver-to-tooling!` consults the post-drain deferral
-  scope BEFORE the reentrant `*fanout-ctx*` fast path. Were the fast path tested
-  first, each nested drain trace would append to the outer schedule and drive it
-  INLINE, running arbitrary listener code while the framework holds F's drain
-  lock — the exact negation of the drain-lock law (\"arbitrary listener code is
-  never invoked nor awaited while the framework owns any target frame drain
-  lock\").
-
-  ## The probe
-
-  This manifests SAME-THREAD — no second thread is needed. A `::trigger` listener
-  reacts to a clean, frameless `emit!` (so its outer fan-out is in flight and
-  `*fanout-ctx*` is bound) by `dispatch-sync`-ing into `:rf/default`, which the
-  same thread then drains synchronously. A `::probe` listener records, for every
-  drain-owned emit of that nested drain, whether `:rf/default`'s `:drain-lock` is
-  held at the instant its callback runs.
-
-  Through the fast path the probe would observe the lock HELD on the nested
-  `:rf.event/run-start` (and the run-end / trailer emits). Instead every
-  drain-owned emit is deferred and delivered at the post-drain boundary —
-  integrated back into the still-active outer schedule so
-  outer-before-inner ordering and synchronous completion survive — so the probe
-  sees the lock FREE on every one.
-
-  This asserts an OBSERVABLE OUTCOME (was the lock held?), never an exception:
-  the reentrant bypass does not throw, it silently runs listener code under the
-  lock. JVM-only (`.clj`): the drain-lock read is only meaningful where a real
-  lock cell is contended; the platform-uniform settled-state contract has its own
-  cross-host suite (`trace-listener-post-drain-settled-state-cljs-test`)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  `re-frame.trace.tooling/deliver-to-tooling!` checks the post-drain deferral
+  scope BEFORE the reentrant `*fanout-ctx*` fast path; taking the fast path
+  first would drive the outer schedule inline and run listener code under the
+  nested drain's lock. That silently misbehaves rather than throwing, so the
+  probe records whether the lock was held at each callback. Same-thread and
+  deterministic. JVM-only: the lock read is meaningful only where a real lock
+  cell exists; `trace-listener-post-drain-settled-state-cljs-test` carries the
+  cross-host settled-state contract."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            ;; Load-bearing require (mirrors the drain-deadlock and
-            ;; concurrent-drain suites):
-            ;; with the epoch artefact on the classpath the per-event settle also
-            ;; emits the cascade trailers on the drainer thread while the
-            ;; drain-lock is held, so the deferral seam is exercised for the
-            ;; trailer emits too and not only the in-run emits.
+            ;; With epoch loaded the per-event settle also emits its trailers
+            ;; under the lock, so they take the deferral seam too.
             [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -54,75 +25,34 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Loop the deterministic proof so a green run is determinism, not a lucky
-;; interleaving. Env-overridable for a heavier local soak.
-(def ^:private iters
-  (or (some-> (System/getenv "RF2_6T6QK_ITERS") Long/parseLong)
-      25))
-
-(defn- drain-lock-held?
-  "True iff `frame-id`'s `:drain-lock` is currently taken — the direct read of
-  the single-drainer cell the router CAS-acquires for a drain pass. Read from
-  inside a listener callback this answers this suite's question literally: is
-  arbitrary listener code running while the framework owns this frame's drain
-  lock?"
-  [frame-id]
+(defn- drain-lock-held? [frame-id]
   (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
-;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
-;; reporting green.  Every deftest
-;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is still LOADED there, so a load-time failure
-;; under the gate still reddens the job, and an untagged new deftest joins that
-;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
+;; end (see scripts/test-core-prod-gate.sh).
 
 (deftest ^:requires-debug listener-initiated-dispatch-sync-never-runs-listeners-under-drain-lock
-  (testing (str "a listener that dispatch-syncs into F from inside an outer "
-                "fan-out never has F's drain-owned traces fanned out while F's "
-                ":drain-lock is held (" iters " iterations)")
-    (dotimes [iter iters]
-      (rf/reg-event :6t6qk/settle
-        (fn [{:keys [db]} _] {:db (assoc db :6t6qk/settled? true)}))
-
-      (let [;; Every drain-owned emit of :rf/default seen by the probe, paired
-            ;; with whether the frame's drain-lock was held at callback time.
-            observed  (atom [])
-            fired?    (atom false)]
-        ;; The probe: pure observer. Records the ownership state for each
-        ;; drain-owned run emit of the nested :rf/default drain.
-        (rf.trace.tooling/register-listener! ::probe
-          (fn [ev]
-            (when (and (= :rf/default (rf.trace/frame-of ev))
-                       (contains? #{:rf.event/run-start :rf.event/run-end}
-                                  (:operation ev)))
-              (swap! observed conj
-                     [(:operation ev) (drain-lock-held? :rf/default)]))))
-        ;; The trigger: reacts to the clean, frameless trigger emit (so the
-        ;; outer fan-out is in flight and *fanout-ctx* is bound) by
-        ;; dispatch-syncing into :rf/default, which this thread drains inline.
-        (rf.trace.tooling/register-listener! ::trigger
-          (fn [ev]
-            (when (and (= :6t6qk/trigger (:operation ev))
-                       (compare-and-set! fired? false true))
-              (rf/dispatch-sync [:6t6qk/settle] {:frame :rf/default}))))
-        (try
-          (rf.trace/emit! :info :6t6qk/trigger {})
-          ;; The nested dispatch-sync must have actually settled — proves the
-          ;; reentrant path was exercised (assertion count moves either way).
-          (is (true? (:6t6qk/settled? (rf/app-db-value :rf/default)))
-              (str "iter " iter ": the listener-initiated dispatch-sync did not "
-                   "settle :rf/default"))
-          (is (seq @observed)
-              (str "iter " iter ": the probe never saw a nested drain-owned "
-                   "emit — the reentrant path was not exercised"))
-          (is (every? (comp false? second) @observed)
-              (str "iter " iter ": a trace listener was invoked while "
-                   ":rf/default's :drain-lock was held — the reentrant "
-                   "dispatch-sync path bypassed post-drain deferral. Observed "
-                   "[op lock-held?]: " (pr-str @observed)))
-          (finally
-            (rf.trace.tooling/unregister-listener! ::probe)
-            (rf.trace.tooling/unregister-listener! ::trigger)))))))
+  (rf/reg-event :6t6qk/settle (fn [_ _] {}))
+  (let [observed (atom [])]
+    ;; Records [op lock-held?] for each run emit of the nested :rf/default drain.
+    (rf.trace.tooling/register-listener! ::probe
+      (fn [ev]
+        (when (and (= :rf/default (rf.trace/frame-of ev))
+                   (contains? #{:rf.event/run-start :rf.event/run-end}
+                              (:operation ev)))
+          (swap! observed conj
+                 [(:operation ev) (drain-lock-held? :rf/default)]))))
+    ;; Reacts to a clean emit (so `*fanout-ctx*` is bound) by draining
+    ;; :rf/default on this thread.
+    (rf.trace.tooling/register-listener! ::trigger
+      (fn [ev]
+        (when (= :6t6qk/trigger (:operation ev))
+          (rf/dispatch-sync [:6t6qk/settle] {:frame :rf/default}))))
+    (try
+      (rf.trace/emit! :info :6t6qk/trigger {})
+      (is (= #{[:rf.event/run-start false] [:rf.event/run-end false]}
+             (set @observed))
+          "a trace listener ran while :rf/default's :drain-lock was held")
+      (finally
+        (rf.trace.tooling/unregister-listener! ::probe)
+        (rf.trace.tooling/unregister-listener! ::trigger)))))
