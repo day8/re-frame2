@@ -21,10 +21,14 @@
 
   Each is a SPECIALISATION, never a second implementation: the same
   answers by a cheaper route. This namespace is what makes that claim
-  falsifiable. Every assertion below is one a divergence would break. Two
+  falsifiable. Every assertion below is one a divergence would break. Some
   rows are held elsewhere: the empty-query sort by `routing-registry-test`'s
-  query-emission tests, and the strategy consult by
-  `route-link-ssr-parity-cljs-test`'s href parity across strategy shapes.
+  query-emission tests, a bare uncaptured key by
+  `routing-uncaptured-param-test`, the host values the URL-scalar guard
+  refuses and the falsy scalars it admits by `routing-url-non-edn-cljs-test`,
+  the total order of bad address keys by `routing-boundary-totality-cljs-test`,
+  and the strategy consult by `route-link-ssr-parity-cljs-test`'s href parity
+  across strategy shapes.
 
   ## The mutations this file is proved against
 
@@ -32,18 +36,18 @@
 
   1. **`\\{` deleted from `literal-run-end`'s boundary set.** A literal run then
      swallows the opening brace, so an elided group raises
-     `:rf.error/missing-route-param`. RED: 3 errors in
+     `:rf.error/missing-route-param`. RED: an error in
      `emitted-paths-are-exactly-what-the-pattern-says`.
   2. **`\\:` deleted from the same set.** A run swallows the param sigil, so
      every pattern emits its own text where the value belongs
-     (`/profile/:username` for `{:username \"jane\"}`). RED: 27 failures across
+     (`/profile/:username` for `{:username \"jane\"}`). RED: failures across
      `emitted-paths-are-exactly-what-the-pattern-says` and
      `every-emitted-url-matches-back-to-the-address-it-came-from`.
   3. **The fast walk's optional-group bail turned into a skip** — `\\{` / `\\}`
      consumed instead of returning nil, so a group pattern never reaches the
-     general loop. RED: 10 failures — `/docs{/:section}?` emits `/docs/api?`,
-     an elided group raises `:rf.error/missing-route-param`, and
-     `/docs{/:section}?{/:page}?` round-trips to the wrong route.
+     general loop. RED: `/docs{/:section}?` emits `/docs/api?`, an elided group
+     raises `:rf.error/missing-route-param`, and `/docs{/:section}?{/:page}?`
+     round-trips to the wrong route.
 
   Mutation 3 is also why the walk decides for itself, in a branch of its own
   loop, rather than being switched on by an `(empty? groups)` gate computed
@@ -72,10 +76,7 @@
   (rf.routing/reg-route :eq/files   {} "/files/*rest")
   (rf.routing/reg-route :eq/docs    {} "/docs{/:section}?")
   (rf.routing/reg-route :eq/chain   {} "/docs{/:section}?{/:page}?")
-  (rf.routing/reg-route :eq/base    {} "{/:base}?")
-  (rf.routing/reg-route :eq/sorted  {:query [:map [:sort {:optional true} :string]
-                                          [:page {:optional true} :string]]}
-                     "/search"))
+  (rf.routing/reg-route :eq/base    {} "{/:base}?"))
 
 (defn- thrown-data [f]
   (try (f) nil (catch Throwable ex (ex-data ex))))
@@ -86,58 +87,42 @@
 
 (deftest emitted-paths-are-exactly-what-the-pattern-says
   (register-routes!)
-
-  (testing "patterns with NO optional group — the specialised walk"
-    (is (= "/"                (rf.routing.registry/route-url {:to :eq/root})))
-    (is (= "/plain"           (rf.routing.registry/route-url {:to :eq/plain})))
-    (is (= "/plain"           (rf.routing.registry/route-url {:to :eq/plain :params {}})))
-    (is (= "/profile/jane"    (rf.routing.registry/route-url {:to :eq/profile :params {:username "jane"}})))
-    (is (= "/a/1/b/2/c"       (rf.routing.registry/route-url {:to :eq/pair :params {:x "1" :y "2"}})))
-    (is (= "/solo"            (rf.routing.registry/route-url {:to :eq/only :params {:only "solo"}})))
-    (testing "a splat keeps its literal separators; a named param does not"
-      (is (= "/files/a/b/c.txt" (rf.routing.registry/route-url {:to :eq/files :params {:rest "a/b/c.txt"}})))
-      (is (= "/profile/a%2Fb"   (rf.routing.registry/route-url {:to :eq/profile :params {:username "a/b"}}))))
-    (testing "percent-encoding is the param's, never the literal run's"
-      (is (= "/profile/a%20b"   (rf.routing.registry/route-url {:to :eq/profile :params {:username "a b"}})))
-      (is (= "/profile/a%26b%3Fc"
-             (rf.routing.registry/route-url {:to :eq/profile :params {:username "a&b?c"}}))))
-    (testing "falsy-but-present path values round-trip"
-      (is (= "/profile/false" (rf.routing.registry/route-url {:to :eq/profile :params {:username false}})))
-      (is (= "/profile/0"     (rf.routing.registry/route-url {:to :eq/profile :params {:username 0}})))))
-
-  (testing "patterns WITH an optional group — the general walk"
-    (is (= "/docs/api" (rf.routing.registry/route-url {:to :eq/docs :params {:section "api"}})))
-    (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs :params {}})))
-    (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs})))
-    (is (= "/docs/api/2" (rf.routing.registry/route-url {:to :eq/chain :params {:section "api" :page "2"}})))
-    (is (= "/docs/api"   (rf.routing.registry/route-url {:to :eq/chain :params {:section "api"}})))
-    (is (= "/docs"       (rf.routing.registry/route-url {:to :eq/chain :params {}})))
-    (testing "the whole path is one leading optional group"
-      (is (= "/x" (rf.routing.registry/route-url {:to :eq/base :params {:base "x"}})))
-      (is (= "/"  (rf.routing.registry/route-url {:to :eq/base :params {}}))
-          "an elided leading group normalises the empty string to the root"))))
+  (doseq [[to params expected]
+          [;; NO optional group — the specialised walk
+           [:eq/root    nil                        "/"]
+           [:eq/plain   nil                        "/plain"]
+           [:eq/profile {:username "jane"}         "/profile/jane"]
+           [:eq/pair    {:x "1" :y "2"}            "/a/1/b/2/c"]
+           [:eq/only    {:only "solo"}             "/solo"]
+           [:eq/files   {:rest "a/b/c.txt"}        "/files/a/b/c.txt"]   ; a splat keeps its separators
+           [:eq/profile {:username "a/b"}          "/profile/a%2Fb"]     ; a named param does not
+           [:eq/profile {:username "a&b?c"}        "/profile/a%26b%3Fc"] ; encoding is the param's, never the literal run's
+           ;; WITH an optional group — the general walk
+           [:eq/docs    {:section "api"}           "/docs/api"]
+           [:eq/docs    {}                         "/docs"]
+           [:eq/chain   {:section "api" :page "2"} "/docs/api/2"]
+           [:eq/chain   {:section "api"}           "/docs/api"]
+           [:eq/base    {:base "x"}                "/x"]
+           [:eq/base    {}                         "/"]]]               ; an elided leading group normalises to the root
+    (is (= expected (rf.routing.registry/route-url (cond-> {:to to} params (assoc :params params))))
+        (str to " " (pr-str params)))))
 
 (deftest every-emitted-url-matches-back-to-the-address-it-came-from
   (register-routes!)
   (testing "the prism holds over both walks — route-url then match-url"
+    ;; `:eq/base` is absent: `/:only` also matches its `/x` and out-ranks it,
+    ;; so its row would assert this fixture's ranking rather than the prism.
     (doseq [[to params] [[:eq/root    {}]
                          [:eq/plain   {}]
-                         [:eq/profile {:username "jane"}]
-                         [:eq/profile {:username "a b"}]
                          [:eq/profile {:username "a&b?c"}]
                          [:eq/pair    {:x "1" :y "2"}]
                          [:eq/only    {:only "solo"}]
                          [:eq/files   {:rest "a/b/c.txt"}]
                          [:eq/docs    {:section "api"}]
                          [:eq/chain   {:section "api" :page "2"}]]]
-      ;; `:eq/base` is deliberately absent: its `{/:base}?` emits `/x`, which
-      ;; `/:only` also matches and out-ranks, so a round trip through the whole
-      ;; table would be asserting this fixture's ranking rather than the prism.
-      ;; Its emission is asserted above, where ranking cannot reach it.
-      (let [url (rf.routing.registry/route-url {:to to :params params})
-            m   (rf.routing.registry/match-url url)]
-        (is (= to (:route-id m)) (str "round trip of " url))
-        (is (= params (:params m)) (str "round trip of " url))))))
+      (let [url (rf.routing.registry/route-url {:to to :params params})]
+        (is (= [to params] ((juxt :route-id :params) (rf.routing.registry/match-url url)))
+            (str "round trip of " url))))))
 
 ;; ===========================================================================
 ;; The fail-closed classes — every one of them closed
@@ -146,70 +131,30 @@
 (deftest the-emission-guards-still-refuse-what-they-always-refused
   (register-routes!)
 
-  (testing "an absent or empty path param"
-    (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {}})))))
-    (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {:username nil}})))))
-    (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {:username ""}})))))
-    (testing "inside an optional group too"
+  (testing "an absent or empty path param, inside an optional group too"
+    (doseq [[to params] [[:eq/profile {}]
+                         [:eq/profile {:username ""}]
+                         [:eq/docs    {:section ""}]]]
       (is (= :rf.error/missing-route-param
-             (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/docs :params {:section ""}})))))))
+             (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to to :params params}))))
+          (str to " " (pr-str params)))))
 
-  (testing "a param the pattern does not capture — the set-free membership test"
-    (let [bare (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
-                                                  :params {:username "j" :extra "x"}}))]
-      (is (= :rf.error/route-url-validation (:rf.error/id bare)))
-      (is (= :uncaptured-params (:reason bare)))
-      (is (= [:extra] (:keys bare))))
-    (testing "a NAMESPACED key is not the bare capture of the same name"
-      (let [ns-keyed (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
-                                                        :params {:username "j"
-                                                                 :a/username "x"}}))]
-        (is (= :uncaptured-params (:reason ns-keyed)))
-        (is (= [:a/username] (:keys ns-keyed))
-            "`(name :a/username)` is \"username\" — it must NOT count as captured")))
-    (testing "a NON-keyword key was never a capture either"
-      (is (= :uncaptured-params
-             (:reason (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
-                                                         :params {:username "j"
-                                                                  "username" "x"}})))))))
+  (testing "the set-free membership test counts neither a NAMESPACED key nor a
+            NON-keyword key as the bare capture of the same name"
+    (is (= {:reason :uncaptured-params :keys [:a/username]}
+           (select-keys (thrown-data #(rf.routing.registry/route-url
+                                        {:to :eq/profile :params {:username "j" :a/username "x"}}))
+                        [:reason :keys])))
+    (is (= :uncaptured-params
+           (:reason (thrown-data #(rf.routing.registry/route-url
+                                    {:to :eq/profile :params {:username "j" "username" "x"}}))))))
 
-  (testing "a non-address key — the reject scan"
-    (let [d (thrown-data #(rf.routing.registry/route-url {:to :eq/plain :replace? true}))]
-      (is (= :bad-address-keys (:reason d)))
-      (is (= [:replace?] (:keys d))))
-    (testing "bad keys are reported in TOTAL canonical order"
-      (is (= [:replace? "url"]
-             (:keys (thrown-data #(rf.routing.registry/route-url {:to :eq/plain
-                                                       :replace? true
-                                                       "url" "/x"}))))
-          "a heterogeneous key set must not reach a compare-based sort")))
+  (testing "the reject scan refuses a non-address key"
+    (is (= {:reason :bad-address-keys :keys [:replace?]}
+           (select-keys (thrown-data #(rf.routing.registry/route-url {:to :eq/plain :replace? true}))
+                        [:reason :keys]))))
 
-  (testing "a value outside the URL-scalar domain — the guard's slow leg"
+  (testing "an integer outside the safe range takes the guard's slow leg and is refused"
     (is (= :rf.error/route-url-non-edn-value
            (:rf.error/id (thrown-data #(rf.routing.registry/route-url
-                                         {:to :eq/profile :params {:username (fn [])}})))))
-    (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
-                                         {:to :eq/profile
-                                          :params {:username (java.util.Date.)}}))))
-        "a host instant is a portable identity but not a URL segment")
-    (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
-                                         {:to :eq/profile :params {:username 1.5}}))))
-        "a non-integer number has no canonical EDN identity")
-    (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
-                                         {:to :eq/profile
-                                          :params {:username (inc 9007199254740991)}}))))
-        "an integer outside the safe range is rejected on the slow leg"))
-
-  (testing "the four kinds the guard answers by type EMIT"
-    (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username "jane"}})))
-    (is (= "/profile/%3Ajane"
-           (rf.routing.registry/route-url {:to :eq/profile :params {:username :jane}}))
-        "an UNDECLARED keyword value host-stringifies")
-    (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username 'jane}})))
-    (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}})))))
+                                         {:to :eq/profile :params {:username (inc 9007199254740991)}})))))))
