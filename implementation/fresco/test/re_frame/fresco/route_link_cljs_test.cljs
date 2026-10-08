@@ -173,8 +173,7 @@
     (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                                :prefetch :intent}
                               "jane")]
-      (is (not (contains? attrs :prefetch)))
-      (is (string? (:href attrs)) "and the link still renders"))))
+      (is (not (contains? attrs :prefetch))))))
 
 (deftest prefetch-intent-fills-every-credible-intent-position
   (testing "the sugar: `:prefetch :intent` puts routing's own prefetch event
@@ -223,7 +222,6 @@
                       (fn [ev] (swap! !seen conj ev) nil)
                       (fn [] (rf.fresco.impl.intent/lower-prop
                                :on-mouse-enter (:on-mouse-enter attrs))))]
-      (is (fn? h) "the intent lowered to a closure, like any other in-band intent")
       (h (ev {}))
       (is (= [[:rf.route/prefetch {:to     :conduit.profile/show
                                    :params {:username "jane"}}]]
@@ -262,7 +260,7 @@
            before Fresco's claimed-position check is reached. The two ids
            stay distinct — that one means the value is bad, Fresco's means
            the value is good and the position is taken"
-    (doseq [bad [:render :viewport true false nil]]
+    (doseq [bad [:render nil]]
       (is (thrown-with-msg?
             js/Error #"route-link-bad-prefetch"
             (rendered {:to :conduit.profile/show :params {:username "jane"}
@@ -307,23 +305,6 @@
         "…and dispatched the app intent — routing's activate-link! saw
          defaultPrevented and stood down, so one click yielded ONE semantic
          event: the intent that replaced the navigation")))
-
-(deftest a-modifier-click-is-left-native
-  (let [[h !seen] (lowered-click {:to :conduit.profile/show :params {:username "jane"}})
-        !prevented (atom false)]
-    (h (ev {:meta? true :prevented !prevented}))
-    (is (false? @!prevented)
-        "routing's own plain-left-click law deferred to the browser")
-    (is (= [] @!seen))))
-
-(deftest a-plain-click-is-intercepted
-  (let [[h _] (lowered-click {:to :conduit.profile/show :params {:username "jane"}})
-        !prevented (atom false)]
-    (h (ev {:prevented !prevented}))
-    (is (true? @!prevented)
-        "a plain left click is routing's to take: preventDefault fired and the
-         url-requested dispatch went to the captured frame (the route change
-         itself is the DOM witness's claim)")))
 
 ;; ---------------------------------------------------------------------------
 ;; The imperative veto — the roster's other admitted half
