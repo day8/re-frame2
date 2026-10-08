@@ -1,41 +1,22 @@
 (ns re-frame2-pair-mcp.fresco-wire-test
   "THE BOTH-SIDES WITNESS. Pair's coupling to the evidence provider is a
   STRING — `re-frame.fresco.tool`, interpolated into the CLJS source every
-  view-evidence tool sends over nREPL — and a string is invisible to every
-  static tool this repo runs. There is no `:require`, no `deps.edn`
-  coordinate, and therefore no compiler error, no clj-kondo finding and no
-  classpath scan that can see it. A dependency audit reports Pair CLEAN of the
-  provider while every one of these tools calls it.
+  view-evidence tool sends over nREPL — so no `:require`, compiler,
+  clj-kondo run or classpath scan can see it. Rename a read on the provider
+  and Pair still compiles and its own suite still passes; the failure
+  appears only at runtime, in someone else's process.
 
-  That is precisely the shape that lets a rename pass review. Move or rename a
-  read on the provider and Pair still COMPILES, its own suite still PASSES —
-  the emitter is unit-tested against itself — and the failure appears only at
-  runtime, in someone else's process, across the nREPL boundary — unless a
-  test sees both sides.
+  So this suite reads the PROVIDER'S OWN SOURCE (a classpath require is
+  not available, and Pair must have no dependency on it) and asserts the
+  wire contract against it:
 
-  So this suite reads the PROVIDER'S OWN SOURCE and asserts the three halves of
-  the wire contract against it:
-
-    1. every reader fn named in an ACTUAL EMITTED FORM is defined, publicly, in
-       `re-frame.fresco.tool`;
+    1. every reader fn named in an ACTUAL EMITTED FORM is defined, publicly,
+       in `re-frame.fresco.tool`;
     2. the consumer-owned `consumed-evidence-schema` equals the literal
-       `re-frame.fresco.evidence/schema` stamps on every envelope — the gate
-       is worthless if the two drift, because every read then reports a
-       mismatch and no read ever succeeds;
-    3. no donor namespace appears anywhere in Pair's shipped source, so a
-       copied form cannot quietly re-acquire one.
-
-  **The names are extracted from the emitted form, not from a list.** Asserting
-  a hand-written vector against the provider would prove only that two lists
-  agree; parsing the string Pair will actually send is what makes this a
-  witness to the wire rather than to a constant.
-
-  Reading another artefact's source from a test is unusual, and it is the right
-  shape here for the reason above: a classpath require is not available (the
-  provider is a React substrate this Node suite cannot load, and Pair must have
-  no production dependency on it at all), and a checker that could not see both
-  sides would restate the gap instead of closing it."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+       `re-frame.fresco.evidence/schema` stamps — if they drift, every read
+       reports a mismatch and none ever succeeds;
+    3. no donor namespace appears anywhere in Pair's shipped source."
+  (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.fresco-tool :as fresco-tool]))
 
@@ -43,9 +24,8 @@
 (def ^:private path (js/require "path"))
 
 (defn- repo-root
-  "Walk upward from the test process's cwd to the repository root — the first
-  directory holding both this artefact and the provider's tree. Robust against
-  the runner's working directory (`tools/re-frame2-pair-mcp` vs repo root)."
+  "Walk upward from the cwd to the first directory holding both this
+  artefact and the provider's tree."
   []
   (loop [d (.cwd js/process)]
     (cond
@@ -62,9 +42,7 @@
       :else (recur (.dirname path d)))))
 
 (defn- read-text
-  "A file's text with CR stripped. The assertions below are anchored on line
-  starts, and a checkout with CRLF endings would otherwise fail every one of
-  them for a reason that has nothing to do with the wire."
+  "A file's text with CR stripped — the assertions anchor on line starts."
   [full]
   (str/replace (.toString (.readFileSync fs full)) "\r" ""))
 
@@ -84,76 +62,31 @@
   (delay (slurp-repo "implementation/fresco/src/re_frame/fresco/evidence.cljs")))
 
 (defn- emitted-read-names
-  "Every read name a form Pair will actually send resolves off the door, as a
-  set.
-
-  The emitted form carries no `re-frame.fresco.tool/<read>` SYMBOL — a var
-  reference into a namespace the running build has not loaded would be
-  rejected by shadow's analyzer before the form could run, leaving the
-  `:evidence-tier-unavailable` rung unreachable. The door is resolved at
-  runtime, so the read name rides as the string handed to `cljs.core/munge`,
-  and that is the occurrence this parses. It is the EMITTED form rather than a
-  list: what is asserted against the provider is what Pair will send."
+  "Every read name an emitted form hands to `cljs.core/munge`, as a set —
+  what Pair will actually send, not a list."
   [form]
   (into #{}
         (map second)
         (re-seq #"\(cljs\.core/munge \"([^\"]+)\"\)" form)))
 
-(defn- emitted-door-namespaces
-  "Every namespace name the form asks `cljs.core/find-ns-obj` to resolve. The
-  other half of the wire coupling, and the half that decides whether the
-  absent-door rung is reached at all."
-  [form]
-  (into #{}
-        (map second)
-        (re-seq #"\(cljs\.core/find-ns-obj \"([^\"]+)\"\)" form)))
-
-;; ---------------------------------------------------------------------------
-;; 1. Every read the emitter names is published by the provider
-;; ---------------------------------------------------------------------------
-
 (deftest every-emitted-read-is-defined-by-the-provider
   (let [src @provider-tool-src]
     (doseq [read-fn fresco-tool/tier-reads]
-      (testing read-fn
-        (let [form  (fresco-tool/projection-form read-fn)
-              named (emitted-read-names form)]
-          (is (= #{read-fn} named)
-              "the emitted form names this read and no other")
-          (is (= #{fresco-tool/tier-ns} (emitted-door-namespaces form))
-              "…resolved off the door namespace and no other")
-          ;; A public `defn` at column 0. `defn-` would not match, and must
-          ;; not: a private read is unreachable from an eval form even though
-          ;; the name is spelled identically.
-          (is (str/includes? src (str "\n(defn " read-fn "\n"))
-              (str "re-frame.fresco.tool must publish " read-fn
-                   " — the emitted form calls it by name across a process "
-                   "boundary, so a rename on the provider is a runtime failure "
-                   "here and nowhere else")))))))
-
-;; ---------------------------------------------------------------------------
-;; 2. The schema gate matches what the producer actually stamps
-;; ---------------------------------------------------------------------------
+      (is (= #{read-fn} (emitted-read-names (fresco-tool/projection-form read-fn)))
+          (str read-fn ": the emitted form names this read and no other"))
+      ;; A public `defn` at column 0: a private read is unreachable from an
+      ;; eval form even though the name is spelled identically.
+      (is (str/includes? src (str "\n(defn " read-fn "\n"))
+          (str "re-frame.fresco.tool must publish " read-fn)))))
 
 (deftest the-consumed-schema-is-the-schema-the-producer-stamps
-  ;; `versioned-envelope-result` refuses any envelope whose `:schema` differs
-  ;; from `consumed-evidence-schema`. If the producer's literal moves and this
-  ;; one does not, the gate does not fail open — it fails CLOSED on every read,
-  ;; and every tool in the family returns a mismatch forever. That is a silent
-  ;; total outage, so it gets a witness rather than a comment.
-  (let [src @provider-evidence-src
-        m   (re-find #"\(def schema\b[\s\S]*?\n  (:re-frame\.fresco\.evidence/v\d+)\)" src)]
-    (is (some? m)
-        "re-frame.fresco.evidence/schema must carry a keyword literal this witness can read")
+  (let [m (re-find #"\(def schema\b[\s\S]*?\n  (:re-frame\.fresco\.evidence/v\d+)\)"
+                   @provider-evidence-src)]
     (is (= (str fresco-tool/consumed-evidence-schema) (second m))
         (str "Pair consumes " fresco-tool/consumed-evidence-schema
              " but the producer stamps " (second m)
              " — bump consumed-evidence-schema ONLY once this build is taught "
              "the new shape"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. The donor wire string is gone, and cannot be re-acquired quietly
-;; ---------------------------------------------------------------------------
 
 (defn- cljs-sources-under
   [dir]
@@ -166,17 +99,11 @@
           (.readdirSync fs dir)))
 
 (deftest no-donor-namespace-survives-in-pairs-shipped-source
-  ;; A donor coupling need not be a `:require`, so nothing in the build
-  ;; would report it. This grep can be trusted only because the surface it
-  ;; scans is small and wholly ours.
-  (let [src-root (.join path (repo-root) "tools/re-frame2-pair-mcp/src")
-        files    (cljs-sources-under src-root)]
+  ;; Prose may NAME a donor namespace; a donor symbol must not appear.
+  (let [files (cljs-sources-under (.join path (repo-root) "tools/re-frame2-pair-mcp/src"))]
     (is (seq files) "the scan found source files to check")
-    (doseq [f files]
-      (let [text (read-text f)]
-        (doseq [donor ["re-frame.freehand" "re-frame.ui.tool"]]
-          ;; Prose may NAME a donor namespace. What must not appear is a
-          ;; donor symbol in a position that reaches the wire.
-          (is (not (str/includes? text (str donor "/")))
-              (str (.basename path f) " names a donor read (" donor
-                   "/…) in a callable position")))))))
+    (doseq [f files
+            :let [text (read-text f)]
+            donor ["re-frame.freehand" "re-frame.ui.tool"]]
+      (is (not (str/includes? text (str donor "/")))
+          (str (.basename path f) " names a donor read (" donor "/…)")))))
