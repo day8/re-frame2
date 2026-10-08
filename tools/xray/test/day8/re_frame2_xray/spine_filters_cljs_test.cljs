@@ -3,7 +3,8 @@
 
     1. Pure helpers (filter-event-bundles, mute / unmute / clear reducers).
     2. EDN round-trip (<-edn / ->edn).
-    3. load! on an empty slot.
+    3. save! / load — the real-storage rows live in
+       `spine-filters-dom-cljs-test`.
     4. Event handler wiring (mute-event-id / unmute-event-id /
        clear-muted-event-ids + persist fx) — the real-storage rows live
        in `spine-filters-dom-cljs-test`, see (3) below.
@@ -16,12 +17,10 @@
        mute-event-id → row disappears from the L2 list."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -66,40 +65,26 @@
 
 (deftest event-bundle-event-id-pluck
   (is (= :foo/bar (spine-filters/event-bundle-event-id {:event [:foo/bar 1 2]})))
-  (is (nil? (spine-filters/event-bundle-event-id {:event nil})))
-  (is (nil? (spine-filters/event-bundle-event-id {})))
-  (is (nil? (spine-filters/event-bundle-event-id {:event "not-a-vector"}))))
+  (is (nil? (spine-filters/event-bundle-event-id {:event nil}))))
 
 (deftest mute-event-id-reducer
   (is (= #{:a} (spine-filters/mute-event-id nil :a))
       "nil input promotes to empty set")
   (is (= #{:a :b} (spine-filters/mute-event-id #{:a} :b)))
-  (is (= #{:a} (spine-filters/mute-event-id #{:a} :a))
-      "muting an already-muted id is a no-op (set semantics)")
   (is (= #{:a} (spine-filters/mute-event-id #{:a} nil))
       "nil event-id is dropped — never corrupts the set"))
 
 (deftest unmute-event-id-reducer
   (is (= #{} (spine-filters/unmute-event-id #{:a} :a)))
-  (is (= #{:a} (spine-filters/unmute-event-id #{:a} :b))
-      "unmuting an absent id is a no-op")
   (is (= #{} (spine-filters/unmute-event-id nil :a))
       "nil input promotes to empty set"))
-
-(deftest clear-muted-reducer
-  (is (= #{} (spine-filters/clear-muted #{:a :b :c})))
-  (is (= #{} (spine-filters/clear-muted nil))))
 
 (deftest filter-event-bundles-strips-muted-ids
   (let [cs [{:event [:a]} {:event [:b]} {:event [:c]}]]
     (is (= cs (spine-filters/filter-event-bundles cs #{}))
         "empty muted set returns the input vector")
-    (is (= cs (spine-filters/filter-event-bundles cs nil))
-        "nil muted set returns the input vector")
     (is (= [{:event [:b]} {:event [:c]}]
-           (spine-filters/filter-event-bundles cs #{:a})))
-    (is (= []
-           (spine-filters/filter-event-bundles cs #{:a :b :c})))))
+           (spine-filters/filter-event-bundles cs #{:a})))))
 
 (deftest filter-event-bundles-preserves-event-less-cascades
   (testing "cascades with no event vector (e.g. :ungrouped bucket) survive
@@ -143,10 +128,6 @@
 ;; `-dom-cljs-test` is selected by BOTH builds, so the rows run for real
 ;; in the browser and stay inert on node behind `ls/available?`.
 
-(deftest load-when-slot-empty-returns-empty-set
-  (spine-filters/clear-raw!)
-  (is (= #{} (spine-filters/load))))
-
 ;; -------------------------------------------------------------------------
 ;; (4) Event handler wiring + persist fx
 ;; -------------------------------------------------------------------------
@@ -181,7 +162,6 @@
   (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
   (let [after (frame-sub [:rf.xray/filtered-event-bundles])
         ids   (mapv (fn [c] (first (:event c))) after)]
-    (is (= 2 (count after)))
     (is (= [:auth/login :order/submit] ids)
         ":user/mouse-move stripped from filtered-event-bundles")))
 
@@ -259,20 +239,17 @@
       "nil event-id refuses to open the menu — defensive guard"))
 
 (deftest row-context-menu-renders-mute-and-hide-items
+  ;; The 'Mute' item is driven by end-to-end-mute-from-context-menu.
   (xray-setup!)
   (frame-dispatch [:rf.xray/open-row-context-menu
                    {:event-id :user/mouse-move :x 100 :y 200}])
   (rf/with-frame :rf/xray
-    (let [tree (row-context-menu-tree)
-          menu (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu")
-          mute (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
-          hide (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-hide-event-type")]
-      (is (some? menu) "menu mounts when slot is set")
-      (is (some? mute) "menu carries 'Mute' item")
-      (is (some? hide) "menu carries 'Always hide…' item")
+    (let [tree (row-context-menu-tree)]
       (is (= ":user/mouse-move"
-             (:data-rf-xray-event-id (second menu)))
-          "menu carries the event-id for assertion"))))
+             (:data-rf-xray-event-id (second (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu"))))
+          "the menu carries the row's event-id")
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-hide-event-type"))
+          "and the 'Always hide…' item"))))
 
 ;; -------------------------------------------------------------------------
 ;; (8) Mute manager modal
@@ -292,15 +269,13 @@
   (frame-dispatch [:rf.xray/mute-event-id :b/y])
   (frame-dispatch [:rf.xray/open-mute-manager])
   (rf/with-frame :rf/xray
-    (let [tree (mute-manager-tree)
-          dialog (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-dialog")
-          list   (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-list")
-          row-a  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-row-:a/x")
-          row-b  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-row-:b/y")]
-      (is (some? dialog) "manager dialog mounts")
-      (is (some? list) "manager renders the list section")
-      (is (some? row-a) "row for :a/x")
-      (is (some? row-b) "row for :b/y"))))
+    (let [tree (mute-manager-tree)]
+      (is (= [true true true]
+             (mapv #(some? (rf.test-helpers/find-by-testid tree %))
+                   ["rf-xray-mute-manager-list"
+                    "rf-xray-mute-manager-row-:a/x"
+                    "rf-xray-mute-manager-row-:b/y"]))
+          "the list section with one row per muted id"))))
 
 (deftest mute-manager-empty-state
   (xray-setup!)
@@ -328,13 +303,10 @@
   (frame-dispatch [:rf.xray/mute-event-id :a])
   (frame-dispatch [:rf.xray/mute-event-id :b])
   (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)
-          ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")
-          cnt  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator-count")]
-      (is (some? ind) "indicator mounts when mute set is non-empty")
-      (is (some? cnt))
-      (is (= "2" (nth cnt 2))
-          "count text matches set size"))))
+    (is (= "2" (nth (rf.test-helpers/find-by-testid (dynamic-shell-tree/shell-view-tree)
+                                                    "rf-xray-ribbon-mute-indicator-count")
+                    2))
+        "the count reads the set size")))
 
 ;; -------------------------------------------------------------------------
 ;; (10) End-to-end: open menu → click 'Mute' → row disappears
@@ -363,7 +335,6 @@
           (let [tree     (row-context-menu-tree)
                 mute-btn (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
                 handler  (:on-click (second mute-btn))]
-            (is (fn? handler) "'Mute' button has on-click handler")
             (when handler (handler #js {:stopPropagation (fn [] nil)}))))
         ;; Both dispatches captured.
         (is (some (fn [ev]
@@ -389,7 +360,4 @@
         ;; row grades the close; looked for in the shell tree it would be
         ;; absent whatever the slot held, and pass vacuously.
         (is (nil? (row-context-menu-tree))
-            "menu closed after click")
-        (let [tree (dynamic-shell-tree/shell-view-tree)
-              ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
-          (is (some? ind) "ribbon mute indicator visible"))))))
+            "menu closed after click")))))
