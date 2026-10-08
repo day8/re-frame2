@@ -1,19 +1,9 @@
 (ns re-frame2-pair-mcp.replace-app-db-test
-  "Unit tests for the replace-app-db tool.
-
-  State injection — replaces a frame's app-db with an arbitrary EDN
-  value via the Tool-Pair `replace-frame-state!` write primitive (an
-  app-only partial map, `{:rf.db/app v}`). Pins:
-
-    - the `--allow-writes` gate (default OFF returns
-      `:rf.error/writes-disabled` without touching the runtime);
-    - the `db` arg parsed as EDN DATA (not host source — the
-      injection-closing posture, same as dispatch);
-    - the runtime envelope passthrough (`app-db-reset!` returns a
-      structured `{:ok? ...}` map)."
+  "The replace-app-db write tool: refused without touching the runtime
+  while `--allow-writes` is off, the `db` value and the frame reach
+  `app-db-reset!` as data, and a non-map runtime answer is an error."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
-            [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
@@ -25,33 +15,22 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; Reset issues `configure-raw-state!` (the raw-state tap signal) BEFORE
-;; `app-db-reset!`. The stub records EVERY form so a test can assert that
-;; ordering. `captured*` holds the LAST recorded form (the app-db-reset!
-;; form, since it runs after the signal) — the single-form assertions
-;; read it. The `configure-raw-state!` eval resolves to the same canned
-;; value (harmless — its result is swallowed). The signal cache is reset
-;; per test so the signal fires freshly.
 (defn- with-captured-eval!
-  ([captured* canned-value body-fn]
-   (with-captured-eval! captured* (atom []) canned-value body-fn))
-  ([captured* forms* canned-value body-fn]
-   (let [orig nrepl/cljs-eval-value
-         run  (fn [form-str]
-                (swap! forms* conj form-str)
-                ;; `captured*` mirrors the LAST app-db-reset! form for
-                ;; the single-form assertions (it overwrites on the
-                ;; signal form first, then the reset form).
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value))
-         stub (fn
-                ([_conn _build-id form-str] (run form-str))
-                ([_conn _build-id form-str _opts] (run form-str)))]
-     (set! nrepl/cljs-eval-value stub)
-     (raw-state/reset-runtime-signal-cache!)
-     (-> (js/Promise.resolve nil)
-         (.then (fn [_] (body-fn)))
-         (.finally (fn [] (tu/restore-eval! stub orig)))))))
+  "Answer every form with `canned-value`, leaving the last one sent (the
+  `app-db-reset!` form, which follows the raw-state signal) in `captured*`."
+  [captured* canned-value body-fn]
+  (let [orig nrepl/cljs-eval-value
+        run  (fn [form-str]
+               (reset! captured* form-str)
+               (js/Promise.resolve canned-value))
+        stub (fn
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- with-writes-on! [body-fn]
   (let [prev (writes/allow-writes-enabled?)]
@@ -60,25 +39,9 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (writes/set-allow-writes! prev))))))
 
-(def ^:private read-result-text tu/extract-edn)
-(def ^:private err? tu/error?)
-
-(defn- quoted-datum
-  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
-  anything else — an unquoted list is a call and an unquoted symbol is a
-  name lookup, so neither yields the datum it was printed from. Reading
-  the emitted `db` argument through this is the difference between
-  pinning printed SYNTAX and pinning what evaluation yields."
-  [form]
-  (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
-    (second form)
-    ::not-quoted))
-
-;; ---------------------------------------------------------------------------
-;; Gate — default OFF.
-;; ---------------------------------------------------------------------------
-
 (deftest gated-off-by-default-without-touching-runtime
+  ;; The corpus fixture answers every eval with nil, so only this test can
+  ;; see a write sent before the refusal.
   (async done
     (let [captured (atom :untouched)
           prev     (writes/allow-writes-enabled?)]
@@ -87,86 +50,14 @@
             (fn []
               (replace-app-db/replace-app-db-tool (fresh-conn) #js {:db "{:k :v}"})))
           (.then (fn [r]
-                   (is (err? r))
-                   (is (= :rf.error/writes-disabled (:reason (read-result-text r))))
+                   (is (tu/error? r))
+                   (is (= :rf.error/writes-disabled (:reason (tu/extract-edn r))))
                    (is (= :untouched @captured) "runtime must NOT be contacted when gated")))
           (.finally (fn [] (writes/set-allow-writes! prev) (done)))))))
 
-;; ---------------------------------------------------------------------------
-;; Raw-state tap signal ordering. `configure-raw-state!` MUST be
-;; evaluated BEFORE `app-db-reset!`, so the runtime's tap-emitting
-;; surface is in its gated (default-elided) posture before the reset taps
-;; the pre-/post-reset app-db. A write-path test FAILS if app-db-reset!
-;; can run first.
-;; ---------------------------------------------------------------------------
-
-(deftest signals-configure-raw-state-before-app-db-reset
-  (async done
-    (let [captured (atom nil)
-          forms    (atom [])]
-      (-> (with-writes-on!
-            (fn []
-              ;; gate OFF (default published posture) — the signal pushes
-              ;; :allow-raw-state? false to the runtime before the reset.
-              (let [prev (raw-state/allow-raw-state-enabled?)]
-                (raw-state/set-allow-raw-state! false)
-                (-> (with-captured-eval! captured forms {:ok? true :frame :rf/default}
-                      (fn []
-                        (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                            #js {:db "{:counter 0}"})))
-                    (.finally (fn [] (raw-state/set-allow-raw-state! prev)))))))
-          (.then (fn [_]
-                   (let [all      @forms
-                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
-                         reset-idx (first (keep-indexed (fn [i f] (when (str/includes? f "app-db-reset!") i)) all))]
-                     (is (some? cfg-idx) "configure-raw-state! IS signalled before the reset")
-                     (is (some? reset-idx) "app-db-reset! is evaluated")
-                     (is (< cfg-idx reset-idx)
-                         "configure-raw-state! MUST be evaluated BEFORE app-db-reset!")
-                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
-                         "the gate-OFF posture is pushed to the runtime ahead of the reset tap"))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; db as EDN data, not host source.
-;; ---------------------------------------------------------------------------
-
-(deftest does-not-execute-host-form-in-db-arg
-  ;; A prompt-injected `(println :pwn)` string is parsed as a LIST
-  ;; literal (data), emitted verbatim as the db value — never executed.
-  ;; The runtime would reject it on schema validation; the point here is
-  ;; the host boundary: it rides as data.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? false :reason :reset-rejected}
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "(println :pwn)"})))))
-          (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)
-                         datum  (quoted-datum (second parsed))]
-                     (is (= 're-frame2-pair.runtime/app-db-reset! (first parsed)))
-                     ;; The injected list rides QUOTED, so it evaluates to
-                     ;; the list it was printed from rather than being
-                     ;; called. Reading the arg back as syntax (`(seq?
-                     ;; (second parsed))`) could not tell those two apart —
-                     ;; both print `(println :pwn)` — which is why this
-                     ;; reads it through `quoted-datum`.
-                     (is (seq? datum))
-                     (is (= '(println :pwn) datum)))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; The `db` value is EXTERNAL EDN, so printing it is not quoting it.
-;; This arm is one a `pr-str` path would fail: it carries a value that
-;; PRINTS the same either way and EVALUATES to something else. The
-;; nested-list and symbol cases are pinned on `rt-quote` itself in
-;; eval-form-test.
-;; ---------------------------------------------------------------------------
-
 (deftest passes-frame-as-second-arg
+  ;; The caller's db rides quoted, so it evaluates to the datum sent; the
+  ;; server-composed frame rides plain.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -176,77 +67,22 @@
                   (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:count 0}" :frame ":stories"})))))
           (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     ;; (rt/app-db-reset! (quote {:count 0}) :stories) —
-                     ;; value 1st, frame 2nd. The frame is composed here,
-                     ;; not supplied, so it stays on the plain print path.
-                     (is (= {:count 0} (quoted-datum (second parsed))))
-                     (is (= :stories (nth parsed 2))))
+                   (is (= '(re-frame2-pair.runtime/app-db-reset! (quote {:count 0}) :stories)
+                          (cljs.reader/read-string @captured)))
                    (done)))))))
 
-(deftest rejects-unreadable-db
+(deftest unexpected-shape-fallback-rides-as-isError
+  ;; A degraded runtime's non-map answer means the write did not land in a
+  ;; known-good shape.
   (async done
     (-> (with-writes-on!
           (fn []
-            (replace-app-db/replace-app-db-tool (fresh-conn) #js {:db "{:a"})))
+            (with-captured-eval! (atom nil) "not-a-map"
+              (fn []
+                (replace-app-db/replace-app-db-tool (fresh-conn)
+                                                    #js {:db "{:counter 0}"})))))
         (.then (fn [r]
-                 (is (err? r))
-                 (is (= :invalid-db-edn (:reason (read-result-text r))))
+                 (is (tu/error? r))
+                 (is (= {:ok? false :reason :unexpected-shape :value "not-a-map" :frame nil}
+                        (tu/extract-edn r)))
                  (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Runtime soft-failure passthrough.
-;; ---------------------------------------------------------------------------
-
-(deftest unexpected-shape-fallback-rides-as-isError
-  ;; A degraded runtime can return a non-map value; the tool synthesises
-  ;; `{:ok? false :reason :unexpected-shape ...}`. That too means the
-  ;; write did not land in a known-good shape, so it MUST ride as an
-  ;; isError result.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured "not-a-map"
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:counter 0}"})))))
-          (.then (fn [r]
-                   (is (err? r) "unexpected-shape fallback rides as isError")
-                   (let [edn (read-result-text r)]
-                     (is (= false (:ok? edn)))
-                     (is (= :unexpected-shape (:reason edn)))
-                     (is (= "not-a-map" (:value edn))))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Cascade summary — a successful reset surfaces the synthetic
-;; `:rf.epoch/db-replaced` epoch via :cascade-summary.
-;; ---------------------------------------------------------------------------
-
-(deftest cascade-summary-passes-through-on-success
-  (async done
-    (let [canned-cascade {:epoch-id 42
-                          :event-id :rf.epoch/db-replaced
-                          :frame :rf/default
-                          :outcome :ok
-                          :db-diff {:added-paths [[:counter]]
-                                    :removed-paths [] :changed-paths []}
-                          :fx-fired []
-                          :subs-recomputed 0
-                          :renders 0}
-          runtime-envelope {:ok? true :frame :rf/default :epoch-id 42
-                            :cascade-summary canned-cascade}]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! (atom nil) runtime-envelope
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:counter 0}"})))))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (true? (:ok? edn)))
-                     (is (= canned-cascade (:cascade-summary edn))
-                         "cascade-summary rides through verbatim"))
-                   (done)))))))
