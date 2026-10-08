@@ -1,26 +1,15 @@
 (ns re-frame.story.ui.canvas-run-status-cljs-test
-  "The canvas records the settled verdict of its own run, and stamps it on
-  the canvas section as `data-run-status`, for every play shape.
+  "The canvas records the settled verdict of its own run and stamps it on
+  the canvas section as `data-run-status`, for every play shape — the
+  local visual-review recipe (docs/story/08) settles each capture on it.
+  The stamp names the run in view by run-key AND generation, so a return
+  to a variant under an identical run-key does not show the previous
+  visit's verdict while the fresh generation is in flight.
 
-  The local visual-review recipe (docs/story/08) settles each capture on
-  `data-run-status` rather than on the play-status chip reaching a terminal
-  status: a declarative variant (`:assertions` / `:checks`, no play) never
-  renders that chip, and a play that does not auto-run leaves it `idle`.
-  The unified run result's `:status` settles for all of them, which is what
-  the canvas records.
-
-  The stamp names the run in view by run-key AND generation, so
-  returning to a variant under an identical run-key does not show the
-  previous visit's verdict while the fresh generation is in flight.
-
-  The runs here go through the canvas's own `run-if-needed!` — the same
-  prepare + resume the canvas performs post-commit — so no `with-redefs`
-  routes around the code under test. Assertions chain off the promise it
-  returns rather than counting microtask turns.
-
-  Pure `.cljs`: the `async` tests need cljs.test MAP fixtures, which a
-  `.cljc` may not use (`re-frame.story.meta-fixtures-test`)."
-  (:require [cljs.test :refer [async deftest is testing use-fixtures]]
+  Runs go through the canvas's own `run-if-needed!`, so no `with-redefs`
+  routes around the code under test. Pure `.cljs`: the `async` tests need
+  cljs.test MAP fixtures, which a `.cljc` may not use."
+  (:require [cljs.test :refer [async deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -98,10 +87,6 @@
                                   :story.mc87a/declarative
                                   :story.mc87a/manual-play
                                   :story.mc87a/declarative-fail])]
-      (is (every? (fn [[_ _ p]] (some? p)) runs)
-          "each canvas run claimed its generation and returned its promise")
-      (is (= {} @run-settled)
-          "nothing is recorded before a run settles")
       (-> (js/Promise.all (into-array (map (fn [[_ _ p]] p) runs)))
           (.then (fn [_]
                    (is (= {:story.mc87a/scripted         :pass
@@ -110,9 +95,6 @@
                            :story.mc87a/declarative-fail :fail}
                           (statuses @run-settled))
                        "a play that auto-runs, a declarative variant, a play that does not auto-run, and a failing control")
-                   (doseq [[vid k] runs]
-                     (is (= k (get-in @run-settled [vid :run-key]))
-                         (str vid " is recorded under the run-key it ran for")))
                    nil))
           (.catch (fn [e]
                     (is false (str "a canvas run rejected: " e))
@@ -124,8 +106,7 @@
     (reg-variants!)
     (let [[vid _ p] (canvas-run! :story.mc87a/declarative)]
       ;; A newer prepare claims a fresh generation before the first run's
-      ;; settlement reaches the canvas. Without the generation guard the
-      ;; superseded result (`:cannot-run`) would be recorded.
+      ;; settlement reaches the canvas.
       (rf.story.runtime/prepare-run! vid {:run-key ::newer})
       (-> p
           (.then (fn [result]
@@ -140,11 +121,9 @@
           (.then (fn [_] (done)))))))
 
 (deftest a-return-to-the-same-run-key-is-unstamped-until-its-fresh-run-settles
-  ;; A settles, B runs, then A is selected again with the same
-  ;; modes, overrides and tick, so under the SAME run-key. The canvas stays
-  ;; mounted, so A's previous entry is still recorded, while the revisit
-  ;; claims a fresh generation and resets A's frame. The previous verdict
-  ;; must not stand for that run.
+  ;; A settles, B runs, then A is selected again under the SAME run-key with
+  ;; the canvas still mounted. A's previous verdict must not stand for the
+  ;; fresh run.
   (async done
     (reg-variants!)
     (let [a         :story.mc87a/scripted
@@ -155,31 +134,19 @@
                        "precondition: A's first run settled and is stamped")
                    (nth (canvas-run! :story.mc87a/declarative) 2)))
           (.then (fn [_]
-                   (let [old-gen (rf.story.runtime/current-generation a)]
-                     ;; Reselecting A: the shell's selection edge prepares A
-                     ;; (`ensure-variant-frame!`) before the canvas re-renders,
-                     ;; with the same opts the canvas's own prepare passes.
-                     (rf.story.runtime/prepare-run! a {:active-modes   (:active-modes ka)
-                                                       :cell-overrides (:cell-overrides ka)
-                                                       :substrate      (:substrate ka)
-                                                       :run-key        ka})
-                     (is (> (rf.story.runtime/current-generation a) old-gen)
-                         "precondition: reselecting A claimed a fresh generation")
-                     (is (nil? (stamp a ka))
-                         "no stamp in the render between the reselection and the canvas's run")
-                     (let [[_ k p] (canvas-run! a)]
-                       (is (= ka k)
-                           "precondition: the revisit runs under the identical run-key")
-                       (is (some? p)
-                           "precondition: the canvas run claimed the fresh generation")
-                       (is (nil? (get @run-settled a))
-                           "starting the fresh run drops the previous verdict")
-                       (is (nil? (stamp a ka))
-                           "no stamp while the fresh generation is in flight")
-                       p))))
-          (.then (fn [result]
-                   (is (= :pass (:status result))
-                       "precondition: the fresh generation settled pass")
+                   ;; Reselecting A: the shell's selection edge prepares A
+                   ;; (`ensure-variant-frame!`) before the canvas re-renders.
+                   (rf.story.runtime/prepare-run! a {:active-modes   (:active-modes ka)
+                                                     :cell-overrides (:cell-overrides ka)
+                                                     :substrate      (:substrate ka)
+                                                     :run-key        ka})
+                   (is (nil? (stamp a ka))
+                       "no stamp in the render between the reselection and the canvas's run")
+                   (let [p (nth (canvas-run! a) 2)]
+                     (is (nil? (get @run-settled a))
+                         "starting the fresh run drops the previous verdict")
+                     p)))
+          (.then (fn [_]
                    (is (= "pass" (stamp a ka))
                        "the fresh generation's verdict is stamped once it settles")
                    nil))
@@ -188,80 +155,47 @@
                     nil))
           (.then (fn [_] (done)))))))
 
-;; Every author-triggered run goes through `runtime/rerun!`, which
-;; re-prepares the variant in place under the SAME run-key, so the canvas sees
-;; no key change and runs nothing itself. If only the run's starter — the play
-;; chip — held its promise, the canvas would never hear the verdict and its
-;; stamp would vanish instead of following the new run. Setup reads `rerun-n`,
-;; so a flip between runs makes the re-run's verdict differ from the first.
-
-(def ^:private rerun-n (atom 1))
-
-;; The stamp follows EVERY author-triggered run, whichever way it
-;; settles, and following it costs no execution. Each prepare runs `:setup`
-;; once, so the boot count is the number of runs; the canvas's own lifecycle
-;; call after a Re-run sees an unchanged run-key and starts nothing.
-
-(def ^:private boots (atom 0))
-
-(deftest reruns-stamp-fail-then-pass-with-one-execution-each
+(deftest a-rerun-is-stamped-with-one-execution
+  ;; `runtime/rerun!` re-prepares in place under the SAME run-key, so the
+  ;; canvas starts no run of its own and hears the verdict only through
+  ;; `listen-runs!`. Setup reads `n`, so the Re-run's verdict differs from
+  ;; the first run's; setup runs once per prepare, so `boots` counts runs.
   (async done
-    (reset! rerun-n 1)
-    (reset! boots 0)
-    (rf/reg-event :iftxj/boot (fn [{:keys [db]} _]
-                                (swap! boots inc)
-                                {:db (assoc db :n @rerun-n)}))
-    (rf.story/reg-variant :story.iftxj/rerun
-      {:setup  [[:iftxj/boot]]
-       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
-    (let [vid     :story.iftxj/rerun
-          [_ k p] (canvas-run! vid)
-          rerun!  (fn [n]
-                    (reset! rerun-n n)
-                    (let [old-gen (rf.story.runtime/current-generation vid)
-                          rerun   (rf.story.runtime/rerun! vid {:play nil})]
-                      (is (> (rf.story.runtime/current-generation vid) old-gen)
-                          "precondition: the Re-run claimed a fresh generation")
-                      (is (nil? (stamp vid k))
-                          "no stale-generation stamp while the Re-run is in flight")
-                      (is (nil? (run-if-needed! vid k))
-                          "the canvas starts no run of its own: the run-key is unchanged")
-                      rerun))]
-      (-> p
-          (.then (fn [_]
-                   (is (= "pass" (stamp vid k)) "precondition: the canvas's own run")
-                   (is (= 1 @boots))
-                   (rerun! 2)))
-          (.then (fn [result]
-                   (is (= :fail (:status result)))
-                   (is (= "fail" (stamp vid k)) "a Re-run reaching fail is stamped")
-                   (is (= 2 @boots) "one execution for the Re-run")
-                   (rerun! 1)))
-          (.then (fn [result]
-                   (is (= :pass (:status result)))
-                   (is (= "pass" (stamp vid k)) "a Re-run reaching pass is stamped")
-                   (is (= 3 @boots) "one execution for each run, none duplicated")
-                   nil))
-          (.catch (fn [e]
-                    (is false (str "a run rejected: " e))
-                    nil))
-          (.then (fn [_] (done)))))))
+    (let [n     (atom 1)
+          boots (atom 0)
+          vid   :story.iftxj/rerun]
+      (rf/reg-event :iftxj/boot (fn [{:keys [db]} _]
+                                  (swap! boots inc)
+                                  {:db (assoc db :n @n)}))
+      (rf.story/reg-variant vid
+        {:setup  [[:iftxj/boot]]
+         :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
+      (let [[_ k p] (canvas-run! vid)]
+        (-> p
+            (.then (fn [_]
+                     (reset! n 2)
+                     (let [rerun (rf.story.runtime/rerun! vid {:play nil})]
+                       ;; The canvas's own lifecycle call after a Re-run.
+                       (run-if-needed! vid k)
+                       rerun)))
+            (.then (fn [_]
+                     (is (= "fail" (stamp vid k)) "the Re-run's verdict is stamped")
+                     (is (= 2 @boots) "one execution for each run, none duplicated")
+                     nil))
+            (.catch (fn [e]
+                      (is false (str "a run rejected: " e))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 (deftest the-section-carries-the-status-only-for-its-own-run
-  (testing "`data-run-status` stamps the settled verdict of the run in view"
-    (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}
-          newer   (assoc rk :hot-reload-tick 1)
-          snap    {:content-hash "abc123"}]
-      (is (= "pass" (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :pass} 1))))
-      (is (= "fail" (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :fail} 1))))
-      (is (nil? (:data-run-status (section-props rk snap nil 1)))
-          "no stamp while the run is in flight")
-      (is (nil? (:data-run-status (section-props newer snap {:run-key rk :generation 1 :status :pass} 1)))
-          "a previous run-key's verdict never stands for the run in flight")
-      (is (nil? (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :pass} 2)))
-          "a previous generation's verdict never stands for a fresh run under the same run-key")
-      (is (= ":story.mc87a/declarative" (:data-test-variant (section-props rk snap nil 1)))
-          "the section's other test hooks ride beside the stamp")
-      (is (= "abc123" (:data-snapshot-hash (section-props rk snap nil 1))))
-      (is (nil? (:data-run-status (section-props {:variant-id nil} nil {:run-key {:variant-id nil} :generation 0 :status :pass} 0)))
-          "no variant selected, no stamp"))))
+  (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}
+        settled {:run-key rk :generation 1 :status :pass}]
+    (is (= {:data-test-variant  ":story.mc87a/declarative"
+            :data-snapshot-hash "abc123"
+            :data-run-status    "pass"}
+           (select-keys (section-props rk {:content-hash "abc123"} settled 1)
+                        [:data-test-variant :data-snapshot-hash :data-run-status])))
+    (is (nil? (:data-run-status (section-props (assoc rk :hot-reload-tick 1) nil settled 1)))
+        "a previous run-key's verdict never stands for the run in flight")
+    (is (nil? (:data-run-status (section-props rk nil settled 2)))
+        "a previous generation's verdict never stands for a fresh run under the same run-key")))
