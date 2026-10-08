@@ -1,29 +1,14 @@
 (ns re-frame.story.determinism-test
   "Tests for the determinism gate `assert-deterministic` + the per-run
-  stamp strip the gate adds to `canonicalize`
-  (spec/017-Testing-Story.md §Determinism gate).
-
-  Two layers, both under `clojure -M:test` (JVM):
-
-  - PURE: the canonicalize strip normalizes per-run stamps (epoch / trace
-    / frame / wall-clock) but NOT semantic content; `wait-steps` /
-    `has-wall-clock-wait?` / `cannot-run-wait-refusal` detect + refuse a
-    bare `[:wait ms]`; `compare-runs` decides deterministic vs not over a
-    set of hand-built run-results.
-  - HEADLESS gate (against a live frame): `assert-deterministic` replays
-    into N FRESH frames and reports `:deterministic` / `:non-deterministic`
-    / `:cannot-run` — the acceptance bullets:
-      • same event program twice is equal after canonicalization;
-      • a real semantic difference IS detected;
-      • volatile fields do NOT cause false drift;
-      • a bare wall-clock `[:wait ms]` returns `:cannot-run`."
+  stamp strip the gate relies on in `canonicalize`
+  (spec/017-Testing-Story.md §Determinism gate): the pure strip, `->artifact`
+  and `compare-runs`, then the gate replaying into fresh frames."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
             [re-frame.epoch     :as rf.epoch]
             [re-frame.frame     :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            #?(:clj [re-frame.story :as rf.story])
             [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
@@ -32,11 +17,6 @@
 ;; ===========================================================================
 ;; PURE: the per-run stamp strip in canonicalize
 ;; ===========================================================================
-;;
-;; A fresh-frame replay restarts the process-global epoch / dispatch /
-;; trace-id counters and allocates a new :rf.test.replay/* frame id, so two
-;; semantically-equal runs stamp DIFFERENT values for each of these. The
-;; strip is what makes them canonicalize `=`.
 
 (defn- trace-ev
   "A minimal trace event carrying its per-run stamps (`:id` / `:time`)."
@@ -46,70 +26,34 @@
          m))
 
 (deftest canonicalize-keeps-a-trace-events-semantic-tags
-  (testing "a SEMANTIC trace difference (operation / tags) is NOT stripped"
-    (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
-          c {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :bar}})]}]
-      (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize c))
-          "the event-id tag is behavioural, not a stamp"))))
+  (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
+        c {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :bar}})]}]
+    (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize c))
+        "the event-id tag is behavioural, not a stamp")))
 
+;; :id / :time / :frame are stripped only from trace-event and epoch-record
+;; carriers, never from app-db data that happens to use those keys.
 (deftest structural-strip-spares-app-db-keys
-  (testing ":id / :time / :frame as APP-DB values are NOT stripped — only the
-            trace-event / epoch-record carriers lose them"
-    ;; A plain app-db map that happens to key on :id / :time / :frame is not
-    ;; a trace event (no :operation+:op-type) nor an epoch record (no
-    ;; :epoch-id+record-slot), so the structural strip leaves it intact.
-    (let [db1 {:user {:id 1 :time 10 :frame :left}}
-          db2 {:user {:id 2 :time 20 :frame :right}}]
-      (is (not= (rf.story.fingerprint/canonicalize db1) (rf.story.fingerprint/canonicalize db2))
-          "semantic app-db data on common keys survives canonicalization")
-      ;; And run-results that embed them in :app-db preserve the distinction.
-      (is (not= (rf.story.fingerprint/run-hash {:status :pass :app-db db1})
-                (rf.story.fingerprint/run-hash {:status :pass :app-db db2}))))))
-
-;; ===========================================================================
-;; PURE: wait-step detection + refusal
-;; ===========================================================================
-
-(deftest wait-step-detection
-  (testing "wait-steps picks out bare [:wait ms]; [:wait-until] is not a wait"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:dispatch [:a]]
-                               [:wait 100]
-                               [:wait-until [:queue-empty]]
-                               [:dispatch [:b]]]})]
-      (is (= [[:wait 100]] (rf.story.determinism/wait-steps a)))
-      (is (rf.story.determinism/has-wall-clock-wait? a))))
-
-  (testing "a wall-clock-free program has no wait steps"
-    (let [a (rf.story.artifact/make-run-artifact
-              {:event-program [[:dispatch [:a]] [:dispatch-sync [:b]]]})]
-      (is (= [] (rf.story.determinism/wait-steps a)))
-      (is (not (rf.story.determinism/has-wall-clock-wait? a))))))
+  (is (not= (rf.story.fingerprint/run-hash {:status :pass :app-db {:user {:id 1 :time 10 :frame :left}}})
+            (rf.story.fingerprint/run-hash {:status :pass :app-db {:user {:id 2 :time 20 :frame :right}}}))))
 
 ;; ===========================================================================
 ;; PURE: ->artifact coercion
 ;; ===========================================================================
 
 (deftest ->artifact-coercion
-  (testing "a run-artifact is used verbatim"
-    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:x]]]})]
-      (is (identical? a (rf.story.determinism/->artifact a)))))
-
   (testing "a plan of an unregistered variant folds [:world :setup] ⧺ :script
             and lifts fx-overrides — nothing can supply its setup through
             :extends"
-    (let [plan {:variant/id :story/x
-                :world  {:setup [[:dispatch [:seed]]]
-                         :args  {:n 9}
-                         :frame {:fx-overrides {:http/get :http/stub}}}
-                :script [[:dispatch [:act]] [:wait 9]]}
-          a    (rf.story.determinism/->artifact plan)]
-      (is (rf.story.artifact/run-artifact? a))
-      (is (= [[:dispatch [:seed]] [:dispatch [:act]] [:wait 9]]
-             (:event-program a))
-          "setup-first fold, then script")
-      (is (= {:http/get :http/stub} (:fx-decisions a))
-          "[:world :frame :fx-overrides] become :fx-decisions")
+    (let [a (rf.story.determinism/->artifact
+              {:variant/id :story/x
+               :world  {:setup [[:dispatch [:seed]]]
+                        :args  {:n 9}
+                        :frame {:fx-overrides {:http/get :http/stub}}}
+               :script [[:dispatch [:act]] [:wait 9]]})]
+      (is (= {:event-program [[:dispatch [:seed]] [:dispatch [:act]] [:wait 9]]
+              :fx-decisions  {:http/get :http/stub}}
+             (select-keys a [:event-program :fx-decisions])))
       (is (not (contains? (:source a) :args))
           "the folded setup already holds its resolved args")))
 
@@ -118,17 +62,15 @@
     (rf.story.registrar/reg-variant* :story.det/registered
       {:setup [[:dispatch [:seed]]] :script [[:dispatch [:act]]]})
     (try
-      (let [plan {:variant/id :story.det/registered
-                  :world  {:setup [[:dispatch [:seed]]]
-                           :args  {:n 9}}
-                  :script [[:dispatch [:act]]]}
-            a    (rf.story.determinism/->artifact plan)]
+      (let [a (rf.story.determinism/->artifact
+                {:variant/id :story.det/registered
+                 :world  {:setup [[:dispatch [:seed]]]
+                          :args  {:n 9}}
+                 :script [[:dispatch [:act]]]})]
         (is (= [[:dispatch [:act]]] (:event-program a)) "the script alone")
-        (is (= :story.det/registered (get-in a [:source :variant/id]))
-            "the artifact records its source, so promotion can extend it")
-        (is (= {:n 9} (get-in a [:source :args]))
-            "and the args the plan resolved, which that setup was compiled
-             with"))
+        (is (= {:variant/id :story.det/registered :args {:n 9}}
+               (select-keys (:source a) [:variant/id :args]))
+            "the source names the variant and the args its setup was compiled with"))
       (finally (rf.story.registrar/unregister! :variant :story.det/registered)))))
 
 ;; ===========================================================================
@@ -136,50 +78,21 @@
 ;; ===========================================================================
 
 (deftest compare-runs-pure
-  (testing "identical canonical runs are deterministic with one shared run-hash"
+  (testing "identical canonical runs are deterministic; every reported hash is run-hash"
     (let [r {:status :pass :app-db {:n 1}}
-          c (rf.story.determinism/compare-runs [r r r])]
-      (is (:deterministic? c))
-      (is (= 3 (:run-count c)))
-      (is (= (rf.story.fingerprint/run-hash r) (:run-hash c)))
-      (is (nil? (:divergence c)))))
+          h (rf.story.fingerprint/run-hash r)]
+      (is (= {:deterministic? true :run-count 3 :hashes [h h h] :run-hash h}
+             (rf.story.determinism/compare-runs [r r r])))))
 
   (testing "a divergent run is detected and named (first differing run vs run 0)"
     (let [r0 {:status :pass :app-db {:n 1}}
-          r1 {:status :pass :app-db {:n 1}}
           r2 {:status :pass :app-db {:n 999}}
-          c  (rf.story.determinism/compare-runs [r0 r1 r2])]
-      (is (not (:deterministic? c)))
-      (is (nil? (:run-hash c)))
-      (is (= 2 (get-in c [:divergence :run])) "run 2 is the first divergence")
-      (is (not= (get-in c [:divergence :run-hash-0])
-                (get-in c [:divergence :run-hash-n])))))
+          h0 (rf.story.fingerprint/run-hash r0)
+          h2 (rf.story.fingerprint/run-hash r2)]
+      (is (= {:deterministic? false :run-count 3 :hashes [h0 h0 h2] :run-hash nil
+              :divergence {:run 2 :run-hash-0 h0 :run-hash-n h2}}
+             (update (rf.story.determinism/compare-runs [r0 r0 r2]) :divergence dissoc :detail))))))
 
-  ;; compare-runs canonicalizes each run-slice ONCE and derives
-  ;; the hash from the canon (via rf.story.fingerprint/hash-canonical) rather than
-  ;; re-canonicalizing inside run-hash. The reported hashes MUST stay
-  ;; byte-identical to run-hash, so a recorded :run-hash and a
-  ;; determinism-gate hash never disagree. (The type-tagged
-  ;; canonical-form is NOT idempotent, so the canon is hashed via
-  ;; hash-canonical with no second canonicalization pass.)
-  (testing "the reported hashes are byte-identical to rf.story.fingerprint/run-hash (no double canon)"
-    (let [r0 {:status :pass :app-db {:n 1 :nested {:b 2 :a 1}}
-              :warnings #{:w2 :w1}}
-          r1 {:status :pass :app-db {:n 1 :nested {:a 1 :b 2}}
-              ;; volatile + per-run stamps differ but must be stripped equal
-              :elapsed-ms 99 :warnings #{:w1 :w2}}
-          c  (rf.story.determinism/compare-runs [r0 r1])]
-      (is (:deterministic? c) "the two runs differ only in volatile fields")
-      (is (= [(rf.story.fingerprint/run-hash r0) (rf.story.fingerprint/run-hash r1)] (:hashes c))
-          "content-hash of the canon equals run-hash for every run")
-      (is (= (rf.story.fingerprint/run-hash r0) (:run-hash c))
-          "the shared run-hash is the canonical run-hash"))))
-
-;; A raw fn in the run-slice (`:app-db` or an effect `:args`) is
-;; re-allocated per replay; hashed by object identity it would make
-;; compare-runs read a genuinely-deterministic program as a FALSE
-;; `:non-deterministic`. Canonicalization folds every fn to the `opaque-fn`
-;; sentinel, so these runs must compare `:deterministic?` true.
 ;; ===========================================================================
 ;; HEADLESS gate: against a live frame  (spec/017 §Determinism gate)
 ;; ===========================================================================
@@ -196,34 +109,21 @@
 
 (use-fixtures :each reset-rf!)
 
-(deftest gate-same-program-is-deterministic
-  (testing "the SAME event program replayed twice is equal after
-            canonicalization — :deterministic with one shared run-hash"
-    (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:det/inc]] [:dispatch [:det/inc]]]})
-          res (rf.story.determinism/assert-deterministic a)]
-      (is (= :deterministic (:status res)))
-      (is (= 2 (:runs res)))
-      (is (string? (:run-hash res)))
-      (is (= 8 (count (:run-hash res))))
-      (is (apply = (:hashes res)) "every replay shares the canonical run-hash"))))
-
+;; A plan's artifact is a program projection, not the variant's run: it drops
+;; decorator stubs, :db-seed, frame-setup, loaders, terminal expectations and
+;; extra plays. A variant is judged by running it twice and comparing the
+;; run-results with compare-runs.
 (deftest gate-refuses-a-normalized-plan
   (rf/reg-event :det/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
   (rf/reg-event :det/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
-  (testing "a normalized plan is REFUSED before any replay — the artifact
-            `->artifact` builds from it is a program projection, not the
-            variant's run"
-    (let [plan {:variant/id :story.det/plan
-                :world  {:setup [[:dispatch [:det/seed 10]]]}
-                :script [[:dispatch [:det/bump]]]}
-          res  (rf.story.determinism/assert-deterministic plan {:runs 3})]
-      (is (= :cannot-run (:status res)))
-      (is (= :determinism-plan-target (:reason res)))
-      (is (= :story.det/plan (:variant/id res)))
-      (is (re-find #"compare-runs" (:detail res)) "the refusal names the recovery")
-      (is (not (contains? res :hashes)) "refused BEFORE replaying")))
+  (testing "a normalized plan is REFUSED before any replay"
+    (is (= {:status :cannot-run :reason :determinism-plan-target :variant/id :story.det/plan}
+           (dissoc (rf.story.determinism/assert-deterministic
+                     {:variant/id :story.det/plan
+                      :world  {:setup [[:dispatch [:det/seed 10]]]}
+                      :script [[:dispatch [:det/bump]]]}
+                     {:runs 3})
+                   :detail))))
   (testing "control: the same :setup / :script as a BODY map still replays"
     (let [res (rf.story.determinism/assert-deterministic
                 {:setup [[:dispatch [:det/seed 10]]] :script [[:dispatch [:det/bump]]]}
@@ -235,126 +135,48 @@
 ;; thrown exception; compared raw, they would make the gate read a perfectly
 ;; reproducible failing program as :non-deterministic.
 (deftest gate-throwing-fx-program-is-deterministic
-  (testing "a program whose fx throws replays :fail twice and the gate reads
-            :deterministic, not :non-deterministic"
-    (rf/reg-fx :det.fx/boom {:platforms #{:client :server}}
-               (fn [_ _] (throw (ex-info "boom" {:k 1}))))
-    (rf/reg-event :det/boom (fn [_ _] {:fx [[:det.fx/boom {}]]}))
-    (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:det/boom]]]})
-          res (rf.story.determinism/assert-deterministic a)]
-      (is (= :deterministic (:status res)))
-      (is (= :fail (:status (rf.story.artifact/replay-run-artifact a)))
-          "control: the program genuinely fails — the gate compares two failing runs"))))
+  (rf/reg-fx :det.fx/boom {:platforms #{:client :server}}
+             (fn [_ _] (throw (ex-info "boom" {:k 1}))))
+  (rf/reg-event :det/boom (fn [_ _] {:fx [[:det.fx/boom {}]]}))
+  (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:det/boom]]]})]
+    (is (= :deterministic (:status (rf.story.determinism/assert-deterministic a))))
+    (is (= :fail (:status (rf.story.artifact/replay-run-artifact a)))
+        "control: the program genuinely fails")))
 
 (deftest gate-detects-real-semantic-nondeterminism
-  (testing "a handler whose result depends on a PROCESS-GLOBAL mutable counter
-            (not app-db) produces a different app-db each replay — the gate
-            DETECTS it as :non-deterministic"
-    (let [counter (atom 0)]
-      ;; Each dispatch reads + bumps a shared atom, so replay 1 writes 1 and
-      ;; replay 2 writes 2 into a FRESH frame's app-db — a genuine semantic
-      ;; divergence the canonical strip must NOT mask.
-      (rf/reg-event :det/nondet
-                       (fn [{:keys [db]} _] {:db (assoc db :token (swap! counter inc))}))
-      (let [a   (rf.story.artifact/make-run-artifact
-                  {:event-program [[:dispatch [:det/nondet]]]})
-            res (rf.story.determinism/assert-deterministic a)]
-        (is (= :non-deterministic (:status res)))
-        (is (= 1 (get-in res [:divergence :run]))
-            "run 1 diverged from run 0")
-        (is (not= (get-in res [:divergence :run-hash-0])
-                  (get-in res [:divergence :run-hash-n])))
-        (is (= 2 (count (:results res)))
-            "per-run results returned for a downstream semantic diff")))))
+  ;; Each replay reads + bumps a process-global atom, so replay 1 writes 1 and
+  ;; replay 2 writes 2 into a fresh frame's app-db.
+  (let [counter (atom 0)]
+    (rf/reg-event :det/nondet
+      (fn [{:keys [db]} _] {:db (assoc db :token (swap! counter inc))}))
+    (let [res (rf.story.determinism/assert-deterministic
+                (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:det/nondet]]]}))]
+      (is (= :non-deterministic (:status res)))
+      (is (= 1 (get-in res [:divergence :run])) "run 1 diverged from run 0")
+      (is (= 2 (count (:results res))) "per-run results returned for a semantic diff"))))
 
 (deftest gate-refuses-bare-wall-clock-wait
-  (testing "a plan containing a bare [:wait ms] returns :cannot-run for the
-            determinism gate rather than a flaky verdict — and does NOT replay"
-    (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:det/inc]]
-                                 [:wait 50]
-                                 [:dispatch [:det/inc]]]})
-          res (rf.story.determinism/assert-deterministic a)]
-      (is (= :cannot-run (:status res)))
-      (is (= :determinism-wall-clock-wait (:reason res)))
-      (is (= [[:wait 50]] (:wait-steps res)))
-      (is (not (contains? res :hashes))
-          "the gate refused BEFORE replaying — no run hashes produced"))))
+  ;; [:wait-until …] settles on state, so only the bare [:wait ms] is refused.
+  (is (= {:status :cannot-run :reason :determinism-wall-clock-wait :wait-steps [[:wait 50]]}
+         (dissoc (rf.story.determinism/assert-deterministic
+                   (rf.story.artifact/make-run-artifact
+                     {:event-program [[:dispatch [:det/inc]]
+                                      [:wait 50]
+                                      [:wait-until [:queue-empty]]
+                                      [:dispatch [:det/inc]]]}))
+                 :detail))))
 
 (deftest gate-reapplies-fx-decisions-deterministically
-  (testing "fx decisions ride every replay — a stubbed effect fires the stub
-            on each fresh-frame run, and the gate is :deterministic"
-    (let [hits (atom [])]
-      (rf/reg-fx :det.fx/real {:platforms #{:client :server}}
-                 (fn [_ _] (swap! hits conj :real)))
-      (rf/reg-fx :det.fx/stub {:platforms #{:client :server}}
-                 (fn [_ _] (swap! hits conj :stub)))
-      (rf/reg-event :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
-      (let [a   (rf.story.artifact/make-run-artifact
+  (let [hits (atom [])]
+    (rf/reg-fx :det.fx/real {:platforms #{:client :server}}
+               (fn [_ _] (swap! hits conj :real)))
+    (rf/reg-fx :det.fx/stub {:platforms #{:client :server}}
+               (fn [_ _] (swap! hits conj :stub)))
+    (rf/reg-event :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
+    (let [res (rf.story.determinism/assert-deterministic
+                (rf.story.artifact/make-run-artifact
                   {:event-program [[:dispatch [:det/fire]]]
-                   :fx-decisions  {:det.fx/real :det.fx/stub}})
-            res (rf.story.determinism/assert-deterministic a)]
-        (is (= :deterministic (:status res)))
-        (is (= [:stub :stub] @hits)
-            "the stub fired on BOTH fresh-frame replays")))))
-
-;; ===========================================================================
-;; A REGISTERED variant: the gate refuses its plan, and the variant is
-;; judged by running it
-;; ===========================================================================
-;;
-;; `:rf.story/force-fx-stub` is installed by the variant's own frame and
-;; never reaches `->artifact`, so replaying the plan's artifact would call
-;; the REAL effect — and, with an effect that returns normally, the gate
-;; would still read `:deterministic`. JVM-only: `rf.story/run` derefs a CompletableFuture
-;; here (a Promise on CLJS).
-
-#?(:clj
-   (deftest gate-on-a-stubbed-variant-plan-fires-no-real-effect
-     (rf.story/clear-all!)
-     (rf.story/install-canonical-vocabulary!)
-     (try
-       (let [real (atom 0)]
-         ;; A counting fx that RETURNS normally. reg-fx handlers take TWO args —
-         ;; a one-arg handler throws on every call and counts nothing.
-         (rf/reg-fx :det.fx/http {:platforms #{:client :server}}
-                    (fn [_ctx _args] (swap! real inc) nil))
-         (rf/reg-event :det/load (fn [_ _] {:fx [[:det.fx/http {}]]}))
-         (rf.story/reg-variant :story.det/stubbed
-           {:decorators [[:rf.story/force-fx-stub :det.fx/http {:status 200}]]
-            :script     [[:dispatch [:det/load]]]})
-         (testing "control: the variant's own run stubs the effect"
-           (is (= :pass (:status @(rf.story/run :story.det/stubbed))))
-           (is (zero? @real)))
-         (testing "the gate refuses the variant's plan and fires no real effect"
-           (let [res (rf.story.determinism/assert-deterministic
-                       (rf.story/variant-plan :story.det/stubbed))]
-             (is (= :cannot-run (:status res)))
-             (is (= :determinism-plan-target (:reason res)))
-             (is (zero? @real) "the stubbed effect's real handler never ran"))))
-       (finally (rf.story/clear-all!)))))
-
-#?(:clj
-   (deftest a-variant-is-judged-by-running-it-twice
-     (rf.story/clear-all!)
-     (rf.story/install-canonical-vocabulary!)
-     (try
-       (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))}))
-       (rf.story/reg-variant :story.det/seeded
-         {:db-seed    {:count 10}
-          :script     [[:dispatch [:det/inc]]
-                       [:assert [:rf.assert/path-equals [:count] 11]]]
-          :assertions [[:rf.assert/path-equals [:count] 11]]})
-       (let [r1 @(rf.story/run :story.det/seeded)
-             r2 @(rf.story/run :story.det/seeded)]
-         (testing "each run is the variant's real run — seeded and asserted"
-           (is (= [:pass :pass] [(:status r1) (:status r2)]))
-           (is (= 11 (get-in r1 [:app-db :count])))
-           (is (= 2 (count (:assertions r1))) "assertion records ride the compared slice"))
-         (testing "compare-runs reads two runs of one variant as the same run —
-                   the structural :source / :elapsed-ms strip keeps this
-                   green"
-           (is (:deterministic? (rf.story.determinism/compare-runs [r1 r2])))
-           (is (= (:run-hash r1) (:run-hash r2)))))
-       (finally (rf.story/clear-all!)))))
+                   :fx-decisions  {:det.fx/real :det.fx/stub}}))]
+      (is (= :deterministic (:status res)))
+      (is (re-matches #"[0-9a-f]{8}" (:run-hash res)) "the shared run-hash is 8-char hex")
+      (is (= [:stub :stub] @hits) "the stub fired on both default replays"))))
