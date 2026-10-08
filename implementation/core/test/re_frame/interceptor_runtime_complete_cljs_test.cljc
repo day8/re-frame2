@@ -1,32 +1,9 @@
 (ns re-frame.interceptor-runtime-complete-cljs-test
-  "EP-0022 — the runtime of the registered-interceptor surface.
-  Adversarial coverage for its pieces:
-
-    1. Standard `:rf.interceptor/path` FULL contract (Spec 002 §Standard
-       `:rf.interceptor/path` rules 1-5), especially RULE 4: an unchanged
-       focused slice widens back to the ORIGINAL full app-db OBJECT, so the
-       frame-commit `identical?` no-op survives end-to-end
-       through a real dispatch + commit. Plus rule 3 (no-`:db` → no synthetic
-       `:db`), root path `[]`, and `:rf.error/path-interceptor-bad-path` on a
-       non-vector arg. Rule 5 (a changed slice widens) and nested paths are
-       pinned by `re-frame.interceptor-test`.
-
-    2. `:interceptor-overrides` EXACT-reference matching (Spec 002
-       §`:interceptor-overrides`): a parameterized `[id arg]` override matches
-       ONLY the exact reference and NOT a sibling `[id other-arg]`, a standard
-       path ref is removable by its exact reference, and
-       `:rf.error/interceptor-override-invalid` fires on a malformed key.
-       Bare-keyword remove + replace are pinned by
-       `re-frame.interceptor-override-summary-trace-test`.
-
-    3. The interceptor-registry resolution seams: `resolve-chain`,
-       `chain-needs-resolution?` and `resolve-factory`, called directly.
-       `re-frame.interceptor/->interceptor*` is the internal lowering
-       constructor (public authoring is `reg-interceptor`); its output
-       registering and running by ref is pinned by `re-frame.interceptor-test`.
-
-  Dual-runtime (.cljc): runs on JVM (`clojure -M:test`) and CLJS
-  (`npm run test:cljs`)."
+  "The registered-interceptor runtime on both hosts: the standard
+  `:rf.interceptor/path` contract (Spec 002 rules 3 and 4, the root path, the
+  bad-path error; rule 5 and nesting are in `re-frame.interceptor-test`),
+  exact-reference `:interceptor-overrides`, and the registry's chain and
+  factory resolution failures."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -39,283 +16,108 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ===========================================================================
-;; PIECE 1 — standard :rf.interceptor/path FULL contract
-;; ===========================================================================
+(defn- ex-data-of
+  "The ex-data `f` throws, or nil when it returns."
+  [f]
+  (try (f)
+       nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e
+         (ex-data e))))
+
+;; ---- standard :rf.interceptor/path -----------------------------------------
 
 (deftest path-unchanged-db-keeps-the-app-db-object-identical
-  (testing "RULE 4 (an unchanged focused slice widens back to the ORIGINAL full
-            app-db object) and RULE 3 (no `:db` effect → no synthetic `:db`):
-            the frame-commit `identical?` no-op survives end-to-end through a
-            real dispatch + commit"
-    (doseq [[label path seed handler]
-            [;; A focused handler that returns its slice UNCHANGED (the same
-             ;; object it received) — the canonical no-op focused-handler
-             ;; pattern, so rule 4 must re-emit the original full app-db object.
-             ["RULE 4: the [:cart] slice returned unchanged" [:cart]
-              (fn [db] (assoc db :cart {:items [:milk :eggs]}))
-              (fn [{:keys [db]} _] {:db db})]
-             ;; No :db effect at all (just an empty effect map).
-             ["RULE 3: a [:cart]-focused handler emitting no :db effect" [:cart]
-              (fn [db] (assoc db :cart {:items [:x]}))
-              (fn [_ _] {})]
-             ;; The root path [] focuses the whole app-db.
-             ["RULE 4 at the root path []" []
-              (fn [db] (assoc db :x 1))
-              (fn [{:keys [db]} _] {:db db})]]]
-      (testing label
-        (rf/reg-event :noop-path/seed (fn [{:keys [db]} _] {:db (seed db)}))
-        (rf/reg-event :noop-path/touch
-          {:interceptors [[:rf.interceptor/path path]]}
-          handler)
-        (rf/dispatch-sync [:noop-path/seed])
-        (let [before (rf/app-db-value :rf/default)]
-          (rf/dispatch-sync [:noop-path/touch])
-          (is (identical? before (rf/app-db-value :rf/default))
-              "the frame-commit identical? no-op held: nothing was written, so the
-               commit boundary skipped the container write"))))))
+  ;; Rule 4 (an unchanged slice re-emits the original app-db object) and rule 3
+  ;; (no `:db` effect, no synthetic one) keep the commit's `identical?` no-op.
+  (doseq [[label handler] [["rule 4: the slice returned unchanged" (fn [{:keys [db]} _] {:db db})]
+                           ["rule 3: no :db effect" (fn [_ _] {})]]]
+    (testing label
+      (rf/reg-event :noop-path/seed
+        (fn [{:keys [db]} _] {:db (assoc db :cart {:items [:milk :eggs]})}))
+      (rf/reg-event :noop-path/touch
+        {:interceptors [[:rf.interceptor/path [:cart]]]}
+        handler)
+      (rf/dispatch-sync [:noop-path/seed])
+      (let [before (rf/app-db-value :rf/default)]
+        (rf/dispatch-sync [:noop-path/touch])
+        (is (identical? before (rf/app-db-value :rf/default)))))))
 
 (deftest path-root-path-focuses-whole-db
-  (testing "the root path [] focuses the whole app-db"
-    (rf/reg-event :root/seed
-      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (rf/reg-event :root/assoc
-      {:interceptors [[:rf.interceptor/path []]]}
-      (fn [{:keys [db]} _]
-        ;; db is the whole app-db (root focus).
-        {:db (assoc db :root-wrote? true)}))
-    (rf/dispatch-sync [:root/seed])
-    (rf/dispatch-sync [:root/assoc])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (and (:seeded? db) (:root-wrote? db))
-          "root focus saw + wrote the whole db"))))
+  (rf/reg-event :root/seed
+    (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
+  (rf/reg-event :root/assoc
+    {:interceptors [[:rf.interceptor/path []]]}
+    (fn [{:keys [db]} _] {:db (assoc db :root-wrote? true)}))
+  (rf/dispatch-sync [:root/seed])
+  (rf/dispatch-sync [:root/assoc])
+  (let [db (rf/app-db-value :rf/default)]
+    (is (and (:seeded? db) (:root-wrote? db))
+        "the root focus saw and wrote the whole db")))
 
 (deftest path-bad-path-arg-is-structured-error
-  (testing ":rf.error/path-interceptor-bad-path for a non-vector path argument"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-          #":rf.error/path-interceptor-bad-path"
-          (rf/reg-event :bad/path
-            {:interceptors [[:rf.interceptor/path :not-a-vector]]}
-            (fn [{:keys [db]} _] {:db db})))
-        "registration resolves the path ref + the factory rejects the non-vector arg")))
+  (is (thrown-with-msg?
+        #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+        #":rf.error/path-interceptor-bad-path"
+        (rf/reg-event :bad/path
+          {:interceptors [[:rf.interceptor/path :not-a-vector]]}
+          (fn [{:keys [db]} _] {:db db})))))
 
-;; ===========================================================================
-;; PIECE 2 — :interceptor-overrides exact-reference matching
-;; ===========================================================================
+;; ---- :interceptor-overrides exact-reference matching -----------------------
 
 (deftest override-matches-exact-parameterized-ref-not-a-sibling
-  (testing "a parameterized [id arg] override matches ONLY the exact reference"
-    ;; A logging factory keyed by its arg so we can observe which instances ran.
-    (rf/reg-interceptor :ov/tag
-      {:factory (fn [tag]
-                  {:before (fn [ctx]
-                             (update-in ctx [:coeffects :db ::seen]
-                                        (fnil conj []) tag))})})
-    (rf/reg-event :ov/run
-      {:interceptors [[:ov/tag :a]
-                      [:ov/tag :b]]}
-      (fn [{:keys [db]} _] {:db db}))
-
-    ;; Remove ONLY [:ov/tag :a]; [:ov/tag :b] must survive.
-    (rf/dispatch-sync [:ov/run] {:interceptor-overrides {[:ov/tag :a] nil}})
-    (let [seen (::seen (rf/app-db-value :rf/default))]
-      (is (= [:b] seen)
-          "the exact [:ov/tag :a] reference was removed; the sibling [:ov/tag :b] survived"))))
+  (rf/reg-interceptor :ov/tag
+    {:factory (fn [tag]
+                {:before (fn [ctx]
+                           (update-in ctx [:coeffects :db ::seen] (fnil conj []) tag))})})
+  (rf/reg-event :ov/run
+    {:interceptors [[:ov/tag :a]
+                    [:ov/tag :b]]}
+    (fn [{:keys [db]} _] {:db db}))
+  (rf/dispatch-sync [:ov/run] {:interceptor-overrides {[:ov/tag :a] nil}})
+  (is (= [:b] (::seen (rf/app-db-value :rf/default)))
+      "only the exact [:ov/tag :a] reference was removed"))
 
 (deftest override-malformed-key-is-structured-error
-  (testing ":rf.error/interceptor-override-invalid for a malformed override key"
-    (rf/reg-interceptor :ov/ok {:before identity})
-    (rf/reg-event :ov/run3
-      {:interceptors [:ov/ok]}
-      (fn [{:keys [db]} _] {:db db}))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-          #":rf.error/interceptor-override-invalid"
-          ;; A string key is neither a keyword id nor an [id arg] ref.
-          (rf/dispatch-sync [:ov/run3] {:interceptor-overrides {"not-a-ref" nil}})))))
+  (rf/reg-interceptor :ov/ok {:before identity})
+  (rf/reg-event :ov/run3
+    {:interceptors [:ov/ok]}
+    (fn [{:keys [db]} _] {:db db}))
+  (is (thrown-with-msg?
+        #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+        #":rf.error/interceptor-override-invalid"
+        (rf/dispatch-sync [:ov/run3] {:interceptor-overrides {"not-a-ref" nil}}))))
 
-(deftest override-on-standard-path-by-exact-ref
-  (testing "a standard [:rf.interceptor/path …] ref is removable by its exact reference"
-    (rf/reg-event :ov/seed
-      (fn [{:keys [db]} _] {:db (assoc db :cart {:items []})}))
-    ;; A single [:cart]-focused handler. With the path interceptor present, `db`
-    ;; is the FOCUSED [:cart] slice (a map) → it `assoc`s :items. With the path
-    ;; interceptor REMOVED by the exact-ref override, `db` is the FULL app-db (a
-    ;; map containing :cart) → the same assoc writes a TOP-LEVEL :items instead,
-    ;; leaving :cart untouched. The two outcomes are distinguishable.
-    (rf/reg-event :ov/add
-      {:interceptors [[:rf.interceptor/path [:cart]]]}
-      (fn [{:keys [db]} _] {:db (assoc db :items [:added])}))
-    (rf/dispatch-sync [:ov/seed])
-    ;; Remove the [:cart] path interceptor by EXACT reference.
-    (rf/dispatch-sync [:ov/add]
-                      {:interceptor-overrides {[:rf.interceptor/path [:cart]] nil}})
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= [:added] (:items db))
-          "with the path interceptor removed, the handler saw the FULL db and wrote top-level :items")
-      (is (= {:items []} (:cart db))
-          "the [:cart] slice was NOT focused/spliced — the exact-ref override removed the path interceptor"))))
+;; ---- registry resolution ---------------------------------------------------
 
-;; Public authoring is `reg-interceptor` — its return id and registered
-;; handler-meta are pinned by `re-frame.reg-interceptor-cljs-test`'s
-;; `reg-interceptor-each-descriptor-form` — and the facade's lack of
-;; `->interceptor*` by `re-frame.facade-internal-constructors-cljs-test`.
+(deftest resolve-chain-rejects-inline-values-and-malformed-entries
+  ;; `make-frame` validates a frame's `:interceptors` chain through
+  ;; `resolve-chain`, so these are the frame-chain errors; `reg-event` rejects
+  ;; the same entries earlier, at `:where rf/reg-event`.
+  (let [inline (rf.interceptor/->interceptor* :id :stale/inline :before identity :after identity)]
+    (is (= {:rf.error/id :rf.error/inline-interceptor-removed
+            :where       'rf/resolve-chain
+            :entry       inline}
+           (select-keys (ex-data-of #(rf.interceptor-registry/resolve-chain [inline]))
+                        [:rf.error/id :where :entry])))
+    (is (= {:rf.error/id :rf.error/invalid-interceptor-ref
+            :ref         "not-a-ref"}
+           (select-keys (ex-data-of #(rf.interceptor-registry/resolve-chain ["not-a-ref"]))
+                        [:rf.error/id :ref])))))
 
-;; ===========================================================================
-;; PIECE 3 — interceptor-registry resolution seams
-;; ===========================================================================
-
-;; ---------------------------------------------------------------------------
-;; resolve-chain's DISPATCH-TIME inline loud-fail + malformed arms
-;;
-;; The reg-event registration-time guard (events/validate-meta-interceptors!)
-;; fires first on the public path, so an inline-rejection test through reg-event
-;; hits THAT seam (`:where rf/reg-event`), never the dispatch-time resolve-chain arm.
-;; resolve-chain's `(interceptor-value? entry) -> throw-inline-interceptor-removed!`
-;; (and the `:else -> throw-invalid-ref!`) arm is a defensive belt-and-braces
-;; that is effectively unreachable through reg-event — but it is a live,
-;; testable seam when resolve-chain is exercised DIRECTLY (the router calls it at
-;; chain assembly). Pin both arms by calling rf.interceptor-registry/resolve-chain directly, and
-;; assert the dispatch-time `:where rf/resolve-chain` (distinct from reg-event's).
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-chain-dispatch-time-inline-value-loud-fails
-  (testing "a stale INLINE interceptor value reaching resolve-chain directly fails LOUD"
-    (let [inline (rf.interceptor/->interceptor*
-                   :id     :stale/inline
-                   :before (fn [ctx] ctx)
-                   :after  (fn [ctx] ctx))
-          ;; The dispatch-time arm stamps :where rf/resolve-chain — distinct
-          ;; from the registration-time guard's :where rf/reg-event. This is
-          ;; the whole point of the belt-and-braces: a stale inline value that
-          ;; somehow slips past registration still loud-fails at chain assembly.
-          ex     (try (rf.interceptor-registry/resolve-chain [inline])
-                      nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))
-      (is (= 'rf/resolve-chain (:where (ex-data ex)))
-          "the dispatch-time :where distinguishes it from the registration-time rf/reg-event seam")
-      (is (= inline (:entry (ex-data ex)))
-          "the offending inline entry rides the error data"))))
-
-(deftest resolve-chain-dispatch-time-malformed-entry-invalid-ref
-  (testing "a structurally-malformed chain entry reaching resolve-chain directly is :rf.error/invalid-interceptor-ref"
-    ;; A string is neither a reference (keyword / [id arg] vector), nor an inline
-    ;; interceptor value (a map), nor the framework default — it falls to the
-    ;; resolve-chain :else arm.
-    (let [ex (try (rf.interceptor-registry/resolve-chain ["not-a-ref"])
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (= :rf.error/invalid-interceptor-ref (:rf.error/id (ex-data ex)))
-          "the :else arm raises :rf.error/invalid-interceptor-ref")
-      (is (= "not-a-ref" (:ref (ex-data ex)))
-          "the offending entry rides the error data"))))
-
-;; ---------------------------------------------------------------------------
-;; chain-needs-resolution? predicate's three branches
-;;
-;; The hot-path predicate the resolution seams use to SKIP the resolve walk for
-;; all-default chains. Three branches:
-;;   (a) false for a chain that is ONLY the framework default-wrapper (the
-;;       common no-authored-chain shape — the hot-path skip);
-;;   (b) true when a REFERENCE is present (resolve-chain must resolve it) —
-;;       every dispatch through a registered ref exercises this, since an
-;;       unresolved ref never runs;
-;;   (c) true when a non-framework-default inline VALUE is present (resolve-chain
-;;       must walk it to reject it loudly).
-;; A miswired predicate (e.g. one that skipped a chain with a stale inline value)
-;; would silently bypass the loud-fail — so (a) and (c) are pinned here.
-;; ---------------------------------------------------------------------------
-
-(deftest chain-needs-resolution-predicate-branches
-  (let [default {:id :rf/event-handler :rf/default? true :before identity}
-        inline  (rf.interceptor/->interceptor*
-                  :id     :nr/inline
-                  :before (fn [ctx] ctx))]
-    (testing "(a) false — a chain that is ONLY the framework default needs no resolution (hot-path skip)"
-      (is (false? (rf.interceptor-registry/chain-needs-resolution? [default]))
-          "the all-default chain skips the walk")
-      (is (false? (rf.interceptor-registry/chain-needs-resolution? []))
-          "an empty chain also needs no resolution"))
-
-    (testing "(c) true — a non-default inline VALUE forces the walk (so resolve-chain rejects it loudly)"
-      (is (true? (rf.interceptor-registry/chain-needs-resolution? [inline]))
-          "a stale inline value is NOT skipped — resolve-chain must walk it to loud-fail")
-      (is (true? (rf.interceptor-registry/chain-needs-resolution? [default inline]))
-          "an inline value alongside the framework default still forces the walk"))))
-
-;; ---------------------------------------------------------------------------
-;; resolve-factory's deliberate :rf.error/* propagate-verbatim
-;; vs. wrap-as-factory-arity discrimination.
-;;
-;; resolve-factory catches factory throws and DISCRIMINATES: a factory raising
-;; its own structured :rf.error/* ex-info (has :rf.error/id in ex-data)
-;; propagates VERBATIM; any other throw is wrapped as
-;; :rf.error/interceptor-factory-arity. The path-bad-path-arg test covers the
-;; verbatim leg only via the STANDARD path factory; these pin the generic
-;; discrimination (a CUSTOM factory, both legs).
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-factory-wraps-plain-throw-as-factory-arity
-  (testing "(a) a custom :factory throwing a PLAIN exception is wrapped as :rf.error/interceptor-factory-arity"
-    (rf/reg-interceptor :fac/boom
-      {:factory (fn [_arg] (throw (ex-info "kaboom" {:not-an-rf-error true})))})
-    (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/boom :x])
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (= :rf.error/interceptor-factory-arity (:rf.error/id (ex-data ex)))
-          "a non-:rf.error throw is wrapped as factory-arity")
-      (is (re-find #"kaboom" (:reason (ex-data ex)))
-          "the wrapping reason carries the original throw's message"))))
-
-(deftest resolve-factory-propagates-structured-rf-error-verbatim
-  (testing "(b) a custom :factory throwing a structured :rf.error/* propagates VERBATIM (generic, not path-specific)"
-    ;; A custom error id distinct from :rf.error/path-interceptor-bad-path proves
-    ;; the discrimination is generic — any :rf.error/* passes through untouched.
-    (rf/reg-interceptor :fac/custom-err
-      {:factory (fn [_arg]
-                  (throw (ex-info ":rf.error/my-custom-factory-error"
-                                  {:rf.error/id :rf.error/my-custom-factory-error
-                                   :detail      :verbatim})))})
-    (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/custom-err :x])
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (= :rf.error/my-custom-factory-error (:rf.error/id (ex-data ex)))
-          "the structured :rf.error/* propagated VERBATIM — NOT wrapped as factory-arity")
-      (is (= :verbatim (:detail (ex-data ex)))
-          "the original ex-data survived intact (verbatim propagation)"))))
-
-;; ---------------------------------------------------------------------------
-;; resolve-factory's final cond :else arm: a :factory whose builder
-;; returns a value that is NEITHER a static descriptor NOR an executable
-;; interceptor (e.g. a keyword, a number, an empty map {}) — throws
-;; :rf.error/interceptor-factory-arity ("returned a value that is neither …").
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-factory-non-descriptor-non-value-return-rejected
-  (testing "a :factory returning a non-descriptor/non-value is :rf.error/interceptor-factory-arity"
-    ;; A keyword return — neither interceptor-value? nor static-descriptor?.
-    (rf/reg-interceptor :fac/garbage-kw {:factory (fn [_] :garbage)})
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                          #":rf.error/interceptor-factory-arity"
-                          (rf.interceptor-registry/resolve-ref [:fac/garbage-kw :x]))
-        "a keyword return falls to the :else arm")
-
-    ;; A number return.
-    (rf/reg-interceptor :fac/garbage-num {:factory (fn [_] 42)})
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                          #":rf.error/interceptor-factory-arity"
-                          (rf.interceptor-registry/resolve-ref [:fac/garbage-num :x]))
-        "a number return falls to the :else arm")
-
-    ;; An EMPTY map {} — a map, but with no :before/:after/:id, so neither
-    ;; interceptor-value? nor static-descriptor? — the most adversarial leg.
-    (rf/reg-interceptor :fac/garbage-empty {:factory (fn [_] {})})
-    (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/garbage-empty :x])
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (= :rf.error/interceptor-factory-arity (:rf.error/id (ex-data ex)))
-          "an empty map {} (neither descriptor nor value) falls to the :else arm")
-      (is (re-find #"neither a static descriptor" (:reason (ex-data ex)))
-          "the reason names the non-descriptor/non-value cause"))))
+(deftest resolve-factory-wraps-unexpected-failures-and-passes-rf-errors-through
+  ;; A factory's own `:rf.error/*` throw propagates verbatim; any other throw,
+  ;; or a return that is neither a descriptor nor an interceptor value, is
+  ;; `:rf.error/interceptor-factory-arity`.
+  (doseq [[id factory expected]
+          [[:fac/boom (fn [_] (throw (ex-info "kaboom" {})))
+            :rf.error/interceptor-factory-arity]
+           [:fac/custom-err (fn [_] (throw (ex-info "custom"
+                                                    {:rf.error/id :rf.error/my-custom-factory-error})))
+            :rf.error/my-custom-factory-error]
+           [:fac/garbage (fn [_] {})
+            :rf.error/interceptor-factory-arity]]]
+    (rf/reg-interceptor id {:factory factory})
+    (is (= expected (:rf.error/id (ex-data-of #(rf.interceptor-registry/resolve-ref [id :x]))))
+        (str id)))
+  (is (re-find #"kaboom" (:reason (ex-data-of #(rf.interceptor-registry/resolve-ref [:fac/boom :x]))))
+      "the wrapped reason keeps the factory's own message"))
