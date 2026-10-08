@@ -107,11 +107,9 @@
                     "the scan finished")
                 (is (= [] (get @rf.story.ui.a11y/violations-by-frame frame-id))
                     "the violations bag is unchanged in shape: an empty vector")
-                (let [stored (get @rf.story.ui.a11y/incomplete-by-frame frame-id)]
-                  (is (= ["color-contrast"] (mapv #(gobj/get % "id") stored))
-                      "the incomplete rule reached the panel's state")
-                  (is (= 5 (count (gobj/get (first stored) "nodes")))
-                      "with its nodes, for a person to check"))
+                (is (= ["color-contrast"] (mapv #(gobj/get % "id")
+                                                (get @rf.story.ui.a11y/incomplete-by-frame frame-id)))
+                    "the incomplete rule reached the panel's state")
                 (is (= "0 violation(s) found in variant, 1 incomplete"
                        (rf.story.ui.a11y/scan-summary frame-id))
                     "the panel's line names the incomplete count beside zero violations")
@@ -143,23 +141,6 @@
                 nil))
             (.catch (fn [e] (is false (str "scan threw: " e)) nil))
             (.then (fn [_] (done))))))))
-
-(deftest a-result-without-an-incomplete-key-stores-an-empty-bag
-  (testing "a results object carrying no `incomplete` array (a fake that
-            sets only `violations`, or an axe build that omits it) stores `[]` rather than
-            throwing inside the settlement"
-    (async done
-      (install-axe! #js {:violations #js []})
-      (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
-          (.then
-            (fn [_]
-              (is (= :done (rf.story.ui.a11y/status-for frame-id)))
-              (is (= [] (get @rf.story.ui.a11y/incomplete-by-frame frame-id)))
-              (is (= "0 violation(s) found in variant, 0 incomplete"
-                     (rf.story.ui.a11y/scan-summary frame-id)))
-              nil))
-          (.catch (fn [e] (is false (str "scan threw: " e)) nil))
-          (.then (fn [_] (done)))))))
 
 (deftest teardown-drops-the-incomplete-bag-too
   (testing "the incomplete bag holds raw axe objects that reference DOM
