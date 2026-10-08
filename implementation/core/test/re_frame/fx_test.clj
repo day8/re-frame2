@@ -1,67 +1,14 @@
 (ns re-frame.fx-test
-  "Comprehensive edge-case coverage for the fx subsystem.
+  "Cross-cutting fx-subsystem edge cases (Spec 002 §`:fx` ordering and
+  atomicity guarantees, Spec 009 §Error contract): source-order walking,
+  `:fx-overrides` precedence and its reserved-fx tiers, `:isolated` recovery
+  past a throwing or unknown fx, and effect-map / `:fx`-entry shape policing.
 
-  Per-feature fx tests already live alongside their owners (the http
-  stubs in smoke-test/login-machine-flow, the SSR fixtures, and the
-  rf.fx/db-first / rf.fx/ordering-source-order / rf.fx/override-by-id /
-  rf.fx/platforms conformance fixtures). This file consolidates the cross-
-  cutting edge cases that are awkward to express in EDN fixtures:
-
-    1. Source-order ordering across mixed effect types in one return.
-    2. :fx-overrides precedence: per-call > per-frame > registered.
-    3. fx-handler exception recovery is :isolated — sibling fx still fire.
-    4. Missing fx-id emits :rf.error/no-such-fx and skips that entry.
-    5. :platforms gating is pinned by `re-frame.platform-gating-test` and
-       the `fx/platforms` conformance fixture.
-    6. Effect-map shape (M-8): legacy v1 top-level keys are policed.
-    6b. :fx VALUE shape: a non-sequential :fx value is policed (refused
-        pre-commit + traced), not thrown — symmetric with M-8.
-    6c. :fx per-ENTRY shape: a non-nil/non-empty NON-vector entry
-        is policed (dropped + traced); nil/empty stays a silent no-op.
-    6d. :fx per-ENTRY arity / fx-id-type: a non-keyword head or an
-        arity-≥3 vector is policed (dropped + traced), not waved through.
-    6e. RESERVED :dispatch arity-3: the `[:dispatch ev {:frame …}]`
-        wild malformation is policed LOUDLY end-to-end, NOT silently truncated.
-
-  Per Spec 002 §`:fx` ordering and atomicity guarantees and Spec 009
-  §Error contract.
-
-  ## Posture split
-
-  The fx subsystem's SEMANTICS are production-real and are asserted here
-  WITHOUT a posture guard, so they run in the ordinary `clojure -M:test`
-  suite AND in `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false`
-  lane): source-order walking, override precedence, `:isolated` recovery past
-  a throwing fx, the M-8 / `:fx`-value / `:fx`-entry
-  policing DROPS, the reject-tier neutralisation, prod-strip's returned map,
-  and the registration-time `reg-fx` rejections.
-
-  Two DIAGNOSTIC channels sit beside those semantics, and they are not the
-  same channel:
-
-  * The `:trace` stream (`collect-traces!`) is DEV-ONLY. Every `rf.trace/emit!`
-    / `rf.trace/emit-error!` site rides `rf.interop/debug-enabled?`, which the JVM
-    reads once at load time, so under the real gate the ring is EMPTY BY
-    DESIGN. `:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`,
-    `:rf.fx/do-fx` and `:rf.event/run-end` live ONLY here. Their assertions
-    sit inside `(when rf.interop/debug-enabled? …)` arms.
-
-  * The `:errors` stream (`collect-errors!`) is ALWAYS-ON and survives the
-    gate. `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`,
-    `:rf.error/override-fallthrough`, `:rf.error/reserved-fx-override` and
-    `:rf.error/effect-map-shape`
-    fan out through `emit-fx-error!` → `rf.error-emit/emit-error-both!`, which
-    additionally LIFTS `:failing-id` / `:reason` onto the record whenever the
-    failing component differs from the dispatched event (Spec 009 §Component
-    attribution). Where an assertion's dev-trace witness has one of those
-    categories available, the assertion has a production-visible twin on
-    this axis rather than being guarded away — including the NEGATIVE ones,
-    which over the dev ring would pass vacuously under the gate.
-
-  A negative dev-trace assertion (`empty?` / `zero? (count …)`) is the
-  false-green this lane exists to close: left outside an arm it passes
-  because the ring is empty, not because the framework stayed silent. Every
-  one of them here sits inside an arm or reads the always-on axis."
+  Posture: execution facts and the ALWAYS-ON `:errors` records are asserted
+  unguarded, so they also run under `scripts/test-core-prod-gate.sh`
+  (`-Dre-frame.debug=false`). The `:trace` stream is dev-only, so trace reads
+  sit inside `(when rf.interop/debug-enabled? …)` arms — a negative over the
+  empty ring would otherwise pass for free — or in `^:requires-debug` tests."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -71,29 +18,19 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; The always-on error-emit listener registry is a `defonce` atom that
-  ;; `clear-all!` does NOT touch; clear it so an error listener registered
-  ;; by one test cannot leak into the next.
+  ;; `clear-all!` leaves the always-on error-listener registry alone.
   (rf.error-emit/clear-error-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`, and
-  ;; the framework operation surfaces require a carried frame stamp.
-  ;; Register `:rf/default` explicitly and pin it as the body's ambient
-  ;; scope — the carried-invariant equivalent of wrapping every test in
-  ;; `(with-frame :rf/default …)`. Bare dispatches in the test bodies then
-  ;; resolve to `:rf/default`; explicit `{:frame …}` opts still win.
   (rf/make-frame {:id :rf/default})
-  ;; Framework registrations live at namespace-load time; clear-all!
-  ;; wiped them. Reload so :rf/route, :rf.route/* subs and the framework
-  ;; fx (e.g. :rf.fx/reg-flow) survive between tests.
+  ;; Restore the framework registrations `clear-all!` wiped (`:rf.machine/*`,
+  ;; `:rf.route/*`).
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
@@ -102,59 +39,29 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- collect-traces!
-  "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-listener! :trace id) to detach."
-  [id]
-  (let [acc (atom [])]
-    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
-    acc))
+(defn- observe
+  "Run `f`, returning its `:result`, the ALWAYS-ON error records (`:errors`)
+  and the dev-only trace events (`:traces`) it produced."
+  [f]
+  (let [errors (atom [])
+        traces (atom [])]
+    (rf.error-emit/register-error-listener! ::observe #(swap! errors conj %))
+    (rf/register-listener! :trace ::observe #(swap! traces conj %))
+    (try
+      (let [result (f)]
+        {:result result :errors @errors :traces @traces})
+      (finally
+        (rf.error-emit/unregister-error-listener! ::observe)
+        (rf/unregister-listener! :trace ::observe)))))
 
-(defn- collect-errors!
-  "Register an ALWAYS-ON error listener under `id` via
-  `(rf.error-emit/register-error-listener! id f)`, returning the atom that accumulates the
-  tight error-records (the production-survivable observability surface —
-  Spec 009 §What IS available in production §Error-emit listener). Tests
-  must (rf.error-emit/unregister-error-listener! id) to detach (the fixture also
-  clears the registry). Distinct from `collect-traces!`: that listens on
-  the dev-only trace surface (DCE'd in prod); this listens on the
-  always-on axis."
-  [id]
-  (let [acc (atom [])]
-    (rf.error-emit/register-error-listener! id (fn [record] (swap! acc conj record)))
-    acc))
+(defn- of-category [category records] (filterv #(= category (:error %)) records))
 
-;; ---- 1. Source-order ordering across mixed effect types -------------------
-;;
-;; Per Spec 002 §`:fx` ordering and atomicity guarantees, the runtime
-;; walks the `:fx` vector strictly in source order regardless of fx-id.
-;; A handler that mixes registered fx and the reserved `:dispatch` fx
-;; in a single `:fx` vector must observe each entry in declared order;
-;; subsequent entries (queued events included) drain after the source-
-;; order walk finishes.
+(defn- of-op [op traces] (filterv #(= op (:operation %)) traces))
+
+;; ---- 1. Source-order ordering ---------------------------------------------
 
 (deftest source-order-across-mixed-fx
-  (testing "an :fx vector mixing :a, :b, :c (registered fx) fires in declared order"
-    (let [log (atom [])]
-      (rf/reg-fx :fx-test/a (fn [_ _] (swap! log conj :a)))
-      (rf/reg-fx :fx-test/b (fn [_ _] (swap! log conj :b)))
-      (rf/reg-fx :fx-test/c (fn [_ _] (swap! log conj :c)))
-      (rf/reg-event :fx-test/run-mixed
-        (fn [{:keys [db]} _]
-          {:db (assoc db :seeded? true)
-           :fx [[:fx-test/a]
-                [:fx-test/b]
-                [:fx-test/c]]}))
-      (rf/dispatch-sync [:fx-test/run-mixed])
-      (is (= [:a :b :c] @log)
-          "registered fx fire in source order")
-      (is (= true (:seeded? (rf/app-db-value :rf/default)))
-          ":db committed before :fx walked (Spec 002 rule 1)")))
-
-  (testing "interleaving :dispatch with registered fx preserves source order"
-    ;; :dispatch enqueues; the queued event drains after the original
-    ;; handler's :fx walk completes. The walk itself is in declared order;
-    ;; the queued events arrive in declared order on the FIFO.
+  (testing "sync fx fire in source order; :dispatch-queued events drain afterwards, in source order"
     (let [log (atom [])]
       (rf/reg-fx :fx-test/sync-a (fn [_ _] (swap! log conj :sync-a)))
       (rf/reg-fx :fx-test/sync-b (fn [_ _] (swap! log conj :sync-b)))
@@ -169,779 +76,243 @@
                 [:fx-test/sync-b]
                 [:dispatch [:fx-test/queued-b]]]}))
       (rf/dispatch-sync [:fx-test/run-interleaved])
-      ;; The synchronous fx in the original :fx walk run first in declared
-      ;; order; queued :dispatch events drain afterwards in declared order.
-      (is (= [:sync-a :sync-b :queued-a :queued-b] @log)
-          "synchronous fx fire in source order; queued events follow in source order"))))
+      (is (= [:sync-a :sync-b :queued-a :queued-b] @log)))))
 
 ;; ---- 2. :fx-overrides precedence ------------------------------------------
-;;
-;; Per Spec 002 §Per-frame and per-call overrides and router.cljc's
-;; (merge per-frame-fx per-call-fx): the per-call override map wins
-;; over the per-frame override map, which wins over the registered fx.
-;;
-;; This test layers all three: a registered :fx-test/email fx, a per-
-;; frame override redirecting to :fx-test/email.frame, and a per-call
-;; override redirecting to :fx-test/email.call. The per-call route
-;; should win.
 
 (deftest fx-overrides-per-call-beats-per-frame-beats-registered
-  (testing "per-call override > per-frame override > registered fx"
-    (let [fired (atom [])]
-      (rf/reg-fx :fx-test/email
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :registered)))
-      (rf/reg-fx :fx-test/email.frame
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :per-frame)))
-      (rf/reg-fx :fx-test/email.call
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :per-call)))
-      (rf/reg-event :fx-test/send
-        (fn [_ _] {:fx [[:fx-test/email {:to "alice"}]]}))
-
-      (testing "no overrides — registered fx fires"
+  (let [fired (atom [])]
+    (rf/reg-fx :fx-test/email       (fn [_ _] (swap! fired conj :registered)))
+    (rf/reg-fx :fx-test/email.frame (fn [_ _] (swap! fired conj :per-frame)))
+    (rf/reg-fx :fx-test/email.call  (fn [_ _] (swap! fired conj :per-call)))
+    (rf/reg-event :fx-test/send
+      (fn [_ _] {:fx [[:fx-test/email {:to "alice"}]]}))
+    (let [f (rf.frame/make-anon-frame-record!
+              {:fx-overrides {:fx-test/email :fx-test/email.frame}})]
+      (testing "a per-frame override beats the registered fx"
+        (rf/dispatch-sync [:fx-test/send] {:frame f})
+        (is (= [:per-frame] @fired)))
+      (testing "a per-call override beats the per-frame one"
         (reset! fired [])
-        (let [f (rf.frame/make-anon-frame-record! {})]
-          (rf/dispatch-sync [:fx-test/send] {:frame f})
-          (is (= [:registered] @fired))))
-
-      (testing "per-frame override applied"
-        (reset! fired [])
-        (let [f (rf.frame/make-anon-frame-record!
-                  {:fx-overrides {:fx-test/email :fx-test/email.frame}})]
-          (rf/dispatch-sync [:fx-test/send] {:frame f})
-          (is (= [:per-frame] @fired))))
-
-      (testing "per-call override beats per-frame"
-        (reset! fired [])
-        (let [f (rf.frame/make-anon-frame-record!
-                  {:fx-overrides {:fx-test/email :fx-test/email.frame}})]
-          (rf/dispatch-sync
-            [:fx-test/send]
-            {:frame         f
-             :fx-overrides  {:fx-test/email :fx-test/email.call}})
-          (is (= [:per-call] @fired)
-              "per-call override redirects past the per-frame override"))))))
-
-;; ---- 2b. rf/with-fx-overrides — lexical-scope :fx-overrides binding
+        (rf/dispatch-sync [:fx-test/send]
+                          {:frame f :fx-overrides {:fx-test/email :fx-test/email.call}})
+        (is (= [:per-call] @fired))))))
 
 (deftest with-fx-overrides-binds-fx-overrides-lexically
-  (testing "rf/with-fx-overrides — every dispatch inside the body inherits the override map"
-    (let [fired (atom [])]
-      (rf/reg-fx :fx-test/wo-email
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :registered)))
-      (rf/reg-fx :fx-test/wo-email.stub
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :lexical)))
-      (rf/reg-fx :fx-test/wo-email.call
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :per-call)))
-      (rf/reg-event :fx-test/wo-send
-        (fn [_ _] {:fx [[:fx-test/wo-email {:to "alice"}]]}))
-
-      (testing "outside with-fx-overrides the registered fx fires"
-        (reset! fired [])
+  (let [fired (atom [])]
+    (rf/reg-fx :fx-test/wo-email      (fn [_ _] (swap! fired conj :registered)))
+    (rf/reg-fx :fx-test/wo-email.stub (fn [_ _] (swap! fired conj :lexical)))
+    (rf/reg-fx :fx-test/wo-email.call (fn [_ _] (swap! fired conj :per-call)))
+    (rf/reg-event :fx-test/wo-send
+      (fn [_ _] {:fx [[:fx-test/wo-email {:to "alice"}]]}))
+    (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
+      (testing "a dispatch inside the body inherits the lexical override"
         (rf/dispatch-sync [:fx-test/wo-send])
-        (is (= [:registered] @fired)))
-
-      (testing "inside with-fx-overrides every dispatch inherits the override"
+        (is (= [:lexical] @fired)))
+      (testing "a per-call opt outranks the lexical binding"
         (reset! fired [])
-        (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
-          (rf/dispatch-sync [:fx-test/wo-send])
-          (rf/dispatch-sync [:fx-test/wo-send])
-          (rf/dispatch-sync [:fx-test/wo-send]))
-        (is (= [:lexical :lexical :lexical] @fired)
-            "all three dispatches inside the macro body picked up the lexical override"))
+        (rf/dispatch-sync [:fx-test/wo-send]
+                          {:fx-overrides {:fx-test/wo-email :fx-test/wo-email.call}})
+        (is (= [:per-call] @fired))))))
 
-      (testing "after the body exits the registered fx fires again"
-        (reset! fired [])
-        (rf/dispatch-sync [:fx-test/wo-send])
-        (is (= [:registered] @fired)
-            "the dynamic var unwound; the override is gone"))
-
-      (testing "per-call opt > lexical with-fx-overrides > per-frame"
-        (reset! fired [])
-        (let [f (rf.frame/make-anon-frame-record!
-                  {:fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}})]
-          (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
-            ;; Per-call wins over both lexical and per-frame
-            (rf/dispatch-sync [:fx-test/wo-send]
-                              {:frame        f
-                               :fx-overrides {:fx-test/wo-email :fx-test/wo-email.call}}))
-          (is (= [:per-call] @fired)
-              "per-call opt outranks the lexical with-fx-overrides binding"))))))
-
-;; ---- 3. fx-handler exception → :rf.error/fx-handler-exception -------------
-;;
-;; Per Spec 009 §Error contract, an fx implementation that throws emits
-;; a structured :rf.error/fx-handler-exception trace. Per Spec 002
-;; §`:fx` ordering rule 4 ("one bad fx does not halt the rest"), the
-;; recovery is :isolated — the offending fx is skipped but sibling fx
-;; in the same handler's :fx vector still run.
+;; ---- 3. fx-handler exception is :isolated ---------------------------------
 
 (deftest fx-handler-exception-is-isolated
-  (testing "a throwing fx emits :rf.error/fx-handler-exception, sibling fx still fire"
-    (let [traces (collect-traces! ::fx-exc)
-          errors (collect-errors! ::fx-exc-errors)
-          fired  (atom [])]
-      (rf/reg-fx :fx-test/boom
-        (fn [_ _] (throw (ex-info "kaboom" {:why :test}))))
-      (rf/reg-fx :fx-test/after
-        (fn [_ args] (swap! fired conj args)))
+  (testing "a throwing fx is skipped, its siblings still fire, and an always-on record names it"
+    (let [fired (atom [])]
+      (rf/reg-fx :fx-test/boom  (fn [_ _] (throw (ex-info "kaboom" {:why :test}))))
+      (rf/reg-fx :fx-test/after (fn [_ args] (swap! fired conj args)))
       (rf/reg-event :fx-test/with-bad-fx
         (fn [_ _]
           {:fx [[:fx-test/boom  {:reason :first}]
                 [:fx-test/after {:reason :sibling}]]}))
-      (rf/dispatch-sync [:fx-test/with-bad-fx])
-      (rf/unregister-listener! :trace  ::fx-exc)
-      (rf.error-emit/unregister-error-listener! ::fx-exc-errors)
-      ;; Sibling fx ran — recovery is :isolated.
-      (is (= [{:reason :sibling}] @fired)
-          "the :fx after the throwing entry still fires (Spec 002 rule 4)")
-      ;; PRODUCTION-VISIBLE WITNESS. `:rf.error/fx-handler-exception`
-      ;; is an ALWAYS-ON category (Spec 009 §Observability channels), so the
-      ;; structured diagnostic is observable under `-Dre-frame.debug=false`
-      ;; too — on the `:errors` axis rather than the DCE'd trace ring. The
-      ;; failing fx-id is DISTINCT from the dispatched event-id, so
-      ;; `emit-error-both!` lifts it onto the record as `:failing-id`
-      ;; (Spec 009 §Component attribution).
-      (let [records (filter #(= :rf.error/fx-handler-exception (:error %)) @errors)]
-        (is (= 1 (count records))
-            "exactly ONE always-on record reached the :errors listener")
-        (let [r (first records)]
-          (is (= :fx-test/boom (:failing-id r))
-              ":failing-id names the THROWING fx, not the dispatched event")
-          (is (= :fx-test/with-bad-fx (:event-id r))
-              ":event-id carries the dispatching event id")
-          (is (= [:fx-test/with-bad-fx] (:event r)))
-          (is (= :rf/default (:frame r)))
-          (is (some? (:exception r))
-              "the exception object rides the production record")))
-      ;; Dev-instrumentation arm (see ns docstring). The trace
-      ;; ring carries the RICHER shape (`:rf.fx/args`, `:exception-message`,
-      ;; `:op-type`) that the tight always-on record deliberately omits.
-      (when rf.interop/debug-enabled?
-        (let [exc-traces (filter #(= :rf.error/fx-handler-exception (:operation %))
-                                 @traces)]
-          (is (= 1 (count exc-traces))
-              "exactly one :rf.error/fx-handler-exception was emitted")
-          (let [t (first exc-traces)]
-            (is (= :error (:op-type t)))
-            (is (= :fx-test/boom (get-in t [:tags :rf.fx/id])))
-            (is (= :fx-test/boom (get-in t [:tags :failing-id])))
-            (is (= {:reason :first} (get-in t [:tags :rf.fx/args]))
-                ":rf.fx/args carry the offending args")
-            (is (string? (get-in t [:tags :exception-message])))
-            (is (some? (get-in t [:tags :exception])))))))))
+      (let [{:keys [errors]} (observe #(rf/dispatch-sync [:fx-test/with-bad-fx]))
+            records          (of-category :rf.error/fx-handler-exception errors)]
+        (is (= [{:reason :sibling}] @fired))
+        (is (= [{:failing-id :fx-test/boom
+                 :event-id   :fx-test/with-bad-fx
+                 :event      [:fx-test/with-bad-fx]
+                 :frame      :rf/default}]
+               (map #(select-keys % [:failing-id :event-id :event :frame]) records)))
+        (is (some? (:exception (first records))))))))
 
-;; ---- 4. Missing fx-id → :rf.error/no-such-fx ------------------------------
-;;
-;; Per Spec 009 §Error contract, an unknown fx-id in a returned :fx
-;; entry emits :rf.error/no-such-fx. Per Spec 002, the walk continues
-;; past the offending entry — recovery is :logged-and-skipped (fx.cljc
-;; flags this with :recovery :no-recovery in the trace tags; the
-;; *behavioural* contract is "skip and keep going" regardless of the
-;; recovery tag's verb).
+;; ---- 4. Unknown fx-id is logged and skipped -------------------------------
 
 (deftest unknown-fx-id-is-logged-and-skipped
-  (testing "a registered handler returning [:no-such-fx ...] traces and skips"
-    (let [traces (collect-traces! ::no-such)
-          errors (collect-errors! ::no-such-errors)
-          fired  (atom [])]
-      (rf/reg-fx :fx-test/sibling
-        (fn [_ args] (swap! fired conj args)))
+  (testing "an unknown fx-id is skipped, the walk continues, and an always-on record names it"
+    (let [fired (atom [])]
+      (rf/reg-fx :fx-test/sibling (fn [_ args] (swap! fired conj args)))
       (rf/reg-event :fx-test/missing
         (fn [_ _]
-          {:fx [[:fx-test/never-registered  {:k 1}]
-                [:fx-test/sibling           {:k 2}]]}))
-      (rf/dispatch-sync [:fx-test/missing])
-      (rf/unregister-listener! :trace  ::no-such)
-      (rf.error-emit/unregister-error-listener! ::no-such-errors)
-      ;; Sibling still fires — the unknown fx-id did not halt the walk.
-      (is (= [{:k 2}] @fired)
-          "the next :fx entry still fires after an unknown fx-id")
-      ;; PRODUCTION-VISIBLE WITNESS. Spec 009's catalogue marks
-      ;; `:rf.error/no-such-fx` ALWAYS-ON, so an unknown fx-id is observable
-      ;; off-box under `-Dre-frame.debug=false`.
-      ;;
-      ;; The record must name WHICH fx-id was unknown. Spec 009
-      ;; §Observability channels states the attribution rule generally: every
-      ;; always-on error record carries `:failing-id` naming the failing
-      ;; COMPONENT whenever that component is DISTINCT from the dispatched
-      ;; event. Here `:event-id` is the DISPATCHING event, so the unregistered
-      ;; fx-id is exactly such a component. `fx.cljc`'s trace-payload stamps
-      ;; `:failing-id fx-id` and `emit-error-both!` lifts it onto the always-on
-      ;; record; remove that key from the emit site and the `:failing-id`
-      ;; assertion below reds while the dev-trace arm stays green — the fx-id
-      ;; would ride ONLY the DCE'd `:rf.fx/id` tag.
-      (let [records (filter #(= :rf.error/no-such-fx (:error %)) @errors)]
-        (is (= 1 (count records))
-            "exactly ONE always-on record reached the :errors listener")
-        (let [r (first records)]
-          (is (= :fx-test/missing (:event-id r))
-              ":event-id carries the dispatching event id")
-          (is (= [:fx-test/missing] (:event r)))
-          (is (= :rf/default (:frame r))
-              ":frame names the frame the unknown fx-id was dispatched in")
-          (is (= :fx-test/never-registered (:failing-id r))
-              ":failing-id names the UNKNOWN fx-id — the failing component,
-               distinct from the dispatched event")
-          ;; The record is a PRODUCTION EGRESS surface: every slot here reaches
-          ;; off-box shippers (Sentry / Datadog) through the frame-owned
-          ;; `:observability :errors` sink. Pin the key set CLOSED so a future
-          ;; slot is a deliberate decision, not a drive-by. `:rf.fx/args` in
-          ;; particular must NOT appear — an unregistered fx-id has no
-          ;; registration to read a `:sensitive` declaration off, so its args
-          ;; are the documented EP-0025 fail-open and stay on the dev trace.
-          (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
-                   :failing-id :source-coord}
-                 (set (keys r)))
-              "the always-on record carries the tight record keys, the
-               :source-coord for the dispatching event, and exactly
-               one attribution slot — :failing-id. No :reason (the
-               category defines none, and nil attribution slots are dropped)
-               and no :rf.fx/args.")))
-      ;; Dev-instrumentation arm (see ns docstring). `:rf.fx/id` is
-      ;; the dev-trace spelling of the same id the always-on record carries
-      ;; as `:failing-id`.
-      (when rf.interop/debug-enabled?
-        (let [missing-traces (filter #(= :rf.error/no-such-fx (:operation %))
-                                     @traces)]
-          (is (= 1 (count missing-traces))
-              "exactly one :rf.error/no-such-fx trace was emitted")
-          (let [t (first missing-traces)]
-            (is (= :error (:op-type t)))
-            (is (= :fx-test/never-registered (get-in t [:tags :rf.fx/id])))
-            (is (= :rf/default (get-in t [:tags :frame])))))))))
+          {:fx [[:fx-test/never-registered {:k 1}]
+                [:fx-test/sibling          {:k 2}]]}))
+      (let [{:keys [errors]} (observe #(rf/dispatch-sync [:fx-test/missing]))
+            records          (of-category :rf.error/no-such-fx errors)]
+        (is (= [{:k 2}] @fired))
+        (is (= [{:event-id   :fx-test/missing
+                 :event      [:fx-test/missing]
+                 :frame      :rf/default
+                 :failing-id :fx-test/never-registered}]
+               (map #(select-keys % [:event-id :event :frame :failing-id]) records)))
+        ;; The record egresses off-box, so its key set is pinned CLOSED. No
+        ;; `:rf.fx/args`: an unregistered fx has no `:sensitive` declaration.
+        (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
+                 :failing-id :source-coord}
+               (set (keys (first records)))))))))
 
-;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
-;;
-;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect map is CLOSED at SEVEN top-level keys: #{:db :rf.db/runtime :fx}
-;; plus the four EP-0025 commit-plane classification effects #{:sensitive
-;; :large :clear-sensitive :clear-large}. App handlers return only :db and :fx;
-;; :rf.db/runtime is the reserved framework-authority runtime-db effect. A
-;; handler returning a key OUTSIDE
-;; that closed set (e.g. a legacy v1 :dispatch / :dispatch-later / :dispatch-n /
-;; :http at the top level) MUST raise a structured trace per Spec 009 §Error
-;; contract; the runtime does NOT silently drop and does NOT silently route
-;; the offending key through the fx machinery.
-;;
-;; Enforcement is a REFUSAL: `re-frame.events/effect-map-defect` is a pure
-;; first-defect-or-nil carrier the ROUTER consults at the FINAL-effects
-;; boundary, and a foreign
-;; top-level key (case a) or a non-sequential :fx value (case b) ABORTS the
-;; event in-band — no :db, no :rf.db/runtime, no classification install, no :fx.
-;; A malformed ENTRY inside a well-shaped :fx vector (case c) is a different
-;; plane and keeps its per-entry :logged-and-skipped drop.
-;;
-;; POSTURE. The REFUSAL is production-real and uniform
-;; across builds — `effect-map-defect` and `fx-entry-ok?` run unconditionally,
-;; so every "the offending key/value did NOT take effect, and neither did its
-;; legal siblings" claim below is asserted posture-independently and runs under
-;; the production gate. Erasing the abort in a release build would make dev
-;; abort what production commits, which is a build fork, so it is not done.
-;; What IS dev-only is the NARRATION: the whole category fans through
-;; `rf.error-emit/emit-error-both!` (Spec 009's Channel cell reads `always-on`),
-;; whose axis-2 `rf.trace/emit-error!` leg DCEs under `:advanced` +
-;; `goog.DEBUG=false`. So the TRACE assertions ride a
-;; `(when rf.interop/debug-enabled? …)` arm, INCLUDING the negative "no shape trace
-;; fired" ones on the clean paths: over an empty ring those pass automatically
-;; and would report a false green.
+;; `(rf/clear :fx id)` routes to `rf.registrar/unregister!`.
+(deftest clear-fx-removes-and-restores
+  (let [counter (atom 0)
+        touch   (fn [_ _] (swap! counter inc))]
+    (rf/reg-fx :test.634y/touch touch)
+    (rf/reg-event :test.634y/run (fn [_ _] {:fx [[:test.634y/touch :payload]]}))
+    (rf/dispatch-sync [:test.634y/run])
+    (is (= 1 @counter) "the registered fx fired")
+    (rf/clear :fx :test.634y/touch)
+    (rf/dispatch-sync [:test.634y/run])
+    (is (= 1 @counter) "the cleared fx did not fire")
+    (rf/reg-fx :test.634y/touch touch)
+    (rf/dispatch-sync [:test.634y/run])
+    (is (= 2 @counter) "re-registering after a clear fires again")))
+
+;; ---- 6. Effect-map envelope policing (M-8) --------------------------------
 
 (deftest malformed-effect-map-envelope-refuses-the-event
-  ;; One row per envelope defect `effect-map-defect` names: a foreign top-level
-  ;; key (case a, the M-8 legacy shape) and a non-nil, non-sequential :fx value
-  ;; (case b, the forgot-the-outer-vector typo — `{:fx :oops}` or
-  ;; `{:fx {:dispatch [...]}}`). Unpoliced, a case-b value would reach
-  ;; `rf.fx/do-fx`'s walk AFTER the :db commit and throw an uncaught host
-  ;; exception into the drain's emergency release: app-db mutated, no
-  ;; structured trace, downstream queued events abandoned. Instead each defect
-  ;; emits :rf.error/effect-map-shape (recovery :fix-effect) and REFUSES the
-  ;; event — nothing commits, the drain is not aborted, and `do-fx` never sees
-  ;; the bad value. nil/absent :fx stays the legal no-op
-  ;; (`legal-fx-spellings-fire-commit-and-emit-no-shape-trace` below).
-  ;;
-  ;; Each handler returns a legal :db beside the defect, and the defect names a
-  ;; live sentinel where it can, so "refused" and "silently routed anyway" are
-  ;; distinguishable under the production gate. The map row matters on its own:
-  ;; `{:fx {:dispatch [...]}}` is seqable into a valid-looking
-  ;; `[:dispatch [...]]` entry.
-  (doseq [[label effects offending-key value reason-re]
-          [["a legacy v1 top-level :dispatch key"
-            {:dispatch [:fx-test/sentinel]}
-            :dispatch [:fx-test/sentinel] #"top-level key"]
-           ["a bare keyword :fx value (the forgot-the-outer-vector typo)"
-            {:fx :oops}
-            :fx :oops #"outer vector"]
-           ["a map :fx value (the outer and inner vector nesting both forgotten)"
-            {:fx {:dispatch [:fx-test/sentinel]}}
-            :fx {:dispatch [:fx-test/sentinel]} #"outer vector"]]]
-    (testing label
-      (let [traces (collect-traces! ::envelope-shape)
-            fired? (atom false)]
-        (rf/reg-event :fx-test/sentinel
-          (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
-        (rf/reg-event :fx-test/malformed-envelope
-          (fn [{:keys [db]} _]
-            (merge {:db (assoc db :seeded? true)} effects)))
-        ;; The dispatch MUST NOT throw — the hazard is an uncaught host
-        ;; exception escaping the drain after the :db commit.
-        (is (nil? (rf/dispatch-sync [:fx-test/malformed-envelope]))
-            "dispatch returns normally — no uncaught host exception escapes the drain")
-        (rf/unregister-listener! :trace ::envelope-shape)
-        (is (false? @fired?)
-            "nothing inside the refused envelope ran — the defect was not silently routed")
-        (is (nil? (:seeded? (rf/app-db-value :rf/default)))
-            ":db did NOT commit — the defect refuses the whole event, not just the slot")
-        ;; Dev-instrumentation arm (see the §6 posture note above).
+  (testing "a map :fx value — seqable into a valid-looking [:dispatch …] entry —
+            refuses the whole event"
+    (let [fired? (atom false)]
+      (rf/reg-event :fx-test/sentinel
+        (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
+      (rf/reg-event :fx-test/malformed-envelope
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           :fx {:dispatch [:fx-test/sentinel]}}))
+      (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/malformed-envelope]))]
+        (is (false? @fired?) "nothing inside the refused envelope ran")
+        (is (nil? (:seeded? (rf/app-db-value :rf/default))) "the legal :db did not commit")
         (when rf.interop/debug-enabled?
-          (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
-                                     @traces)
-                t            (first shape-traces)]
-            (is (= 1 (count shape-traces))
-                "exactly one :rf.error/effect-map-shape trace was emitted")
-            (is (= :error (:op-type t)))
+          (let [[t :as ts] (of-op :rf.error/effect-map-shape traces)]
+            (is (= 1 (count ts)))
             (is (= :fix-effect (:recovery t)))
-            (is (= offending-key (get-in t [:tags :offending-key]))
-                ":offending-key names the offending top-level slot")
-            (is (= :fx-test/malformed-envelope (get-in t [:tags :rf.trace/event-id]))
-                ":event-id carries the dispatching event id")
-            (is (= value (get-in t [:tags :value]))
-                ":value carries the offending value")
-            (is (re-find reason-re (get-in t [:tags :reason]))
-                ":reason names the defect")))))))
-
-;; ---- clear-fx round-trip -------------------------------------------------
-;;
-;; Per Spec 002 / API.md §Clearing registrations: `(rf/clear :fx id)` is the
-;; `:fx` arm of the one kind-keyed registrar inverse, routing to
-;; `rf.registrar/unregister!` (fx.cljc carries no `clear-fx` fn; see
-;; `re-frame.core/clear`). `re-frame.http.test-support` uninstalls its stub
-;; fx through the same `unregister!`.
-
-(deftest clear-fx-removes-and-restores
-  (testing "register :test/touch → fires; clear-fx → traces :rf.error/no-such-fx;
-            re-register → fires again. The registry slot is not poisoned by clear."
-    (let [counter (atom 0)
-          traces  (collect-traces! ::clear-fx)]
-      (rf/reg-fx :test.634y/touch
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! counter inc)))
-      (rf/reg-event :test.634y/run
-                       (fn [_ _] {:fx [[:test.634y/touch :payload]]}))
-
-      ;; 1. Pre-clear: dispatch increments the counter.
-      (rf/dispatch-sync [:test.634y/run])
-      (is (= 1 @counter) "registered :test.634y/touch fired on dispatch")
-
-      ;; 2. Clear via the public alias.
-      (rf/clear :fx :test.634y/touch)
-      (is (nil? (rf.registrar/lookup :fx :test.634y/touch))
-          "registry slot is gone after clear-fx")
-
-      ;; 3. Post-clear: dispatch does NOT increment and traces no-such-fx.
-      (rf/dispatch-sync [:test.634y/run])
-      (is (= 1 @counter)
-          "the counter did NOT increment — the cleared fx did not fire")
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; production-visible half of "the cleared fx-id is now unknown" is the
-      ;; counter above plus the always-on `:rf.error/no-such-fx` record, which
-      ;; `unknown-fx-id-is-logged-and-skipped` pins on the `:errors` axis, where
-      ;; `:failing-id` names the unknown fx-id.
-      (when rf.interop/debug-enabled?
-        (let [missing (filter #(= :rf.error/no-such-fx (:operation %)) @traces)]
-          (is (some #(= :test.634y/touch (get-in % [:tags :rf.fx/id])) missing)
-              ":rf.fx/id in the trace identifies the cleared handler")))
-
-      ;; 4. Re-register and confirm idempotence: clear-fx didn't poison
-      ;;    the registrar's per-kind slot machinery.
-      (rf/reg-fx :test.634y/touch
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! counter inc)))
-      (rf/dispatch-sync [:test.634y/run])
-      (is (= 2 @counter)
-          "after re-registration, the fx fires again — clear-fx is idempotent and reversible")
-      (rf/unregister-listener! :trace ::clear-fx))))
-
-(deftest clear-fx-idempotent-on-unknown-id
-  (testing "clear-fx against an un-registered fx-id is a no-op (idempotent)"
-    ;; Tooling calls clear-fx defensively before re-registering; a
-    ;; second clear on an already-gone slot must not throw.
-    (rf/reg-fx :test.634y/once (fn [_ _] nil))
-    (rf/clear :fx :test.634y/once)
-    ;; Second clear on the already-gone slot.
-    (is (= :test.634y/once (rf/clear :fx :test.634y/once))
-        "double-clear is a no-op, not an exception")
-    (is (nil? (rf.registrar/lookup :fx :test.634y/once))
-        "the slot stays gone")))
+            (is (= {:offending-key     :fx
+                    :rf.trace/event-id :fx-test/malformed-envelope
+                    :value             {:dispatch [:fx-test/sentinel]}}
+                   (select-keys (:tags t) [:offending-key :rf.trace/event-id :value])))))))))
 
 (deftest multiple-legacy-effect-map-keys-refuse-the-event-once
-  (testing "an effect map with several legacy top-level keys refuses the event once — nothing at all is applied"
-    (let [traces     (collect-traces! ::shape-multi)
-          fired      (atom [])
+  (testing "legacy top-level keys beside a legal :db and :fx refuse the whole event, once"
+    (let [fired      (atom [])
           never-ran  (atom 0)
           http-fired (atom 0)]
-      (rf/reg-fx :fx-test/sibling
-        (fn [_ args] (swap! fired conj args)))
-      ;; Production-visible sentinels: the REFUSAL is the fact this
-      ;; deftest is really about, and it is only observable by giving every
-      ;; effect somewhere to land. Both legacy keys AND the legal :fx entry name
-      ;; a live target, so "refused" and "silently routed anyway" are
-      ;; distinguishable under the production gate, not only through the dev
-      ;; trace ring.
+      (rf/reg-fx :fx-test/sibling (fn [_ args] (swap! fired conj args)))
       (rf/reg-event :fx-test/never-runs
         (fn [{:keys [db]} _] (swap! never-ran inc) {:db db}))
       (rf/reg-fx :http (fn [_ _] (swap! http-fired inc)))
       (rf/reg-event :fx-test/multi-legacy
         (fn [{:keys [db]} _]
-          ;; Mixed: legal :db and :fx alongside two legacy keys.
-          {:db (assoc db :seeded? true)
-           :fx [[:fx-test/sibling {:k :legit}]]
+          {:db       (assoc db :seeded? true)
+           :fx       [[:fx-test/sibling {:k :legit}]]
            :dispatch [:fx-test/never-runs]
-           :http {:url "/api"}}))
-      (rf/dispatch-sync [:fx-test/multi-legacy])
-      (rf/unregister-listener! :trace ::shape-multi)
-      ;; NO PARTIAL COMMIT. The whole event is refused: the legal
-      ;; :fx entry does not run either, and the legal :db does not land. This
-      ;; is the transactional half of the standing FX atomicity asymmetry —
-      ;; pre-commit envelope validity is all-or-nothing.
-      (is (= [] @fired)
-          "the legal :fx entry does NOT fire — the whole event was refused")
-      (is (= 0 @never-ran)
-          "the legacy top-level :dispatch never ran")
-      (is (= 0 @http-fired)
-          "the legacy top-level :http was not routed through the fx machinery")
-      (is (nil? (:seeded? (rf/app-db-value :rf/default)))
-          "the legal :db did NOT commit — no partial commit beside a refusal")
-      ;; ONE trace, naming ONE key. The refusal is a first-defect decision:
-      ;; enumerating every foreign key would bury the first mistake, and the
-      ;; event is already over after the first.
-      ;; Dev-instrumentation arm (see the §6 posture note above).
-      (when rf.interop/debug-enabled?
-        (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
-                                   @traces)
-              offending    (set (map #(get-in % [:tags :offending-key]) shape-traces))]
-          (is (= 1 (count shape-traces))
-              "exactly ONE :rf.error/effect-map-shape trace — the first defect ends the event")
-          (is (contains? #{:dispatch :http} (first offending))
-              "and it names one of the two legacy keys"))))))
+           :http     {:url "/api"}}))
+      (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/multi-legacy]))]
+        (is (= [[] 0 0 nil]
+               [@fired @never-ran @http-fired (:seeded? (rf/app-db-value :rf/default))])
+            "nothing applied: no :fx, no legacy key routed, no :db")
+        (when rf.interop/debug-enabled?
+          (let [shape (of-op :rf.error/effect-map-shape traces)]
+            (is (= 1 (count shape)) "the first defect ends the event")
+            (is (contains? #{:dispatch :http}
+                           (get-in (first shape) [:tags :offending-key])))))))))
 
-;; ---- 6c. per-ENTRY :fx-shape policing -------------------------------------
-;;
-;; The envelope table above polices the whole :fx VALUE before it reaches the
-;; walk. This is the level DOWN: an individual ENTRY inside an otherwise
-;; well-shaped :fx vector. Per `:rf/effect-map` (Spec-Schemas §:rf/effect-map;
-;; spec/009 §:rf.error/effect-map-shape case (c)) each entry is a
-;; `[:tuple :keyword :any]`. A walk guarding with
-;; `(when (and (vector? pair) (seq pair)) …)` would silently drop every
-;; non-vector entry with NO diagnostic — including the clear typo
-;; `{:fx [[:good a] :oops]}`: the handler would appear to fire its effects
-;; while the typo'd entry vanished without trace. And a guard that waved
-;; through ANY non-empty vector would leak two malformed VECTOR shapes into
-;; `handle-one-fx`: a NON-keyword head (`["not-a-keyword" {:x 1}]`, which fx
-;; lookup would mis-report as `:rf.error/no-such-fx` — an UNKNOWN fx-id — when
-;; it is really a bad fx-id TYPE) and a surplus 3rd field, which
-;; `handle-one-fx`'s `[original-fx-id args]` destructure would SILENTLY
-;; truncate.
-;;
-;; fx.cljc `fx-entry-ok?`:
-;;   nil / [] (empty)                     → silent no-op (conditional-fx idiom).
-;;   [fx-id] / [fx-id args], keyword head → walked normally.
-;;   anything else                        → :rf.error/effect-map-shape
-;;                                          (:offending-key :fx, recovery
-;;                                          :logged-and-skipped); that entry
-;;                                          dropped, siblings still run.
+;; ---- 6c. Per-entry :fx shape policing -------------------------------------
 
 (deftest malformed-fx-entry-is-policed-and-skipped
-  (doseq [[label bad-entry reason-re]
-          [["a bare keyword (the forgot-the-inner-vector typo)"
-            :oops #"inner vector"]
-           ["a map where a [fx-id args] pair belongs"
-            {:dispatch [:whatever]} #"inner vector"]
-           ["a vector whose head is not a keyword — a bad fx-id TYPE, not an unknown fx-id"
-            ["not-a-keyword" {:x 1}] #"fx-id"]
-           ["a vector with a surplus 3rd field — dropped, NOT truncated to a 2-tuple and fired"
-            [:fx-test/entry-sibling {:used true} {:dropped true}] #"two elements|surplus"]]]
+  ;; The two vector shapes a vector-only guard would wave through to
+  ;; `handle-one-fx`. The non-vector typo is pinned by
+  ;; `re-frame.effect-map-shape-record-cljs-test`.
+  (doseq [[label bad-entry]
+          [["a non-keyword head — a bad fx-id TYPE, not an unknown fx-id"
+            ["not-a-keyword" {:x 1}]]
+           ["a surplus 3rd field — dropped, NOT truncated to a 2-tuple and fired"
+            [:fx-test/entry-sibling {:used true} {:dropped true}]]]]
     (testing label
-      (let [traces (collect-traces! ::fx-entry-shape)
-            errors (collect-errors! ::fx-entry-shape-errors)
-            fired  (atom [])]
-        (rf/reg-fx :fx-test/entry-sibling
-          (fn [_ args] (swap! fired conj args)))
+      (let [fired (atom [])]
+        (rf/reg-fx :fx-test/entry-sibling (fn [_ args] (swap! fired conj args)))
         (rf/reg-event :fx-test/malformed-entry
           (fn [{:keys [db]} _]
             {:db (assoc db :seeded label)
              :fx [[:fx-test/entry-sibling {:k 1}]
                   bad-entry
                   [:fx-test/entry-sibling {:k 2}]]}))
-        ;; The walk must NOT throw — the malformed entry never reaches
-        ;; handle-one-fx's destructuring.
-        (is (nil? (rf/dispatch-sync [:fx-test/malformed-entry]))
-            "dispatch returns normally — no uncaught host exception")
-        (rf/unregister-listener! :trace  ::fx-entry-shape)
-        (rf.error-emit/unregister-error-listener! ::fx-entry-shape-errors)
-        (is (= [{:k 1} {:k 2}] @fired)
-            "the siblings on both sides fired in order; the malformed entry was dropped, not fired")
-        (is (= label (:seeded (rf/app-db-value :rf/default)))
-            ":db committed; only the malformed entry was dropped")
-        ;; PRODUCTION-VISIBLE WITNESS. This negative rides the ALWAYS-ON
-        ;; `:errors` axis, not the dev trace ring: an empty ring would satisfy
-        ;; `empty?` under the gate for free, whereas the `:errors` axis is live
-        ;; in both postures (the positive twin is
-        ;; `unknown-fx-id-is-logged-and-skipped`, which sees a record there).
-        (is (empty? (filter #(= :rf.error/no-such-fx (:error %)) @errors))
-            "the malformed entry is NOT mis-reported as :rf.error/no-such-fx (always-on axis)")
-        ;; Dev-instrumentation arm (see the §6 posture note above).
-        (when rf.interop/debug-enabled?
-          (is (empty? (filter #(= :rf.error/no-such-fx (:operation %)) @traces))
-              "the malformed entry is NOT mis-reported as :rf.error/no-such-fx")
-          (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
-                                     @traces)
-                t            (first shape-traces)]
-            (is (= 1 (count shape-traces))
-                "exactly one :rf.error/effect-map-shape trace for the malformed entry")
-            (is (= :error (:op-type t)))
-            (is (= :logged-and-skipped (:recovery t)))
-            (is (= :fx (get-in t [:tags :offending-key]))
-                ":offending-key is :fx (a per-entry shape gap)")
-            (is (= :fx-test/malformed-entry (get-in t [:tags :rf.trace/event-id]))
-                ":event-id names the offending handler")
-            (is (= :rf/default (get-in t [:tags :frame]))
-                ":frame is stamped (lands in the per-frame epoch trace buffer)")
-            (is (= bad-entry (get-in t [:tags :value]))
-                ":value carries the offending entry verbatim")
-            (is (re-find reason-re (get-in t [:tags :reason]))
-                ":reason names the shape the entry got wrong")))))))
+        (let [{:keys [errors traces]} (observe #(rf/dispatch-sync [:fx-test/malformed-entry]))]
+          (is (= [{:k 1} {:k 2}] @fired) "only the malformed entry was dropped")
+          (is (= label (:seeded (rf/app-db-value :rf/default))) ":db committed")
+          (is (empty? (of-category :rf.error/no-such-fx errors))
+              "not mis-reported as an unknown fx-id")
+          (when rf.interop/debug-enabled?
+            (let [[t :as ts] (of-op :rf.error/effect-map-shape traces)]
+              (is (= 1 (count ts)))
+              (is (= :logged-and-skipped (:recovery t)))
+              (is (= {:offending-key     :fx
+                      :rf.trace/event-id :fx-test/malformed-entry
+                      :frame             :rf/default
+                      :value             bad-entry}
+                     (select-keys (:tags t)
+                                  [:offending-key :rf.trace/event-id :frame :value]))))))))))
 
 (deftest legal-fx-spellings-fire-commit-and-emit-no-shape-trace
-  ;; nil/absent :fx is equivalent to omitting :fx; the conditional-fx idiom
-  ;; `(into [] (when cond? [[:fx ...]]))` nil-pads (or empties) entries on
-  ;; purpose, and policing them would punish that idiom; and the 1-arity no-args
-  ;; shorthand `[:fx-id]` is the documented lower bound of the entry arity —
-  ;; `handle-one-fx` destructures its `args` as nil. None of these is a shape
-  ;; violation. The production-visible half of "it is legal" is the fired list:
-  ;; a policed entry would be dropped and never fire.
+  ;; nil / [] entries are the conditional-fx idiom; [:fx-id] is the no-args shorthand.
   (doseq [[label fx expected-fired]
-          [["a nil :fx value"
-            nil []]
+          [["a nil :fx value" nil []]
            ["nil and [] entries beside well-shaped ones"
             [[:fx-test/legal-sink {:k 1}] nil [] [:fx-test/legal-sink {:k 2}]] [{:k 1} {:k 2}]]
            ["the no-args [:fx-id] shorthand, which fires with nil args"
             [[:fx-test/legal-sink]] [nil]]]]
     (testing label
-      (let [traces (collect-traces! ::legal-fx)
-            fired  (atom [])]
-        (rf/reg-fx :fx-test/legal-sink
-          (fn [_ args] (swap! fired conj args)))
+      (let [fired (atom [])]
+        (rf/reg-fx :fx-test/legal-sink (fn [_ args] (swap! fired conj args)))
         (rf/reg-event :fx-test/legal-fx
-          (fn [{:keys [db]} _]
-            {:db (assoc db :seeded label)
-             :fx fx}))
-        (is (nil? (rf/dispatch-sync [:fx-test/legal-fx])))
-        (rf/unregister-listener! :trace ::legal-fx)
-        (is (= expected-fired @fired)
-            "every well-shaped entry fired; the legal no-ops were silent")
-        (is (= label (:seeded (rf/app-db-value :rf/default)))
-            ":db committed beside the legal :fx")
-        ;; Dev-instrumentation arm (negative over the trace ring).
-        (when rf.interop/debug-enabled?
-          (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
-              "a legal :fx spelling emits NO :rf.error/effect-map-shape trace"))))))
+          (fn [{:keys [db]} _] {:db (assoc db :seeded label) :fx fx}))
+        (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/legal-fx]))]
+          (is (= expected-fired @fired))
+          (is (= label (:seeded (rf/app-db-value :rf/default))))
+          (when rf.interop/debug-enabled?
+            (is (empty? (of-op :rf.error/effect-map-shape traces)))))))))
 
-;; ---- 6e. RESERVED-fx 3-element entry is policed loudly ---------------------
-;;
-;; The canonical malformation in the wild is a surplus 3rd element
-;; on a RESERVED `:dispatch` fx entry — `[:dispatch [:ev] {:frame host-frame}]`
-;; (mistaking the per-frame-targeting slot for a positional 3rd arg; the
-;; correct idiom is the 2-element `[:dispatch [:ev]]` with the frame inherited
-;; from the dispatching envelope per Spec 002 §Cascade propagation). Waved
-;; into `handle-one-fx`, its `[original-fx-id args]` destructure would SILENTLY
-;; DROP the `{:frame ...}` slot — the dispatch would fire (truncated), and any
-;; intent encoded in the 3rd slot would vanish with no diagnostic. The
-;; surplus-field row above pins the generic USER-fx case; THIS pins the reserved `:dispatch`
-;; case, end-to-end through `dispatch-sync`'s drain. The contract is LOUD
-;; FAILURE — emit :rf.error/effect-map-shape and drop the whole entry; do NOT
-;; silently fire a truncated 2-tuple.
-
-(deftest reserved-dispatch-three-element-entry-is-policed-loudly
-  (testing "a 3-element reserved `[:dispatch [:ev] {:frame …}]` fx entry is a
-            shape violation — :rf.error/effect-map-shape (loud), the whole
-            entry dropped, NOT silently truncated-and-fired as `[:dispatch [:ev]]`"
-    (let [traces     (collect-traces! ::reserved-dispatch-arity3)
-          target-ran (atom 0)]
-      (rf/reg-event :fx-test.tbuov/target
-        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
-      (rf/reg-event :fx-test.tbuov/emits-malformed-dispatch
-        (fn [{:keys [db]} _]
-          {:db (assoc db :seeded? true)
-           ;; The exact wild malformation: a surplus `{:frame …}` 3rd slot on
-           ;; a reserved :dispatch entry.
-           :fx [[:dispatch [:fx-test.tbuov/target] {:frame :rf/default}]]}))
-      (is (nil? (rf/dispatch-sync [:fx-test.tbuov/emits-malformed-dispatch]))
-          "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! :trace ::reserved-dispatch-arity3)
-      ;; CRITICAL: the malformed entry must NOT silently fire as a truncated
-      ;; 2-tuple `[:dispatch [:fx-test.tbuov/target]]`. The queued target must
-      ;; never have run.
-      (is (= 0 @target-ran)
-          "the malformed 3-element :dispatch was DROPPED, not truncated-and-fired")
-      (is (= true (:seeded? (rf/app-db-value :rf/default)))
-          ":db still committed; only the malformed fx entry was dropped")
-      ;; Dev-instrumentation arm (see the §6 posture note above).
-      ;; "LOUD, not silent" has two halves and only one of them is a trace:
-      ;; the DROP (`@target-ran` = 0, above) is the production-real half and
-      ;; is what distinguishes the contract from a silent
-      ;; truncate-and-fire. The diagnostic's own loudness is dev-channel.
-      (when rf.interop/debug-enabled?
-        (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
-                                   @traces)]
-          (is (= 1 (count shape-traces))
-              "exactly one :rf.error/effect-map-shape trace — LOUD, not silent")
-          (let [t (first shape-traces)]
-            (is (= :error (:op-type t)))
-            (is (= :logged-and-skipped (:recovery t))
-                "recovery is logged-and-skipped — recover/rollback posture kept, but NOT silent")
-            (is (= :fx (get-in t [:tags :offending-key])))
-            (is (= :fx-test.tbuov/emits-malformed-dispatch
-                   (get-in t [:tags :rf.trace/event-id]))
-                ":event-id names the offending handler")
-            (is (= [:dispatch [:fx-test.tbuov/target] {:frame :rf/default}]
-                   (get-in t [:tags :value]))
-                ":value carries the full malformed entry verbatim")
-            (is (string? (get-in t [:tags :reason]))
-                ":reason is a human-facing diagnostic")))))))
-
-;; ---- 7. :fx-overrides function-value branch -------------------------------
-;;
-;; Per Spec 002 §`:fx-overrides` §Pattern-level contract vs CLJS reference:
-;; the CLJS reference accepts function-valued overrides — `(fn [m args] ...)` —
-;; as a one-off lambda affordance for tests and story fixtures. The signature
-;; matches the registered-fx handler shape, so a user can either point at
-;; another registered fx (id-redirect) or hand a lambda in-line. The pattern-
-;; level contract narrows to id-only for SSR-portability; the CLJS reference
-;; (this code; `.cljc` so JVM tests run too) supports both.
-;;
-;; Spec/002's conceptual resolution sketch:
-;;   (nil? override)        → no override
-;;   (keyword? override)    → id-redirect via registrar
-;;   (fn? override)         → run the fn in place of the original fx
-;;
-;; The fn-value branch runs in place of the original, and the original does
-;; NOT fire. The id-redirect form is pinned by
-;; `fx-overrides-per-call-beats-per-frame-beats-registered` above.
-;; nil-value (or missing key) → no override active, original fires: pinned by
-;; `nil-and-false-fx-override-values-stay-silent` below.
+;; ---- 7. :fx-overrides fn-value and fall-through ---------------------------
 
 (deftest fx-overrides-fn-value-branch
-  (testing "function-value override fires in place of the registered fx"
-    ;; Per Spec 014 §Reply addressing the originating event is threaded
-    ;; through to fx handlers as `:event` on their ctx; the fn-value
-    ;; override branch follows the same code path, so the ctx shape is
-    ;; identical to a registered-fx handler.
-    (let [traces         (collect-traces! ::fn-override-trace)
-          original-fired (atom 0)
-          override-fired (atom 0)
-          override-args  (atom nil)
-          override-ctx   (atom nil)]
-      (rf/reg-fx :fx-test/http
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! original-fired inc)))
+  (testing "a fn-value override runs in place of the registered fx, with its args and fx ctx"
+    (let [original-fired (atom 0)
+          calls          (atom [])
+          override       (fn [m args] (swap! calls conj [args (:frame m) (:event m)]))]
+      (rf/reg-fx :fx-test/http (fn [_ _] (swap! original-fired inc)))
       (rf/reg-event :fx-test/issue-request
         (fn [_ _] {:fx [[:fx-test/http {:method :get :url "/me"}]]}))
-      (rf/dispatch-sync
-        [:fx-test/issue-request :payload-1]
-        {:fx-overrides {:fx-test/http (fn [m args]
-                                        (swap! override-fired inc)
-                                        (reset! override-ctx m)
-                                        (reset! override-args args)
-                                        {:status 200 :body {:user/id 42}})}})
-      (rf/unregister-listener! :trace ::fn-override-trace)
-      (is (= 0 @original-fired)
-          "the registered :fx-test/http MUST NOT fire when overridden by a fn")
-      (is (= 1 @override-fired)
-          "the fn-value override body ran exactly once")
-      (is (= {:method :get :url "/me"} @override-args)
-          "the fn override receives the same args the registered fx would")
-      (is (= :rf/default (:frame @override-ctx))
-          "the fn override receives the standard ctx map (frame, optional :event)")
-      (is (= [:fx-test/issue-request :payload-1] (:event @override-ctx))
-          "ctx :event is the originating event vector")
-      ;; Dev-instrumentation arm (see ns docstring). `:rf.fx/override-applied`
-      ;; is a bare `rf.trace/emit!` with no always-on twin; the execution
-      ;; counts above are its production-visible half.
-      (when rf.interop/debug-enabled?
-        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
-          (is (= 1 (count applied))
-              "exactly one :rf.fx/override-applied trace for the fn-value override")
-          (is (= :fx-test/http (get-in (first applied) [:tags :rf.fx/from]))
-              ":rf.fx/from carries the original fx-id"))))))
-
-;; ---- 7b. :fx-overrides fn-value of a RESERVED fx-id ------------------------
-;;
-;; The four reserved fx-ids (:dispatch, :dispatch-later, :rf.fx/reg-flow,
-;; :rf.fx/clear-flow) live only in fx.cljc's `reserved-fx-handlers` table —
-;; they are NOT in the registrar. A function-value :fx-overrides entry for a
-;; reserved fx-id is HONOURED (within the §7c override tier): the override fn
-;; pre-empts the reserved body (matches spec/002 §`:fx-overrides`
-;; resolution model, where
-;; `(fn? override) → override` runs in place of the registered fx), and the
-;; :rf.fx/override-applied trace fires only when the override actually
-;; applies. This enables reserved-fx stubbing in tests/stories (e.g.
-;; capturing dispatches without queueing them).
+      (let [{:keys [traces]} (observe #(rf/dispatch-sync
+                                         [:fx-test/issue-request :payload-1]
+                                         {:fx-overrides {:fx-test/http override}}))]
+        (is (= 0 @original-fired))
+        (is (= [[{:method :get :url "/me"} :rf/default [:fx-test/issue-request :payload-1]]]
+               @calls))
+        (when rf.interop/debug-enabled?
+          (is (= [:fx-test/http]
+                 (map #(get-in % [:tags :rf.fx/from])
+                      (of-op :rf.fx/override-applied traces)))))))))
 
 (deftest reserved-fx-fn-value-override-pre-empts-reserved-body
-  (testing ":dispatch fn-value override FIRES + the real :dispatch does NOT run"
-    ;; (fn [m args] (record! args)) — the natural test stub that captures the
-    ;; dispatched event vector without round-tripping it through the queue.
-    ;; The :rf.fx/override-applied trace rides the actual override-fn
-    ;; invocation rather than resolution time, where it could fire while the
-    ;; reserved body ran instead; the once-count and the unrun target are the
-    ;; production-visible half of that trace honesty.
-    (let [traces        (collect-traces! ::reserved-override-trace)
-          errors        (collect-errors! ::reserved-override-errors)
-          stub-fired    (atom 0)
-          captured-args (atom nil)
-          captured-ctx  (atom nil)
-          target-ran    (atom 0)]
+  (testing ":dispatch fn-value override fires in place of the reserved body"
+    (let [calls      (atom [])
+          target-ran (atom 0)]
       (rf/reg-event :fx-test.nrpj1/target
         (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :fx-test.nrpj1/emits-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/target :payload]]]}))
       (rf/dispatch-sync
         [:fx-test.nrpj1/emits-dispatch]
-        {:fx-overrides {:dispatch (fn [m args]
-                                    (swap! stub-fired inc)
-                                    (reset! captured-ctx m)
-                                    (reset! captured-args args))}})
-      (rf/unregister-listener! :trace ::reserved-override-trace)
-      (rf.error-emit/unregister-error-listener! ::reserved-override-errors)
-      (is (= [:fx-test.nrpj1/target :payload] @captured-args)
-          "the fn-value override fires and receives the :dispatch args (the event vector)")
-      (is (= 1 @stub-fired)
-          "the :dispatch override body ran exactly once")
-      (is (= :rf/default (:frame @captured-ctx))
-          "the override receives the standard fx-handler ctx map (frame, …)")
-      (is (= 0 @target-ran)
-          "the real reserved :dispatch body MUST NOT run — the override pre-empts it")
-      ;; :dispatch is in the OVERRIDABLE tier, so the reject tier (§7c) leaves
-      ;; it alone. The negative rides the ALWAYS-ON axis, where the category is
-      ;; live in both postures: `strip-rejected-overrides` runs in production,
-      ;; and stripping `:dispatch` would break stubbed routing.
-      (is (empty? (filter #(= :rf.error/reserved-fx-override (:error %)) @errors))
-          "NO always-on reserved-fx-override record for an OVERRIDABLE id")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
-          (is (= 1 (count applied))
-              "exactly one :rf.fx/override-applied trace — emitted because the override fired")
-          (is (= :dispatch (get-in (first applied) [:tags :rf.fx/from]))
-              ":rf.fx/from carries the reserved fx-id that was overridden")
-          (is (empty? (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces))
-              "NO :rf.error/reserved-fx-override fired for an OVERRIDABLE id")))))
-
+        {:fx-overrides {:dispatch (fn [m args] (swap! calls conj [args (:frame m)]))}})
+      (is (= [[[:fx-test.nrpj1/target :payload] :rf/default]] @calls))
+      (is (= 0 @target-ran) "the reserved :dispatch body did not run")))
   (testing ":dispatch-later fn-value override pre-empts the reserved body too"
     (let [later-args (atom nil)]
       (rf/reg-event :fx-test.nrpj1/emits-later
@@ -949,735 +320,213 @@
       (rf/dispatch-sync
         [:fx-test.nrpj1/emits-later]
         {:fx-overrides {:dispatch-later (fn [_ args] (reset! later-args args))}})
-      (is (= {:ms 50 :event [:fx-test.nrpj1/target]} @later-args)
-          "the fn-value override of :dispatch-later fires with the reserved-fx args"))))
+      (is (= {:ms 50 :event [:fx-test.nrpj1/target]} @later-args)))))
 
 (deftest reserved-fx-id-redirect-override-unchanged
-  (testing "id-redirect TO a reserved fx-id still falls through (reserved ids aren't registered)"
-    ;; {:my-fx :dispatch} → (rf.registrar/lookup :fx :dispatch) is
-    ;; nil → :rf.error/override-fallthrough → runs the original :my-fx. The
-    ;; reserved fx-ids live only in `reserved-fx-handlers`, not the registrar,
-    ;; so a keyword-redirect targeting one is a coherent, surfaced no-op.
-    (let [original-fired (atom 0)
-          traces         (collect-traces! ::redirect-to-reserved)
-          errors         (collect-errors! ::redirect-to-reserved-errors)]
-      (rf/reg-fx :fx-test.nrpj1/my-fx
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! original-fired inc)))
+  (testing "a keyword redirect TO an unregistered id (the reserved :dispatch lives
+            outside the registrar) falls through to the original fx, loudly"
+    (let [original-fired (atom 0)]
+      (rf/reg-fx :fx-test.nrpj1/my-fx (fn [_ _] (swap! original-fired inc)))
       (rf/reg-event :fx-test.nrpj1/issue-redirect
         (fn [_ _] {:fx [[:fx-test.nrpj1/my-fx {}]]}))
-      (rf/dispatch-sync
-        [:fx-test.nrpj1/issue-redirect]
-        {:fx-overrides {:fx-test.nrpj1/my-fx :dispatch}})
-      (rf/unregister-listener! :trace  ::redirect-to-reserved)
-      (rf.error-emit/unregister-error-listener! ::redirect-to-reserved-errors)
-      (is (= 1 @original-fired)
-          "the original :fx-test.nrpj1/my-fx ran — the redirect to the un-registered :dispatch fell through")
-      ;; PRODUCTION-VISIBLE WITNESS. `:rf.error/override-fallthrough`
-      ;; is ALWAYS-ON (Spec 009 §Observability channels) and its emit stamps
-      ;; `:failing-id` = the ORIGINAL fx-id, which differs from the dispatched
-      ;; `:event-id`, so `emit-error-both!` lifts `:failing-id` + `:reason`
-      ;; onto the production record. The "coherent, surfaced no-op" this
-      ;; deftest is named for is therefore surfaced under the gate too.
-      (let [records (filter #(= :rf.error/override-fallthrough (:error %)) @errors)]
-        (is (= 1 (count records))
-            "exactly ONE always-on record surfaced the un-registered redirect target")
-        (let [r (first records)]
-          (is (= :fx-test.nrpj1/my-fx (:failing-id r))
-              ":failing-id names the fx whose override fell through")
-          (is (= :fx-test.nrpj1/issue-redirect (:event-id r)))
-          (is (= :rf/default (:frame r)))
-          (is (re-find #"not registered" (:reason r))
-              ":reason names the un-registered redirect target as the cause")))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
-          (is (= 1 (count fallthrough))
-              "exactly one :rf.error/override-fallthrough trace surfaced the un-registered redirect target"))))))
+      (let [{:keys [errors]} (observe #(rf/dispatch-sync
+                                         [:fx-test.nrpj1/issue-redirect]
+                                         {:fx-overrides {:fx-test.nrpj1/my-fx :dispatch}}))]
+        (is (= 1 @original-fired))
+        (is (= [{:failing-id :fx-test.nrpj1/my-fx
+                 :event-id   :fx-test.nrpj1/issue-redirect
+                 :frame      :rf/default}]
+               (map #(select-keys % [:failing-id :event-id :frame])
+                    (of-category :rf.error/override-fallthrough errors))))))))
 
 (deftest malformed-fx-override-value-fails-loud
-  (testing "a non-fn / non-keyword / non-nil :fx-overrides value (a number, and
-            a map, which is callable but not a fn) emits
-            :rf.error/override-fallthrough and runs the original fx — not
-            silently swallowed"
-    (doseq [bad-value [42 {:also :bad}]]
-      (let [original-fired (atom 0)
-            traces         (collect-traces! ::malformed-override)
-            errors         (collect-errors! ::malformed-override-errors)]
-        (rf/reg-fx :fx-test.3az1vn/target
-                   {:platforms #{:client :server}}
-                   (fn [_ _] (swap! original-fired inc)))
+  ;; A map is callable but not a fn, so it pins the `fn?` (not `ifn?`) test.
+  (doseq [bad-value [42 {:also :bad}]]
+    (testing (pr-str bad-value)
+      (let [original-fired (atom 0)]
+        (rf/reg-fx :fx-test.3az1vn/target (fn [_ _] (swap! original-fired inc)))
         (rf/reg-event :fx-test.3az1vn/issue
           (fn [_ _] {:fx [[:fx-test.3az1vn/target {}]]}))
-        (rf/dispatch-sync
-          [:fx-test.3az1vn/issue]
-          {:fx-overrides {:fx-test.3az1vn/target bad-value}})
-        (rf/unregister-listener! :trace  ::malformed-override)
-        (rf.error-emit/unregister-error-listener! ::malformed-override-errors)
-        (is (= 1 @original-fired)
-            (str "the original fx ran (recovery :replaced-with-default) for "
-                 (pr-str bad-value)))
-        ;; PRODUCTION-VISIBLE WITNESS. "Not silently
-        ;; swallowed" is the point, and `:rf.error/override-
-        ;; fallthrough` is ALWAYS-ON — so the loudness is assertable under
-        ;; `-Dre-frame.debug=false`, where a misconfigured override map is
-        ;; most likely to be discovered.
-        (let [records (filter #(= :rf.error/override-fallthrough (:error %)) @errors)]
-          (is (= 1 (count records))
-              (str "exactly ONE always-on record surfaced the malformed override value "
-                   (pr-str bad-value)))
-          (is (= :fx-test.3az1vn/target (:failing-id (first records)))
-              (str ":failing-id names the overridden fx for " (pr-str bad-value)))
-          (is (re-find #"not a valid" (:reason (first records)))
-              (str ":reason states the value is not a valid :fx-overrides value for "
-                   (pr-str bad-value))))
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
-            (is (= 1 (count fallthrough))
-                (str "exactly one :rf.error/override-fallthrough surfaced the malformed "
-                     "override value " (pr-str bad-value)))))))))
+        (let [{:keys [errors]} (observe #(rf/dispatch-sync
+                                           [:fx-test.3az1vn/issue]
+                                           {:fx-overrides {:fx-test.3az1vn/target bad-value}}))]
+          (is (= 1 @original-fired) "the original fx ran")
+          (is (= [:fx-test.3az1vn/target]
+                 (map :failing-id (of-category :rf.error/override-fallthrough errors)))
+              "one always-on record names the overridden fx"))))))
 
 (deftest nil-and-false-fx-override-values-stay-silent
-  (testing "nil and false :fx-overrides values are the documented noop placeholder
-            (spec/002 §`:fx-overrides`): silent fall-through to the original fx,
-            NO :rf.error/override-fallthrough trace (the silent
-            no-op is intentional)"
-    (doseq [noop-value [nil false]]
-      (let [original-fired (atom 0)
-            traces         (collect-traces! ::noop-override)
-            errors         (collect-errors! ::noop-override-errors)]
-        (rf/reg-fx :fx-test.3az1vn/noop-target
-                   {:platforms #{:client :server}}
-                   (fn [_ _] (swap! original-fired inc)))
+  ;; The `{:some-fx (when cond? stub)}` idiom: nil/false is the no-op placeholder,
+  ;; and must not spray records at an off-box shipper on every dispatch.
+  (doseq [noop-value [nil false]]
+    (testing (pr-str noop-value)
+      (let [original-fired (atom 0)]
+        (rf/reg-fx :fx-test.3az1vn/noop-target (fn [_ _] (swap! original-fired inc)))
         (rf/reg-event :fx-test.3az1vn/noop-issue
           (fn [_ _] {:fx [[:fx-test.3az1vn/noop-target {}]]}))
-        (rf/dispatch-sync
-          [:fx-test.3az1vn/noop-issue]
-          {:fx-overrides {:fx-test.3az1vn/noop-target noop-value}})
-        (rf/unregister-listener! :trace  ::noop-override)
-        (rf.error-emit/unregister-error-listener! ::noop-override-errors)
-        (is (= 1 @original-fired)
-            (str "the original fx ran for the noop placeholder " (pr-str noop-value)))
-        ;; PRODUCTION-VISIBLE WITNESS. A NEGATIVE, so it has to be
-        ;; asserted on an axis that is LIVE in the posture being tested — the
-        ;; always-on `:errors` stream, whose positive twin is
-        ;; `malformed-fx-override-value-fails-loud` directly above. Over the
-        ;; dev trace ring this same claim passes for free under the gate.
-        ;; "Silent" is a production-reachable promise: an app that ships the
-        ;; `{:some-fx (when cond? stub)}` idiom must not spray records at its
-        ;; off-box shipper on every dispatch.
-        (is (empty? (filter #(= :rf.error/override-fallthrough (:error %)) @errors))
-            (str "no override-fallthrough record on the ALWAYS-ON axis for the "
-                 "documented noop value " (pr-str noop-value)))
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
-            (is (empty? fallthrough)
-                (str "no override-fallthrough trace for the documented noop value "
-                     (pr-str noop-value)))))))))
+        (let [{:keys [errors]} (observe #(rf/dispatch-sync
+                                           [:fx-test.3az1vn/noop-issue]
+                                           {:fx-overrides {:fx-test.3az1vn/noop-target noop-value}}))]
+          (is (= 1 @original-fired))
+          (is (empty? (of-category :rf.error/override-fallthrough errors))))))))
 
-;; ---- 7c. reserved-fx OVERRIDE TIER ----------------------------------------
+;; ---- 7c. Reserved-fx REJECT tier ------------------------------------------
 ;;
-;; STATE-INSTALLATION criterion: a reserved
-;; fx-id stays OVERRIDABLE when its body only routes dispatches / touches
-;; host-browser state (`:dispatch`, `:dispatch-later`,
-;; `:rf.nav/*`); it HARD-REJECTS the
-;; override (emit :rf.error/reserved-fx-override + run the real reserved body)
-;; when its body installs/clears durable frame runtime state
+;; A reserved fx whose body installs or clears durable frame runtime state
 ;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`,
-;; `:rf.fx/clear-flow`, `:rf.route/with-nav-token`).
-;; The diagnostic's `:reason` is id-specific rather than one blanket
-;; clause — §7e pins that. Three defence layers:
-;;   (1) dev per-call reject in `handle-one-fx`  — emit + run reserved body
-;;   (2) production prod-strip `strip-rejected-overrides` — drop keys loudly
-;;   (3) cascade-exclusion in `child-dispatch-opts` — never inherit a
-;;       reject-tier override into a `[:dispatch …]` child.
+;; `:rf.fx/clear-flow`, `:rf.route/with-nav-token`) rejects an override: it
+;; emits `:rf.error/reserved-fx-override` and runs the real body. Three layers
+;; enforce it — the dev per-call reject in `handle-one-fx`, the production
+;; `strip-rejected-overrides`, and the cascade exclusion in `child-dispatch-opts`.
 
 (deftest reject-tier-fn-value-override-ignored-reserved-body-runs
-  (testing "fn-value override of :rf.fx/reg-flow is IGNORED; the flow IS registered"
-    ;; :rf.fx/reg-flow installs durable per-frame flow-registry state (reject
-    ;; tier). A fn-value override that stubs it out would silently leave the
-    ;; flow unregistered; the reject runs the reserved body so the flow lands.
-    (let [traces        (collect-traces! ::reject-reg-flow)
-          errors        (collect-errors! ::reject-reg-flow-errors)
-          stub-fired    (atom 0)
-          ;; :rf.fx/reg-flow carries the 3-slot triple
-          ;; [flow-id metadata derive-fn].
-          flow          [:fx-test.snsup5/a-flow
-                         {:inputs [[:fx-test.snsup5 :seed]]
-                          :output-path [:fx-test.snsup5 :out]}
-                         (fn [_] 42)]]
+  (testing "a fn-value override of :rf.fx/reg-flow is ignored, loudly; the flow is registered"
+    (let [stub-fired (atom 0)
+          stub       (fn [_ _] (swap! stub-fired inc))
+          flow       [:fx-test.snsup5/a-flow
+                      {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :out]}
+                      (fn [_] 42)]]
       (rf/reg-event :fx-test.snsup5/install-flow
         (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
-      (rf/dispatch-sync
-        [:fx-test.snsup5/install-flow]
-        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! stub-fired inc))}})
-      (rf/unregister-listener! :trace  ::reject-reg-flow)
-      (rf.error-emit/unregister-error-listener! ::reject-reg-flow-errors)
-      (is (= 0 @stub-fired)
-          "the fn-value override stub MUST NOT fire — the reject pre-empts it")
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow)
-          "the reserved :rf.fx/reg-flow body ran — the flow is registered")
-      ;; PRODUCTION-VISIBLE WITNESS. `:rf.error/reserved-fx-override`
-      ;; is ALWAYS-ON (Spec 009 §Error event catalogue) and stamps
-      ;; `:failing-id` = the rejected reserved fx-id, distinct from
-      ;; `:event-id`, so both it and the id-specific `:reason` ride the
-      ;; production record (Spec 009 §Component attribution). This pins that
-      ;; the per-call reject site (`handle-one-fx`, not the prod-strip) reaches
-      ;; the corpus-wide `register-error-listener!` axis through the genuine
-      ;; `dispatch-sync` → fx-walk path, carrying the origin event's context.
-      ;; The companion prod-elision leg lives in
-      ;; `re-frame.on-error-elision-prod-test` (proves it survives goog.DEBUG=false).
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)
-            r       (first records)]
-        (is (= 1 (count records))
-            "exactly ONE always-on reserved-fx-override record")
-        (is (= :rf.fx/reg-flow (:failing-id r))
-            ":failing-id names the rejected reserved fx-id in production too")
-        (is (= [:fx-test.snsup5/install-flow] (:event r))
-            ":event carries the dispatched event vector")
-        (is (= :fx-test.snsup5/install-flow (:event-id r))
-            ":event-id is the dispatched event-vector head")
-        (is (= :rf/default (:frame r))
-            ":frame names the frame the override was rejected in"))
-      ;; Dev-instrumentation arm (see ns docstring). `:recovery`
-      ;; and the `:rf.fx/id` tag spelling are trace-shape, not record-shape.
-      (when rf.interop/debug-enabled?
-        (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
-          (is (= 1 (count rejected))
-              "exactly one :rf.error/reserved-fx-override trace fired")
-          (is (= :rf.fx/reg-flow (get-in (first rejected) [:tags :rf.fx/id]))
-              ":rf.fx/id names the rejected reserved fx-id")
-          (is (= :reserved-body-ran (:recovery (first rejected)))
-              ":recovery is :reserved-body-ran")))))
-
-  (testing "keyword-redirect override of a reject-tier id is ALSO ignored"
-    ;; The reject covers both override shapes — fn-value AND keyword-redirect.
-    (let [traces     (collect-traces! ::reject-redirect)
-          errors     (collect-errors! ::reject-redirect-errors)
-          redir-ran  (atom 0)]
-      (rf/reg-fx :fx-test.snsup5/redir-target
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! redir-ran inc)))
-      (rf/reg-event :fx-test.snsup5/install-flow-2
-        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/b-flow {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :b]} (fn [_] 1)]]]}))
-      (rf/dispatch-sync
-        [:fx-test.snsup5/install-flow-2]
-        {:fx-overrides {:rf.fx/reg-flow :fx-test.snsup5/redir-target}})
-      (rf/unregister-listener! :trace  ::reject-redirect)
-      (rf.error-emit/unregister-error-listener! ::reject-redirect-errors)
-      (is (= 0 @redir-ran)
-          "the keyword-redirect target MUST NOT fire — the reject pre-empts it")
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/b-flow)
-          "the reserved :rf.fx/reg-flow body ran despite the redirect")
-      ;; PRODUCTION-VISIBLE WITNESS — the always-on axis, as above.
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
-        (is (= 1 (count records))
-            "one always-on reserved-fx-override record for the redirect form too")
-        (is (= :fx-test.snsup5/install-flow-2 (:event-id (first records)))
-            ":event-id is the dispatched event-vector head"))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
-            "one :rf.error/reserved-fx-override trace fired for the redirect form too")))))
+      (let [{:keys [errors traces]} (observe #(rf/dispatch-sync
+                                                [:fx-test.snsup5/install-flow]
+                                                {:fx-overrides {:rf.fx/reg-flow stub}}))]
+        (is (= 0 @stub-fired))
+        (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow))
+        (is (= [{:failing-id :rf.fx/reg-flow
+                 :event      [:fx-test.snsup5/install-flow]
+                 :event-id   :fx-test.snsup5/install-flow
+                 :frame      :rf/default}]
+               (map #(select-keys % [:failing-id :event :event-id :frame])
+                    (of-category :rf.error/reserved-fx-override errors))))
+        (when rf.interop/debug-enabled?
+          (is (= [:reserved-body-ran]
+                 (map :recovery (of-op :rf.error/reserved-fx-override traces)))))))))
 
 (deftest production-prod-strip-drops-reject-tier-loudly
-  (testing "strip-rejected-overrides removes reject-tier keys + emits one error per key"
-    ;; The production prod-strip is exercised as a unit — the router calls it
-    ;; only under `(not rf.interop/debug-enabled?)`, so in the ordinary dev suite
-    ;; the per-call reject is what fires on the dispatch path and this fn has
-    ;; to be reached directly. Under `scripts/test-core-prod-gate.sh` the same
-    ;; call IS the live router path, which is the posture this unit test
-    ;; describes. The fn is pure-ish: filter the effective merged
-    ;; override map, emit loudly.
-    (let [traces   (collect-traces! ::prod-strip)
-          errors   (collect-errors! ::prod-strip-errors)
-          stub     (fn [_ _] :stub)
-          stripped (rf.fx/strip-rejected-overrides
-                     {:rf.machine/spawn        stub        ;; reject
-                      :rf.fx/reg-flow          :some-redir  ;; reject (keyword form)
-                      :rf.route/with-nav-token stub        ;; reject
-                      :dispatch                stub        ;; OVERRIDABLE — kept
-                      :my-app/http             stub}       ;; user fx — kept
-                     :rf/default
-                     [:some/event])]
-      (rf/unregister-listener! :trace  ::prod-strip)
-      (rf.error-emit/unregister-error-listener! ::prod-strip-errors)
-      (is (= #{:dispatch :my-app/http} (set (keys stripped)))
-          "every reject-tier key is stripped; OVERRIDABLE + user keys survive")
-      ;; PRODUCTION-VISIBLE WITNESS. "LOUDLY" is the deftest's
-      ;; own claim and it must hold in the posture the fn exists for: the
-      ;; always-on axis carries one record per stripped key, each naming its
-      ;; own id through the lifted `:failing-id`.
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
-        (is (= 3 (count records))
-            "one always-on reserved-fx-override record per stripped reject-tier key")
-        (is (= #{:rf.machine/spawn :rf.fx/reg-flow :rf.route/with-nav-token}
-               (set (map :failing-id records)))
-            "the three rejected ids are named on the production records")
-        (is (every? #(and (string? (:reason %))
-                          (re-find #"may NOT be overridden" (:reason %)))
-                    records)
-            "each production record carries the human-facing rejection reason"))
-      ;; Dev-instrumentation arm (see ns docstring). `:where`,
-      ;; which discriminates the prod-strip site from the per-call one, is a
-      ;; trace-tag only — it is not lifted onto the always-on record.
-      (when rf.interop/debug-enabled?
-        (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
-          (is (= 3 (count rejected))
-              "one :rf.error/reserved-fx-override trace per stripped reject-tier key")
-          (is (= #{:rf.machine/spawn :rf.fx/reg-flow :rf.route/with-nav-token}
-                 (set (map #(get-in % [:tags :rf.fx/id]) rejected)))
-              "the three rejected ids are named")
-          (is (every? #(= :production-strip (get-in % [:tags :where])) rejected)
-              ":where discriminates the production prod-strip site"))))))
+  ;; The router calls the strip only when debug is off, so the dev lane reaches it here.
+  (let [stub (fn [_ _] :stub)
+        {:keys [result errors traces]}
+        (observe #(rf.fx/strip-rejected-overrides
+                    {:rf.machine/spawn        stub
+                     :rf.fx/reg-flow          :some-redir
+                     :rf.route/with-nav-token stub
+                     :dispatch                stub
+                     :my-app/http             stub}
+                    :rf/default
+                    [:some/event]))]
+    (is (= #{:dispatch :my-app/http} (set (keys result)))
+        "reject-tier keys are stripped; overridable and user keys survive")
+    (is (= {:rf.machine/spawn 1 :rf.fx/reg-flow 1 :rf.route/with-nav-token 1}
+           (frequencies (map :failing-id (of-category :rf.error/reserved-fx-override errors))))
+        "one always-on record per stripped key")
+    (when rf.interop/debug-enabled?
+      (is (= [:production-strip :production-strip :production-strip]
+             (map #(get-in % [:tags :where]) (of-op :rf.error/reserved-fx-override traces)))))))
 
 (deftest reject-tier-nil-false-placeholder-stays-silent
-  ;; A reject-tier reserved id mapped to the documented nil/false no-op
-  ;; placeholder (`{:rf.fx/reg-flow nil}` — the collapsed
-  ;; `{:some-fx (when cond? stub)}` idiom) is NOT an attempted override. A
-  ;; gate testing bare key PRESENCE (`contains?`) would treat it as one and
-  ;; emit a spurious `:rf.error/reserved-fx-override` onto the ALWAYS-ON
-  ;; error channel per dispatched event. The reject tier mirrors the
-  ;; OVERRIDABLE tier's nil/false silent no-op treatment: nil/false falls
-  ;; through silently; only a REAL fn/keyword override emits + is neutralised.
-  (testing "dev per-call handle-one-fx: a nil/false reject-tier override falls
-            through silently — NO :rf.error/reserved-fx-override on the trace
-            OR always-on axes; the reserved :rf.fx/reg-flow body still runs"
-    (doseq [noop-value [nil false]]
+  ;; nil/false is the no-op placeholder in the reject tier too: no spurious
+  ;; always-on record per dispatched event, and the reserved body still runs.
+  (doseq [noop-value [nil false]]
+    (testing (pr-str noop-value)
       (rf.flows/reset-flows!)
-      (let [traces (collect-traces! ::reject-noop-trace)
-            errors (collect-errors! ::reject-noop-errors)
-            flow   [:fx-test.x76af2-27/flow
-                    {:inputs [[:fx-test.x76af2-27 :seed]]
-                     :output-path [:fx-test.x76af2-27 :out]}
-                    (fn [_] 1)]]
+      (let [flow [:fx-test.x76af2-27/flow
+                  {:inputs [[:fx-test.x76af2-27 :seed]] :output-path [:fx-test.x76af2-27 :out]}
+                  (fn [_] 1)]]
         (rf/reg-event :fx-test.x76af2-27/install-flow
           (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
-        (rf/dispatch-sync
-          [:fx-test.x76af2-27/install-flow]
-          {:fx-overrides {:rf.fx/reg-flow noop-value}})
-        (rf/unregister-listener! :trace  ::reject-noop-trace)
-        (rf.error-emit/unregister-error-listener! ::reject-noop-errors)
-        ;; The ALWAYS-ON leg is the load-bearing one and stays posture-
-        ;; independent: the failure it guards is a spurious record
-        ;; sprayed onto the production error channel PER DISPATCHED EVENT, so
-        ;; silence has to be proven in the posture that channel serves.
-        (is (empty? (filter #(= :rf.error/reserved-fx-override (:error %)) @errors))
-            (str "NO reserved-fx-override on the always-on axis for the "
-                 "nil/false placeholder " (pr-str noop-value)))
-        (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.x76af2-27/flow)
-            (str "the reserved :rf.fx/reg-flow body ran (silent fall-through) for "
-                 (pr-str noop-value)))
-        ;; Dev-instrumentation arm (negative over the trace ring).
-        (when rf.interop/debug-enabled?
-          (is (empty? (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces))
-              (str "NO reserved-fx-override trace for the nil/false placeholder "
-                   (pr-str noop-value)))))))
-
-  (testing "production prod-strip: a nil/false reject-tier override is NOT
-            stripped and emits NO error; a REAL reject-tier override IS still
-            stripped + emitted (one error, naming the real override only)"
-    (let [traces   (collect-traces! ::reject-noop-strip)
-          errors   (collect-errors! ::reject-noop-strip-errors)
-          stub     (fn [_ _] :stub)
-          stripped (rf.fx/strip-rejected-overrides
-                     {:rf.fx/reg-flow   nil    ;; reject-tier NO-OP — kept, silent
-                      :rf.fx/clear-flow false  ;; reject-tier NO-OP — kept, silent
-                      :rf.machine/spawn stub   ;; reject-tier REAL — stripped + emitted
-                      :my-app/http      stub}  ;; user fx — kept
-                     :rf/default
-                     [:some/event])]
-      (rf/unregister-listener! :trace  ::reject-noop-strip)
-      (rf.error-emit/unregister-error-listener! ::reject-noop-strip-errors)
-      (is (= {:rf.fx/reg-flow nil :rf.fx/clear-flow false :my-app/http stub}
-             stripped)
-          "the nil/false reject-tier placeholders fall through untouched; only the real override is stripped")
-      ;; PRODUCTION-VISIBLE WITNESS — this is the prod-strip, so
-      ;; its "exactly one, naming the REAL override" claim is asserted on the
-      ;; axis that survives the gate.
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
-        (is (= 1 (count records))
-            "exactly ONE always-on record — for the real :rf.machine/spawn override only")
-        (is (= :rf.machine/spawn (:failing-id (first records)))
-            "the production record names the REAL override, not the nil/false placeholders"))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
-          (is (= 1 (count rejected))
-              "exactly ONE reserved-fx-override — for the real :rf.machine/spawn override only")
-          (is (= :rf.machine/spawn (get-in (first rejected) [:tags :rf.fx/id]))
-              "the emitted error names the REAL override, not the nil/false placeholders"))))))
+        (let [{:keys [errors]} (observe #(rf/dispatch-sync
+                                           [:fx-test.x76af2-27/install-flow]
+                                           {:fx-overrides {:rf.fx/reg-flow noop-value}}))]
+          (is (empty? (of-category :rf.error/reserved-fx-override errors)))
+          (is (contains? (get (rf.flows/flows-snapshot) :rf/default)
+                         :fx-test.x76af2-27/flow)))))))
 
 (deftest cascade-exclusion-reject-tier-not-inherited
-  (testing "a reject-tier override does NOT propagate into a [:dispatch …] child"
-    ;; The cascade-exclusion (child-dispatch-opts) runs unconditionally (dev +
-    ;; prod). A parent envelope carrying a reject-tier :fx-overrides must not
-    ;; leak it onto the child dispatch's inherited overrides. We verify the
-    ;; child's :rf.fx/reg-flow runs its reserved body (flow registered) — the
-    ;; reject-tier override is gone by the time the child cascade resolves.
-    (let [traces      (collect-traces! ::cascade-exclude)
-          errors      (collect-errors! ::cascade-exclude-errors)
-          child-stub  (atom 0)]
+  (testing "a reject-tier override on the parent envelope is not inherited by a [:dispatch …] child"
+    (let [child-stub (atom 0)
+          stub       (fn [_ _] (swap! child-stub inc))]
       (rf/reg-event :fx-test.snsup5/child-installs-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/child-flow {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :child]} (fn [_] 7)]]]}))
+        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/child-flow
+                                          {:inputs      [[:fx-test.snsup5 :seed]]
+                                           :output-path [:fx-test.snsup5 :child]}
+                                          (fn [_] 7)]]]}))
       (rf/reg-event :fx-test.snsup5/parent-cascades
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-installs-flow]]]}))
-      ;; The parent carries a reject-tier :rf.fx/reg-flow override. At the
-      ;; parent it is rejected (per-call) AND excluded from the child opts.
-      (rf/dispatch-sync
-        [:fx-test.snsup5/parent-cascades]
-        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! child-stub inc))}})
-      (rf/unregister-listener! :trace  ::cascade-exclude)
-      (rf.error-emit/unregister-error-listener! ::cascade-exclude-errors)
-      (is (= 0 @child-stub)
-          "the reject-tier override did not fire in the child cascade either")
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow)
-          "the CHILD's :rf.fx/reg-flow ran its reserved body — override not inherited")
-      ;; The PARENT's :rf.fx had no :rf.fx/reg-flow entry of its own, so the
-      ;; only reject site is the parent's per-call neutralisation of the
-      ;; override key on resolution — NOT a second emit in the child cascade
-      ;; (the override was excluded from the child opts, so the child never
-      ;; sees it to reject). The child's :rf.fx/reg-flow resolves with NO
-      ;; override → zero reject emits attributable to the child.
-      ;;
-      ;; PRODUCTION-VISIBLE WITNESS, and it is ATTRIBUTED rather
-      ;; than a bare zero, because the total is genuinely posture-dependent
-      ;; here. Under `-Dre-frame.debug=false` the router runs
-      ;; `strip-rejected-overrides` over the PARENT's effective override map
-      ;; (router.cljc `run-fx-effects!`), which legitimately emits ONE always-on
-      ;; record attributed to the parent event. What must be zero in BOTH
-      ;; postures is any record attributed to the CHILD — that is exactly the
-      ;; claim "the reject-tier override was excluded from the child opts,
-      ;; not inherited-then-rejected", and asserting it this way makes the
-      ;; cascade-exclusion load-bearing in the posture where the prod-strip
-      ;; is the live path rather than a unit-tested one.
-      (is (empty? (filter #(and (= :rf.error/reserved-fx-override (:error %))
-                                (= :fx-test.snsup5/child-installs-flow (:event-id %)))
-                          @errors))
-          "no always-on reserved-fx-override attributed to the CHILD — the override was excluded from the child opts (not inherited-then-rejected)")
-      ;; Dev-instrumentation arm (see ns docstring). In the dev
-      ;; posture there is no prod-strip at all, so the total is zero.
-      (when rf.interop/debug-enabled?
-        (is (zero? (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
-            "no :rf.error/reserved-fx-override fired — the override was excluded from the child opts (not inherited-then-rejected)")))))
+      (let [{:keys [errors]} (observe #(rf/dispatch-sync
+                                         [:fx-test.snsup5/parent-cascades]
+                                         {:fx-overrides {:rf.fx/reg-flow stub}}))]
+        (is (= 0 @child-stub))
+        (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow))
+        ;; The production strip legitimately reports the PARENT's override; only a
+        ;; CHILD-attributed record would mean the override was inherited.
+        (is (empty? (filter #(= :fx-test.snsup5/child-installs-flow (:event-id %))
+                            (of-category :rf.error/reserved-fx-override errors))))))))
 
-;; ---- 7d. the SOURCE policy is the only policy -----------------------------
-;;
-;; Two policies are easy to conflate into one set:
-;;   (1) non-overridable SOURCE  — an id whose real body may not be OVERRIDDEN.
-;;   (2) non-redirectable TARGET — an id a keyword-redirect may not name.
-;; A non-overridable source is NOT automatically a non-redirectable target: an
-;; app can emit `:rf.machine/spawn` / `:rf.machine/destroy` directly, so a
-;; custom effect may redirect to the same real handler. Only the source policy
-;; exists; no id is a protected target. The fixture
-;; reloads `re-frame.machines`, so `:rf.machine/spawn` / `:rf.machine/destroy`
-;; are real registrar fxs here.
+;; ---- 7d. The SOURCE policy is the only policy -----------------------------
 
 (deftest source-nonoverridable-is-redirectable-target
-  (testing "a NON-OVERRIDABLE SOURCE (:rf.machine/spawn / :rf.machine/destroy)
-            is a REDIRECTABLE TARGET — a custom effect resolves to the real
-            registered handler, not refused as a protected target"
+  (testing "a non-overridable SOURCE is still a redirectable TARGET — no target policy exists"
     (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
       (is (= {:disposition :applied-redirect :target id}
-             (rf.fx/classify-fx-override {:my/custom id} :my/custom))
-          (str "a custom effect redirects to the registered " id " handler"))))
+             (rf.fx/classify-fx-override {:my/custom id} :my/custom))))))
 
-  (testing "the SAME ids remain NON-OVERRIDABLE SOURCES — a DIRECT override is
-            stripped loudly (source policy intact)"
-    (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
-      (is (= {} (rf.fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
-          (str "a direct " id " override is rejected/stripped"))))
-
-  (testing "there is NO protected-TARGET disposition: a redirect
-            naming an UNREGISTERED id falls through honestly rather than being
-            refused as protected — the only two dispositions a keyword redirect
-            can produce"
-    (is (= {:disposition :fallthrough :reason :unregistered :target :nobody/home}
-           (rf.fx/classify-fx-override {:dispatch :nobody/home} :dispatch))
-        "an unregistered redirect target is an honest :fallthrough")
-    (is (= {:disposition :applied-redirect :target :rf.machine/spawn}
-           (rf.fx/classify-fx-override {:dispatch :rf.machine/spawn} :dispatch))
-        "a registered redirect target applies, even one that is a rejected SOURCE")))
-
-;; ---- 7e. the reject diagnostic's REASON is policy-accurate -----------------
-;;
-;; The always-on `:rf.error/reserved-fx-override` `:reason` is id-specific
-;; rather than ONE blanket rationale for the whole source set, so a programmer
-;; who overrides a member is handed the reason that is true of THAT id on a
-;; production-reachable error channel.
-;;
-;; `:reason` is a string in `:tags` whose content is derived per id; its SHAPE
-;; is the same for every id, so no Spec 009 catalogue / Spec-Schemas row varies
-;; on the shape axis.
-;;
-;; POSTURE. This whole section is PRODUCTION-REAL and needs no
-;; guard. The paragraph above matters only if the `:reason` actually reaches
-;; the always-on channel, and it does:
-;; `emit-reserved-fx-override!` stamps `:failing-id` = the rejected fx-id,
-;; which differs from `:event-id`, so `rf.error-emit/emit-error-both!` lifts BOTH
-;; `:failing-id` and `:reason` onto the always-on record (Spec 009 §Component
-;; attribution). `reject-reason-for` therefore reads the string off the
-;; ALWAYS-ON axis rather than the DCE'd trace tags, and every assertion below
-;; runs under `-Dre-frame.debug=false`. Read off the dev trace these would
-;; be NPEs under the gate (`re-find` on a nil reason), leaving the diagnostic
-;; that production actually ships unchecked.
+;; ---- 7e. The reject diagnostic's REASON is id-specific --------------------
 
 (defn- reject-reason-for
-  "The `:reason` string the reject diagnostic emits for `fx-id`, read off the
-  real producer (the prod-strip emit) rather than reconstructed — and off the
-  ALWAYS-ON `:errors` axis, which is the channel the reason's
-  accuracy actually matters on and the one that survives
-  `-Dre-frame.debug=false`."
+  "The always-on `:reason` the reject diagnostic emits for `fx-id`."
   [fx-id]
-  (let [errors (collect-errors! ::reject-reason)]
-    (rf.fx/strip-rejected-overrides {fx-id (fn [_ _] :stub)} :rf/default [:some/event])
-    (rf.error-emit/unregister-error-listener! ::reject-reason)
-    (->> @errors
-         (filter #(= :rf.error/reserved-fx-override (:error %)))
-         first
-         :reason)))
+  (->> (observe #(rf.fx/strip-rejected-overrides {fx-id (fn [_ _] :stub)} :rf/default [:some/event]))
+       :errors
+       (of-category :rf.error/reserved-fx-override)
+       first
+       :reason))
 
 (deftest reject-diagnostic-reason-is-id-specific
-  (testing "a state-installing member gets its state-installation reason"
-    (let [reason (reject-reason-for :rf.machine/spawn)]
-      (is (re-find #"(?i)snapshot|runtime-db" reason)
-          ":rf.machine/spawn's reason names the durable snapshot it installs")))
-
-  (testing "the nav-token threader gets the nav-token reason"
-    (is (re-find #"(?i)nav-token" (reject-reason-for :rf.route/with-nav-token))
-        ":rf.route/with-nav-token's reason names the nav-token"))
-
-  (testing "every source-policy member has an id-specific reason — none falls
-            back to the generic policy clause (set-membership pin)"
+  (testing "every non-overridable source has its own rationale, not the generic fallback clause"
     (doseq [id [:rf.machine/spawn :rf.machine/destroy
                 :rf.fx/reg-flow :rf.fx/clear-flow :rf.route/with-nav-token]]
-      (let [reason (reject-reason-for id)]
-        (is (re-find (re-pattern (str "\\Q" id "\\E")) reason)
-            (str "the reason names the offending id " id))
-        (is (not (re-find #"is a non-overridable SOURCE \(" reason))
-            (str id " has its own rationale line, not the generic fallback")))))
+      (is (not (re-find #"is a non-overridable SOURCE \(" (reject-reason-for id)))
+          (str id)))))
 
-  (testing "every reason says the SOURCE policy is the only policy — a rejected
-            source is NOT thereby a forbidden redirect target"
-    (doseq [id [:rf.machine/spawn :rf.machine/destroy :rf.route/with-nav-token]]
-      (is (re-find #"(?i)SOURCE policy ONLY" (reject-reason-for id))
-          (str id "'s reason says redirecting a custom effect TO it stays permitted")))))
+;; ---- Trace stamps the Xray Event lens reads -------------------------------
 
-;; ---- :rf.fx/do-fx carries :fx + :db-present? ------------------------------
-;;
-;; The handler's return shape is otherwise invisible at the trace level —
-;; the :db value already rides through :rf.event/db-changed diffs (not
-;; stamped on the do-fx marker because it can be huge), and the :fx
-;; vector lives in the interceptor context's :effects slot for the
-;; duration of the cascade and rides no other trace. So :fx (the vector)
-;; and :db-present? (boolean) are stamped onto the :rf.fx/do-fx marker
-;; that terminates the do-fx walk. Stamps the SHAPE, not deep values;
-;; Event lens consumers can align cascade rows with handler returns.
-;;
-;; POSTURE. `:rf.fx/do-fx` is a bare `rf.trace/emit!` marker with no
-;; always-on twin — it exists FOR the Xray Event lens, a dev tool — so every
-;; assertion about its tags rides a `(when rf.interop/debug-enabled? …)` arm. What
-;; the marker REPORTS, though, is a fact about the handler's return being
-;; honoured, and that is production-real: each deftest below pins the
-;; corresponding execution fact posture-independently, so none of them is a
-;; deftest that executes nothing under the production gate.
+(deftest ^:requires-debug event-do-fx-stamps-fx-and-db-present
+  (testing ":rf.fx/do-fx reports the returned :fx vector and whether a :db slot came back"
+    (rf/reg-fx :fx-test/do-fx-shape (fn [_ _] :ok))
+    (doseq [[effects db-present?]
+            [[{:db {:seeded? true} :fx [[:fx-test/do-fx-shape {:k 1}]]} true]
+             [{:fx [[:fx-test/do-fx-shape {}]]} false]]]
+      (rf/reg-event :fx-test/returns (fn [_ _] effects))
+      (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/returns]))]
+        (is (= {:rf.event/fx (:fx effects) :rf.event/db-present? db-present?}
+               (select-keys (:tags (first (of-op :rf.fx/do-fx traces)))
+                            [:rf.event/fx :rf.event/db-present?])))))))
 
-(deftest event-do-fx-stamps-fx-and-db-present
-  (testing "a reg-event handler returning {:db ... :fx [...]} fires :rf.fx/do-fx
-   with :fx (the vector) and :db-present? true under :tags (same slot
-   placement as :frame — payload-shaped tags ride under :tags)"
-    (let [fx-args (atom ::unfired)]
-      (rf/reg-fx :fx-test/do-fx-shape (fn [_ args] (reset! fx-args args) :ok))
-      (rf/reg-event :fx-test/returns-db-and-fx
-        (fn [_ _]
-          {:db {:seeded? true}
-           :fx [[:fx-test/do-fx-shape {:k 1}]]}))
-      (let [acc (collect-traces! ::do-fx-shape)]
-        (try
-          (rf/dispatch-sync [:fx-test/returns-db-and-fx])
-          ;; Production-visible witness: the marker's two tags are
-          ;; a REPORT of what the handler returned; the returns themselves are
-          ;; observable without any trace surface.
-          (is (= {:k 1} @fx-args)
-              "the returned :fx entry actually fired with its args")
-          (is (= true (:seeded? (rf/app-db-value :rf/default)))
-              "the returned :db slot actually committed (:db-present? true's referent)")
-          ;; Dev-instrumentation arm (see the section note above).
-          (when rf.interop/debug-enabled?
-            (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
-                  tags  (:tags dof)]
-              (is (= true (:rf.event/db-present? tags))
-                  ":rf.event/db-present? true because the handler returned a :db slot")
-              (is (= [[:fx-test/do-fx-shape {:k 1}]] (:rf.event/fx tags))
-                  ":rf.event/fx vector matches what the handler returned")
-              ;; Top level is reserved for substrate-hoisted slots
-              ;; (:rf.trace/call-site, :rf.trace/trigger-handler, :source, …).
-              (is (not (contains? dof :rf.event/fx))
-                  ":rf.event/fx is NOT at top level")
-              (is (not (contains? dof :rf.event/db-present?))
-                  ":rf.event/db-present? is NOT at top level")))
-          (finally
-            (rf/unregister-listener! :trace ::do-fx-shape)))))))
-
-(deftest event-do-fx-stamps-when-only-fx-returned
-  (testing "a reg-event handler returning {:fx [...]} only (no :db slot) stamps
-   :db-present? false and :fx with the vector"
-    (let [fx-fired (atom 0)]
-      (rf/reg-fx :fx-test/no-db-fx (fn [_ _] (swap! fx-fired inc) :ok))
-      (rf/reg-event :fx-test/db-seed
-        (fn [{:keys [db]} _] {:db (assoc db :pre-existing :kept)}))
-      (rf/reg-event :fx-test/fx-only
-        (fn [_ _]
-          {:fx [[:fx-test/no-db-fx {}]]}))
-      (let [acc (collect-traces! ::no-db)]
-        (try
-          (rf/dispatch-sync [:fx-test/db-seed])
-          (rf/dispatch-sync [:fx-test/fx-only])
-          ;; Production-visible witness: "no :db slot" means the
-          ;; commit path was not taken, which is observable as app-db being
-          ;; left exactly as the previous event left it.
-          (is (= 1 @fx-fired) "the returned :fx entry fired")
-          (is (= :kept (:pre-existing (rf/app-db-value :rf/default)))
-              "app-db is untouched by the :fx-only handler (:db-present? false's referent)")
-          ;; Dev-instrumentation arm (see the section note above).
-          (when rf.interop/debug-enabled?
-            (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
-                  tags  (:tags dof)]
-              (is (= false (:rf.event/db-present? tags))
-                  ":rf.event/db-present? false because the handler returned no :db slot")
-              (is (= [[:fx-test/no-db-fx {}]] (:rf.event/fx tags))
-                  ":rf.event/fx vector matches what the handler returned")))
-          (finally
-            (rf/unregister-listener! :trace ::no-db)))))))
-
-;; ---- :coeffects stamp on :rf.event/run-end -------------------------------
-;;
-;; The user-injected subset of the
-;; handler's final coeffects map rides under `:tags :rf.event/coeffects`
-;; on :rf.event/run-end — NOT on :rf.fx/do-fx. A do-fx placement would
-;; silently drop the stamp whenever a handler returned only
-;; :db (no :fx), because the do-fx walk is short-circuited and the
-;; marker never emits, leaving the Xray Event lens's COEFFECTS section
-;; empty for a textbook event like `:counter/inc`
-;; that injects a cofx but returns only a :db slot. Pinning the stamp to
-;; the always-fires run-end emit makes the COEFFECTS section render
-;; uniformly across event flavours. The substrate-side filter
-;; (`rf.fx/user-injected-coeffects`) keeps the framework defaults
-;; (:db :event :frame :source :trace-id) out at emit time.
-;;
-;; POSTURE. `:rf.event/run-end` is a dev-only `rf.trace/emit!`, and
-;; the stamp exists to feed the Xray Event lens — a dev tool — so the tag
-;; assertions ride a `(when rf.interop/debug-enabled? …)` arm. Underneath the
-;; stamp sits a production-real fact: the declared `:rf.cofx/requires`
-;; suppliers RAN and their values reached the handler body. Each deftest below
-;; pins that delivery posture-independently, so the cofx pipeline itself
-;; is covered under the production gate even though its trace stamp is not.
-
-(deftest event-run-end-stamps-user-injected-coeffects-without-fx
-  (testing "a reg-event handler that injects user cofx and
-   returns only {:db ...} (no :fx) STILL surfaces its coeffects on
-   :rf.event/run-end. A do-fx-marker stamp would drop them (do-fx is
-   short-circuited when the handler returns no :fx, so the COEFFECTS
-   section would be empty for textbook handlers like :counter/inc — the
-   cofx would never reach the Xray Event lens)"
+(deftest ^:requires-debug event-run-end-stamps-user-injected-coeffects-without-fx
+  (testing "a handler that injects a cofx and returns only :db still stamps it on
+            :rf.event/run-end — a :db-only return emits no :rf.fx/do-fx to carry it"
     (rf/reg-cofx :fx-test/now (fn [] "2026-05-18T19:00:00Z"))
     (rf/reg-event :fx-test/db-only-with-cofx
       {:rf.cofx/requires [:fx-test/now]}
-      (fn [{:keys [fx-test/now]} _]
-        {:db {:stamped-at now}}))
-    (let [acc (collect-traces! ::db-only-cofx)]
-      (try
-        (rf/dispatch-sync [:fx-test/db-only-with-cofx])
-        ;; Production-visible witness: the case under test is a handler
-        ;; that injects a cofx and returns ONLY `:db`. That the supplier ran
-        ;; and its value reached the body is production-real and is visible
-        ;; in app-db — the handler writes the injected value straight into it.
-        (is (= "2026-05-18T19:00:00Z" (:stamped-at (rf/app-db-value :rf/default)))
-            "the declared cofx supplier ran and its value reached the handler body")
-        ;; Dev-instrumentation arm (see the section note above).
-        (when rf.interop/debug-enabled?
-          (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
-                cofx  (get-in re [:tags :rf.event/coeffects])
-                dof   (first (filterv #(= :rf.fx/do-fx (:operation %)) @acc))]
-            (is (= {:fx-test/now "2026-05-18T19:00:00Z"} cofx)
-                "the user-injected cofx surfaces under :tags :rf.event/coeffects
-                 EVEN THOUGH the handler returned no :fx")
-            (is (nil? dof)
-                ":rf.fx/do-fx was correctly NOT emitted (no :fx vector); the
-                 cofx stamp would be dropped if it rode on do-fx")))
-        (finally
-          (rf/unregister-listener! :trace ::db-only-cofx))))))
+      (fn [{:keys [fx-test/now]} _] {:db {:stamped-at now}}))
+    (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/db-only-with-cofx]))]
+      (is (= {:fx-test/now "2026-05-18T19:00:00Z"}
+             (get-in (first (of-op :rf.event/run-end traces)) [:tags :rf.event/coeffects]))))))
 
-(deftest event-run-end-coeffects-stamp-absent-when-no-user-cofx
-  (testing "a handler with no inject-cofx has its :rf.event/run-end fire
-   WITHOUT a :rf.event/coeffects stamp (silent-by-default — distinct
-   from a stamped empty map)"
-    (rf/reg-event :fx-test/no-user-cofx
-      (fn [{:keys [db]} _] {:db (assoc db :k 1)}))
-    (let [acc (collect-traces! ::no-cofx)]
-      (try
-        (rf/dispatch-sync [:fx-test/no-user-cofx])
-        ;; Production-visible witness: the handler ran to
-        ;; completion — the precondition for "run-end fired" — and did so
-        ;; without declaring any cofx.
-        (is (= 1 (:k (rf/app-db-value :rf/default)))
-            "the cofx-free handler ran and committed")
-        ;; Dev-instrumentation arm. "The key is ABSENT from the
-        ;; stamp" is a claim about a dev-only tag map with no production
-        ;; referent; over an empty ring it would also pass vacuously.
-        (when rf.interop/debug-enabled?
-          (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
-                tags  (:tags re)]
-            (is (some? re) ":rf.event/run-end fired")
-            (is (not (contains? tags :rf.event/coeffects))
-                ":rf.event/coeffects key ABSENT on :tags when no user cofx injected")))
-        (finally
-          (rf/unregister-listener! :trace ::no-cofx))))))
-
-;; ---- reg-fx handler-required ----------------------------------------------
-;;
-;; A `reg-fx` MUST supply a callable handler. The metadata-only form
-;; `(reg-fx :id {…})` (a plausible typo) fails LOUD at REGISTRATION time —
-;; symmetric with reg-cofx's registration-time missing-supplier rejection —
-;; rather than registering a nil `:handler-fn` that would fail LATE at
-;; fire-time as a misleading `:rf.error/fx-handler-exception` (an NPE
-;; blaming the ABSENT handler for THROWING).
+;; ---- reg-fx requires a handler --------------------------------------------
 
 (deftest reg-fx-with-no-handler-is-registration-invalid
-  (testing "`reg-fx` with metadata only and NO handler fn throws
-            `:rf.error/fx-registration-invalid` at REGISTRATION time, naming
-            the missing handler. Mirrors reg-cofx's
-            registration-time missing-supplier rejection — not deferred
-            to a misleading fire-time `:rf.error/fx-handler-exception`."
-    (let [ex (try (rf/reg-fx :fx-test.x76af2-26/no-handler
-                             {:doc "typo — handler omitted"})
-                  nil (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/fx-registration-invalid (:rf.error/id (ex-data ex)))
-          "rejected as a malformed fx registration shape, not a late fire-time NPE")
-      (is (= :fx-test.x76af2-26/no-handler (:rf.fx/id (ex-data ex)))
-          "the offending id rides the error payload")
-      (is (re-find #"no handler" (:reason (ex-data ex)))
-          "the reason names the missing handler")
-      (is (nil? (rf.registrar/lookup :fx :fx-test.x76af2-26/no-handler))
-          "the handler-less fx did NOT register (no nil `:handler-fn` left behind)")))
-
-  (testing "a non-callable positional value (a number typo'd as the handler)
-            is ALSO rejected — the guard is `ifn?`, not merely non-nil"
-    (let [ex (try (rf/reg-fx :fx-test.x76af2-26/bad-handler 42)
-                  nil (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/fx-registration-invalid (:rf.error/id (ex-data ex)))
-          "a non-IFn handler is a malformed registration shape")
-      (is (nil? (rf.registrar/lookup :fx :fx-test.x76af2-26/bad-handler))
-          "the malformed fx did NOT register")))
-
-  (testing "the well-formed `(reg-fx :id (fn …))` and `(reg-fx :id {…} (fn …))`
-            shapes register cleanly — the guard rejects only the
-            handler-less / non-callable cases"
-    (rf/reg-fx :fx-test.x76af2-26/ok-bare (fn [_ _] :ok))
-    (rf/reg-fx :fx-test.x76af2-26/ok-meta {:doc "with meta"} (fn [_ _] :ok))
-    (is (fn? (:handler-fn (rf.registrar/lookup :fx :fx-test.x76af2-26/ok-bare)))
-        "the bare-handler form registered its `:handler-fn`")
-    (is (fn? (:handler-fn (rf.registrar/lookup :fx :fx-test.x76af2-26/ok-meta)))
-        "the metadata+handler form registered its `:handler-fn`")))
+  ;; Fail at registration, not later as a misleading fire-time fx-handler-exception.
+  (doseq [[label id register!]
+          [["metadata only, the handler omitted"
+            :fx-test.x76af2-26/no-handler
+            #(rf/reg-fx :fx-test.x76af2-26/no-handler {:doc "typo — handler omitted"})]
+           ["a non-callable handler — the guard is ifn?, not merely non-nil"
+            :fx-test.x76af2-26/bad-handler
+            #(rf/reg-fx :fx-test.x76af2-26/bad-handler 42)]]]
+    (testing label
+      (let [ex (try (register!) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (= {:rf.error/id :rf.error/fx-registration-invalid :rf.fx/id id}
+               (select-keys (ex-data ex) [:rf.error/id :rf.fx/id])))
+        (is (nil? (rf.registrar/lookup :fx id)) "nothing was registered")))))
