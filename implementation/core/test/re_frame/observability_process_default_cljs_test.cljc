@@ -1,60 +1,20 @@
 (ns re-frame.observability-process-default-cljs-test
-  "Spec 015 §The process default — the PROCESS-DEFAULT observability policy
-  `(rf/configure! {:observability …})`, and the frameless / unresolved-owner
-  routing it exists to carry.
+  "Spec 015 §The process default — `(rf/configure! {:observability …})`.
 
-  Two claims, and the second is why the first is structural rather than a
-  convenience:
+  1. Declared once per process. Precedence is per stream: a frame that
+     declares a stream uses its own entries, one that omits it inherits the
+     default's, and `{:errors []}` on a frame is its opt-out. One source is
+     consulted per record per stream, so a sink named by both fires once.
 
-  1. **Declared once per process.** Without it a multi-frame app would
-     restate its Sentry policy on every `make-frame` call. Precedence is PER STREAM: a frame
-     that DECLARES a stream uses its own entries for it, one that OMITS the
-     stream inherits the default's, and `{:errors []}` on a frame is that
-     frame's opt-out. Exactly ONE source is consulted per record per stream,
-     so a sink id named by both is invoked ONCE.
+  2. It routes the records no frame policy can: a `:frame nil` record, and a
+     record whose producer revoked frame authority (`route-frame?` false).
+     Those project under an explicitly nil governing frame, which fails
+     closed — tree slots become `:rf/redacted`, summary ids survive — and a
+     stale `:frame` id is kept as a diagnostic but never re-resolved.
 
-  2. **Records no frame policy can ever route.** Three producers stamp
-     `:frame nil` BY CONSTRUCTION (`:rf.error/no-frame-context`, the
-     pre-frame SSR hydration-parse arm of
-     `:rf.error/malformed-hydration-payload`, fresco's compute-sub
-     `:rf.error/sub-exception`), and a record whose `:frame` no longer
-     RESOLVES (a dissociated incarnation's teardown report) is in the same
-     position. These reach the process default under an EXPLICITLY NIL
-     governing frame — fail-closed, so tree slots project to `:rf/redacted`
-     while summary ids stay intact — and a stale `:frame` id is kept as a
-     diagnostic but NEVER re-resolved, so it can never reach a same-id
-     successor's sink.
-
-  Pins:
-
-    (a) per-stream precedence: a frame with NO `:observability`
-        inherits the default and is delivered to ONCE, projected under its
-        OWN classification — witnessed on the TREE slot, and in the strong
-        form by two inheriting frames whose differing classifications project
-        the SAME payload differently; a frame declaring `{:errors []}` opts
-        out; a frame declaring the same sink id gets exactly ONE delivery; a
-        frame declaring only `:handled-events` still inherits the default's
-        `:errors`.
-    (b) absent vs empty: `{:observability nil}` CLEARS; a malformed
-        policy throws `:rf.error/bad-frame-classification` with
-        `:where 'rf/configure!` at CALL time.
-    (c) frameless: a `:frame nil` record reaches the default with tree
-        slots redacted and summary ids intact — and a live UNRELATED ambient
-        frame that is CARRIED at emit time is still not consulted.
-    (d) unresolved owner: a `route-frame? false` teardown report reaches
-        the default and NOT a same-id successor's sink — nor a live CARRIED
-        bystander's — keeping its stale `:frame` id as a diagnostic while its
-        tree payload fails closed.
-    (e) raw hook and ownership: an explicit `:rf.egress/local-raw` entry on the default is
-        the sanctioned cross-frame raw hook; a delivery to a REGISTERED
-        default sink OWNS the record (a non-zero delivered-count), while an
-        entry naming an unregistered sink does not.
-    (f) `rf/current-config` reflects the declared default and omits it when
-        none is declared.
-
-  Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
-  (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
-  Plain CLJC; no DOM dependency."
+  A projected record's `:frame` slot is the record's own id whichever frame
+  governs, so only the TREE slot (`:tags`) shows which frame's classification
+  walked the payload; the pins below read it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -73,82 +33,41 @@
                 (rf.event-emit/clear-event-listeners!)
                 (rf.error-emit/clear-error-listeners!)
                 (rf.observability/clear-observability-sinks!))})
-  ;; The process default is a `defonce` atom deliberately OUTSIDE the runtime
-  ;; reset (a hot reload must not drop a production policy declared at boot),
-  ;; so this suite clears it on BOTH sides of every test. Clearing only before
-  ;; would leave the last test's default installed for whatever file the
-  ;; runner reaches next, where it would silently satisfy a fail-closed pin.
+  ;; The process default is a `defonce` outside the runtime reset (a hot reload
+  ;; must keep a policy declared at boot), so clear it on both sides: a default
+  ;; left installed would satisfy a fail-closed pin in the next namespace.
   (fn [t]
     (rf.observability/clear-observability-default!)
     (try (t)
          (finally (rf.observability/clear-observability-default!)))))
 
-(defn- redacted? [v] (= :rf/redacted v))
-
-;; ---------------------------------------------------------------------------
-;; The WITNESS the summary slots cannot supply.
-;;
-;; A projected record's `:frame` slot is the record's OWN id, kept as a
-;; DIAGNOSTIC — it is copied through `route-error-record!`'s summary and is the
-;; same value whichever frame governs. So `(= :some/id (:frame r))` asserts
-;; nothing about the GOVERNING frame, and neither do `:kind` / `:error` /
-;; `:time`. Only the TREE slot separates the two:
-;;
-;;   live governing frame  -> `:tags` is walked under THAT frame's registry:
-;;                            its declared paths redact, undeclared siblings
-;;                            ride raw, and the slot is a MAP.
-;;   nil governing frame   -> the whole `:tags` slot FAILS CLOSED to
-;;                            `:rf/redacted`.
-;;
-;; Every pin below that names a live owner therefore reads the tree slot. That
-;; is what makes them fail under a `resolve-route` returning `[entries nil]`
-;; for a live owner, which the summary-only assertions could not see.
-
-(def ^:private classified-path
-  "The app-db path `classify-frame!` declares sensitive. `route-error-record!`
-  lifts every non-summary record slot onto `:tags` verbatim, and the walker
-  matches app-db paths from the root of the walked value, so a record slot
-  `:auth {:token …}` lands at `[:tags :auth :token]` and is reached by a
-  `[:auth :token]` declaration."
-  [:auth :token])
+;; `classify-frame!` declares this app-db path sensitive. A record slot
+;; `:auth {:token …}` lands on `[:tags :auth :token]`, which the walker reaches
+;; through this declaration.
+(def ^:private classified-path [:auth :token])
 
 (defn- classify-frame!
-  "Declare `classified-path` sensitive on `frame-id`, through the commit-plane
-  classification-effect path (`:source :effect`) that owns durable app-db
-  classification since EP-0025. Gives the frame a policy that is VISIBLE in a
-  projected tree slot — which is what makes 'which frame governs' an
-  observable question rather than an internal one."
   [frame-id]
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects
                rt {:sensitive [classified-path]}))))
 
+;; `:auth` is not a summary slot, so routing lifts it onto `:tags`.
 (defn- payload-record
-  "A non-event union error record carrying a TREE payload: `:auth` is not a
-  summary slot, so `route-error-record!` lifts it onto `:tags`."
   [error frame]
   {:error error
    :frame frame
    :time  1
    :auth  {:token "secret" :user "ann"}})
 
-;; ===========================================================================
-;; (a) Per-stream precedence + exactly-one-source.
-;; ===========================================================================
-
 (deftest inheriting-frames-own-classification-governs-the-projection
-  (testing "the strong form: a frame inheriting the process
-            default's entries is projected under ITS OWN classification, and
-            two inheriting frames whose classifications DIFFER project the same
-            payload differently. Inheritance moves the sink list; the redaction
-            authority stays with the frame. A summary-slot assertion cannot see
-            this — the projected `:frame` id is identical either way."
+  (testing "a frame inheriting the default's entries is projected under its OWN
+            classification: two inheriting frames that classify differently project
+            the same payload differently"
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                        (fn [r] (swap! seen conj r)))
       (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      ;; Two frames, NEITHER declaring `:observability` — both inherit the
-      ;; default's entries. Only one declares a classification.
       (rf/make-frame {:id :obs.default/classified})
       (rf/make-frame {:id :obs.default/unclassified})
       (classify-frame! :obs.default/classified)
@@ -156,126 +75,68 @@
         (payload-record :rf.error/test-union :obs.default/classified))
       (rf.error-emit/dispatch-error-record!
         (payload-record :rf.error/test-union :obs.default/unclassified))
-      (is (= 2 (count @seen)) "both inheriting frames delivered to the default")
-      (let [[classified unclassified] @seen]
-        (is (redacted? (get-in classified [:tags :auth :token]))
-            "the CLASSIFIED owner's own declaration redacted its payload —
-             the frame governs the walk even though the entries were inherited")
-        (is (= "ann" (get-in classified [:tags :auth :user]))
-            "an undeclared sibling in the same tree still rides raw, so this is
-             not a redact-everything result")
-        (is (= {:auth {:token "secret" :user "ann"}} (:tags unclassified))
-            "the OTHER inheriting frame declares nothing, so the identical
-             payload rides raw — the two differ only by WHICH frame governs")))))
+      (is (= [{:auth {:token :rf/redacted :user "ann"}}
+              {:auth {:token "secret" :user "ann"}}]
+             (mapv :tags @seen))))))
 
-(deftest frame-empty-stream-is-the-opt-out
-  (testing "`{:errors []}` on a FRAME declares the stream and
-            names no sink, so it opts that frame OUT of the process default.
-            Declaration is read by KEY PRESENCE, not truthiness."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! seen conj r)))
-      (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf/make-frame {:id :obs.default/opted-out :observability {:errors []}})
-      (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/test-union :frame :obs.default/opted-out :time 1})
-      (is (zero? (count @seen))
-          "an empty stream on the frame routes NOTHING — not an inherit"))))
-
-(deftest same-sink-in-both-sources-is-delivered-once
-  (testing "a sink id named by BOTH the frame's entries and
-            the process default's is invoked ONCE. Exactly one policy source
-            is consulted per record per stream, so the duplicate rule is a
-            consequence of per-stream precedence rather than a de-dupe pass."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! seen conj r)))
-      (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf/make-frame {:id :obs.default/both
-                      :observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/test-union :frame :obs.default/both :time 1})
-      (is (= 1 (count @seen))
-          "one delivery, not two"))))
-
-(deftest precedence-is-per-stream-not-whole-map
-  (testing "a frame declaring ONLY :handled-events still
-            inherits the process default's :errors. Whole-map replacement is
-            rejected: declaring one stream must not silently disable the
-            other."
-    (let [errors-seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! errors-seen conj r)))
+(deftest frame-policy-precedence-over-the-process-default
+  (testing "precedence is per stream and read by key presence, and one source is
+            consulted per record per stream"
+    (let [seen (atom 0)]
+      (rf/register-observability-sink! :test.sinks/sentry (fn [_] (swap! seen inc)))
       (rf/register-observability-sink! :test.sinks/datadog (fn [_] nil))
       (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf/make-frame {:id :obs.default/events-only
-                      :observability
-                      {:handled-events [{:sink :test.sinks/datadog}]}})
-      (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/test-union :frame :obs.default/events-only :time 1})
-      (is (= 1 (count @errors-seen))
-          ":errors still inherited even though :handled-events was declared"))))
-
-;; ===========================================================================
-;; (b) Clear, and fail-loud validation at CALL time.
-;; ===========================================================================
+      (doseq [[frame-id policy deliveries why]
+              [[:obs.default/opted-out   {:errors []}
+                0 "an empty stream on a frame is its opt-out, not an inherit"]
+               [:obs.default/both        {:errors [{:sink :test.sinks/sentry}]}
+                1 "a sink named by both sources is invoked once"]
+               [:obs.default/events-only {:handled-events [{:sink :test.sinks/datadog}]}
+                1 "declaring one stream still inherits the default's :errors"]]]
+        (reset! seen 0)
+        (rf/make-frame {:id frame-id :observability policy})
+        (rf.error-emit/dispatch-error-record!
+          {:error :rf.error/test-union :frame frame-id :time 1})
+        (is (= deliveries @seen) why)))))
 
 (deftest explicit-nil-clears-the-default
-  (testing "`{:observability nil}` CLEARS the process
-            default. Read by key PRESENCE: omitting the key leaves the
-            default untouched, an explicit nil removes it."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! seen conj r)))
-      (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
+  (testing "omitting `:observability` from a configure! call leaves the default,
+            an explicit nil clears it, and `rf/current-config` reports it verbatim
+            and omits it once cleared"
+    (let [seen   (atom 0)
+          policy {:errors [{:sink :test.sinks/sentry}]}
+          fire!  #(rf.error-emit/dispatch-error-record!
+                    {:error :rf.error/test-union :frame :obs.default/cleared :time 1})]
+      (rf/register-observability-sink! :test.sinks/sentry (fn [_] (swap! seen inc)))
+      (rf/configure! {:observability policy})
       (rf/make-frame {:id :obs.default/cleared})
-      ;; An unrelated configure! call must NOT disturb the default.
       (rf/configure! {:elision {:rf.egress/threshold-bytes 8192}})
-      (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/test-union :frame :obs.default/cleared :time 1})
-      (is (= 1 (count @seen))
-          "omitting the key left the default installed")
+      (is (= policy (:observability (rf/current-config))))
+      (fire!)
+      (is (= 1 @seen) "omitting the key left the default routing")
       (rf/configure! {:observability nil})
-      (rf.error-emit/dispatch-error-record!
-        {:error :rf.error/test-union :frame :obs.default/cleared :time 2})
-      (is (= 1 (count @seen))
-          "an explicit nil cleared it — no second delivery"))))
+      (fire!)
+      (is (= 1 @seen) "an explicit nil cleared it")
+      (is (not (contains? (rf/current-config) :observability))
+          "absent once cleared, never a fabricated nil"))))
 
 (deftest malformed-default-fails-loud-at-configure-time
-  (testing "a malformed process default throws
-            :rf.error/bad-frame-classification with :where 'rf/configure! at
-            CALL time, under the SAME closed grammar make-frame applies. A
-            policy that installed silently would only surface as a dropped
-            record at the first sink fire."
-    (let [ex (try (rf/configure! {:observability {:errors "x"}})
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id (ex-data ex)))
-          "a non-vector stream is refused with the SAME category make-frame
-           raises — one grammar, two doors")
-      (is (= 'rf/configure! (:where (ex-data ex)))
-          ":where names the door the author actually typed"))
-    (testing "and the closed ENTRY grammar is enforced from this door too"
-      (let [ex (try (rf/configure!
-                      {:observability {:errors [{:sink :s :opts {:a 1}}]}})
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-        (is (= 'rf/configure! (:where (ex-data ex)))
-            "an unknown entry key is refused at the door the author typed")))
-    (testing "a refused call installs NOTHING"
-      (is (nil? (rf.observability/current-observability-config))))))
-
-;; ===========================================================================
-;; (c) The FRAMELESS records, and the ambient-frame property.
-;; ===========================================================================
+  (testing "a malformed default is refused at call time under make-frame's grammar,
+            naming the door the author typed"
+    (doseq [policy [{:errors "x"}
+                    {:errors [{:sink :s :opts {:a 1}}]}]]
+      (let [data (try (rf/configure! {:observability policy})
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+        (is (= {:rf.error/id :rf.error/bad-frame-classification :where 'rf/configure!}
+               (select-keys data [:rf.error/id :where]))))))
+  (testing "a refused call installs nothing"
+    (is (nil? (rf.observability/current-observability-config)))))
 
 (deftest a-live-ambient-frame-policy-is-not-consulted-for-a-frameless-record
-  (testing "the nil-governing-frame property — with a live UNRELATED
-            frame declaring its own :errors sink, a FRAMELESS record still
-            goes only to the PROCESS DEFAULT. An ambient frame is not an
-            owner: `:frame nil` says *this record has no governing frame*,
-            and it must not fall through to whatever frame happens to be in
-            scope."
+  (testing "with a live, classified frame CARRIED at emit time, a `:frame nil`
+            record goes only to the process default and fails closed: the carried
+            frame is not its owner"
     (let [default-seen (atom [])
           ambient-seen (atom [])]
       (rf/register-observability-sink! :test.sinks/default
@@ -285,41 +146,23 @@
       (rf/configure! {:observability {:errors [{:sink :test.sinks/default}]}})
       (rf/make-frame {:id :obs.default/ambient
                       :observability {:errors [{:sink :test.sinks/ambient}]}})
-      ;; The ambient frame must be CARRIED, not merely alive: an unbound frame
-      ;; is not ambient at all, so emitting outside `with-frame` would leave
-      ;; `resolve-current-frame` nil and the pin would pass on a runtime that
-      ;; happily fell through to the carried scope. This binding is the whole
-      ;; exposure — `:frame nil` is read by KEY PRESENCE, so an
-      ;; explicit nil must beat a frame that IS in scope, resolvable and live.
       (classify-frame! :obs.default/ambient)
+      ;; Carried, not merely alive: outside `with-frame` there is no ambient
+      ;; frame to fall through to, and the pin would pass for free.
       (rf/with-frame :obs.default/ambient
         (rf.error-emit/dispatch-error-record!
           (payload-record :rf.error/no-frame-context nil)))
-      (is (= 1 (count @default-seen)) "the process default received it")
-      (is (zero? (count @ambient-seen))
-          "the live CARRIED ambient frame's policy was NOT consulted")
-      (let [r (first @default-seen)]
-        (is (nil? (:frame r)) "no frame is claimed for it")
-        (is (= :rf.error/no-frame-context (:error r)) "diagnostic id survives")
-        (is (= 1 (:time r)) "summary slot survives")
-        (is (redacted? (:tags r))
-            "the tree slot failed CLOSED under the explicitly nil governing
-             frame — the carried ambient frame did not vouch for it. Had the
-             ambient frame been borrowed, its registry would have walked this
-             payload and shipped `:auth :user` raw.")))))
-
-;; ===========================================================================
-;; (d) Unresolved owner. The producer's authority bit, not an id test.
-;; ===========================================================================
+      (is (zero? (count @ambient-seen)) "the carried frame's policy was not consulted")
+      (is (= [[nil :rf.error/no-frame-context 1 :rf/redacted]]
+             (mapv (juxt :frame :error :time :tags) @default-seen))
+          "the default receives it once: no frame claimed, summary intact, tree slot
+           failed closed rather than walked under the carried frame"))))
 
 (deftest stale-owner-report-reaches-the-default-not-a-successor
-  (testing "a record emitted with `route-frame?` FALSE (an
-            exact-incarnation teardown report, after that incarnation was
-            dissociated) reaches the PROCESS DEFAULT and NOT the same-id
-            successor's sink. The stale :frame id is KEPT as a diagnostic and
-            never re-resolved: `frame` cannot tell a never-registered id from
-            a dissociated one, so a successor would pass any id test — which
-            is why the authority bit is carried from the producer."
+  (testing "a record emitted with `route-frame?` false reaches the process default
+            and neither the same-id successor's sink nor a carried bystander's.
+            `frame` cannot tell a never-registered id from a dissociated one, so
+            the authority bit is carried from the producer."
     (let [default-seen   (atom [])
           successor-seen (atom [])
           ambient-seen   (atom [])]
@@ -330,14 +173,8 @@
       (rf/register-observability-sink! :test.sinks/ambient
                                        (fn [r] (swap! ambient-seen conj r)))
       (rf/configure! {:observability {:errors [{:sink :test.sinks/default}]}})
-      ;; A LIVE frame carrying the same id as the dead incarnation, with its
-      ;; own sink — the same-id successor the pin refuses.
       (rf/make-frame {:id :obs.default/reborn
                       :observability {:errors [{:sink :test.sinks/successor}]}})
-      ;; And a live UNRELATED frame that is CARRIED at emit time, with a sink
-      ;; and a classification of its own. Two ways to reach the wrong frame
-      ;; are open here and both must stay shut: re-resolving the stale id (the
-      ;; successor) and falling through to whatever is in scope (the ambient).
       (rf/make-frame {:id :obs.default/bystander
                       :observability {:errors [{:sink :test.sinks/ambient}]}})
       (classify-frame! :obs.default/bystander)
@@ -347,34 +184,16 @@
                                  :obs.default/reborn)
                  :time 7)
           false))
-      (is (zero? (count @successor-seen))
-          "the same-id successor's sink NEVER sees the dead incarnation's report")
-      (is (zero? (count @ambient-seen))
-          "nor does the live CARRIED bystander's — a revoked authority does not
-           fall through to whatever frame happens to be in scope")
-      (is (= 1 (count @default-seen))
-          "the process default delivers it — `route-frame? false` means *no
-           frame authority*, not *no sink route*")
-      (let [r (first @default-seen)]
-        (is (= :obs.default/reborn (:frame r))
-            "the stale id is kept in the summary as a DIAGNOSTIC")
-        (is (= :rf.error/frame-teardown-failed (:error r)))
-        (is (= 7 (:time r)) "summary slot survives")
-        (is (redacted? (:tags r))
-            "and the TREE payload fails closed: with the authority revoked the
-             governing frame is explicitly nil, so no registry — neither the
-             successor's nor the carried bystander's — walked this payload")))))
-
-;; ===========================================================================
-;; (e) Raw cross-frame hook + console-fallback ownership.
-;; ===========================================================================
+      (is (= [0 0] [(count @successor-seen) (count @ambient-seen)])
+          "neither the successor nor the carried bystander sees the report")
+      (is (= [[:obs.default/reborn :rf.error/frame-teardown-failed 7 :rf/redacted]]
+             (mapv (juxt :frame :error :time :tags) @default-seen))
+          "the default delivers it, keeping the stale id as a diagnostic, with the
+           tree payload failed closed"))))
 
 (deftest local-raw-profile-is-the-sanctioned-cross-frame-hook
-  (testing "an explicit `:rf.egress/local-raw` entry on the
-            process default is the ONE sanctioned way to see records across
-            frames unprojected. It is a projection PROFILE on the
-            :rf.observe/* record, not a second routing model and not an
-            additive global observer."
+  (testing "an explicit `:rf.egress/local-raw` entry on the default keeps the tree
+            slot that the off-box default fails closed on a nil governing frame"
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/raw
                                        (fn [r] (swap! seen conj r)))
@@ -383,40 +202,14 @@
                                  :rf.egress/profile :rf.egress/local-raw}]}})
       (rf.error-emit/dispatch-error-record!
         {:error :rf.error/no-frame-context :frame nil :time 1 :reason "r"})
-      (is (= 1 (count @seen)))
-      (is (not (redacted? (:tags (first @seen))))
-          "the trusted-local profile keeps the tree slot, where the default
-           off-box profile fails closed on a nil governing frame"))))
+      (is (= ["r"] (mapv #(get-in % [:tags :reason]) @seen))))))
 
 (deftest a-registered-default-sink-owns-the-record
-  (testing "the console fallback keys on the
-            DELIVERED count, so a process-default delivery to a REGISTERED
-            sink owns the record exactly as a frame's policy would, while an
-            entry naming an UNREGISTERED sink does not. Declaring a policy is
-            not routing."
+  (testing "the console fallback keys on the delivered count: a default naming an
+            unregistered sink owns nothing, a registered one owns the record"
     (rf/configure! {:observability {:errors [{:sink :test.sinks/never-wired}]}})
     (is (zero? (rf.observability/route-error-record!
-                 {:error :rf.error/no-frame-context :frame nil :time 1}))
-        "an unregistered sink id delivers nothing and owns nothing")
+                 {:error :rf.error/no-frame-context :frame nil :time 1})))
     (rf/register-observability-sink! :test.sinks/never-wired (fn [_] nil))
     (is (= 1 (rf.observability/route-error-record!
-               {:error :rf.error/no-frame-context :frame nil :time 1}))
-        "once registered, the process default OWNS the record")))
-
-;; ===========================================================================
-;; (f) The read twin.
-;; ===========================================================================
-
-(deftest current-config-reflects-the-process-default
-  (testing "`rf/current-config` reports the declared default
-            verbatim, and OMITS the key when none is declared (absent, never
-            a fabricated nil — this fn's standing rule)."
-    (is (not (contains? (rf/current-config) :observability))
-        "absent before anything is declared")
-    (let [policy {:errors [{:sink :test.sinks/sentry}]}]
-      (rf/configure! {:observability policy})
-      (is (= policy (:observability (rf/current-config)))
-          "reported verbatim — no frame resolution, no synthesised defaults")
-      (rf/configure! {:observability nil})
-      (is (not (contains? (rf/current-config) :observability))
-          "absent again once cleared"))))
+               {:error :rf.error/no-frame-context :frame nil :time 1})))))
