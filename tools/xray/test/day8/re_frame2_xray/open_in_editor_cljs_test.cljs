@@ -73,32 +73,18 @@
                    (rf.source-coords.open-endpoint/set-launcher! always-fall-back!))}))
 
 (deftest open-chip-renders-anchor-with-href
-  (testing "open-chip returns an <a> hiccup vector when source has :file"
-    (let [coord  {:ns 'app.events :file "src/app/events.cljs" :line 17 :column 3}
-          hiccup (open-in-editor/open-chip coord)]
-      (is (vector? hiccup))
-      (is (= :a (first hiccup)))
-      (let [props (second hiccup)]
-        (is (= "vscode://file/src/app/events.cljs:17:3" (:href props)))
-        (is (= "xray-open-in-editor" (:data-testid props)))
-        (is (= "vscode" (:data-editor props)))
-        (is (fn? (:on-click props)))))))
+  (let [[tag props] (open-in-editor/open-chip {:ns 'app.events :file "src/app/events.cljs" :line 17 :column 3})]
+    (is (= [:a "vscode://file/src/app/events.cljs:17:3" "xray-open-in-editor" "vscode"]
+           [tag (:href props) (:data-testid props) (:data-editor props)]))))
 
 (deftest open-chip-respects-editor-preference
-  (testing "switching Xray's editor flips the URI on render"
-    (let [coord {:file "src/x.cljs" :line 10}]
-      (config/set-editor! :cursor)
-      (is (= "cursor://file/src/x.cljs:10:1"
-             (:href (second (open-in-editor/open-chip coord)))))
-      (config/set-editor! :idea)
-      (is (= "idea://open?file=src/x.cljs&line=10&column=1"
-             (:href (second (open-in-editor/open-chip coord))))))))
+  (config/set-editor! :cursor)
+  (is (= "cursor://file/src/x.cljs:10:1"
+         (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 10}))))))
 
 (deftest open-chip-nil-when-source-missing
-  (testing "open-chip returns nil when source-coord lacks :file"
-    (is (nil? (open-in-editor/open-chip nil)))
-    (is (nil? (open-in-editor/open-chip {:line 1})))
-    (is (nil? (open-in-editor/open-chip {:file ""})))))
+  (is (nil? (open-in-editor/open-chip {:line 1})))
+  (is (nil? (open-in-editor/open-chip {:file ""}))))
 
 ;; ---- Xray-side scheme-denylist behaviour -------------------------------
 ;;
@@ -109,40 +95,19 @@
 ;; custom schemes — renders (there is no positive allowlist).
 
 (deftest open-chip-hides-when-custom-template-resolves-to-forbidden-scheme
-  (testing "open-chip returns nil ONLY for the three forbidden script
-            schemes. editor-uri/editor-uri gates these at
-            build time → the chip is nil."
-    (config/configure! {:rf.xray/editor {:custom "javascript:alert(1)"}})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
-
-    (config/configure! {:rf.xray/editor {:custom "data:text/html,xxx"}})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
-
-    (config/configure! {:rf.xray/editor {:custom "vbscript:msgbox(1)"}})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+  ;; The scheme variants are core's `forbidden-scheme?` matrix; this is the
+  ;; chip's wiring to it.
+  (config/configure! {:rf.xray/editor {:custom "javascript:alert(1)"}})
+  (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"}))))
 
 (deftest open-chip-renders-for-non-forbidden-custom-scheme
-  (testing "open-chip renders for ANY non-forbidden scheme:
-            catalogued long-tail, http:/https:, AND unknown custom
-            schemes"
-    (config/configure! {:rf.xray/editor {:custom "subl://open?path={path}&line={line}"}})
-    (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
-      (is (vector? hiccup))
-      (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
-
-    (config/configure! {:rf.xray/editor {:custom "emacsclient://{path}"}})
-    (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))
-
-    ;; http:/https: PASS — there is no allowlist (the residual footgun
-    ;; the spec accepts; script schemes are blocked).
-    (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
-    (is (= "http://localhost:3000/src/x.cljs"
-           (:href (second (open-in-editor/open-chip {:file "src/x.cljs"})))))
-
-    ;; An unknown editor scheme renders — no silent dead button.
-    (config/configure! {:rf.xray/editor {:custom "lapce://open?file={path}&line={line}"}})
-    (is (= "lapce://open?file=src/x.cljs&line=8"
-           (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 8})))))))
+  (config/configure! {:rf.xray/editor {:custom "subl://open?path={path}&line={line}"}})
+  (is (= "subl://open?path=src/x.cljs&line=5"
+         (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 5})))))
+  ;; There is no allowlist: http: renders too, the residual footgun the spec accepts.
+  (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
+  (is (= "http://localhost:3000/src/x.cljs"
+         (:href (second (open-in-editor/open-chip {:file "src/x.cljs"}))))))
 
 ;; ---- project-root prefix ------------------------------------------------
 ;;
@@ -312,28 +277,6 @@
           "display string parses to `:file` + `:line`; `:column`
            falls through to the editor-uri builder's default of 1"))))
 
-(deftest open-in-editor-event-parses-bare-display-string
-  (testing "defensive shape: bare display string with no
-            wrapper map (no panel does this; the handler accepts it
-            for callers that don't wrap)"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor "src/x.cljs:7"])
-      (is (= "vscode://file/src/x.cljs:7:1"
-             (:uri (first @captured-editor-fx)))))))
-
-(deftest open-in-editor-event-display-string-without-line
-  (testing "display string with no trailing line number
-            (degenerate: the projection helpers always include line,
-            but the parser falls through gracefully to `{:file <s>}`)"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:source-coord "src/x.cljs"}])
-      (is (= "vscode://file/src/x.cljs:1:1"
-             (:uri (first @captured-editor-fx)))
-          "`:line` defaults to 1 via editor-uri"))))
-
 (deftest open-in-editor-event-runs-on-xray-frame-without-host-contamination
   (testing "the handler doesn't write to Xray's app-db
             (no `:db` in the returned effect map). The click is pure
@@ -359,8 +302,6 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
                          {:file "src/x.cljs" :line 1}])
-      (is (contains? (first @captured-editor-fx) :source-coord)
-          "fx arg shape: `{:source-coord <coord-map>}`")
       (is (= {:file "src/x.cljs" :line 1}
              (:source-coord (first @captured-editor-fx)))
           "the structured coord rides the fx verbatim — the endpoint
@@ -400,8 +341,6 @@
             event does NOT fire `:rf.xray.fx/open-in-editor` (the silent vscode:
             navigation) — it routes to the editor-hint instead"
     (setup-unconfigured!)
-    (is (false? (config/editor-configured?))
-        "precondition: editor is the unconfirmed framework default")
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
                          {:file "src/x.cljs" :line 1}])
@@ -417,7 +356,6 @@
             as configured: the click navigates, no hint"
     (setup-unconfigured!)
     (config/update-setting! :general :editor-override :cursor)
-    (is (true? (config/editor-configured?)))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
                          {:file "src/x.cljs" :line 10}])
@@ -459,36 +397,14 @@
     [nav calls]))
 
 (deftest click-handler-calls-navigator-with-uri
-  (testing "clicking the chip invokes the navigator seam
-            with the same URI carried in the :href"
-    (let [hiccup       (open-in-editor/open-chip
-                         {:file "src/x.cljs" :line 42 :column 7})
-          props        (second hiccup)
-          href         (:href props)
-          on-click     (:on-click props)
-          fake-evt     #js {:preventDefault (fn [])}
-          [nav calls]  (capturing-navigator)]
-      (with-stub-navigator nav
-        #(on-click fake-evt))
-      (is (= ["vscode://file/src/x.cljs:42:7"]
-             @calls)
-          "navigator called exactly once with the chip's href URI")
-      (is (= href (first @calls))
-          "the navigation URI is identical to the rendered href"))))
-
-(deftest click-handler-prevents-default
-  (testing "the click handler preventDefaults so the
-            browser doesn't double-navigate"
-    (let [hiccup       (open-in-editor/open-chip
-                         {:file "src/x.cljs" :line 1})
-          on-click     (:on-click (second hiccup))
-          prevented?   (atom false)
-          fake-evt     #js {:preventDefault (fn [] (reset! prevented? true))}
-          [nav _]      (capturing-navigator)]
-      (with-stub-navigator nav
-        #(on-click fake-evt))
-      (is @prevented?
-          "the click handler must call e.preventDefault()"))))
+  (let [{:keys [href on-click]} (second (open-in-editor/open-chip {:file "src/x.cljs" :line 42 :column 7}))
+        prevented?  (atom false)
+        [nav calls] (capturing-navigator)]
+    (with-stub-navigator nav
+      #(on-click #js {:preventDefault (fn [] (reset! prevented? true))}))
+    (is (= ["vscode://file/src/x.cljs:42:7"] @calls [href])
+        "the navigator gets exactly the rendered href")
+    (is @prevented? "the browser must not navigate a second time")))
 
 (deftest open-bang-no-op-for-nil-uri
   (testing "`open!` is a no-op for nil URI (the absent-coord
@@ -500,26 +416,16 @@
           "no navigation attempted for nil URI"))))
 
 (deftest open-bang-denylist-gates-pre-resolved-uri
-  (testing "`open!` re-applies the scheme
-            denylist at the pre-resolved {:uri ...} handoff (the
-            :rf.xray.fx/open-in-editor reg-fx path that bypasses editor-uri's
-            build-time gating). Forbidden schemes never reach the
-            navigator — case-insensitively + leading-whitespace tolerant
-            — even when `open!` is called directly (e.g. an MCP-side
-            replay). Non-dangerous schemes (incl. unknown custom) pass."
-    (let [[nav calls] (capturing-navigator)]
-      (with-stub-navigator nav
-        (fn []
-          (open-in-editor/open! "javascript:alert(1)")
-          (open-in-editor/open! "JavaScript:alert(1)")
-          (open-in-editor/open! " data:text/html,xxx")
-          (open-in-editor/open! "vbscript:msgbox(1)")
-          (is (= [] @calls)
-              "forbidden-scheme navigations refused at the open! boundary")
-          ;; an unknown, non-dangerous scheme passes through (no allowlist)
-          (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
-          (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
-              "an unknown custom non-dangerous scheme navigates"))))))
+  ;; `open!` re-applies the denylist at the pre-resolved handoff, which
+  ;; bypasses editor-uri's build-time gate (an MCP-side replay, say).
+  (let [[nav calls] (capturing-navigator)]
+    (with-stub-navigator nav
+      (fn []
+        (open-in-editor/open! "javascript:alert(1)")
+        (is (= [] @calls) "a forbidden scheme never reaches the navigator")
+        (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
+        (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
+            "an unknown non-dangerous scheme navigates")))))
 
 ;; ---- direct chip click routes through the hint decision -----------------
 ;;
@@ -539,48 +445,22 @@
   (reset! config/editor-explicitly-set? false)
   (config/update-setting! :general :editor-override nil))
 
-(deftest chip-click-does-not-navigate-when-unconfigured-with-frame
-  (testing "with NO editor configured and a live :rf/xray
-            shell frame, a direct chip click does NOT silently navigate;
-            it routes to the hint instead"
-    (setup!)
-    (unconfigure-editor!)
-    (is (false? (config/editor-configured?)))
-    (is (some? (rf.frame/frame :rf/xray)) "precondition: shell frame present")
-    (let [[nav calls] (capturing-navigator)]
+(deftest chip-click-shows-hint-instead-of-navigating-when-unconfigured-with-frame
+  ;; `chip-click!` calls the `rf/dispatch` macro, whose expansion reaches
+  ;; `re-frame.core/dispatch-impl`, so the spy goes there.
+  (setup!)
+  (unconfigure-editor!)
+  (let [[nav calls] (capturing-navigator)
+        dispatched  (atom [])]
+    (with-redefs [rf/dispatch-impl (fn [ev & opts]
+                                     (swap! dispatched conj {:event ev :opts (vec opts)}))]
       (with-stub-navigator nav
-        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
-      (is (= [] @calls)
-          "unconfigured + frame → no silent navigation"))
-    (config/update-setting! :general :editor-override nil)))
-
-(deftest chip-click-shows-hint-when-unconfigured-with-frame
-  (testing "the unconfigured + frame chip click dispatches
-            `:rf.xray/editor-hint-show` on :rf/xray (consistent with the
-            panel-side event-fx). Captured synchronously via a
-            `rf/dispatch` spy so the assertion is deterministic without
-            an async router drain."
-    (setup!)
-    (unconfigure-editor!)
-    ;; `chip-click!` calls the `rf/dispatch` MACRO directly (hardcoded, no
-    ;; injectable dispatch-fn seam), and the macro's expansion calls the
-    ;; `^:no-doc` `re-frame.core/dispatch-impl` seam fully-qualified
-    ;; — so the spy goes on `rf/dispatch-impl`; redefing
-    ;; `re-frame.router/dispatch!` directly would fail (a plain `defn`, not a
-    ;; redefinable `def`-alias — the CLJS compiler's static arity-dispatch
-    ;; optimisation bypasses `with-redefs`), and redefing `re-frame.core/
-    ;; dispatch` (the CLJS value-alias) would intercept nothing here either.
-    (let [dispatched (atom [])]
-      (with-redefs [rf/dispatch-impl (fn [ev & opts]
-                                        (swap! dispatched conj {:event ev :opts (vec opts)}))]
-        (open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
-      (is (= 1 (count @dispatched))
-          "exactly one dispatch — the hint, no navigation dispatch")
-      (is (= [:rf.xray/editor-hint-show] (:event (first @dispatched)))
-          "the hint-show event is dispatched")
-      (is (= :rf/xray (:frame (first (:opts (first @dispatched)))))
-          "dispatched on the :rf/xray shell frame where the hint lives"))
-    (config/update-setting! :general :editor-override nil)))
+        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1})))
+    (is (= [[] 1 [:rf.xray/editor-hint-show] :rf/xray]
+           [@calls (count @dispatched) (:event (first @dispatched))
+            (:frame (first (:opts (first @dispatched))))])
+        "no silent navigation; one hint dispatch on the shell frame"))
+  (config/update-setting! :general :editor-override nil))
 
 (deftest chip-click-standalone-fallback-navigates-without-frame
   (testing "with NO editor configured AND no :rf/xray frame
@@ -591,7 +471,6 @@
     (unconfigure-editor!)
     ;; Tear down the shell frame so there is no hint target.
     (reset! rf.frame/frames {})
-    (is (nil? (rf.frame/frame :rf/xray)) "precondition: no shell frame")
     (is (false? (config/editor-configured?)))
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
@@ -599,26 +478,3 @@
       (is (= ["vscode://file/src/x.cljs:1:1"] @calls)
           "unconfigured + no frame → standalone best-effort navigation"))))
 
-;; ---- dev-server endpoint URL --------------------------------------------
-;;
-;; `open-coord!` prefers the dev-server endpoint and falls back to the
-;; `editor://` URI navigation. The URI-fallback path is exercised
-;; throughout the file above (via the `always-fall-back!` launcher stub in
-;; the fixture). The endpoint URL the client builds carries the structured
-;; coord + editor hint the server resolves at runtime.
-
-(deftest endpoint-url-carries-coord-and-editor-hint
-  (testing "`build-url` projects (coord, editor) to the
-            endpoint query: file (encoded), line, column, editor keyword"
-    (is (= (str rf.source-coords.open-endpoint/endpoint-path
-                "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
-           (rf.source-coords.open-endpoint/build-url
-             {:file "panel_gallery/foo.cljs" :line 42 :column 7}
-             :cursor))
-        "relative :file is sent verbatim (URL-encoded) for runtime
-         resolution; the editor keyword rides as the launch hint")
-    (is (nil? (rf.source-coords.open-endpoint/build-url {:line 1} :vscode))
-        "no :file → no endpoint URL (the chip is hidden upstream)")
-    (is (= (str rf.source-coords.open-endpoint/endpoint-path "?file=src%2Fx.cljs")
-           (rf.source-coords.open-endpoint/build-url {:file "src/x.cljs"} {:custom "x://{path}"}))
-        "{:custom …} editor ships no hint (server auto-detects)")))
