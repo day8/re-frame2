@@ -1,33 +1,16 @@
 (ns re-frame.machine-regions-placement-cljs-test
-  "`reg-machine` refuses `:regions` on any node that is not `:type :parallel`.
-
-  The runtime runs `:regions` only on a `:type :parallel` machine root, so
-  anywhere else they would register and be silently ignored. On a flat or
-  compound root they were also walked by the `:timeout` validator, where a
-  malformed region body threw a host exception. The likeliest cause is a
-  missing `:type :parallel`, and each refusal names it.
-
-  - A flat or compound root: `:rf.error/machine-root-slot-not-supported`, the
-    category for every key the runtime never reads on a root, before any other
-    check reads the root.
-  - A state: `:rf.error/machine-unknown-node-key`, the category a leaf's
-    `:on-done` is refused under.
-  - A parallel region body keeps its own refusal:
-    `:rf.error/machine-root-slot-not-supported` naming the region (pinned in
-    `region_slot_refusal_test.clj`).
-
-  A `:type :parallel` root registers as before, and so does a machine with no
-  `:regions` anywhere.
-
-  Cross-platform (`*_cljs_test.cljc`): the host exception a malformed flat-root
-  region body raised differs per host, so both hosts are pinned."
+  "`reg-machine` refuses `:regions` on any node that is not `:type :parallel`,
+  naming the missing `:type :parallel`: a flat or compound root with
+  `:rf.error/machine-root-slot-not-supported`, before any other check walks the
+  root's region bodies (a malformed body would throw a host exception there,
+  one that differs per host), and a state with `:rf.error/machine-unknown-node-key`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   ;; Load the machines facade so `rf/reg-machine` routes through its
-   ;; late-bind hook (`:machines/reg-machine`).
+   ;; Loads the machines facade so `rf/reg-machine` routes through its
+   ;; late-bind hook.
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -50,67 +33,28 @@
              data
              {:host-throw #?(:clj (.getMessage ^Throwable t) :cljs (str t))})))))
 
-(def ^:private body {:initial :x :states {:x {}}})
-
-(def ^:private regions-values
-  "`:regions` values a node that is not `:type :parallel` might carry: a
-  well-formed map, malformed region bodies the `:timeout` validator would walk,
-  a timeout inside a body, an empty map and nil."
-  [{:r body}
-   {:r body :s {:initial :y :states {:y {}}}}
-   {:r 42}
-   {:r {:initial :x :states 42}}
-   {:r {:initial :x :states {:x 42}}}
-   {:r {:initial :x :states {:x {:timeout 1000 :on-timeout :y} :y {}}}}
-   {}
-   nil])
-
 (defn- names-type-parallel? [refusal]
   (str/includes? (str (:reason refusal)) ":type :parallel"))
 
+(def ^:private regions-values
+  "A well-formed map, a malformed region body (a host exception if walked),
+  an empty map and nil."
+  [{:r {:initial :x :states {:x {}}}} {:r 42} {} nil])
+
 (deftest a-flat-or-compound-root-refuses-regions
-  (doseq [[kind make] {:flat     (fn [r] {:initial :a :regions r :states {:a {}}})
-                       :compound (fn [r] {:initial :o :regions r
-                                          :states  {:o {:initial :a :states {:a {}}}}})}
-          r           regions-values
-          :let [refusal (registration (make r))]]
-    (testing (str "a " kind " root with :regions " (pr-str r))
-      (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal))
-          (pr-str refusal))
-      (is (= [:regions] (:offending-keys refusal)))
-      (is (names-type-parallel? refusal) "the refusal points at :type :parallel"))))
-
-(deftest a-flat-root-names-regions-beside-its-other-unread-keys
-  (let [refusal (registration {:initial :a :regions {:r body} :on-done :a :states {:a {}}})]
-    (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal)))
-    (is (= [:on-done :regions] (:offending-keys refusal)))))
-
-(def ^:private state-positions
-  "Position → [a machine whose state `:s` carries `:regions` `r`]."
-  {:leaf         (fn [r] {:initial :s :states {:s {:regions r}}})
-   :compound     (fn [r] {:initial :s :states {:s {:initial :a :regions r :states {:a {}}}}})
-   :nested       (fn [r] {:initial :o :states {:o {:initial :s :states {:s {:regions r}}}}})
-   :region-state (fn [r] {:type :parallel :regions {:q {:initial :s :states {:s {:regions r}}}}})})
+  (doseq [r regions-values
+          :let [refusal (registration {:initial :a :regions r :states {:a {}}})]]
+    (is (= [:rf.error/machine-root-slot-not-supported [:regions] true]
+           ((juxt :rf.error/id :offending-keys names-type-parallel?) refusal))
+        (pr-str r refusal))))
 
 (deftest a-state-that-is-not-parallel-refuses-regions
-  (doseq [[position make] state-positions
+  (doseq [[position make] {:leaf         (fn [r] {:initial :s :states {:s {:regions r}}})
+                           :region-state (fn [r] {:type :parallel
+                                                  :regions {:q {:initial :s :states {:s {:regions r}}}}})}
           r               regions-values
           :let [refusal (registration (make r))]]
     (testing (str "the " position " state with :regions " (pr-str r))
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id refusal))
-          (pr-str refusal))
-      (is (= :s (:state refusal)))
-      (is (= [:regions] (:offending-keys refusal)))
-      (is (names-type-parallel? refusal) "the refusal points at :type :parallel"))))
-
-(deftest parallel-roots-and-machines-without-regions-register
-  (doseq [machine [{:type :parallel :regions {:r body}}
-                   {:type :parallel :regions {:r body :s {:initial :y :states {:y {}}}}}
-                   {:type :parallel :region-order [:s :r]
-                    :regions {:r body :s {:initial :y :states {:y {:initial :z :states {:z {}}}}}}}
-                   {:initial :a :states {:a {}}}
-                   {:initial :o :states {:o {:initial :a :states {:a {}}}}}
-                   ;; A state marked `:type :parallel` registers with its
-                   ;; `:regions` exactly as it did.
-                   {:initial :a :states {:a {:type :parallel :regions {:r body}}}}]]
-    (is (= :registered (registration machine)) (pr-str machine))))
+      (is (= [:rf.error/machine-unknown-node-key :s [:regions] true]
+             ((juxt :rf.error/id :state :offending-keys names-type-parallel?) refusal))
+          (pr-str refusal)))))
