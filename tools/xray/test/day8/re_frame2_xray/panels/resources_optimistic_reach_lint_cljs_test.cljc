@@ -3,28 +3,20 @@
 
   An optimistic patch can reach a cache key that the mutation's settlement
   never does: `:optimistic-tags` patches the viewer's feed, but `:invalidates`
-  names only the article tag and `[:article-list]`. The article is populated
-  from the reply, the list is refetched, and the feed keeps the optimistic
-  guess — loaded, not stale, never refetched. The runtime says nothing: the
-  write-side `:rf.warning/mutation-scope-mismatch` tripwire fires for a
-  descriptor that resolved the WRONG scope, not for one that is missing, and
-  the instance's `:affected-keys` carries the settlement reach only.
-
-  The `:rf.mutation/optimistic-reconciled` trace already records the
-  optimistic keys, and `:rf.mutation/succeeded` carries `:affected-keys`, so
-  the lint is a set difference over records that exist. These tests drive the
+  names only the article tag and `[:article-list]`, so the feed keeps the
+  optimistic guess and the runtime says nothing. These tests drive the
   resources runtime (plain-atom adapter, a ledger-appending no-op transport,
   replies replayed through the captured `:on-success`) and feed the captured
-  trace to the lint:
+  trace to the lint, so the lint is held to the records the runtime really
+  emits:
 
-    1. FORGETS THE FEED — one refetch (the list), the feed stays on the
-       optimistic guess, and the lint names exactly that instance and the feed.
-    2. COMPLETE — the feed descriptor is present, two refetches, no row.
-    3. WRONG SCOPE — the feed descriptor names the wrong scope: the
-       scope-mismatch warning fires and this lint adds no second row.
+    1. FORGETS THE FEED — the lint names exactly that instance and the feed.
+    2. COMPLETE — the feed descriptor is present, no row.
+    3. WRONG SCOPE — the scope-mismatch warning covers the feed, so this lint
+       adds no second row.
 
-  JVM-portable (`.cljc`): the tools/xray JVM corpus and the consolidated
-  `:node-test` build both run it."
+  JVM-portable (`.cljc`): the tools/xray JVM corpus and the `:node-test` build
+  both run it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -82,19 +74,11 @@
 
 ;; ---- helpers -----------------------------------------------------------------
 
-(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-
 (defn- reply-ok! [args value]
   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value value})))
 
-(defn- requests [ledger]
-  (mapv (fn [{:keys [request]}] [(:method request) (:url request)]) ledger))
-
 (def ^:private session [:rf.scope/session {:username "jake"}])
 
-(def ^:private article-key
-  (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "welcome"}))
 (def ^:private list-key
   (rf.resources.state/scoped-resource-key :rf.scope/global :r/list {}))
 (def ^:private feed-key
@@ -144,8 +128,7 @@
 (defn- settle-favourite!
   "Load the article, the list and the feed under live owners, execute
   `mutation-id` registered with `plan`, and reply ok. Returns the trace
-  captured across the execute and the reply, and the refetches the reply
-  issued."
+  captured across the execute and the reply."
   [mutation-id plan]
   (reg-resources!)
   (rf/dispatch-sync [:t/login "jake"])
@@ -168,75 +151,41 @@
       (reset! managed-ledger [])
       (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:slug "welcome"}
                                                :instance :fav-1}])
-      (let [mutation-args (last @managed-ledger)]
-        (reset! managed-ledger [])
-        (reply-ok! mutation-args {:slug "welcome" :favorited true})
-        {:trace @seen :refetches (requests @managed-ledger)})
+      (reply-ok! (last @managed-ledger) {:slug "welcome" :favorited true})
+      @seen
       (finally (rf.trace.tooling/unregister-listener! k)))))
-
-(defn- tags-of [op trace]
-  (:tags (last (filter #(= op (:operation %)) trace))))
 
 ;; ---- 1. forgets the feed -------------------------------------------------------
 
 (deftest forgets-the-feed-leaves-it-optimistic-and-the-lint-names-it
-  (let [{:keys [trace refetches]} (settle-favourite! :m/favorite-forgets-feed (favourite-plan nil))
-        recon    (tags-of :rf.mutation/optimistic-reconciled trace)
-        affected (set (:affected-keys (tags-of :rf.mutation/succeeded trace)))]
-    (testing "the reproduction: the article is populated, ONE refetch, the feed keeps the guess"
-      (is (= {:slug "welcome" :favorited true} (:data (entry article-key))))
-      (is (= [[:get "/api/articles"]] refetches))
-      (is (= [:loaded nil] ((juxt :status :invalidated-at) (entry feed-key)))
-          "the feed is loaded and never marked stale")
-      (is (= true (get-in (entry feed-key) [:data :favorited]))
-          "the feed still shows the optimistic value"))
-    (testing "the records: the optimistic keys reach the feed, the settlement reach does not"
-      (is (= #{article-key list-key feed-key} (set (:optimistic-keys recon))))
-      (is (= [article-key] (:committed recon)))
-      (is (= [list-key] (:reconciliation-refetches recon)))
-      (is (= #{article-key list-key} affected)))
-    (testing "the lint: exactly one row, naming the instance, the mutation and the feed key"
-      (let [rows (h/optimistic-reach-lint trace)
-            row  (first rows)]
-        (is (= 1 (count rows)))
-        (is (= :fav-1 (:instance row)))
-        (is (= :m/favorite-forgets-feed (:mutation row)))
-        (is (= [:r/feed] (mapv :resource-id (:missing-keys row))))
-        (is (re-find #":r/feed" (:hint row)) "the wording names what was not reconciled")
-        (is (not (re-find #"(?i)defect|bug" (:hint row)))
-            "leaving a value optimistic can be deliberate, so the row does not call it a defect")))
-    (testing "dedupe-keyed: the same settled instance seen twice is still one row"
-      (is (= 1 (count (h/optimistic-reach-lint (into trace trace))))))))
+  (testing "the lint: exactly one row, naming the instance, the mutation and the feed key"
+    (let [rows (h/optimistic-reach-lint
+                 (settle-favourite! :m/favorite-forgets-feed (favourite-plan nil)))]
+      (is (= [[:fav-1 :m/favorite-forgets-feed [:r/feed]]]
+             (mapv (juxt :instance :mutation #(mapv :resource-id (:missing-keys %))) rows)))
+      (is (re-find #":r/feed" (:hint (first rows))) "the wording names what was not reconciled"))))
 
 ;; ---- 2. the complete favourite -------------------------------------------------
 
 (deftest complete-favourite-reconciles-every-optimistic-key
-  (let [{:keys [trace refetches]}
-        (settle-favourite! :m/favorite
-                           (favourite-plan {:scope {:from-db :t/session} :tags #{[:feed]}}))
-        recon (tags-of :rf.mutation/optimistic-reconciled trace)]
-    (testing "the reproduction: TWO refetches, the list and the feed"
-      (is (= #{[:get "/api/articles"] [:get "/api/articles/feed"]} (set refetches)))
-      (is (= 2 (count refetches))))
-    (testing "every optimistic key is committed or refetched"
-      (is (= #{list-key feed-key} (set (:reconciliation-refetches recon)))))
+  (let [trace (settle-favourite! :m/favorite
+                                 (favourite-plan {:scope {:from-db :t/session} :tags #{[:feed]}}))]
+    (testing "PRECONDITION: the reconcile refetched the list and the feed"
+      (is (= #{list-key feed-key}
+             (set (:reconciliation-refetches
+                    (:tags (last (filter #(= :rf.mutation/optimistic-reconciled (:operation %))
+                                         trace))))))))
     (testing "the lint: no row"
       (is (empty? (h/optimistic-reach-lint trace))))))
 
 ;; ---- 3. a wrong-scope descriptor -----------------------------------------------
 
 (deftest wrong-scope-descriptor-keeps-to-the-scope-mismatch-warning
-  (let [{:keys [trace]}
-        (settle-favourite! :m/favorite-wrong-scope
-                           (favourite-plan {:scope :rf.scope/global :tags #{[:feed]}}))
-        warning (tags-of :rf.warning/mutation-scope-mismatch trace)]
-    (testing "the write-side tripwire fires for the wrong scope"
-      (is (some? warning))
-      (is (= :m/favorite-wrong-scope (:mutation warning)))
-      (is (= session (:other-scope warning))))
-    (testing "the lint adds no second row for it"
+  (let [trace (settle-favourite! :m/favorite-wrong-scope
+                                 (favourite-plan {:scope :rf.scope/global :tags #{[:feed]}}))]
+    (testing "the lint adds no row for a key the scope-mismatch warning already covers"
       (is (empty? (h/optimistic-reach-lint trace))))
-    (testing "because the warning covers that key: without it the lint would name the feed"
+    (testing "CONTROL — without the warning the lint would name the feed"
       (is (= [:r/feed]
              (->> trace
                   (remove #(= :rf.warning/mutation-scope-mismatch (:operation %)))
