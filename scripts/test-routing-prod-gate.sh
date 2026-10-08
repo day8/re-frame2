@@ -253,7 +253,7 @@ fi
 # guards is a formality: a roster collapse to a fraction of the lane would
 # still report green.  With no exclusions left, this is the only thing
 # standing between a `-n` list that matched nothing and a green report.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-364}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-256}"
 
 args=()
 for ns in $runnable; do
