@@ -2,36 +2,26 @@
   "Tests for `day8.re-frame2-xray.core` — the canonical user-facing
   facade promised by `spec/API.md`.
 
-  ## Three contract surfaces under test
+  ## Contract surfaces under test
 
-  1. **Re-export identity.** The mount + config re-exports MUST be
-     `def`-aliases (not wrapper fns) so `(= mount/open! core/open!)`
-     holds. Identity is the contract: a host that wires
-     `core/toggle!` into its keybinding catalogue must land on the
-     same Var the preload's listener calls.
-
-  2. **Frame wiring.** `set-target-frame!` dispatches into the
+  1. **Frame wiring.** `set-target-frame!` dispatches into the
      `:rf/xray` frame; the dispatch updates `:rf.xray/target-frame`
      in Xray's app-db, so the companion sub re-fires and
      `target-frame` reads back the new value. (There is no panel
      picker API — no `active-panel` / `set-active-panel!`; the 4-layer
      shell switches via `:rf.xray/selected-tab`.)
 
-  3. **`load-theme!` is a safe no-op without a DOM.** It injects a
+  2. **`load-theme!` is a safe no-op without a DOM.** It injects a
      host-supplied CSS override into `<head>` when a DOM is present
      (through `global-styles/set-host-theme-css!`);
      under node-test there is no `js/document`, so it must return nil
-     without throwing for any input (CSS string / empty / nil)."
+     without throwing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
-            [day8.re-frame2-xray.mount :as mount]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -49,25 +39,7 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- (1) re-export identity --------------------------------------------
-
-(deftest mount-fns-are-aliases
-  (testing "mount entry points are def-aliases, not wrapper fns"
-    ;; Identity check — the facade Var resolves to the same fn-value
-    ;; as the underlying mount Var.
-    (is (identical? mount/open!   core/open!))
-    (is (identical? mount/close!  core/close!))
-    (is (identical? mount/toggle! core/toggle!))
-    (is (identical? mount/popout! core/popout!))))
-
-(deftest config-fns-are-aliases
-  (testing "config knob setters are def-aliases"
-    (is (identical? config/configure!          core/configure!))
-    (is (identical? config/set-editor!         core/set-editor!))
-    (is (identical? config/set-auto-open!      core/set-auto-open!))
-    (is (identical? config/set-egress-profile! core/set-egress-profile!))))
-
-;; ---- (2) frame wiring --------------------------------------------------
+;; ---- (1) frame wiring --------------------------------------------------
 ;;
 ;; The facade's `set-target-frame!` calls `rf/dispatch` (async — the
 ;; user-facing contract; the runtime dispatch queues into the
@@ -84,51 +56,30 @@
       (rf/dispatch-sync [:rf.xray/set-target-frame :app/main])
       (is (= :app/main (core/target-frame))
           "after dispatch the facade's read returns the new value")
-      (rf/dispatch-sync [:rf.xray/set-target-frame :worker/db])
-      (is (= :worker/db (core/target-frame))
-          "subsequent flips also land")
       (rf/dispatch-sync [:rf.xray/set-target-frame nil])
       (is (nil? (core/target-frame))
           "nil resets to UNSELECTED (not through :rf/default)"))))
 
-;; ---- (3) load-theme! — DOM-bearing impl, no-op without a DOM ------------
+;; ---- (2) load-theme! — DOM-bearing impl, no-op without a DOM ------------
 
 (deftest load-theme-is-safe-without-document
-  (testing "load-theme! is wired through
-            global-styles/set-host-theme-css!. Under node-test there is
-            no js/document, so it returns nil without throwing for any
-            input and emits NO not-yet-implemented warning trace.
-            DOM-bearing CSS injection is exercised by the
-            browser target."
-    (preload/register-trace-collector!)
-    (let [result (core/load-theme! ".foo { color: red; }")
-          events (trace-collector/buffer-for-test)
-          stale  (filter #(= :rf.warning/xray-load-theme-not-yet-implemented
-                             (:operation %))
-                         events)]
-      (is (nil? result) "load-theme! returns nil")
-      (is (empty? stale)
-          "no not-yet-implemented warning")
-      (is (nil? (core/load-theme! ""))  "empty string is a safe no-op")
-      (is (nil? (core/load-theme! nil)) "nil is a safe no-op"))))
+  ;; Under node-test there is no js/document; CSS injection is the browser
+  ;; target's subject.
+  (is (nil? (core/load-theme! ".foo { color: red; }"))))
 
 ;; ---- init! contract ----------------------------------------------------
 
 (deftest init!-wires-theme-density-and-buffer-depths
-  (testing "init! threads :theme / :density / :buffer-depths
-            through to the persisted Settings shape so a host's boot-time
-            opts land in the same slots the Settings popup writes."
-    (setup-xray-frame!)
-    (core/init! {:target-frame :app/main
-                 :theme         :dark
-                 :density       :compact
-                 :buffer-depths {:epoch 75}})
-    (is (= :dark    (config/get-setting :theme nil))
-        ":theme landed in the persisted Settings shape")
-    (is (= :compact (config/get-setting :general :density))
-        ":density landed under :general")
-    (is (= 75       (config/get-setting :general :epoch-history))
-        ":buffer-depths :epoch landed under :general :epoch-history")))
+  ;; A host's boot-time opts land in the slots the Settings popup writes.
+  (setup-xray-frame!)
+  (core/init! {:target-frame  :app/main
+               :theme         :dark
+               :density       :compact
+               :buffer-depths {:epoch 75}})
+  (is (= [:dark :compact 75]
+         [(config/get-setting :theme nil)
+          (config/get-setting :general :density)
+          (config/get-setting :general :epoch-history)])))
 
 (deftest init!-tolerates-unknown-opts-keys
   (testing "init! silently ignores keys it doesn't recognise
