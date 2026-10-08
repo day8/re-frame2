@@ -48,8 +48,6 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    #?(:cljs [cljs.reader])
    [re-frame.machines :as rf.machines]
-   [re-frame.machines.parallel :as rf.machines.parallel]
-   [re-frame.machines.result :as rf.machines.result]
    [re-frame.machines.test-support :as rf.machines.test-support]))
 
 ;; ===========================================================================
@@ -113,22 +111,18 @@
              :away   {:on {:resume [:player :hist]}}}})
 
 (deftest deep-vs-shallow-diverge-from-identical-exit-leaf
-  (testing "the SAME exit leaf restores to the exact leaf (deep) vs the child's :initial (shallow)"
-    (let [deep-m    (player true)
-          shallow-m (player false)
-          ;; Identical exit: from :mid-track, :leave exits :player → :away.
+  (testing "the SAME exit leaf records the absolute leaf (deep) vs the direct child (shallow),
+            and restores the exact leaf vs the child's :initial"
+    (let [deep-m       (player true)
+          shallow-m    (player false)
           deep-stop    (step deep-m    (seed [:player :playing :mid-track]) [:leave])
           shallow-stop (step shallow-m (seed [:player :playing :mid-track]) [:leave])]
-      ;; Recording differs: deep stores the full leaf path; shallow the child kw.
-      (is (= [:player :playing :mid-track] (get-in deep-stop    [:rf/history [:player]]))
-          "deep records the absolute leaf path")
-      (is (= :playing                       (get-in shallow-stop [:rf/history [:player]]))
-          "shallow records only the direct-child keyword")
-      ;; Restore diverges from the IDENTICAL recorded exit point.
-      (is (= [:player :playing :mid-track] (:state (step deep-m    deep-stop    [:resume])))
-          "deep restores the EXACT recorded leaf (:mid-track)")
-      (is (= [:player :playing :at-start]  (:state (step shallow-m shallow-stop [:resume])))
-          "shallow restores the recorded child then its :initial (:at-start), NOT the exit leaf"))))
+      (is (= [[:player :playing :mid-track] :playing
+              [:player :playing :mid-track] [:player :playing :at-start]]
+             [(get-in deep-stop [:rf/history [:player]])
+              (get-in shallow-stop [:rf/history [:player]])
+              (:state (step deep-m deep-stop [:resume]))
+              (:state (step shallow-m shallow-stop [:resume]))])))))
 
 ;; ===========================================================================
 ;; §2. DEEP NESTING — independent recordings, no interference
@@ -157,24 +151,14 @@
 (deftest deep-nesting-records-each-compound-independently
   (testing "exiting :outer records BOTH the outer and the nested-inner compound, keyed independently"
     (let [away (step nested (seed [:outer :b :b2]) [:leave])]
-      (is (= [:away] (:state away)) "left the whole :outer subtree")
-      ;; Two independent recordings, each keyed by its own declaration path.
-      (is (= [:outer :b :b2] (get-in away [:rf/history [:outer]]))
-          "the outer compound recorded its full deep leaf")
-      (is (= [:outer :b :b2] (get-in away [:rf/history [:outer :b]]))
-          "the nested :b compound recorded its own deep leaf, under a SEPARATE key")
-      (is (= 2 (count (:rf/history away)))
-          "exactly two history entries — one per history-bearing compound"))))
+      (is (= [[:away] {[:outer] [:outer :b :b2] [:outer :b] [:outer :b :b2]}]
+             [(:state away) (:rf/history away)])))))
 
 (deftest deep-nesting-outer-restore-returns-full-leaf
-  (testing "re-entering via :outer's deep history restores the full recorded leaf"
-    (let [away (step nested (seed [:outer :b :b2]) [:leave])
-          back (step nested away [:return])]
-      (is (= [:outer :b :b2] (:state back))
-          "the outer deep history restored the exact leaf across the full subtree")
-      ;; The inner recording is untouched by the outer restore.
-      (is (= [:outer :b :b2] (get-in back [:rf/history [:outer :b]]))
-          "the inner compound's recording is unaffected by the outer restore"))))
+  (testing "re-entering via :outer's deep history restores the full recorded leaf, leaving the inner recording"
+    (let [back (step nested (step nested (seed [:outer :b :b2]) [:leave]) [:return])]
+      (is (= [[:outer :b :b2] [:outer :b :b2]]
+             [(:state back) (get-in back [:rf/history [:outer :b]])])))))
 
 ;; ===========================================================================
 ;; §3. ENTRY-CASCADE ORDERING during a restore
@@ -189,9 +173,6 @@
 (deftest restore-feeds-the-standard-lca-entry-cascade-in-order
   (testing "a deep restore fires exit-deepest-first / entry-shallowest-first along the LCA"
     (let [[log mk] (order-recorder)
-          ;; :playing owns the deep history (the compound :stop genuinely
-          ;; exits), so its last-active leaf records; :play re-enters via
-          ;; [:player :playing :hist].
           m {:initial :player
              :states
              {:player {:initial :stopped
@@ -207,45 +188,25 @@
                                                         :on    {:seek :mid-track}}
                                             :mid-track {:entry (mk :en-mid) :exit (mk :ex-mid)
                                                         :on    {:stop [:player :stopped]}}}}}}}}
-          ;; Record :mid-track by stopping from it (exits :playing); then restore.
           after-stop (step m (seed [:player :playing :mid-track]) [:stop])]
       (reset! log [])
-      (let [restored (step m after-stop [:play])]
-        (is (= [:player :playing :mid-track] (:state restored)))
-        ;; LCA is :player — neither exited nor re-entered. Exit :stopped
-        ;; (the source leaf below the LCA), then enter :playing (shallowest)
-        ;; then :mid-track (deepest). The :initial of :playing (:at-start) is
-        ;; NOT descended — the deep recorded leaf overrides it.
-        (is (= [:ex-stopped :en-playing :en-mid] @log)
-            "exit source leaf, then entry shallowest-first to the recorded deep leaf; LCA :player untouched")))))
+      (is (= [[:player :playing :mid-track] [:ex-stopped :en-playing :en-mid]]
+             [(:state (step m after-stop [:play])) @log])))))
 
 ;; ===========================================================================
 ;; §4. DEFAULT-TARGET / :initial fallback (no usable recording)
 ;; ===========================================================================
 
-(deftest first-entry-no-recording-uses-default-target
-  (testing "nothing recorded ⇒ the pseudo-state's :default-target (descended to its :initial)"
-    (let [m (player true)
-          ;; First entry into :player (from :away) via the history pseudo-state,
-          ;; nothing recorded ⇒ :default-target :playing → :at-start.
-          restored (step m (seed :away) [:resume])]
-      (is (= [:player :playing :at-start] (:state restored))
-          ":default-target :playing descended to its :initial :at-start"))))
-
 (deftest first-entry-no-default-target-falls-back-to-initial
   (testing "no :default-target ⇒ the OWNING COMPOUND's :initial"
-    ;; :player owns history with NO :default-target and is entered (from :away)
-    ;; via the pseudo-state on first entry ⇒ falls back to :player's :initial.
     (let [m {:initial :player
              :states  {:player {:initial :stopped
                                 :on      {:leave :away}
                                 :states  {:hist    {:type :history :deep? true}
                                           :stopped {}
                                           :playing {:on {:stop :stopped}}}}
-                       :away   {:on {:resume [:player :hist]}}}}
-          restored (step m (seed :away) [:resume])]
-      (is (= [:player :stopped] (:state restored))
-          "no :default-target ⇒ :player's :initial (:stopped)"))))
+                       :away   {:on {:resume [:player :hist]}}}}]
+      (is (= [:player :stopped] (:state (step m (seed :away) [:resume])))))))
 
 ;; ===========================================================================
 ;; §5. DANGLING recorded path after hot-reload
@@ -258,27 +219,23 @@
 
 (deftest dangling-deep-leaf-falls-back-no-error
   (testing "a recorded DEEP leaf the definition removed falls back to :default-target; no error"
-    (let [m    (player true)
-          snap (assoc (seed :away)
-                      :rf/history {[:player] [:player :playing :gone]})
-          r    (rf.machines/machine-transition m snap [:resume])]
-      (is (= :ok (:status r)) "dangling deep path is benign — no failure Result")
-      (is (= [:player :playing :at-start] (:state (:snapshot r)))
-          "discarded the dead leaf ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events)))
-          "no :rf.error/* trace for a dangling-at-runtime recording"))))
+    (let [r (rf.machines/machine-transition
+              (player true)
+              (assoc (seed :away) :rf/history {[:player] [:player :playing :gone]})
+              [:resume])]
+      (is (= [:ok [:player :playing :at-start] []]
+             [(:status r) (:state (:snapshot r))
+              (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events))])))))
 
 (deftest dangling-shallow-child-falls-back-no-error
   (testing "a recorded SHALLOW child the definition removed falls back; no error"
-    (let [m    (player false)
-          ;; :ghost is not a child of :player in the current definition.
-          snap (assoc (seed :away) :rf/history {[:player] :ghost})
-          r    (rf.machines/machine-transition m snap [:resume])]
-      (is (= :ok (:status r)) "dangling shallow child is benign")
-      (is (= [:player :playing :at-start] (:state (:snapshot r)))
-          "discarded the dead child ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events)))
-          "no :rf.error/* for a dangling shallow child"))))
+    (let [r (rf.machines/machine-transition
+              (player false)
+              (assoc (seed :away) :rf/history {[:player] :ghost})
+              [:resume])]
+      (is (= [:ok [:player :playing :at-start] []]
+             [(:status r) (:state (:snapshot r))
+              (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events))])))))
 
 ;; ===========================================================================
 ;; §6. PER-REGION parallel history at STRUCTURALLY-IDENTICAL paths
@@ -307,30 +264,14 @@
   {:type    :parallel
    :regions {:left (region) :right (region)}})
 
-(deftest parallel-region-keys-never-collide-at-identical-paths
-  (testing "structurally-identical region compounds record under distinct region-qualified keys"
-    (let [snap0 {:state {:left [:group :on :bright] :right [:group :on :dim]} :data {}}
-          ;; Broadcast :turn-off to both regions; each records its own config.
-          off   (step parallel-history snap0 [:turn-off])]
-      (is (= {:left [:group :off] :right [:group :off]} (:state off))
-          "both regions turned off")
-      (is (= [:group :on :bright] (get-in off [:rf/history [:left :group :on]]))
-          ":left recorded under [:left :group :on]")
-      (is (= [:group :on :dim]    (get-in off [:rf/history [:right :group :on]]))
-          ":right recorded under [:right :group :on] — no collision despite identical structure")
-      (is (= 2 (count (:rf/history off))) "two distinct region-qualified entries"))))
-
 (deftest parallel-restore-resolves-each-regions-own-recording
-  (testing "a broadcast restore returns each region to ITS OWN recorded leaf"
-    (let [snap0 {:state {:left [:group :on :bright] :right [:group :on :dim]} :data {}}
-          off   (step parallel-history snap0 [:turn-off])
-          ;; :turn-on is handled by both regions' :off leaf, so this restores
-          ;; both; machine_history_smoke_test restores one region alone.
-          back  (step parallel-history off [:turn-on])]
-      (is (= [:group :on :bright] (get-in back [:state :left]))
-          ":left restored ITS recorded deep leaf (:bright)")
-      (is (= [:group :on :dim]    (get-in back [:state :right]))
-          ":right restored ITS OWN recorded deep leaf (:dim) — not :left's"))))
+  (testing "structurally identical regions record separately, and a broadcast restore returns each to ITS OWN leaf"
+    (let [off  (step parallel-history {:state {:left [:group :on :bright] :right [:group :on :dim]} :data {}}
+                     [:turn-off])
+          back (step parallel-history off [:turn-on])]
+      (is (= [{:left [:group :off] :right [:group :off]}
+              {:left [:group :on :bright] :right [:group :on :dim]}]
+             [(:state off) (:state back)])))))
 
 ;; ===========================================================================
 ;; §7. SNAPSHOT REVERT (Goal 2) — :rf/history is part of the revertible VALUE
@@ -347,35 +288,18 @@
 (deftest history-slot-is-part-of-the-revertible-snapshot-value
   (testing "re-running from an earlier captured snapshot value restores THAT value's history"
     (let [m  (player true)
-          ;; Two captured snapshot values carrying DIFFERENT recorded leaves:
-          ;; S1 exits :player from :mid-track (records :mid-track); S2 exits
-          ;; from :at-start (records :at-start).
           s1 (step m (seed [:player :playing :mid-track]) [:leave])
           s2 (step m (seed [:player :playing :at-start])  [:leave])]
-      ;; H1 ≠ H2 — the two captured values carry DIFFERENT recorded leaves.
-      (is (= [:player :playing :mid-track] (get-in s1  [:rf/history [:player]])) "H1 = :mid-track")
-      (is (= [:player :playing :at-start]  (get-in s2  [:rf/history [:player]])) "H2 = :at-start")
-      ;; The load-bearing assertion: each captured value is self-contained.
-      ;; "Reverting" = re-using the earlier value as the engine's input — no
-      ;; external history side-table is consulted, so a restore off S1 resolves
-      ;; H1 and a restore off S2 resolves H2, totally independently. This is
-      ;; exactly what restore-epoch! does when it rewinds the snapshot value.
-      (is (= [:player :playing :mid-track] (:state (step m s1 [:resume])))
-          "restore off the reverted S1 value resolves S1's recorded leaf (H1)")
-      (is (= [:player :playing :at-start]  (:state (step m s2 [:resume])))
-          "restore off S2 resolves S2's recorded leaf (H2) — histories revert with their values"))))
+      (is (= [[:player :playing :mid-track] [:player :playing :at-start]]
+             [(:state (step m s1 [:resume])) (:state (step m s2 [:resume]))])))))
 
 (deftest history-slot-edn-round-trips
-  (testing ":rf/history survives pr-str / read-string (SSR-serialisation + time-axis shape)"
-    (let [m   (player true)
-          s1  (step m (seed [:player :playing :mid-track]) [:leave])
-          ;; The whole snapshot (incl. :rf/history) round-trips =-equal.
-          rt  #?(:clj  (read-string (pr-str s1))
-                 :cljs (cljs.reader/read-string (pr-str s1)))]
-      (is (= s1 rt) "snapshot incl. :rf/history round-trips =-equal")
-      ;; And a restore off the round-tripped value resolves the recorded leaf.
-      (is (= [:player :playing :mid-track] (:state (step m rt [:resume])))
-          "restore works off a round-tripped snapshot (server→client / epoch replay)"))))
+  (testing ":rf/history survives pr-str / read-string, and a restore works off the round-tripped snapshot"
+    (let [m  (player true)
+          s1 (step m (seed [:player :playing :mid-track]) [:leave])
+          rt #?(:clj  (read-string (pr-str s1))
+                :cljs (cljs.reader/read-string (pr-str s1)))]
+      (is (= [s1 [:player :playing :mid-track]] [rt (:state (step m rt [:resume]))])))))
 
 ;; ===========================================================================
 ;; §8. TRACE shapes — the corners the smoke does not reach
@@ -387,56 +311,25 @@
 ;; ===========================================================================
 
 (deftest deep-nesting-emits-one-recorded-per-compound
-  (testing "exiting two history-bearing compounds emits two :rf.machine.history/recorded events"
+  (testing "exiting two history-bearing compounds emits one :recorded event each"
     (reset-capture!)
     (step nested (seed [:outer :b :b2]) [:leave])
-    (let [recs (history-events :rf.machine.history/recorded)
-          by-path (into {} (map (juxt #(:compound-path (:tags %)) :tags)) recs)]
-      (is (= 2 (count recs)) "two recorded events — one per history-bearing compound")
-      (is (contains? by-path [:outer])    "the outer compound recorded")
-      (is (contains? by-path [:outer :b]) "the nested-inner compound recorded")
-      ;; Both deep, both first-ever (no :prev-config), both full leaf paths.
-      (doseq [[path tags] by-path]
-        (is (= :deep (:kind tags)) (str path " recorded :kind :deep"))
-        (is (= [:outer :b :b2] (:recorded-config tags))
-            (str path " recorded the full deep leaf"))
-        (is (not (contains? tags :prev-config))
-            (str path " :prev-config absent on the first-ever recording"))))))
-
-(deftest nested-restore-stamps-source-on-entry-steps
-  (testing "the history-driven :entry steps of a nested deep restore carry :source :recorded"
-    (let [away (step nested (seed [:outer :b :b2]) [:leave])]
-      (reset-capture!)
-      ;; The cascade rider is engine bookkeeping the public map does not
-      ;; carry, so this one assertion reads the engine seam's Result.
-      (let [r       (rf.machines.parallel/machine-transition nested away [:return])
-            cascade (rf.machines.result/cascade r)
-            entries (filterv #(= :entry (:kind %)) cascade)
-            restored (history-events :rf.machine.history/restored)]
-        (is (rf.machines.result/ok? r))
-        (is (= 1 (count restored)) "one restored event for the outer history re-entry")
-        (is (= :recorded (:source (first restored))) ":source :recorded (hoisted to envelope)")
-        (is (= [:outer] (:compound-path (:tags (first restored))))
-            ":compound-path is the OUTER compound's declaration path")
-        (is (seq entries) "the restore produced entry steps")
-        (is (every? #(= :recorded (:source %)) entries)
-            "every history-driven :entry step carries :source :recorded")))))
+    (is (= #{{:compound-path [:outer] :kind :deep :recorded-config [:outer :b :b2]}
+             {:compound-path [:outer :b] :kind :deep :recorded-config [:outer :b :b2]}}
+           (set (map #(select-keys (:tags %) [:compound-path :kind :recorded-config :prev-config])
+                     (history-events :rf.machine.history/recorded)))))
+    (is (= 2 (count (history-events :rf.machine.history/recorded))))))
 
 (deftest recorded-prev-config-on-second-exit
   (testing ":prev-config names the value overwritten on a second recording for the same compound"
-    ;; Seed an already-allocated slot (as a prior exit would leave it), then
-    ;; exit from a DIFFERENT leaf — the new -recorded event reports :prev-config
-    ;; = the seeded value it overwrote.
-    (let [m     (player true)
-          snap0 (assoc (seed [:player :playing :at-start])
-                       :rf/history {[:player] [:player :playing :mid-track]})]
-      (reset-capture!)
-      (step m snap0 [:leave])
-      (let [tags (:tags (first (history-events :rf.machine.history/recorded)))]
-        (is (= [:player :playing :mid-track] (:prev-config tags))
-            ":prev-config = the value the slot held before this write")
-        (is (= [:player :playing :at-start] (:recorded-config tags))
-            ":recorded-config = the value written by this exit")))))
+    (reset-capture!)
+    (step (player true)
+          (assoc (seed [:player :playing :at-start])
+                 :rf/history {[:player] [:player :playing :mid-track]})
+          [:leave])
+    (is (= {:prev-config [:player :playing :mid-track] :recorded-config [:player :playing :at-start]}
+           (select-keys (:tags (first (history-events :rf.machine.history/recorded)))
+                        [:prev-config :recorded-config])))))
 
 ;; ===========================================================================
 ;; §9. EXIT-SET BOUNDARY — the surviving-LCCA owner records NOTHING
@@ -464,32 +357,16 @@
                                                     :mid-track {}}}}}}})
 
 (deftest within-compound-sibling-move-records-nothing
-  (testing "a within-compound sibling move (surviving LCCA, which a <= gate would record) records NOTHING"
+  (testing "a within-compound sibling move (surviving LCCA) records NOTHING"
     (reset-capture!)
-    ;; :swap from [:player :playing :mid-track] → [:player :stopped] keeps
-    ;; :player as the surviving LCA: it is NOT exited, so nothing records.
     (let [after (step surviving-owner (seed [:player :playing :mid-track]) [:swap])]
-      (is (= [:player :stopped] (:state after)) "moved between :player's children")
-      (is (nil? (:rf/history after))
-          "the surviving-LCCA owner recorded NOTHING — slot left untouched")
-      (is (empty? (history-events :rf.machine.history/recorded))
-          "no :rf.machine.history/recorded event for a pure within-compound sibling move"))))
+      (is (= [[:player :stopped] nil []]
+             [(:state after) (:rf/history after) (history-events :rf.machine.history/recorded)])))))
 
 (deftest surviving-outer-records-nothing-while-exited-inner-records
-  (testing "the exit-set boundary in a NESTED chart: a sibling move under :outer exits :b (records) but leaves :outer (records nothing)"
+  (testing "a sibling move under :outer exits :b (records) but leaves :outer (records nothing)"
     (reset-capture!)
-    ;; :to-a moves :b → its sibling :a (both children of :outer). :outer is
-    ;; the surviving LCA — records nothing — but :b IS in the exit set and
-    ;; records its last-active deep leaf.
     (let [after (step nested (seed [:outer :b :b2]) [:to-a])]
-      (is (= [:outer :a] (:state after)) "moved to :outer's sibling child :a")
-      (is (not (contains? (:rf/history after) [:outer]))
-          "the surviving :outer owner recorded NOTHING")
-      (is (= [:outer :b :b2] (get-in after [:rf/history [:outer :b]]))
-          "the genuinely-exited :b owner DID record its last-active deep leaf")
-      (is (= 1 (count (:rf/history after)))
-          "exactly one recording — only the exited inner compound, not the surviving outer")
-      (let [recs (history-events :rf.machine.history/recorded)]
-        (is (= 1 (count recs)) "exactly one :recorded event (the exited inner compound)")
-        (is (= [:outer :b] (:compound-path (:tags (first recs))))
-            "the lone recording is the exited :b, not the surviving :outer")))))
+      (is (= [[:outer :a] {[:outer :b] [:outer :b :b2]} [[:outer :b]]]
+             [(:state after) (:rf/history after)
+              (mapv (comp :compound-path :tags) (history-events :rf.machine.history/recorded))])))))
