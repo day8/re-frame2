@@ -12,10 +12,7 @@
      unchanged, the MetaFn object's `typeof` is \"object\", so React DOM
      would refuse it as a listener and treat it as an object ref.
 
-  TEST-ONLY. The ns ends in `-dom-cljs-test`, so `:browser-test` runs the
-  live bodies; `:node-test` also loads it (`cljs-test$` matches), where they
-  gate on `(browser?)` and no-op. The node-lane counterparts live in
-  `template_cljs_test.cljs`."
+  The node-lane counterparts live in `template_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]))
@@ -60,10 +57,8 @@
               "an empty sequence commits nothing")
 
           (react-dom/flushSync (fn [] (rdc/render root [:div.host [text-rows]])))
-          (is (= "ab" (some-> (.querySelector node ".host") .-textContent))
-              "text siblings commit as text")
-          (is (= 0 (some-> (.querySelector node ".host") .-children .-length))
-              "…and not as an `<a>` element holding the second item"))))))
+          (is (= "ab" (host-html node))
+              "text siblings commit as text, not as an `<a>` element holding the second item"))))))
 
 (deftest metafn-click-handler-and-callback-ref-reach-react-dom
   (testing "reagent-slim — a metadata-bearing on-click and :ref are called by React DOM"
@@ -82,7 +77,6 @@
                                            :ref      ref-fn}
                                   "Click"])))
             (let [button (.querySelector node "#metafn-probe")]
-              (is (some? button) "the button committed")
               (is (and (some? button) (identical? button @seen))
                   "the metadata-bearing callback ref was CALLED with the committed node")
               (when button (.click button))
