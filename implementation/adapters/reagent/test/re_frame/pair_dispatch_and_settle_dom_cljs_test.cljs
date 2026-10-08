@@ -20,29 +20,13 @@
   `adapter-flush-render-dom-cljs-test`, whose synchronous flush this op
   consumes.
 
-  HOW THE PROOF IS RIGOROUS. A parent view renders a child only when a
-  `:show?` flag in app-db is true. We mount the parent through a real
-  React root, then drive the flag through `dispatch-and-settle!`:
-
-    - `[:show]`  flips the flag true → the child MOUNTS on the flushed
-      re-render → a `:rf.view/render` emit fires at commit time and is
-      back-filled into the dispatch's epoch. We assert the returned
-      epoch's `:render-events` (and `:renders`) carry it.
-    - `[:hide]`  flips the flag false → the child UNMOUNTS → a
-      `:rf.view/unmounted` emit fires at teardown and is back-filled
-      into that dispatch's epoch's `:trace-events`. We assert
-      `:render-events` carries the unmount op.
-
-  The single `dispatch-and-settle!` call does ALL of it synchronously —
-  no `setTimeout`, no manual `r/flush`, no `requestAnimationFrame`. If
-  the flush were rAF-scheduled the emit
-  would land a tick later and the just-read epoch would miss it; the
-  assertion passing IS the proof the flush was synchronous and the
-  back-fill landed before the re-read.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers
-  it; the `:node-test` runner also loads it, where the body gates on
-  `(browser?)` and no-ops cleanly (no DOM)."
+  A parent view renders a child only while an app-db `:show?` flag is true,
+  mounted through a real React root and driven by `dispatch-and-settle!`:
+  `[:show]` mounts the child, whose `:rf.view/render` must already be in the
+  returned epoch's `:render-events` (a rAF-scheduled flush would land it a
+  tick late), and `[:hide]` unmounts it, whose `:rf.view/unmounted` must
+  back-fill into that dispatch's epoch. `:node-test` loads this too and the
+  DOM test no-ops there."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -130,20 +114,15 @@
             ;; ---- MOUNT: dispatch-and-settle! [:show] ----
             (let [settled (pair/dispatch-and-settle! [::show] {:frame frame-kw})
                   ops     (render-event-ops settled)]
-              (is (:ok? settled) "dispatch-and-settle! succeeded")
-              (is (true? (:settled? settled))
-                  "the render layer flushed synchronously")
-              (is (some? (:epoch settled))
-                  "the SETTLED epoch record rides back")
-              (is (some? (.querySelector mount-node ".child"))
-                  "child MOUNTED — flush-render! committed the re-render
-                   synchronously inside the single settle call")
-              (is (contains? ops :rf.view/render)
-                  "the settled epoch's :render-events carry a :rf.view/render
-                   for the just-mounted child (back-filled before the re-read)")
-              (is (pos? (get-in settled [:cascade-summary :renders]))
-                  ":cascade-summary :renders (a COUNT) reflects the flushed
-                   render — not the pre-flush zero"))
+              (is (= [true true true true true true]
+                     [(boolean (:ok? settled)) (:settled? settled) (some? (:epoch settled))
+                      (some? (.querySelector mount-node ".child"))
+                      (contains? ops :rf.view/render)
+                      (pos? (get-in settled [:cascade-summary :renders]))])
+                  (str "the settle succeeded and flushed synchronously, returning the SETTLED epoch; "
+                       "the child MOUNTED inside the single call, and the epoch's :render-events "
+                       "carry its :rf.view/render (back-filled before the re-read) with a non-zero "
+                       ":cascade-summary :renders count")))
 
             ;; ---- UNMOUNT: dispatch-and-settle! [:hide] ----
             ;; flush-render! synchronously COMMITS the removal — the child
@@ -172,10 +151,9 @@
             ;; cadence.)
             (let [settled    (pair/dispatch-and-settle! [::hide] {:frame frame-kw})
                   hide-epoch (:epoch-id settled)]
-              (is (:ok? settled) "dispatch-and-settle! succeeded")
-              (is (true? (:settled? settled)))
-              (is (nil? (.querySelector mount-node ".child"))
-                  "child REMOVED from the DOM synchronously on the settle")
+              (is (= [true true nil]
+                     [(boolean (:ok? settled)) (:settled? settled) (.querySelector mount-node ".child")])
+                  "the settle succeeded, and the child left the DOM synchronously on it")
               ;; The teardown emit React fires post-commit — same surface,
               ;; fired now that [:hide] is the most-recently-settled epoch.
               (rf.views/emit-view-unmounted! :rf.pair-settle/child
@@ -213,12 +191,9 @@
         (rf/make-frame {:id frame-kw :doc "no-epoch probe frame"})
         (rf/reg-event ::noop (fn [{:keys [db]} _] {:db db}))
         (let [settled (pair/dispatch-and-settle! [::noop] {:frame frame-kw})]
-          (is (false? (:ok? settled))
-              "no recorded epoch ⇒ :ok? false rides through")
-          (is (not (contains? settled :settled?))
-              "NO :settled? slot — nothing settled")
-          (is (not (contains? settled :render-events))
-              "NO :render-events slot on the failure path"))
+          (is (= [false false false]
+                 [(:ok? settled) (contains? settled :settled?) (contains? settled :render-events)])
+              "no recorded epoch ⇒ :ok? false rides through, with NO :settled? or :render-events slot"))
         (finally
           ;; Restore the framework default so the global knob does not
           ;; leak into sibling tests.
