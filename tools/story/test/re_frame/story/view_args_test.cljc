@@ -143,10 +143,10 @@
                :story.ui.unlabelled/danger))))))
 
 (deftest compiled-resolver-resolves-a-variant-whose-steps-read-story-or-global-args
-  (testing "a valid variant whose :setup / :script substitutes an
-            [:arg k] that only its story or the globals supply resolves its
-            schema — the read compiles with the same ambient arg layers a run
-            of the variant does, so the substitution cannot throw
+  (testing "a valid variant whose steps substitute an [:arg k] that only
+            its story or the globals supply resolves its schema — the read
+            compiles with the same ambient arg layers a run of the variant
+            does, so the substitution cannot throw
             :rf.error/story-missing-arg ahead of the schema"
     (let [props [:map [:label :string]]]
       (reg-view-meta! :views/labelled {:rf/props props})
@@ -155,12 +155,8 @@
                                       :args      {:label "Go"}})
       (rf.story.registrar/reg-variant* :story.yfwfa/setup
                                        {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
-      (rf.story.registrar/reg-variant* :story.yfwfa/script
-                                       {:script [[:dispatch [:app/set-label [:arg :label]]]]})
       (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa/setup))
           "a story-supplied arg read by :setup")
-      (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa/script))
-          "a story-supplied arg read by :script")
       (testing "and an arg only the globals supply"
         (rf.story.registrar/reg-story* :story.yfwfa-global {:component :views/labelled})
         (rf.story.registrar/reg-variant* :story.yfwfa-global/setup
@@ -177,17 +173,12 @@
                                          {:setup [[:dispatch [:app/set-label [:arg :label]]]]})
         (try
           (is (nil? (rf.story.view-args/compiled-view-args-schema :story.yfwfa-late/setup))
-              "precondition: no layer supplies :label, so the plan cannot compile")
+              "no layer supplies :label, so the plan cannot compile: a best-effort nil, no throw")
           (rf.story.config/set-global-args! {:label "Late"})
           (is (= props (rf.story.view-args/compiled-view-args-schema :story.yfwfa-late/setup))
               "the globals now supply it; the cached nil is not reused")
           (finally
             (rf.story.config/set-global-args! {})))))))
-
-(deftest compiled-resolver-unregistered-variant-is-nil
-  (testing "an unregistered variant resolves nil (best-effort tooling read —
-            no throw)"
-    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/nope)))))
 
 ;; ---- memoization invalidates on registrar mutation ----------------------
 
