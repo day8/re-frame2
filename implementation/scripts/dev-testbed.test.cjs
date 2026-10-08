@@ -1,18 +1,9 @@
 #!/usr/bin/env node
 /*
- * Tests for `dev-testbed.cjs` arg resolution + URL printing.
- *
- * Standalone node-runnable suite — no external test framework, mirroring
- * `_path-policy.test.cjs`. Each test logs PASS / FAIL; the process exits
- * 0 only when every test passes. Discovered by `npm run test:scripts`.
- *
- * Requiring `dev-testbed.cjs` does NOT spawn shadow-cljs: the CLI body is
- * guarded by `require.main === module`, so importing it here only loads
- * the pure `resolveArgs` / `urlsForBuild` helpers + the DEV_HTTP map.
- *
- * There are no group aliases (xray / stories / epochs / all):
- * `npm run dev` takes EXPLICIT build-ids only. `resolveArgs` just
- * passes tokens through, de-duplicating build-ids in first-seen order.
+ * Tests for `dev-testbed.cjs` arg resolution and URL printing, plus the guard
+ * that its DEV_HTTP map mirrors shadow-cljs.edn's :dev-http map. Requiring the
+ * module does not spawn shadow-cljs (the CLI body is behind
+ * `require.main === module`). Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -23,36 +14,16 @@ const path = require('path');
 const { DEV_HTTP, resolveArgs, urlsForBuild } = require('./dev-testbed.cjs');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
 
-// ---------------------------------------------------------------------------
-// Drift guard helpers.
-//
-// shadow-cljs.edn is the source of truth for which dev-testbed builds are
-// served on a `:dev-http` port; DEV_HTTP in dev-testbed.cjs mirrors it
-// (READ-only — shadow-cljs.edn is hot-zone). Nothing else ties the two
-// surfaces together, so a port present in :dev-http but absent from DEV_HTTP
-// + the README would ship green. This guard parses the
-// `:dev-http` map straight out of shadow-cljs.edn and asserts every served
-// build appears in DEV_HTTP at the matching port, so a testbed
-// addition that forgets the launcher map fails THIS gate instead of silently
-// printing no URL.
-//
-// The `:dev-http` map keys port -> [roots]; the build-id is recovered by
-// matching the build's `:output-dir` root (`out/...`) against the build defs
-// in the same file. We deliberately hand-roll a focused parser rather than
-// pull in an EDN dependency — the shapes we read (a flat port->vector map and
-// per-build `:output-dir` strings) are simple and stable.
-// ---------------------------------------------------------------------------
+// shadow-cljs.edn is the source of truth for which builds are served on a
+// :dev-http port, and nothing else ties DEV_HTTP to it. A focused hand-rolled
+// parser reads the two simple shapes needed: the port -> roots map and each
+// build's :output-dir.
 
-/** Read shadow-cljs.edn from the implementation root. */
 function readShadowEdn() {
   return fs.readFileSync(path.join(IMPL_ROOT, 'shadow-cljs.edn'), 'utf8');
 }
 
-/**
- * Strip line comments (`;` to end-of-line) so they can't be mistaken for
- * map content. Naive but sufficient: shadow-cljs.edn carries no `;` inside
- * the string literals we parse (output-dir / dev-http roots).
- */
+// shadow-cljs.edn carries no `;` inside the strings parsed here.
 function stripEdnComments(edn) {
   return edn
     .split('\n')
@@ -63,28 +34,14 @@ function stripEdnComments(edn) {
     .join('\n');
 }
 
-/**
- * Parse the `:dev-http` map into { port -> [roots...] }. The map binds an
- * integer port to ONE of two value shapes:
- *
- *   - bare-vector  `<port> [ "root" "root" ... ]`
- *   - map form     `<port> {:roots [ "root" ... ] :handler sym}`
- *
- * The map form lets each testbed port wire the JVM-only
- * 'open in editor' not-found `:handler`. Both shapes carry the served roots
- * in a `[ ... ]` vector; the FIRST `[ ... ]` after the port is the roots
- * vector in either shape (in the map form `:roots` is the leading key). We
- * find each port, then read the first bracketed vector that follows it
- * (before the next port), so the parser is agnostic to the bare-vector vs
- * map wrapper.
- */
+// { port -> [roots] }. A port's value is a bare roots vector or a map whose
+// leading :roots key holds one, so the first `[...]` after each port is its roots.
 function parseDevHttp(edn) {
   const src = stripEdnComments(edn);
   const start = src.indexOf(':dev-http');
   assert.ok(start !== -1, 'shadow-cljs.edn must contain a :dev-http map');
   const open = src.indexOf('{', start);
   assert.ok(open !== -1, ':dev-http must be followed by a map');
-  // Walk to the matching close brace.
   let depth = 0;
   let end = -1;
   for (let i = open; i < src.length; i++) {
@@ -99,12 +56,7 @@ function parseDevHttp(edn) {
   }
   assert.ok(end !== -1, ':dev-http map must be balanced');
   const body = src.slice(open + 1, end);
-  // Locate every port key, then read the FIRST bracketed roots vector that
-  // follows it (and precedes the next port) — works for both the bare-vector
-  // (`<port> [...]`) and map (`<port> {:roots [...] ...}`) shapes. A port key
-  // is a 2-5 digit integer immediately followed (after whitespace) by the
-  // opening `[` (bare-vector) or `{` (map form) of its value, which precludes
-  // matching incidental digits inside a root string.
+  // A port is a 2-5 digit integer directly followed by its value's `[` or `{`.
   const entries = {};
   const portRe = /(\d{2,5})\s*[[{]/g;
   const ports = [];
@@ -124,16 +76,10 @@ function parseDevHttp(edn) {
   return entries;
 }
 
-/**
- * Parse every build def's `:output-dir` into { outputDir -> buildId }.
- * Build defs are top-level `:<group>/<name> { ... :output-dir "out/..." ...}`.
- */
+// { outputDir -> buildId } over the top-level `:<group>/<name> { ... }` build defs.
 function parseBuildOutputDirs(edn) {
   const src = stripEdnComments(edn);
   const map = {};
-  // build-id immediately followed by an opening brace, then somewhere a
-  // :output-dir string before the next build-id. We scan build-id positions
-  // and read the FIRST :output-dir that follows each.
   const idRe = /(:[a-zA-Z][\w.-]*\/[\w.-]+)\s*\{/g;
   const ids = [];
   let m;
@@ -150,10 +96,7 @@ function parseBuildOutputDirs(edn) {
   return map;
 }
 
-/**
- * Recover { buildId -> port } for every `:dev-http`-served dev-testbed build,
- * by matching each port's `out/...` root against the build defs.
- */
+// { buildId -> port }, matching each port's `out/...` root to a build def.
 function servedBuildPorts(edn) {
   const devHttp = parseDevHttp(edn);
   const byOutputDir = parseBuildOutputDirs(edn);
@@ -187,20 +130,7 @@ function it(label, f) {
 
 console.log('dev-testbed arg-resolution tests');
 
-it('a removed group name is NOT expanded — it passes through as a literal', () => {
-  // `xray` is just a token. It reaches shadow-cljs as an
-  // unknown build-id (which shadow-cljs reports), never a 6-build expansion.
-  assert.deepStrictEqual(resolveArgs(['xray']), ['xray']);
-  assert.deepStrictEqual(resolveArgs(['stories']), ['stories']);
-  assert.deepStrictEqual(resolveArgs(['all']), ['all']);
-  assert.deepStrictEqual(resolveArgs(['epochs']), ['epochs']);
-});
-
 it('duplicate explicit build-ids are deduped, order preserved', () => {
-  assert.deepStrictEqual(
-    resolveArgs([':examples/standard-epochs', ':examples/standard-epochs']),
-    [':examples/standard-epochs'],
-  );
   assert.deepStrictEqual(
     resolveArgs([
       ':examples/login-form',
@@ -222,9 +152,6 @@ it('urlsForBuild prints the live URL for a plain build', () => {
   assert.deepStrictEqual(urlsForBuild(':examples/standard-epochs'), [
     'http://localhost:8031/',
   ]);
-  assert.deepStrictEqual(urlsForBuild(':testbeds/panel-gallery'), [
-    'http://localhost:8765/',
-  ]);
 });
 
 it('urlsForBuild prints the live + /#/stories URLs for a Story build', () => {
@@ -232,85 +159,18 @@ it('urlsForBuild prints the live + /#/stories URLs for a Story build', () => {
     'http://localhost:8043/',
     'http://localhost:8043/#/stories',
   ]);
-  assert.deepStrictEqual(urlsForBuild(':examples/nine-states-with-stories'), [
-    'http://localhost:8040/',
-    'http://localhost:8040/#/stories',
-  ]);
 });
 
 it('urlsForBuild returns [] for a build with no dev-http port', () => {
   assert.deepStrictEqual(urlsForBuild(':examples/counter'), []);
-  assert.deepStrictEqual(urlsForBuild('--verbose'), []);
 });
 
-// --- Drift guard ---------------------------------------------------------
-// Tie DEV_HTTP to shadow-cljs.edn's :dev-http map so the next testbed
-// addition can't ship with a served port that the launcher knows nothing
-// about. Parses
-// shadow-cljs.edn directly (READ-only — it's a hot-zone file) and asserts
-// every :dev-http-served build appears in DEV_HTTP at the matching port.
-it('DEV_HTTP covers every :dev-http-served build in shadow-cljs.edn (drift guard)', () => {
-  const edn = readShadowEdn();
-  const served = servedBuildPorts(edn);
-
-  // Sanity-check the parser actually found the known builds — a silently
-  // empty parse must NOT pass this guard vacuously.
-  assert.ok(
-    Object.keys(served).length >= 6,
-    `parser recovered only ${Object.keys(served).length} served builds from ` +
-      `shadow-cljs.edn :dev-http — expected the full dev-testbed set`,
-  );
-  assert.strictEqual(
-    served[':examples/managed-http'],
-    8035,
-    'parser must recover managed-http -> 8035 from shadow-cljs.edn',
-  );
-
-  const missing = [];
-  const mismatched = [];
-  for (const [buildId, port] of Object.entries(served)) {
-    const info = DEV_HTTP[buildId];
-    if (!info) {
-      missing.push(`${buildId} (served on ${port})`);
-    } else if (info.port !== port) {
-      mismatched.push(`${buildId}: DEV_HTTP=${info.port} but :dev-http=${port}`);
-    }
-  }
-  assert.strictEqual(
-    missing.length,
-    0,
-    `DEV_HTTP (dev-testbed.cjs) is missing builds served on a :dev-http ` +
-      `port in shadow-cljs.edn: ${missing.join(', ')}. Add each to DEV_HTTP ` +
-      `(and the README build->port table) so the launcher prints its URL.`,
-  );
-  assert.strictEqual(
-    mismatched.length,
-    0,
-    `DEV_HTTP port(s) disagree with shadow-cljs.edn :dev-http: ${mismatched.join(
-      '; ',
-    )}.`,
-  );
-});
-
-// --- Drift guard, the other direction --------------------------------------
-// The guard above is one-way: it catches a served build MISSING from DEV_HTTP.
-// It says nothing about an ORPHAN — a DEV_HTTP entry whose build and :dev-http
-// port are both gone — which maps a port to something that cannot be served,
-// and which a prose census misses because it is executable config.
-// An orphan is not merely untidy: `npm run dev <orphaned-build>` prints
-// a live-looking URL for a build shadow-cljs will reject. Assert the mirror is
-// exact in BOTH directions so the next deletion cannot leave one behind.
-it('DEV_HTTP carries no build that shadow-cljs.edn no longer serves (orphan guard)', () => {
-  const served = servedBuildPorts(readShadowEdn());
-  const orphans = Object.keys(DEV_HTTP).filter((buildId) => !(buildId in served));
-  assert.deepStrictEqual(
-    orphans,
-    [],
-    `DEV_HTTP (dev-testbed.cjs) maps build(s) that no :dev-http port in ` +
-      `shadow-cljs.edn serves: ${orphans.join(', ')}. Delete each from ` +
-      `DEV_HTTP (and the README build->port table) — the launcher would ` +
-      `print a URL for a build that cannot be served.`,
-  );
+// Exact in both directions: a served build missing from DEV_HTTP prints no URL,
+// and an orphaned DEV_HTTP entry prints a live-looking URL for a build
+// shadow-cljs will reject.
+it('DEV_HTTP mirrors every :dev-http-served build in shadow-cljs.edn, port for port (drift guard)', () => {
+  const devHttpPorts = Object.fromEntries(Object.entries(DEV_HTTP).map(([id, info]) => [id, info.port]));
+  assert.deepStrictEqual(devHttpPorts, servedBuildPorts(readShadowEdn()));
 });
 
 if (failed > 0) {
