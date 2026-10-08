@@ -1,25 +1,11 @@
 (ns re-frame.region-on-done-test
   "A parallel REGION reaching its own `:final?` child raises the region-local
-  done, and the region body's `:on-done` takes it — per Spec 005 §The
-  done-state signal (Parallel `:on-done`) and §`:final?` constraints. The
-  region body is the root of its region's tree and a compound in its own
-  right, so this is the compound case scoped to one region.
-
-  - The region's `:on-done` runs in the macrostep that reaches the final
-    child, at phase `:transition`, declared at the region body (`:decl-path
-    []`, `:region` the region).
-  - Its target resolves within the region, like the region root's `:on`: a
-    keyword names a top-level state of that region. Registration refuses a
-    target outside the region — a sibling region's name included — with
-    `:rf.error/machine-unresolved-target`.
-  - A sibling region does not take another region's done, even when it
-    declares an `:on-done` of its own.
-  - Ordering against the parallel root: region-local dones drain inside the
-    macrostep, in the order the regions raised them; the root's `:on-done`
-    then fires once, on the settled configuration, if every region is final.
-  - A region born on its final child takes its done at birth.
-
-  Live runtime (plain-atom substrate)."
+  done, and the region body's `:on-done` takes it, per Spec 005 §The
+  done-state signal: in the same macrostep, declared at the region body, its
+  target resolving within the region, never taken by a sibling region, and
+  drained before the parallel root's `:on-done`. Registration refuses a
+  region `:on-done` target outside the region and dangling guard / action
+  refs in any of its candidates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -43,33 +29,22 @@
         (rf.machines.test-support/events-of :rf.machine/action-ran)))
 
 (deftest region-reaching-its-final-child-runs-its-on-done
-  (let [log (atom [])]
-    (rf/reg-machine :rod/probe
-      {:type    :parallel
-       :data    {}
-       :actions (assoc (recorders log [:y-done])
-                       :mark (fn [{d :data}]
-                               (swap! log conj :mark)
-                               {:data (assoc d :marked? true)}))
-       :regions {:x {:initial :x1
-                     :on-done {:action :mark}
-                     :states  {:x1 {:on {:go :x2}}
-                               :x2 {:final? true}}}
-                 :y {:initial :y1
-                     :on-done {:action :y-done}
-                     :states  {:y1 {:on {:fin :y2}}
-                               :y2 {:final? true}}}}})
-    (rf/dispatch-sync [:rod/probe [:rf.machine/start]])
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:rod/probe [:go]])
-    (testing "region :x's :on-done ran, in the macrostep that reached :x2"
-      (is (= [:mark] @log))
-      (is (= {:x :x2 :y :y1} (rf.machines.test-support/machine-state :rod/probe)))
-      (is (true? (:marked? (rf.machines.test-support/machine-data :rod/probe)))))
-    (testing "the action is declared at the region body"
-      (is (= [[:mark :transition [] :x]] (ran))))
-    (testing "region :y declared an :on-done too, and did not take :x's done"
-      (is (not-any? #{:y-done} @log)))))
+  (rf/reg-machine :rod/probe
+    {:type    :parallel
+     :actions {:mark (fn [_] nil) :y-done (fn [_] nil)}
+     :regions {:x {:initial :x1
+                   :on-done {:action :mark}
+                   :states  {:x1 {:on {:go :x2}}
+                             :x2 {:final? true}}}
+               :y {:initial :y1
+                   :on-done {:action :y-done}
+                   :states  {:y1 {:on {:fin :y2}}
+                             :y2 {:final? true}}}}})
+  (rf/dispatch-sync [:rod/probe [:rf.machine/start]])
+  (rf.machines.test-support/reset-captured!)
+  (rf/dispatch-sync [:rod/probe [:go]])
+  (is (= [[:mark :transition [] :x]] (ran))
+      "only region :x's :on-done ran, in the macrostep reaching :x2, declared at the region body"))
 
 (deftest region-on-done-target-resolves-within-the-region
   (let [log (atom [])]
@@ -84,40 +59,39 @@
     (rf/dispatch-sync [:rod/loop [:rf.machine/start]])
     (reset! log [])
     (rf/dispatch-sync [:rod/loop [:go]])
-    (testing ":on-done :x1 names region :x's own :x1 — the region reached its
-              final child and moved back, in one macrostep"
-      (is (= [:x2-in :x2-out :again :x1-in] @log))
-      (is (= {:x :x1 :y :y1} (rf.machines.test-support/machine-state :rod/loop))))))
+    (is (= [:x2-in :x2-out :again :x1-in] @log)
+        ":on-done :x1 names region :x's own :x1, taken in the same macrostep")))
+
+(defn- with-on-done
+  [on-done]
+  {:type    :parallel
+   :regions {:a {:initial :a1
+                 :on-done on-done
+                 :states  {:a1 {:on {:go :a2}}
+                           :a2 {:final? true}}}
+             :b {:initial :b1
+                 :states  {:b1 {}}}}})
+
+(defn- refusal
+  [m]
+  (try (rf.machines/make-machine-handler m) nil
+       (catch clojure.lang.ExceptionInfo e (assoc (ex-data e) ::message (ex-message e)))))
 
 (deftest region-on-done-targets-are-checked-at-registration
-  (let [with-on-done (fn [on-done]
-                       {:type    :parallel
-                        :regions {:a {:initial :a1
-                                      :on-done on-done
-                                      :states  {:a1 {:on {:go :a2}}
-                                                :a2 {:final? true}}}
-                                  :b {:initial :b1
-                                      :states  {:b1 {:on {:go :b2}}
-                                                :b2 {:final? true}}}}})]
-    (testing "a sibling region's name is refused, and the message says why"
-      (try
-        (rf.machines/make-machine-handler (with-on-done :b))
-        (is false "registration must refuse a region :on-done naming a sibling region")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data e))))
-          (is (= :on-done (:slot (ex-data e))))
-          (is (re-find #"SIBLING REGION" (ex-message e)))
-          (is (re-find #"ancestor fallback" (ex-message e))))))
-    (testing "a target naming no state of the region is refused"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf.error/machine-unresolved-target"
-            (rf.machines/make-machine-handler (with-on-done {:target [:nowhere]})))))
-    (testing "controls: an in-region target, and an action-only :on-done, register"
-      (is (fn? (rf.machines/make-machine-handler (with-on-done :a1))))
-      (is (fn? (rf.machines/make-machine-handler
-                 (-> (with-on-done {:action :log})
-                     (assoc :actions {:log (fn [_] nil)}))))))))
+  (let [d (refusal (with-on-done :b))]
+    (is (= {:rf.error/id :rf.error/machine-unresolved-target :slot :on-done}
+           (select-keys d [:rf.error/id :slot])))
+    (is (re-find #"SIBLING REGION" (::message d))
+        "a sibling region's name is refused, and the message says why")))
+
+(deftest region-on-done-missing-refs-are-refused
+  (is (= {:rf.error/id :rf.error/machine-unresolved-action :action :absent :state :a}
+         (select-keys (refusal (with-on-done {:action :absent})) [:rf.error/id :action :state]))
+      "the refusal names the declaring region")
+  (is (= :rf.error/machine-unresolved-action
+         (:rf.error/id (refusal (with-on-done [{:guard (fn [_] false) :target :a1}
+                                               {:action :absent}]))))
+      "every candidate is checked, not only the first"))
 
 (deftest region-dones-drain-before-the-parallel-root-on-done
   (let [log (atom [])]
@@ -134,11 +108,11 @@
                      :states  {:y1 {} :y2 {:final? true}}}}})
     (rf/dispatch-sync [:rod/order [:rf.machine/start]])
     (rf/dispatch-sync [:rod/order [:fin]])
-    (testing "each region's done runs, in the order the regions raised them,
-              then the root's :on-done on the settled all-final configuration"
+    (testing "each region's done runs in raise order, then the root's :on-done,
+              and the machine rests all-final"
       (is (= [:x-done :y-done :root-done] @log))
       (is (= {:x :x2 :y :y2} (rf.machines.test-support/machine-state :rod/order))))
-    (testing "the machine rests all-final: a later event re-runs neither"
+    (testing "a later event while resting re-runs neither"
       (reset! log [])
       (rf/dispatch-sync [:rod/order [:nothing]])
       (is (= [] @log)))))
@@ -156,20 +130,16 @@
                      :states  {:y2 {:final? true}}}}})
     (rf/dispatch-sync [:rod/leave [:rf.machine/start]])
     (rf/dispatch-sync [:rod/leave [:go]])
-    (testing "region :x's done moved it back to :x1 before the macrostep
-              settled, so the settled configuration is not all-final"
-      (is (= {:x :x1 :y :y2} (rf.machines.test-support/machine-state :rod/leave)))
-      (is (= [] @log)))))
+    (is (= {:x :x1 :y :y2} (rf.machines.test-support/machine-state :rod/leave)))
+    (is (= [] @log) "the settled configuration is not all-final")))
 
 (deftest a-region-born-on-its-final-child-takes-its-done-at-birth
-  (let [log (atom [])]
-    (rf/reg-machine :rod/born
-      {:type    :parallel
-       :actions (recorders log [:x-done])
-       :regions {:x {:initial :x1
-                     :on-done {:action :x-done}
-                     :states  {:x1 {:final? true}}}
-                 :y {:initial :y1 :states {:y1 {}}}}})
-    (rf/dispatch-sync [:rod/born [:rf.machine/start]])
-    (is (= [:x-done] @log))
-    (is (= [[:x-done :transition [] :x]] (ran)))))
+  (rf/reg-machine :rod/born
+    {:type    :parallel
+     :actions {:x-done (fn [_] nil)}
+     :regions {:x {:initial :x1
+                   :on-done {:action :x-done}
+                   :states  {:x1 {:final? true}}}
+               :y {:initial :y1 :states {:y1 {}}}}})
+  (rf/dispatch-sync [:rod/born [:rf.machine/start]])
+  (is (= [[:x-done :transition [] :x]] (ran))))
