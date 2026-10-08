@@ -11,13 +11,8 @@
   identical — an attribute VALUE that differs is a hydration mismatch — so a
   frame declaring `(with-base-path history-url-strategy \"/demos\")` must
   render `/demos/active` on the server exactly as the hydrated client does.
-
-  A JVM link door that hard-coded `identity` as the encoder
-  (`route-link-render-ssr` or the `:clj` arm of `link-model`) would render
-  `/active` on the server for the frame config that renders `/demos/active`
-  on the client. `routing_url_strategy_test.clj` proves the pure encoders
-  without composing them with an SSR render, so the composition needs this
-  table.
+  A JVM link door that hard-coded `identity` as the encoder would turn the
+  JVM half of this suite red while the CLJS half stays green.
 
   Two doors, four strategy shapes, one table:
 
@@ -27,18 +22,12 @@
     - The `:routing/link-model` seam (`link-model`), the door a view
       artefact's own route-link consumes, handed the same frame id.
 
-  The frames here declare `:url-strategy` WITHOUT `:url-bound? true`: the
-  href consult reads the RENDERING frame's declared strategy, while
-  `:url-bound?` governs only the browser listener and the history legs —
-  the side effects SSR never runs, and exactly what a pure href-parity
-  suite must not depend on (a `:url-bound?` frame would try to install a
-  `popstate` listener under node's absent `window`). The server-frame
-  integration case — a `:platform :server`, `:url-bound?` frame rendered
-  through the SSR emitter — lives in `route_link_test.clj`.
-
-  Reverting either JVM door to `identity` turns the JVM half of this suite
-  red while the CLJS half stays green — which is the mismatch it exists to
-  name."
+  The frames declare `:url-strategy` WITHOUT `:url-bound? true`: the href
+  consult reads the rendering frame's declared strategy, while `:url-bound?`
+  governs only the browser listener and history legs, which SSR never runs
+  (and which would try to install a `popstate` listener under node's absent
+  `window`). The `:platform :server`, `:url-bound?` frame rendered through
+  the SSR emitter is `route_link_test.clj`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -65,39 +54,31 @@
 (def ^:private parity-cases
   "One row per supported strategy shape: the frame id the row seats its
   strategy on, the strategy, and the href BOTH hosts must render for
-  `/active`, for `/articles/x?tab=comments`, and for the
-  punctuation-bearing `/articles/draft~1?tab=it's(new)!`. The expected
-  strings are the contract — literal on purpose, never derived from
-  `:encode`, so a door that stopped consulting the strategy cannot also
-  rewrite the expectation.
+  `/active` and for the punctuation-bearing `/articles/draft~1?tab=it's(new)!`.
+  The expected strings are literal on purpose, never derived from `:encode`,
+  so a door that stopped consulting the strategy cannot also rewrite the
+  expectation.
 
-  The `:punct` column is host-symmetric encoding's teeth at the LINK door.
-  `java.net.URLEncoder` escapes `! ' ( ) ~` where `encodeURIComponent`
-  leaves them literal, so a `url-encode` JVM arm that did not correct it
-  would render a `~`-bearing slug's `:href` as `/articles/draft%7E1` on
-  the server and `/articles/draft~1` on the hydrated client — a Spec 011
-  hydration mismatch at the attribute the first client render compares.
-  The `x` / `comments` rows above cannot see it: neither string carries
-  a character the two encoders disagree about."
+  The `:punct` column carries params, a query, and host-symmetric encoding's
+  teeth at the LINK door: `java.net.URLEncoder` escapes `! ' ( ) ~` where
+  `encodeURIComponent` leaves them literal, so a `url-encode` JVM arm that
+  did not correct it would render `/articles/draft%7E1` on the server and
+  `/articles/draft~1` on the hydrated client — a Spec 011 hydration mismatch."
   [{:frame    :parity/history
     :strategy rf.routing.strategy/history-url-strategy
     :active   "/active"
-    :article  "/articles/x?tab=comments"
     :punct    "/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/history-base
     :strategy (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/demos")
     :active   "/demos/active"
-    :article  "/demos/articles/x?tab=comments"
     :punct    "/demos/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/hash
     :strategy rf.routing.strategy/hash-url-strategy
     :active   "#/active"
-    :article  "#/articles/x?tab=comments"
     :punct    "#/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/hash-base
     :strategy (rf.routing.strategy/with-base-path rf.routing.strategy/hash-url-strategy "/demos")
     :active   "/demos#/active"
-    :article  "/demos#/articles/x?tab=comments"
     :punct    "/demos#/articles/draft~1?tab=it's(new)!"}])
 
 (def ^:private active-props  {:to :parity/active})
@@ -105,9 +86,7 @@
 (def ^:private punct-props   {:to :parity/article :params {:slug "draft~1"} :query {:tab "it's(new)!"}})
 
 (defn- seat-frame!
-  "Construct the row's frame with its strategy declared. The registration-time
-  preflight validates the strategy on both hosts, so a seated strategy is
-  always the one the consult points read."
+  "Construct the row's frame with its strategy declared."
   [{:keys [frame strategy]}]
   (rf/make-frame {:id frame :url-strategy strategy}))
 
@@ -123,64 +102,40 @@
 
 (deftest route-link-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
-  (doseq [{:keys [frame active article punct] :as row} parity-cases]
+  (doseq [{:keys [frame active punct] :as row} parity-cases]
     (seat-frame! row)
     (testing (str "rf/route-link render inside frame " frame)
-      (is (= [:a active] (rendered-anchor frame active-props))
-          (str frame ": the rendered <a>'s :href for /active is the strategy-encoded form on this host"))
-      (is (= [:a article] (rendered-anchor frame article-props))
-          (str frame ": params + query ride inside the encoded form on this host"))
+      (is (= [:a active] (rendered-anchor frame active-props)))
       (is (= [:a punct] (rendered-anchor frame punct-props))
-          (str frame ": punctuation in the slug and query value stays LITERAL on"
-               " this host — the JVM SSR render and the first CLJS render emit"
-               " the same :href")))))
+          "params, query and literal punctuation ride inside the encoded form"))))
 
 (deftest link-model-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
-  (doseq [{:keys [frame active article punct] :as row} parity-cases]
+  (doseq [{:keys [frame active punct] :as row} parity-cases]
     (seat-frame! row)
     (testing (str ":routing/link-model seam for frame " frame)
-      (let [model (rf.routing.link/link-model active-props frame)]
-        (is (= active (:href model))
-            (str frame ": link-model :href is the strategy-encoded form on this host"))
-        (is (= [:rf.route/url-requested {:url "/active"}]
-               (:payload model))
-            (str frame ": the navigation payload stays PATH-FORM — only the href is encoded"))
-        (is (false? (:native? model)) "a plain link is not a native anchor"))
-      (is (= article (:href (rf.routing.link/link-model article-props frame)))
-          (str frame ": params + query ride inside link-model's encoded href"))
-      (is (= punct (:href (rf.routing.link/link-model punct-props frame)))
-          (str frame ": punctuation stays literal through link-model's href too"
-               " — the second door reads the same canonical bytes")))))
+      (is (= {:href          active
+              :payload       [:rf.route/url-requested {:url "/active"}]
+              :native?       false
+              :prefetch      nil
+              :prefetch-keys rf.routing.link/prefetch-intent-keys}
+             (rf.routing.link/link-model active-props frame))
+          "only the href is encoded — the navigation payload stays PATH-FORM")
+      (is (= punct (:href (rf.routing.link/link-model punct-props frame)))))))
 
 (deftest link-model-prefetch-agrees-across-hosts
-  (testing "the prefetch pair is PURE and identical on both
-           hosts. The JVM/SSR shell installs no handlers — it drops the event
-           props with every other on-* — but it must EMIT and REFUSE exactly
-           what the client does, or the server shell would accept a mode the
-           hydrated client rejects (the symmetry EP-0037 R3 requires of the
-           value check, reached here through the warm-up)"
+  (testing "the warm-up is PURE and identical on both hosts: the SSR shell
+           installs no handlers, but it must emit and refuse exactly what the
+           hydrated client does"
     (register-routes!)
-    ;; The warm-up pair never reads the rendering frame's strategy, so one
-    ;; strategy-bearing frame stands for every row: the based hash form, the
-    ;; furthest from path form.
-    (let [{:keys [frame] :as row} (last parity-cases)]
-      (seat-frame! row)
-      (let [warm    (rf.routing.link/link-model (assoc article-props :prefetch :intent) frame)
-            passive (rf.routing.link/link-model article-props frame)]
-        (is (= [:rf.route/prefetch {:to :parity/article :params {:slug "x"}
-                                    :query {:tab "comments"}}]
-               (:prefetch warm))
-            (str frame ": the warm-up vector is PATH-FORM address data — no"
-                 " strategy encoding, so it cannot differ between hosts"))
-        (is (nil? (:prefetch passive))
-            (str frame ": an absent :prefetch key is passive on this host too"))
-        (is (= rf.routing.link/prefetch-intent-keys (:prefetch-keys warm))
-            (str frame ": the claimed positions travel identically"))
-        (is (thrown? #?(:cljs js/Error :clj clojure.lang.ExceptionInfo)
-                     (rf.routing.link/link-model (assoc article-props :prefetch :render) frame))
-            (str frame ": a bad mode is refused on this host — the SSR shell"
-                 " never accepts what the client rejects"))))))
+    (is (= [:rf.route/prefetch {:to :parity/article :params {:slug "x"}
+                                :query {:tab "comments"}}]
+           (:prefetch (rf.routing.link/link-model (assoc article-props :prefetch :intent) nil)))
+        "PATH-FORM address data — no strategy encoding, so it cannot differ between hosts")
+    (doseq [bad [:render nil]]
+      (is (thrown? #?(:cljs js/Error :clj clojure.lang.ExceptionInfo)
+                   (rf.routing.link/link-model (assoc article-props :prefetch bad) nil))
+          (str ":prefetch " (pr-str bad) " is refused on this host — a present nil included")))))
 
 (deftest no-frame-and-default-frame-keep-the-path-form-href
   (testing "a frame that declares no strategy renders path-form on both hosts"
