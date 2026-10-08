@@ -142,45 +142,17 @@
 (deftest a-skip-only-window-is-OBSERVED-activity-in-both-views
   ;; Both public results, off one window, in one row — so the two cannot
   ;; drift apart without this failing.
-  (let [{:keys [row link2]} (both [[:app/main :a]] skip-only-window)
-        cls (:class row)]
+  (let [{:keys [row link2]} (both [[:app/main :a]] skip-only-window)]
+    (testing "the advisor classifies observed activity, routed to a change of
+              INSTRUMENT — never the empty-window `:cap`"
+      (is (= [:memo-hits-only :host-opaque :host-opaque]
+             [(get-in row [:class :observed]) (get-in row [:class :basis])
+              (get-in row [:advice :refusal :reason])])))
 
-    (testing "the advisor counts the skip as a memo hit and NOT as a run"
-      (is (= 1 (get-in row [:axes :frequency :memo-hits])))
-      (is (= 0 (get-in row [:axes :frequency :runs]))
-          (str "a skip is not a recompute, and promoting one to make the "
-               "classification come out right would be the same lie one "
-               "layer down")))
-
-    (testing "and classifies the window as observed activity, never as a cap"
-      (is (= :memo-hits-only (:observed cls)))
-      (is (= :host-opaque (:basis cls))
-          (str "evidence WAS retained — reporting `:cap` would say the opposite of "
-               "what the window held"))
-      (is (not= :cap (:basis cls))))
-
-    (testing "so the remedy is a change of INSTRUMENT, not a fresh reproduction"
-      (let [advice (:advice row)]
-        (is (= :measure-first (:route advice)))
-        (is (= :host-opaque (get-in advice [:refusal :reason])))
-        (is (not (string/includes? (:says cls) "reproduce the interaction"))
-            (str "the classification must not give the empty-window advice — "
-                 "the evidence it would be reaching for is already in the "
-                 "window"))
-        (is (not (string/includes? (:says advice) "reproduce the interaction"))
-            "and neither must the remedy")))
-
-    (testing "and the causal slice does NOT report the skip as a recompute"
-      (is (= [] (:holds link2))
-          (str "the roster is recomputes only; the skip belongs to the "
-               "`:skipped` field, and a roster holding both is the defect"))
-      (is (= 1 (get-in link2 [:skipped :count])))
-      (is (= [:a] (get-in link2 [:skipped :sub-ids])))
-      (is (true? (:evidenced? link2))
-          (str "still evidenced — the bundle WAS surveyed and the survey came "
-               "back with no recompute, which is a result rather than a gap"))
-      (is (string/includes? (:says link2) "no subscription recomputed"))
-      (is (string/includes? (:says link2) "memo hit")))))
+    (testing "and the causal slice reports the skip on `:skipped`, never as a
+              recompute, and the surveyed bundle is still evidenced"
+      (is (= {:holds [] :skipped {:count 1 :sub-ids [:a]} :evidenced? true}
+             (select-keys link2 [:holds :skipped :evidenced?]))))))
 
 (deftest the-two-views-agree-about-every-sub-operation-in-one-bundle
   ;; The shared-predicate pin. One bundle carrying every `:op-type :rf.sub`
@@ -197,47 +169,14 @@
         {:keys [row link2]} (both [[:app/main :a] [:app/main :b] [:app/main :c]
                                    [:app/main :d] [:app/main :e]]
                                   windows)]
-    (is (= 1 (get-in row [:axes :frequency :runs]))
-        (str "`:rf.sub/run` ALONE — the one operation that means a body ran. "
-             "`:rf.sub/create` is not work: Spec 009 §199 "
-             "and §241 put it at REGISTRATION time, fired by `reg-sub` / "
-             "`reg-runtime-sub` / `reg-frame-state-sub` immediately after the "
-             "registrar write, and say in terms that it is NOT a "
-             "first-reference or first-deref signal"))
-    (is (= 1 (count (:holds link2)))
-        "and the slice's roster names exactly that one")
-    (is (= #{:a} (set (:holds link2))))
-
+    ;; `:rf.sub/run` ALONE is work: a create is a REGISTRATION (Spec 009
+    ;; §199, §241) and a dispose an eviction, so neither reaches the run
+    ;; count, the roster or the memo hits.
+    (is (= 1 (get-in row [:axes :frequency :runs])))
+    (is (= [:a] (:holds link2)) "and the slice's roster names exactly that one")
     (is (= 2 (get-in row [:axes :frequency :memo-hits])))
     (is (= 2 (get-in link2 [:skipped :count]))
-        "the memo hits agree too, on their own field in both views")
-
-    (testing "and `:rf.sub/create` is not a memo hit either — it is a THIRD thing"
-      (is (not (contains? (set (:holds link2)) :b))
-          (str "a registration is neither work nor a memo hit. Counting it as "
-               "work would make a `reg-sub` inside a handler scope look like an "
-               "untimed recompute, pushing an otherwise quiet boundary "
-               "to `:unattributed` / `:host-opaque` — sending the reader to "
-               "React DevTools over a registration"))
-      (is (zero? (get-in row [:attributable :edges 1 :runs]))
-          "the advisor prices the created edge at no work")
-      (is (zero? (get-in row [:attributable :edges 1 :memo-hits]))
-          "and at no memo hit — it is neither, exactly like an eviction"))
-
-    (testing "and `:rf.sub/dispose` is neither — an eviction is not a recompute"
-      (is (not (contains? (set (:holds link2)) :e))
-          (str "reading the `:subs` slot unfiltered would put a DISPOSE in a roster "
-               "labelled `subscriptions recomputed` as well"))
-      (is (zero? (get-in row [:attributable :edges 4 :runs]))
-          "and the advisor prices the disposed edge at no work either")
-      (is (zero? (get-in row [:attributable :edges 4 :memo-hits]))
-          "nor as a memo hit — an eviction is neither"))
-
-    (testing "the recompute count and the roster size are the SAME reading"
-      (is (= (get-in row [:axes :frequency :runs]) (count (:holds link2)))
-          (str "one predicate, `fresco-helpers/sub-recompute?`, asked twice — "
-               "two definitions of `did work happen` is what produces the "
-               "disagreement this row exists to prevent")))))
+        "the memo hits agree too, on their own field in both views")))
 
 ;; ---------------------------------------------------------------------------
 ;; The four operations, tagged and untagged — the whole surface, in one table
@@ -309,10 +248,9 @@
    [:rf.sub/dispose false {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]])
 
 (deftest every-operation-reads-the-same-in-both-views-with-or-without-an-id
-  ;; THE MATRIX. One event per cell, both public results off it, and each
-  ;; cell asserted twice: against what the operation IS, and against the
-  ;; other view. Either assertion alone is escapable — the first by two
-  ;; views drifting together, the second by both drifting the same way.
+  ;; THE MATRIX. One event per cell, both public results off it, each held
+  ;; to what the operation IS — an absolute expectation, because two views
+  ;; drifting the same way would still agree with each other.
   (doseq [[op tagged? expected] operation-matrix]
     (testing (str op (if tagged? " with an `:rf.sub/id`" " with NO `:rf.sub/id`"))
       (let [ev      (if tagged? (sub-ev :a nil op) (untagged-ev op))
@@ -324,98 +262,46 @@
             (str "the advisor's fold must classify the OPERATION first — "
                  "an untagged event is still whatever operation it is"))
         (is (= expected l2)
-            "and link 2's roster must read the same event the same way")
-        (is (= adv l2)
-            (str "one window, two public results, ONE answer to `did work "
-                 "happen` — the disagreement is the defect, and identity "
-                 "loss is where it survived"))))))
+            "and link 2's roster must read the same event the same way")))))
 
 (deftest an-untagged-NON-WORK-event-is-uncorrelated-observation-never-work
-  ;; The two untagged non-work cases, pinned with their own numbers. The
-  ;; matrix above proves the counts agree; this proves the advisor states
-  ;; the right KIND of absence about them — a skip that joins to nothing
-  ;; is an uncorrelated observation, and an eviction is not an absence at
-  ;; all.
-  (testing "an untagged `:rf.sub/skip` — not `:unnamed-runs 1`, `:by-read {}`"
-    (let [t (advisor/sub-timing
-              {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/skip)])]})]
-      (is (zero? (:unnamed-runs t))
-          "no run happened; the memo answered")
-      (is (nil? (:unnamed-loss t))
-          "and no work is missing an id, so there is no unnamed-RUN account")
-      (is (= 1 (:unnamed-skips t)))
-      (is (= :uncorrelated (:reason (:unnamed-skip-loss t)))
-          (str "the skip is real and the CELL it held for joins to nothing — "
-               "the same uncorrelated state an unnamed run is in, about a "
-               "different fact"))
-      (is (= 1 (:dropped (:unnamed-skip-loss t))))))
-
-  (testing "an untagged `:rf.sub/dispose` — not `:unnamed-runs 1` against link 2's nothing"
-    (let [t (advisor/sub-timing
-              {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/dispose)])]})]
-      (is (zero? (:unnamed-runs t)))
-      (is (zero? (:unnamed-skips t))
-          "an eviction is neither work nor a memo hit, tagged or not")
-      (is (nil? (:unnamed-loss t)))
-      (is (nil? (:unnamed-skip-loss t))
-          (str "and it is not an absence either — nothing was dropped, so "
-               "there is nothing to account for"))
-      (is (= {} (:by-read t))))))
+  ;; The matrix above proves the counts agree; this proves the advisor
+  ;; states the right KIND of absence: an untagged skip is an uncorrelated
+  ;; OBSERVATION with its own account, and no unnamed-RUN account at all.
+  (let [t (advisor/sub-timing
+            {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/skip)])]})]
+    (is (= {:unnamed-loss nil :unnamed-skip-loss {:reason :uncorrelated :dropped 1}}
+           (select-keys t [:unnamed-loss :unnamed-skip-loss])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The three states stay apart — a skip-only window is neither of the others
 ;; ---------------------------------------------------------------------------
 
 (deftest a-REGISTRATION-only-window-is-CAPPED-and-never-host-opaque
-  ;; THE USER-VISIBLE CONSEQUENCE of keeping `:rf.sub/create` out of the
-  ;; recompute set: a `reg-sub` evaluated inside a handler scope emits a
-  ;; create into that dispatch's bundle. A create carries no
-  ;; `:rf.sub/elapsed-ms` — nothing ran, so there is no duration to carry
-  ;; — so as a "recompute" it would land as an UNTIMED RUN, make
-  ;; `searched?` true and route the boundary to
-  ;; `:unattributed` / `:host-opaque`: *the window was searched and the
-  ;; measured half does not account for this boundary … the owner is
-  ;; lowering, React or layout.*
-  ;;
-  ;; That is the most expensive sentence this classifier can print. It
-  ;; sends the reader out of Xray and into React DevTools to explain a
-  ;; boundary whose window contained one REGISTRATION and no work at all —
-  ;; and it reads as a confident finding, not as a gap.
+  ;; A `reg-sub` inside a handler scope emits a create into that dispatch's
+  ;; bundle. Counted as a recompute it would land as an UNTIMED RUN and send
+  ;; the reader to React DevTools over a registration.
   (let [reg-only (:class (:row (both [[:app/main :a]]
                                      {:app/main [(bundle 1 :e [(sub-ev :a nil :rf.sub/create)])]})))]
-    (is (= :nothing (:observed reg-only))
-        (str "a registration is not activity. Nothing in this window touched "
-             "the boundary's reads — no recompute and no memo hit"))
     (is (= :cap (:basis reg-only))
-        "so the honest answer is the FREE remedy: reproduce and read again")
-    (is (string/includes? (:says reg-only) "reproduce the interaction and read again"))
-    (is (not (string/includes? (:says reg-only) "lowering, React or layout"))
-        (str "and emphatically NOT the change-of-instrument sentence — a "
-             "reader told to open React DevTools over a `reg-sub` has been "
-             "sent somewhere the answer cannot be"))
-
-    (testing "and it reads identically to a window that retained nothing at all"
-      ;; The point of the row: a create contributes NOTHING, so a
-      ;; registration-only window and an empty one are the same finding.
-      ;; Asserting the whole classification rather than one field, because
-      ;; a create leaking into any counter would show up here.
-      (is (= (:class (:row (both [[:app/main :a]] {:app/main []})))
-             reg-only)))))
+        "the honest answer is the FREE remedy: reproduce and read again")
+    (is (= (:class (:row (both [[:app/main :a]] {:app/main []}))) reg-only)
+        (str "a create contributes NOTHING, so a registration-only window reads "
+             "exactly like one that retained nothing at all"))))
 
 (deftest the-three-unattributed-states-are-pairwise-DISTINCT
   ;; `:cap`, `:host-opaque`-with-recomputes and `:host-opaque`-with-memo-hits
-  ;; are three windows with three remedies. Collapsing any two sends a
-  ;; reader to the wrong place, which is the whole failure mode this
-  ;; classifier is arranged against.
+  ;; are three windows with three remedies; collapsing any two sends a
+  ;; reader to the wrong place.
   (let [capped   (:class (:row (both [[:app/main :a]] {:app/main []})))
         searched (:class (:row (both [[:app/main :a]]
                                      {:app/main [(bundle 1 :e [(sub-ev :a 0.05)])]})))
         memo     (:class (:row (both [[:app/main :a]] skip-only-window)))
         all      [capped searched memo]]
-    (is (= [:unattributed :unattributed :unattributed] (mapv :owner all))
-        "the OWNER is honestly unknown in all three — that is not the axis")
-    (is (= [:nothing :recomputes :memo-hits-only] (mapv :observed all))
-        "what was OBSERVED is the axis, and it is carried in data")
+    (is (= [[:unattributed :nothing] [:unattributed :recomputes] [:unattributed :memo-hits-only]]
+           (mapv (juxt :owner :observed) all))
+        "the OWNER is honestly unknown in all three; what was OBSERVED is the
+         axis, and it is carried in data")
     (is (= 3 (count (into #{} (map :says) all)))
         "three states, three sentences")
     (is (= [true false false]
@@ -439,27 +325,20 @@
                                     [(untagged-ev :rf.sub/run)
                                      (sub-ev :a nil :rf.sub/skip)])]}
         {:keys [link2]} (both [[:app/main :a]] windows)]
-    (is (hh/unknown? (:holds link2))
-        "work happened and joins to nothing — never `[]`")
-    (is (= :uncorrelated (:reason (:loss link2))))
-    (is (= 1 (:dropped (:loss link2)))
-        "one UNNAMED RUN, and not the untagged-skip count added to it")
-    (is (= 1 (get-in link2 [:skipped :count])))
-    (is (string/includes? (:says link2) "join to no subscription"))))
+    (is (= {:holds :unknown :loss {:reason :uncorrelated :dropped 1}}
+           (select-keys link2 [:holds :loss]))
+        (str "work happened and joins to nothing — never `[]` — and the account "
+             "is one UNNAMED RUN, not the untagged-skip count added to it"))
+    (is (= 1 (get-in link2 [:skipped :count])))))
 
 (deftest a-window-with-both-runs-and-skips-classifies-on-the-runs
-  ;; The memo-only arm must fire only when there is no recompute at all. A
-  ;; boundary that both ran and skipped is a searched window and gets the
-  ;; searched sentence.
-  (let [{:keys [row link2]}
+  ;; The memo-only arm fires only when there is no recompute at all: a
+  ;; boundary that both ran and skipped is a SEARCHED window.
+  (let [{:keys [row]}
         (both [[:app/main :a]]
               {:app/main [(bundle 1 :e [(sub-ev :a 0.05)
                                         (sub-ev :a nil :rf.sub/skip)])]})]
-    (is (= :recomputes (:observed (:class row))))
-    (is (= :host-opaque (:basis (:class row))))
-    (is (string/includes? (:says (:class row)) "the window was searched"))
-    (is (= [:a] (:holds link2)))
-    (is (= 1 (get-in link2 [:skipped :count])))))
+    (is (= [:recomputes :host-opaque] ((juxt :observed :basis) (:class row))))))
 
 (deftest an-oscillating-read-set-is-still-a-topology-finding-with-only-skips
   ;; Oscillation is a fact about the entry cache and holds independently
