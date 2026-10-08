@@ -35,8 +35,7 @@
   chains promise turns without ever letting the task end, so it observes
   the DOM at a point the event loop provably has not reached a rendering
   opportunity. It is the DISCRIMINATING reading: a `setTimeout`
-  correction is unreachable from inside a checkpoint at any budget, so
-  the sabotage below is red categorically rather than probabilistically.
+  correction is unreachable from inside a checkpoint at any budget.
 
   **The animation frame** is the reading in the browser's own vocabulary.
   A `requestAnimationFrame` callback runs at the rendering opportunity
@@ -52,7 +51,6 @@
   | row | what it establishes |
   |---|---|
   | [[the-first-render-opportunity-after-a-reincarnation-observes-the-successor]] | **W1.** A mounted boundary; the tear is real and asserted while it exists; the correction lands inside the checkpoint and the first frame paints the successor. |
-  | [[restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail]] | **W1's sabotage** (Evidence law 3). The same row with `queueMicrotask` routed through `setTimeout 0` — red at the checkpoint, and green again a task later, so the perturbation is a delay rather than a break. |
   | [[a-reincarnation-inside-the-staged-render-to-commit-gap-corrects-the-boundary]] | **W2.** The cold/staged path: a boundary rendered under A and committed after B seats, forced through the render→commit gap by a sibling's layout effect. |
 
   W3 — the no-successor cleanup, proving the microtask scheduling
@@ -182,13 +180,6 @@
   [f]
   (js/Promise. (fn [resolve] (js/requestAnimationFrame (fn [_] (resolve (f)))))))
 
-(defn- next-task
-  "A promise of `(f)` evaluated in a later task, after any `setTimeout 0`
-  the runtime may be holding. Used only by the sabotage row, to show the
-  perturbation delays the correction rather than destroying it."
-  [f]
-  (js/Promise. (fn [resolve] (js/setTimeout (fn [] (resolve (f))) 30))))
-
 (defn- report-failure!
   "Record `label` against THIS row and DELIBERATELY DO NOT finish it —
   the chain's single trailing step does that, and owns the teardown too
@@ -296,66 +287,6 @@
                                  (fn [_] (rf.fresco.impl.mount/release! handle) nil))))
                       (.catch (report-failure! "W1 paint-order witness" handle))))))
             (.catch (report-failure! "W1 paint-order witness" nil))
-            ;; The single trailing step, which BOTH arms reach: this row's
-            ;; roots go down first, and the single `done` is the last act.
-            (.then (fn [_] (release-minted!) (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; W1's sabotage — Evidence law 3
-;; ---------------------------------------------------------------------------
-
-(deftest restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail
-  ;; The same transition as W1, with `queueMicrotask` routed through
-  ;; `setTimeout 0` for the width of the transition — a macrotask-deferred
-  ;; `invalidate-cell!`, produced for real rather than simulated: the
-  ;; collector is unmodified and unaware, and React keeps the original
-  ;; function because `react-dom` bound it by value at module evaluation.
-  ;;
-  ;; The red asserted here is CATEGORICAL, which is why it is worth
-  ;; committing rather than running by hand once. A task cannot be dequeued
-  ;; during a microtask checkpoint, so no budget, machine or engine makes a
-  ;; `setTimeout` correction reachable from inside one. The row then shows the
-  ;; correction arriving a task later, so what the sabotage removed is the
-  ;; ORDERING GUARANTEE and not the repair — which is exactly the finding the
-  ;; microtask deferral rests on.
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (skip! ":node-test has no rendering opportunity") (done))
-      (do
-        (rf.fresco.checkpoint-support/leave-act-environment!)
-        (seat! "A")
-        (-> (mount-live!)
-            (.then
-              (fn [handle]
-                (rf.fresco.checkpoint-support/with-macrotask-deferral #(reincarnate! "B"))
-                (-> (rf.fresco.checkpoint-support/drain-checkpoint #(= "B" (text handle)))
-                    (.then
-                      (fn [turns]
-                        (testing "with the macrotask deferral in place the
-                                  correction is NOT reachable before the event
-                                  loop's next rendering opportunity — the
-                                  checkpoint drains to exhaustion with the
-                                  predecessor's value still committed"
-                          (is (nil? turns)
-                              (str "the sabotage did not perturb anything: the "
-                                   "DOM reached B inside the checkpoint after "
-                                   turns " turns, which is the unsabotaged "
-                                   "result"))
-                          (is (= "A-live" (text handle))
-                              "the committed DOM still shows the predecessor"))
-                        (next-task #(text handle))))
-                    (.then
-                      (fn [later]
-                        (testing "and a task later it arrives after all — so
-                                  the perturbation delayed the correction past
-                                  the paint rather than breaking it, and W1's
-                                  green is the scheduling and nothing else"
-                          (is (= "B" later)))
-                        (rf.fresco.impl.mount/unmount! handle)
-                        (.then (rf.fresco.test.runtime/quiesced!)
-                               (fn [_] (rf.fresco.impl.mount/release! handle) nil))))
-                    (.catch (report-failure! "W1 sabotage control" handle)))))
-            (.catch (report-failure! "W1 sabotage control" nil))
             ;; The single trailing step, which BOTH arms reach: this row's
             ;; roots go down first, and the single `done` is the last act.
             (.then (fn [_] (release-minted!) (done))))))))

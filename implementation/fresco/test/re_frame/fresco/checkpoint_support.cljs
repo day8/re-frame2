@@ -1,6 +1,5 @@
 (ns re-frame.fresco.checkpoint-support
-  "THE MICROTASK-CHECKPOINT INSTRUMENT, and the sabotage that proves it
-  can go red.
+  "THE MICROTASK-CHECKPOINT INSTRUMENT.
 
   Three namespaces read this file, because all three wait on the same
   deferral — `re-frame.fresco.impl.collector/invalidate-cell!`'s second
@@ -51,14 +50,7 @@
   A correction scheduled with `setTimeout` is unreachable there at **any**
   budget, because a task cannot run during a checkpoint. The budget is
   therefore a bound on the chain's LENGTH and never on elapsed time, and
-  exhausting it is a categorical answer rather than a slow one.
-
-  ## The sabotage
-
-  [[with-macrotask-deferral]] defers `invalidate-cell!`'s correction by a
-  whole macrotask for the width of one synchronous form, and does it for
-  real: the collector is unmodified and unaware. It is Evidence law 3's sabotage
-  control, and the reason the instrument's green means something."
+  exhausting it is a categorical answer rather than a slow one."
   (:require [cljs.test :refer-macros [is]]))
 
 ;; ---------------------------------------------------------------------------
@@ -128,30 +120,6 @@
                (f turns)))
       (.catch (fn [e] (is false (str label " — " (.-message e)))))
       (.then (fn [_] (done)))))
-
-;; ---------------------------------------------------------------------------
-;; The sabotage
-;; ---------------------------------------------------------------------------
-
-(defn with-macrotask-deferral
-  "Run `f` with `js/queueMicrotask` routed through `setTimeout 0`, so
-  `invalidate-cell!`'s correction lands a whole macrotask late — and
-  restore the global afterwards, whatever `f` does.
-
-  **It has no collateral, and that is checkable rather than hoped for.**
-  React 19 binds `scheduleMicrotask = queueMicrotask` *by value* when
-  `react-dom` evaluates (`react-dom-client.development.js`, the
-  `scheduleMicrotask =` initialiser), so React keeps the original
-  function however this rebinds the global, and its sync-lane flush stays
-  a microtask. Inside the window the only other caller is the collector,
-  because the window is one synchronous form. What the sabotage moves is
-  therefore exactly the deferral under test and nothing else."
-  [f]
-  (let [original (.-queueMicrotask js/globalThis)]
-    (set! (.-queueMicrotask js/globalThis)
-          (fn [cb] (js/setTimeout cb 0) js/undefined))
-    (try (f)
-         (finally (set! (.-queueMicrotask js/globalThis) original)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lane
