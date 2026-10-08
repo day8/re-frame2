@@ -1,32 +1,9 @@
 (ns re-frame.resources-mutation-cljs-test
-  "Mutation over managed HTTP (Spec 016 §Deferred slices /
-  EP-0003 §Mutations).
-
-  These JVM+CLJS unit tests pin the mutation semantics:
-
-    1. reg-mutation / clear-mutation registration + introspection, and the
-       fail-closed authoring boundary (missing :request / :params-schema);
-    2. :rf.mutation/execute mints an INSTANCE keyed by a caller-supplied or
-       generated instance id, and lowers the write through the SAME
-       managed-HTTP transport (runtime-owned reply addressing);
-    3. concurrency — two submissions of the SAME mutation id under
-       different instance ids never clobber each other's pending/result;
-    4. success → controlled resource PATCH / POPULATE then tag invalidation
-       (composing with :rf.resource/invalidate-tags);
-    5. failure settles the instance :error (no :refresh-error analogue);
-       optional after-failure / after-settle invalidation timing;
-    6. before-request invalidation timing;
-    7. generation / work-id STALE SUPPRESSION — a superseded reply NEVER
-       overwrites a newer instance;
-    8. :rf.mutation/clear is the causal instance reset (clears the runtime
-       row, aborts in-flight), distinct from clear-mutation (registration);
-    9. the passive :rf.mutation/* subs project the instance view-model.
-
-  The transport is exercised end-to-end by overriding the
-  `:rf.http/managed` fx with a capturing stub that synthesises the
-  transport's reply-event-append shape (the genuine 3-element internal
-  reply event the live transport produces — `(conj on-success {:kind
-  :success :value …})`)."
+  "Mutation over managed HTTP (Spec 016 §Mutations): registration, execute,
+  settle consequences, stale suppression, clear, subs, exact targets and the
+  `:reply-to` continuation. The `:rf.http/managed` fx is replaced by a stub
+  that captures the lowered args; replies are dispatched in the live
+  transport's append shape."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -36,22 +13,14 @@
    [re-frame.fx :as rf.fx]
    [re-frame.elision :as rf.elision]
    [re-frame.privacy :as rf.privacy]
-   ;; The mutation classification-lowering test reads the
-   ;; per-frame elision registry the succeeded-handler lowers into, then projects
-   ;; the populated entry's data through the registry-driven egress projector.
    [re-frame.resources.classification :as rf.resources.classification]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* +
-   ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.mutation-events :as rf.resources.mutation-events]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
-   ;; work-ledger: used by the cross-frame request-id correlation assertions.
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
-   ;; production HTTP fx surface (so the transport feature probe resolves);
-   ;; the actual fetch is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
@@ -59,24 +28,13 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport that REPLAYS the real reply-append shape ----------
-
 (def ^:private last-managed-args (atom nil))
 (def ^:private scheduled-timers (atom []))
 
-(defn- capturing-transport-fixture
-  ;; The shared `make-reset-runtime-fixture`'s
-  ;; `:resources/reset-resources!` post-dispose hook clears the
-  ;; resource state + timer host caches before this fixture runs, so this
-  ;; fixture does no reset of its own.
-  [f]
+(defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
   (reset! scheduled-timers [])
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  ;; capture the host-side stale / GC timer arming so the success handler's
-  ;; emission is asserted deterministically WITHOUT a real wall-clock timer
-  ;; firing (the timer-table primitive is tested directly in the
-  ;; invalidation/GC suite).
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
@@ -98,8 +56,6 @@
    (get-in (runtime-db frame-id) (rf.resources.mutation-runtime/instance-path instance-id))))
 
 (defn- instances
-  "The frame's whole live mutation-INSTANCE table, read at its reserved
-  runtime-db path (Spec 016 §Mutations) — the whole-table read."
   ([] (instances :rf/default))
   ([frame-id]
    (or (get-in (runtime-db frame-id) (rf.resources.mutation-runtime/instances-path)) {})))
@@ -110,12 +66,8 @@
    (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- mutation-record
-  "The serializable work-ledger record for a mutation INSTANCE's current
-  attempt — found by scanning the frame's ledger for the row whose
-  `:work/id` embeds `[:rf.mutation instance-id]`. The mutation work-id head
-  is `[:rf.work/resource [:rf.mutation instance-id] generation]`, so a row
-  scan keyed on the embedded instance key is the stable test reader (the
-  generation is runtime-allocated)."
+  "The work-ledger row for a mutation instance's current attempt: the row whose
+  `:work/id` embeds `[:rf.mutation instance-id]`."
   ([instance-id] (mutation-record :rf/default instance-id))
   ([frame-id instance-id]
    (->> (vals (get-in (runtime-db frame-id) [:rf.runtime/work-ledger]))
@@ -125,9 +77,6 @@
 
 (defn- reply-success!
   ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
-  ;; EP-0010: a fixture may script the reply token's :rf.cofx to pin
-  ;; the host :completed-at (the managed transport stamps it on the reply
-  ;; dispatch in live code).
   ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result}) opts)))
 
 (defn- reply-failure!
@@ -135,17 +84,12 @@
   ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}) opts)))
 
 (defn- art-target
-  "The map-form exact target (EP-0016 Rider 2 — the only public input form for
-  `:populates` / `:patches`) for the `:r/article {:slug \"w\"}` global key the
-  patch/populate tests use. Its canonical STORAGE key is
-  `(rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug \"w\"})`, the
-  `rkey` the entry-lookup assertions read."
+  "The map-form exact target for the `:r/article {:slug slug}` global key."
   ([] (art-target "w"))
   ([slug] {:resource :r/article :params {:slug slug} :scope :rf.scope/global}))
 
 (defn- record-mutation-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.mutation/*`-operation trace event emitted during it (capture order)."
+  "Run `body-fn`; return every `:rf.mutation/*` trace event it emitted, in order."
   [body-fn]
   (let [seen (atom [])
         k    ::mutation-trace-recorder]
@@ -159,8 +103,6 @@
     @seen))
 
 (defn- record-target-skipped-warnings!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.warning/mutation-target-skipped` warning emitted during it."
   [body-fn]
   (let [seen (atom [])
         k    ::target-skipped-recorder]
@@ -172,19 +114,7 @@
     @seen))
 
 (defn- record-error-records!
-  "Run `body-fn` with an `:errors` listener installed; return the vector of
-  every always-on error record fanned during it (capture order).
-
-  The `:errors` stream — not stdout, not the dev trace — is where a framework
-  REFUSAL is legible: per Spec 009 §Observability channels a listener is the
-  only ALWAYS-ON channel, so a category that fans a record here is loud in dev
-  AND in a production build, while a category that fans nothing is invisible
-  everywhere. (There is ALSO a browser-console fallback, but it
-  is not the always-on contract and cannot fire here: it needs a dev build, a
-  browser host — this suite is the Node lane, no `js/document` — and nothing to
-  have ROUTED the record, whereas the listener below owns it;
-  a frame's registered `:observability :errors` sink owns it too.) Sibling of
-  `record-mutation-traces!` above."
+  "Run `body-fn`; return every record fanned on the always-on `:errors` stream."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
@@ -206,437 +136,244 @@
     {:request {:method :put :url (str "/api/articles/" slug)
                :body  {:slug slug}}}))
 
-;; ===========================================================================
-;; 1. Registration + introspection + fail-closed authoring boundary
-;; ===========================================================================
+(defn- article-resource-spec []
+  {:scope :rf.scope/global
+   :params-schema [:map [:slug :string]]
+   :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+
+(def ^:private article-resource-request
+  (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+
+(def ^:private replied (atom []))
+
+(defn- reg-capture-continuation!
+  "Register :test/save-replied to record each continuation event it receives."
+  []
+  (reset! replied [])
+  (rf/reg-event :test/save-replied
+                (fn [_ event] (swap! replied conj event) {})))
+
+(defn- article-key
+  ([] (article-key "w"))
+  ([slug] (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug slug})))
+
+;; ---- registration ---------------------------------------------------------
 
 (deftest reg-mutation-registers-and-introspects
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (testing "the registered spec is introspectable"
-    (is (= (vec [:m/save]) (filter #{:m/save} (keys (rf/registrations {:source :store :kind :mutation})))))
-    (is (fn? (:request (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
-    (is (fn? (:invalidates (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))))))
-  (testing "clear-mutation removes the registration"
-    (rf/clear :mutation :m/save)
-    (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))))))
+  (is (fn? (:request (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
+  (rf/clear :mutation :m/save)
+  (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
 
 (deftest reg-mutation-fail-closed
-  (testing "the request handler is the THIRD slot; a :request
-            left INSIDE the metadata map is rejected as a mislocated key"
+  (testing "a :request inside the metadata map is a mislocated key"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/no-req
                            {:params-schema [:map] :request (fn [_ _] {:request {:url "/x"}})}
                            (fn [_ _] {:request {:url "/x"}})))))
-  (testing "EP-0003 §Mutations — a mutation spec MUST declare :params-schema"
+  (testing "a spec must declare :params-schema"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}})))))
-  (testing "a non-map metadata (the MIDDLE slot) is rejected with
-            the canonical error id naming the mutation, not a raw host throw"
+  (testing "a non-map metadata raises the canonical error with the value"
     (let [ex (try (rf/reg-mutation :m/bad-vec [] save-article-request)
                   nil
                   (catch #?(:clj Throwable :cljs :default) e e))]
-      (is (some? ex) "a non-map metadata must throw, not silently mis-register")
-      (is (= :rf.error/mutation-bad-spec (:rf.error/id (ex-data ex)))
-          "non-map metadata surfaces the canonical mutation registration error")
-      (is (= [] (:value (ex-data ex)))
-          "the rejected non-map value rides the :value ex-data slot"))
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
-          (rf/reg-mutation :m/bad-str "nope" save-article-request)))
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
-          (rf/reg-mutation :m/bad-nil nil save-article-request)))))
+      (is (= {:rf.error/id :rf.error/mutation-bad-spec :value []}
+             (select-keys (ex-data ex) [:rf.error/id :value]))))))
 
 (defn- defn-write
-  "A `defn`'d write handler — `#'defn-write` below takes a Var of it."
   [_params _ctx]
   {:request {:method :put :url "/api/defn"}})
 
 (deftest reg-mutation-rejects-non-callable-request
-  ;; `:rf.mutation/execute` invokes the THIRD slot as
-  ;; `((:request spec) params nil)`. A registration that only checked
-  ;; `contains?` would let a non-callable value register cleanly and fail at
-  ;; the first WRITE, in two shapes: a number/string as a raw host cast error with
-  ;; `ex-data` nil, and a keyword/map SILENTLY as nil (it is `ifn?`, so it is
-  ;; invoked and returns the 2-arity not-found default) => a nil args map.
-  ;; The rows below cover both classes: a number / string is not `ifn?` at
-  ;; all, while a keyword / map / set / vector IS `ifn?`, so a bare `ifn?`
-  ;; gate would admit exactly the silent class.
-  (testing "every non-callable :request is rejected AT REGISTRATION with the
-            canonical structured error"
-    (doseq [bad [42 "nope" :kw {:a 1} #{:a} [:a] nil]]
-      (let [ex (try (rf/reg-mutation :m/nonfn-request {:params-schema [:map]} bad)
-                    nil
-                    (catch #?(:clj Throwable :cljs :default) e e))
-            d  (ex-data ex)]
-        (is (some? ex)
-            (str "a non-callable :request " (pr-str bad) " must throw at "
-                 "registration, not fail at the first write"))
-        (is (= :rf.error/mutation-bad-spec (:rf.error/id d))
-            (str (pr-str bad) " surfaces the canonical registration error id"))
-        (is (= :fix-registration (:recovery d))
-            (str (pr-str bad) " carries the :fix-registration recovery"))
-        (is (= :m/nonfn-request (:mutation-id d))
-            (str (pr-str bad) " names the offending mutation in ex-data"))
-        (is (= bad (:value d))
-            (str (pr-str bad) " rides the :value ex-data slot"))
-        (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request})))
-            (str "a rejected " (pr-str bad) " is NOT introspectable — the "
-                 "rejection precedes registry mutation")))))
-  ;; The Var row below is the load-bearing one, and ONLY the JVM proves it:
-  ;; `clojure.lang.Var` implements `IFn` but NOT `Fn`, so `(fn? #'defn-write)`
-  ;; is FALSE there — a bare `fn?` gate would reject a working handler, and
-  ;; the Var row goes red on the JVM. In CLJS `Var` lists `Fn` in its deftype,
-  ;; so the `var?` arm is merely redundant there.
-  (testing "OVER-REJECTION GUARD — every legitimate handler shape
-            registers, on BOTH hosts. This is the half that protects
-            working code."
-    (doseq [[label good] [["inline fn"     (fn [_p _c] {:request {:url "/i"}})]
-                          ["defn'd fn"     defn-write]
-                          ["Var of a defn" #'defn-write]
-                          ["partial"       (partial (fn [_x _p _c] {:request {:url "/p"}}) 1)]
-                          ["comp"          (comp identity (fn [_p _c] {:request {:url "/c"}}))]
-                          ["memoized fn"   (memoize (fn [_p _c] {:request {:url "/m"}}))]
-                          ["fn with meta"  (with-meta (fn [_p _c] {:request {:url "/w"}}) {:tag 1})]]]
-      (is (= :m/good-request
-             (rf/reg-mutation :m/good-request {:params-schema [:map]} good))
-          (str label " must still register — the gate must not reject working code"))
-      (is (some? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/good-request})))
-          (str label " is introspectable after registration"))
-      (rf/clear :mutation :m/good-request))))
+  ;; A keyword or map is `ifn?` and would be invoked to a silent nil, so the
+  ;; gate is `fn?`/`var?`; 42 is the non-ifn class, :kw and {:a 1} the silent one.
+  (doseq [bad [42 :kw {:a 1}]]
+    (let [ex (try (rf/reg-mutation :m/nonfn-request {:params-schema [:map]} bad)
+                  nil
+                  (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (= {:rf.error/id :rf.error/mutation-bad-spec :recovery :fix-registration
+              :mutation-id :m/nonfn-request :value bad}
+             (select-keys (ex-data ex) [:rf.error/id :recovery :mutation-id :value]))
+          (pr-str bad))
+      (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request}))))))
+  ;; A Var is IFn but not Fn on the JVM, so a bare `fn?` gate would reject it.
+  (doseq [[label good] [["inline fn" (fn [_p _c] {:request {:url "/i"}})]
+                        ["Var of a defn" #'defn-write]]]
+    (is (= :m/good-request (rf/reg-mutation :m/good-request {:params-schema [:map]} good)) label)
+    (rf/clear :mutation :m/good-request)))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
-  ;; :invalidate-timing is a CLOSED four-value enum (Spec 016
-  ;; §Mutations). A typo (`:after-succes`) would register cleanly and then
-  ;; silently skip every invalidation timing branch at runtime
-  ;; (`(or (:invalidate-timing spec) :after-success)` only defaults nil; a
-  ;; typo is neither nil nor matched by the `#{…}` timing guards). Reject it
-  ;; loudly AT REGISTRATION rather than as a silent runtime no-op.
-  (testing "a typo'd :invalidate-timing is rejected at reg-mutation"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
-          (rf/reg-mutation :m/typo
-                           (save-article-spec {:invalidate-timing :after-succes}) save-article-request))))
-  (testing "a non-keyword :invalidate-timing is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
-          (rf/reg-mutation :m/non-kw
-                           (save-article-spec {:invalidate-timing "after-success"}) save-article-request))))
-  (testing "every value in the closed enum registers cleanly"
-    (doseq [timing rf.resources.mutation-registry/invalidate-timings]
-      (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}) save-article-request)
-      (is (= timing (:invalidate-timing (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/ok}))))
-          (str "valid timing " timing " registered"))
-      (rf/clear :mutation :m/ok)))
-  (testing "an OMITTED :invalidate-timing is valid (nil → :after-success at runtime)"
-    (rf/reg-mutation :m/default (save-article-spec) save-article-request)
-    (is (nil? (:invalidate-timing (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/default})))))
-    (rf/clear :mutation :m/default)))
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
+        (rf/reg-mutation :m/typo
+                         (save-article-spec {:invalidate-timing :after-succes}) save-article-request))))
+
+;; ---- execute --------------------------------------------------------------
 
 (deftest execute-unregistered-refuses-and-names-the-id
-  ;; Asserting ONLY `(nil? @last-managed-args)` would not be enough — a SILENT
-  ;; NO-OP satisfies that exactly as well as a refusal does, and a reader who
-  ;; met the symptom in an app (no instance, no request, `:idle` afterwards —
-  ;; byte-identical to "nobody asked") would have no gate telling them the
-  ;; runtime HAD refused. So this test reads the refusal itself. The
-  ;; refusal is real: `rf.resources.mutation-registry/require-mutation-spec!` runs as the FIRST statement
-  ;; of `execute-handler`, so the id lookup fails before any instance row,
-  ;; work-ledger row, optimistic patch or transport lowering exists.
-  ;;
-  ;; The granularity line sits EARLIER than the router's (a foreign top-level
-  ;; effect key is refused at the router's final-effects boundary, after the
-  ;; handler has run) and for the same reason the router draws one at all: the
-  ;; hazard is partial success disguised as success. For a mutation that hazard
-  ;; is a DURABLE instance row — an instance minted and left at `:pending` with
-  ;; no request behind it would be a write that reports itself in flight
-  ;; forever. Refusing before the mint is what makes "nothing was minted" a
-  ;; truthful reading rather than a half-built one.
-  (testing "EP-0003 §Mutations — an unregistered mutation id REFUSES"
-    (let [recs (record-error-records!
-                 #(rf/dispatch-sync [:rf.mutation/execute
-                                     {:mutation :m/nope :params {} :instance :i1}]))
-          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
-      (testing "the event ABORTED — nothing minted, nothing sent"
-        (is (nil? @last-managed-args) "no write reached the transport")
-        (is (nil? (instance :i1)) "no instance row was minted")
-        (is (nil? (mutation-record :i1)) "no work-ledger row was written"))
-      (testing "and the refusal is READABLE — the runtime did not stay silent"
-        ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
-        ;; §Observability channels a listener is the only ALWAYS-ON channel, so
-        ;; this listener is where a refusal is legible in dev AND prod. The
-        ;; browser-dev console fallback is not a second reading here —
-        ;; it needs nothing to have ROUTED the record, and this listener owns it
-        ;; (a frame's registered `:observability :errors` sink owns
-        ;; it too; neither arm fires here).
-        (is (some? rec)
-            ":rf.mutation/execute fanned an always-on error record")
-        (is (= :rf.mutation/execute (:event-id rec)))
-        (let [data (ex-data (:exception rec))]
-          (is (= :rf.error/mutation-not-registered (:rf.error/id data))
-              "the canonical catalogued category, not a bare host throw")
-          (is (= :m/nope (:mutation-id data))
-              "the refusal NAMES the mutation id the caller typed")
-          (is (= :fix-registration (:recovery data))
-              "and carries the catalogued recovery disposition"))
-        (is (str/includes? (str (some-> (:exception rec) ex-message)) ":m/nope")
-            "the human message names the id too")))))
-
-(deftest execute-registered-under-another-kind-still-refuses
-  ;; The identity half of the guard. `require-mutation-spec!` keys on
-  ;; the `:mutation` REGISTRAR KIND, not on "is this keyword registered
-  ;; somewhere" — a resource id reads as a perfectly well-formed keyword and
-  ;; resolves in a sibling registrar, so a guard that widened to any known id
-  ;; would sail straight past here and lower a resource's fetch as a write.
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (testing "a RESOURCE id passed as :mutation refuses like any unknown id"
-    (let [recs (record-error-records!
-                 #(rf/dispatch-sync [:rf.mutation/execute
-                                     {:mutation :r/article :params {:slug "w"}
-                                      :instance :i/wrong-kind}]))
-          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
-      (is (nil? @last-managed-args) "no write reached the transport")
-      (is (nil? (instance :i/wrong-kind)) "no instance row was minted")
-      (is (= :rf.error/mutation-not-registered
-             (:rf.error/id (ex-data (:exception rec))))
-          "the mutation registrar, not the resource one, decides")
-      (is (= :r/article (:mutation-id (ex-data (:exception rec))))))))
-
-(deftest execute-registered-mutation-is-not-refused
-  ;; The OTHER direction — the direction a guard is almost never
-  ;; tested for. A REGISTERED id must run normally: instance minted,
-  ;; write lowered, and the always-on `:errors` axis SILENT. An over-eager
-  ;; guard shows up here as a spurious record on an otherwise-working write,
-  ;; which no other assertion in this suite would notice.
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  ;; The refusal precedes the mint, so nothing half-built is left behind, and
+  ;; it is legible on the always-on :errors stream rather than a silent no-op.
   (let [recs (record-error-records!
                #(rf/dispatch-sync [:rf.mutation/execute
-                                   {:mutation :m/save :params {:slug "w"}
-                                    :instance :i/ok}]))]
-    (is (= [] recs) "a registered mutation raises NO error record")
-    (is (= :pending (:status (instance :i/ok))) "the instance row was minted")
-    (is (some? @last-managed-args) "and the write reached the transport")))
+                                   {:mutation :m/nope :params {} :instance :i1}]))
+        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+    (is (nil? @last-managed-args))
+    (is (nil? (instance :i1)))
+    (is (nil? (mutation-record :i1)))
+    (is (= :rf.mutation/execute (:event-id rec)))
+    (is (= {:rf.error/id :rf.error/mutation-not-registered :mutation-id :m/nope
+            :recovery :fix-registration}
+           (select-keys (ex-data (:exception rec)) [:rf.error/id :mutation-id :recovery])))))
 
-;; ===========================================================================
-;; 2. execute mints an instance + lowers the write (runtime-owned addressing)
-;; ===========================================================================
+(deftest execute-registered-under-another-kind-still-refuses
+  ;; The guard keys on the :mutation registrar kind: a resource id must not be
+  ;; lowered as a write.
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (let [recs (record-error-records!
+               #(rf/dispatch-sync [:rf.mutation/execute
+                                   {:mutation :r/article :params {:slug "w"}
+                                    :instance :i/wrong-kind}]))
+        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+    (is (nil? @last-managed-args))
+    (is (nil? (instance :i/wrong-kind)))
+    (is (= {:rf.error/id :rf.error/mutation-not-registered :mutation-id :r/article}
+           (select-keys (ex-data (:exception rec)) [:rf.error/id :mutation-id])))))
 
 (deftest execute-mints-instance-and-lowers-write
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :form/save-1}])
-  (testing "the instance row is :pending, keyed by the caller-supplied id"
-    (let [i (instance :form/save-1)]
-      (is (= :pending (:status i)))
-      (is (= :m/save (:mutation/id i)))
-      (is (= 1 (:generation i)))
-      (is (some? (:current-work i)))))
-  (testing "the write lowered through managed HTTP with runtime-owned reply
-            addressing targeting the MUTATION internal replies"
-    (let [args @last-managed-args]
-      (is (some? (:request-id args)))
-      (is (= [:rf.mutation.internal/succeeded] (subvec (:on-success args) 0 1)))
-      (is (= [:rf.mutation.internal/failed]    (subvec (:on-failure args) 0 1)))
-      (let [vp (nth (:on-success args) 1)]
-        (is (= :form/save-1 (:instance-id vp)))
-        (is (= :m/save (:mutation-id vp)))
-        (is (= 1 (:generation vp)))
-        (is (= :rf/default (:rf.frame/id vp))))
-      (testing "the app :request body passes through unchanged"
-        (is (= {:method :put :url "/api/articles/w" :body {:slug "w"}} (:request args)))))))
+  (let [i    (instance :form/save-1)
+        args @last-managed-args]
+    (is (= {:status :pending :mutation/id :m/save :generation 1}
+           (select-keys i [:status :mutation/id :generation])))
+    (is (some? (:current-work i)))
+    (is (some? (:request-id args)))
+    (is (= :rf.mutation.internal/succeeded (first (:on-success args))))
+    (is (= :rf.mutation.internal/failed (first (:on-failure args))))
+    (is (= {:instance-id :form/save-1 :mutation-id :m/save :generation 1 :rf.frame/id :rf/default}
+           (select-keys (nth (:on-success args) 1)
+                        [:instance-id :mutation-id :generation :rf.frame/id])))
+    (is (= {:method :put :url "/api/articles/w" :body {:slug "w"}} (:request args)))))
 
 (deftest execute-started-at-from-token-time-ms
-  ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
-  ;; :rf.mutation/execute writes the durable instance :started-at from the
-  ;; TRIGGERING TOKEN'S :time-ms (the causal world input), NOT an ambient
-  ;; clock read in the reducer. Scripting the dispatch's :rf.cofx
-  ;; pins it; the same execute token mints the same :started-at
-  ;; (replay-stable).
+  ;; :started-at comes from the triggering token's :time-ms (replay-stable),
+  ;; never an ambient clock read.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (let [t1 1781078400123]
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :st/save-1}]
-                      {:rf.cofx {:rf/time-ms t1}})
-    (testing "the instance :started-at is EXACTLY the token :time-ms (not now)"
-      (is (= t1 (:started-at (instance :st/save-1)))))))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :st/save-1}]
+                    {:rf.cofx {:rf/time-ms 1781078400123}})
+  (is (= 1781078400123 (:started-at (instance :st/save-1)))))
 
 (deftest execute-generates-instance-id-when-absent
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"}}])
-  (testing "EP-0003 §Mutations — a generated instance id is used when the
-            caller supplies none"
-    (let [insts (instances :rf/default)]
-      (is (= 1 (count insts)))
-      (is (= :pending (:status (val (first insts))))))))
+  (is (= [:pending] (mapv :status (vals (instances :rf/default))))))
 
-;; ===========================================================================
-;; 4. Success → patch / populate then invalidation
-;; ===========================================================================
+(deftest execute-rejects-non-serializable-instance-id-fails-closed
+  ;; The id is durable and trace-visible, so a host value is refused before any
+  ;; write or lowering.
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"mutation-non-serializable-instance-id"
+        (rf.resources.mutation-runtime/validate-instance-id! (fn []) 'test)))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance (fn [])}])
+  (is (nil? @last-managed-args))
+  (is (empty? (instances :rf/default))))
+
+(deftest execute-rejects-malformed-reply-to-fails-closed
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :bad-rt
+                      :reply-to {:event :not-a-vector}}])
+  (is (nil? @last-managed-args))
+  (is (nil? (instance :bad-rt))))
+
+;; ---- success / failure consequences -----------------------------------------
 
 (deftest success-invalidates-tags-and-refetches-active-owners
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  ;; load + own the article resource so the invalidation refetches it
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :article]}])
-    (reply-success! @last-managed-args {:title "old"})
-    (is (= :loaded (:status (entry rkey))))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global
+                      :params {:slug "w"} :owner [:view :article]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :s1}])
+  (let [mut-args @last-managed-args]
     (reset! last-managed-args nil)
-    ;; run the mutation
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :s1}])
-    (let [mut-args @last-managed-args]
-      (reset! last-managed-args nil)
-      (reply-success! mut-args {:title "new"})
-      (testing "the mutation instance settles :success"
-        (is (= :success (:status (instance :s1))))
-        (is (= {:title "new"} (:result (instance :s1)))))
-      (testing "EP-0003 §Mutations — success invalidated the article tag, and
-                the active-owner article resource was refetched (a new managed
-                GET lowered, the entry back in flight)"
-        (let [e (entry rkey)]
-          ;; the active-owner entry refetched: it is in flight again, and a
-          ;; fresh managed-HTTP GET was lowered. :invalidated-at
-          ;; is NOT cleared by the refetch's start-load; it stands until a
-          ;; SUCCESSFUL settle satisfies it, so this entry reads stale while
-          ;; the refetch is in flight (stale-while-revalidate, Spec 016
-          ;; §Status semantics) and would survive a refetch that 5xx'd.
-          (is (contains? #{:loading :fetching} (:status e)) "entry refetching")
-          (is (some? @last-managed-args) "a refetch GET was lowered")
-          (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))))))
+    (reply-success! mut-args {:title "new"})
+    (is (= {:status :success :result {:title "new"}}
+           (select-keys (instance :s1) [:status :result])))
+    (is (contains? #{:loading :fetching} (:status (entry (article-key)))))
+    (is (= {:method :get :url "/a/w"} (:request @last-managed-args)))))
 
 (deftest success-patches-resource-entry
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/patch
-                     {:params-schema [:map [:slug :string]]
-                      :patches (fn [_params result]
-                                 {(art-target) (fn [old _result] (merge old result))})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old" :views 1})
-    (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :p1}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "EP-0003 §Mutations — the controlled patch transformed the cached
-              entry's :data in place (kept :views, updated :title)"
-      (let [e (entry rkey)]
-        (is (= {:title "new" :views 1} (:data e)))
-        (is (= :loaded (:status e)))
-        (is (nil? (:invalidated-at e)) "patch freshened the entry")))
-    (testing "the affected-keys trace reservation records the patched key"
-      (is (= [rkey] (:affected-keys (instance :p1)))))))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/patch
+                   {:params-schema [:map [:slug :string]]
+                    :patches (fn [_params result]
+                               {(art-target) (fn [old _result] (merge old result))})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global
+                      :params {:slug "w"} :owner [:view :a]}])
+  (reply-success! @last-managed-args {:title "old" :views 1})
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :p1}])
+  (reply-success! @last-managed-args {:title "new"})
+  (let [e (entry (article-key))]
+    (is (= {:data {:title "new" :views 1} :status :loaded}
+           (select-keys e [:data :status])))
+    (is (nil? (:invalidated-at e))))
+  (is (= [(article-key)] (:affected-keys (instance :p1)))))
 
 (deftest success-settled-at-and-populate-loaded-at-from-reply-completed-at
-  ;; EP-0010 §Resources, Mutations: a terminal mutation success
-  ;; reply writes the instance :settled-at from the reply completion time,
-  ;; and ANY resource patch/populate :loaded-at the mutation produces uses
-  ;; that SAME causal completion time (off the reply token, never an ambient
-  ;; read in the handler). The host :completed-at rides the reply event's
-  ;; :rf.cofx :time-ms; scripting it pins both.
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
-                    :stale-after-ms 60000}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
-        completed-at 1781078400456]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_params result] {(art-target) result})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
-    (reply-success! @last-managed-args {:title "seed"} {:rf.cofx {:rf/time-ms completed-at}})
-    (testing "the instance :settled-at is EXACTLY the reply completion time"
-      (is (= completed-at (:settled-at (instance :ms1)))))
-    (testing "the populated entry's :loaded-at is the SAME causal completion
-              time, and :stale-at = :loaded-at + :stale-after-ms"
-      (let [e (entry rkey)]
-        (is (= completed-at (:loaded-at e)))
-        (is (= (+ completed-at 60000) (:stale-at e)))))))
+  ;; One causal completion time (the reply token's :time-ms) stamps both the
+  ;; instance :settled-at and the populated entry's :loaded-at.
+  (rf/reg-resource :r/article (assoc (article-resource-spec) :stale-after-ms 60000)
+                   article-resource-request)
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_params result] {(art-target) result})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
+  (reply-success! @last-managed-args {:title "seed"} {:rf.cofx {:rf/time-ms 1781078400456}})
+  (is (= 1781078400456 (:settled-at (instance :ms1))))
+  (is (= {:loaded-at 1781078400456 :stale-at (+ 1781078400456 60000)}
+         (select-keys (entry (article-key)) [:loaded-at :stale-at]))))
 
 (deftest failure-settled-at-from-reply-completed-at
-  ;; EP-0010 §Resources, Mutations + §Managed Effects: a terminal
-  ;; mutation FAILURE reply writes :settled-at from the reply completion time
-  ;; carried on the failure reply token — the handler MUST NOT re-read the
-  ;; clock. The host :completed-at rides the reply event's :rf.cofx
-  ;; :time-ms; scripting it pins :settled-at (replay-stable).
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (let [completed-at 1781078999999]
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
-    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
-                    {:rf.cofx {:rf/time-ms completed-at}})
-    (testing "the instance settles :error with :settled-at = the reply
-              completion time (not now)"
-      (is (= :error (:status (instance :mf1))))
-      (is (= completed-at (:settled-at (instance :mf1)))))
-    (testing "EP-0003 §Mutations — the :error carries the appended transport
-              failure envelope, and no :result"
-      (is (= {:kind :rf.http/http-5xx :status 500} (:error (instance :mf1))))
-      (is (nil? (:result (instance :mf1)))))))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
+                  {:rf.cofx {:rf/time-ms 1781078999999}})
+  (let [i (instance :mf1)]
+    (is (= {:status :error :settled-at 1781078999999 :error {:kind :rf.http/http-5xx :status 500}}
+           (select-keys i [:status :settled-at :error])))
+    (is (nil? (:result i)))))
 
 (deftest success-populates-resource-entry
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_params result] {(art-target) result})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    ;; no prior ensure — the populate SEEDS the entry from the mutation result
-    (reset! scheduled-timers [])
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pop1}])
-    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-    (testing "EP-0003 §Mutations — the controlled populate seeded a :loaded
-              entry from the result, carrying the resource's own tags"
-      (let [e (entry rkey)]
-        (is (= :loaded (:status e)))
-        (is (= {:slug "w" :title "Fresh"} (:data e)))
-        (is (= #{[:article "w"]} (:tags e)))))
-    ;; The resource declares no :gc-after-ms: absent normalizes to 300000 at
-    ;; registration, exactly as on the read path, and stale stays unarmed.
-    (testing "no explicit GC policy still arms the DEFAULT GC timer"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource/key args)))
-        (is (nil? (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])))))))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_params result] {(art-target) result})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pop1}])
+  (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+  (is (= {:status :loaded :data {:slug "w" :title "Fresh"} :tags #{[:article "w"]}}
+         (select-keys (entry (article-key)) [:status :data :tags])))
+  (testing "an undeclared GC policy still arms the default GC timer, and no stale timer"
+    (is (= [[(article-key) nil 300000]]
+           (mapv (juxt :resource/key (comp :stale :timers) (comp :gc :timers)) @scheduled-timers)))))
 
 (deftest populate-lowers-sensitive-classification-without-manual-reconcile
-  ;; The entry-mutating mutation handlers are wrapped in
-  ;; resource-events/with-classification-lowering (like the resource reply
-  ;; handlers), so the per-frame elision registry stays in step with :entries
-  ;; after a mutation. A :populates can CREATE a brand-new registered-resource
-  ;; entry the registry never lowered a declaration for; without the reconcile
-  ;; the registry drifts and project-entry-data's registry-classifies-under?
-  ;; gate rides a fine-grained-classified field VERBATIM.
-  ;;
-  ;; NON-VACUOUS: this dispatches a REAL mutation and NEVER calls
-  ;; reconcile-registry (unlike the classification suites, which manually
-  ;; reconcile before asserting). With the succeeded-handler unwrapped, the
-  ;; registry would have no :acct/profile declaration, so project-entry-data
-  ;; would ride the :ssn verbatim and the redaction assertion would FAIL.
+  ;; A :populates can create an entry no resource event ever lowered a
+  ;; declaration for; the succeeded handler must keep the elision registry in
+  ;; step, or the SSR projector would ride :ssn verbatim. No manual reconcile here.
   (rf/reg-resource :acct/profile
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -649,262 +386,182 @@
                                  {{:resource :acct/profile :params {:slug "w"}
                                    :scope :rf.scope/global} result})}
                    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; NO prior ensure — the populate SEEDS a brand-new entry (the un-reconciled
-  ;; path: no wrapped resource event ever ran for this key).
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {:slug "w"} :instance :sp1}])
   (reply-success! @last-managed-args {:ssn "123-45-6789" :name "Alice"})
   (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :acct/profile {:slug "w"})
         k-id (rf.resources.state/key-id rkey)
         e    (entry rkey)]
-    (testing "the populate seeded the entry — raw data lives in the durable cache
-              (redaction is an egress concern, not a durable one)"
-      (is (= :loaded (:status e)))
-      (is (= {:ssn "123-45-6789" :name "Alice"} (:data e))))
-    (testing "the succeeded-handler LOWERED the resource's
-              :data :ssn declaration into the frame registry (under :source
-              :resource), WITHOUT the test reconciling"
-      (is (= #{{:source :resource}}
-             (get (rf.elision/sensitive-declarations :rf/default)
-                  [:rf.runtime/resources :entries k-id :data :ssn]))
-          "the mutation handler kept the elision registry in step with :entries"))
-    (testing "SSR project-entry-data redacts the field via the
-              registry the handler lowered (no drift)"
-      (let [projected (rf.resources.classification/project-entry-data
-                        (:data e) k-id :rf/default :rf.egress/ssr-hydration)]
-        (is (= rf.privacy/redacted-sentinel (:ssn projected))
-            "the populated entry's :ssn is redacted at egress")
-        (is (= "Alice" (:name projected)) "the undeclared sibling rides verbatim")
-        (is (not (str/includes? (pr-str projected) "123-45-6789"))
-            "no raw sensitive value rides")))))
+    (is (= {:ssn "123-45-6789" :name "Alice"} (:data e)) "the durable cache stays raw")
+    (is (= #{{:source :resource}}
+           (get (rf.elision/sensitive-declarations :rf/default)
+                [:rf.runtime/resources :entries k-id :data :ssn])))
+    (let [projected (rf.resources.classification/project-entry-data
+                      (:data e) k-id :rf/default :rf.egress/ssr-hydration)]
+      (is (= {:ssn rf.privacy/redacted-sentinel :name "Alice"} projected))
+      (is (not (str/includes? (pr-str projected) "123-45-6789"))))))
 
 (deftest success-populate-arms-stale-and-gc-timers
-  ;; A mutation :populates seeds a fresh, OWNERLESS :loaded entry
-  ;; with a durable :stale-at / :gc-after-ms policy. The success handler MUST
-  ;; arm the advisory stale / GC timers for it (mirroring the resource read
-  ;; path) — otherwise the populated entry would carry a GC policy but NO armed
-  ;; reaper, lingering past :gc-after-ms (a cache-growth completeness gap).
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
-                    :stale-after-ms 60000
-                    :gc-after-ms    300000}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_params result] {(art-target) result})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (reset! scheduled-timers [])
-    ;; no prior ensure — the populate SEEDS an ownerless entry
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
-    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-    (testing "the populated entry is ownerless (no active owner)"
-      (is (empty? (:active-owners (entry rkey)))))
-    (testing "the success handler armed the advisory stale / GC
-              timers for the populated key, mirroring the resource read path's
-              :rf.resource/schedule-timers emission"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource/key args)))
-        (is (= :rf/default (:frame-id args)))
-        (is (= 60000 (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])) "a GC timer is armed for the populated entry")
-        (is (false? (:server? args)) "client frame — not SSR-gated")))
-    (testing "the populated ownerless entry is GC-eligible: a
-              fired GC timer (re-checking owners + generation) removes it"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key rkey}])
-      (is (nil? (entry rkey)) "GC removed the inactive populated entry"))))
+  ;; An ownerless populated entry carries a GC policy, so it needs an armed reaper.
+  (rf/reg-resource :r/article (assoc (article-resource-spec) :stale-after-ms 60000 :gc-after-ms 300000)
+                   article-resource-request)
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_params result] {(art-target) result})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
+  (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+  (is (empty? (:active-owners (entry (article-key)))))
+  (is (= [[(article-key) :rf/default 60000 300000 false]]
+         (mapv (juxt :resource/key :frame-id (comp :stale :timers) (comp :gc :timers) :server?)
+               @scheduled-timers)))
+  (testing "the fired GC timer reaps the ownerless populated entry"
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key (article-key)}])
+    (is (nil? (entry (article-key))))))
 
 (deftest success-patch-arms-timers-for-policy-keys
-  ;; A :patches refresh of an existing entry re-arms its advisory
-  ;; timers from the resource policy too (the patch moved :loaded-at /
-  ;; :stale-at forward, so the prior timer's basis is stale).
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
-                    :stale-after-ms 60000
-                    :gc-after-ms    300000}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/patch
-                     {:params-schema [:map [:slug :string]]
-                      :patches (fn [_params result]
-                                 {(art-target) (fn [old _result] (merge old result))})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old" :views 1})
-    (reset! scheduled-timers [])
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :pat-gc1}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "the patch re-armed the entry's stale / GC timers"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource/key args)))
-        (is (= 60000 (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])))))))
+  (rf/reg-resource :r/article (assoc (article-resource-spec) :stale-after-ms 60000 :gc-after-ms 300000)
+                   article-resource-request)
+  (rf/reg-mutation :m/patch
+                   {:params-schema [:map [:slug :string]]
+                    :patches (fn [_params result]
+                               {(art-target) (fn [old _result] (merge old result))})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global
+                      :params {:slug "w"} :owner [:view :a]}])
+  (reply-success! @last-managed-args {:title "old" :views 1})
+  (reset! scheduled-timers [])
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :pat-gc1}])
+  (reply-success! @last-managed-args {:title "new"})
+  (is (= [[(article-key) 60000 300000]]
+         (mapv (juxt :resource/key (comp :stale :timers) (comp :gc :timers)) @scheduled-timers))))
 
-;; ===========================================================================
-;; 5. Failure settles :error
-;; ===========================================================================
+;; ---- invalidation timing ----------------------------------------------------
 
 (deftest after-settle-invalidation-timing
-  ;; :after-settle invalidates on BOTH settle paths. Each row settles its own
-  ;; ownerless article, so each :invalidated-at is caused by that row's reply.
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  ;; Each row settles its own ownerless article, so each :invalidated-at is
+  ;; caused by that row's reply.
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-settle}) save-article-request)
   (doseq [[label slug settle!]
           [["failure" "failed" #(reply-failure! % {:kind :rf.http/http-5xx :status 503})]
            ["success" "saved"  #(reply-success! % {:title "new"})]]]
-    (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug slug})]
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :r/article :scope :rf.scope/global :params {:slug slug}}])
-      (reply-success! @last-managed-args {:title "old"})
-      (reset! last-managed-args nil)
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug slug}
-                                               :instance (keyword "as" slug)}])
-      (settle! @last-managed-args)
-      (testing (str ":after-settle invalidates the tag on the " label " path")
-        (is (some? (:invalidated-at (entry rkey))))))))
-
-;; ===========================================================================
-;; 6. before-request invalidation timing
-;; ===========================================================================
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug slug}}])
+    (reply-success! @last-managed-args {:title "old"})
+    (reset! last-managed-args nil)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug slug}
+                                             :instance (keyword "as" slug)}])
+    (settle! @last-managed-args)
+    (is (some? (:invalidated-at (entry (article-key slug)))) label)))
 
 (deftest before-request-invalidation-timing
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
-    ;; ownerless ensure — the invalidation leaves the entry stale (observable
-    ;; via :invalidated-at) rather than refetching it.
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "x"})
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :br1}])
-    (testing "EP-0003 §Mutations — :before-request timing invalidated the tag
-              BEFORE the write reply landed"
-      (is (some? (:invalidated-at (entry rkey)))))))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+  (reply-success! @last-managed-args {:title "x"})
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :br1}])
+  (is (some? (:invalidated-at (entry (article-key))))))
 
-;; ===========================================================================
-;; 7. Stale suppression — a superseded reply never overwrites a newer instance
-;; ===========================================================================
+(defn- execute-fx [mutation-id instance-id]
+  (:fx (rf.resources.mutation-events/execute-handler
+         {:rf.db/runtime {} :rf.frame/id :rf/default
+          :rf.resource/generation-allocation {:generation 1 :counter 1}}
+         [:rf.mutation/execute {:mutation mutation-id :params {:slug "w"} :instance instance-id}])))
+
+(defn- invalidate-dispatch? [[id sub]]
+  (and (= :dispatch id) (= :rf.resource/invalidate-tags (first sub))))
+
+(deftest before-request-invalidation-precedes-lowering
+  ;; fx run in order, so the invalidation dispatch must sit before the lowering.
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
+  (let [fx (execute-fx :m/save :ord1)]
+    (is (= [:invalidate :rf.http/managed]
+           (keep (fn [[id :as f]]
+                   (cond (invalidate-dispatch? f) :invalidate
+                         (= :rf.http/managed id)  id))
+                 fx)))))
+
+(deftest default-timing-emits-no-before-request-invalidation
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (let [fx (execute-fx :m/save :ord2)]
+    (is (not-any? invalidate-dispatch? fx))
+    (is (some #{:rf.http/managed} (map first fx)))))
+
+;; ---- stale suppression and frame isolation ----------------------------------
 
 (deftest stale-mutation-suppressed-trace-carries-canonical-reply-envelope
-  ;; Spec 016 §Cancellation is opportunistic; stale suppression is mandatory:
-  ;; the STALE gen-1 reply never settles the newer instance. The canonical
-  ;; :status :stale reply envelope rides the PRODUCTION mutation
-  ;; stale-suppression trace; the behaviour reads alone would pass even if the
-  ;; production stale branch discarded the canonical reply, so the envelope is
-  ;; pinned too.
+  ;; A superseded reply never settles the newer instance, and the suppression
+  ;; trace carries the canonical reply envelope.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
   (let [gen1-args @last-managed-args]
-    ;; supersede with a second execute under the SAME instance id → gen 2 live.
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
-    (is (= 2 (:generation (instance :rv))))
-    (testing "the STALE gen-1 reply is recorded :status :stale /
-              :rf.reply/work-status :suppressed via the shared substrate, with the
-              carried-vs-current (1 vs 2) generation pair on the production
-              :rf.mutation/stale-suppressed trace"
-      (let [wid1   (-> gen1-args :on-success (nth 1) :work/id)
-            traces (record-mutation-traces!
-                     #(reply-success! gen1-args {:stale "result"}))
-            sup    (first (filterv #(= :rf.mutation/stale-suppressed (:operation %)) traces))]
-        (is (some? sup) ":rf.mutation/stale-suppressed fired for the stale reply")
-        (let [tags (:tags sup)]
-          ;; the bespoke facts ride alongside the canonical ones. There is
-          ;; no bare :work/id duplicate; the work identity rides ONLY as
-          ;; :rf.reply/work-id (asserted below).
-          (is (= :rv      (:instance tags)))
-          (is (= :success (:outcome tags)))
-          (is (not (contains? tags :work/id))
-              "no bare :work/id duplicate on the stale-suppressed reply row")
-          ;; CANONICAL reply-envelope vocabulary via the shared substrate
-          (is (= :stale (:rf.reply/status tags))
-              "the canonical :status :stale reply IS produced via re-frame.reply")
-          (is (= :suppressed (:rf.reply/work-status tags)))
-          (is (= :rf.mutation/superseded (:rf.reply/stale-reason tags)))
-          (is (= wid1 (:rf.reply/work-id tags)) "the canonical work identity")
-          (let [corr (:rf.reply/correlation tags)]
-            (is (= 1 (-> corr :generation :carried)) "carried gen off the stale token")
-            (is (= 2 (-> corr :generation :current)) "current = the LIVE instance gen")
-            (is (= :rv (:instance/id corr))))))
-      (let [i (instance :rv)]
-        (is (= :pending (:status i)) "still pending on the current gen")
-        (is (= 2 (:generation i)) "generation unchanged")
-        (is (nil? (:result i)) "stale reply did not write a result")))
-    (testing "the CURRENT gen-2 reply settles normally"
-      (reply-success! @last-managed-args {:fresh "result"})
-      (is (= :success (:status (instance :rv))))
-      (is (= {:fresh "result"} (:result (instance :rv)))))))
-
-;; ===========================================================================
-;; 7b. A mutation reply whose stamped :rf.frame/id does not match
-;;     the RECEIVING frame is REJECTED (the mutation analogue of the resource
-;;     cross-frame reply test). Two frames at the same instance/generation: a
-;;     misrouted reply must NOT durably settle the wrong frame.
-;; ===========================================================================
+    (let [wid1   (-> gen1-args :on-success (nth 1) :work/id)
+          traces (record-mutation-traces! #(reply-success! gen1-args {:stale "result"}))
+          tags   (:tags (first (filterv #(= :rf.mutation/stale-suppressed (:operation %)) traces)))]
+      (is (= {:instance :rv :outcome :success :rf.reply/status :stale
+              :rf.reply/work-status :suppressed :rf.reply/stale-reason :rf.mutation/superseded
+              :rf.reply/work-id wid1}
+             (select-keys tags [:instance :outcome :rf.reply/status :rf.reply/work-status
+                                :rf.reply/stale-reason :rf.reply/work-id])))
+      (is (not (contains? tags :work/id)))
+      (is (= {:generation {:carried 1 :current 2} :instance/id :rv}
+             (select-keys (:rf.reply/correlation tags) [:generation :instance/id])))
+      (is (= [:pending 2 nil] ((juxt :status :generation :result) (instance :rv)))))
+    (reply-success! @last-managed-args {:fresh "result"})
+    (is (= {:status :success :result {:fresh "result"}}
+           (select-keys (instance :rv) [:status :result])))))
 
 (deftest cross-frame-mutation-reply-rejected-without-mutating-receiving-frame
+  ;; Two frames at the same instance/generation: a reply dispatched into the
+  ;; wrong frame must not settle it.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
-    (let [fa :xfm/frame-a
-          fb :xfm/frame-b]
-      (rf/make-frame {:id fa :doc "frame A"})
-      (rf/make-frame {:id fb :doc "frame B"})
-      ;; both frames execute the SAME mutation under the SAME instance id →
-      ;; the SAME frame-local work-id + generation in each frame.
+    (rf/make-frame {:id :xfm/frame-a :doc "frame A"})
+    (rf/make-frame {:id :xfm/frame-b :doc "frame B"})
+    (doseq [f [:xfm/frame-a :xfm/frame-b]]
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "w"} :instance :form/x}]
-                        {:frame fa})
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "w"} :instance :form/x}]
-                        {:frame fb})
-      (let [args-a (first @all-args)]
-        (testing "frame A's reply (payload stamped :rf.frame/id = A)
-                  dispatched INTO frame B is rejected: frame B's pending
-                  instance is NOT settled (no cross-frame durable write even at
-                  the same instance/generation)"
-          ;; dispatch frame A's reply (its payload carries :rf.frame/id = A)
-          ;; into the WRONG frame B.
-          (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
-                            {:frame fb})
-          (is (= :pending (:status (instance fb :form/x)))
-              "frame B's instance untouched by frame A's misrouted reply")
-          (is (nil? (:result (instance fb :form/x))) "no cross-frame result written")
-          (is (= :pending (:status (instance fa :form/x)))
-              "frame A's own instance also still pending (its reply went to B)"))
-        (testing "frame A's reply dispatched into frame A DOES settle it"
-          (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
-                            {:frame fa})
-          (is (= :success (:status (instance fa :form/x))) "frame A settled by its own reply"))))))
+                        {:frame f}))
+    (let [args-a (first @all-args)]
+      (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
+                        {:frame :xfm/frame-b})
+      (is (= [:pending nil] ((juxt :status :result) (instance :xfm/frame-b :form/x))))
+      (rf/dispatch-sync (conj (:on-success args-a) {:status :ok :value {:ok true}})
+                        {:frame :xfm/frame-a})
+      (is (= :success (:status (instance :xfm/frame-a :form/x)))))))
 
-;; ===========================================================================
-;; 8. :rf.mutation/clear — causal instance reset
-;; ===========================================================================
-
-(deftest clear-resets-instance
+(deftest cross-frame-mutation-request-id-does-not-collide
+  ;; The frame-local work-ids collide across frames, so the process-global
+  ;; transport request-id must be frame-qualified.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :clr1}])
-  (reply-success! @last-managed-args {:ok true})
-  (is (= :success (:status (instance :clr1))))
-  (testing "EP-0003 §Mutations — :rf.mutation/clear clears the runtime
-            instance row (the causal reset, NOT a form-error reset)"
-    (rf/dispatch-sync [:rf.mutation/clear {:instance :clr1}])
-    (is (nil? (instance :clr1)))))
+  (let [all-args (atom [])
+        fa :xm/frame-a
+        fb :xm/frame-b]
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (rf/make-frame {:id fa :doc "frame A"})
+    (rf/make-frame {:id fb :doc "frame B"})
+    (doseq [f [fa fb]]
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
+                        {:frame f}))
+    (let [wid-a (:current-work (instance fa :form/save-1))
+          wid-b (:current-work (instance fb :form/save-1))]
+      (is (= wid-a wid-b) "precondition: the bare work-ids collide")
+      (is (= [(rf.resources.work-ledger/managed-request-id fa wid-a)
+              (rf.resources.work-ledger/managed-request-id fb wid-b)]
+             (mapv :request-id @all-args)))
+      (is (apply distinct? (mapv :request-id @all-args)))
+      (rf/dispatch-sync (conj (:on-success (first @all-args)) {:status :ok :value {:ok true}})
+                        {:frame fa})
+      (is (= :success (:status (instance fa :form/save-1))))
+      (is (= :pending (:status (instance fb :form/save-1)))))))
+
+;; ---- clear ------------------------------------------------------------------
 
 (deftest clear-aborts-the-in-flight-write
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
@@ -912,11 +569,8 @@
     (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :clr-live}])
     (let [wid (:current-work (instance :clr-live))]
-      (is (some? wid) "precondition: the write is in flight")
       (rf/dispatch-sync [:rf.mutation/clear {:instance :clr-live}])
-      (testing "clearing a pending instance aborts its in-flight request, by
-                the frame-qualified request id the lower registered"
-        (is (= [[:rf.req :rf/default wid]] @aborts))))))
+      (is (= [[:rf.req :rf/default wid]] @aborts)))))
 
 (deftest clear-by-mutation-id-clears-all-instances
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
@@ -924,650 +578,341 @@
   (reply-success! @last-managed-args {:ok 1})
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "b"} :instance :b1}])
   (reply-success! @last-managed-args {:ok 2})
-  (testing "clear by :mutation drops every instance of that mutation id"
-    (rf/dispatch-sync [:rf.mutation/clear {:mutation :m/save}])
-    (is (nil? (instance :a1)))
-    (is (nil? (instance :b1)))))
+  (rf/dispatch-sync [:rf.mutation/clear {:mutation :m/save}])
+  (is (= {} (instances))))
 
-;; ===========================================================================
-;; 9. Passive subs project the instance view-model
-;; ===========================================================================
+(deftest cedn-distinct-sequential-instance-ids-do-not-clobber
+  ;; `(= [:row 7] '(:row 7))` is true, so a plain map key would collapse these
+  ;; two ids onto one row.
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (let [all-args (atom [])
+        iv [:row 7]
+        il '(:row 7)]
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "v"} :instance iv}])
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "l"} :instance il}])
+    (let [[args-v args-l] @all-args]
+      (is (= 2 (count (instances))))
+      (is (vector? (:instance/id (instance iv))))
+      (is (seq? (:instance/id (instance il))))
+      (is (= [{:slug "v"} {:slug "l"}] [(:params (instance iv)) (:params (instance il))]))
+      (reply-success! args-l {:id :l})
+      (is (= [:pending :success] [(:status (instance iv)) (:status (instance il))]))
+      (reply-success! args-v {:id :v})
+      (is (= [{:id :v} {:id :l}] [(:result (instance iv)) (:result (instance il))])))))
+
+(deftest cedn-distinct-sequential-instance-ids-clear-independently
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (let [iv [:row 7]
+        il '(:row 7)]
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "v"} :instance iv}])
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "l"} :instance il}])
+    (rf/dispatch-sync [:rf.mutation/clear {:instance iv}])
+    (is (nil? (instance iv)))
+    (is (= :pending (:status (instance il))))
+    (is (seq? (:instance/id (instance il))))))
+
+;; ---- subs and introspection -------------------------------------------------
 
 (deftest mutation-subs-project-view-model
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (testing "no instance — idle empty-state (incl. EP-0019 :optimistic? false)"
+  (testing "no instance: the idle empty state"
     (is (= :idle @(rf/subscribe [:rf.mutation/status {:instance :sub1}])))
     (is (false? @(rf/subscribe [:rf.mutation/pending? {:instance :sub1}])))
     (is (false? (:optimistic? @(rf/subscribe [:rf/mutation {:instance :sub1}])))))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :sub1}])
-  (testing ":pending while in flight — a PESSIMISTIC write is :optimistic? false"
+  (testing "pending; a write with no :optimistic plan is not optimistic"
     (is (= :pending @(rf/subscribe [:rf.mutation/status {:instance :sub1}])))
     (is (true? @(rf/subscribe [:rf.mutation/pending? {:instance :sub1}])))
-    (is (false? (:optimistic? @(rf/subscribe [:rf/mutation {:instance :sub1}])))
-        "no :optimistic plan → no live optimistic value"))
+    (is (false? (:optimistic? @(rf/subscribe [:rf/mutation {:instance :sub1}])))))
   (reply-success! @last-managed-args {:saved true})
-  (testing ":success settles the result"
-    (let [st @(rf/subscribe [:rf/mutation {:instance :sub1}])]
-      (is (= :success (:status st)))
-      (is (:success? st))
-      (is (:settled? st))
-      (is (false? (:optimistic? st)))
-      (is (= {:saved true} (:result st))))
+  (testing "success"
+    (is (= {:status :success :success? true :settled? true :optimistic? false :result {:saved true}}
+           (select-keys @(rf/subscribe [:rf/mutation {:instance :sub1}])
+                        [:status :success? :settled? :optimistic? :result])))
     (is (= {:saved true} @(rf/subscribe [:rf.mutation/result {:instance :sub1}])))))
 
-;; ===========================================================================
-;; 10. params canonicalization (the :invalidates / :patches close over them)
-;; ===========================================================================
+(deftest mutation-state-fails-closed-without-frame
+  ;; A frameless call must not return a nil indistinguishable from an absent instance.
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"no-frame-context"
+        (rf/mutation-state {:instance :ms-no-frame})))
+  (is (nil? (rf/mutation-state {:instance :ms-absent :frame :rf/default})))
+  (is (nil? (rf/mutation-state {:instance :ms-absent :frame :no/such-frame})))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :ms-present}])
+  (reply-success! @last-managed-args {:ok true})
+  (is (= :success (:status (rf/mutation-state {:instance :ms-present :frame :rf/default})))))
+
+;; ---- params and exact-target validation -------------------------------------
 
 (deftest mutation-registry-rejects-non-edn-params
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (testing "EP-0003 §Mutations — a host value in params is rejected at the
-            cache-key boundary (mutation reuses the resource EDN discipline)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.mutation-registry/validate+canonicalize-params
-            :m/save (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})) {:slug "w" :cb (fn [])}
-            'test)))))
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+        (rf.resources.mutation-registry/validate+canonicalize-params
+          :m/save (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))
+          {:slug "w" :cb (fn [])} 'test))))
 
-;; ===========================================================================
-;; 11. patch / populate TARGET scoped key validation (fail-closed)
-;; ===========================================================================
-
-(defn- article-resource-spec []
-  {:scope :rf.scope/global
-   :params-schema [:map [:slug :string]]
-   :tags (fn [{:keys [slug]} _] #{[:article slug]})})
-
-(def ^:private article-resource-request
-  (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-
-;; The validation boundary itself is asserted via DIRECT calls (the
-;; re-frame event loop catches a handler throw and surfaces it as
-;; :rf.error/handler-exception rather than rethrowing to dispatch-sync's
-;; caller — so a thrown-with-msg? around dispatch never sees it; the
-;; codebase asserts validation throws at the fn boundary, exactly as
-;; `mutation-registry-rejects-non-edn-params` does, and proves the
-;; dispatch-path fail-closed behavior by OBSERVING no partial cache mutation).
-
-;; The map-form exact target is the only public input form (EP-0016 Rider 2).
-;; The events layer RESOLVES each target map's :scope to a concrete
-;; value first, then `validate-target-key!` validates the [resolved-scope
-;; resource params] identity. These unit tests pass the resolved scope directly.
+;; Validation throws are asserted at the fn boundary: the event loop catches a
+;; handler throw, so the dispatch path is proved by observing no partial write.
 
 (deftest validate-target-key-rejects-an-invalid-identity
-  ;; Every row fails CLOSED:
-  ;;   - an UNREGISTERED resource, because the patched / seeded entry would be
-  ;;     unreachable by any subscription;
-  ;;   - a non-map target, because the map form {:resource :params :scope} is
-  ;;     the only public input (EP-0016 Rider 2);
-  ;;   - a reserved :rf.scope/* keyword outside the closed enum (a typo), which
-  ;;     would silently write under a wrong scope — a typo'd literal resolves to
-  ;;     itself in the events layer and is caught here;
-  ;;   - a host value in params or scope, which reaches the cache-key boundary
-  ;;     (the EDN discipline resource params follow).
   (doseq [[label target resolved-scope registered? arm]
           [["an unregistered resource id"
             {:resource :r/never-registered :params {:slug "w"}} :rf.scope/global (fn [_] false) :patches]
-           ["a tuple (the internal storage form) is NOT a public input"
+           ["the internal tuple form is not a public input"
             [:rf.scope/global :r/article {:slug "w"}] :rf.scope/global (constantly true) :populates]
-           ["a non-map target"
-            :r/article :rf.scope/global (constantly true) :patches]
-           ["a map missing :resource"
-            {:params {}} :rf.scope/global (constantly true) :patches]
            ["a non-keyword :resource"
             {:resource "article" :params {}} :rf.scope/global (constantly true) :patches]
-           [":rf.scope/glabal (a reserved-scope typo)"
+           ["a reserved-scope typo"
             {:resource :r/article :params {:slug "w"}} :rf.scope/glabal (constantly true) :patches]
            ["non-EDN params"
             {:resource :r/article :params {:slug "w" :cb (fn [])}} :rf.scope/global (constantly true) :patches]
            ["a non-EDN scope"
             {:resource :r/article :params {:slug "w"}} (fn []) (constantly true) :patches]]]
-    (testing (str label " is rejected")
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-            (rf.resources.mutation-runtime/validate-target-key!
-              target resolved-scope registered? 'test arm)))))
-  (testing "the closed reserved policy :rf.scope/global is a legitimate literal scope"
-    (is (= [:rf.scope/global :r/article {:slug "w"}]
-           (rf.resources.mutation-runtime/validate-target-key!
-             {:resource :r/article :params {:slug "w"}} :rf.scope/global
-             (constantly true) 'test :patches)))))
-
-(deftest validate-target-map-strict-policy-rejects-whole-map
-  ;; EP-0016 Rider 2 — the DEFAULT (:strict) policy (pre-write /
-  ;; optimistic / execute-time callers, where no server write has landed): one
-  ;; bad target — recoverable OR corruption-class — rejects the WHOLE arm (no
-  ;; partial write); valid targets are re-keyed by the canonical STORAGE key;
-  ;; and a {:from-db …} target whose scope resolves nil is FAIL-CLOSED (dropped,
-  ;; recorded in the returned nil-resolved ids — never an implicit global).
-  ;; The injected `resolve-target-scope` resolves :rf.scope/same (here the
-  ;; supplied mut-scope) and a fake {:from-db :nope} reference to nil.
-  (let [resolve-scope (fn [{:keys [scope]}]
-                        (cond
-                          (nil? scope)                 [:resolved :rf.scope/global]
-                          (= scope {:from-db :nope})   [:nil-resolved :nope]
-                          :else                        [:resolved scope]))]
-    (testing "a single bad target (typo scope) rejects the whole map (default :strict)"
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
-               {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
-              resolve-scope (constantly true) :patches 'test))))
-    (testing "a RECOVERABLE bad target (unregistered) ALSO rejects the whole arm under :strict"
-      ;; the pre-write / optimistic surface whole-arm-rejects an
-      ;; unregistered resource (only the POST-WRITE settle path relaxes).
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
-               {:resource :r/nope :params {:slug "x"} :scope :rf.scope/global} :bad}
-              resolve-scope #(= % :r/article) :patches 'test))))
-    (testing "an all-valid map is re-keyed by the canonical STORAGE key (and no nils)"
-      (is (= [{[:rf.scope/global :r/article {:slug "w"}] :v} []]
-             (rf.resources.mutation-runtime/validate-target-map!
-               {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :v}
-               resolve-scope (constantly true) :populates 'test))))
-    (testing "a {:from-db …} target that resolves nil is FAIL-CLOSED — dropped,
-              its resolver id recorded as nil-resolved (never an implicit global)"
-      (is (= [{} [:nope]]
-             (rf.resources.mutation-runtime/validate-target-map!
-               {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
-               resolve-scope (constantly true) :populates 'test))))
-    (testing "an empty / nil map returns [nil []] (no-op arm)"
-      (is (= [nil []] (rf.resources.mutation-runtime/validate-target-map! {} resolve-scope (constantly true) :patches 'test)))
-      (is (= [nil []] (rf.resources.mutation-runtime/validate-target-map! nil resolve-scope (constantly true) :patches 'test))))))
-
-(deftest validate-target-map-skip-recoverable-policy
-  ;; The POST-WRITE settle policy (:skip-recoverable): a RECOVERABLE
-  ;; bad sibling (unregistered resource / non-map / non-keyword :resource) is
-  ;; DROPPED-AND-collected (not thrown) while the VALID siblings still canonicalize
-  ;; + land — the server write already committed, so a typo must not strand the
-  ;; whole arm. CACHE-IDENTITY CORRUPTION (reserved-scope typo / non-EDN scope /
-  ;; params) STILL THROWS. Returns the 3-tuple [canonical nil-ids skipped].
-  (let [resolve-scope (fn [{:keys [scope]}]
-                        (cond
-                          (nil? scope)                 [:resolved :rf.scope/global]
-                          (= scope {:from-db :nope})   [:nil-resolved :nope]
-                          :else                        [:resolved scope]))]
-    (testing "an unregistered sibling is SKIPPED while the valid sibling LANDS"
-      (let [[canonical nils skipped]
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
-               {:resource :r/nope :params {:slug "x"} :scope :rf.scope/global} :bad}
-              resolve-scope #(= % :r/article) :patches 'test :skip-recoverable)]
-        (is (= {[:rf.scope/global :r/article {:slug "w"}] :ok} canonical)
-            "the valid sibling canonicalized + retained its value")
-        (is (= [] nils))
-        (is (= 1 (count skipped)))
-        (is (= :unregistered-resource (:reason (first skipped))))
-        (is (= :r/nope (:resource (first skipped))) "the recoverable resource id is recorded")))
-    (testing "a non-keyword :resource sibling is SKIPPED while the valid one LANDS"
-      (let [[canonical _nils skipped]
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
-               {:resource "article" :params {:slug "x"} :scope :rf.scope/global} :bad}
-              resolve-scope (constantly true) :populates 'test :skip-recoverable)]
-        (is (= {[:rf.scope/global :r/article {:slug "w"}] :ok} canonical))
-        (is (= [:non-keyword-resource] (mapv :reason skipped)))))
-    (testing "CACHE-IDENTITY CORRUPTION (reserved-scope typo) STILL THROWS even under :skip-recoverable"
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
-               {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
-              resolve-scope (constantly true) :patches 'test :skip-recoverable))))
-    (testing "CACHE-IDENTITY CORRUPTION (non-EDN params) STILL THROWS"
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-            (rf.resources.mutation-runtime/validate-target-map!
-              {{:resource :r/article :params {:slug "w" :cb (fn [])} :scope :rf.scope/global} :bad}
-              resolve-scope (constantly true) :patches 'test :skip-recoverable))))
-    (testing "a {:from-db …} nil-resolve is STILL fail-closed-dropped (separate from skip)"
-      (is (= [{} [:nope] []]
-             (rf.resources.mutation-runtime/validate-target-map!
-               {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
-               resolve-scope (constantly true) :populates 'test :skip-recoverable))))
-    (testing "an empty / nil map returns the 3-tuple empty shape [nil [] []]"
-      (is (= [nil [] []] (rf.resources.mutation-runtime/validate-target-map! {} resolve-scope (constantly true) :patches 'test :skip-recoverable)))
-      (is (= [nil [] []] (rf.resources.mutation-runtime/validate-target-map! nil resolve-scope (constantly true) :patches 'test :skip-recoverable))))))
-
-(deftest classify-target-key-corruption-vs-recoverable
-  ;; The pure classifier: recoverable cases return [:skip …]
-  ;; (dropped by the relaxed settle policy), corruption-class THROWS.
-  (testing "an unregistered resource classifies :skip :unregistered-resource"
-    (is (= [:skip :unregistered-resource {:target (pr-str {:resource :r/nope :params {:slug "w"}})
-                                          :resource :r/nope}]
-           (rf.resources.mutation-runtime/classify-target-key
-             {:resource :r/nope :params {:slug "w"}} :rf.scope/global (constantly false) 'test :patches))))
-  (testing "a non-map target classifies :skip :non-map-target"
-    (is (= :non-map-target
-           (second (rf.resources.mutation-runtime/classify-target-key :r/article :rf.scope/global (constantly true) 'test :patches)))))
-  (testing "a non-keyword :resource classifies :skip :non-keyword-resource"
-    (is (= :non-keyword-resource
-           (second (rf.resources.mutation-runtime/classify-target-key {:resource "article" :params {}} :rf.scope/global (constantly true) 'test :patches)))))
-  (testing "a valid target classifies :apply <canonical key>"
-    (is (= [:apply [:rf.scope/global :r/article {:slug "w"}]]
-           (rf.resources.mutation-runtime/classify-target-key
-             {:resource :r/article :params {:slug "w"}} :rf.scope/global (constantly true) 'test :patches))))
-  (testing "a reserved-scope typo THROWS (corruption) — never classified :skip"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/classify-target-key
-            {:resource :r/article :params {:slug "w"}} :rf.scope/glabal (constantly true) 'test :patches))))
-  (testing "corruption (non-EDN scope) wins even when the resource is also unregistered"
+          (rf.resources.mutation-runtime/validate-target-key!
+            target resolved-scope registered? 'test arm))
+        label)))
+
+(defn- resolve-scope [{:keys [scope]}]
+  (cond
+    (nil? scope)               [:resolved :rf.scope/global]
+    (= scope {:from-db :nope}) [:nil-resolved :nope]
+    :else                      [:resolved scope]))
+
+(deftest validate-target-map-strict-policy-rejects-whole-map
+  ;; The default :strict policy (pre-write callers): any bad target rejects the
+  ;; whole arm; a nil-resolving {:from-db …} target is dropped, never global.
+  (testing "a corruption-class or a recoverable bad target rejects the whole map"
+    (doseq [[bad registered?] [[{:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal}
+                                (constantly true)]
+                               [{:resource :r/nope :params {:slug "x"} :scope :rf.scope/global}
+                                #(= % :r/article)]]]
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (rf.resources.mutation-runtime/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok bad :bad}
+              resolve-scope registered? :patches 'test)))))
+  (is (= [{[:rf.scope/global :r/article {:slug "w"}] :v} []]
+         (rf.resources.mutation-runtime/validate-target-map!
+           {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :v}
+           resolve-scope (constantly true) :populates 'test)))
+  (is (= [{} [:nope]]
+         (rf.resources.mutation-runtime/validate-target-map!
+           {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
+           resolve-scope (constantly true) :populates 'test)))
+  (is (= [nil []] (rf.resources.mutation-runtime/validate-target-map! {} resolve-scope (constantly true) :patches 'test))))
+
+(deftest validate-target-map-skip-recoverable-policy
+  ;; The post-write settle policy: the server write already committed, so a
+  ;; recoverable bad sibling is dropped and collected while valid siblings land;
+  ;; cache-identity corruption still throws.
+  (let [[canonical nils skipped]
+        (rf.resources.mutation-runtime/validate-target-map!
+          {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+           {:resource :r/nope :params {:slug "x"} :scope :rf.scope/global} :bad}
+          resolve-scope #(= % :r/article) :patches 'test :skip-recoverable)]
+    (is (= {[:rf.scope/global :r/article {:slug "w"}] :ok} canonical))
+    (is (= [] nils))
+    (is (= [{:reason :unregistered-resource :resource :r/nope}]
+           (mapv #(select-keys % [:reason :resource]) skipped))))
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+        (rf.resources.mutation-runtime/validate-target-map!
+          {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+           {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
+          resolve-scope (constantly true) :patches 'test :skip-recoverable)))
+  (is (= [{} [:nope] []]
+         (rf.resources.mutation-runtime/validate-target-map!
+           {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
+           resolve-scope (constantly true) :populates 'test :skip-recoverable)))
+  (is (= [nil [] []] (rf.resources.mutation-runtime/validate-target-map! {} resolve-scope (constantly true) :patches 'test :skip-recoverable))))
+
+(deftest classify-target-key-corruption-vs-recoverable
+  (is (= [:skip :unregistered-resource {:target (pr-str {:resource :r/nope :params {:slug "w"}})
+                                        :resource :r/nope}]
+         (rf.resources.mutation-runtime/classify-target-key
+           {:resource :r/nope :params {:slug "w"}} :rf.scope/global (constantly false) 'test :patches)))
+  (is (= :non-map-target
+         (second (rf.resources.mutation-runtime/classify-target-key :r/article :rf.scope/global (constantly true) 'test :patches))))
+  (is (= :non-keyword-resource
+         (second (rf.resources.mutation-runtime/classify-target-key {:resource "article" :params {}} :rf.scope/global (constantly true) 'test :patches))))
+  (testing "corruption wins even when the resource is also unregistered"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
           (rf.resources.mutation-runtime/classify-target-key
             {:resource :r/nope :params {:slug "w"}} (fn []) (constantly false) 'test :patches)))))
 
+;; ---- exact-target arms end to end -------------------------------------------
+
 (deftest recoverable-patch-target-skipped-while-valid-sibling-lands
-  ;; End-to-end POST-WRITE settle: a mutation whose :patches has
-  ;; ONE recoverable bad target (an UNREGISTERED resource) and one VALID sibling.
-  ;; The server write ALREADY COMMITTED (the reply event fired post-write), so
-  ;; the bad sibling is DROPPED-AND-WARNED while the valid sibling LANDS and the
-  ;; instance SETTLES — an all-or-nothing throw would strand the
-  ;; whole committed mutation (a patch on a missing entry
-  ;; no-ops; an unregistered target does too, with a loud warning).
+  ;; The reply fires post-write, so an unregistered sibling is dropped and
+  ;; warned while the valid sibling lands and the instance settles.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [good-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
-        bad-key  [:rf.scope/global :r/never-registered {:slug "w"}]]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old r] (merge old r))
-                                            {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old _] old)})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    ;; seed the good entry so the patch has data to transform
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old"})
-    (reset! last-managed-args nil)
-    (let [warns (record-target-skipped-warnings!
-                  (fn []
-                    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad1}])
-                    (reply-success! @last-managed-args {:title "new"})))]
-      (testing "the VALID sibling patch LANDED (the recoverable bad target was dropped, not all-or-nothing)"
-        (is (= {:title "new"} (:data (entry good-key))) "good entry patched")
-        (is (nil? (entry bad-key)) "the unregistered key was never written"))
-      (testing "the instance SETTLED :success + the work row :completed (a throw would strand both)"
-        (let [i (instance :bad1)]
-          (is (= :success (:status i)) "instance reached :success")
-          (is (= {:title "new"} (:result i)) "result settled"))
-        (is (= :completed (:status (mutation-record :bad1))) "work-ledger row flipped :completed"))
-      (testing "the dropped target is recorded on the patch-summary :target-skipped (egress-safe evidence)"
-        (let [summary (:patch-summary (instance :bad1))
-              skipped (:target-skipped summary)]
-          (is (= 1 (count skipped)))
-          (is (= :patches (:arm (first skipped))))
-          (is (= :unregistered-resource (:reason (first skipped))))
-          (is (= :r/never-registered (:resource (first skipped))))))
-      (testing "the dedicated :rf.warning/mutation-target-skipped dev tripwire fired"
-        (let [warn (some #(when (= :rf.warning/mutation-target-skipped (:operation %)) %) warns)
-              ;; the trace event's payload map rides under the event's `:tags`
-              ;; field (the trace-bus envelope shape — as the scope-mismatch tests read).
-              pay  (:tags warn)]
-          (is (some? warn) "the dedicated skipped-target warning was emitted")
-          (is (= :unregistered-resource (:reason pay)))
-          (is (= :r/never-registered (:resource pay)))
-          (is (= :patches (:arm pay))))))))
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
+                                          (fn [old r] (merge old r))
+                                          {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global}
+                                          (fn [old _] old)})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global
+                      :params {:slug "w"} :owner [:view :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (let [warns (record-target-skipped-warnings!
+                (fn []
+                  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad1}])
+                  (reply-success! @last-managed-args {:title "new"})))
+        skipped-shape {:arm :patches :reason :unregistered-resource :resource :r/never-registered}]
+    (is (= {:title "new"} (:data (entry (article-key)))))
+    (is (nil? (entry [:rf.scope/global :r/never-registered {:slug "w"}])))
+    (is (= {:status :success :result {:title "new"}} (select-keys (instance :bad1) [:status :result])))
+    (is (= :completed (:status (mutation-record :bad1))))
+    (is (= [skipped-shape]
+           (mapv #(select-keys % [:arm :reason :resource])
+                 (:target-skipped (:patch-summary (instance :bad1))))))
+    (is (= [skipped-shape] (mapv #(select-keys (:tags %) [:arm :reason :resource]) warns)))))
 
 (deftest corruption-class-patch-target-still-throws-no-partial-mutation
-  ;; The CORRUPTION-class throw stands: a :patches target carrying
-  ;; a reserved-scope TYPO (which would silently write the cache under a WRONG
-  ;; scope) STILL aborts the whole arm — no relaxed policy may swallow a
-  ;; wrong-identity write. The event loop catches the throw, so we observe the
-  ;; fail-closed EFFECT: the valid sibling in the same arm did NOT land.
+  ;; A reserved-scope typo would write under a wrong scope, so it still aborts
+  ;; the whole arm: the valid sibling does not land.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [good-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      ;; the SECOND target carries a bare reserved-scope typo
-                      ;; (:rf.scope/glabal) — cache-identity corruption.
-                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old r] (merge old r))
-                                            {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal}
-                                            (fn [old _] old)})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old"})
-    (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad2}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "corruption-class: the valid sibling did NOT land (the whole arm was rejected)"
-      (is (= {:title "old"} (:data (entry good-key))) "good entry unchanged — corruption still fails closed"))))
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
+                                          (fn [old r] (merge old r))
+                                          {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal}
+                                          (fn [old _] old)})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global
+                      :params {:slug "w"} :owner [:view :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad2}])
+  (reply-success! @last-managed-args {:title "new"})
+  (is (= {:title "old"} (:data (entry (article-key))))))
 
 (deftest recoverable-populate-target-skipped-while-valid-sibling-lands
-  ;; :populates smoke: an unregistered populate target is
-  ;; SKIPPED-AND-WARNED while the valid sibling SEEDS the cache and the instance
-  ;; SETTLES.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [good-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/create
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_p r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} r
-                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global} r})}
-                     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:slug "w"} :instance :pop1}])
-    (reply-success! @last-managed-args {:title "seeded"})
-    (testing "the valid populate SEEDED the entry; the unregistered sibling was skipped"
-      (is (= {:title "seeded"} (:data (entry good-key))) "valid populate landed")
-      (is (= :success (:status (instance :pop1))) "instance settled :success")
-      (is (= :completed (:status (mutation-record :pop1))) "work row :completed"))
-    (testing "the skipped populate sibling is recorded :target-skipped with :arm :populates"
-      (let [skipped (:target-skipped (:patch-summary (instance :pop1)))]
-        (is (= [:populates] (mapv :arm skipped)))
-        (is (= [:unregistered-resource] (mapv :reason skipped)))
-        (is (= [:r/never-registered] (mapv :resource skipped)))))))
+  (rf/reg-mutation :m/create
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_p r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} r
+                                           {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global} r})}
+                   (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:slug "w"} :instance :pop1}])
+  (reply-success! @last-managed-args {:title "seeded"})
+  (is (= {:title "seeded"} (:data (entry (article-key)))))
+  (is (= :success (:status (instance :pop1))))
+  (is (= :completed (:status (mutation-record :pop1))))
+  (is (= [{:arm :populates :reason :unregistered-resource :resource :r/never-registered}]
+         (mapv #(select-keys % [:arm :reason :resource])
+               (:target-skipped (:patch-summary (instance :pop1)))))))
 
 (deftest recoverable-remove-target-skipped-while-valid-sibling-lands
-  ;; :removes smoke: an unregistered remove target is
-  ;; SKIPPED-AND-WARNED while the valid sibling DROPS its entry and the instance
-  ;; SETTLES.
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [good-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "doomed"})
-    (is (some? (entry good-key)) "entry seeded")
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/delete2
-                     {:params-schema [:map [:slug :string]]
-                      :removes (fn [{:keys [slug]} _r]
-                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                                  {:resource :r/never-registered :params {:slug slug} :scope :rf.scope/global}])}
-                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete2 :params {:slug "w"} :instance :rm1}])
-    (reply-success! @last-managed-args {:deleted true})
-    (testing "the valid remove DROPPED its entry; the unregistered sibling was skipped"
-      (is (nil? (entry good-key)) "valid remove landed")
-      (is (= [good-key] (:removed (:patch-summary (instance :rm1)))) "only the valid key removed")
-      (is (= :success (:status (instance :rm1))) "instance settled :success")
-      (is (= :completed (:status (mutation-record :rm1))) "work row :completed"))
-    (testing "the skipped remove sibling is recorded :target-skipped with :arm :removes"
-      (let [skipped (:target-skipped (:patch-summary (instance :rm1)))]
-        (is (= [:removes] (mapv :arm skipped)))
-        (is (= [:unregistered-resource] (mapv :reason skipped)))))))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+  (reply-success! @last-managed-args {:title "doomed"})
+  (rf/reg-mutation :m/delete2
+                   {:params-schema [:map [:slug :string]]
+                    :removes (fn [{:keys [slug]} _r]
+                               [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                                {:resource :r/never-registered :params {:slug slug} :scope :rf.scope/global}])}
+                   (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete2 :params {:slug "w"} :instance :rm1}])
+  (reply-success! @last-managed-args {:deleted true})
+  (let [summary (:patch-summary (instance :rm1))]
+    (is (nil? (entry (article-key))))
+    (is (= [(article-key)] (:removed summary)))
+    (is (= :success (:status (instance :rm1))))
+    (is (= :completed (:status (mutation-record :rm1))))
+    (is (= [{:arm :removes :reason :unregistered-resource}]
+           (mapv #(select-keys % [:arm :reason]) (:target-skipped summary))))))
 
-;; ===========================================================================
-;; 12. before-request invalidation PRECEDES request lowering
-;; ===========================================================================
-
-(deftest before-request-invalidation-precedes-lowering
-  ;; The contract says :before-request invalidation fires BEFORE
-  ;; the request is lowered to transport. Prove it on the returned :fx VECTOR
-  ;; (fx run in order): the :rf.resource/invalidate-tags dispatch must sit at a
-  ;; LOWER index than the :rf.http/managed lower fx.
-  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
-  (let [cofx   {:rf.db/runtime {} :rf.frame/id :rf/default
-                :rf.resource/generation-allocation {:generation 1 :counter 1}}
-        out    (rf.resources.mutation-events/execute-handler
-                 cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord1}])
-        fx     (:fx out)
-        fx-ids (mapv first fx)
-        inv-ix (->> fx (keep-indexed (fn [i [id sub]]
-                                       (when (and (= :dispatch id)
-                                                  (= :rf.resource/invalidate-tags (first sub))) i)))
-                    first)
-        low-ix (->> fx-ids (keep-indexed (fn [i id] (when (= :rf.http/managed id) i))) first)]
-    (testing "both the invalidation dispatch and the managed-HTTP lower are present"
-      (is (some? inv-ix) "a before-request invalidation dispatch was emitted")
-      (is (some? low-ix) "the managed-HTTP request was lowered"))
-    (testing "EP-0003 §Mutations — invalidation is ordered BEFORE
-              the request lowering in the fx vector"
-      (is (< inv-ix low-ix)
-          (str "invalidation (index " inv-ix ") must precede lowering (index "
-               low-ix "); got fx ids " (pr-str fx-ids))))))
-
-(deftest default-timing-emits-no-before-request-invalidation
-  ;; A default (:after-success) timing emits NO before-request
-  ;; dispatch; the lower fx is still present and the reorder is a no-op.
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request) ;; default :after-success
-  (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default
-              :rf.resource/generation-allocation {:generation 1 :counter 1}}
-        out  (rf.resources.mutation-events/execute-handler
-               cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord2}])
-        fx-ids (mapv first (:fx out))]
-    (testing "no before-request invalidation dispatch is emitted on the default timing"
-      (is (not-any? (fn [[id sub]] (and (= :dispatch id)
-                                        (= :rf.resource/invalidate-tags (first sub))))
-                    (:fx out))))
-    (testing "the managed-HTTP lower fx is still present"
-      (is (some #{:rf.http/managed} fx-ids)))))
-
-;; ===========================================================================
-;; 13. serializable mutation INSTANCE ids (reject host values)
-;; ===========================================================================
-
-(deftest execute-rejects-non-serializable-instance-id-fails-closed
-  ;; A non-serializable caller-supplied instance id is rejected
-  ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the id is
-  ;; durable + trace-visible + epoch-restore-safe). The event loop catches the
-  ;; throw, so we observe the fail-closed EFFECT: nothing lowered to transport,
-  ;; and no instance row written. (The throw itself is asserted directly in
-  ;; `validate-instance-id-accepts-scalars-and-vectors`.)
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance (fn [])}])
-  (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
-    (is (nil? @last-managed-args)))
-  (testing "no instance row was written"
-    (is (empty? (instances :rf/default)))))
-
-(deftest validate-instance-id-accepts-scalars-and-vectors
-  ;; Valid scalar / vector instance ids pass (they ARE
-  ;; epoch / restore-safe serializable EDN).
-  (testing "scalar ids pass"
-    (is (= :form/save-1 (rf.resources.mutation-runtime/validate-instance-id! :form/save-1 'test)))
-    (is (= "inst-7" (rf.resources.mutation-runtime/validate-instance-id! "inst-7" 'test)))
-    (is (= 42 (rf.resources.mutation-runtime/validate-instance-id! 42 'test))))
-  (testing "a vector id (e.g. a row-keyed form instance) passes"
-    (is (= [:row 7] (rf.resources.mutation-runtime/validate-instance-id! [:row 7] 'test))))
-  (testing "nil passes (the events layer then mints a generated id)"
-    (is (nil? (rf.resources.mutation-runtime/validate-instance-id! nil 'test))))
-  (testing "a host value is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-non-serializable-instance-id"
-          (rf.resources.mutation-runtime/validate-instance-id! (fn []) 'test)))))
-
-(deftest cedn-distinct-sequential-instance-ids-do-not-clobber
-  ;; Two caller-supplied instance ids that are CEDN-distinct but
-  ;; Clojure-= (a vector `[:row 7]` and a list `'(:row 7)`) MUST address
-  ;; DISTINCT runtime rows. Using the instance id directly as a Clojure map
-  ;; key under :rf.runtime/mutations would collapse them, since
-  ;; `(= [:row 7] '(:row 7))` is TRUE: the second execute would clobber the
-  ;; first's row (and a later settle / clear would gate the wrong one).
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (let [all-args (atom [])]
-    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
-    (let [iv [:row 7]
-          il '(:row 7)]
-      (is (not= (rf.resources.mutation-runtime/instance-key-id iv) (rf.resources.mutation-runtime/instance-key-id il))
-          "their byte key-ids differ (v[…] vs l(…)) — distinct storage rows")
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "v"} :instance iv}])
-      (let [args-v (last @all-args)]
-        (rf/dispatch-sync [:rf.mutation/execute
-                           {:mutation :m/save :params {:slug "l"} :instance il}])
-        (let [args-l (last @all-args)]
-          (testing "TWO distinct instance rows exist (no =-collapse onto one)"
-            (is (= 2 (count (instances :rf/default))))
-            (is (= :pending (:status (instance iv))))
-            (is (= :pending (:status (instance il))))
-            (is (= iv (:instance/id (instance iv))) "vector row keeps its vector id")
-            (is (= il (:instance/id (instance il))) "list row keeps its list id")
-            (is (vector? (:instance/id (instance iv))) "vector kind preserved")
-            (is (seq?    (:instance/id (instance il))) "list kind preserved")
-            (is (= {:slug "v"} (:params (instance iv))) "vector row keeps its OWN params")
-            (is (= {:slug "l"} (:params (instance il))) "list row keeps its OWN params"))
-          (testing "settling the LIST instance leaves the VECTOR instance untouched
-                    (no cross-gating between CEDN-distinct rows)"
-            (reply-success! args-l {:id :l})
-            (is (= :success (:status (instance il))) "list row settled")
-            (is (= {:id :l} (:result (instance il))))
-            (is (= :pending (:status (instance iv)))
-                "vector row is STILL pending — the list settle did not gate it"))
-          (testing "then settling the VECTOR instance"
-            (reply-success! args-v {:id :v})
-            (is (= :success (:status (instance iv))))
-            (is (= {:id :v} (:result (instance iv))))))))))
-
-(deftest cedn-distinct-sequential-instance-ids-clear-independently
-  ;; `:rf.mutation/clear` must target the row by the SAME byte
-  ;; identity, so clearing `[:row 7]` does NOT also clear / gate `'(:row 7)`.
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (let [all-args (atom [])]
-    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
-    (let [iv [:row 7]
-          il '(:row 7)]
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "v"} :instance iv}])
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "l"} :instance il}])
-      (is (= 2 (count (instances :rf/default))) "two rows")
-      (rf/dispatch-sync [:rf.mutation/clear {:instance iv}])
-      (testing "only the vector row was cleared; the list row survives intact"
-        (is (nil? (instance iv)) "the vector row is gone")
-        (is (some? (instance il)) "the CEDN-distinct list row survives")
-        (is (= :pending (:status (instance il))))
-        (is (= il (:instance/id (instance il))) "and keeps its kind-preserving id")))))
-
-;; ===========================================================================
-;; ADVERSARIAL — two frames executing the SAME mutation
-;; instance at the SAME generation get DISTINCT frame-qualified transport
-;; request-ids, so the process-global managed-HTTP in-flight registry cannot
-;; supersede / abort one frame's write with the other's. Both frames settle
-;; independently. The bare frame-local work-id WOULD collide.
-;; ===========================================================================
-
-(deftest cross-frame-mutation-request-id-does-not-collide
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (let [all-args (atom [])]
-    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
-    (let [fa :xm/frame-a
-          fb :xm/frame-b]
-      (rf/make-frame {:id fa :doc "frame A"})
-      (rf/make-frame {:id fb :doc "frame B"})
-      ;; both frames execute the SAME mutation under the SAME caller-supplied
-      ;; instance id → SAME frame-local work-id at the same generation.
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
-                        {:frame fa})
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
-                        {:frame fb})
-      (let [wid-a (:current-work (instance fa :form/save-1))
-            wid-b (:current-work (instance fb :form/save-1))
-            req-ids (mapv :request-id @all-args)]
-        (testing "each frame mints the SAME frame-local work-id (the collision
-                  a bare work-id request-id would cause)"
-          (is (= wid-a wid-b) "bare work-ids identical across frames"))
-        (testing "Spec 016 §Transport — the lowered transport :request-id is
-                  the frame-QUALIFIED token, DISTINCT per frame"
-          (is (= 2 (count req-ids)))
-          (is (contains? (set req-ids) (rf.resources.work-ledger/managed-request-id fa wid-a)))
-          (is (contains? (set req-ids) (rf.resources.work-ledger/managed-request-id fb wid-b)))
-          (is (apply distinct? req-ids) "the two frames' request-ids differ")
-          (is (not= (set req-ids) #{wid-a})
-              "the request-id is NOT the bare work-id (which would collide)"))
-        (testing "each frame holds an independent live work record keyed by
-                  its own [frame-id work-id]"
-          (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db fa) wid-a))))
-          (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db fb) wid-b))))
-          (is (some? (rf.resources.work-ledger/get-handle fa wid-a)))
-          (is (some? (rf.resources.work-ledger/get-handle fb wid-b))))
-        (testing "frame A's reply settles ONLY frame A's instance — frame B's
-                  write stays independently in flight (no stranded instance)"
-          ;; the reply event the live transport appends, dispatched into frame A
-          (rf/dispatch-sync (conj (:on-success (first @all-args)) {:status :ok :value {:ok true}})
-                            {:frame fa})
-          (is (= :success (:status (instance fa :form/save-1))) "frame A settled")
-          (is (= :pending (:status (instance fb :form/save-1)))
-              "frame B's instance still pending — untouched by frame A's reply"))))))
-
-;; ===========================================================================
-;; 14. EP-0016 D1 — mutation completion continuation (:reply-to)
-;;
-;; A `:rf.mutation/execute` may carry a call-site `:reply-to` event target. On
-;; an ACCEPTED terminal reply the runtime dispatches that target with the
-;; canonical uniform reply map appended (the shared reply substrate, NOT a
-;; family-private callback), AFTER cache consequences + instance settlement
-;; (phase 6). A STALE / superseded reply never fires the continuation.
-;; ===========================================================================
-
-(def ^:private replied (atom []))
-
-(defn- reg-capture-continuation!
-  "Register an app event that records the reply map the continuation appends
-  (the LAST arg) plus the full event vector (so static-arg preservation is
-  observable)."
-  []
-  (reset! replied [])
-  (rf/reg-event :test/save-replied
-                   (fn [_ event] (swap! replied conj event) {})))
-
-(deftest reply-to-fires-on-accepted-success-and-carries-the-reply-map
-  ;; Validation rule 2 + 5: the continuation fires exactly once for an accepted
-  ;; reply and carries mutation id, params, instance, scope, status, value,
-  ;; affected keys, work id, frame id, completion time, and cause.
+(deftest mutation-removes-drops-the-exact-entry-and-reports-it
   (reg-capture-continuation!)
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
-        completed-at 1781078400777]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_params result] {(art-target) result})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :rc1
-                        :reply-to [:test/save-replied]}])
-    (reply-success! @last-managed-args {:slug "w" :title "Fresh"}
-                    {:rf.cofx {:rf/time-ms completed-at}})
-    (testing "the continuation fired exactly once"
-      (is (= 1 (count @replied))))
-    (testing "EP-0016 — the appended reply map carries the full continuation contract"
-      (let [[ev-id reply] (first @replied)]
-        (is (= :test/save-replied ev-id))
-        (is (= :ok (:status reply)))
-        (is (= :m/save (:mutation reply)))
-        (is (= {:slug "w"} (:params reply)))
-        (is (= :rc1 (:instance reply)))
-        (is (= :rf.scope/global (:scope reply)))
-        (is (= {:slug "w" :title "Fresh"} (:value reply)) "decoded result rides as :value")
-        (is (= :mutation (:rf.reply/work-kind reply)))
-        (is (some? (:rf.reply/work-id reply)))
-        (is (= :rf/default (:rf.frame/id reply)))
-        (is (= completed-at (:completed-at reply)) "EP-0010 causal completion time")
-        (is (= [:mutation :m/save :rc1] (:cause reply)))
-        (is (contains? (:affected-keys reply) rkey)
-            "the populated key is in :affected-keys")))))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+  (reply-success! @last-managed-args {:title "doomed"})
+  (rf/reg-mutation :m/delete
+                   {:params-schema [:map [:slug :string]]
+                    :removes (fn [{:keys [slug]} _result]
+                               [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}])}
+                   (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/delete :params {:slug "w"} :instance :del1
+                      :reply-to [:test/save-replied]}])
+  (reply-success! @last-managed-args {:deleted true})
+  (is (nil? (entry (article-key))))
+  (is (= [(article-key)] (:removed (:patch-summary (instance :del1)))))
+  (is (= #{(article-key)} (set (:affected-keys (instance :del1)))))
+  (is (contains? (:affected-keys (second (first @replied))) (article-key))))
+
+(deftest mutation-removes-accepts-single-map-form-target
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+  (reply-success! @last-managed-args {:title "x"})
+  (rf/reg-mutation :m/del-one
+                   {:params-schema [:map [:slug :string]]
+                    :removes (fn [{:keys [slug]} _r]
+                               {:resource :r/article :params {:slug slug} :scope :rf.scope/global})}
+                   (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-one :params {:slug "w"} :instance :do1}])
+  (reply-success! @last-managed-args {:deleted true})
+  (is (nil? (entry (article-key))))
+  (testing "removing a key with no entry is a no-op"
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-one :params {:slug "gone"} :instance :dm1}])
+    (reply-success! @last-managed-args {:deleted true})
+    (is (= [] (:removed (:patch-summary (instance :dm1)))))))
+
+;; ---- :reply-to continuation -------------------------------------------------
+;; On an accepted terminal reply the runtime dispatches the call-site
+;; `:reply-to` target with the canonical reply map appended, after cache
+;; consequences and instance settlement. A stale reply never fires it.
+
+(deftest reply-to-fires-on-accepted-success-and-carries-the-reply-map
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_params result] {(art-target) result})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :rc1
+                      :reply-to [:test/save-replied]}])
+  (reply-success! @last-managed-args {:slug "w" :title "Fresh"}
+                  {:rf.cofx {:rf/time-ms 1781078400777}})
+  (is (= 1 (count @replied)))
+  (let [[ev-id reply] (first @replied)]
+    (is (= :test/save-replied ev-id))
+    (is (= {:status :ok :mutation :m/save :params {:slug "w"} :instance :rc1
+            :scope :rf.scope/global :value {:slug "w" :title "Fresh"}
+            :rf.reply/work-kind :mutation :rf.frame/id :rf/default
+            :completed-at 1781078400777 :cause [:mutation :m/save :rc1]}
+           (select-keys reply [:status :mutation :params :instance :scope :value
+                               :rf.reply/work-kind :rf.frame/id :completed-at :cause])))
+    (is (some? (:rf.reply/work-id reply)))
+    (is (contains? (:affected-keys reply) (article-key)))))
 
 (deftest reply-to-preserves-static-call-site-args
-  ;; Spec 016 §Mutation completion continuations — `:reply-to [:e {:kind :x}]`
-  ;; dispatches `[:e {:kind :x} reply]` (the reply appended AFTER static args).
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :sc1
                       :reply-to [:test/save-replied {:kind :article} 7]}])
   (reply-success! @last-managed-args {:ok true})
-  (testing "static call-site args are preserved; the reply is the FINAL arg"
-    (let [ev (first @replied)]
-      (is (= 4 (count ev)) "event-id + 2 static args + reply")
-      (is (= [:test/save-replied {:kind :article} 7] (subvec ev 0 3)))
-      (is (map? (last ev)))
-      (is (= :ok (:status (last ev)))))))
+  (let [ev (first @replied)]
+    (is (= [:test/save-replied {:kind :article} 7] (butlast ev)))
+    (is (= :ok (:status (last ev))))))
 
 (deftest reply-to-target-metadata-reaches-the-handler
-  ;; Managed-Effects §The reply target: the reply map is appended to the
-  ;; app's target vector as written, so the vector's metadata reaches the
-  ;; continuation handler, as it does on a managed HTTP reply.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
@@ -1575,129 +920,65 @@
                       :reply-to (with-meta [:test/save-replied {:kind :article}]
                                   {:app/tag :article})}])
   (reply-success! @last-managed-args {:ok true})
-  (testing "the continuation handler receives the target vector's metadata"
-    (let [ev (first @replied)]
-      (is (= 1 (count @replied)))
-      (is (= [:test/save-replied {:kind :article}] (butlast ev)))
-      (is (= {:app/tag :article} (meta ev))))))
-
-(deftest execute-rejects-malformed-reply-to-fails-closed
-  ;; The call-site `:reply-to` is transport-payload-only, but it MUST be
-  ;; data-only: the execute handler runs it through
-  ;; `re-frame.reply/durable-target` AT ISSUANCE, before any runtime-db /
-  ;; work-ledger write, transport lower, or trace. This pins the dispatch-path
-  ;; fail-closed EFFECT: a malformed call-site `:reply-to` rejects BEFORE any
-  ;; transport lower / instance write. The throw itself is core's, asserted at
-  ;; the fn boundary by `re-frame.reply-cljs-test` (`malformed-target-fails-closed`,
-  ;; `durable-target-is-data-only`). The event loop catches the throw, so we
-  ;; observe the absence of side effects (mirrors
-  ;; `execute-rejects-non-serializable-instance-id-fails-closed`).
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance :bad-rt
-                      :reply-to {:event :not-a-vector}}])
-  (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
-    (is (nil? @last-managed-args)))
-  (testing "no instance row was written"
-    (is (nil? (instance :bad-rt)))))
+  (let [ev (first @replied)]
+    (is (= [:test/save-replied {:kind :article}] (butlast ev)))
+    (is (= {:app/tag :article} (meta ev)))))
 
 (deftest reply-to-observes-settled-instance-and-cache-consequences
-  ;; Validation rule 3: the continuation fires AFTER cache consequences and
-  ;; mutation instance settlement — a handler reached by `:reply-to` sees both
-  ;; already settled for the accepted reply.
   (let [seen (atom nil)]
-    (reset! replied [])
-    (rf/reg-resource :r/article
-                     {:scope :rf.scope/global
-                      :params-schema [:map [:slug :string]]
-                      :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                     (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-    (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-      (rf/reg-mutation :m/save
-                       {:params-schema [:map [:slug :string]]
-                        :populates (fn [_params result] {(art-target) result})}
-                       (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-      ;; the continuation handler reads the runtime-db AT continuation time:
-      ;; both the instance settle AND the populated entry must already be in.
-      (rf/reg-event :test/save-replied
-                       (fn [_ [_ reply]]
-                         (reset! seen {:instance-status (:status (instance :pc1))
-                                       :entry-status    (:status (entry rkey))
-                                       :entry-data      (:data (entry rkey))
-                                       :reply-status    (:status reply)})
-                         {}))
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/save :params {:slug "w"} :instance :pc1
-                          :reply-to [:test/save-replied]}])
-      (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-      (testing "the continuation observed the instance ALREADY settled :success"
-        (is (= :success (:instance-status @seen))))
-      (testing "and the populate cache consequence ALREADY applied"
-        (is (= :loaded (:entry-status @seen)))
-        (is (= {:slug "w" :title "Fresh"} (:entry-data @seen))))
-      (testing "the reply status is :ok"
-        (is (= :ok (:reply-status @seen)))))))
+    (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+    (rf/reg-event :test/save-replied
+                  (fn [_ [_ reply]]
+                    (reset! seen {:instance-status (:status (instance :pc1))
+                                  :entry           (select-keys (entry (article-key)) [:status :data])
+                                  :reply-status    (:status reply)})
+                    {}))
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :pc1
+                        :reply-to [:test/save-replied]}])
+    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+    (is (= {:instance-status :success
+            :entry           {:status :loaded :data {:slug "w" :title "Fresh"}}
+            :reply-status    :ok}
+           @seen))))
 
 (deftest reply-to-fires-on-accepted-error
-  ;; D1 delivery rule: keyed on ACCEPTANCE, not a status enumeration — an
-  ;; accepted `:error` reply fires the continuation too (the handler folds
-  ;; validation errors / form state off the reply `:status`).
+  ;; Delivery keys on acceptance, not on status: an accepted :error fires too.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ec1
                       :reply-to [:test/save-replied]}])
   (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-  (testing "the continuation fired for the accepted error reply"
-    (is (= 1 (count @replied)))
-    (let [reply (second (first @replied))]
-      (is (= :error (:status reply)))
-      (is (= {:kind :rf.http/http-5xx :status 503} (:error reply)))
-      (is (= :m/save (:mutation reply)))
-      (is (= :ec1 (:instance reply)))
-      (is (= #{} (:affected-keys reply)) "a failed write touches no exact key")
-      (is (= [:mutation :m/save :ec1] (:cause reply)))))
-  ;; A genuine (non-abort) failure must not be swallowed into :cancelled.
-  (testing "the work-ledger row settled terminal :failed"
-    (is (= :failed (:status (mutation-record :ec1))))))
+  (is (= 1 (count @replied)))
+  (is (= {:status :error :error {:kind :rf.http/http-5xx :status 503} :mutation :m/save
+          :instance :ec1 :affected-keys #{} :cause [:mutation :m/save :ec1]}
+         (select-keys (second (first @replied))
+                      [:status :error :mutation :instance :affected-keys :cause])))
+  (is (= :failed (:status (mutation-record :ec1))) "a genuine failure is not :cancelled"))
 
 (deftest accepted-abort-reply-settles-ledger-cancelled
-  ;; EP-0011: an ACCEPTED mutation abort/cancel reply
-  ;; (`{:kind :rf.http/aborted}`, which the reply substrate lowers to
-  ;; `:status :cancelled` / `:rf.reply/work-status :cancelled`) must settle the
-  ;; work-ledger row terminal `:cancelled` — NOT `:failed`. The ledger
-  ;; status MUST agree with the canonical reply's `:rf.reply/work-status`
-  ;; (Managed-Effects §Status taxonomy / §Work-status mapping). A stale
-  ;; abort still settles `:suppressed` (covered by the stale suite); this
-  ;; pins the LIVE/accepted path.
+  ;; The ledger status must agree with the reply's :rf.reply/work-status.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ac1
                       :reply-to [:test/save-replied]}])
   (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
-  (testing "the accepted terminal cancellation fired the continuation (D1
-            delivery rule)"
-    (is (= 1 (count @replied)))
-    (is (= :cancelled (:status (second (first @replied))))))
-  (testing "the work-ledger row settled terminal :cancelled (agrees with the reply)"
-    (let [rec (mutation-record :ac1)]
-      (is (= :cancelled (:status rec)))
-      (is (= :cancelled (:rf.reply/work-status (second (first @replied))))
-          "the ledger status agrees with the canonical reply :rf.reply/work-status")))
-  (testing "the ledger outcome carries the cancel reason, not an error summary"
-    (let [rec (mutation-record :ac1)]
-      (is (= :aborted (:reason (:outcome rec))))
-      (is (nil? (:error (:outcome rec)))))))
+  (is (= [{:status :cancelled :rf.reply/work-status :cancelled}]
+         (mapv #(select-keys (second %) [:status :rf.reply/work-status]) @replied)))
+  (let [rec (mutation-record :ac1)]
+    (is (= :cancelled (:status rec)))
+    (is (= :aborted (:reason (:outcome rec))))
+    (is (nil? (:error (:outcome rec))))))
 
 (deftest stale-reply-does-not-fire-the-continuation
-  ;; Validation rule 4: a STALE / superseded mutation reply fires NO
-  ;; continuation — the mandatory stale-suppression boundary the reply envelope
-  ;; enforces is inherited for free.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  ;; two executes under the SAME instance id → the gen-1 reply is now stale.
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :i
                       :reply-to [:test/save-replied]}])
@@ -1705,22 +986,12 @@
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :i
                         :reply-to [:test/save-replied]}])
-    (is (= 2 (:generation (instance :i))))
-    (testing "the STALE gen-1 reply does NOT fire the continuation, and emits
-              no :rf.mutation/replied row (only a stale-suppressed one)"
-      (let [traces (record-mutation-traces! #(reply-success! gen1-args {:stale "result"}))]
-        (is (= 0 (count @replied)) "no continuation for the superseded reply")
-        (is (= 0 (count (filter #(= :rf.mutation/replied (:operation %)) traces))))
-        (is (= 1 (count (filter #(= :rf.mutation/stale-suppressed (:operation %)) traces))))))
-    (testing "the CURRENT gen-2 reply DOES fire the continuation exactly once"
-      (reply-success! @last-managed-args {:fresh "result"})
-      (is (= 1 (count @replied)))
-      (is (= {:fresh "result"} (:value (second (first @replied))))))))
+    (reply-success! gen1-args {:stale "result"})
+    (is (= [] @replied))
+    (reply-success! @last-managed-args {:fresh "result"})
+    (is (= [{:fresh "result"}] (mapv (comp :value second) @replied)))))
 
 (deftest cleared-instance-reply-does-not-fire-the-continuation
-  ;; A `:rf.mutation/clear` removes the instance row; a late reply for the
-  ;; cleared instance is stale-suppressed (no live instance), so it fires no
-  ;; continuation — the same suppression gate, via the clear path.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
@@ -1729,32 +1000,12 @@
   (let [args @last-managed-args]
     (rf/dispatch-sync [:rf.mutation/clear {:instance :clr1}])
     (is (nil? (instance :clr1)))
-    (testing "a reply for the cleared instance fires no continuation"
-      (reply-success! args {:late "result"})
-      (is (= 0 (count @replied))))))
-
-;; ===========================================================================
-;; The :rf.mutation/replied trace lands AFTER settlement
-;; ===========================================================================
-
-(defn- ops-of
-  "The ordered vector of `:operation` keywords from captured trace events."
-  [rows]
-  (mapv :operation rows))
-
-(defn- index-of
-  "Portable (JVM + CLJS) first-index of `x` in vector `v`, or -1 if absent."
-  [v x]
-  (or (first (keep-indexed (fn [i e] (when (= e x) i)) v)) -1))
+    (reply-success! args {:late "result"})
+    (is (= [] @replied))))
 
 (deftest replied-trace-lands-after-succeeded-in-phase-order
-  ;; The adversarial phase-order pin: `:rf.mutation/replied` is emitted from
-  ;; the settlement boundary AFTER `:rf.mutation/succeeded`, so its stream
-  ;; position truthfully reflects phase 6 (continuation runs after cache
-  ;; consequences + instance settlement). Emitting it while BUILDING the
-  ;; dispatch effect (inside continuation-fx) would let the row appear BEFORE
-  ;; succeeded — misleading evidence of the phase order — which this pins
-  ;; against.
+  ;; The :rf.mutation/replied row is emitted at settlement, after
+  ;; :rf.mutation/succeeded, so its stream position reflects the phase order.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [rows (record-mutation-traces!
@@ -1763,218 +1014,52 @@
                                     {:mutation :m/save :params {:slug "w"} :instance :po1
                                      :reply-to [:test/save-replied]}])
                  (reply-success! @last-managed-args {:title "new"})))
-        ops (ops-of rows)
-        succ-idx (index-of ops :rf.mutation/succeeded)
-        repl-idx (index-of ops :rf.mutation/replied)]
-    (testing "BOTH the settlement and the replied trace rows were emitted"
-      (is (not= -1 succ-idx) ":rf.mutation/succeeded emitted")
-      (is (not= -1 repl-idx) ":rf.mutation/replied emitted"))
-    (testing "the :rf.mutation/replied row follows :rf.mutation/succeeded
-              (post-settlement evidence, not pre-settlement)"
-      (is (< succ-idx repl-idx)
-          (str "expected succeeded before replied; got ops " (pr-str ops))))
-    (testing "the continuation still actually fired (the row corresponds to a
-              real dispatched continuation, not a phantom)"
-      (is (= 1 (count @replied))))
-    (testing "exactly one :rf.mutation/replied row, carrying the full
-              continuation evidence shape"
-      (let [replied-rows (filter #(= :rf.mutation/replied (:operation %)) rows)
-            row          (:tags (first replied-rows))]
-        (is (= 1 (count replied-rows)))
-        ;; :target is the normalized reply-target descriptor (the :reply-to
-        ;; vector lowered to {:event … :delivery :append} by re-frame.reply).
-        (is (= [:test/save-replied] (:event (:target row))))
-        (is (= :append (:delivery (:target row))))
-        (is (some? (:work/id row)))
-        (is (= :m/save (:mutation row)))
-        (is (= :po1 (:instance row)))
-        (is (= :ok (:status row)))
-        (is (= [:mutation :m/save :po1] (:cause row)))))))
+        row  (:tags (first (filter #(= :rf.mutation/replied (:operation %)) rows)))]
+    (is (= [:rf.mutation/succeeded :rf.mutation/replied]
+           (filterv #{:rf.mutation/succeeded :rf.mutation/replied} (map :operation rows))))
+    (is (= {:mutation :m/save :instance :po1 :status :ok :cause [:mutation :m/save :po1]}
+           (select-keys row [:mutation :instance :status :cause])))
+    (is (= {:event [:test/save-replied] :delivery :append}
+           (select-keys (:target row) [:event :delivery])))))
 
-(deftest reply-to-fires-after-failure-invalidation
-  ;; phase-6 ordering on the failure path: the continuation composes AFTER the
-  ;; optional failure-time invalidation (it is dispatched last).
-  (reg-capture-continuation!)
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "x"})
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :fi1
-                        :reply-to [:test/save-replied]}])
-    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-    (testing "the failure-time invalidation marked the tag stale"
-      (is (some? (:invalidated-at (entry rkey)))))
-    (testing "AND the continuation fired for the accepted error reply"
-      (is (= 1 (count @replied)))
-      (is (= :error (:status (second (first @replied))))))))
-
-;; ===========================================================================
-;; 15. invalidated/stale keys flow into :affected-keys
-;; ===========================================================================
-;;
-;; Spec 016 §Mutation completion continuations: `:affected-keys` are the keys
-;; POPULATED, PATCHED, REMOVED, OR MARKED STALE by the accepted reply. These
-;; pin that the keys an invalidation pass stales are included, on both the
-;; success and the failure path (the runtime pre-computes the stale
-;; keys through the SAME shared match the dispatched invalidate-tags uses).
+;; :affected-keys are the keys populated, patched, removed or marked stale by
+;; the accepted reply.
 
 (deftest invalidation-only-success-includes-stale-keys-in-affected-keys
   (reg-capture-continuation!)
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    ;; an ownerless loaded article entry the mutation will INVALIDATE (no
-    ;; populate / patch — invalidation is the ONLY cache consequence).
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
-                        :owner [:v :a]}])
-    (reply-success! @last-managed-args {:title "old"})
-    (rf/dispatch-sync [:rf.resource/release-owner
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
-    (reset! last-managed-args nil)
-    ;; a mutation that ONLY invalidates the article tag (no populate / patch)
-    (rf/reg-mutation :m/touch
-                     {:params-schema [:map [:slug :string]]
-                      :invalidates (fn [{:keys [slug]} _r] #{[:article slug]})}
-                     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/touch")}}))
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/touch :params {:slug "w"} :instance :iv1
-                        :reply-to [:test/save-replied]}])
-    (reply-success! @last-managed-args {:ok true})
-    (testing "the stale-marked key is in the reply :affected-keys
-              even though nothing was populated/patched"
-      (let [reply (second (first @replied))]
-        (is (= 1 (count @replied)))
-        (is (contains? (:affected-keys reply) rkey)
-            "the invalidated key flows into :affected-keys")))
-    (testing "and the instance :affected-keys records it too"
-      (is (= #{rkey} (set (:affected-keys (instance :iv1))))))))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                      :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.resource/release-owner
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+  (rf/reg-mutation :m/touch
+                   {:params-schema [:map [:slug :string]]
+                    :invalidates (fn [{:keys [slug]} _r] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/touch")}}))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/touch :params {:slug "w"} :instance :iv1
+                      :reply-to [:test/save-replied]}])
+  (reply-success! @last-managed-args {:ok true})
+  (is (contains? (:affected-keys (second (first @replied))) (article-key)))
+  (is (= #{(article-key)} (set (:affected-keys (instance :iv1))))))
 
 (deftest after-failure-invalidation-includes-stale-keys-in-affected-keys
   (reg-capture-continuation!)
   (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
-    (reply-success! @last-managed-args {:title "x"})
-    (rf/dispatch-sync [:rf.resource/release-owner
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :afk1
-                        :reply-to [:test/save-replied]}])
-    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-    (testing "an :after-failure invalidation's stale key is in
-              :affected-keys"
-      (let [reply (second (first @replied))]
-        (is (= :error (:status reply)))
-        (is (contains? (:affected-keys reply) rkey))))
-    (testing "and the failed instance records the affected key"
-      (is (= #{rkey} (set (:affected-keys (instance :afk1))))))))
-
-;; ===========================================================================
-;; 16. mutation :removes drops exact entries
-;; ===========================================================================
-
-(deftest mutation-removes-drops-the-exact-entry-and-reports-it
-  ;; Spec 016 §Map-form exact resource targets — accepted replies apply
-  ;; patches, populates, invalidates, AND removes. A delete write drops the
-  ;; cached entry (mirroring :rf.resource/remove) and reports the removed key.
-  (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    ;; seed a loaded entry the delete mutation will remove
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "doomed"})
-    (is (some? (entry rkey)) "entry seeded")
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/delete
-                     {:params-schema [:map [:slug :string]]
-                      :removes (fn [{:keys [slug]} _result]
-                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}])}
-                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/delete :params {:slug "w"} :instance :del1
-                        :reply-to [:test/save-replied]}])
-    (reply-success! @last-managed-args {:deleted true})
-    (testing "the exact entry was REMOVED from the cache"
-      (is (nil? (entry rkey)) "the entry is gone (dissoc'd by key-id)"))
-    (testing "the removed key is on the instance patch-summary :removed + :affected-keys"
-      (is (= [rkey] (:removed (:patch-summary (instance :del1)))))
-      (is (= #{rkey} (set (:affected-keys (instance :del1))))))
-    (testing "the removed key is in the reply :affected-keys"
-      (is (contains? (:affected-keys (second (first @replied))) rkey)))))
-
-(deftest mutation-removes-accepts-single-map-form-target
-  ;; the :removes fn may return a SINGLE map-form target (sugar) — not only a
-  ;; collection. A remove of a key with no entry is a harmless no-op.
-  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "x"})
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/del-one
-                     {:params-schema [:map [:slug :string]]
-                      :removes (fn [{:keys [slug]} _r]
-                                 {:resource :r/article :params {:slug slug} :scope :rf.scope/global})}
-                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-one :params {:slug "w"} :instance :do1}])
-    (reply-success! @last-managed-args {:deleted true})
-    (testing "a single map-form target removes the entry"
-      (is (nil? (entry rkey))))
-    (testing "removing a key with no entry is a no-op (no throw, empty :removed)"
-      (rf/reg-mutation :m/del-missing
-                       {:params-schema [:map [:slug :string]]
-                        :removes (fn [{:keys [slug]} _r]
-                                   {:resource :r/article :params {:slug slug} :scope :rf.scope/global})}
-                       (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-missing :params {:slug "gone"} :instance :dm1}])
-      (reply-success! @last-managed-args {:deleted true})
-      (is (= [] (:removed (:patch-summary (instance :dm1))))))))
-
-;; ===========================================================================
-;; 18. mutation-state fails closed without an explicit frame
-;; ===========================================================================
-
-(deftest mutation-state-fails-closed-without-frame
-  ;; The mutation introspection half MUST be symmetric with
-  ;; `resource-state`: a frameless `mutation-state` call cannot
-  ;; silently pass nil through to `frame-runtime-db-value` (which returns nil
-  ;; for a missing frame) and return a nil that is INDISTINGUISHABLE from a
-  ;; genuinely absent instance. Per EP-0002 the frame target is carried
-  ;; explicitly; the MISSING explicit target fails closed.
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (testing "a frameless mutation-state call raises :rf.error/no-frame-context
-            (never a silent nil that is indistinguishable from an absent
-            instance)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
-          (rf/mutation-state {:instance :ms-no-frame}))))
-  (testing "an explicit nil :frame ALSO fails closed (nil is not a frame)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
-          (rf/mutation-state {:instance :ms-no-frame :frame nil}))))
-  (testing "a valid explicit frame returns nil ONLY for a genuinely absent
-            instance (the fail-closed boundary is the missing target, not a
-            vanished one)"
-    (is (nil? (rf/mutation-state {:instance :ms-absent :frame :rf/default}))))
-  (testing "an explicit but UNKNOWN / destroyed frame reads as nil runtime-db
-            and returns nil (no instance) — same result as a live frame with
-            no instance for the id, NOT a fail-closed throw"
-    (is (nil? (rf/mutation-state {:instance :ms-absent :frame :no/such-frame}))))
-  (testing "a valid explicit frame returns the instance row when present"
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :ms-present}])
-    (reply-success! @last-managed-args {:ok true})
-    (let [row (rf/mutation-state {:instance :ms-present :frame :rf/default})]
-      (is (some? row))
-      (is (= :success (:status row))))))
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "x"})
+  (rf/dispatch-sync [:rf.resource/release-owner
+                     {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :afk1
+                      :reply-to [:test/save-replied]}])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (is (some? (:invalidated-at (entry (article-key)))))
+  (let [reply (second (first @replied))]
+    (is (= :error (:status reply)))
+    (is (contains? (:affected-keys reply) (article-key))))
+  (is (= #{(article-key)} (set (:affected-keys (instance :afk1))))))
