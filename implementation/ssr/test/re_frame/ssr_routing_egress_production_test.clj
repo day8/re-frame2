@@ -1,47 +1,14 @@
 (ns re-frame.ssr-routing-egress-production-test
-  "Route sub-classification egresses in PRODUCTION here too, and
-  this namespace says so under the real gate.
+  "Route classification leaves the box in PRODUCTION through the hydration
+  payload, so this namespace runs the whole chain — a real `reg-route` and
+  `:rf.route/handle-url-change` activation, the per-frame registry,
+  `project-runtime-db`, `build-payload` — and holds in dev AND under
+  `-Dre-frame.debug=false` (the `jvm-ssr-prod-gate` job runs it there).
 
-  ## What this adds to `ssr-route-slice-projection-test`
-
-  \"No cross-frame classification bleed\" is a PRODUCTION-real privacy
-  invariant, and `implementation/core` can witness only part of it: the
-  PROJECTION half of sub classification has no production egress inside
-  core, because
-  `classification/project-sub-tags` is reached only from `trace/build-event`
-  inside `trace/emit!`'s `interop/debug-enabled?` gate. Under
-  `-Dre-frame.debug=false` no `:rf.sub/run` event is built at all.
-
-  `payload-policy/project-routing-egress` is one of the two sites outside core
-  where that classification DOES leave the box in a production build — the
-  hydration blob every visitor receives. `ssr-route-slice-projection-test`
-  pins the projector and is green under the gate; what
-  it does not do is drive the LOWERING. It installs the re-rooted declarations
-  directly (`elision/swap-elision-slot!` over
-  `routing.classification/apply-route-classification`), which proves the
-  projector reads what is in the registry but ASSUMES the thing that puts it
-  there. Route activation is the other half of the production path, and it is
-  the half a debug gate could plausibly be added to. So this namespace drives
-  `reg-route` plus a real `:rf.route/handle-url-change` and projects the frame's
-  ACTUAL runtime-db, end to end.
-
-  The two namespaces are therefore complements, not duplicates: one pins the
-  projector against a known registry, this one pins the whole chain —
-  activation → per-frame registry → `project-runtime-db` → `build-payload` —
-  in the posture a shipped server runs in.
-
-  ## Posture
-
-  Every assertion below holds in dev AND under `-Dre-frame.debug=false`.
-  Nothing here rebinds `interop/debug-enabled?`: the flag is read once at
-  namespace-load time and a `with-redefs` cannot reach it. The
-  posture is supplied by the JVM:
-
-      clojure -J-Dre-frame.debug=false -M:test -n re-frame.ssr-routing-egress-production-test
-
-  In CI the `jvm-ssr-prod-gate` job runs it in that posture, as part of the
-  whole suite `scripts/test-ssr-prod-gate.sh` discovers."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  `re-frame.ssr-route-slice-projection-test` pins the projector against a
+  registry it installs by hand; this one also proves activation lowers the
+  declarations, the half a debug gate could plausibly be added to."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             ;; Loading routing publishes the route classification machinery and
@@ -55,15 +22,7 @@
 (def ^:private token-secret "secret-oauth-token-u2x6w")
 (def ^:private blob-secret "huge-callback-blob-value-u2x6w")
 
-(defn- navigate-to-classified-route!
-  "Register an OAuth-callback-shaped route with a projection-relative
-  `:sensitive` / `:large` declaration and navigate to it FOR REAL. `reg-route`
-  plus a genuine `:rf.route/handle-url-change` runs the production activation
-  lowering (`routing.classification/apply-route-classification`, `:source
-  :route`), which is what writes the re-rooted absolute declarations into
-  `:rf/default`'s per-frame elision registry. `:return-to` is a plain
-  navigation breadcrumb classified by nothing — the over-redaction control."
-  []
+(deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
   (rf/reg-route :route/oauth-callback
                 {:sensitive [[:query :token]]
                  :large     [[:query :payload]]
@@ -75,42 +34,18 @@
   (rf/dispatch-sync [:rf.route/handle-url-change
                      (str "/oauth/callback?token=" token-secret
                           "&payload=" blob-secret
-                          "&return-to=/dashboard") {:rf.route/cause :link}]))
-
-(defn- live-runtime-db
-  "`:rf/default`'s ACTUAL runtime-db — the state a request frame would be
-  holding when the hydration payload is built, not a hand-written fixture map."
-  []
-  (rf.frame/frame-runtime-db-value :rf/default))
-
-;; ===========================================================================
-;; The egress site itself — the hydration blob redacts in production
-;; ===========================================================================
-
-(deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
-  (testing "`project-runtime-db` over the frame's REAL runtime-db, under the
-            explicit target frame the security-critical builders carry, then
-            `build-payload`, which makes the projected runtime-db the
-            serialized blob a browser actually gets. The allowlisted durable
-            routing slice goes through `project-routing-egress` at the
-            `[:rf.runtime/routing]` offset, so the registry's re-rooted
-            absolute route paths match and the classified values never reach
-            the wire."
-    (navigate-to-classified-route!)
-    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
-          payload  (rf.ssr.payload-policy/build-payload
-                     :rf/default {:public/page :callback} "h1"
-                     {:version 1 :runtime-db rt-slice})
-          current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
-      (is (= :rf/redacted (get-in current [:query :token]))
-          "the `:sensitive` query value redacts in the hydration payload")
-      (is (= blob-secret (get-in current [:query :payload]))
-          "the `:large` value rides whole — the hydration wire applies no size
-           elision, because the client route needs the value")
-      (is (= "/dashboard" (get-in current [:query :return-to]))
-          "the unclassified sibling rides verbatim — path-precise, not a
-           blanket scrub")
-      (is (= :route/oauth-callback (:route-id current))
-          "and so does the structural `:route-id`")
-      (is (not (.contains (pr-str payload) token-secret))
-          "GUARD: the blob the client receives carries no raw secret"))))
+                          "&return-to=/dashboard") {:rf.route/cause :link}])
+  (let [payload (rf.ssr.payload-policy/build-payload
+                  :rf/default {:public/page :callback} "h1"
+                  {:version    1
+                   :runtime-db (rf.ssr.payload-policy/project-runtime-db
+                                 (rf.frame/frame-runtime-db-value :rf/default) :rf/default)})]
+    ;; The large value rides whole (the hydration wire applies no size
+    ;; elision); the unclassified sibling rides verbatim.
+    (is (= {:route-id :route/oauth-callback
+            :query    {:token :rf/redacted :payload blob-secret :return-to "/dashboard"}}
+           (-> payload
+               (get-in [:rf/runtime-db :rf.runtime/routing :current])
+               (select-keys [:route-id :query]))))
+    (is (not (.contains (pr-str payload) token-secret))
+        "the blob the client receives carries no raw secret")))
