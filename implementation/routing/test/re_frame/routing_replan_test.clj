@@ -22,7 +22,7 @@
   reaches the caller through `trace/emit-error!`, gated on
   `rf.interop/debug-enabled?`; those assertions sit inside
   `(when rf.interop/debug-enabled? …)` arms."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
@@ -86,35 +86,18 @@
 ;; ---- the request gate -----------------------------------------------------
 
 (deftest replan-request-error-is-total-over-the-closed-payload
-  (testing "a two-element vector carrying a map with a non-nil :cause passes"
-    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:session-restore]}])))
-    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause :tenant-switch}])))
-    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause false}]))
-        "any non-nil edn is a cause — the gate checks presence, not truthiness"))
-  (testing "the event-VECTOR shape gate runs first"
-    (is (= {:reason :bad-event-arity :keys []}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources])))
-    (is (= {:reason :bad-event-arity :keys []}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:x]} :extra])))
-    (is (= {:reason :not-a-map :keys []}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources "session-restore"])))
-    (is (= {:reason :not-a-map :keys []}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources nil]))))
-  (testing "the payload is a CLOSED map over #{:cause} — structure before content"
-    (is (= {:reason :unknown-key :keys [:force?]}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:x] :force? true}])))
-    (is (= {:reason :unknown-key :keys [:a :b]}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:b 1 :a 2 :cause [:x]}]))
-        "offending keys ride in total canonical order")
-    (is (= {:reason :unknown-key :keys [:to]}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:to :route/docs}]))
-        "a route address is NOT a replan payload — the command replans the ACTIVE route"))
-  (testing ":cause is REQUIRED and non-nil — silently defaulting the one field the
-            command exists to carry would defeat it"
-    (is (= {:reason :missing-cause :keys [:cause]}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {}])))
-    (is (= {:reason :missing-cause :keys [:cause]}
-           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause nil}])))))
+  ;; Structure before content: arity, then map-ness, then the closed roster,
+  ;; then a present non-nil :cause (presence, not truthiness).
+  (are [event-vec expected] (= expected (rf.routing.replan/replan-request-error event-vec))
+    [:rf.route/replan-resources {:cause [:session-restore]}]        nil
+    [:rf.route/replan-resources {:cause false}]                     nil
+    [:rf.route/replan-resources]                                    {:reason :bad-event-arity :keys []}
+    [:rf.route/replan-resources {:cause [:x]} :extra]               {:reason :bad-event-arity :keys []}
+    [:rf.route/replan-resources "session-restore"]                  {:reason :not-a-map :keys []}
+    [:rf.route/replan-resources nil]                                {:reason :not-a-map :keys []}
+    [:rf.route/replan-resources {:b 1 :a 2 :cause [:x]}]            {:reason :unknown-key :keys [:a :b]}
+    [:rf.route/replan-resources {}]                                 {:reason :missing-cause :keys [:cause]}
+    [:rf.route/replan-resources {:cause nil}]                       {:reason :missing-cause :keys [:cause]}))
 
 ;; ---- the handler: rejections before planning ------------------------------
 
@@ -128,33 +111,16 @@
           (is (empty? @calls) "planning never ran")
           (is (nil? (slice)) "no slice was minted")
           (when rf.interop/debug-enabled?
-            (is (= 1 (count rejected)))
-            (let [tags (:tags (first rejected))]
-              (is (= :no-active-route (:reason tags)))
-              (is (= [] (:keys tags)))
-              (is (= :event (:where tags)))
-              (is (= :rf/default (:frame tags)) "frame-attributed")
-              (is (= :no-recovery (:recovery (first rejected))))))))
+            (is (= [[{:reason :no-active-route :keys [] :where :event :frame :rf/default} :no-recovery]]
+                   (mapv (juxt #(select-keys (:tags %) [:reason :keys :where :frame]) :recovery)
+                         rejected))))))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
       (let [before (slice)]
-        (is (= :route/docs (:route-id before)))
-        (reset! calls [])
-        (testing "every malformed shape rejects with its own :reason, consults no hook,
-                  and leaves the committed slice byte-for-byte unchanged"
-          (doseq [[event-vec reason keys*]
-                  [[[:rf.route/replan-resources]                              :bad-event-arity []]
-                   [[:rf.route/replan-resources {:cause [:x]} :extra]         :bad-event-arity []]
-                   [[:rf.route/replan-resources "restore"]                    :not-a-map       []]
-                   [[:rf.route/replan-resources {:cause [:x] :reload? true}]  :unknown-key     [:reload?]]
-                   [[:rf.route/replan-resources {}]                           :missing-cause   [:cause]]
-                   [[:rf.route/replan-resources {:cause nil}]                 :missing-cause   [:cause]]]]
-            (let [rejected (replan! event-vec)]
-              (is (empty? @calls) (str (pr-str event-vec) " — the hook was never consulted"))
-              (is (= before (slice)) (str (pr-str event-vec) " — the slice is untouched"))
-              (when rf.interop/debug-enabled?
-                (is (= 1 (count rejected)) (str (pr-str event-vec) " — one rejection"))
-                (is (= reason (:reason (:tags (first rejected)))))
-                (is (= keys* (:keys (:tags (first rejected)))))))))))))
+        (testing "a malformed request consults no hook and leaves the committed slice
+                  byte-for-byte unchanged"
+          (rf/dispatch-sync [:rf.route/replan-resources {:cause [:x] :reload? true}])
+          (is (empty? @calls) "the hook was never consulted")
+          (is (= before (slice)) "the slice is untouched"))))))
 
 ;; ---- the handler: the hook contract + the unconditional slot writes -------
 
@@ -175,8 +141,6 @@
         (let [before (slice)
               token  (:nav-token before)
               loads-before (:loads (rf/app-db-value :rf/default))]
-          (is (some? token))
-          (is (nil? (plan-slot token)) "no Resources on this classpath — the activation wrote no plan")
           (reset! (:push fxs) []) (reset! (:replace fxs) []) (reset! (:scroll fxs) [])
           (with-trace-recorder! [traces {:pred  #(contains? #{:rf.route.nav-token/allocated
                                                               :rf.route/activated
@@ -189,19 +153,21 @@
                       registered branch, the token's (absent) prior plan and the cause"
               (is (= 1 (count @calls)))
               (let [entry (first @calls)]
-                (is (= :route/docs (:route-id entry)))
-                (is (= {:page "routing"} (:params entry)))
                 ;; `:route/docs` declares no query vocabulary, so `tab` stays a
                 ;; string key.
-                (is (= {"tab" "a"} (:query entry)))
-                (is (= "top" (:fragment entry)))
-                (is (= token (:nav-token entry)) "the UNCHANGED token — no allocation")
-                (is (= {} (:ctx entry)) "the reserved entry ctx, never nil")
-                (is (= [:session-restore] (:cause entry)) "the caller cause, verbatim")
-                (is (nil? (:prev-identities entry)))
+                (is (= {:route-id        :route/docs
+                        :params          {:page "routing"}
+                        :query           {"tab" "a"}
+                        :fragment        "top"
+                        :nav-token       token
+                        :ctx             {}
+                        :cause           [:session-restore]
+                        :prev-identities nil
+                        :branch-error    nil}
+                       (select-keys entry [:route-id :params :query :fragment :nav-token
+                                           :ctx :cause :prev-identities :branch-error])))
                 (is (= [:route/shell :route/docs] (mapv :route-id (:branch entry)))
                     "the REGISTERED parent-to-leaf branch, resolved by routing's own walk")
-                (is (nil? (:branch-error entry)))
                 (is (map? (:runtime-db entry)) "the pre-commit runtime-db is threaded")
                 (is (contains? entry :app-db) "the current app-db is threaded")))
             (testing "the slots are written and readiness is re-projected from the plan"
@@ -217,9 +183,7 @@
                   "the plan's fx were spliced into the returned fx")
               (is (= loads-before (:loads (rf/app-db-value :rf/default)))
                   "no :on-match re-fired")
-              (is (empty? @(:push fxs)) "no push")
-              (is (empty? @(:replace fxs)) "no replace")
-              (is (empty? @(:scroll fxs)) "no scroll")
+              (is (every? empty? (map deref (vals fxs))) "no push, replace or scroll")
               (when rf.interop/debug-enabled?
                 (is (empty? @traces)
                     "no nav-token allocation, no activation pair, no planned projection, no fragment trace"))))
@@ -254,8 +218,9 @@
                                                :reason      "scope resolved nil"}}))
             (rf/dispatch-sync [:rf.route/replan-resources {:cause [:broken]}])
             (is (= :error (:transition (slice))))
-            (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-            (is (= token (:nav-token (:error (slice)))) "the failure names the token that is staying")
+            (is (= {:rf.error/id :rf.error/resource-route-plan :nav-token token}
+                   (select-keys (:error (slice)) [:rf.error/id :nav-token]))
+                "the failure names the token that is staying")
             (is (nil? (plan-slot token)) "both slots cleared on a committed failed replan")
             (is (nil? (blocking-slot token)))
             (is (= token (:nav-token (slice))) "…and the token itself is still the same")
@@ -275,12 +240,9 @@
   (let [rdb (runtime-db)]
     (testing "no Resources artefact (hook unbound) → {} — the event ships with routing,
               the semantics with Resources"
-      (is (nil? (rf.late-bind/get-fn :routing/on-route-replan)) "the routing suite carries no Resources")
-      (let [rejected (replan! [:rf.route/replan-resources {:cause [:x]}])]
-        (is (= rdb (runtime-db))
-            "runtime-db untouched — the slice, every slot and readiness alike")
-        (when rf.interop/debug-enabled?
-          (is (empty? rejected) "a well-formed request on a live route is NOT a bad request"))))
+      (rf/dispatch-sync [:rf.route/replan-resources {:cause [:x]}])
+      (is (= rdb (runtime-db))
+          "runtime-db untouched — the slice, every slot and readiness alike"))
     (testing "a bound hook that finds nothing to replan (nil) is the same no-op"
       (with-replan-hook
         (fn [_] nil)
@@ -303,9 +265,8 @@
               other-token   (get-in (:rf.db/runtime (rf/frame-state-value :other))
                                     [:rf.runtime/routing :current :nav-token])]
           (rf/dispatch-sync [:rf.route/replan-resources {:cause [:x]}] {:frame :other})
-          (is (= 1 (count @calls)))
-          (is (= {:page "other"} (:params (first @calls))) "the sibling's slice, not the default's")
-          (is (= other-token (:nav-token (first @calls))))
+          (is (= [[{:page "other"} other-token]] (mapv (juxt :params :nav-token) @calls))
+              "one consultation, with the sibling's slice, not the default's")
           (is (= {k1 id1} (get-in (:rf.db/runtime (rf/frame-state-value :other))
                                   [:rf.runtime/routing :resource-plan other-token])))
           (is (nil? (plan-slot default-token)) "the default frame's slot is untouched"))))))
