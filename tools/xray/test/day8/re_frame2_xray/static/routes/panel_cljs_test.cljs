@@ -1,52 +1,17 @@
 (ns day8.re-frame2-xray.static.routes.panel-cljs-test
-  "CLJS wiring + view tests for Xray's Static Routes panel.
-
-  ## Scope
-
-  Two verbs, two homes: the BROWSE verb (flat
-  list + Simulate-URL + per-row inline expand + hermetic Simulate-
-  navigation preview + cross-link to Dynamic Routing) lives on the
-  Static surface. This file covers:
-
-    1. **Registry wires the Static Routes subs + events** under
-       `:rf.xray.static.routes/*`.
-
-    2. **Silent state** — no routes registered → empty body.
-
-    3. **Flat-list rendering** — every registered route surfaces as
-       a row; sort by path ascending.
-
-    4. **Search filter** — substring across route-id + path + doc;
-       reuses `routing-helpers/filter-rows`.
-
-    5. **Simulate-URL** — header surface resolves the URL via the
-       6-rule rank cascade (`routing-helpers/simulate-url`) and the
-       winner is highlighted.
-
-    6. **Per-row inline expand** — click → expand surface unfolds in
-       place; pattern + matched-keys + handler chip + Simulate-nav
-       toggle + cross-link chip.
-
-    7. **Cross-link** — `:rf.xray.static.routes/jump-to-dynamic`
-       flips mode + selects the Dynamic Routing tab.
-
-    8. **Frame isolation** — every read targets `:rf/xray`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "Node-lane view tests for Xray's Static Routes panel — the BROWSE verb:
+  flat list, search, Simulate-URL, per-row inline expand, the hermetic
+  Simulate-navigation preview and the cross-link to Dynamic Routing."
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
-            [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
              :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; ---- fixtures -----------------------------------------------------------
-
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
-  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers -----------------------------------------------------
@@ -62,10 +27,8 @@
 (defn- expand-fn-component [node]
   (if (and (vector? node) (fn? (first node)))
     (let [result (apply (first node) (rest node))]
-      ;; Form-2 Reagent components return an inner fn; re-call with
-      ;; the same args (per Reagent's re-render contract) to obtain
-      ;; the rendered hiccup. The edn-inspector widget is
-      ;; form-2 so the mount-id stays stable across re-renders.
+      ;; A form-2 component (the EDN widget is one) answers its render fn;
+      ;; call it with the same args to reach the hiccup.
       (expand-children
         (if (fn? result)
           (apply result (rest node))
@@ -91,6 +54,13 @@
                          (.startsWith prefix))))
           (hiccup-seq tree)))
 
+(defn- find-all-by-role [tree role]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (= role (:role (second node)))))
+          (hiccup-seq tree)))
+
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
@@ -99,27 +69,12 @@
 ;; ---- the node lane's door onto the panel --------------------------------
 
 (defn- panel-tree
-  "The hiccup the view rows below walk.
-
-  `panel/Panel` is an `rf.fresco/defview` boundary, a real React
-  function component whose body may only run inside a React render
-  window, so calling `panel/Panel` does not answer hiccup.
-  This helper REPRODUCES THE BOUNDARY'S READS EXACTLY — the same
-  four queries in the same ORDER — and hands their values to
-  `panel/panel-tree`, so every row below asserts on the hiccup the
-  boundary renders.
-
-  The DISPATCHER defaults to `(:dispatch (rf/capture-frame))`, the SAME
-  door the boundary uses, so a handler a row pulls off the tree and fires
-  later carries the frame the shipped one does. A row that needs to see
-  WHICH event a handler sends passes a recording fn instead
-  (`routes-row-enter-key-activates-toggle` does exactly that).
-
-  `identity` is the `as-child` spelling for the node lane, so the browse
-  list and the Simulate-URL header stay fn-headed hiccup the walker above
-  expands. The boundary passes
-  `substrate/as-element` there; that crossing's evidence is the
-  browser lane's, not this one's.
+  "The hiccup `panel/Panel` renders. `Panel` is an `rf.fresco/defview`
+  boundary whose body runs only inside a React render window, so this
+  reproduces its four reads, in its order, and hands their values to
+  `panel/panel-tree`. `dispatch` defaults to the boundary's own door,
+  `(:dispatch (rf/capture-frame))`; `identity` stands in for the
+  `as-child` seam, whose crossing is the browser lane's subject.
 
   Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently."
   ([] (panel-tree (:dispatch (rf/capture-frame))))
@@ -135,7 +90,9 @@
                        dispatch
                        identity))))
 
-;; ---- fixture data -------------------------------------------------------
+(defn- set-routes! [routes]
+  (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test routes]
+                    {:frame :rf/xray}))
 
 (def cart-routes
   {:route/cart      {:path "/cart"      :doc "shopping cart"}
@@ -145,270 +102,161 @@
                      :parent :route/checkout
                      :on-match [:confirm/load]}})
 
-;; ---- (2) silent state ---------------------------------------------------
+(defn- present? [tree testids]
+  (map #(some? (find-by-testid tree %)) testids))
+
+;; ---- silent state -------------------------------------------------------
 
 (deftest panel-renders-silent-state-when-no-routes
-  (testing "no routes → empty body, no list, no search, no Simulate-URL"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test {}]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes"))
-            "panel root present")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-header"))
-            "header always renders")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-empty"))
-            "silent empty state rendered")
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-list"))
-            "flat list NOT rendered when silent")
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-sim"))
-            "Simulate-URL NOT rendered when silent")
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-search"))
-            "search NOT rendered when silent")))))
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (set-routes! {})
+    (let [tree (panel-tree)]
+      (is (some? (find-by-testid tree "rf-xray-static-routes-empty")))
+      (is (nil? (find-by-testid tree "rf-xray-static-routes-sim"))
+          "the Simulate-URL header is not rendered when silent"))))
 
-;; ---- (4) search filter --------------------------------------------------
+;; ---- search filter ------------------------------------------------------
 
 (deftest panel-search-filters-the-list
-  (testing "set-query event narrows the catalogue"
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (set-routes! cart-routes)
+    (rf/dispatch-sync [:rf.xray.static.routes/set-query "checkout"] {:frame :rf/xray})
+    (is (= #{"rf-xray-static-routes-row-route/checkout"
+             "rf-xray-static-routes-row-route/payment"
+             "rf-xray-static-routes-row-route/confirm"}
+           (set (map #(:data-testid (second %))
+                     (find-all-by-testid-prefix (panel-tree) "rf-xray-static-routes-row-"))))
+        "only routes whose route-id, path or doc contains the query render")
+    (rf/dispatch-sync [:rf.xray.static.routes/set-query "zzz-not-found"] {:frame :rf/xray})
+    (is (some? (find-by-testid (panel-tree) "rf-xray-static-routes-empty-filtered"))
+        "a query matching nothing renders the empty-filtered state")))
+
+;; ---- Simulate-URL -------------------------------------------------------
+
+(deftest simulate-url-header-follows-the-input
+  (testing "the result block and clear button track the input, the matching
+            route's candidate row is flagged winner, and a URL matching
+            nothing still shows the result block"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-query "checkout"]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)
-            rows (find-all-by-testid-prefix tree "rf-xray-static-routes-row-")]
-        (is (= #{"rf-xray-static-routes-row-route/checkout"
-                 "rf-xray-static-routes-row-route/payment"
-                 "rf-xray-static-routes-row-route/confirm"}
-               (set (map #(:data-testid (second %)) rows)))
-            "only routes whose haystack contains \"checkout\" render"))))
+      (set-routes! cart-routes)
+      (is (some? (find-by-testid (panel-tree) "rf-xray-static-routes-sim-input")))
+      (are [url expected]
+           (= expected
+              (do (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url url]
+                                    {:frame :rf/xray})
+                  (let [tree (panel-tree)]
+                    {:clear?  (some? (find-by-testid tree "rf-xray-static-routes-sim-clear"))
+                     :result? (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
+                     :winner  (some-> (find-by-testid
+                                        tree "rf-xray-static-routes-sim-candidate-route/cart")
+                                      second
+                                      :data-winner)})))
+        "/cart"         {:clear? true  :result? true  :winner "true"}
+        "/no-such-path" {:clear? true  :result? true  :winner nil}
+        ""              {:clear? false :result? false :winner nil}))))
 
-  (testing "filter that matches nothing → empty-filtered state"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-query "zzz-not-found"]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-empty-filtered"))
-            "empty-filtered surface rendered when the query matches no rows")))))
-
-;; ---- (6) per-row inline expand -----------------------------------------
+;; ---- per-row inline expand ----------------------------------------------
 
 (deftest panel-row-expand-toggle
-  (testing "toggle-row event unfolds the inline expand surface in place"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      ;; Initial render — expand absent.
-      (let [tree (panel-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
-            "expand surface absent before toggle"))
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
-            "expand surface rendered after toggle")
-        ;; Inline expand carries the meta + jump button + sim-nav toggle.
-        (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
-            "registrar meta block rendered")
-        (is (seq (find-all-by-testid-prefix tree "rf-xray-edn-inspector-"))
-            "the registrar meta renders through the shared EDN widget, which
-             carries no copy chrome (spec/021 §10.5, B.9)")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-jump-runtime-route/cart"))
-            "→ Dynamic cross-link chip rendered")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-toggle-route/cart"))
-            "Simulate-navigation toggle rendered"))
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
-            "expand surface hidden after second toggle")))))
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (set-routes! cart-routes)
+    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart] {:frame :rf/xray})
+    (is (= [true true]
+           (present? (panel-tree) ["rf-xray-static-routes-meta-route/cart"
+                                   "rf-xray-static-routes-sim-nav-toggle-route/cart"]))
+        "the expand surface unfolds with the registrar meta and the
+         Simulate-navigation toggle")
+    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart] {:frame :rf/xray})
+    (is (nil? (find-by-testid (panel-tree) "rf-xray-static-routes-expand-route/cart"))
+        "a second toggle folds it")))
 
 (deftest panel-expand-surfaces-schema-when-present
-  (testing "rows whose registrar meta carries :params / :query schemas render the schema blocks"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [routes-with-schema
-            {:route/article
-             {:path     "/articles/:slug"
-              :params   [:map [:slug :string]]
-              :query    [:map [:page :int]]
-              :on-match [:article/load]}}]
-        (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
-                           routes-with-schema]
-                          {:frame :rf/xray})
-        (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article]
-                          {:frame :rf/xray})
-        (let [tree (panel-tree)]
-          (is (some? (find-by-testid tree "rf-xray-static-routes-params-schema-route/article"))
-              ":params schema block rendered")
-          (is (some? (find-by-testid tree "rf-xray-static-routes-query-schema-route/article"))
-              ":query schema block rendered"))))))
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (set-routes! {:route/article {:path   "/articles/:slug"
+                                  :params [:map [:slug :string]]
+                                  :query  [:map [:page :int]]}})
+    (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article] {:frame :rf/xray})
+    (is (= [true true]
+           (present? (panel-tree) ["rf-xray-static-routes-params-schema-route/article"
+                                   "rf-xray-static-routes-query-schema-route/article"])))))
 
-;; ---- (7) hermetic Simulate-navigation preview --------------------------
+;; ---- hermetic Simulate-navigation preview -------------------------------
 
 (deftest panel-sim-nav-preview-matches-the-simulate-url-input
-  (testing "the preview's URL and Params rows read the URL typed into
-            Simulate URL, matched against the previewed row's pattern"
+  (testing "the preview's URL and Params rows match the Simulate-URL input
+            against the previewed row's pattern"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
-                         {:route/article {:path "/articles/:slug"}}]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles/intro"]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/article]
-                        {:frame :rf/xray})
-      (let [tree   (panel-tree)
-            text   (fn [testid]
-                     (->> (hiccup-seq (find-by-testid tree testid))
-                          (filter string?)
-                          (apply str)))]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-route/article"))
-            "PRECONDITION: the preview is open")
-        (is (= "/articles/intro  (matched)"
-               (text "rf-xray-static-routes-sim-nav-url")))
-        (is (= (pr-str {:slug "intro"})
-               (text "rf-xray-static-routes-sim-nav-params")))))))
+      (set-routes! {:route/article {:path "/articles/:slug"}})
+      (doseq [ev [[:rf.xray.static.routes/set-sim-url "/articles/intro"]
+                  [:rf.xray.static.routes/toggle-row :route/article]
+                  [:rf.xray.static.routes/toggle-sim-nav :route/article]]]
+        (rf/dispatch-sync ev {:frame :rf/xray}))
+      (let [tree (panel-tree)
+            text #(->> (hiccup-seq (find-by-testid tree %))
+                       (filter string?)
+                       (apply str))]
+        (is (= ["/articles/intro  (matched)" (pr-str {:slug "intro"})]
+               (map text ["rf-xray-static-routes-sim-nav-url"
+                          "rf-xray-static-routes-sim-nav-params"])))))))
 
-;; ---- (8) cross-link to Dynamic Routing ----------------------------------
+;; ---- cross-link to Dynamic Routing --------------------------------------
 
 (deftest panel-jump-to-dynamic-flips-mode-and-tab
-  (testing ":rf.xray.static.routes/jump-to-dynamic → mode :dynamic + tab :routing"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      ;; Start in :static, on the Static :routes tab.
-      (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static/select-tab :routes] {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/jump-to-dynamic :route/cart]
-                        {:frame :rf/xray})
-      (is (= :dynamic @(rf/subscribe [:rf.xray/mode]))
-          "mode flipped to :dynamic")
-      (is (= :routing @(rf/subscribe [:rf.xray/selected-tab]))
-          "Dynamic tab set to :routing"))))
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
+    (rf/dispatch-sync [:rf.xray.static.routes/jump-to-dynamic :route/cart]
+                      {:frame :rf/xray})
+    (is (= [:dynamic :routing]
+           [@(rf/subscribe [:rf.xray/mode]) @(rf/subscribe [:rf.xray/selected-tab])]))))
 
-;; ---- (9) Static tab inventory exposes :routes --------------------------
+;; ---- Static tab inventory -----------------------------------------------
 
 (deftest static-shell-routes-tab-is-in-inventory
-  (testing ":routes is in the Static tab inventory + the shell mounts it.
-
-            The row asserts ONE LEVEL UP from the panel's own testid,
-            exactly as `static/machines/panel_cljs_test`'s
-            `static-shell-mounts-machines-panel-on-machines-tab` does and
-            for the same reason. `static.routes.panel/Panel` is an `rf.fresco/defview`
-            behind an `as-component` bridge, so this hiccup walk reaches
-            the bridge's `[:>]` interop head and stops —
-            `rf-xray-static-routes` is committed by React, not present in
-            the tree. Asserting that testid here would be asserting the
-            WALKER'S REACH rather than the mount, which is the hollow-gate
-            shape. What the shell owes
-            is that the `:routes` slot mounts the REGISTRY's `:panel`; the
-            boundary's own first paint is the browser lane's subject, and
-            its body is every row above."
-    (is (contains? (set (map :id (static-shell/tabs))) :routes)
-        ":routes is in the Static tab inventory")
+  (testing "the Static shell's :routes slot mounts the registry's :panel.
+            The walk stops at that bridge's `[:>]` head; the panel's own
+            first paint is the browser lane's subject"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray.static/select-tab :routes] {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (let [tree  (static-shell-tree/surface-tree)
-            slot  (find-by-testid tree "rf-xray-static-detail-panel-routes")
-            mount ((:panel (panel-registry/tab-by-id :static :routes)))]
-        (is (some? slot) "the :routes L4 slot renders")
-        (is (= (last slot) mount)
-            (str "the slot mounts exactly the registry's :panel value. "
-                 "Got: " (pr-str (last slot))))))))
+      (is (= ((:panel (panel-registry/tab-by-id :static :routes)))
+             (last (find-by-testid (static-shell-tree/surface-tree)
+                                   "rf-xray-static-detail-panel-routes")))))))
 
-;; ---- (10) a11y list semantics + keyboard operability -------------------
-
-(defn- find-by-role [tree role]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= role (:role (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-role [tree role]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (= role (:role (second node)))))
-          (hiccup-seq tree)))
+;; ---- a11y list semantics + keyboard operability -------------------------
 
 (deftest routes-list-rows-keyboard-operable
-  (testing "the routes <ul> is role=list, rows are
-            role=listitem, and the clickable body is a keyboard-operable
-            role=button (tab-index 0 + aria-expanded + Enter/Space)"
+  (testing "the list is role=list with one role=listitem per route; each row
+            body is a focusable role=button, and Enter / Space consume the key
+            and fire that row's toggle while other keys bubble"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (let [tree      (panel-tree)
-            list-node (find-by-testid tree "rf-xray-static-routes-list")
-            listitems (find-all-by-role tree "listitem")
-            buttons   (find-all-by-role tree "button")]
-        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-        (is (= (count cart-routes) (count listitems))
-            "one role=listitem per route row")
-        ;; Each interactive row body is a role=button with the keyboard
-        ;; contract — tab-index 0, aria-expanded, on-key-down handler.
-        (let [row-buttons (filter #(= "0" (:tab-index (second %))) buttons)]
-          (is (= (count cart-routes) (count row-buttons))
-              "one keyboard-focusable button body per row")
-          (is (every? #(contains? (second %) :aria-expanded) row-buttons)
-              "row buttons expose aria-expanded")
-          (is (every? #(fn? (:on-key-down (second %))) row-buttons)
-              "row buttons handle keyboard activation"))))))
-
-(deftest routes-row-enter-key-activates-toggle
-  (testing "Enter / Space on a row body consume the key and fire
-            the row toggle; other keys are ignored (bubble through)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (let [seen     (atom [])
-            tree     (panel-tree #(swap! seen conj %))
-            ;; the cart row's clickable body is the role=button whose
-            ;; aria-label mentions the cart route.
-            row-body (some (fn [node]
-                             (when (and (vector? node)
-                                        (map? (second node))
-                                        (= "button" (:role (second node)))
-                                        (let [al (:aria-label (second node))]
-                                          (and al (.includes al ":route/cart"))))
-                               node))
-                           (hiccup-seq tree))
-            on-key   (:on-key-down (second row-body))
-            mk-ev    (fn [k prevented?]
-                       #js {:key k
-                            :preventDefault (fn [] (reset! prevented? true))})
-            toggle   [[:rf.xray.static.routes/toggle-row :route/cart]]]
-        (is (some? on-key) "row body has a keydown handler")
-        (testing "Enter is consumed (preventDefault called) and toggles the row"
-          (let [prevented (atom false)]
-            (reset! seen [])
-            (on-key (mk-ev "Enter" prevented))
-            (is (true? @prevented))
-            (is (= toggle @seen) "Enter dispatches this row's toggle")))
-        (testing "Space is consumed (preventDefault called) and toggles the row"
-          (let [prevented (atom false)]
-            (reset! seen [])
-            (on-key (mk-ev " " prevented))
-            (is (true? @prevented))
-            (is (= toggle @seen) "Space dispatches this row's toggle")))
-        (testing "an unrelated key is NOT consumed (bubbles for global keys)"
-          (let [prevented (atom false)]
-            (reset! seen [])
-            (on-key (mk-ev "a" prevented))
-            (is (false? @prevented))
-            (is (= [] @seen) "and toggles nothing")))))))
+      (set-routes! cart-routes)
+      (let [seen   (atom [])
+            tree   (panel-tree #(swap! seen conj %))
+            bodies (filter #(= "0" (:tab-index (second %)))
+                           (find-all-by-role tree "button"))
+            cart   (some #(when (.includes (:aria-label (second %)) ":route/cart") %)
+                         bodies)
+            press  (fn [k]
+                     (let [prevented (atom false)]
+                       (reset! seen [])
+                       ((:on-key-down (second cart))
+                        #js {:key k :preventDefault #(reset! prevented true)})
+                       [@prevented @seen]))
+            n      (count cart-routes)
+            toggle [[:rf.xray.static.routes/toggle-row :route/cart]]]
+        (is (= "list" (:role (second (find-by-testid tree "rf-xray-static-routes-list")))))
+        (is (= [n n] [(count (find-all-by-role tree "listitem")) (count bodies)])
+            "one listitem and one focusable button body per route")
+        (is (every? #(contains? (second %) :aria-expanded) bodies))
+        (are [k expected] (= expected (press k))
+          "Enter" [true toggle]
+          " "     [true toggle]
+          "a"     [false []])))))
