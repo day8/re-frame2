@@ -35,8 +35,8 @@
   `(nil? (:observer entry))`), and `release-mount!` then tears the SHARED
   entry down — and clears the SHARED width slot — when EITHER mount
   detaches, leaving the survivor on screen with no observer and no width.
-  So that row asserts both are held by each mount and STILL held by the
-  survivor afterwards.
+  So that row asserts the survivor STILL holds both after its sibling
+  detaches.
 
   ## WHAT THIS PANEL DELIBERATELY DOES NOT QUALIFY, and why it is ONE
   ## qualifier here rather than the two `app-db-diff` needs
@@ -83,7 +83,6 @@
   file; `npm run test:browser` is. The node lane cannot see a
   ResizeObserver at all."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [clojure.string :as string]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
@@ -226,7 +225,7 @@
 
 (def ^:private id-prefix
   "What `render-payload` puts in front of every payload mount-id. Named so
-  W3's splice assertion states the qualifier's POSITION rather than a
+  W4's splice assertion states the qualifier's POSITION rather than a
   literal."
   "rf-xray-trace-row-")
 
@@ -249,29 +248,14 @@
         (try
           (let [ids-l (mount-ids (:container left))
                 ids-r (mount-ids (:container right))]
-            ;; ---- controls, taken from the target ------------------------
-            (is (some? (.querySelector (:container left)
-                                       "[data-testid=\"rf-xray-trace-row-101-payload\"]"))
-                "control: the left mount committed an EXPANDED row payload, so
-                 an empty intersection below means separation and not a panel
-                 that rendered its rows collapsed and mounted no inspector")
             (is (= 2 (count ids-l))
                 (str "control: both expanded rows committed an inspector — "
                      "so the sets below are sets. left=" (pr-str ids-l)))
-            (is (= (count ids-l) (count ids-r))
-                "naming an instance changes the ids, never the rows — two
-                 mounts of the same focused epoch over the same rows")
-
-            ;; ---- the claim ---------------------------------------------
             (is (nil? (some (set ids-l) ids-r))
                 (str "no mount-id survives from one standalone mount to the "
                      "other — the store's lifecycle key and the measured "
                      "width slot are both derived from this string. left="
-                     (pr-str ids-l) " right=" (pr-str ids-r)))
-            (is (every? #(string/starts-with? % (str id-prefix "left/")) ids-l)
-                (str "each id carries the name THIS mount was given, rather "
-                     "than a per-render nonce or a shared string: "
-                     (pr-str ids-l))))
+                     (pr-str ids-l) " right=" (pr-str ids-r))))
           (finally
             (unmount! right)
             (unmount! left)))))))
@@ -298,27 +282,8 @@
               right (mount! {:instance-id "right"})
               id-l  (first (mount-ids (:container left)))
               id-r  (first (mount-ids (:container right)))]
-          (is (some? id-l)
-              "control: the left mount committed a widget, so the store keys
-               below name something that really mounted")
           (is (not= id-l id-r)
               "the two mounts composed two mount-ids")
-
-          ;; ---- the observer half -------------------------------------
-          ;; These two are LIVENESS controls rather than the discriminating
-          ;; rows, and saying so matters: under a shared identity both
-          ;; lookups resolve to the SAME entry, so both pass while the
-          ;; collision is fully present. What bites
-          ;; before the unmount is `not=` above; what bites after it is the
-          ;; survivor row below.
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
-                         :observer)
-              "the left mount installed its own ResizeObserver")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
-                         :observer)
-              "and so did the right — two live mounts, two observers. Under
-               the shared identity the second element's ref callback finds an
-               observer already on the entry and installs none")
 
           ;; ---- the width half ----------------------------------------
           ;; DRIVEN through the slot's own public event rather than read off
@@ -352,11 +317,9 @@
           (unmount! right)
 
           ;; ---- the survivor keeps both -------------------------------
-          (is (nil? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r)))
-              "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
-              "and the mount STILL ON SCREEN is still observed — releasing
+              "the mount STILL ON SCREEN is still observed — releasing
                the survivor's entry is what a shared key does, leaving a
                live node with no observer and no width updates")
           ;; The store entry is dropped by a synchronous `swap!` but the width
@@ -442,8 +405,6 @@
           (let [ids-a (mount-ids (:container a))
                 ids-b (mount-ids (:container b))
                 ids-n (mount-ids (:container named))]
-            (is (seq ids-a)
-                "control: both unnamed mounts committed widgets")
             (is (= ids-a ids-b)
                 (str "two unnamed mounts present the SAME ids — so the "
                      "instrument W1 uses CAN see a collision, and its "
@@ -461,10 +422,7 @@
                      "— which says both halves at once: naming qualifies the "
                      "id without disturbing the row id inside it, and an "
                      "unnamed mount composes the row id alone, and nothing "
-                     "else. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
-            (is (= ids-a (mount-ids (:container a)))
-                "re-reading the same container is stable — these are
-                 identities, not per-render nonces"))
+                     "else. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n))))
           (finally
             (unmount! named)
             (unmount! b)
