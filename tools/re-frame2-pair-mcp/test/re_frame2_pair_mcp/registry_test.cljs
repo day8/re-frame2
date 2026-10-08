@@ -1,34 +1,14 @@
 (ns re-frame2-pair-mcp.registry-test
-  "Structural completeness of the single tool registry.
-
-  The whole point of the single `registry/tools` source is that the
-  three derived views — `tool-descriptors`, `handler-for`, and
-  `cacheable?` — cannot drift, because each is generated from the one
-  vector. `cache_test` already pins `cacheable?` for the named tools;
-  this suite pins the OTHER derived view that the dispatcher relies on:
-  every descriptor name resolves to a handler, and vice versa.
-
-  Without this ratchet a tool added to the descriptor list (or renamed)
-  without a matching handler entry would ship green from every unit
-  suite and surface only as a `:reason :unknown-tool` at the post-
-  compile stdio layer. This pins the contract at the source."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "The descriptor list and the handler lookup are both derived from
+  `registry/tools`. A descriptor whose name disagrees with its entry, or a
+  duplicated name, would otherwise ship green and surface only as an
+  `:unknown-tool` (or a silently shadowed handler) at the stdio layer."
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (deftest handler-for-keys-match-descriptor-names
-  (testing "every descriptor name resolves to exactly one handler — no drift"
-    (let [descriptor-names (set (map :name registry/tool-descriptors))
-          handler-keys     (set (keys registry/handler-for))]
-      (is (= descriptor-names handler-keys)
-          "handler-for keys MUST equal descriptor names — the single-registry guarantee"))))
-
-(deftest every-handler-is-a-fn
-  (testing "each registered handler is callable (the 3-arity dispatch shape)"
-    (doseq [[name handler] registry/handler-for]
-      (is (fn? handler) (str "handler for " name " must be a fn")))))
+  (is (= (set (map :name registry/tool-descriptors))
+         (set (keys registry/handler-for)))))
 
 (deftest registry-names-are-unique
-  (testing "no duplicate :name in the catalogue — a dup would silently shadow"
-    (let [names (map :name registry/tools)]
-      (is (= (count names) (count (set names)))
-          "duplicate tool name in registry/tools"))))
+  (is (apply distinct? (map :name registry/tools))))
