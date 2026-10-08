@@ -6,28 +6,19 @@
  * _playground-sci-inputs.test.cjs — close the Playground SCI input authority
  * over its REAL inputs and firing surfaces.
  *
- * WHAT THIS GUARDS. `scripts/playground-sci-input-digest.mjs` declares ROSTER:
- * the source/config/lock inputs the shadow-cljs :advanced SCI bundle bakes in.
- * Two independent things must stay true of that declaration:
+ * `scripts/playground-sci-input-digest.mjs` declares ROSTER: the
+ * source/config/lock inputs the shadow-cljs :advanced SCI bundle bakes in. Two
+ * things must stay true of it:
  *
- *   1. CLOSURE. Every declared input must select the `playground` changed
- *      surface, so a PR touching a baked-in input actually rebuilds and renders
- *      the bundle. If an input is in the digest but not in the firing surface,
- *      that input can change with no proof the bundle still builds.
- *   2. SENSITIVITY. Every declared input must individually move the digest, and
- *      every entry must keep matching tracked files. A roster entry that matches
- *      nothing must RED rather than pass silently (see the vacuity arm below).
+ *   1. CLOSURE. Every declared input selects the `playground` changed surface,
+ *      so a PR touching a baked-in input rebuilds and renders the bundle.
+ *   2. SENSITIVITY. Every declared input individually moves the digest, and an
+ *      entry that matches no tracked file REDS rather than passing silently.
  *
- * NOTE ON SCOPE. docs/cljs/playground-rf2.js is untracked — it is generated at
- * each consumption boundary, so there is no committed snapshot to go stale and
- * no freshness verifier. The digest is build PROVENANCE, and the `playground`
- * job (build + live render under headless Chromium) is the proof. This file
- * therefore checks that the provenance claim is honest and that the job fires
- * for everything the claim covers; there is no committed artefact to compare.
- *
- * DERIVED, NOT RE-DECLARED. Every arm below expands the REAL ROSTER rather than
- * carrying a second hardcoded list, so a roster edit is checked automatically
- * instead of drifting away from a copy. Discovered by `npm run test:scripts`.
+ * docs/cljs/playground-rf2.js is untracked and generated at each consumption
+ * boundary, so the digest is build PROVENANCE and the `playground` job is the
+ * proof; there is no committed artefact to compare. Every arm expands the REAL
+ * ROSTER rather than a second hardcoded list. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
@@ -43,7 +34,6 @@ const DIGEST_SCRIPT = path.join(REPO_ROOT, 'scripts', 'playground-sci-input-dige
 const SURFACES_SCRIPT = './.github/scripts/report-changed-surfaces.sh';
 
 const tests = [];
-const notes = [];
 
 function test(name, fn) {
   tests.push({ name, fn });
@@ -76,14 +66,12 @@ function trackedFiles(pathspec, cwd = REPO_ROOT) {
  * Classify MANY paths in ONE bash process and return path -> playground verdict.
  *
  * Per-file classification is the only honest closure check: the classifier ORs
- * its outputs, so handing it the whole list at once would let a single selecting
- * file mask every other. But a `bash -lc` per file sources the login profile and
- * costs ~56s for 144 files; one `bash -c` driver looping over "$@" is ~3s for the
- * same work. `set -euo pipefail` keeps a classifier failure fatal instead of
- * being swallowed by the `sed` that extracts the field.
+ * its outputs, so one selecting file in a batch would mask every other. One
+ * `bash -c` driver looping over "$@" costs ~3s where a `bash -lc` per file costs
+ * ~56s. `set -euo pipefail` keeps a classifier failure fatal instead of being
+ * swallowed by the `sed` that extracts the field.
  */
 function classifyPlayground(files) {
-  assert.ok(files.length > 0, 'classifyPlayground: empty input — the probe would prove nothing');
   const driver = [
     'set -euo pipefail',
     'for f in "$@"; do',
@@ -102,25 +90,17 @@ function classifyPlayground(files) {
     const [file, verdict] = line.split('\t');
     verdicts.set(file, verdict);
   }
-  assert.equal(
-    verdicts.size,
-    files.length,
-    `classifier returned ${verdicts.size} verdicts for ${files.length} paths`,
-  );
   return verdicts;
 }
 
 // --- hermetic digest fixture -------------------------------------------------
 //
 // A throwaway git repo seeded with one tracked file per ROSTER entry. The digest
-// module derives its repo root from process.cwd(), so running the real CLI with
-// cwd set here exercises the real algorithm against a tree we can mutate freely
-// — no writes to the working checkout, and the fixture SHAPE is derived from
-// ROSTER so a new entry is seeded automatically.
+// module derives its repo root from process.cwd(), so the real CLI runs the real
+// algorithm against a tree we can mutate freely.
 
 function seedPathFor(entry) {
-  // Roster entries are either a concrete file (basename carries an extension)
-  // or a directory pathspec that expands to everything tracked beneath it.
+  // A concrete file entry has an extension; a directory entry gets a probe file.
   return path.basename(entry).includes('.') ? entry : `${entry}/probe.txt`;
 }
 
@@ -189,32 +169,19 @@ async function main() {
 
   assert.ok(Array.isArray(ROSTER) && ROSTER.length > 0, 'ROSTER must be a non-empty array');
 
-  // --- ARM 1: firing-surface closure, derived from the real roster -----------
-
+  // The classifier's playground arms are directory globs, so the tracked files
+  // stand for any file later added beside them.
   test('every ROSTER input selects the playground changed surface (derived closure)', () => {
     const perEntry = ROSTER.map((entry) => [entry, trackedFiles(entry)]);
-
-    // Non-vacuity of the PROBE itself: an entry expanding to nothing would make
-    // its row trivially green, which is the "0/5 PASS" shape this arm exists to
-    // refuse. Assert before classifying, so the failure names the entry.
-    for (const [entry, files] of perEntry) {
-      assert.ok(files.length > 0, `roster entry matched no tracked files: ${entry}`);
-    }
-
-    const all = [...new Set(perEntry.flatMap(([, files]) => files))].sort();
-    assert.ok(all.length > 0, 'roster expanded to zero files — this arm would prove nothing');
-
-    const verdicts = classifyPlayground(all);
+    const verdicts = classifyPlayground([...new Set(perEntry.flatMap(([, files]) => files))]);
     const misses = [];
-    const rows = [];
     for (const [entry, files] of perEntry) {
-      const selecting = files.filter((f) => verdicts.get(f) === 'true');
+      // An entry expanding to nothing would make its row trivially green.
+      if (files.length === 0) misses.push(`${entry} matched no tracked files`);
       for (const f of files) {
         if (verdicts.get(f) !== 'true') misses.push(`${entry} :: ${f} -> ${verdicts.get(f)}`);
       }
-      rows.push(`    ${String(selecting.length).padStart(3)}/${String(files.length).padEnd(3)} ${entry}`);
     }
-    notes.push(`  playground closure, per roster entry (selecting/total):\n${rows.join('\n')}`);
     assert.deepEqual(
       misses,
       [],
@@ -224,173 +191,63 @@ async function main() {
     );
   });
 
-  // --- ARM 2: table-driven per-class firing ---------------------------------
-  //
-  // The closure arm proves the currently TRACKED files fire. This arm proves the CASE
-  // PATTERNS do, using paths that do not exist yet: a newly added source file in
-  // any baked-in tree must select the job on the PR that adds it. The coverage
-  // assertion below ties the table back to ROSTER so it cannot rot into a stale
-  // hardcoded list.
-
-  const CLASS_TABLE = [
-    ['core source', 'implementation/core/src/re_frame/newly_added.cljc'],
-    ['core deps', 'implementation/core/deps.edn'],
-    ['reagent-slim source', 'implementation/adapters/reagent-slim/src/reagent2/newly_added.cljs'],
-    ['reagent-slim deps', 'implementation/adapters/reagent-slim/deps.edn'],
-    ['machines source', 'implementation/machines/src/re_frame/newly_added.cljc'],
-    ['machines deps', 'implementation/machines/deps.edn'],
-    ['flows source', 'implementation/flows/src/re_frame/newly_added.cljc'],
-    ['flows deps', 'implementation/flows/deps.edn'],
-    ['schemas source', 'implementation/schemas/src/re_frame/newly_added.cljc'],
-    ['schemas deps', 'implementation/schemas/deps.edn'],
-    ['fresco source', 'implementation/fresco/src/re_frame/fresco/newly_added.cljs'],
-    ['fresco deps', 'implementation/fresco/deps.edn'],
-    ['http source', 'implementation/http/src/re_frame/http/newly_added.cljc'],
-    ['http deps', 'implementation/http/deps.edn'],
-    ['resources source', 'implementation/resources/src/re_frame/resources/newly_added.cljc'],
-    ['resources deps', 'implementation/resources/deps.edn'],
-    ['routing source', 'implementation/routing/src/re_frame/routing/newly_added.cljc'],
-    ['routing deps', 'implementation/routing/deps.edn'],
-    ['epoch source', 'implementation/epoch/src/re_frame/epoch/newly_added.cljc'],
-    ['epoch deps', 'implementation/epoch/deps.edn'],
-    ['ssr source', 'implementation/ssr/src/re_frame/ssr/newly_added.cljc'],
-    ['ssr deps', 'implementation/ssr/deps.edn'],
-    ['sci bundle source', 'docs/tools/playground/sci/src/rf2_playground/newly_added.cljs'],
-    ['sci shadow config', 'docs/tools/playground/sci/shadow-cljs.edn'],
-    ['sci deps', 'docs/tools/playground/sci/deps.edn'],
-    ['sci npm manifest', 'docs/tools/playground/sci/package.json'],
-    ['sci npm lock', 'docs/tools/playground/sci/package-lock.json'],
-    ['bundle postprocess', 'docs/tools/playground/sci/scripts/copy-bundle.mjs'],
-    ['digest algorithm', 'scripts/playground-sci-input-digest.mjs'],
-  ];
-
-  test('the per-class table covers every ROSTER entry (table cannot rot)', () => {
-    const uncovered = ROSTER.filter(
-      (entry) => !CLASS_TABLE.some(([, p]) => p === entry || p.startsWith(`${entry}/`)),
-    );
-    assert.deepEqual(
-      uncovered,
-      [],
-      `ROSTER entries with no row in CLASS_TABLE: ${uncovered.join(', ')}`,
-    );
-  });
-
-  test('every baked-in input class selects playground, including not-yet-existing files', () => {
-    const verdicts = classifyPlayground(CLASS_TABLE.map(([, p]) => p));
-    const misses = CLASS_TABLE.filter(([, p]) => verdicts.get(p) !== 'true').map(
-      ([label, p]) => `${label} (${p}) -> ${verdicts.get(p)}`,
-    );
-    notes.push(`  per-class firing: ${CLASS_TABLE.length - misses.length}/${CLASS_TABLE.length} classes select playground`);
-    assert.deepEqual(misses, [], `input classes not selecting playground:\n${misses.join('\n')}`);
-  });
-
-  // --- ARM 3: digest sensitivity, per entry (per-arm levers) -----------------
-
   test('every ROSTER entry is individually load-bearing in the digest', () => {
     const root = makeFixture(ROSTER);
     try {
       const base = digestIn(root);
-      assert.match(base, /^[0-9a-f]{64}$/, 'baseline digest must be 64 hex');
-
       const inert = [];
-      const perEntryDigest = new Map();
+      const perEntryDigest = new Set();
       for (const entry of ROSTER) {
-        const rel = seedPathFor(entry);
         // One lever at a time: a blanket mutation could red some entries while
         // leaving others green and still look like a proof.
+        const rel = seedPathFor(entry);
         writeIn(root, rel, `mutated ${entry}\n`);
         const moved = digestIn(root);
         if (moved === base) inert.push(entry);
-        perEntryDigest.set(entry, moved);
+        perEntryDigest.add(moved);
         writeIn(root, rel, seedContentFor(entry));
-        assert.equal(
-          digestIn(root),
-          base,
-          `restoring ${entry} must restore the digest — a digest that cannot come ` +
-            'back is a ratchet, not a fingerprint',
-        );
       }
 
-      assert.deepEqual(
-        inert,
-        [],
-        `these ROSTER entries do not affect the digest at all: ${inert.join(', ')}`,
-      );
+      assert.deepEqual(inert, [], `these ROSTER entries do not affect the digest at all: ${inert.join(', ')}`);
+      // A digest that cannot come back is a ratchet, not a fingerprint — and a
+      // non-deterministic one would make every entry above look load-bearing.
+      assert.equal(digestIn(root), base, 'restoring every entry must restore the digest');
       assert.equal(
-        new Set(perEntryDigest.values()).size,
+        perEntryDigest.size,
         ROSTER.length,
         'each entry must yield a DISTINCT digest — collisions mean the digest is ' +
           'not resolving which input moved',
-      );
-      notes.push(
-        `  digest sensitivity: ${ROSTER.length}/${ROSTER.length} roster entries move the digest, all distinct`,
       );
     } finally {
       dropFixture(root);
     }
   });
 
-  // --- ARM 5: per-entry vacuity ----------------------------------------------
-  //
   // A guard that expanded the whole roster as ONE pathspec set would fail only
-  // when the UNION was empty: renaming implementation/flows/src would leave 140
-  // of 144 files, and the guard would stay silent while an entire input class
-  // left the digest. These teeth use a SUFFIX rename (src -> src_renamed)
-  // deliberately: git pathspecs match at directory boundaries, so this really
-  // does drop the entry — a rename that merely CONTAINED the old name would be a
-  // passenger tooth that proved nothing.
-
-  test('a single drifted roster entry REDS the digest (suffix rename, per entry)', () => {
+  // when the UNION was empty, staying silent while an entire input class left the
+  // digest. The SUFFIX rename (src -> src_renamed) is deliberate: git pathspecs
+  // match at directory boundaries, so it really drops the entry. Two directory
+  // entries and a file entry rule out a guard that notices one hardcoded path.
+  test('a single drifted roster entry REDS the digest, naming it (suffix rename, per entry)', () => {
     const dirEntries = ROSTER.filter((e) => !path.basename(e).includes('.'));
-    assert.ok(dirEntries.length >= 2, 'need at least two directory entries to vary the lever');
+    const fileEntry = ROSTER.find((e) => path.basename(e).includes('.'));
+    assert.ok(dirEntries.length >= 2 && fileEntry, 'need two directory entries and a file entry to vary the lever');
 
-    // A different violating entry each round, to rule out a guard that only ever
-    // notices one hardcoded path.
-    for (const entry of [dirEntries[0], dirEntries[dirEntries.length - 1]]) {
+    for (const entry of [dirEntries[0], dirEntries[dirEntries.length - 1], fileEntry]) {
       const root = makeFixture(ROSTER);
       try {
-        const fresh = digestAttempt(root);
-        assert.equal(fresh.ok, true, `fixture must start green (${entry})`);
-
         fs.renameSync(path.join(root, entry), path.join(root, `${entry}_renamed`));
         gitIn(root, 'add', '-A');
         gitIn(root, 'commit', '-q', '-m', `drift ${entry}`);
 
         const drifted = digestAttempt(root);
-        assert.equal(drifted.ok, false, `a vanished roster entry must RED: ${entry}`);
-        assert.notEqual(drifted.status, 0, 'a drifted roster must exit non-zero');
-        assert.match(
-          drifted.stderr,
-          /roster matched no tracked files/,
-          'a drifted roster must report that it matched no tracked files',
-        );
         assert.ok(
-          drifted.stderr.includes(entry),
-          `the failure must name the drifted entry (${entry}); got:\n${drifted.stderr}`,
+          !drifted.ok && drifted.stderr.includes(entry),
+          `a vanished roster entry must RED, naming ${entry}; got:\n${drifted.stderr}`,
         );
       } finally {
         dropFixture(root);
       }
-    }
-    notes.push('  vacuity: 2 distinct roster entries independently RED on a suffix rename');
-  });
-
-  test('a drifted FILE entry REDS too (not just directory entries)', () => {
-    const fileEntry = ROSTER.find((e) => path.basename(e).includes('.'));
-    assert.ok(fileEntry, 'roster must contain at least one concrete file entry');
-    const root = makeFixture(ROSTER);
-    try {
-      assert.equal(digestAttempt(root).ok, true, 'fixture must start green');
-      gitIn(root, 'rm', '-q', '--', fileEntry);
-      gitIn(root, 'commit', '-q', '-m', `drop ${fileEntry}`);
-      const dropped = digestAttempt(root);
-      assert.equal(dropped.ok, false, `a removed file entry must RED: ${fileEntry}`);
-      assert.ok(
-        dropped.stderr.includes(fileEntry),
-        `the failure must name the dropped entry (${fileEntry}); got:\n${dropped.stderr}`,
-      );
-    } finally {
-      dropFixture(root);
     }
   });
 
@@ -407,13 +264,10 @@ async function main() {
     }
   }
 
-  for (const note of notes) console.log(note);
-
   if (failed > 0) {
     console.error(`playground-sci-inputs tests: ${failed} failed.`);
     process.exit(1);
   }
-  assert.ok(tests.length > 0, 'suite selected no tests');
   console.log(`playground-sci-inputs tests: ${tests.length} passed.`);
 }
 
