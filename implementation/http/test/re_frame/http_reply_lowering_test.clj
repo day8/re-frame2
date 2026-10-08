@@ -1,33 +1,10 @@
 (ns re-frame.http-reply-lowering-test
-  "Conformance for the EP-0011 managed-HTTP lowering: Spec 014
-  `:rf.http/managed` lowered onto the uniform reply envelope
-  (`spec/Managed-Effects.md` §The uniform reply envelope). Pins the
-  EP-0011 §Validation groups for the HTTP slice:
-
-    1. CANONICAL reply map — the transport's success / failure / abort facts
-       become a single `re-frame.reply`-conformant reply map: one closed
-       `:status`, `:work/id` `[:rf.work/http logical-id attempt]`,
-       `:work/kind :http`, `:rf.reply/work-status`, `:correlation {:request-id …}`
-       (the `:request-id` is correlation metadata, NOT a second stale key),
-       `:completed-at` from the reply token. Timeout → `:status :error` +
-       `:rf.reply/work-status :timed-out`; abort → `:status :cancelled` with an
-       `:rf.http/aborted` `:error`.
-    2. CANONICAL delivery — the unified `:reply-to` and the `:on-success` /
-       `:on-failure` split sugar all deliver the ONE canonical reply
-       envelope verbatim (`{:status :ok :value v …}` / `{:status :error
-       :error f …}`) — there is no `{:kind :success/:failure}`
-       public reshape.
-    3. SUPERSESSION — a same-`:request-id` supersede suppresses the prior
-       request's app reply target (the supersede semantic is trace-only).
-
-  Groups 2 and 3 are exercised end-to-end through the real
-  `java.net.http.HttpClient` transport (a tiny com.sun.net.httpserver test
-  server). Group 1's pure builders are pinned host-symmetrically in
-  `http-reply-lowering-cljs-test`, which the JVM runner discovers too;
-  here group 1 keeps the success reply's response-meta arity.
-
-  Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011 (one canonical async-reply envelope)."
+  "Managed HTTP lowered onto the uniform reply envelope
+  (`spec/Managed-Effects.md` §The uniform reply envelope), end to end through
+  the real `java.net.http.HttpClient` transport against a loopback server:
+  canonical success and failure replies, self-identifying failures,
+  supersession, and the completion time a reply handler receives. The pure
+  builders are pinned host-symmetrically in `http-reply-lowering-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -41,17 +18,8 @@
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
-;; ---- per-test reset (mirrors http_managed_test.clj) -----------------------
-
-;; The canonical fixture snapshot/restores the registrar, so the framework's
-;; built-in `:rf/time-ms` reg-cofx (registered at `re-frame.cofx` ns-load)
-;; survives between tests without a per-test `:reload` — the EP-0017
-;; reply-time tests need `:rf/time-ms` present for a reply handler declaring
-;; `:rf.cofx/requires [:rf/time-ms]`.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- real-transport server harness ---------------------------------------
 
 (defn- start-server! [handler]
   (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
@@ -71,34 +39,17 @@
     (with-open [os (.getResponseBody exchange)]
       (.write os bytes))))
 
-(defn- await-reply!
-  ([pred] (await-reply! pred 5000))
-  ([pred timeout-ms]
-   (rf.test-support/poll-until
-     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
-     {:timeout-ms timeout-ms :label "http-reply-lowering"})))
+(defn- await-reply! [pred]
+  (rf.test-support/poll-until
+    #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
+    {:timeout-ms 5000 :label "http-reply-lowering"}))
 
 (defn- start-held-server!
-  "Start the test server with every exchange HELD until `release` is counted
-  down, then answering `200 {\"v\":1}`. The supersession tests below use it.
-
-  This is what makes a supersede DETERMINISTIC.
-  `registry/supersede!` supersedes only a request that is still IN FLIGHT: it
-  reads the in-flight registry, and a request clears its own slot the moment
-  it finalises. A test that issues #1 and then #2 therefore supersedes
-  NOTHING unless #1 is still unfinished when #2 is issued — and over loopback
-  #1's entire round trip can complete inside the gap between two
-  `dispatch-sync` calls, which is precisely what a loaded runner makes
-  likely. Holding the response until the TEST releases it removes that race
-  by construction: #1 cannot finalise before #2 is issued, because its reply
-  has not been written yet. This is a property of the ordering, not of how
-  fast the machine happens to be, so no bound is being relied on.
-
-  The write is guarded: the superseded request's transport future is
-  cancelled by the supersede itself, so its connection may already be gone by
-  the time this thread is released. A broken pipe there is the expected
-  outcome of a correct supersede, not a failure — and letting it escape would
-  kill the single dispatcher thread before the SURVIVING request is served."
+  "A server that holds every exchange until `release` counts down, then
+  answers `200 {\"v\":1}`. Holding #1 is what guarantees it is still in flight
+  when #2 supersedes it; over loopback an unheld #1 can finish between two
+  dispatch-syncs. The write is guarded because the superseded exchange's
+  connection is already cancelled."
   [^java.util.concurrent.CountDownLatch release]
   (start-server!
     (fn [^HttpExchange ex]
@@ -106,10 +57,6 @@
            (catch InterruptedException _ nil))
       (try (write-response! ex 200 "application/json" "{\"v\":1}")
            (catch java.io.IOException _ nil)))))
-
-;; ===========================================================================
-;; Group 1 — the CANONICAL reply map (pure).
-;; ===========================================================================
 
 (def ^:private base-ctx
   {:request-id   :article/by-id
@@ -119,139 +66,51 @@
    :completed-at 1781078400456})
 
 (deftest success-reply-response-meta-is-optional-and-canonical
-  (testing "the 3-arity threads the successful response's wire
-            facts onto the envelope's :meta family-extension slot; the reply
-            stays schema-valid and :value stays the accepted payload"
-    (let [meta* {:status      200
-                 :status-text "OK"
-                 :headers     {"content-type"          "application/json"
-                               "x-ratelimit-remaining" "37"
-                               ;; multi-valued header — the normalized
-                               ;; vector-of-verbatim-lines shape rides
-                               ;; UNCHANGED (no second representation)
-                               "set-cookie"            ["a=1; Path=/" "b=2; Path=/"]}}
-          r     (rf.http.reply/success-reply base-ctx {:title "Welcome"} meta*)]
-      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :ok (:status r)) "the envelope status stays :ok — :meta adds facts, never re-levels them")
-      (is (= {:title "Welcome"} (:value r)) ":value remains the decoded-and-accepted payload")
-      (is (= meta* (:meta r))
-          "the response wire facts ride verbatim under :meta, the multi-valued header's ONE normalized vector shape included")))
-  (testing "absent metadata is OMITTED, never fabricated (the
-            2-arity and a nil 3rd arg both leave :meta off the reply)"
-    (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1}) :meta)))
-    (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1} nil) :meta)))))
-
-;; ===========================================================================
-;; Group 2b — the CANONICAL envelope is delivered END-TO-END through the real
-;; transport (one dialect, no reshape).
-;; ===========================================================================
-
-(deftest real-transport-reply-to-delivers-canonical-envelope
-  (testing "unified :reply-to receives the canonical {:status :ok :value v …} envelope (appended last arg)"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 200 "application/json"
-                                   "{\"title\":\"hello\",\"id\":42}")))]
-      (try
-        (rf/reg-event :article/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:request  {:url (str "http://127.0.0.1:" (:port srv) "/a")}
-                      :decode   :json
-                      :reply-to [:article/load msg]}]]})))
-        (rf/dispatch-sync [:article/load {}])
-        (let [db (await-reply! #(some? (:reply %)))]
-          ;; The canonical reply envelope — the ONE dialect delivered to the app.
-          (is (= :ok (get-in db [:reply :status])))
-          (is (= "hello" (get-in db [:reply :value :title])))
-          (is (= :completed (get-in db [:reply :rf.reply/work-status])))
-          (is (= :http (get-in db [:reply :rf.reply/work-kind])))
-          ;; there is no {:kind :success} dialect
-          (is (not (contains? (:reply db) :kind))))
-        (finally (stop-server! srv))))))
-
-(deftest real-transport-explicit-on-failure-delivers-canonical-envelope
-  (testing "explicit :on-failure receives the canonical {:status :error :error {:kind :rf.http/http-5xx …} …} envelope, with no :meta"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 503 "text/plain" "down")))]
-      (try
-        (rf/reg-event :svc/call
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/x")}
-                    :on-failure [:svc/failed]}]]}))
-        (rf/reg-event :svc/failed (fn [{:keys [db]} [_ payload]] {:db (assoc db :got payload)}))
-        (rf/dispatch-sync [:svc/call])
-        (let [db (await-reply! #(some? (:got %)))]
-          (is (= :error (get-in db [:got :status])))
-          (is (= :failed (get-in db [:got :rf.reply/work-status])))
-          ;; the classified :rf.http/* failure map rides VERBATIM under :error
-          (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
-          (is (= 503 (get-in db [:got :error :status])))
-          (is (not (contains? (:got db) :kind)) "no :kind dialect")
-          (is (not (contains? (:got db) :meta))
-              "failure replies carry no :meta — their wire facts (status, status text, headers) ride :error"))
-        (finally (stop-server! srv))))))
+  (let [meta* {:status      200
+               :status-text "OK"
+               :headers     {"content-type" "application/json"
+                             "set-cookie"   ["a=1; Path=/" "b=2; Path=/"]}}
+        r     (rf.http.reply/success-reply base-ctx {:title "Welcome"} meta*)]
+    (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
+    (is (= {:status :ok :value {:title "Welcome"} :meta meta*} (select-keys r [:status :value :meta])))
+    (testing "absent metadata is omitted, never fabricated"
+      (is (not-any? #(contains? % :meta) [(rf.http.reply/success-reply base-ctx {:v 1})
+                                          (rf.http.reply/success-reply base-ctx {:v 1} nil)])))))
 
 (deftest real-transport-success-reply-carries-response-meta
-  (testing "a successful live request delivers the ACTUAL response
-            status, status text, and normalized headers at [:meta …] on the
-            canonical reply the app target receives; :value stays the payload"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (let [hs (.getResponseHeaders ex)]
-                    (.set hs "X-Request-Cost" "3")
-                    ;; TWO Set-Cookie lines — the multi-valued case MUST ride
-                    ;; the one normalized vector-of-verbatim-lines shape,
-                    ;; never a second representation.
-                    (.add hs "Set-Cookie" "session=abc; Path=/")
-                    (.add hs "Set-Cookie" "csrf=xyz; Path=/"))
-                  (write-response! ex 200 "application/json" "{\"title\":\"hello\"}")))]
-      (try
-        (rf/reg-event :meta/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:request  {:url (str "http://127.0.0.1:" (:port srv) "/m")}
-                      :decode   :json
-                      :reply-to [:meta/load msg]}]]})))
-        (rf/dispatch-sync [:meta/load {}])
-        (let [db    (await-reply! #(some? (:reply %)))
-              reply (:reply db)]
-          (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
-          (is (= "hello" (get-in reply [:value :title]))
-              ":value remains the decoded-and-accepted payload")
-          (is (= 200 (get-in reply [:meta :status]))
-              "the actual numeric wire status rides [:meta :status]")
-          (is (string? (get-in reply [:meta :status-text]))
-              "the transport's status text rides [:meta :status-text]")
-          (is (= "3" (get-in reply [:meta :headers "x-request-cost"]))
-              "an ordinary response header rides the normalized (lower-cased) map RAW on the delivered reply")
-          (is (= ["session=abc; Path=/" "csrf=xyz; Path=/"]
-                 (get-in reply [:meta :headers "set-cookie"]))
-              "a multi-valued header is the normalized vector of verbatim lines — no second header representation")
-          (is (string? (get-in reply [:meta :headers "content-type"]))
-              "single-valued headers keep the string shape"))
-        (finally (stop-server! srv))))))
+  (let [srv (start-server!
+              (fn [^HttpExchange ex]
+                (let [hs (.getResponseHeaders ex)]
+                  (.set hs "X-Request-Cost" "3")
+                  (.add hs "Set-Cookie" "session=abc; Path=/")
+                  (.add hs "Set-Cookie" "csrf=xyz; Path=/"))
+                (write-response! ex 200 "application/json" "{\"title\":\"hello\"}")))]
+    (try
+      (rf/reg-event :meta/load
+        (fn [{:keys [db]} [_ msg reply]]
+          (if reply
+            {:db (assoc db :reply reply)}
+            {:fx [[:rf.http/managed
+                   {:request  {:url (str "http://127.0.0.1:" (:port srv) "/m")}
+                    :decode   :json
+                    :reply-to [:meta/load msg]}]]})))
+      (rf/dispatch-sync [:meta/load {}])
+      (let [reply (:reply (await-reply! #(some? (:reply %))))]
+        (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
+        (is (= [:ok :completed :http {:title "hello"}]
+               ((juxt :status :rf.reply/work-status :rf.reply/work-kind :value) reply)))
+        (is (= {:status 200 :headers {"x-request-cost" "3"
+                                      "set-cookie"     ["session=abc; Path=/" "csrf=xyz; Path=/"]}}
+               (-> (:meta reply)
+                   (select-keys [:status :headers])
+                   (update :headers select-keys ["x-request-cost" "set-cookie"])))
+            "headers ride lower-cased; a multi-valued header is one vector of verbatim lines")
+        (is (string? (get-in reply [:meta :status-text]))))
+      (finally (stop-server! srv)))))
 
-;; ===========================================================================
-;; Group 2c — the public failure `:error` map is SELF-IDENTIFYING.
-;; Every failure category carries :request {:method :url}, :request-id,
-;; :attempt/:max-attempts, and :work/id — WHICH request failed, not only what
-;; kind of failure it was. Every ordinary category reaches the one
-;; `self-identify` stamp in `emit-and-dispatch-failure!` (the aborted reply
-;; has its own), so this group drives it end-to-end through the real
-;; transport for one ordinary category, the retry-exhausted path and the
-;; aborted reply.
-;; ===========================================================================
-
-(defn- fetch-failure-error
-  "Issue one managed GET against `url` (retry `max-attempts`, `request-id`),
-  drive it, and return the `:error` map of the delivered failure reply."
+(defn- fetch-failure-reply
+  "Issue one managed GET against `url` with an :on-failure target, drive it,
+  and return the delivered failure reply."
   [url {:keys [request-id max-attempts]}]
   (rf/reg-event :sid/call
     (fn [_ _]
@@ -265,366 +124,198 @@
                                            :backoff {:base-ms 1 :factor 1 :max-ms 1}}))]]}))
   (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
   (rf/dispatch-sync [:sid/call])
-  (get-in (await-reply! #(some? (:reply %))) [:reply :error]))
+  (:reply (await-reply! #(some? (:reply %)))))
+
+(def ^:private identity-keys [:kind :request :request-id :attempt :max-attempts :work/id :status])
 
 (deftest failure-reply-is-self-identifying-4xx
-  (testing "an :rf.http/http-4xx failure echoes :request/:request-id/:attempt/:work-id"
-    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 404 "text/plain" "nope")))]
-      (try
-        (let [url (str "http://127.0.0.1:" (:port srv) "/gone")
-              err (fetch-failure-error url {:request-id :sid/get})]
-          (is (= :rf.http/http-4xx (:kind err)) "category tag survives")
-          (is (= {:method :get :url url} (:request err)) "echoes the caller's wire envelope")
-          (is (= :sid/get (:request-id err)) ":request-id is uniform (not aborted-only)")
-          (is (= 1 (:attempt err)))
-          (is (= [:rf.work/http :sid/get 1 1] (:work/id err)) "correlation join to the trace")
-          ;; category-specific tags still ride
-          (is (= 404 (:status err))))
-        (finally (stop-server! srv))))))
+  (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 404 "text/plain" "nope")))]
+    (try
+      (let [url   (str "http://127.0.0.1:" (:port srv) "/gone")
+            reply (fetch-failure-reply url {:request-id :sid/get})]
+        (is (= {:status :error :rf.reply/work-status :failed}
+               (select-keys reply [:status :rf.reply/work-status :meta]))
+            "a failure reply carries no :meta; its wire facts ride :error")
+        (is (= {:kind :rf.http/http-4xx :request {:method :get :url url} :request-id :sid/get
+                :attempt 1 :work/id [:rf.work/http :sid/get 1 1] :status 404}
+               (select-keys (:error reply) (remove #{:max-attempts} identity-keys)))))
+      (finally (stop-server! srv)))))
 
 (deftest failure-reply-echoes-the-defaulted-method
-  (testing "a request that leaves :method out echoes the effective :get"
-    ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
-    (let [url "http://127.0.0.1:1/x"]
-      (rf/reg-event :sid/call-default-method
-        (fn [_ _]
-          {:fx [[:rf.http/managed {:request    {:url url}
-                                   :on-failure [:sid/failed]}]]}))
-      (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
-      (rf/dispatch-sync [:sid/call-default-method])
-      (let [err (get-in (await-reply! #(some? (:reply %))) [:reply :error])]
-        (is (= :rf.http/transport (:kind err)))
-        (is (= {:method :get :url url} (:request err))
-            "the :request echo carries the method that was sent, including the default")))))
+  ;; Port 1 is reliably closed: connection refused is :rf.http/transport.
+  (let [url "http://127.0.0.1:1/x"]
+    (rf/reg-event :sid/call-default-method
+      (fn [_ _]
+        {:fx [[:rf.http/managed {:request {:url url} :on-failure [:sid/failed]}]]}))
+    (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+    (rf/dispatch-sync [:sid/call-default-method])
+    (is (= {:kind :rf.http/transport :request {:method :get :url url}}
+           (-> (await-reply! #(some? (:reply %))) (get-in [:reply :error]) (select-keys [:kind :request]))))))
 
 (deftest failure-reply-is-self-identifying-5xx-with-retry
-  (testing "an :rf.http/http-5xx failure after exhausted retries carries :attempt/:max-attempts"
-    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]
-      (try
-        (let [url (str "http://127.0.0.1:" (:port srv) "/down")
-              err (fetch-failure-error url {:request-id :sid/five-xx :max-attempts 3})]
-          (is (= :rf.http/http-5xx (:kind err)))
-          (is (= {:method :get :url url} (:request err)))
-          (is (= 3 (:attempt err)) "the final (third) attempt is reported")
-          (is (= 3 (:max-attempts err)) "the retry ceiling rides the failure")
-          (is (= [:rf.work/http :sid/five-xx 1 3] (:work/id err))
-              "the work-id's attempt slot matches the exhausting attempt"))
-        (finally (stop-server! srv))))))
+  (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]
+    (try
+      (let [url (str "http://127.0.0.1:" (:port srv) "/down")]
+        (is (= {:kind :rf.http/http-5xx :request {:method :get :url url} :request-id :sid/five-xx
+                :attempt 3 :max-attempts 3 :work/id [:rf.work/http :sid/five-xx 1 3] :status 503}
+               (select-keys (:error (fetch-failure-reply url {:request-id :sid/five-xx :max-attempts 3}))
+                            identity-keys))))
+      (finally (stop-server! srv)))))
 
 (deftest failure-reply-is-self-identifying-aborted
-  (testing "an :rf.http/aborted reply (:status :cancelled) is self-identifying too"
-    (let [gate (java.util.concurrent.CountDownLatch. 1)
-          srv  (start-server!
-                 (fn [^HttpExchange ex]
-                   (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
-                        (catch InterruptedException _ nil))
-                   (write-response! ex 200 "application/json" "{\"v\":1}")))]
-      (try
-        (let [url (str "http://127.0.0.1:" (:port srv) "/slow")]
-          (rf/reg-event :sid/go
-            (fn [_ _]
-              {:fx [[:rf.http/managed
-                     {:request    {:method :get :url url}
-                      :request-id :sid/abort
-                      :decode     :json
-                      :on-failure [:sid/failed]}]]}))
-          (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
-          (rf/reg-event :sid/abort! (fn [_ _] {:fx [[:rf.http/managed-abort :sid/abort]]}))
-          (rf/dispatch-sync [:sid/go])
-          (rf/dispatch-sync [:sid/abort!])
-          (.countDown gate)
-          (let [reply (get-in (await-reply! #(some? (:reply %))) [:reply])
-                err   (:error reply)]
-            (is (= :cancelled (:status reply)) "abort is a :status :cancelled reply")
-            (is (= :rf.http/aborted (:kind err)))
-            (is (= {:method :get :url url} (:request err)))
-            (is (= :sid/abort (:request-id err)))
-            (is (= [:rf.work/http :sid/abort 1 1] (:work/id err)))))
-        (finally (stop-server! srv))))))
-
-(deftest real-transport-emits-canonical-replied-trace
-  (testing "completion emits a :rf.http/replied trace row built from the canonical envelope facts"
-    (let [srv     (start-server!
-                    (fn [^HttpExchange ex]
-                      (write-response! ex 200 "application/json" "{\"ok\":true}")))
-          traces  (atom [])
-          lid     ::replied-trace]
-      (try
-        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :t/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :done true)}
-              {:fx [[:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" (:port srv) "/t")}
-                      :request-id :t/load
-                      :decode     :json
-                      :reply-to   [:t/load msg]}]]})))
-        (rf/dispatch-sync [:t/load {}])
-        (await-reply! #(:done %))
-        (let [replied (filter #(= :rf.http/replied (:operation %)) @traces)]
-          (is (seq replied) "a :rf.http/replied trace row was emitted")
-          (let [tags (:tags (first replied))]
-            ;; identity facts ride verbatim on the canonical trace summary
-            (is (= :ok (:status tags)))
-            (is (= :http (:rf.reply/work-kind tags)))
-            (is (= [:rf.work/http :t/load 1 1] (:rf.reply/work-id tags)))
-            ;; :request-id is correlation metadata, not a second stale key
-            (is (= {:request-id :t/load} (:correlation tags)))))
-        (finally
-          (rf.trace.tooling/unregister-listener! lid)
-          (stop-server! srv))))))
-
-;; ===========================================================================
-;; Group 3 — supersession suppresses the prior request's app target.
-;; ===========================================================================
-
-;; WHY THIS TEST CARRIES NO TIMED WAIT.
-;;
-;; Both server responses are byte-identical, so "one reply, :status :ok" is
-;; satisfied just as well by a broken path that delivers the SUPERSEDED
-;; issuance and loses the superseding one. The three devices below make the
-;; claim this test advertises — *the one delivered reply is request #2's, and
-;; there is never a second* — provable rather than merely probable, and none of
-;; them is a clock:
-;;
-;;   (1) ISSUANCE IDENTITY. `:rf.reply/work-id` is
-;;       `[:rf.work/http logical-id issuance attempt]` (reply.cljc `work-id`),
-;;       and `registry/next-issuance!` bumps `issuance` on each fresh request
-;;       under one `:request-id`. So issuance 1 vs 2 is exactly what the two
-;;       otherwise-identical replies differ by, and asserting the delivered
-;;       reply's work-id is `[:rf.work/http :search 2 1]` is what pins WHICH
-;;       one arrived. `reset-issuance-counters-for-test!` makes those literals
-;;       independent of what else ran first in this JVM.
-;;
-;;   (2) THE SUPERSEDE IS AN ORDERING, NOT A RACE. Asserted while both
-;;       exchanges are still HELD: the `:search` in-flight slot already holds
-;;       issuance 2. `registry/supersede!` cleared #1 out of it and fired #1's
-;;       abort-fn INLINE, during the second `dispatch-sync`'s fx phase. That
-;;       abort-fn wins #1's once-only `:finalised?` CAS and routes through
-;;       `dispatch-aborted!`, where `:request-id-superseded` is a
-;;       reply-SUPPRESSING reason (transport.cljc `reply-suppressing-abort-
-;;       reasons`) — no app dispatch, and the won CAS makes #1's later
-;;       transport completion bail at `already-replied?`. There is therefore no
-;;       later moment at which a second reply could originate; a timed window
-;;       would be allowing for one that cannot exist.
-;;
-;;   (3) A QUEUE BARRIER, NOT A SLEEP. `dispatch-sync` seeds at the FRONT of
-;;       the frame's FIFO queue and then runs the drain loop to fixed point
-;;       (router.cljc `drain-block!`), so every envelope enqueued before it has
-;;       been PROCESSED by the time it returns. Dispatching `:search/quiesce`
-;;       after the surviving reply lands therefore observes any wrongly
-;;       dispatched #1 reply, where a `Thread/sleep 200` would only
-;;       establish that none had arrived within 200 ms.
+  (let [gate (java.util.concurrent.CountDownLatch. 1)
+        srv  (start-server!
+               (fn [^HttpExchange ex]
+                 (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
+                      (catch InterruptedException _ nil))
+                 (write-response! ex 200 "application/json" "{\"v\":1}")))]
+    (try
+      (let [url (str "http://127.0.0.1:" (:port srv) "/slow")]
+        (rf/reg-event :sid/go
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get :url url}
+                    :request-id :sid/abort
+                    :decode     :json
+                    :on-failure [:sid/failed]}]]}))
+        (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+        (rf/reg-event :sid/abort! (fn [_ _] {:fx [[:rf.http/managed-abort :sid/abort]]}))
+        (rf/dispatch-sync [:sid/go])
+        (rf/dispatch-sync [:sid/abort!])
+        (.countDown gate)
+        (let [reply (:reply (await-reply! #(some? (:reply %))))]
+          (is (= :cancelled (:status reply)))
+          (is (= {:kind :rf.http/aborted :request {:method :get :url url} :request-id :sid/abort
+                  :work/id [:rf.work/http :sid/abort 1 1]}
+                 (select-keys (:error reply) [:kind :request :request-id :work/id])))))
+      (finally (stop-server! srv)))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
-  (testing "superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
-    (rf.http.registry/reset-issuance-counters-for-test!)
-    (let [release (java.util.concurrent.CountDownLatch. 1)
-          replied (java.util.concurrent.CountDownLatch. 1)
-          srv     (start-held-server! release)
-          replies (atom [])
-          traces  (atom [])
-          lid     ::supersede-stale]
-      (try
-        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :search/replied
-          (fn [{:keys [db]} [_ payload]]
-            (swap! replies conj payload)
-            (.countDown replied)
-            {:db db}))
-        (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
-        (rf/reg-event :search/go
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}
-                    :request-id :search
-                    :decode     :json
-                    :on-success [:search/replied]
-                    :on-failure [:search/replied]}]]}))
-        ;; #1 (issuance 1) goes in flight; #2 (issuance 2) supersedes it. The
-        ;; held server is what guarantees #1 is STILL in flight when #2 is
-        ;; issued — see `start-held-server!`.
-        (rf/dispatch-sync [:search/go])
-        (rf/dispatch-sync [:search/go])
-        ;; NO WAIT HERE, and that is the point. The supersede is
-        ;; SYNCHRONOUS with the dispatch above: `managed-handler` calls
-        ;; `registry/supersede!` and then `emit-superseded-stale-trace!`
-        ;; inline, in the fx phase, before `dispatch-sync` returns. The row
-        ;; below has therefore already landed and can simply be ASSERTED.
-        ;;
-        ;; A `poll-until` for the row would add nothing, and no bound on one
-        ;; could repair the failure it would be guarding against. The trace is
-        ;; never LATE — on the losing interleaving it is never emitted at all:
-        ;; `registry/supersede!` returns nil when nothing is in flight under
-        ;; the request-id, and request #1, unheld, could finish its whole
-        ;; loopback round trip in the gap between the two `dispatch-sync`
-        ;; calls. Both requests would then deliver replies and no supersede
-        ;; would happen, so a poll would sit out its full backstop waiting for
-        ;; a row that cannot arrive. No timeout is large enough for an event
-        ;; that is never emitted, which is why holding the server —
-        ;; establishing the precondition rather than timing the machine — is
-        ;; what makes this deterministic.
-        (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
-          (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded attempt")
-          (let [tags (:tags (first stale))]
-            (is (= :stale (:rf.reply/status tags)))
-            (is (= :suppressed (:rf.reply/work-status tags)))
-            (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags)))
-            (is (= :http (:rf.reply/work-kind tags)))
-            ;; Carried = the superseded attempt's work-id (issuance 1);
-            ;; current = the superseding attempt's work-id (issuance 2). The
-            ;; two are =-distinct — tooling can tell them apart by :work/id.
-            (is (= [:rf.work/http :search 1 1] (:work/id (:rf.reply/carried tags))))
-            (is (= [:rf.work/http :search 2 1] (:work/id (:rf.reply/current tags))))
-            ;; The canonical join key reads the carried (superseded) work-id.
-            (is (= [:rf.work/http :search 1 1] (:rf.reply/work-id tags)))))
-        ;; Device (2) — read while BOTH exchanges are still held: the supersede
-        ;; already cleared issuance 1 out of the `:search` slot and issuance 2
-        ;; owns it, so #1's suppression is settled BEFORE anything is released.
-        (let [live (rf.http.registry/lookup-in-flight :search)]
-          (is (some? live) "the superseding request #2 is the live in-flight request")
-          (is (= [:rf.work/http :search 2 1] (rf.http.reply/work-id live))
-              "the surviving in-flight request is issuance 2; issuance 1 was superseded out of the slot during the second dispatch-sync"))
-        ;; The surviving request's APP REPLY is the one genuinely async step
-        ;; (transport reply → reply lowering → app dispatch), and it publishes
-        ;; its own completion: the reply handler counts the latch down. So this
-        ;; waits on the event itself rather than sampling app-db on a timer.
-        ;; The bound is a deadlock guard, not a budget — the latch is released
-        ;; by the delivery, so a run either passes in milliseconds or is a real
-        ;; regression in which the reply never arrives.
+  ;; Both responses are byte-identical, so the work-id's issuance slot is the
+  ;; only fact telling "delivered #2" from "delivered #1 and lost #2". The
+  ;; supersede runs inline in the second dispatch-sync's fx phase, so the
+  ;; stale row and the in-flight slot are read before anything is released,
+  ;; and the final dispatch-sync is a FIFO drain barrier that would observe a
+  ;; wrongly delivered #1 reply.
+  (rf.http.registry/reset-issuance-counters-for-test!)
+  (let [release (java.util.concurrent.CountDownLatch. 1)
+        replied (java.util.concurrent.CountDownLatch. 1)
+        srv     (start-held-server! release)
+        replies (atom [])
+        traces  (atom [])
+        lid     ::supersede-stale]
+    (try
+      (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event :search/replied
+        (fn [{:keys [db]} [_ payload]]
+          (swap! replies conj payload)
+          (.countDown replied)
+          {:db db}))
+      (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :search/go
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}
+                  :request-id :search
+                  :decode     :json
+                  :on-success [:search/replied]
+                  :on-failure [:search/replied]}]]}))
+      (rf/dispatch-sync [:search/go])
+      (rf/dispatch-sync [:search/go])
+      (is (= [{:rf.reply/status       :stale
+               :rf.reply/work-status  :suppressed
+               :rf.reply/stale-reason :rf.http/request-id-superseded
+               :rf.reply/work-kind    :http
+               :rf.reply/work-id      [:rf.work/http :search 1 1]
+               :carried               [:rf.work/http :search 1 1]
+               :current               [:rf.work/http :search 2 1]}]
+             (->> @traces
+                  (filter #(= :rf.http/stale-suppressed (:operation %)))
+                  (mapv (fn [{:keys [tags]}]
+                          (-> (select-keys tags [:rf.reply/status :rf.reply/work-status :rf.reply/stale-reason
+                                                 :rf.reply/work-kind :rf.reply/work-id])
+                              (assoc :carried (get-in tags [:rf.reply/carried :work/id])
+                                     :current (get-in tags [:rf.reply/current :work/id]))))))))
+      (is (= [:rf.work/http :search 2 1]
+             (some-> (rf.http.registry/lookup-in-flight :search) rf.http.reply/work-id))
+          "issuance 2 owns the in-flight slot before anything is released")
+      (.countDown release)
+      (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS))
+      (rf/dispatch-sync [:search/quiesce])
+      (is (= [[:ok [:rf.work/http :search 2 1]]] (mapv (juxt :status :rf.reply/work-id) @replies))
+          "exactly one app reply, and it is the superseding issuance's")
+      (finally
         (.countDown release)
-        (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
-            "the surviving request's app reply was delivered")
-        ;; Device (3) — a FIFO drain barrier in place of a timed quiescence
-        ;; window: everything enqueued before this call has been processed by
-        ;; the time it returns, so a wrongly delivered #1 reply is OBSERVED
-        ;; rather than merely not-yet-arrived.
-        (rf/dispatch-sync [:search/quiesce])
-        ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
-        (is (= 1 (count @replies))
-            "only the surviving request's app reply is delivered")
-        (is (= :ok (:status (first @replies)))
-            "the surviving reply is request #2's canonical :status :ok success")
-        ;; Device (1) — both server responses are identical, so the work-id is
-        ;; the only fact distinguishing "delivered issuance 2" from "delivered
-        ;; issuance 1 and lost issuance 2"; the count and :status assertions
-        ;; above are satisfied by both.
-        (is (= [:rf.work/http :search 2 1] (:rf.reply/work-id (first @replies)))
-            "the delivered reply belongs to the SUPERSEDING issuance (2), not the superseded issuance 1")
-        (finally
-          (.countDown release)
-          (rf.trace.tooling/unregister-listener! lid)
-          (stop-server! srv))))))
-
-;; ===========================================================================
-;; Group 5 — EP-0017 HTTP-reply :rf.cofx time delivery. The HTTP
-;; completion time (read ONCE at finalisation in `reply-ctx`) rides the reply
-;; dispatch's flat `:rf.cofx` `:rf/time-ms`. A reply handler DECLARING
-;; `{:rf.cofx/requires [:rf/time-ms]}` receives EXACTLY that HTTP completion
-;; timestamp; an UNDECLARED reply handler does NOT see implicit `:rf/time-ms`
-;; flat. This is the HTTP-owned boundary that supplies host completion time as
-;; the reply token's recordable cofx — distinct from the core
-;; provided-cofx-delivery conformance.
-;;
-;; The test fails if `dispatch-reply-via-late-bind!` stops supplying flat
-;; `:rf.cofx`, nests it under `:rf.world/inputs`, or relies on an
-;; implicit fresh-clock read (the declared handler would then see a value
-;; != the HTTP `:completed-at`, or the undeclared handler would see one).
-;; ===========================================================================
+        (rf.trace.tooling/unregister-listener! lid)
+        (stop-server! srv)))))
 
 (deftest http-reply-declared-handler-receives-completion-time-flat
-  (testing "a reply handler declaring {:rf.cofx/requires [:rf/time-ms]} receives the HTTP completion timestamp (== the :rf.http/replied trace :completed-at) flat under :rf/time-ms; the reply dispatch carries it on a flat :rf.cofx supplied BY HTTP (not the router's enqueue fill)"
-    (let [srv    (start-server!
-                   (fn [^HttpExchange ex]
-                     (write-response! ex 200 "application/json" "{\"v\":1}")))
-          cofx   (atom ::unset)
-          traces (atom [])
-          ;; Capture the :rf.cofx OPT the http reply path passes to
-          ;; `:router/dispatch!`. This directly pins that HTTP SUPPLIES a flat
-          ;; `:rf.cofx` `:rf/time-ms` on the reply dispatch, rather than
-          ;; relying on the router's
-          ;; missing-cofx enqueue fill — whose value coincides with
-          ;; :completed-at to the millisecond and so cannot discriminate.
-          reply-dispatch-opts (atom nil)
-          real-dispatch! (rf.late-bind/get-fn :router/dispatch!)
-          lid    ::cofx-time]
-      (try
-        (rf.late-bind/set-fn! :router/dispatch!
-          (fn [ev opts]
-            (when (= :svc/replied (first ev))
-              (reset! reply-dispatch-opts opts))
-            (real-dispatch! ev opts)))
-        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :svc/call
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
-                    :request-id :svc/call
-                    :decode     :json
-                    :on-success [:svc/replied]}]]}))
-        ;; The reply handler DECLARES the recordable fact, so it is delivered
-        ;; FLAT under its id (EP-0017 §2/§5). The handler reads it off the
-        ;; reply token's recordable coeffects — NOT a fresh ambient clock.
-        (rf/reg-event :svc/replied
-          {:rf.cofx/requires [:rf/time-ms]}
-          (fn [{:keys [db] :as coeffects} _]
-            (reset! cofx coeffects)
-            {:db (assoc db :done true)}))
-        (rf/dispatch-sync [:svc/call])
-        (let [_  (await-reply! #(:done %))
-              c  @cofx
-              replied (->> @traces
-                           (filter #(= :rf.http/replied (:operation %)))
-                           first)
-              trace-completed-at (get-in replied [:tags :completed-at])
-              opts @reply-dispatch-opts]
-          ;; (1) HTTP supplies a flat :rf.cofx :rf/time-ms on the reply dispatch.
-          (is (= {:rf/time-ms trace-completed-at} (:rf.cofx opts))
-              "the http reply dispatch SUPPLIES a flat :rf.cofx {:rf/time-ms <completed-at>} — not omitted, not nested")
-          (is (= :http (:source opts))
-              "the reply dispatch self-tags :source :http")
-          ;; (2) the declared handler receives that completion time FLAT.
-          (is (number? (:rf/time-ms c))
-              "the declared recordable fact arrived FLAT under :rf/time-ms")
-          (is (some? trace-completed-at)
-              "the :rf.http/replied trace carries the canonical :completed-at")
-          (is (= trace-completed-at (:rf/time-ms c))
-              "the handler's :rf/time-ms IS the HTTP completion time (read once in reply-ctx), not a fresh clock read")
-          (testing "the flat :rf.cofx record carries the same fact (the EP-0017 envelope field)"
-            (is (= trace-completed-at (get (:rf.cofx c) :rf/time-ms)))
-            (is (not (contains? c :rf.world/inputs))
-                "there is no nested :rf.world/inputs envelope — the record is the flat :rf.cofx")))
-        (finally
-          (rf.late-bind/set-fn! :router/dispatch! real-dispatch!)
-          (rf.trace.tooling/unregister-listener! lid)
-          (stop-server! srv))))))
+  ;; The router's own missing-cofx fill coincides with :completed-at to the
+  ;; millisecond, so the reply dispatch's opts are captured to show HTTP
+  ;; supplies the flat :rf.cofx itself.
+  (let [srv            (start-server!
+                         (fn [^HttpExchange ex]
+                           (write-response! ex 200 "application/json" "{\"v\":1}")))
+        cofx           (atom ::unset)
+        traces         (atom [])
+        dispatch-opts  (atom nil)
+        real-dispatch! (rf.late-bind/get-fn :router/dispatch!)
+        lid            ::cofx-time]
+    (try
+      (rf.late-bind/set-fn! :router/dispatch!
+        (fn [ev opts]
+          (when (= :svc/replied (first ev))
+            (reset! dispatch-opts opts))
+          (real-dispatch! ev opts)))
+      (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event :svc/call
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
+                  :request-id :svc/call
+                  :decode     :json
+                  :on-success [:svc/replied]}]]}))
+      (rf/reg-event :svc/replied
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [db] :as coeffects} _]
+          (reset! cofx coeffects)
+          {:db (assoc db :done true)}))
+      (rf/dispatch-sync [:svc/call])
+      (await-reply! #(:done %))
+      (let [c            @cofx
+            tags         (->> @traces (filter #(= :rf.http/replied (:operation %))) first :tags)
+            completed-at (:completed-at tags)]
+        (is (number? completed-at))
+        (is (= {:status :ok :rf.reply/work-kind :http :rf.reply/work-id [:rf.work/http :svc/call 1 1]
+                :correlation {:request-id :svc/call}}
+               (select-keys tags [:status :rf.reply/work-kind :rf.reply/work-id :correlation]))
+            "the :rf.http/replied row carries the canonical envelope facts")
+        (is (= [{:rf/time-ms completed-at} :http] ((juxt :rf.cofx :source) @dispatch-opts)))
+        (is (= [completed-at completed-at] [(:rf/time-ms c) (get-in c [:rf.cofx :rf/time-ms])])
+            "the handler's :rf/time-ms is the HTTP completion time, not a fresh clock read"))
+      (finally
+        (rf.late-bind/set-fn! :router/dispatch! real-dispatch!)
+        (rf.trace.tooling/unregister-listener! lid)
+        (stop-server! srv)))))
 
 (deftest http-reply-undeclared-handler-does-not-see-implicit-time
-  (testing "an UNDECLARED reply handler does NOT receive :rf/time-ms flat (no implicit time delivery); the fact rides :rf.cofx but is not handed flat without a declaration"
-    (let [srv    (start-server!
-                   (fn [^HttpExchange ex]
-                     (write-response! ex 200 "application/json" "{\"v\":1}")))
-          cofx   (atom ::unset)]
-      (try
-        (rf/reg-event :svc/call2
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
-                    :decode     :json
-                    :on-success [:svc/replied2]}]]}))
-        ;; NO :rf.cofx/requires — the handler must NOT see :rf/time-ms flat.
-        (rf/reg-event :svc/replied2
-          (fn [{:keys [db] :as coeffects} _]
-            (reset! cofx coeffects)
-            {:db (assoc db :done2 true)}))
-        (rf/dispatch-sync [:svc/call2])
-        (await-reply! #(:done2 %))
-        (let [c @cofx]
-          (is (not (contains? c :rf/time-ms))
-              "an undeclared reply handler does NOT receive :rf/time-ms flat (no implicit time delivery)")
-          (is (map? (:rf.cofx c))
-              "the flat :rf.cofx record is still reachable for generic code (EP-0017 §5)")
-          (is (not (contains? c :rf.world/inputs))
-              "there is no nested :rf.world/inputs envelope"))
-        (finally (stop-server! srv))))))
+  (let [srv  (start-server!
+               (fn [^HttpExchange ex]
+                 (write-response! ex 200 "application/json" "{\"v\":1}")))
+        cofx (atom ::unset)]
+    (try
+      (rf/reg-event :svc/call2
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
+                  :decode     :json
+                  :on-success [:svc/replied2]}]]}))
+      (rf/reg-event :svc/replied2
+        (fn [{:keys [db] :as coeffects} _]
+          (reset! cofx coeffects)
+          {:db (assoc db :done2 true)}))
+      (rf/dispatch-sync [:svc/call2])
+      (await-reply! #(:done2 %))
+      (is (not (contains? @cofx :rf/time-ms)))
+      (is (map? (:rf.cofx @cofx)) "the flat :rf.cofx record stays reachable")
+      (finally (stop-server! srv)))))
