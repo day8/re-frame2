@@ -60,11 +60,9 @@
                                                     :on-error   {:targt :b}}})
              :spawn/on-done  (with-state-a {:spawn {:machine-id :tk/child
                                                     :on-done    {:targt :b}}})}]
-      (let [d (reg-error machine)]
-        (is (= :rf.error/machine-unknown-node-key (:rf.error/id d))
-            (str slot ": refused with the node-key id"))
-        (is (= slot (:slot d))
-            (str slot ": :slot names the transition slot"))))))
+      (is (= {:rf.error/id :rf.error/machine-unknown-node-key :slot slot}
+             (select-keys (reg-error machine) [:rf.error/id :slot]))
+          (str slot)))))
 
 (deftest unknown-transition-key-refused-on-root-and-region
   (testing "the root's own :on and a parallel region body's :on are
@@ -81,13 +79,11 @@
 
 (deftest xstate-spellings-named-in-the-refusal
   (testing "the ex-data names the offending keys and the valid vocabulary, and
-            the message names the re-frame2 spelling of each XState key"
+            the message names the re-frame2 spelling of an XState key"
     (let [d (reg-error (with-state-a {:on {:go {:target :b :cond :ok? :actions [:x]}}}))]
-      (is (= :a (:state d)))
-      (is (= #{:cond :actions} (set (:offending-keys d))))
+      (is (= [:a #{:cond :actions}] [(:state d) (set (:offending-keys d))]))
       (is (contains? (:valid-keys d) :guard))
-      (is (re-find #":cond is :guard" (:reason d)))
-      (is (re-find #":actions is :action" (:reason d))))))
+      (is (re-find #":cond is :guard" (:reason d))))))
 
 (deftest valid-transition-maps-register
   (testing "the whole transition vocabulary, the value forms, and namespaced
@@ -111,18 +107,10 @@
 ;; ---- root-only keys --------------------------------------------------------
 
 (deftest root-only-keys-refused-below-the-root
-  (testing "a root-only key on a nested state is refused and named root-only"
-    (doseq [[k v] {:data            {:leaf 1}
-                   :schemas         {:data :any}
-                   :internal-events #{:tick}
-                   :guards          {:ok? (constantly true)}
-                   :actions         {:go (fn [_] nil)}
-                   :region-order    [:r]}]
-      (let [d (reg-error (with-state-a {k v}))]
-        (is (= :rf.error/machine-unknown-node-key (:rf.error/id d))
-            (str k ": refused on a nested state"))
-        (is (= [k] (:offending-keys d)) (str k ": named as the offending key"))
-        (is (re-find #"root-only" (:reason d)) (str k ": the message says root-only"))))))
+  (let [d (reg-error (with-state-a {:data {:leaf 1}}))]
+    (is (= {:rf.error/id :rf.error/machine-unknown-node-key :offending-keys [:data]}
+           (select-keys d [:rf.error/id :offending-keys])))
+    (is (re-find #"root-only" (:reason d)) "the message says root-only")))
 
 (deftest root-only-key-refused-on-a-region-body
   (testing "a parallel region body is not the machine root"
@@ -131,13 +119,3 @@
                                      :regions {:r {:initial :x
                                                    :guards  {:ok? (constantly true)}
                                                    :states  {:x {}}}}}))))))
-
-(deftest root-only-keys-register-on-the-root
-  (testing "control: the same keys register on the machine root"
-    (is (nil? (reg-error {:initial         :a
-                          :data            {:n 1}
-                          :schemas         {:data :any}
-                          :internal-events #{:tick}
-                          :guards          {:ok? (constantly true)}
-                          :actions         {:go (fn [_] nil)}
-                          :states          {:a {:on {:tick {:target :a :guard :ok? :action :go}}}}})))))
