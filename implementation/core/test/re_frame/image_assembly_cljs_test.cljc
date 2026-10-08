@@ -1,46 +1,17 @@
 (ns re-frame.image-assembly-cljs-test
-  "EP-0023 §Image Validation / §Image Composition / §Image Patching And
-  Overrides — image ASSEMBLY: resolve image values into a
-  SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
+  "Image assembly (EP-0023, EP-0026 §Layered Resolution): image values resolve
+  into a sealed, validated `[kind id]` generation, and every malformed
+  composition fails loud before a frame runs, with a structured diagnostic. A
+  `[kind id]` defined by several images resolves to the later image, and the
+  shadow is reported rather than failed.
 
-  Sections 1, 4 and 6+ pin EP-0023 assembly coverage (projection,
-  unsupported kind, references, structured diagnostics). Sections 3, 5, 9
-  pin EP-0026 §Layered Resolution: a `[kind id]` defined by several images
-  resolves by deterministic IMAGE-ORDER layering, the later image winning.
-  `ep0026_select_ns_cljs_test` pins the plain two-image layering in both
-  orders and the within-image collision rows on the same inputs.
-  There is no image-capability surface — no `:rf.image/requires`, no
-  `check-capabilities!`, and no `:rf.gen/requires` on the generation.
-
-  Pins the enumerated coverage:
-
-    * successful projection — selected + inline + framework standard → an
-      immutable `[kind id]` resolver;
-    * within-image duplicate-id collision FAILS LOUD (selection order never
-      decides the survivor);
-    * the LATER image wins a cross-image `[kind id]` (EP-0026 image order); a
-      cross-image shadow does NOT fail assembly;
-    * a within-image `[kind id]` resolving two ways FAILS LOUD (two selected =
-      ambiguous; inline-vs-selected or two inline = within-image collision);
-    * unsupported descriptor kind FAILS LOUD;
-    * a public app image colliding with a framework STANDARD FAILS LOUD (a
-      standard is protected — not part of app layer order, no public opt-in);
-    * missing application interceptor reference FAILS LOUD.
-
-  Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
-  message bytes — Spec 009 §The thrown-error shape rule 3).
-
-  Pure data — no adapter/runtime state, so no reset-runtime fixture. The
-  framework-standard registry IS process state, so a fixture clears it per case.
-  `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  Each refusal is asserted on its `:rf.error/id` and ex-data, never the message
+  (Spec 009 §The thrown-error shape rule 3). The framework-standard registry is
+  process state, so a fixture clears it per case."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]))
-
-;; ---------------------------------------------------------------------------
-;; Fixture — the framework-standard registry is a defonce atom; clear per case.
-;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (fn [t]
@@ -48,269 +19,140 @@
     (t)
     (rf.image-assembly/clear-standards!)))
 
-;; ---------------------------------------------------------------------------
-;; Synthetic registered descriptors (mirror the source-store output shape the
-;; selector consumes). The load-bearing field for
-;; selection is :rf.provenance/ns; :impl distinguishes a real collision from a
-;; dedupe.
-;; ---------------------------------------------------------------------------
-
 (defn- reg-desc
-  "A synthetic REGISTERED descriptor authored in `provenance-ns`."
+  "A synthetic registered descriptor authored in `provenance-ns`."
   [provenance-ns kind id impl]
   {:rf.provenance/ns provenance-ns
    :kind             kind
    :id               id
    :handler-fn       impl})
 
-(defn- err-id
-  "The `:rf.error/id` discriminator of a thrown re-frame2 error, or nil."
-  [ex]
-  (:rf.error/id (ex-data ex)))
-
-(defn- assembly-error-id
-  "Run `thunk`, returning the `:rf.error/id` of the thrown ex-info (or nil if it
-  did not throw). Branches on the discriminator, never the message."
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (err-id e))))
-
 (defn- assembly-error-data
-  "Run `thunk`; return the ex-data of the thrown ex-info (or nil)."
+  "The ex-data `thunk` throws, or nil."
   [thunk]
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (ex-data e))))
 
-;; ===========================================================================
-;; 1. Successful projection — selected + inline + standard → immutable resolver
-;; ===========================================================================
-
 (deftest successful-projection-selected-plus-inline-plus-standard
-  (testing "an image selecting one namespace + inline registrations, with a
-            framework standard present, projects into a sealed [kind id]
-            resolver carrying exactly the selected + inline + standard
-            descriptors"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std-nav})
-    (let [pool [(reg-desc "shop.cart" :event :cart/add ::cart-add)
-                (reg-desc "shop.cart" :sub   :cart/items ::cart-items)
-                (reg-desc "shop.other" :event :other/noise ::noise)]
-          img  (rf.image/image
-                 {:id :shop/main
-                  :select-ns {:include ["shop.cart"]}
-                  :registrations
-                  {:reg-fx [[:cart.http/post {:doc "post"} ::http-post]]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (testing "the resolver is keyed by [kind id], one descriptor each"
-        (is (contains? (:rf.gen/resolver gen) [:sub :cart/items]))
-        (testing "the framework standard is unioned in"
-          (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])))
-        (testing "the non-selected namespace is NOT in the generation"
-          (is (not (contains? (:rf.gen/resolver gen) [:event :other/noise])))))
-      (testing "resolve-descriptor reads one descriptor for a (kind, id)"
-        (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
-        (is (= ::http-post (:impl (rf.image-assembly/resolve-descriptor gen :fx :cart.http/post)))))
-      (testing "the generation carries the kinds present, and no
-                :rf.gen/requires"
-        (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen)))
-        (is (not (contains? gen :rf.gen/requires))))
-      (testing "the sealed generation is an inert immutable value"
-        (is (= gen (rf.image-assembly/assemble [img] pool))
-            "equal image inputs over the same pool produce an equal generation")))))
-
-;; ===========================================================================
-;; 3. Within-image disjointness — an image must resolve cleanly to ONE
-;;    descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
-;;    winner goes in a LATER image; an override within ONE image is an error.
-;; ===========================================================================
+  (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+  (let [pool [(reg-desc "shop.cart" :event :cart/add ::cart-add)
+              (reg-desc "shop.cart" :sub   :cart/items ::cart-items)
+              (reg-desc "shop.other" :event :other/noise ::noise)]
+        img  (rf.image/image
+               {:id :shop/main
+                :select-ns {:include ["shop.cart"]}
+                :registrations
+                {:reg-fx [[:cart.http/post {:doc "post"} ::http-post]]}})
+        gen  (rf.image-assembly/assemble [img] pool)]
+    (is (= #{[:event :cart/add] [:sub :cart/items] [:fx :cart.http/post] [:fx :rf.nav/push-url]}
+           (set (keys (:rf.gen/resolver gen))))
+        "the selected namespace, the inline entry and the standard, nothing else")
+    (is (= [::cart-add ::http-post #{:event :sub :fx}]
+           [(:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))
+            (:impl (rf.image-assembly/resolve-descriptor gen :fx :cart.http/post))
+            (rf.image-assembly/generation-kinds gen)]))))
 
 (deftest within-image-two-inline-is-malformed
-  (testing "two inline entries for the same [kind id] in ONE image →
-            :rf.error/image-within-image-collision (define each [kind id] once inline)"
-    (let [img (rf.image/image
-                {:id :i
-                 :registrations {:reg-fx [[:checkout.http/post {} ::a]
-                                          [:checkout.http/post {} ::b]]}})]
-      (is (= :rf.error/image-within-image-collision
-             (assembly-error-id #(rf.image-assembly/assemble [img] [])))))))
-
-;; ===========================================================================
-;; 4. Unsupported descriptor kind
-;; ===========================================================================
+  (let [img (rf.image/image
+              {:id :i
+               :registrations {:reg-fx [[:checkout.http/post {} ::a]
+                                        [:checkout.http/post {} ::b]]}})]
+    (is (= :rf.error/image-within-image-collision
+           (:rf.error/id (assembly-error-data #(rf.image-assembly/assemble [img] [])))))))
 
 (deftest unsupported-kind-ex-data-carries-provenance
-  (testing "a selected descriptor with a kind outside the closed registrar set
-            → :rf.error/image-unsupported-kind, and the diagnostic carries
-            rf.image/kind/id/provenance ns/coordinate/recovery"
-    (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
-                 :handler-fn ::w}]
-          img  (rf.image/image {:id :w/img :select-ns {:include ["weird.ns"]}})
-          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-unsupported-kind (:rf.error/id d)))
-      (is (= :w/img (:image d)))
-      (is (= :not-a-kind (:kind d)))
-      (is (= :x/y (:id d)))
-      (is (= "weird.ns" (:rf.provenance/ns d)))
-      (is (= {:ns "weird.ns"} (:coordinate d)))
-      (is (= :correct-the-descriptor-kind (:recovery d))))))
-
-;; ===========================================================================
-;; 5. Framework-standard replacement policy (default non-replaceable)
-;; ===========================================================================
-
-;; A SELECTED descriptor colliding with a standard is pinned, with its
-;; structured diagnostic, by §11's
-;; `standard-forbidden-ex-data-names-the-app-coordinate`; an INLINE app entry
-;; colliding with one, by `ep0026_select_ns_cljs_test`'s
-;; `app-shadowing-a-standard-fails-loud`.
+  (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
+               :handler-fn ::w}]
+        img  (rf.image/image {:id :w/img :select-ns {:include ["weird.ns"]}})]
+    (is (= {:rf.error/id      :rf.error/image-unsupported-kind
+            :image            :w/img
+            :kind             :not-a-kind
+            :id               :x/y
+            :rf.provenance/ns "weird.ns"
+            :coordinate       {:ns "weird.ns"}
+            :recovery         :correct-the-descriptor-kind}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [img] pool))
+                        [:rf.error/id :image :kind :id :rf.provenance/ns :coordinate :recovery])))))
 
 (deftest later-image-cannot-shadow-a-standard
-  (testing "even a LATER image cannot shadow a framework standard — standards are
-            not part of app layer order; the app/standard collision fails loud
-            regardless of image position"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [pool  [(reg-desc "app.core" :event :app/boot ::boot)]
-          base  (rf.image/image {:id :base :select-ns {:include ["app.core"]}})
-          ovr   (rf.image/image {:id :ovr
+  ;; standards are not part of app layer order, so image position does not matter
+  (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+  (let [pool [(reg-desc "app.core" :event :app/boot ::boot)]
+        base (rf.image/image {:id :base :select-ns {:include ["app.core"]}})
+        ovr  (rf.image/image {:id :ovr
                               :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(rf.image-assembly/assemble [base ovr] pool)))))))
-
-;; ===========================================================================
-;; 6. Missing reference (application interceptor)
-;; ===========================================================================
-
-;; The refusal — an event whose :interceptors chain names an APPLICATION
-;; interceptor with no :interceptor registration in the generation →
-;; :rf.error/image-missing-reference — is pinned, with its structured
-;; diagnostic, by §11's `interceptor-missing-ref-ex-data-carries-provenance`.
+    (is (= :rf.error/image-standard-replacement-forbidden
+           (:rf.error/id (assembly-error-data #(rf.image-assembly/assemble [base ovr] pool)))))))
 
 (deftest framework-standard-interceptor-reference-skipped
-  (testing "a reserved :rf.interceptor/* reference is framework-provided, NOT
-            image-supplied — it is not flagged as a missing reference"
-    (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
-                       :interceptors [[:rf.interceptor/path [:cart]]])]
-          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
-          "assembly succeeds — the standard ref is not an app-supplied reference"))))
-
-;; ===========================================================================
-;; 7. There is no image-declared host-capability surface (:rf.image/requires /
-;;    make-frame :capabilities / :rf.gen/requires) and no assembly
-;;    check-capabilities! fn. The :rf.image/requires key failing loud at
-;;    rf/image construction is pinned in image-cljs-test
-;;    (retired-ep0023-image-keys-fail-loud).
-;; ===========================================================================
-
-;; ===========================================================================
-;; 8. Descriptor-coordinate identity (the source coordinate errors/winners use)
-;; ===========================================================================
+  ;; a reserved :rf.interceptor/* ref is framework-provided, not image-supplied
+  (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
+                     :interceptors [[:rf.interceptor/path [:cart]]])]
+        img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})]
+    (is (contains? (:rf.gen/resolver (rf.image-assembly/assemble [img] pool))
+                   [:event :cart/add]))))
 
 (deftest descriptor-coordinate-by-source
-  (testing "the source coordinate distinguishes registered / inline / standard"
-    (is (= {:ns "shop.cart"}
-           (rf.image-assembly/descriptor-coordinate (reg-desc "shop.cart" :event :x ::f))))
-    (is (= {:image :i :inline [:reg-fx :x]}
-           (rf.image-assembly/descriptor-coordinate {:kind :fx :id :x
-                                       :rf.provenance/image :i
-                                       :rf.provenance/inline [:reg-fx :x]})))
-    (is (= {:standard true}
-           (rf.image-assembly/descriptor-coordinate {:kind :fx :id :x :standard true})))))
-
-;; ===========================================================================
-;; 9. Cross-image layering (EP-0026 §Layered Resolution) — the LATER image
-;;    WINS; a chain reports the LAST image as the winner. There is NO cross-image
-;;    conflict (a cross-image shadow resolves and is reported, never failed).
-;; ===========================================================================
+  (is (= [{:ns "shop.cart"} {:image :i :inline [:reg-fx :x]} {:standard true}]
+         (mapv rf.image-assembly/descriptor-coordinate
+               [(reg-desc "shop.cart" :event :x ::f)
+                {:kind :fx :id :x :rf.provenance/image :i :rf.provenance/inline [:reg-fx :x]}
+                {:kind :fx :id :x :standard true}]))))
 
 (deftest duplicate-image-id-across-composition-fails-loud
-  (testing "two images sharing an :id within one :images composition →
-            :rf.error/image-duplicate-image-id (the shadow report names images by id)"
-    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
-                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (rf.image/image {:id :dup :select-ns {:include ["a.core"]}})
-          img-b (rf.image/image {:id :dup :select-ns {:include ["b.core"]}})
-          d     (assembly-error-data #(rf.image-assembly/assemble [img-a img-b] pool))]
-      (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
-      (is (= [:dup] (:duplicate-image-ids d))))))
+  (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
+               (reg-desc "b.core" :fx :checkout.http/post ::b)]
+        img-a (rf.image/image {:id :dup :select-ns {:include ["a.core"]}})
+        img-b (rf.image/image {:id :dup :select-ns {:include ["b.core"]}})]
+    (is (= {:rf.error/id :rf.error/image-duplicate-image-id :duplicate-image-ids [:dup]}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [img-a img-b] pool))
+                        [:rf.error/id :duplicate-image-ids])))))
 
 (deftest anonymous-image-in-multi-composition-fails-loud
-  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition fails loud —
-            it is un-nameable in the shadow report, so it cannot participate in
-            composition (rf/image contract). The shadow report thus never carries
-            a degenerate {:image nil :shadowed-by nil} entry"
-    (testing "the EXACT repro: two anonymous images COLLIDING on a [kind id] →
-              :rf.error/image-duplicate-image-id, NOT a degenerate nil/nil shadow"
-      (let [pool  [(reg-desc "app.a" :event :x ::a)
-                   (reg-desc "app.b" :event :x ::b)]
-            anon-a (rf.image/image {:select-ns {:include ["app.a"]}})
-            anon-b (rf.image/image {:select-ns {:include ["app.b"]}})
-            d      (assembly-error-data #(rf.image-assembly/assemble [anon-a anon-b] pool))]
-        (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
-        (is (= 2 (:anonymous-image-count d)))))
-    (testing "even DISJOINT anonymous images fail loud — an un-nameable image
-              cannot participate in composition regardless of a collision"
-      (let [pool  [(reg-desc "app.a" :event :x ::a)
-                   (reg-desc "app.b" :event :y ::b)]
-            anon-a (rf.image/image {:select-ns {:include ["app.a"]}})
-            anon-b (rf.image/image {:select-ns {:include ["app.b"]}})]
-        (is (= :rf.error/image-duplicate-image-id
-               (assembly-error-id #(rf.image-assembly/assemble [anon-a anon-b] pool))))))
-    (testing "a NAMED image composed with an ANONYMOUS one also fails loud"
-      (let [pool  [(reg-desc "app.a" :event :x ::a)
-                   (reg-desc "app.b" :event :y ::b)]
-            named (rf.image/image {:id :app/a :select-ns {:include ["app.a"]}})
-            anon  (rf.image/image {:select-ns {:include ["app.b"]}})]
-        (is (= :rf.error/image-duplicate-image-id
-               (assembly-error-id #(rf.image-assembly/assemble [named anon] pool))))))))
-
-;; ===========================================================================
-;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report) — a flat
-;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
-;;     list on :rf.gen/shadows; chains name the FINAL winner per loser.
-;; ===========================================================================
+  ;; an anonymous image cannot be named in the shadow report, so it cannot take
+  ;; part in a multi-image composition, colliding or not
+  (let [pool   [(reg-desc "app.a" :event :x ::a)
+                (reg-desc "app.b" :event :x ::b)]
+        anon-a (rf.image/image {:select-ns {:include ["app.a"]}})
+        anon-b (rf.image/image {:select-ns {:include ["app.b"]}})
+        named  (rf.image/image {:id :app/a :select-ns {:include ["app.a"]}})]
+    (is (= {:rf.error/id :rf.error/image-duplicate-image-id :anonymous-image-count 2}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [anon-a anon-b] pool))
+                        [:rf.error/id :anonymous-image-count]))
+        "two colliding anonymous images fail loud instead of a nil/nil shadow entry")
+    (is (= :rf.error/image-duplicate-image-id
+           (:rf.error/id (assembly-error-data #(rf.image-assembly/assemble [named anon-b] pool))))
+        "one anonymous image beside a named one")))
 
 (deftest shadow-report-two-losers-of-the-same-winner
-  (testing "if two earlier images are both shadowed by the same later one for
-            DIFFERENT [kind id]s, that is two entries (one per shadowed registration)"
-    (let [pool  [(reg-desc "a.core" :fx  :pay/post ::a-pay)
-                 (reg-desc "b.core" :sub :pay/total ::b-total)]
-          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          dbls  (rf.image/image {:id :test/doubles
-                              :registrations {:reg-fx  [[:pay/post {} ::stub-post]]
-                                              :reg-sub [[:pay/total (fn [_ _] 0)]]}})
-          report (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a img-b dbls] pool))]
-      (is (= [{:registration [:fx :pay/post]   :image :img/a :shadowed-by :test/doubles}
-              {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]
-             report)))))
+  ;; one entry per shadowed registration, naming its own loser image
+  (let [pool  [(reg-desc "a.core" :fx  :pay/post ::a-pay)
+               (reg-desc "b.core" :sub :pay/total ::b-total)]
+        img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+        img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
+        dbls  (rf.image/image {:id :test/doubles
+                               :registrations {:reg-fx  [[:pay/post {} ::stub-post]]
+                                               :reg-sub [[:pay/total (fn [_ _] 0)]]}})]
+    (is (= [{:registration [:fx :pay/post]   :image :img/a :shadowed-by :test/doubles}
+            {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]
+           (rf.image-assembly/generation-shadows
+             (rf.image-assembly/assemble [img-a img-b dbls] pool))))))
 
 (deftest cross-image-shadow-does-not-fail-and-is-reported
-  (testing "a cross-image shadow RESOLVES (later wins) AND is recorded in the
-            report — it never fails assembly (EP-0026 Acceptance Bar 2)"
-    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
-                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          gen   (rf.image-assembly/assemble [img-a img-b] pool)]    ;; must not throw
-      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post))))
-      (is (= [{:registration [:fx :checkout.http/post]
-               :image        :img/a
-               :shadowed-by  :img/b}]
-             (rf.image-assembly/generation-shadows gen))))))
-
-;; ===========================================================================
-;; 10. Resource → resource-scope resolver reference validation
-;;     A :resource descriptor whose spec's :scope is {:from-db <id>} references a
-;;     :resource-scope resolver that MUST be selected into the generation.
-;; ===========================================================================
+  (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
+               (reg-desc "b.core" :fx :checkout.http/post ::b)]
+        img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+        img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
+        gen   (rf.image-assembly/assemble [img-a img-b] pool)]
+    (is (= [::b [{:registration [:fx :checkout.http/post] :image :img/a :shadowed-by :img/b}]]
+           [(:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post))
+            (rf.image-assembly/generation-shadows gen)])
+        "the later image wins and the shadow is reported")))
 
 (defn- resource-desc
-  "A synthetic registered :resource descriptor authored in `provenance-ns` whose
-  spec carries `scope` (a {:from-db …} reference or a concrete scope)."
+  "A synthetic `:resource` descriptor whose spec carries `scope`; a
+  `{:from-db <id>}` scope references a `:resource-scope` resolver."
   [provenance-ns resource-id scope]
   {:rf.provenance/ns provenance-ns
    :kind             :resource
@@ -319,111 +161,85 @@
    :rf/resource      {:scope scope :params-schema [:map] :request ::request-fn}})
 
 (defn- scope-resolver-desc
-  "A synthetic registered :resource-scope resolver authored in `provenance-ns`."
+  "A synthetic `:resource-scope` resolver authored in `provenance-ns`."
   [provenance-ns scope-id]
   {:rf.provenance/ns provenance-ns
    :kind             :resource-scope
    :id               scope-id
    :handler-fn       ::resolve-fn})
 
-;; The refusal — a :resource whose :scope is {:from-db <id>} naming a scope
-;; resolver absent from the generation → :rf.error/image-missing-reference —
-;; is pinned, with its structured diagnostic, by
-;; `resource-missing-scope-ref-ex-data-is-structured` below.
-
 (deftest resource-present-scope-resolver-passes
-  (testing "a {:from-db <id>} resource seals cleanly when the referenced
-            :resource-scope resolver IS selected into the generation"
-    (let [pool [(resource-desc "shop.articles" :article/by-slug
-                               {:from-db :shop/session})
-                (scope-resolver-desc "shop.scopes" :shop/session)]
-          img  (rf.image/image {:id :i :select-ns {:include ["shop.articles" "shop.scopes"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:resource :article/by-slug]))
-      (is (contains? (:rf.gen/resolver gen) [:resource-scope :shop/session])))))
+  (let [pool [(resource-desc "shop.articles" :article/by-slug {:from-db :shop/session})
+              (scope-resolver-desc "shop.scopes" :shop/session)]
+        img  (rf.image/image {:id :i :select-ns {:include ["shop.articles" "shop.scopes"]}})]
+    (is (= #{[:resource :article/by-slug] [:resource-scope :shop/session]}
+           (set (keys (:rf.gen/resolver (rf.image-assembly/assemble [img] pool))))))))
 
 (deftest resource-concrete-scope-references-nothing
-  (testing "a :resource with a CONCRETE :scope (no {:from-db …} reference) names
-            no scope resolver, so assembly seals cleanly — the missing-reference
-            check fires ONLY on an unresolved {:from-db …} reference"
-    (let [global   (resource-desc "shop.a" :a/global :rf.scope/global)
-          tuple    (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])
-          appkw    (resource-desc "shop.c" :c/app-keyword :my.app/tenant)
-          pool     [global tuple appkw]
-          img      (rf.image/image {:id :i :select-ns {:include ["shop.a" "shop.b" "shop.c"]}})
-          gen      (rf.image-assembly/assemble [img] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:resource :a/global]))
-      (is (contains? (:rf.gen/resolver gen) [:resource :b/session]))
-      (is (contains? (:rf.gen/resolver gen) [:resource :c/app-keyword])))))
+  ;; only a {:from-db ...} scope references a resolver, even when a concrete
+  ;; scope tuple carries a map
+  (let [pool [(resource-desc "shop.a" :a/global :rf.scope/global)
+              (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])]
+        img  (rf.image/image {:id :i :select-ns {:include ["shop.a" "shop.b"]}})]
+    (is (= #{[:resource :a/global] [:resource :b/session]}
+           (set (keys (:rf.gen/resolver (rf.image-assembly/assemble [img] pool))))))))
 
 (deftest resource-missing-scope-ref-ex-data-is-structured
-  (testing "the resource missing-scope-resolver diagnostic carries image, [kind
-            id], provenance ns, source coordinate, the missing [:resource-scope
-            id] reference, and a repair path"
-    (let [pool [(resource-desc "shop.articles" :article/by-slug
-                               {:from-db :shop/session})]
-          img  (rf.image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})
-          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-missing-reference (:rf.error/id d)))
-      (is (= :shop/img (:image d)))
-      (is (= :resource (:kind d)))
-      (is (= :article/by-slug (:id d)))
-      (is (= "shop.articles" (:rf.provenance/ns d)))
-      (is (= {:ns "shop.articles"} (:coordinate d)))
-      (is (= [:resource-scope :shop/session] (:missing-reference d)))
-      (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
-
-;; ===========================================================================
-;; 11. Structured diagnostics — every assembly failure carries
-;;     rf.image/[kind id]/provenance/repair where applicable.
-;; ===========================================================================
+  (let [pool [(resource-desc "shop.articles" :article/by-slug {:from-db :shop/session})]
+        img  (rf.image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})]
+    (is (= {:rf.error/id       :rf.error/image-missing-reference
+            :image             :shop/img
+            :kind              :resource
+            :id                :article/by-slug
+            :rf.provenance/ns  "shop.articles"
+            :coordinate        {:ns "shop.articles"}
+            :missing-reference [:resource-scope :shop/session]
+            :recovery          :select-the-missing-registration-or-fix-the-reference}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [img] pool))
+                        [:rf.error/id :image :kind :id :rf.provenance/ns :coordinate
+                         :missing-reference :recovery])))))
 
 (deftest interceptor-missing-ref-ex-data-carries-provenance
-  (testing "the interceptor missing-reference diagnostic carries the
-            referencing descriptor's provenance ns + source
-            coordinate alongside rf.image/[kind id]/missing-reference/recovery"
-    (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
-                       :interceptors [:my.audit/guard])]
-          img  (rf.image/image {:id :app/img :select-ns {:include ["app.core"]}})
-          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-missing-reference (:rf.error/id d)))
-      (is (= :app/img (:image d)))
-      (is (= :event (:kind d)))
-      (is (= :cart/add (:id d)))
-      (is (= "app.core" (:rf.provenance/ns d)))
-      (is (= {:ns "app.core"} (:coordinate d)))
-      (is (= [:interceptor :my.audit/guard] (:missing-reference d)))
-      (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
+  (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
+                     :interceptors [:my.audit/guard])]
+        img  (rf.image/image {:id :app/img :select-ns {:include ["app.core"]}})]
+    (is (= {:rf.error/id       :rf.error/image-missing-reference
+            :image             :app/img
+            :kind              :event
+            :id                :cart/add
+            :rf.provenance/ns  "app.core"
+            :coordinate        {:ns "app.core"}
+            :missing-reference [:interceptor :my.audit/guard]
+            :recovery          :select-the-missing-registration-or-fix-the-reference}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [img] pool))
+                        [:rf.error/id :image :kind :id :rf.provenance/ns :coordinate
+                         :missing-reference :recovery])))))
 
 (deftest standard-forbidden-ex-data-names-the-app-coordinate
-  (testing "the standard-replacement-forbidden diagnostic (EP-0026 §Framework
-            Standard Registrations) names the standard coordinate, the app source
-            coordinate, [kind id], and a rename/deselect recovery"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (rf.image/image {:id :p/img :select-ns {:include ["product.story"]}})
-          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-standard-replacement-forbidden (:rf.error/id d)))
-      (is (= :fx (:kind d)))
-      (is (= :rf.nav/push-url (:id d)))
-      (is (= {:standard true} (:standard-coordinate d)))
-      (is (= {:ns "product.story"} (:app-coordinate d))
-          "the app source colliding with the standard is named")
-      (is (= :rename-the-app-id-or-deselect-it (:recovery d))))))
+  (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+  (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
+        img  (rf.image/image {:id :p/img :select-ns {:include ["product.story"]}})]
+    (is (= {:rf.error/id         :rf.error/image-standard-replacement-forbidden
+            :kind                :fx
+            :id                  :rf.nav/push-url
+            :standard-coordinate {:standard true}
+            :app-coordinate      {:ns "product.story"}
+            :recovery            :rename-the-app-id-or-deselect-it}
+           (select-keys (assembly-error-data #(rf.image-assembly/assemble [img] pool))
+                        [:rf.error/id :kind :id :standard-coordinate :app-coordinate
+                         :recovery])))))
 
 (deftest within-image-duplicate-id-ex-data-names-colliding-coordinates
-  (testing "the within-image duplicate-id diagnostic carries rf.image/[kind id]/
-            colliding source coordinates and the narrow-or-rename recovery
-            (EP-0026 §Layered Resolution)"
-    (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
-                (reg-desc "counter.boot" :event :boot/init ::b)]
-          img  (rf.image/image {:id :both/img
-                             :select-ns {:include ["todo.boot" "counter.boot"]}})
-          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
-      (is (= :rf.error/image-duplicate-id (:rf.error/id d)))
-      (is (= :both/img (:image d)))
-      (is (= :event (:kind d)))
-      (is (= :boot/init (:id d)))
-      (is (= #{{:ns "todo.boot"} {:ns "counter.boot"}}
-             (set (:colliding-coordinates d))))
-      (is (= :narrow-the-selection-or-rename-the-id (:recovery d))))))
+  (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
+              (reg-desc "counter.boot" :event :boot/init ::b)]
+        img  (rf.image/image {:id :both/img
+                              :select-ns {:include ["todo.boot" "counter.boot"]}})
+        d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
+    (is (= [{:rf.error/id :rf.error/image-duplicate-id
+             :image       :both/img
+             :kind        :event
+             :id          :boot/init
+             :recovery    :narrow-the-selection-or-rename-the-id}
+            #{{:ns "todo.boot"} {:ns "counter.boot"}}]
+           [(select-keys d [:rf.error/id :image :kind :id :recovery])
+            (set (:colliding-coordinates d))]))))
