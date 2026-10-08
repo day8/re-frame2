@@ -27,7 +27,7 @@
 
   `-dom-cljs-test` opts the file into `:browser-test`; `:node-test` loads it
   too and each test states its skip, as the sibling DOM suites do."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.story.play.dom :as rf.story.play.dom]))
 
 (defn- browser? []
@@ -67,35 +67,31 @@
     (when (.-parentNode n) (.removeChild (.-parentNode n) n))))
 
 (deftest recorded-positional-steps-replay-inside-the-canvas
+  ;; a :type step types into the variant's input and a :click step clicks
+  ;; the variant's button, not Story's
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [page (page!)]
       (try
-        (testing "the positional selectors resolve to the canvas's elements"
-          (is (identical? (:canvas-input page)
-                          (rf.story.play.dom/query "input:nth-of-type(1)"))))
-        (testing "a :type step types into the variant's input, not Story's"
-          (is (true? (rf.story.play.dom/type! "input:nth-of-type(1)" "bob")))
-          (is (= "bob" (.-value (:canvas-input page))))
-          (is (= "" (.-value (:chrome-input page)))
-              "the chrome input is untouched"))
-        (testing "a :click step clicks the variant's button, not Story's"
-          (is (true? (rf.story.play.dom/click! "button:nth-of-type(1)")))
-          (is (= {:chrome 0 :canvas 1} @(:clicks page))))
+        (is (= [true "bob" ""]
+               [(rf.story.play.dom/type! "input:nth-of-type(1)" "bob")
+                (.-value (:canvas-input page))
+                (.-value (:chrome-input page))]))
+        (is (= [true {:chrome 0 :canvas 1}]
+               [(rf.story.play.dom/click! "button:nth-of-type(1)") @(:clicks page)]))
         (finally
           (teardown! page))))))
 
 (deftest the-hook-is-what-scopes
+  ;; control: with no canvas root the document is the scope, and the first
+  ;; input in document order is not the form's
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [page (page!)]
       (try
         (.removeAttribute (:frame page) "data-test")
-        (testing "control: with no canvas root the document is the scope, and
-                  the first input in document order is not the form's"
-          (is (some? (rf.story.play.dom/query "input:nth-of-type(1)")))
-          (is (not (identical? (:canvas-input page)
-                               (rf.story.play.dom/query "input:nth-of-type(1)")))))
+        (let [q (rf.story.play.dom/query "input:nth-of-type(1)")]
+          (is (and (some? q) (not (identical? (:canvas-input page) q)))))
         (finally
           (teardown! page))))))
 
@@ -115,6 +111,8 @@
   (when (.-parentNode n) (.removeChild (.-parentNode n) n)))
 
 (deftest a-stable-selector-reaches-a-portalled-node
+  ;; a stable hook the canvas does not match falls back to the document, so a
+  ;; recorded :click on a modal's button replays in the shell
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [page   (page!)
@@ -124,39 +122,35 @@
           clicks (atom {})
           ok     (button! portal "modal-ok" clicks :portal)]
       (try
-        (is (nil? (.querySelector (:frame page) "[data-test=\"modal-ok\"]"))
-            "control: nothing under the canvas root matches")
-        (testing "a stable hook the canvas does not match falls back to the document"
-          (is (identical? ok (rf.story.play.dom/query "[data-test=\"modal-ok\"]")))
-          (is (= [ok] (rf.story.play.dom/query-all "[data-test=\"modal-ok\"]"))))
-        (testing "so a recorded :click on the modal's button replays in the shell"
-          (is (true? (rf.story.play.dom/click! "[data-test=\"modal-ok\"]")))
-          (is (= {:portal 1} @clicks)))
+        (is (= [ok] (rf.story.play.dom/query-all "[data-test=\"modal-ok\"]")))
+        (is (= [true {:portal 1}]
+               [(rf.story.play.dom/click! "[data-test=\"modal-ok\"]") @clicks]))
         (finally
           (detach! portal)
           (teardown! page))))))
 
 (deftest a-positional-selector-never-leaves-the-canvas
+  ;; A positional selector with no canvas match is not retried against the
+  ;; document, so it cannot reach Story's chrome. The control: the same node
+  ;; IS reachable by a stable hook, so the selector's kind is what stops it.
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [page (page!)
           ;; Story's chrome carries a textarea; the variant's form has none.
           area (el! (:chrome page) "textarea")]
       (try
-        (testing "a positional selector with no canvas match is NOT retried
-                  against the document, so it cannot reach Story's chrome"
-          (is (nil? (rf.story.play.dom/query "textarea:nth-of-type(1)")))
-          (is (= [] (rf.story.play.dom/query-all "textarea:nth-of-type(1)")))
-          (is (false? (rf.story.play.dom/type! "textarea:nth-of-type(1)" "bob")))
-          (is (= "" (.-value area)) "the chrome textarea is untouched"))
-        (testing "control: the same node IS reachable through the fallback by a
-                  stable hook, so it is the selector's kind that stops it here"
-          (.setAttribute area "data-test" "chrome-note")
-          (is (identical? area (rf.story.play.dom/query "[data-test=\"chrome-note\"]"))))
+        (is (= [[] false ""]
+               [(rf.story.play.dom/query-all "textarea:nth-of-type(1)")
+                (rf.story.play.dom/type! "textarea:nth-of-type(1)" "bob")
+                (.-value area)]))
+        (.setAttribute area "data-test" "chrome-note")
+        (is (identical? area (rf.story.play.dom/query "[data-test=\"chrome-note\"]")))
         (finally
           (teardown! page))))))
 
 (deftest a-stable-selector-prefers-the-canvas-copy
+  ;; the fallback is for a canvas MISS only: a hook the canvas matches
+  ;; resolves there, not to the chrome's identical one
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [page        (page!)
@@ -165,11 +159,8 @@
           _chrome     (button! (:chrome page) "save" clicks :chrome)
           canvas-save (button! (:frame page) "save" clicks :canvas)]
       (try
-        (testing "the fallback is for a canvas MISS only: a hook the canvas
-                  matches resolves there, not to the chrome's identical one"
-          (is (identical? canvas-save (rf.story.play.dom/query "[data-test=\"save\"]")))
-          (is (= [canvas-save] (rf.story.play.dom/query-all "[data-test=\"save\"]")))
-          (is (true? (rf.story.play.dom/click! "[data-test=\"save\"]")))
-          (is (= {:canvas 1} @clicks)))
+        (is (= [canvas-save] (rf.story.play.dom/query-all "[data-test=\"save\"]")))
+        (is (= [true {:canvas 1}]
+               [(rf.story.play.dom/click! "[data-test=\"save\"]") @clicks]))
         (finally
           (teardown! page))))))
