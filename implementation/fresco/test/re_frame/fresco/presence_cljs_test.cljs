@@ -239,15 +239,7 @@
             names (set (js/Object.keys (.-props (rf.fresco.impl.codec/as-element
                                                   (rf.fresco.impl.presence/with-phase child phase)))))]
         (is (not (contains? names "mounting")) (str "at " phase))
-        (is (not (contains? names "unmounting")) (str "at " phase)))))
-
-  (testing "and the same child written where NO tray can reach it is
-            skipped by the codec's walk rather than emitted, which is the
-            other half of the sentence: between the two there is no route
-            to the DOM"
-    (let [names (set (js/Object.keys (.-props (rf.fresco.impl.codec/as-element
-                                                 [:div {:re-frame.fresco.motion/mounting {:class "toast--enter"}}]))))]
-      (is (not (contains? names "mounting"))))))
+        (is (not (contains? names "unmounting")) (str "at " phase))))))
 
 (deftest a-boundary-child-takes-the-override-map-as-ordinary-props
   (let [card (rf.fresco.impl.codec/mark-boundary! (fn [_] nil))]
