@@ -1,12 +1,7 @@
 (ns day8.re-frame2-xray.panels.reactivity.trace-reactivity-cljs-test
-  "Sub-reactivity guard for the Trace panel's primary composite.
-
-  Trace pivots on the spine's
-  focus. The feed is EPOCH-scoped: `:rf.xray/trace-feed`
-  reads the focused epoch record's `:trace-events` (joined from
-  `:rf.xray/focus` + `:rf.xray/epoch-history`). This test pins that
-  rebind so a regression in the trace-feed → focus reactive chain would
-  surface in millis."
+  "Sub-reactivity guard for the Trace panel's primary composite:
+  `:rf.xray/trace-feed` reads the focused epoch record's `:trace-events`, so
+  a refocus must rebind it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
@@ -34,19 +29,13 @@
                      {:id 5 :op-type :rf.fx :operation :rf.fx/handled :tags {}}]})]))
 
 (deftest trace-feed-scope-is-the-focused-epochs-trace-events
-  (testing "the feed's rows are exactly the focused epoch's
-            :trace-events (including the async nil-dispatch-id reactive
-            rows). Verify by inspecting the projected row id sets."
+  (testing "the feed's rows are exactly the focused epoch's :trace-events,
+            the async nil-dispatch-id reactive rows included, and follow a
+            refocus"
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (seed-epochs!)
     (h/focus-cascade! :c1)
-    (let [feed-c1 (h/read-sub :rf.xray/trace-feed)]
-      (is (= #{1 2} (set (map :id (:rows feed-c1))))
-          "epoch 1's whole trail — event + the nil-dispatch-id :rf.sub/run")
-      (h/focus-cascade! :c2)
-      (let [feed-c2 (h/read-sub :rf.xray/trace-feed)]
-        (is (= #{3 4 5} (set (map :id (:rows feed-c2))))
-            "epoch 2's whole trail — event + view/render + fx")
-        (is (not= (:rows feed-c1) (:rows feed-c2))
-            "projected rows differ across focuses — epoch-scope changed")))))
+    (is (= #{1 2} (set (map :id (:rows (h/read-sub :rf.xray/trace-feed))))))
+    (h/focus-cascade! :c2)
+    (is (= #{3 4 5} (set (map :id (:rows (h/read-sub :rf.xray/trace-feed))))))))
