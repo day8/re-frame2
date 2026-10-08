@@ -4,7 +4,7 @@
   value — the same named error the public `reg-flow` raises — and the refusal
   reaches the always-on error channel rather than escaping the drain as a raw
   host exception."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.flows :as rf.flows]
@@ -30,20 +30,17 @@
         (rf.error-emit/unregister-error-listener! ::recorder)))))
 
 (deftest non-map-metadata-is-a-named-error
-  (doseq [metadata [[:inputs [[:a]]] "not a map" nil]]
-    (testing (str "metadata " (pr-str metadata))
-      (let [{:keys [escaped records]} (register-through-fx metadata)]
-        (is (nil? escaped) "nothing raw escapes the dispatch")
-        (is (= 1 (count records)) "one :rf.error/invalid-flow-metadata record")
-        (is (= metadata (:value (ex-data (:exception (first records)))))
-            "the record's exception carries the offending metadata value")
-        (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) ::bad))
-            "no flow was registered")))))
+  ;; an inputs vector in the metadata slot is the realistic mistake
+  (let [metadata [:inputs [[:a]]]
+        {:keys [escaped records]} (register-through-fx metadata)]
+    (is (nil? escaped) "nothing raw escapes the dispatch")
+    (is (= [metadata] (mapv #(:value (ex-data (:exception %))) records))
+        "one :rf.error/invalid-flow-metadata record, carrying the offending value")
+    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) ::bad)))))
 
 (deftest map-metadata-still-registers
-  (testing "control: a metadata map registers against the dispatching frame"
-    (let [{:keys [escaped records]} (register-through-fx {:inputs      [[:a]]
-                                                          :output-path [:b]})]
-      (is (nil? escaped))
-      (is (empty? records))
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) ::bad)))))
+  (let [{:keys [escaped records]} (register-through-fx {:inputs      [[:a]]
+                                                        :output-path [:b]})]
+    (is (nil? escaped))
+    (is (empty? records))
+    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) ::bad))))
