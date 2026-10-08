@@ -150,7 +150,8 @@
 
 (deftest declared-inputs-deliver-a-vector-at-zero-one-and-many
   ;; Every declared count arrives as a VECTOR in declaration order, with no
-  ;; bare-for-one arm, through a literal and through a producer.
+  ;; bare-for-one arm, through a literal and through a producer. `:a` reads
+  ;; nil, which a single input still delivers wrapped.
   (rf/reg-sub :a (fn [db _] (:a db)))
   (rf/reg-sub :b (fn [db _] (:b db)))
   (rf/reg-sub :zero   {:inputs []}                     (fn [in _] {:seen in}))
@@ -158,13 +159,13 @@
   (rf/reg-sub :many   {:inputs [[:b] [:a]]}            (fn [in _] {:seen in}))
   (rf/reg-sub :one-p  {:inputs (fn [_] [[:a]])}        (fn [in _] {:seen in}))
   (rf/reg-sub :many-p {:inputs (fn [_] [[:b] [:a]])}   (fn [in _] {:seen in}))
-  (let [db {:a 1 :b 2}]
+  (let [db {:b 2}]
     (seed! db)
     (doseq [[query-v expected] [[[:zero]   []]
-                                [[:one]    [1]]
-                                [[:many]   [2 1]]
-                                [[:one-p]  [1]]
-                                [[:many-p] [2 1]]]]
+                                [[:one]    [nil]]
+                                [[:many]   [2 nil]]
+                                [[:one-p]  [nil]]
+                                [[:many-p] [2 nil]]]]
       (is (= (same-three-ways {:seen expected}) (read-three-ways query-v db))
           (pr-str query-v)))))
 
