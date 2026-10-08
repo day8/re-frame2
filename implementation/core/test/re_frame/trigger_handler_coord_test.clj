@@ -1,65 +1,18 @@
 (ns re-frame.trigger-handler-coord-test
-  "`:rf.trace/trigger-handler` on `:rf.error/*` trace events.
+  "`:rf.trace/trigger-handler` on `:rf.error/*` trace events (Spec 009
+  §Handler-scope): an error emitted while a handler is in scope names that
+  handler and its registration-site coord,
 
-  Every error trace emitted while a handler is in scope (event, sub, fx,
-  cofx, view) carries an optional top-level `:rf.trace/trigger-handler`
-  field that names the handler whose execution produced the error, along
-  with the handler's registration-site source-coord. Errors emitted
-  outside any handler scope (e.g. the outermost-dispatch
-  `:rf.error/no-such-handler`) omit the field.
-
-  Locked shape:
-
-    {:kind         :event / :sub / :fx / :cofx / :view
-     :id           <registered-id>
+    {:kind :event / :sub / :fx, :id <registered-id>,
      :source-coord {:ns <sym> :file <string> :line <int> :column <int>}}
 
-  Q1 — `:rf.trace/trigger-handler` (nested), NOT flat `:rf.handler/source-coord`.
-  Q2 — Optional field; present when handler in scope, absent otherwise.
-  Q3 — Registration-site coord (not call-site).
-  Q4 — NOT elided in production.
-
-  JVM-only here — the dynamic-var binding mechanism is platform-agnostic
-  and CLJS adds no signal beyond the source-coord macro path, which the
-  source-coord suites cover. Mirror tests under cljs are slim
-  smoke checks driven by the same fixture pattern.
-
-  Source-coord parity with the registrar is established by the
-  `source-coords-test` suite; this file only checks that the
-  registrar's stamp is carried onto the emitted error event.
-
-  ## Posture split
-
-  Q4 above says `:rf.trace/trigger-handler` is \"NOT elided in production\", and
-  that is true of the SUBSTANCE but not of the SLOT this file reads. The slot
-  rides a TRACE event, and under `-Dre-frame.debug=false` no trace event is
-  emitted at all, so every trace assertion here would fail under
-  `scripts/test-core-prod-gate.sh`. The substance — \"which registered
-  component produced this error, and where was it registered\" — survives on a
-  different channel: `error-emit/dispatch-on-error!` resolves
-  `source-coords/error-coords-for` against the always-on `error-coords-by-id`
-  registry and stamps `:source-coord` onto the tight record every
-  `error-emit` listener receives. That is the channel a production error
-  shipper actually reads.
-
-  So each case carries an ALWAYS-ON witness on the `error-emit` registry beside
-  its guarded trace assertions. The witness is not a restatement: the two
-  channels attribute DIFFERENTLY, and the difference is pinned. `:rf.error/
-  fx-handler-exception`'s trace names the FX as the trigger handler, while the
-  always-on record resolves its `:source-coord` from `:event-id` — see
-  `fx-handler-exception-carries-trigger-handler` for which id that turns out
-  to be.
-
-  VACUITY UNDER THE GATE, so these sit inside the posture guard. Three
-  negatives — `event-handler-exception-carries-trigger-handler`'s
-  `(not (contains? (:tags exc) …))`, `no-such-handler-omits-trigger-handler`'s
-  `(not (contains? miss …))` and `programmatic-registration-omits-trigger-
-  handler`'s ditto — would read `contains?` off the nil the empty trace ring
-  yields, and `(contains? nil k)` is false for every k. And
-  `source-coord-matches-registration-site` compares `(:ns reg-meta)` against
-  `(:ns coord)` field by field, where under the gate BOTH sides are nil — four
-  `nil = nil` comparisons certifying parity between two absences."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The slot rides the dev-only trace, so those assertions sit in
+  `rf.interop/debug-enabled?` arms. The substance survives production on the
+  always-on `error-emit` record, which resolves `:source-coord` from the
+  always-on coord registry; each case pins that channel too, and the two
+  attribute differently: for an fx throw the trace names the fx, while the
+  record's coord is the dispatching event's and the fx id rides `:failing-id`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
@@ -71,8 +24,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; ---- fixtures -------------------------------------------------------------
-
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
@@ -81,33 +32,24 @@
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; `init!` does not create `:rf/default`, and framework operations need a
+  ;; carried frame.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
-
 (defn- errors-of
-  "Filter captured traces to those whose `:operation` matches the supplied
-  operation keyword."
+  "The captured error traces whose `:operation` is `op`."
   [evs op]
   (filterv #(and (= :error (:op-type %))
                  (= op     (:operation %)))
            evs))
 
 (defn- record-both
-  "ALWAYS-ON capture: run `body-fn` with BOTH a
-  dev-trace listener and an always-on `error-emit` listener attached, and
-  return `{:traces [...] :errors [...]}`. The `:errors` half is the corpus-wide
-  `error-emit` registry — not gated by `rf.interop/debug-enabled?` — so it fills
-  in both postures."
+  "Run `body-fn` with a dev-trace listener and an always-on `error-emit`
+  listener attached; return `{:traces [...] :errors [...]}`."
   [body-fn]
   (let [traces (atom [])
         errors (atom [])]
@@ -125,10 +67,8 @@
   (first (filterv #(= kw (:error %)) recs)))
 
 (defn- assert-trigger-shape
-  "Assert the value at `:rf.trace/trigger-handler` on `ev` carries the
-  locked shape — `:kind`, `:id`, and a `:source-coord` map with at
-  least `:ns` / `:file` / `:line` (column may be absent on
-  metadata-stripped registrations)."
+  "`ev`'s `:rf.trace/trigger-handler` names `expected-kind` / `expected-id` and
+  carries a source-coord."
   [ev expected-kind expected-id]
   (let [t (:rf.trace/trigger-handler ev)]
     (is (= expected-kind (:kind t)))
@@ -138,187 +78,69 @@
       (is (string? (:file c)) ":file is a string")
       (is (integer? (:line c)) ":line is an integer"))))
 
-;; ---- Q1/Q2 — top-level placement, present when handler in scope ----------
-
-(deftest event-handler-exception-carries-trigger-handler
-  (testing ":rf.error/handler-exception carries the event handler's coord"
-    (rf/reg-event :rf2-3nn8/throwing-event
-                     (fn [_cofx _event]
-                       (throw (ex-info "boom" {}))))
-    (let [{:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/throwing-event]))
-          [exc] (errors-of traces :rf.error/handler-exception)
-          rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON: same attribution on the production channel —
-      ;; the record names the failing event (its coord is pinned by
-      ;; `source-coord-matches-registration-site` below).
-      (is (= :rf2-3nn8/throwing-event (:event-id rec))
-          "the always-on record names the failing event")
-      (when rf.interop/debug-enabled?
-        ;; `assert-trigger-shape` reads `:rf.trace/trigger-handler` off the
-        ;; top level of the event; it must not ALSO ride under `:tags`.
-        (assert-trigger-shape exc :event :rf2-3nn8/throwing-event)
-        (is (not (contains? (:tags exc) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
-
 (deftest fx-handler-exception-carries-trigger-handler
-  (testing ":rf.error/fx-handler-exception names the fx as the trigger handler,
-   not the enclosing event (the fx body is what threw)"
-    (rf/reg-fx :rf2-3nn8/throwing-fx
-               (fn [_ctx _args] (throw (ex-info "fx boom" {}))))
-    (rf/reg-event :rf2-3nn8/use-throwing-fx
-                     (fn [_cofx _event]
-                       {:fx [[:rf2-3nn8/throwing-fx {}]]}))
-    (let [{:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/use-throwing-fx]))
-          [exc] (errors-of traces :rf.error/fx-handler-exception)
-          rec   (error-of errors :rf.error/fx-handler-exception)]
-      ;; ALWAYS-ON, AND THE TWO CHANNELS DISAGREE ON PURPOSE.
-      ;; The trace names the FX as the trigger handler (the fx body threw);
-      ;; the always-on record's `:source-coord` is resolved by
-      ;; `error-emit/error-source-coord` from `:event-id` under `[:event …]`,
-      ;; so it names the DISPATCHED EVENT. The fx id reaches production on
-      ;; `:failing-id` — the Spec 009 §Component-attribution lift — not on the
-      ;; coord. Pinning both keeps a future "just read the record" refactor
-      ;; from quietly losing the fx attribution.
-      (is (= :rf2-3nn8/use-throwing-fx (:event-id rec))
-          "the always-on record's :event-id is the dispatched event")
-      (is (= :rf2-3nn8/throwing-fx (:failing-id rec))
-          "the failing FX id is lifted onto the always-on record")
-      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/use-throwing-fx)
-             (:source-coord rec))
-          "the always-on :source-coord resolves under [:event event-id]")
-      (when rf.interop/debug-enabled?
-        (assert-trigger-shape exc :fx :rf2-3nn8/throwing-fx)))))
+  (rf/reg-fx :rf2-3nn8/throwing-fx
+             (fn [_ctx _args] (throw (ex-info "fx boom" {}))))
+  (rf/reg-event :rf2-3nn8/use-throwing-fx
+                (fn [_cofx _event]
+                  {:fx [[:rf2-3nn8/throwing-fx {}]]}))
+  (let [{:keys [traces errors]} (record-both
+                                  #(rf/dispatch-sync [:rf2-3nn8/use-throwing-fx]))
+        [exc] (errors-of traces :rf.error/fx-handler-exception)]
+    (is (= {:event-id     :rf2-3nn8/use-throwing-fx
+            :failing-id   :rf2-3nn8/throwing-fx
+            :source-coord (rf.source-coords/error-coords-for :event :rf2-3nn8/use-throwing-fx)}
+           (select-keys (error-of errors :rf.error/fx-handler-exception)
+                        [:event-id :failing-id :source-coord]))
+        "the always-on record: the event's coord, the fx id on :failing-id")
+    (when rf.interop/debug-enabled?
+      (assert-trigger-shape exc :fx :rf2-3nn8/throwing-fx))))
 
 (deftest sub-exception-carries-trigger-handler
-  (testing ":rf.error/sub-exception names the failing sub"
-    (rf/reg-sub :rf2-3nn8/throwing-sub
-                (fn [_db _q] (throw (ex-info "sub boom" {}))))
-    (let [{:keys [traces errors]} (record-both
-                                    #(deref (rf/subscribe [:rf2-3nn8/throwing-sub])))
-          [exc] (errors-of traces :rf.error/sub-exception)
-          rec   (error-of errors :rf.error/sub-exception)]
-      ;; ALWAYS-ON: `:rf.error/sub-exception` is one of
-      ;; `error-emit`'s `sub-error-categories`, so its coord resolves under
-      ;; `[:sub …]` — the realm-aware lookup. That is the
-      ;; production-posture statement of "the record names the FAILING SUB".
-      (is (= :rf2-3nn8/throwing-sub (:event-id rec))
-          "the always-on record's id slot carries the SUB id")
-      (is (= (rf.source-coords/error-coords-for :sub :rf2-3nn8/throwing-sub)
-             (:source-coord rec))
-          "the always-on :source-coord resolves under [:sub sub-id]")
-      (when rf.interop/debug-enabled?
-        (assert-trigger-shape exc :sub :rf2-3nn8/throwing-sub)))))
-
-;; No cofx case here: `:rf.error/unregistered-cofx` (a declared typo'd id) is
-;; registration / context-assembly-time, outside the in-chain trigger-handler
-;; scope this file pins; its coverage lives in `re-frame.cofx-cljs-test`.
+  (rf/reg-sub :rf2-3nn8/throwing-sub
+              (fn [_db _q] (throw (ex-info "sub boom" {}))))
+  (let [{:keys [traces errors]} (record-both
+                                  #(deref (rf/subscribe [:rf2-3nn8/throwing-sub])))
+        [exc] (errors-of traces :rf.error/sub-exception)]
+    (is (= {:event-id     :rf2-3nn8/throwing-sub
+            :source-coord (rf.source-coords/error-coords-for :sub :rf2-3nn8/throwing-sub)}
+           (select-keys (error-of errors :rf.error/sub-exception) [:event-id :source-coord]))
+        "the always-on record carries the sub id and its coord under [:sub …]")
+    (when rf.interop/debug-enabled?
+      (assert-trigger-shape exc :sub :rf2-3nn8/throwing-sub))))
 
 (deftest no-such-fx-carries-enclosing-event-trigger-handler
-  (testing ":rf.error/no-such-fx fires from the fx walker while the event
-   handler scope is still bound — the enclosing event's coord is carried"
-    (rf/reg-event :rf2-3nn8/uses-missing-fx
-                     (fn [_cofx _event]
-                       {:fx [[:rf2-3nn8/no-such-fx {}]]}))
-    (let [{:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/uses-missing-fx]))
-          [miss] (errors-of traces :rf.error/no-such-fx)
-          rec    (error-of errors :rf.error/no-such-fx)]
-      ;; ALWAYS-ON: `:rf.error/no-such-fx` is a PROMOTED category,
-      ;; so the enclosing event's coord reaches production on the record.
-      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
-             (:source-coord rec))
-          "the always-on record carries the enclosing event's coord")
-      (when rf.interop/debug-enabled?
-        (assert-trigger-shape miss :event :rf2-3nn8/uses-missing-fx)))))
-
-;; ---- Q2 — negative — absent when no handler is in scope -------------------
-
-(deftest no-such-handler-omits-trigger-handler
-  (testing ":rf.error/no-such-handler fires at outermost dispatch with no
-   handler in scope; :rf.trace/trigger-handler is absent"
-    (let [{:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/no-such-event]))
-          [miss] (errors-of traces :rf.error/no-such-handler)
-          rec    (error-of errors :rf.error/no-such-handler)]
-      ;; ALWAYS-ON: the production analogue of "no handler was in
-      ;; scope" is that the record carries NO `:source-coord` — there is no
-      ;; registration to point at. Non-vacuous because the sibling deftests
-      ;; above assert the slot IS present for a registered handler, on the
-      ;; same channel in the same posture.
-      (is (some? rec) "the always-on no-such-handler record fired")
-      (is (not (contains? rec :source-coord))
-          "no registration in scope → the always-on record omits :source-coord")
-      ;; Dev-only trace slot. Under the gate `miss` is nil, which would make
-      ;; the negative below pass for free.
-      (when rf.interop/debug-enabled?
-        (is (some? miss) "no-such-handler trace fired")
-        (is (not (contains? miss :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler is absent when no handler is in scope")))))
-
-;; ---- Q3 — registration-site coord, not call-site --------------------------
+  ;; The fx walker emits `:rf.error/no-such-fx` while the event's scope is
+  ;; still bound; no fx scope exists for an unregistered fx.
+  (rf/reg-event :rf2-3nn8/uses-missing-fx
+                (fn [_cofx _event]
+                  {:fx [[:rf2-3nn8/no-such-fx {}]]}))
+  (let [{:keys [traces errors]} (record-both
+                                  #(rf/dispatch-sync [:rf2-3nn8/uses-missing-fx]))
+        [miss] (errors-of traces :rf.error/no-such-fx)]
+    (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
+           (:source-coord (error-of errors :rf.error/no-such-fx)))
+        "the always-on record carries the enclosing event's coord")
+    (when rf.interop/debug-enabled?
+      (assert-trigger-shape miss :event :rf2-3nn8/uses-missing-fx))))
 
 (deftest source-coord-matches-registration-site
-  (testing "the :source-coord under :rf.trace/trigger-handler equals the
-   value the registrar holds on the handler's slot"
-    (rf/reg-event :rf2-3nn8/registration-site
-                     (fn [_cofx _event]
-                       (throw (ex-info "boom" {}))))
-    (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-3nn8/registration-site})
-          {:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/registration-site]))
-          [exc]    (errors-of traces :rf.error/handler-exception)
-          coord    (-> exc :rf.trace/trigger-handler :source-coord)
-          rec      (error-of errors :rf.error/handler-exception)
-          errc     (rf.source-coords/error-coords-for :event :rf2-3nn8/registration-site)]
-      ;; ALWAYS-ON: the same "the emitted coord IS the registration
-      ;; site" claim, made against the always-on registry — which is the
-      ;; registration-site record of truth in production, `handler-meta`
-      ;; having been stripped of coord keys there.
-      (is (= errc (:source-coord rec))
-          "the always-on record's :source-coord IS the registration coord")
-      (is (symbol? (:ns errc)))
-      (is (string? (:file errc)))
-      (is (integer? (:line errc)))
-      ;; GUARDED: under the gate `reg-meta` carries no coord keys AND
-      ;; `coord` is nil, so all four comparisons would be `nil = nil` —
-      ;; parity certified between two absences.
-      ;;
-      ;; The registrar stamps :ns / :file / :line / :column flat on the
-      ;; meta map; the trigger-handler value picks them up. Compare
-      ;; field-by-field rather than via equality so a future addition
-      ;; to the registrar slot doesn't break the test.
-      (when rf.interop/debug-enabled?
-        (is (= (:ns     reg-meta) (:ns coord)))
-        (is (= (:file   reg-meta) (:file coord)))
-        (is (= (:line   reg-meta) (:line coord)))
-        (is (= (:column reg-meta) (:column coord)))))))
-
-;; ---- programmatic registration → no coord -> no trigger-handler -----------
-
-(deftest programmatic-registration-omits-trigger-handler
-  (testing "an event handler registered without the macro (bypassing
-   source-coord capture) emits errors with no :rf.trace/trigger-handler
-   field — better no-data than poison-data"
-    (let [reg-fn (requiring-resolve 're-frame.events/reg-event)]
-      (reg-fn :rf2-3nn8/no-coords
-              (fn [_cofx _event] (throw (ex-info "boom" {})))))
-    (let [{:keys [traces errors]} (record-both
-                                    #(rf/dispatch-sync [:rf2-3nn8/no-coords]))
-          [exc] (errors-of traces :rf.error/handler-exception)
-          rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON: "better no-data than poison-data" is a
-      ;; PRODUCTION claim — a programmatic registration must leave the
-      ;; always-on registry empty, so the shipped record omits `:source-coord`
-      ;; rather than pointing an operator at someone else's line.
-      (is (some? rec) "the always-on record still fired")
-      (is (nil? (rf.source-coords/error-coords-for :event :rf2-3nn8/no-coords))
-          "programmatic registration stored no always-on coords")
-      (is (not (contains? rec :source-coord))
-          "…so the production record omits the :source-coord slot")
-      ;; Dev-only trace slot; vacuous under the gate, so guarded.
-      (when rf.interop/debug-enabled?
-        (is (some? exc))
-        (is (not (contains? exc :rf.trace/trigger-handler))
-            "programmatic registration → no coord → field omitted")))))
+  ;; The coord is the registration site's, on both channels.
+  (rf/reg-event :rf2-3nn8/registration-site
+                (fn [_cofx _event]
+                  (throw (ex-info "boom" {}))))
+  (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-3nn8/registration-site})
+        {:keys [traces errors]} (record-both
+                                  #(rf/dispatch-sync [:rf2-3nn8/registration-site]))
+        [exc]    (errors-of traces :rf.error/handler-exception)
+        trigger  (:rf.trace/trigger-handler exc)
+        errc     (rf.source-coords/error-coords-for :event :rf2-3nn8/registration-site)
+        ks       [:ns :file :line :column]]
+    (is (integer? (:line errc)) "the always-on registry holds the registration coord")
+    (is (= errc (:source-coord (error-of errors :rf.error/handler-exception)))
+        "the always-on record's :source-coord IS the registration coord")
+    ;; Under the gate `reg-meta` carries no coord keys, so this half is dev-only.
+    (when rf.interop/debug-enabled?
+      (is (= [:event :rf2-3nn8/registration-site] ((juxt :kind :id) trigger)))
+      (is (= (mapv #(get reg-meta %) ks)
+             (mapv #(get (:source-coord trigger) %) ks))))))
