@@ -170,3 +170,11 @@
        (rf.story.ui.toolbar/toggle-mode! :Mode.app/y)
        (is (= {:a 1 :b 2 :nest {:p 1 :q 2}}
               (rf.story.ui.cofx/active-args-snapshot))))))
+
+#?(:cljs
+   (deftest cljs-reset-clears
+     (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
+     (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
+     (rf.story.ui.toolbar/reset-modes!)
+     (is (= [] (:active-modes (rf.story.ui.state/get-state)))
+         "reset-modes! empties the shell slot (the storage half is reset-modes-persists-empty)")))
