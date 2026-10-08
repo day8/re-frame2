@@ -24,9 +24,10 @@
 ;; fail-closed path. The off-box-tool profile floors `:rf.egress/include-sensitive?
 ;; false`, so the whole tree fails closed.
 ;;
-;; Mirrors the unit-level `re-frame.projection-cljs-test/derived-tree-nil-frame-
-;; fails-closed` (+ the unknown/destroyed/slot-keys siblings), lifted to the
-;; host-agnostic corpus.
+;; Mirrors the unit-level
+;; `re-frame.projection-cljs-test/derived-tree-without-a-live-frame-fails-closed`,
+;; which also covers a never-registered frame, a destroyed frame and the
+;; `:slot-keys` form, lifted to the host-agnostic corpus.
 
 {:fixture/id           :data-classification/derived-tree-fails-closed-no-frame
  :fixture/spec-version "1.0"
