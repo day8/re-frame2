@@ -296,27 +296,23 @@ with a tiny marker:
   :hint            "<agent-host instruction string>"}}
 ```
 
-The `:via` slot tells the agent host which cache path produced
-the hit:
+The `:via` slot names the cache path that produced the hit:
 
-- **`:result-hash`** (rf2-3rt1f) — the original post-eval path.
-  The tool ran server-side; the result's text was hashed; the
-  hash matched the stored entry for `(tool, args)`. The MCP
-  server saved the **wire bytes** but paid the full nREPL
-  round-trip and the local transform pipeline.
-- **`:precheck`** (rf2-36xod, rf2-9pe31) — the pre-eval
-  short-circuit. One cheap bencode round-trip asked the runtime
-  for `(re-frame2-pair.runtime/app-db-hash frame)` — an O(1)
-  accessor over the runtime's per-frame cached hash, kept
-  current by its epoch listener (rf2-9pe31); the hash matched
-  the stored `:precheck-hash`. The MCP server saved **both** the
-  wire bytes AND the full tool eval + transform pipeline. The
-  tool body was never invoked.
-
-Same wire vocabulary, different cost saved. Agent hosts that
-diagnose latency / token usage can branch on `:via` — a
-`:precheck` hit is the cheapest possible response in the
-catalogue.
+- **`:result-hash`** — the post-eval path, and the only one any
+  tool takes. The tool ran server-side; the result's text was
+  hashed; the hash matched the stored entry for `(tool, args)`.
+  The MCP server saved the **wire bytes** but paid the full
+  nREPL round-trip and the local transform pipeline.
+- **`:precheck`** — reserved for a pre-eval short-circuit: one
+  cheap round-trip fetches `(re-frame2-pair.runtime/app-db-hash
+  frame)`, and a match against the stored `:precheck-hash`
+  skips the tool eval. **No tool is precheck-eligible**, so no
+  hit carries it: every read tool's wire result passes through
+  `project-egress`, whose elision registry lives in runtime-db,
+  so an unchanged app-db hash can sit beside a differently
+  redacted payload. See
+  [`Principles.md` §Per-session response cache](Principles.md#per-session-response-cache-rf2-3rt1f),
+  *Precheck eligibility*.
 
 The agent host already has the byte-identical bytes from the
 prior `tools/call`; re-shipping doubles the conversation cost
@@ -366,11 +362,11 @@ learned the slot family see one more slot.
 
 The cache saves wire bytes, not the nREPL round-trip — the
 tool still runs server-side and the result is built locally.
-The byte saving is the one the bead targets: a typical
-"inspect, dispatch, inspect" workflow today re-ships the full
-app-db on the second inspect; with the cache it ships ~100
-bytes. Saving the round-trip too needs a server-side hash
-precheck and is filed as a follow-on bead.
+A typical "inspect, dispatch, inspect" workflow re-ships the
+full app-db on the second inspect; with the cache it ships
+~100 bytes. Saving the round-trip too needs a precheck hash
+that covers every input to the result, which no tool has (see
+`:precheck` above).
 
 ## Universal: `:reason` keyword vocabulary (`:ok? false` responses)
 
