@@ -1,434 +1,177 @@
 (ns day8.re-frame2-xray.filters.typed-predicates-cljs-test
-  "Pure-data tests for the typed-predicate filter matchers.
-
-  CLJC so BOTH corpora exercise every kind — the matcher is pure
-  data, no atoms, no I/O. Spec/020 §2 catalogues
-  the four kinds; this file pins one composition test per kind +
-  legacy back-compat + mixed-bucket composition.
-
-  Test cascade shapes use the bucketed projection
+  "Pure-data tests for the typed-predicate filter matchers and their IN/OUT
+  composition. Bundles use the bucketed shape
   `re-frame.trace.projection/group-by-event` emits (`:handler`, `:fx`,
-  `:effects`, `:subs`, `:renders`, `:other`) so the matcher walks the
-  same shape it'll see in production."
+  `:effects`, `:subs`, `:renders`, `:other`)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.filters.typed-predicates :as typed]))
 
-;; ---- helpers -------------------------------------------------------------
+(def ^:private machine-in
+  {:in [{:kind :machine :params {:machine-id :form}}] :out []})
 
-(defn- mk-cascade
-  "Build a minimal cascade map for testing. `:event` is the bare event
-  vector; surface events nest under the projection-style buckets."
-  [{:keys [event handler fx effects subs renders other]
-    :or   {effects [] subs [] renders [] other []}}]
-  (cond-> {}
-    event              (assoc :event event)
-    handler            (assoc :handler handler)
-    fx                 (assoc :fx fx)
-    (seq effects)      (assoc :effects effects)
-    (seq subs)         (assoc :subs subs)
-    (seq renders)      (assoc :renders renders)
-    (seq other)        (assoc :other other)))
+;; Producer shapes from a driven `:rf.http/managed` request: the issuing
+;; `:rf.fx/handled` row carries the caller's id under `:tags :rf.fx/args`,
+;; and the reply-target run's event vector carries the reply map's
+;; `:correlation`.
 
-(defn- tagged
-  "Build a synthetic trace event with the given tag map."
-  [tags]
-  {:operation :synthetic
-   :tags      tags})
-
-;; ---- canonicalise-pill --------------------------------------------------
-
-(deftest canonicalise-typed-pill-defaults-params
-  (testing "missing :params slot defaults to {} so downstream readers
-            never NPE"
-    (is (= {:kind :machine :params {}}
-           (typed/canonicalise-pill {:kind :machine})))))
-
-(deftest canonicalise-drops-stale-scope-key
-  (testing "a pill carrying a stale `:scope` key (an older persisted
-            shape) hydrates to the event-id-pattern shape WITHOUT
-            the :scope — the matcher honours event-id only, so the
-            stale slot is excised on the way through"
-    (is (= {:kind   :event-id-pattern
-            :params {:pattern :auth/*}}
-           (typed/canonicalise-pill {:pattern :auth/*
-                                     :scope   #{:event-id :event-args}})))))
-
-(deftest canonicalise-malformed-pill-is-never
-  (is (= {:kind :never :params {}}
-         (typed/canonicalise-pill nil)))
-  (is (= {:kind :never :params {}}
-         (typed/canonicalise-pill "not a map")))
-  (is (= {:kind :never :params {}}
-         (typed/canonicalise-pill {}))))
+(defn- issuing-fx-row [args]
+  {:tags {:rf.fx/id :rf.http/managed :rf.fx/args args :frame :rf/default}})
 
 ;; ---- event-bundle-trace-events -----------------------------------------------
 
 (deftest event-bundle-trace-events-walks-every-bucket
-  (let [cascade (mk-cascade {:handler {:operation :handler}
-                             :fx      {:operation :fx}
-                             :effects [{:operation :effect1}
-                                       {:operation :effect2}]
-                             :subs    [{:operation :sub}]
-                             :renders [{:operation :render}]
-                             :other   [{:operation :other}]})
-        events  (typed/event-bundle-trace-events cascade)
-        ops     (set (map :operation events))]
-    (is (= #{:handler :fx :effect1 :effect2 :sub :render :other} ops))))
+  (is (= #{:handler :fx :effect1 :effect2 :sub :render :other}
+         (set (map :operation
+                   (typed/event-bundle-trace-events
+                     {:handler {:operation :handler}
+                      :fx      {:operation :fx}
+                      :effects [{:operation :effect1} {:operation :effect2}]
+                      :subs    [{:operation :sub}]
+                      :renders [{:operation :render}]
+                      :other   [{:operation :other}]}))))))
 
-(deftest event-bundle-trace-events-empty-cascade
-  (is (empty? (typed/event-bundle-trace-events (mk-cascade {:event [:foo]})))))
-
-;; ---- :event-id-pattern kind ---------------------------------------------
-
-(deftest event-id-pattern-typed-shape
-  (let [pill {:kind :event-id-pattern :params {:pattern :auth/*}}]
-    (is (typed/event-bundle-matches-pill? (mk-cascade {:event [:auth/login]}) pill))
-    (is (not (typed/event-bundle-matches-pill? (mk-cascade {:event [:order/submit]}) pill)))))
+;; ---- per-kind matchers --------------------------------------------------
 
 (deftest event-id-pattern-legacy-shape
-  (testing "the legacy `{:pattern :auth/*}` shape matches via the
-            canonicaliser — back-compat with already-persisted pills"
-    (let [cascade (mk-cascade {:event [:auth/login]})]
-      (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/*}))
-      (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/login}))
-      (is (not (typed/event-bundle-matches-pill? cascade {:pattern :order/*}))))))
-
-;; ---- :machine kind ------------------------------------------------------
-
-(deftest machine-kind-matches-via-handler-tag
-  (testing "any trace-event with `:tags :machine-id` matches"
-    (let [cascade (mk-cascade {:event   [:user/click]
-                               :handler (tagged {:machine-id :form})})
-          pill    {:kind :machine :params {:machine-id :form}}]
-      (is (typed/event-bundle-matches-pill? cascade pill)))))
-
-(deftest machine-kind-no-match-different-id
-  (let [cascade (mk-cascade {:event   [:user/click]
-                             :effects [(tagged {:machine-id :other})]})
-        pill    {:kind :machine :params {:machine-id :form}}]
-    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
-
-(deftest machine-kind-no-match-no-machine-events
-  (let [cascade (mk-cascade {:event   [:user/click]
-                             :effects [(tagged {:rf.fx/id :db})]})
-        pill    {:kind :machine :params {:machine-id :form}}]
-    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
-
-;; ---- :http-correlation kind ---------------------------------------------
-
-;; The fixtures below are PRODUCER SHAPES, taken from a driven
-;; `:rf.http/managed` request: a real trace listener over a
-;; real dispatch, projected by `re-frame.trace.projection/group-by-event`.
-;; The issuing `:rf.fx/handled` row really does carry
-;; `[:tags :rf.fx/args :request-id]`, and the reply-target run's event
-;; vector really does carry the canonical reply map's `:correlation`.
-;;
-;; No producer stamps a FLAT `:correlation-id` tag — measured 0 across
-;; every trace event of that driven run — so a fixture asserting one
-;; would pin a shape the runtime never produces, and a pill matching only
-;; that shape filters the L2 list to nothing.
-
-(defn- issuing-fx-row
-  "The `:rf.fx/handled` row an issuing event-bundle's `:effects` carry,
-  in the shape `re-frame.fx/emit-handled!` emits."
-  [args]
-  (tagged {:rf.fx/id   :rf.http/managed
-           :rf.fx/args args
-           :frame      :rf/default}))
-
-(deftest http-correlation-matches-issuing-effect
-  (testing "the issuing bundle matches on the caller's :request-id, read
-            off the :rf.fx/handled row's :tags :rf.fx/args"
-    (let [cascade (mk-cascade
-                    {:event   [:article/load {:slug "hello"}]
-                     :effects [(issuing-fx-row {:request-id "abc-123"
-                                                :decode     :json
-                                                :reply-to   [:article/load {:slug "hello"}]
-                                                :request    {:url "/articles/hello"}})]})
-          pill    {:kind :http-correlation
-                   :params {:correlation-id "abc-123"}}]
-      (is (typed/event-bundle-matches-pill? cascade pill)))))
+  (testing "the bare `{:pattern …}` pill the Add-filter popup writes matches
+            through the canonicaliser"
+    (let [bundle {:event [:auth/login]}]
+      (is (typed/event-bundle-matches-pill? bundle {:pattern :auth/*}))
+      (is (not (typed/event-bundle-matches-pill? bundle {:pattern :order/*}))))))
 
 (deftest http-correlation-matches-reply-dispatch-bundle
-  (testing "the reply-target run matches on the canonical reply map's
-            :correlation, carried on the dispatched event vector"
-    (let [cascade (mk-cascade
-                    {:event [:article/load {:slug "hello"}
-                             {:status             :ok
-                              :value              {:article {:title "hello"}}
-                              :correlation        {:request-id "abc-123"}
-                              :rf.reply/work-id   [:rf.work/http "abc-123" 1 1]
-                              :rf.reply/work-kind :http}]})
-          pill    {:kind :http-correlation
-                   :params {:correlation-id "abc-123"}}]
-      (is (typed/event-bundle-matches-pill? cascade pill)))))
+  (testing "the reply-target run matches on the reply map's :correlation,
+            carried on its dispatched event vector"
+    (is (typed/event-bundle-matches-pill?
+          {:event [:article/load {:slug "hello"}
+                   {:status :ok :correlation {:request-id "abc-123"}}]}
+          {:kind :http-correlation :params {:correlation-id "abc-123"}}))))
 
 (deftest http-correlation-matches-non-http-surface-args
-  (testing "the pill is built from whichever caller-id key the record's
-            surface uses, so the matcher reads the same set — a websocket
-            record's :socket-id here"
-    (let [cascade (mk-cascade
-                    {:event   [:socket/open]
-                     :effects [(issuing-fx-row {:socket-id :sock-1})]})
-          pill    {:kind :http-correlation
-                   :params {:correlation-id :sock-1}}]
-      (is (typed/event-bundle-matches-pill? cascade pill)))))
-
-(deftest http-correlation-no-match
-  (testing "a DIFFERENT :request-id in the same producer shape does not match"
-    (let [cascade (mk-cascade
-                    {:event   [:article/load]
-                     :effects [(issuing-fx-row {:request-id "different"})]})
-          pill    {:kind :http-correlation
-                   :params {:correlation-id "abc-123"}}]
-      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
-
-(deftest http-correlation-ignores-the-invented-flat-tag
-  (testing "a flat :correlation-id TAG is not a producer shape;
-            nothing stamps one, so the matcher must not answer to it. This
-            pins that shape OUT, so it cannot creep back."
-    (let [cascade (mk-cascade {:event   [:article/load]
-                               :effects [(tagged {:correlation-id "abc-123"})]})
-          pill    {:kind :http-correlation
-                   :params {:correlation-id "abc-123"}}]
-      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
+  (testing "the pill carries whichever caller-id key the record's surface
+            uses — a websocket record's :socket-id here"
+    (is (typed/event-bundle-matches-pill?
+          {:event [:socket/open] :effects [(issuing-fx-row {:socket-id :sock-1})]}
+          {:kind :http-correlation :params {:correlation-id :sock-1}}))))
 
 (deftest http-correlation-ignores-the-ungrouped-completion-row
-  (testing "the `:rf.http/replied` completion row is emitted
-            outside any handler scope, so the projection buckets it into the
-            shared :ungrouped pseudo-bundle. That bundle holds unrelated
-            exchanges' rows, so it is deliberately NOT this exchange's."
-    (let [ungrouped (mk-cascade
-                      {:other [(tagged {:rf.reply/work-id   [:rf.work/http "abc-123" 1 1]
-                                        :rf.reply/work-kind :http
-                                        :correlation        {:request-id "abc-123"}
-                                        :status             :ok})]})
-          pill      {:kind :http-correlation
-                     :params {:correlation-id "abc-123"}}]
-      (is (not (typed/event-bundle-matches-pill? ungrouped pill))))))
+  (testing "the `:rf.http/replied` completion row lands in the shared
+            :ungrouped bundle, which holds unrelated exchanges' rows, so it
+            is deliberately NOT this exchange's"
+    (is (not (typed/event-bundle-matches-pill?
+               {:other [{:tags {:rf.reply/work-id   [:rf.work/http "abc-123" 1 1]
+                                :rf.reply/work-kind :http
+                                :correlation        {:request-id "abc-123"}
+                                :status             :ok}}]}
+               {:kind :http-correlation :params {:correlation-id "abc-123"}})))))
 
-;; ---- :fx kind -----------------------------------------------------------
-
-(deftest fx-kind-matches-via-fx-bucket
-  (let [cascade (mk-cascade {:event [:user/load]
-                             :fx    (tagged {:rf.fx/id :rf.http/managed})})
-        pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (typed/event-bundle-matches-pill? cascade pill))))
-
-(deftest fx-kind-no-match-different-fx
-  (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:rf.fx/id :db})]})
-        pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
-
-;; ---- composition: IN bucket OR within, AND across modes -----------------
+;; ---- composition (spec/018 §7) ------------------------------------------
 
 (deftest in-bucket-composes-with-or
-  (testing "spec/018 §7 — within-bucket pills OR together"
-    (let [cascade-a (mk-cascade {:event   [:user/click]
-                                 :effects [(tagged {:machine-id :form})]})
-          cascade-b (mk-cascade {:event   [:user/load]
-                                 :effects [(issuing-fx-row {:request-id "abc"})]})
-          filters   {:in [{:kind :machine :params {:machine-id :form}}
-                          {:kind :http-correlation :params {:correlation-id "abc"}}]
-                     :out []}]
-      (is (typed/keep-event-bundle? cascade-a filters))
-      (is (typed/keep-event-bundle? cascade-b filters)))))
+  (testing "IN pills — bare or typed, any kind — OR together; a bundle no
+            pill matches (another machine, another request id) drops"
+    (let [by-pattern {:dispatch-id 1 :event [:auth/login]}
+          by-machine {:dispatch-id 2 :event [:user/click]
+                      :handler {:tags {:machine-id :form}}}
+          by-http    {:dispatch-id 3 :event [:user/load]
+                      :effects [(issuing-fx-row {:request-id "abc"})]}
+          no-match   {:dispatch-id 4 :event [:user/save]
+                      :effects [{:tags {:machine-id :other}}
+                                (issuing-fx-row {:request-id "different"})]}]
+      (is (= [by-pattern by-machine by-http]
+             (typed/filter-event-bundles
+               [by-pattern by-machine by-http no-match]
+               {:in  [{:pattern :auth/*}
+                      {:kind :machine :params {:machine-id :form}}
+                      {:kind :http-correlation :params {:correlation-id "abc"}}]
+                :out []}))))))
 
 (deftest in-out-composition
-  (testing "spec/018 §7 — IN bucket AND NOT OUT bucket"
-    (let [cascade (mk-cascade {:event   [:user/click]
-                               :effects [(tagged {:machine-id :form})]})
-          ;; IN matches via machine, but OUT also matches via the
-          ;; event-id pattern → drop
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out [{:kind   :event-id-pattern
-                          :params {:pattern :user/*}}]}]
-      (is (not (typed/keep-event-bundle? cascade filters))))))
-
-(deftest mixed-bucket-typed-and-legacy
-  (testing "typed pills and legacy keyword-pattern pills compose inside
-            the same bucket — the canonicaliser handles both shapes"
-    (let [cascade-a (mk-cascade {:event   [:auth/login]
-                                 :effects [(tagged {:rf.fx/id :rf.fx/handled})]})
-          cascade-b (mk-cascade {:event   [:user/click]
-                                 :effects [(tagged {:machine-id :form})]})
-          ;; IN: legacy pattern OR typed machine. Both cascades survive.
-          filters   {:in [{:pattern :auth/*}
-                          {:kind :machine :params {:machine-id :form}}]
-                     :out []}]
-      (is (typed/keep-event-bundle? cascade-a filters))
-      (is (typed/keep-event-bundle? cascade-b filters)))))
-
-(deftest empty-filters-keep-everything
-  (let [cascade (mk-cascade {:event [:anything]})]
-    (is (typed/keep-event-bundle? cascade {:in [] :out []}))))
+  (testing "keep = matches IN AND NOT matches OUT"
+    (let [hidden {:dispatch-id 1 :event [:user/click]
+                  :effects [{:tags {:machine-id :form}}]}
+          shown  {:dispatch-id 2 :event [:cart/add]
+                  :effects [{:tags {:machine-id :form}}]}]
+      (is (= [shown]
+             (typed/filter-event-bundles
+               [hidden shown]
+               (assoc machine-in :out [{:kind   :event-id-pattern
+                                        :params {:pattern :user/*}}])))))))
 
 (deftest filter-event-bundles-preserves-order
-  (let [c1 (assoc (mk-cascade {:event   [:user/load]
-                               :effects [(tagged {:rf.fx/id :rf.http/managed})]})
-                  :dispatch-id 1)
-        c2 (assoc (mk-cascade {:event [:other]})
-                  :dispatch-id 2)
-        c3 (assoc (mk-cascade {:event   [:user/load2]
-                               :effects [(tagged {:rf.fx/id :rf.http/managed})]})
-                  :dispatch-id 3)
-        filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
-                 :out []}]
-    (is (= [1 3] (mapv :dispatch-id
-                       (typed/filter-event-bundles [c1 c2 c3] filters))))))
+  (let [c1 {:dispatch-id 1 :event [:user/load]
+            :effects [{:tags {:rf.fx/id :rf.http/managed}}]}
+        c2 {:dispatch-id 2 :event [:user/save]
+            :effects [{:tags {:rf.fx/id :db}}]}
+        c3 {:dispatch-id 3 :event [:user/load2]
+            :fx {:tags {:rf.fx/id :rf.http/managed}}}]
+    (is (= [c1 c3]
+           (typed/filter-event-bundles
+             [c1 c2 c3]
+             {:in [{:kind :fx :params {:fx-id :rf.http/managed}}] :out []})))))
 
-;; ---- causal-parent matching under epoch-per-event ------------------------
+;; ---- causal lineage, keyed by frame-qualified identity ------------------
 ;;
-;; Under epoch-per-event the spawning event and the machine/http/fx
-;; transition it triggers are SEPARATE cascades linked by
-;; `:parent-dispatch-id` (the projection surfaces it off the dispatched
-;; event's `:rf.trace/parent-dispatch-id` tag). A typed IN pill on the
-;; CHILD transition cascade must also keep the PARENT spawning cascade —
-;; the whole lineage back to the originating user event.
-
-(defn- mk-child-cascade
-  "A cascade carrying both a `:dispatch-id` and the causal-parent link."
-  [{:keys [dispatch-id parent-dispatch-id] :as opts}]
-  (-> (mk-cascade (dissoc opts :dispatch-id :parent-dispatch-id))
-      (assoc :dispatch-id dispatch-id
-             :parent-dispatch-id parent-dispatch-id)))
+;; A matching bundle keeps its causal ancestors (walked up
+;; `:parent-dispatch-id`). Dispatch-ids are unique only within a frame, so
+;; the walk keys on `[frame dispatch-id]`.
 
 (deftest typed-pill-walks-full-chain-to-root
-  (testing "the ancestor walk is whole-chain: a :machine pill on a deep
-            grandchild surfaces every cascade up to the root user event
-            (strict superset, no over-matching)"
-    (let [root  (mk-child-cascade {:dispatch-id 1
-                                   :event       [:user/click]})
-          mid   (mk-child-cascade {:dispatch-id        2
-                                   :parent-dispatch-id 1
-                                   :event             [:fx/dispatched-child]})
-          leaf  (mk-child-cascade {:dispatch-id        3
-                                   :parent-dispatch-id 2
-                                   :event             [:rf.machine/transition]
-                                   :effects           [(tagged {:machine-id :form})]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          kept    (mapv :dispatch-id
-                        (typed/filter-event-bundles [root mid leaf] filters))]
-      (is (= [1 2 3] kept)
-          "root → mid → leaf all survive via the whole-chain walk"))))
-
-;; ---- frame-qualified lineage identity -----------------------------------
-;;
-;; The published trace contract guarantees dispatch-id uniqueness only
-;; WITHIN a frame, so two frames may legitimately reuse the same
-;; dispatch-id. The causal-lineage machinery keys on the frame-qualified
-;; `[frame dispatch-id]` identity end-to-end (index, retained-key set,
-;; membership check, cycle guard). A bare-id identity would cross-link
-;; unrelated frames' lineages, retaining the unrelated same-id bundle from
-;; the other frame — these tests FAIL against an id-only identity.
-
-(defn- mk-frame-cascade
-  "A cascade carrying a `:frame`, `:dispatch-id`, and optional causal-parent
-  link — the full frame-qualified identity shape."
-  [{:keys [frame dispatch-id parent-dispatch-id] :as opts}]
-  (-> (mk-cascade (dissoc opts :frame :dispatch-id :parent-dispatch-id))
-      (assoc :frame frame
-             :dispatch-id dispatch-id
-             :parent-dispatch-id parent-dispatch-id)))
+  (testing "a :machine pill on a grandchild keeps every ancestor up to the
+            root user event"
+    (let [root {:dispatch-id 1 :event [:user/click]}
+          mid  {:dispatch-id 2 :parent-dispatch-id 1 :event [:fx/dispatched-child]}
+          leaf {:dispatch-id 3 :parent-dispatch-id 2 :event [:rf.machine/transition]
+                :effects [{:tags {:machine-id :form}}]}]
+      (is (= [root mid leaf]
+             (typed/filter-event-bundles [root mid leaf] machine-in))))))
 
 (deftest typed-filter-does-not-cross-link-frames-sharing-root-id
-  (testing "frame A and frame B reuse dispatch-id 1; a :machine pill whose
-            lineage roots at [A 1] must NOT retain the unrelated [B 1]
-            (id-only identity collides across frames)"
-    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 1
-                                     :event [:a/root]})
-          b-root  (mk-frame-cascade {:frame :b :dispatch-id 1
-                                     :event [:b/root]})
-          a-child (mk-frame-cascade {:frame :a :dispatch-id 2
-                                     :parent-dispatch-id 1
-                                     :event   [:a/child]
-                                     :effects [(tagged {:machine-id :form})]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          kept    (mapv (juxt :frame :dispatch-id)
-                        (typed/filter-event-bundles [a-root b-root a-child] filters))]
-      (is (= [[:a 1] [:a 2]] kept)
-          "only frame A's lineage survives; frame B's same-id root is dropped"))))
-
-(deftest typed-filter-does-not-cross-link-frames-sharing-child-id
-  (testing "frame A's matching child and frame B's unrelated child both use
-            dispatch-id 2; the membership check must stay frame-qualified so
-            frame B's same-id child is not retained"
-    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/root]})
-          a-child (mk-frame-cascade {:frame :a :dispatch-id 2
-                                     :parent-dispatch-id 1
-                                     :event   [:a/transition]
-                                     :effects [(tagged {:machine-id :form})]})
-          b-root  (mk-frame-cascade {:frame :b :dispatch-id 5 :event [:b/root]})
-          b-child (mk-frame-cascade {:frame :b :dispatch-id 2
-                                     :parent-dispatch-id 5
-                                     :event [:b/thing]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          kept    (mapv (juxt :frame :dispatch-id)
-                        (typed/filter-event-bundles
-                          [a-root a-child b-root b-child] filters))]
-      (is (= [[:a 1] [:a 2]] kept)
-          "frame B's same-id child is not swept in by the frame-A match"))))
+  (testing "frames A and B both use dispatch-id 1; a lineage rooted at [:a 1]
+            must not retain the unrelated [:b 1]"
+    (let [a-root  {:frame :a :dispatch-id 1 :event [:a/root]}
+          b-root  {:frame :b :dispatch-id 1 :event [:b/root]}
+          a-child {:frame :a :dispatch-id 2 :parent-dispatch-id 1 :event [:a/child]
+                   :effects [{:tags {:machine-id :form}}]}]
+      (is (= [a-root a-child]
+             (typed/filter-event-bundles [a-root b-root a-child] machine-in))))))
 
 (deftest cross-frame-cycle-guard-is-frame-qualified
-  (testing "two frames each carry a 1↔2 parent loop reusing the same ids;
-            frame A's matching walk terminates within its own frame and frame
-            B (no machine) is untouched — the cycle guard is frame-qualified"
-    (let [a1 (mk-frame-cascade {:frame :a :dispatch-id 1 :parent-dispatch-id 2
-                                :event [:a1]})
-          a2 (mk-frame-cascade {:frame :a :dispatch-id 2 :parent-dispatch-id 1
-                                :event   [:a2]
-                                :effects [(tagged {:machine-id :form})]})
-          b1 (mk-frame-cascade {:frame :b :dispatch-id 1 :parent-dispatch-id 2
-                                :event [:b1]})
-          b2 (mk-frame-cascade {:frame :b :dispatch-id 2 :parent-dispatch-id 1
-                                :event [:b2]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          kept    (mapv (juxt :frame :dispatch-id)
-                        (typed/filter-event-bundles [a1 a2 b1 b2] filters))]
-      (is (= [[:a 1] [:a 2]] kept)
-          "frame A's cycle resolves to its own two nodes; frame B is untouched
-           despite reusing ids 1/2"))))
+  (testing "each frame carries a 1↔2 parent loop on the same ids; frame A's
+            walk terminates inside frame A and frame B is untouched"
+    (let [a1 {:frame :a :dispatch-id 1 :parent-dispatch-id 2 :event [:a1]}
+          a2 {:frame :a :dispatch-id 2 :parent-dispatch-id 1 :event [:a2]
+              :effects [{:tags {:machine-id :form}}]}
+          b1 {:frame :b :dispatch-id 1 :parent-dispatch-id 2 :event [:b1]}
+          b2 {:frame :b :dispatch-id 2 :parent-dispatch-id 1 :event [:b2]}]
+      (is (= [a1 a2]
+             (typed/filter-event-bundles [a1 a2 b1 b2] machine-in))))))
 
 (deftest out-pill-stays-frame-local-across-frames
-  (testing "an OUT pill hides only the tagged bundle (event-local), keeping
-            its ancestor, and never touches an unrelated frame reusing the id"
-    (let [a-parent (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/click]})
-          a-child  (mk-frame-cascade {:frame :a :dispatch-id 2
-                                      :parent-dispatch-id 1
-                                      :event   [:a/work]
-                                      :effects [(tagged {:rf.fx/id :noisy/fx})]})
-          b-root   (mk-frame-cascade {:frame :b :dispatch-id 2 :event [:b/root]})
-          filters  {:in  []
-                    :out [{:kind :fx :params {:fx-id :noisy/fx}}]}
-          kept     (mapv (juxt :frame :dispatch-id)
-                         (typed/filter-event-bundles [a-parent a-child b-root] filters))]
-      (is (= [[:a 1] [:b 2]] kept)
-          "only frame A's tagged child is hidden; its parent AND frame B's
-           same-id bundle survive"))))
+  (testing "an OUT pill hides only the bundle it matches: the child's parent
+            and frame B's same-id bundle both stay"
+    (let [a-parent {:frame :a :dispatch-id 1 :event [:a/click]}
+          a-child  {:frame :a :dispatch-id 2 :parent-dispatch-id 1 :event [:a/work]
+                    :effects [{:tags {:rf.fx/id :noisy/fx}}]}
+          b-root   {:frame :b :dispatch-id 2 :event [:b/root]}]
+      (is (= [a-parent b-root]
+             (typed/filter-event-bundles
+               [a-parent a-child b-root]
+               {:in [] :out [{:kind :fx :params {:fx-id :noisy/fx}}]}))))))
 
 ;; ---- pill-label / pill-glyph --------------------------------------------
 
 (deftest pill-label-per-kind
-  (is (= ":auth/login"
-         (typed/pill-label {:kind :event-id-pattern :params {:pattern :auth/login}})))
-  (is (= ":form"
-         (typed/pill-label {:kind :machine :params {:machine-id :form}})))
+  (is (= ":auth/*" (typed/pill-label {:pattern :auth/*})))
+  (is (= ":form" (typed/pill-label {:kind :machine :params {:machine-id :form}})))
   (is (= "abc-123"
          (typed/pill-label {:kind :http-correlation :params {:correlation-id "abc-123"}})))
   (is (= ":rf.http/managed"
-         (typed/pill-label {:kind :fx :params {:fx-id :rf.http/managed}})))
-  (is (= ":auth/*"
-         (typed/pill-label {:pattern :auth/*}))
-      "the legacy `{:pattern …}` shape labels through the canonicaliser"))
+         (typed/pill-label {:kind :fx :params {:fx-id :rf.http/managed}}))))
 
 (deftest pill-glyph-per-kind
-  (is (nil? (typed/pill-glyph {:kind :event-id-pattern :params {:pattern :auth/*}})))
-  (is (= "M" (typed/pill-glyph {:kind :machine :params {:machine-id :form}})))
-  (is (= "H" (typed/pill-glyph {:kind :http-correlation :params {:correlation-id "x"}})))
-  (is (= "F" (typed/pill-glyph {:kind :fx :params {:fx-id :foo}}))))
+  (testing "a pattern pill shows its bare label (spec/018 §7); a typed pill
+            leads with its kind glyph"
+    (is (nil? (typed/pill-glyph {:kind :event-id-pattern :params {:pattern :auth/*}})))
+    (is (= "M" (typed/pill-glyph {:kind :machine :params {:machine-id :form}})))))
