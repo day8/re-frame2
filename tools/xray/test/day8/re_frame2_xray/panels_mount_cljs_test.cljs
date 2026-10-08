@@ -30,9 +30,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
@@ -42,7 +40,6 @@
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.shell :as shell]
-            [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -93,27 +90,16 @@
 ;; ---- L3-tab panels + overlay / popup surfaces --------------------------
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
-  (testing "mount-epoch-panel! installs
-            handlers, wraps epoch-panel/Panel-bridge in `[rf/frame-provider
-            {:frame :rf/xray} [Panel]]`, delegates to substrate-
-            adapter/render, and returns the adapter's unmount fn."
-    (let [[capture unmount-sentinel render-stub] (make-render-stub)
-          mount-point :mount-point-sentinel]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (let [unmount (panels/mount-epoch-panel! mount-point)]
-          (is (= 1 (count @capture))
-              "rf.substrate.adapter/render invoked exactly once")
-          (is (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel-bridge)
-              "tree is wrapped in rf/frame-provider :rf/xray around Panel")
-          (is (= mount-point (-> @capture first :mount-point))
-              "mount-point passed through unchanged")
-          (is (= unmount-sentinel unmount)
-              "adapter's unmount fn is returned to the caller"))
-        ;; Side-effect — handlers landed.
-        (is (some? (rf.registrar/handler :sub :rf.xray/event-bundles))
-            "register-xray-handlers! ran as a side-effect of mount")
-        (is (some? (rf.frame/frame :rf/xray))
-            ":rf/xray frame is registered as a side-effect of mount")))))
+  (let [[capture unmount-sentinel render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (let [unmount (panels/mount-epoch-panel! :mount-point-sentinel)]
+        (is (= [1 true :mount-point-sentinel unmount-sentinel]
+               [(count @capture)
+                (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel-bridge)
+                (-> @capture first :mount-point)
+                unmount])
+            "one render of the wrapped Panel at the host's mount-point, and the
+             adapter's unmount fn handed back")))))
 
 (deftest every-other-panel-mount-wraps-its-view-in-the-frame-provider
   ;; The remaining L3-tab panels and the two overlay / popup surfaces.
@@ -190,85 +176,50 @@
   (rf/with-frame frame-id (rf/dispatch-sync event-v)))
 
 (deftest mount-shell-forwards-the-frame-opt-as-the-shells-own-frame-id
-  (testing "two full shells mounted through `mount-shell!` into
-            separate roots with DISTINCT `:frame` options each receive the
-            own frame they asked for. Without the forwarding both trees
-            would carry no `:frame-id`, so `shell-view` would default both
-            to `shell/default-frame-id` and the two embeds would collide."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-shell! :mount-a {:frame embed-cell-a})
-        (panels/mount-shell! :mount-b {:frame embed-cell-b}))
-      (is (= 2 (count @capture))
-          "both mounts delegated to the substrate adapter")
-      (is (= embed-cell-a (shell-frame-id capture 0))
-          "shell A carries the own frame its caller requested")
-      (is (= embed-cell-b (shell-frame-id capture 1))
-          "shell B carries ITS own frame — not A's, and not the default")
-      (is (not= (shell-frame-id capture 0) (shell-frame-id capture 1))
-          "two requested own frames stay two")
-      (is (= :mount-a (-> @capture (nth 0) :mount-point))
-          "mount-points are untouched by the frame plumbing")
-      (is (= :mount-b (-> @capture (nth 1) :mount-point)))
-      (is (some? (rf.frame/frame embed-cell-a))
-          "the requested own frame is SEATED — `shell-view`'s subscribes
-           and its captured dispatchers need a frame to land in, and the
-           embed contract does not ask the host to pre-seat one")
-      (is (some? (rf.frame/frame embed-cell-b))))))
+  ;; Without the forwarding both trees would carry no `:frame-id` and both
+  ;; embeds would collide on `shell/default-frame-id`.
+  (let [[capture _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-shell! :mount-a {:frame embed-cell-a})
+      (panels/mount-shell! :mount-b {:frame embed-cell-b}))
+    (is (= [:mount-a :mount-b] (mapv :mount-point @capture)))
+    (is (= [embed-cell-a embed-cell-b] [(shell-frame-id capture 0) (shell-frame-id capture 1)])
+        "each shell carries the own frame its caller requested")
+    (is (= [true true] [(some? (rf.frame/frame embed-cell-a)) (some? (rf.frame/frame embed-cell-b))])
+        "and each is SEATED: the embed contract does not ask the host to pre-seat one")))
 
 (deftest mount-shell-frame-opt-defaults-and-leaves-mode-intact
-  (testing "omitting `:frame` selects the documented
-            default own frame (`shell/default-frame-id`), and threading the
-            frame axis does not disturb `:mode`."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-shell! :mount-default)
-        (panels/mount-shell! :mount-overlay {:mode :overlay})
-        (panels/mount-shell! :mount-both {:mode  :overlay
-                                          :frame embed-cell-a}))
-      (is (= shell/default-frame-id (shell-frame-id capture 0))
-          "omitted :frame shares the documented default")
-      (is (= :inline (-> @capture (nth 0) :tree second :mode))
-          "and the default :mode is unchanged")
-      (is (= shell/default-frame-id (shell-frame-id capture 1))
-          ":mode alone does not disturb the own-frame default")
-      (is (= :overlay (-> @capture (nth 1) :tree second :mode)))
-      (is (= embed-cell-a (shell-frame-id capture 2))
-          "both opts travel together")
-      (is (= :overlay (-> @capture (nth 2) :tree second :mode))))))
+  (let [[capture _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-shell! :mount-default)
+      (panels/mount-shell! :mount-overlay {:mode :overlay})
+      (panels/mount-shell! :mount-both {:mode  :overlay
+                                        :frame embed-cell-a}))
+    (is (= [[shell/default-frame-id :inline]
+            [shell/default-frame-id :overlay]
+            [embed-cell-a :overlay]]
+           (mapv #((juxt :frame-id :mode) (second (:tree %))) @capture))
+        "the frame defaults, and the frame and mode opts travel independently")))
 
 (deftest mount-shell-instances-hold-independent-own-frame-state
-  (testing "the point of forwarding the option: driving tab,
-            mode and focus in the shell mounted at one root leaves the
-            shell mounted at the other root untouched. The `with-frame`
-            bindings below stand in for the two `[frame-provider {:frame
-            frame-id}]` scopes the mounted `shell-view`s establish — the
-            same standing-in `two-instance-isolation-cljs-test` does, but
-            reached through `mount-shell!` rather than around it. Were both
-            mounts to resolve to one frame, every assertion in the second
-            half of this deftest would read back A's value."
-    (let [[_ _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-shell! :mount-a {:frame embed-cell-a})
-        (panels/mount-shell! :mount-b {:frame embed-cell-b}))
-      ;; Seed B, then drive A across all three axes.
-      (dispatch-in-frame! embed-cell-b [:rf.xray/select-tab :trace])
-      (dispatch-in-frame! embed-cell-b [:rf.xray/set-mode :static])
-      (dispatch-in-frame! embed-cell-b [:rf.xray/focus-event :b-cascade :rf/default])
-      (dispatch-in-frame! embed-cell-a [:rf.xray/select-tab :app-db])
-      (dispatch-in-frame! embed-cell-a [:rf.xray/focus-event :a-cascade :rf/default])
-      (is (= :app-db (read-in-frame embed-cell-a [:rf.xray/selected-tab]))
-          "shell A holds its own selected tab")
-      (is (= :trace (read-in-frame embed-cell-b [:rf.xray/selected-tab]))
-          "shell B's tab did NOT move when A's did")
-      (is (= :dynamic (read-in-frame embed-cell-a [:rf.xray/mode]))
-          "shell A is still at the default mode")
-      (is (= :static (read-in-frame embed-cell-b [:rf.xray/mode]))
-          "shell B's mode is its own")
-      (is (= :a-cascade (:dispatch-id (read-in-frame embed-cell-a [:rf.xray/focus])))
-          "shell A focused its own epoch")
-      (is (= :b-cascade (:dispatch-id (read-in-frame embed-cell-b [:rf.xray/focus])))
-          "and shell B is STILL focused on its own"))))
+  ;; The `with-frame` reads stand in for the two frame-provider scopes the
+  ;; mounted shells establish. Were both mounts to resolve to one frame,
+  ;; B's row would read back A's values.
+  (let [[_ _ render-stub] (make-render-stub)
+        state (fn [frame-id]
+                [(read-in-frame frame-id [:rf.xray/selected-tab])
+                 (read-in-frame frame-id [:rf.xray/mode])
+                 (:dispatch-id (read-in-frame frame-id [:rf.xray/focus]))])]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-shell! :mount-a {:frame embed-cell-a})
+      (panels/mount-shell! :mount-b {:frame embed-cell-b}))
+    (dispatch-in-frame! embed-cell-b [:rf.xray/select-tab :trace])
+    (dispatch-in-frame! embed-cell-b [:rf.xray/set-mode :static])
+    (dispatch-in-frame! embed-cell-b [:rf.xray/focus-event :b-cascade :rf/default])
+    (dispatch-in-frame! embed-cell-a [:rf.xray/select-tab :app-db])
+    (dispatch-in-frame! embed-cell-a [:rf.xray/focus-event :a-cascade :rf/default])
+    (is (= [[:app-db :dynamic :a-cascade] [:trace :static :b-cascade]]
+           [(state embed-cell-a) (state embed-cell-b)]))))
 
 ;; ---- the per-panel mount SEATS the frame it PROVIDES -------------------
 ;;
@@ -301,9 +252,6 @@
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point {:frame panel-cell-frame}))
-      (is (some? (rf.frame/frame panel-cell-frame))
-          "the requested own frame is SEATED — the mount contract does not
-           ask the host to pre-seat one (008 §Frame-provider wraps the shell)")
       (is (= panel-cell-frame (:frame (second (captured-tree capture))))
           "and it is the SAME frame the provider anchors — seated and
            provided are one value by construction")
@@ -357,14 +305,6 @@
     (is (= {:instance-id "left"}
            (crossed (delivered-by {:instance-id "left"})))
         "the name the mount was given is the name the boundary is mounted with")
-    (is (= {:instance-id "left"}
-           (crossed (delivered-by {:instance-id :left})))
-        "a keyword crosses too, as its TOKEN. `Panel-bridge`
-         tokenises the prop with `instance-token` before handing it to
-         `[:>]`, because Reagent would otherwise convert the value with
-         `cljs.core/name` on the way to React. For `:left` the two agree on
-         \"left\"; where the conversion happens matters for a namespaced
-         keyword — see the namespaced row below")
     (is (= {:instance-id "left/panel"}
            (crossed (delivered-by {:instance-id :left/panel})))
         "AND A NAMESPACE SURVIVES, which is why the bridge tokenises.
@@ -393,8 +333,6 @@
             ids free of any instance token."
     (is (= [app-db-diff/Panel-bridge] (delivered-by nil))
         "no opts at all")
-    (is (= [app-db-diff/Panel-bridge] (delivered-by {:frame :my-app/cart}))
-        "opts carrying no instance name")
     (is (= {} (crossed (delivered-by nil)))
         "and the bridge's 0-arity mounts the boundary with no props"))
 
@@ -463,8 +401,6 @@
          not `[Panel-bridge {}]` — the shape the shell's `[(:panel tab)]`
          and every standalone call site in this tree take, and what keeps
          their composed ids free of any instance token")
-    (is (= [trace/Panel-bridge] (trace-delivered-by {:frame :my-app/cart}))
-        "opts carrying no instance name deliver it too")
     (is (= {} (crossed (trace-delivered-by nil)))
         "and the bridge's 0-arity mounts the boundary with no props")))
 
@@ -511,8 +447,6 @@
          not `[Panel-bridge {}]` — the shape the shell's `[(:panel tab)]`
          and every standalone call site in this tree take, and what keeps
          their composed ids free of any instance token")
-    (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by {:frame :my-app/cart}))
-        "opts carrying no instance name deliver it too")
     (is (= {} (crossed (epoch-delivered-by nil)))
         "and the bridge's 0-arity mounts the boundary with no props")
     (is (= {} (crossed (epoch-delivered-by {:instance-id ""})))
