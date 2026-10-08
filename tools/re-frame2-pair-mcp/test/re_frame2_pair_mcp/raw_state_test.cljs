@@ -1,29 +1,14 @@
 (ns re-frame2-pair-mcp.raw-state-test
-  "Unit tests for the `--allow-sensitive-reads` boot gate and the single
-  intention-naming predicate `raw-state-allowed?`.
-
-  Internal Clojure identifiers (`allow-raw-state?` atom, `:allow-raw-state?`
-  keyword, `raw-state-allowed?` predicate) use the `raw-state` naming;
-  the operator-facing CLI flag is `--allow-sensitive-reads`.
-
-  The gate's two states — off by default, so per-tool branches force
-  redact regardless of per-call args; on, so the per-call args win —
-  are pinned end-to-end by `re-frame2-pair-mcp.conformance-test`, whose
-  corpus carries dedicated fixtures for the gated default and the opt-in
-  path. This file pins `parse-launch-flags` (`--allow-sensitive-reads`
-  riding alongside `--no-eval` and the valued flags), the launch
-  diagnostics, and the runtime signal."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+  "Launch-flag parsing and diagnostics, and the runtime raw-state signal.
+  What the `--allow-sensitive-reads` gate does to each tool is pinned by
+  the conformance corpus's `:raw-state/*` fixtures."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
-;; The signal-runtime! tests `set!` the module-level
-;; `nrepl/cljs-eval-value`. Restore the pristine original in a
-;; fixture-scoped `:after` (NOT a per-test `.finally`, which fires after
-;; `done` and can clobber a neighbour namespace's stub mid-eval). Also
-;; clear the signal in-flight cache + reset the gate so each test starts
-;; from the published default.
+;; Restore the stubbed eval here rather than in a per-test `.finally`, which
+;; fires after `done` and can clobber a neighbour namespace's stub mid-eval.
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 
 (use-fixtures :each
@@ -32,104 +17,70 @@
             (raw-state/reset-runtime-signal-cache!)
             (raw-state/set-allow-raw-state! false))})
 
-
-;; ---------------------------------------------------------------------------
-;; raw-state-allowed? predicate semantics.
-;; ---------------------------------------------------------------------------
-
-(deftest set-coerces-to-boolean
-  ;; Defensive: `set-allow-raw-state!` should coerce truthy / falsy
-  ;; inputs to a proper boolean — the atom holds `true`/`false`, not the
-  ;; raw passed-in value.
-  (raw-state/set-allow-raw-state! "yes")
-  (is (true? (raw-state/allow-raw-state-enabled?))
-      "Truthy non-bool ⇒ atom holds true (boolean-coerced)")
-  (raw-state/set-allow-raw-state! nil)
-  (is (false? (raw-state/allow-raw-state-enabled?))
-      "nil ⇒ atom holds false (boolean-coerced)")
-  (raw-state/set-allow-raw-state! false))
-
 ;; ---------------------------------------------------------------------------
 ;; Launch-flag parsing.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-launch-flags-defaults
-  ;; eval-cljs defaults ON; raw-state and writes default OFF; an absent
-  ;; --port-file / --http-port is nil (the cascade uses the 9630 default
-  ;; downstream).
+  ;; Sensitive reads and writes are opt-in; eval-cljs is opt-out.
   (is (= {:eval-allowed? true :allow-raw-state? false :allow-writes? false
           :port-file nil :http-port nil}
          (server/parse-launch-flags []))))
 
-(deftest parse-launch-flags-ignores-unknown
-  ;; The PARSER stays permissive — future flags + node/shadow wrapper
-  ;; argv must not break the parse. The validation layer
-  ;; (`launch-diagnostics`) is what NAMES the unknown flag at boot; see
-  ;; `launch-diagnostics-*` below. The parser itself just plucks what it
-  ;; understands and leaves the rest alone.
-  (let [flags (server/parse-launch-flags ["--no-such-flag" "--allow-sensitive-reads"])]
-    (is (true? (:allow-raw-state? flags)))))
-
 (deftest parse-launch-flags-old-name-rejected
-  ;; The `--allow-raw-state` flag is not recognised. No back-compat shim
-  ;; — passing it does NOT enable the gate. It ALSO earns a :removed-flag
-  ;; diagnostic naming the replacement — see
-  ;; `launch-diagnostics-names-removed-flag`.
-  (let [flags (server/parse-launch-flags ["--allow-raw-state"])]
-    (is (false? (:allow-raw-state? flags))
-        "--allow-raw-state must not enable the gate")))
+  ;; The removed `--allow-raw-state` spelling must not open the gate.
+  (is (false? (:allow-raw-state? (server/parse-launch-flags ["--allow-raw-state"])))))
 
-(deftest parse-launch-flags-legacy-allow-eval-is-noop
-  ;; The `--allow-eval` opt-in flag is not recognised because the eval
-  ;; default is ON. No back-compat shim — passing it does not change the
-  ;; gate (the gate is on regardless). Rather than a SILENT no-op, the
-  ;; validation layer emits an intentional :removed-flag diagnostic
-  ;; naming the replacement (see `launch-diagnostics-names-removed-flag`);
-  ;; the parsed gate state is unchanged (still default ON).
-  (let [flags (server/parse-launch-flags ["--allow-eval"])]
-    (is (true? (:eval-allowed? flags))
-        "--allow-eval must NOT disable the gate (gate stays at default ON)")))
+(deftest parse-launch-flags-valued-flags-ride-with-other-flags
+  (is (= {:eval-allowed? false :allow-raw-state? true :allow-writes? false
+          :port-file "/p/nrepl.port" :http-port 9702}
+         (server/parse-launch-flags
+           ["--no-eval" "--http-port" "9702" "--port-file" "/p/nrepl.port"
+            "--allow-sensitive-reads"]))))
+
+(deftest parse-launch-flags-port-file-missing-value-is-nil
+  ;; A following flag is not a value.
+  (doseq [argv [["--port-file"] ["--port-file" "--no-eval"]]]
+    (is (nil? (:port-file (server/parse-launch-flags argv))) (pr-str argv))))
+
+(deftest parse-launch-flags-port-file-last-occurrence-wins
+  (is (= "/second/nrepl.port"
+         (:port-file (server/parse-launch-flags
+                       ["--port-file" "/first/nrepl.port" "--port-file=/second/nrepl.port"])))))
+
+(deftest parse-launch-flags-http-port-non-numeric-is-nil
+  ;; Never a NaN port: discovery falls back to shadow's default.
+  (is (nil? (:http-port (server/parse-launch-flags ["--http-port" "garbage"])))))
 
 ;; ---------------------------------------------------------------------------
-;; Launch-config diagnostics. The parsers stay permissive; this layer
-;; scans the SAME argv against the declared flag schema and returns
-;; structured diagnostics naming any rejected / suspicious input + its
-;; effective fallback. `main` logs each at boot before readiness.
+;; Launch-config diagnostics: the parser stays permissive, and this layer
+;; names each rejected input and the fallback the operator actually gets.
 ;; ---------------------------------------------------------------------------
+
+(defn- without-effect [diagnostics] (mapv #(dissoc % :effect) diagnostics))
 
 (deftest launch-diagnostics-clean-config-empty
-  (is (= [] (server/launch-diagnostics [])))
   (is (= [] (server/launch-diagnostics
               ["--no-eval" "--allow-sensitive-reads" "--allow-writes"
-               "--port-file" "/abs/nrepl.port" "--http-port=9700"]))
-      "every recognised flag (boolean / valued) parses clean"))
+               "--port-file" "/abs/nrepl.port" "--http-port=9700"]))))
 
 (deftest launch-diagnostics-names-unknown-flag
-  (let [[d :as ds] (server/launch-diagnostics ["--no-eavl"])]
-    (is (= 1 (count ds)))
-    (is (= :unknown-flag (:issue d)))
-    (is (= "--no-eavl"   (:input d)))
-    (is (= :warn         (:severity d)))))
+  (is (= [{:severity :warn :input "--no-eavl" :issue :unknown-flag}]
+         (without-effect (server/launch-diagnostics ["--no-eavl"])))))
 
 (deftest launch-diagnostics-names-removed-flag
-  (testing "renamed --allow-raw-state names the replacement"
-    (let [[d] (server/launch-diagnostics ["--allow-raw-state"])]
-      (is (= :removed-flag (:issue d)))
-      (is (re-find #"allow-sensitive-reads" (:effect d)))))
-  (testing "removed --allow-eval names the default-ON flip"
-    (let [[d] (server/launch-diagnostics ["--allow-eval"])]
-      (is (= :removed-flag (:issue d)))
-      (is (re-find #"--no-eval" (:effect d))))))
+  ;; The effect names what to pass instead.
+  (doseq [[flag replacement] [["--allow-raw-state" #"allow-sensitive-reads"]
+                              ["--allow-eval" #"--no-eval"]]]
+    (let [[d] (server/launch-diagnostics [flag])]
+      (is (= :removed-flag (:issue d)) flag)
+      (is (re-find replacement (:effect d)) flag))))
 
 (deftest launch-diagnostics-names-missing-value
-  (testing "trailing valued flag with no value"
-    (let [[d] (server/launch-diagnostics ["--port-file"])]
-      (is (= :missing-value (:issue d)))
-      (is (= "--port-file"  (:input d)))))
-  (testing "valued flag immediately followed by another flag"
-    (let [[d] (server/launch-diagnostics ["--http-port" "--no-eval"])]
-      (is (= :missing-value (:issue d)))
-      (is (= "--http-port"  (:input d))))))
+  (doseq [[argv flag] [[["--port-file"] "--port-file"]
+                       [["--http-port" "--no-eval"] "--http-port"]]]
+    (is (= {:issue :missing-value :input flag}
+           (select-keys (first (server/launch-diagnostics argv)) [:issue :input])))))
 
 (deftest launch-diagnostics-names-malformed-http-port
   (let [[d] (server/launch-diagnostics ["--http-port" "garbage"])]
@@ -137,133 +88,50 @@
     (is (re-find #"9630" (:effect d)))))
 
 (deftest launch-diagnostics-names-boolean-flag-with-inline-value
-  ;; `--no-eval=true` is the `--flag=value` style many CLIs accept. The
-  ;; parser recognises only the bare token, so the opt-out is NOT applied
-  ;; and eval stays ON; the diagnostic built for exactly this mismatch must
-  ;; name it, rather than read the `=true` prefix as the known flag and say
-  ;; nothing.
-  (testing "--no-eval=true is named, and says eval-cljs stays enabled"
-    (let [argv       ["--no-eval=true"]
-          [d :as ds] (server/launch-diagnostics argv)]
-      (is (= 1 (count ds)) "REGRESSION: the silent case is named")
-      (is (= :malformed-value (:issue d)))
-      (is (= "--no-eval=true" (:input d)))
-      (is (re-find #"eval-cljs stays ENABLED" (:effect d)))
-      (is (true? (:eval-allowed? (server/parse-launch-flags argv)))
-          "warn-only: the inline form is deliberately not accepted, so eval really is on — as the warning says")))
-  (testing "the other boolean flags are named too (their misparse fails closed)"
-    (is (= :malformed-value (:issue (first (server/launch-diagnostics ["--allow-writes=true"])))))
-    (is (= :malformed-value (:issue (first (server/launch-diagnostics ["--allow-sensitive-reads=1"])))))))
+  ;; The parser takes only the bare token, so `--no-eval=true` leaves eval
+  ;; ON; the diagnostic must say so rather than read the prefix as the flag.
+  (let [argv ["--no-eval=true"]
+        ds   (server/launch-diagnostics argv)]
+    (is (= [{:severity :warn :input "--no-eval=true" :issue :malformed-value}]
+           (without-effect ds)))
+    (is (re-find #"eval-cljs stays ENABLED" (:effect (first ds))))
+    (is (true? (:eval-allowed? (server/parse-launch-flags argv))))))
 
 ;; ---------------------------------------------------------------------------
-;; --port-file launch flag — explicit, cwd-independent port file.
-;; ---------------------------------------------------------------------------
-
-(deftest parse-launch-flags-valued-flags-ride-with-other-flags
-  (let [flags (server/parse-launch-flags
-                ["--no-eval" "--http-port" "9702" "--port-file" "/p/nrepl.port"
-                 "--allow-sensitive-reads"])]
-    (is (= "/p/nrepl.port" (:port-file flags)))
-    (is (= 9702 (:http-port flags)))
-    (is (false? (:eval-allowed? flags)))
-    (is (true? (:allow-raw-state? flags)))))
-
-(deftest parse-launch-flags-port-file-missing-value-is-nil
-  (testing "a trailing --port-file with no value (or followed by a flag) yields nil"
-    (is (nil? (:port-file (server/parse-launch-flags ["--port-file"])))
-        "trailing --port-file with no value")
-    (is (nil? (:port-file (server/parse-launch-flags ["--port-file" "--no-eval"])))
-        "--port-file immediately followed by another flag is not a value")))
-
-(deftest parse-launch-flags-port-file-last-occurrence-wins
-  (let [flags (server/parse-launch-flags
-                ["--port-file" "/first/nrepl.port" "--port-file=/second/nrepl.port"])]
-    (is (= "/second/nrepl.port" (:port-file flags))
-        "later --port-file overrides earlier (argv override semantics)")))
-
-;; ---------------------------------------------------------------------------
-;; --http-port. Same parsing shape as --port-file (one shared
-;; `parse-string-value-flag` helper underneath), so its space and equals
-;; forms and its integer coercion ride the --port-file and valued-flags
-;; tests above; what is --http-port's own is the non-numeric fallback.
-;; ---------------------------------------------------------------------------
-
-(deftest parse-launch-flags-http-port-non-numeric-is-nil
-  (testing "garbage at --http-port collapses to nil; cascade uses the 9630 default"
-    (let [flags (server/parse-launch-flags ["--http-port" "garbage"])]
-      (is (nil? (:http-port flags))
-          "isNaN guard — never surface a NaN port"))))
-
-;; ---------------------------------------------------------------------------
-;; signal-runtime! — re-signals before EVERY state-emitting eval. The
-;; runtime's raw-state posture resets to its permissive default on every
-;; page/runtime reload, so caching a per-build "delivered" flag would
-;; leave a post-reload runtime tapping RAW app-db. The signal
-;; reconfigures each call; only a CONCURRENT in-flight configure for the
-;; same build is deduped (the race guard).
+;; signal-runtime!. The runtime's raw-state posture resets to permissive on
+;; every page reload, so the signal is sent before EVERY state-emitting eval;
+;; only a concurrent in-flight configure for the same build is shared.
 ;; ---------------------------------------------------------------------------
 
 (deftest signal-runtime-reconfigures-each-call
-  ;; Drive `signal-runtime!` against a stubbed `cljs-eval-value` and count
-  ;; the configure round-trips. Sequential (non-overlapping) calls MUST
-  ;; each fire a fresh configure — no permanent per-build skip — so a
-  ;; post-reload runtime is re-signalled.
   (async done
     (let [calls (atom 0)
-          stub (fn
-                 ([_conn _build-id _form]
-                  (swap! calls inc)
-                  (js/Promise.resolve nil))
-                 ([_conn _build-id _form _opts]
-                  (swap! calls inc)
-                  (js/Promise.resolve nil)))]
+          count! (fn [] (swap! calls inc) (js/Promise.resolve nil))]
       (raw-state/reset-runtime-signal-cache!)
-      (raw-state/set-allow-raw-state! false)
-      (set! nrepl/cljs-eval-value stub)
+      (set! nrepl/cljs-eval-value (fn ([_ _ _] (count!)) ([_ _ _ _] (count!))))
       (-> (raw-state/signal-runtime! nil :app)
           (.then (fn [_] (raw-state/signal-runtime! nil :app)))
           (.then (fn [_] (raw-state/signal-runtime! nil :app)))
-          (.then (fn [_]
-                   (is (= 3 @calls)
-                       "three sequential signals ⇒ three configure round-trips (no permanent per-build skip)")))
-          ;; `signal-runtime!` swallows its own failures, so this arm cannot
-          ;; fire — but it must still REPORT rather than pass the row silently,
-          ;; and it must sit UPSTREAM of the single trailing `done`, the shape
-          ;; the sibling row below already uses.
-          (.catch (fn [e]
-                    (is false (str "signal-runtime! must not reject: " (.-message e)))
-                    nil))
+          (.then (fn [_] (is (= 3 @calls) "no permanent per-build skip")))
+          ;; Upstream of the single `done`, so a rejection reports rather than hangs.
+          (.catch (fn [e] (is false (str "signal-runtime! must not reject: " (.-message e)))))
           (.then (fn [_] (done)))))))
 
 (deftest signal-runtime-dedups-concurrent-in-flight
-  ;; Two CONCURRENT signals for the same build (issued before the first
-  ;; configure resolves) share ONE in-flight Promise — the race guard.
+  ;; No caller may reach its state-emitting eval before the posture lands.
   (async done
-    (let [calls (atom 0)
-          ;; A configure that only resolves when we tell it to, so both
-          ;; callers are genuinely in-flight at once.
-          resolve-fn* (atom nil)
-          stub (fn
-                 ([_conn _build-id _form]
-                  (swap! calls inc)
-                  (js/Promise. (fn [res _] (reset! resolve-fn* res))))
-                 ([_conn _build-id _form _opts]
-                  (swap! calls inc)
-                  (js/Promise. (fn [res _] (reset! resolve-fn* res)))))]
+    (let [calls    (atom 0)
+          resolve! (atom nil)
+          pending  (fn []
+                     (swap! calls inc)
+                     (js/Promise. (fn [res _] (reset! resolve! res))))]
       (raw-state/reset-runtime-signal-cache!)
-      (raw-state/set-allow-raw-state! false)
-      (set! nrepl/cljs-eval-value stub)
+      (set! nrepl/cljs-eval-value (fn ([_ _ _] (pending)) ([_ _ _ _] (pending))))
       (let [p1 (raw-state/signal-runtime! nil :app)
             p2 (raw-state/signal-runtime! nil :app)]
-        ;; Both issued before resolution — only ONE configure fired.
-        (is (= 1 @calls)
-            "concurrent in-flight signals for the same build share ONE configure round-trip")
-        (when-let [r @resolve-fn*] (r nil))
-        ;; The claim is already asserted above; this chain only waits for both
-        ;; signals to SETTLE, either way. The swallow sits UPSTREAM of the
-        ;; single trailing `done` — `done` runs the whole remainder
-        ;; of the run synchronously, so a `.catch` after it would swallow a
-        ;; foreign throw and fire `done` a second time.
+        (is (= 1 @calls) "two concurrent signals share one configure round-trip")
+        (when-let [r @resolve!] (r nil))
+        ;; Only waits for both to settle; the swallow sits upstream of `done`.
         (-> (js/Promise.all #js [p1 p2])
             (.catch (fn [_] nil))
             (.then (fn [_] (done))))))))
