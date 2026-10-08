@@ -1,29 +1,14 @@
 (ns re-frame.resources-invalid-params-redaction-cljs-test
-  "Resource / mutation params-schema validation failure data must not leak a
-  `:sensitive?` params slot or ride a `:large?` slot raw.
-
-  `validate+canonicalize-params` (resource registry + mutation registry) runs
-  the pluggable Malli validator against the resource / mutation `:params-schema`
-  and, on a conformance failure, throws `:rf.error/resource-invalid-params` /
-  `:rf.error/mutation-invalid-params`. Both the raw `:params` and the explainer's
-  `:error` can contain conforming sensitive siblings of the field that failed.
-
-  The validation-failure projector reads schema props for per-slot `:params`
-  redaction and routes explainer output through the shared schemas seam
-  (`:schemas/redact-validation-tags`) for the explainer `:error`. The schema
-  therefore owns both projections of its validation-failure record. Durable
-  SSR/wire classification is a separate projection-relative owner declaration.
-
-  Threat model is the AI-boundary + logs (the thrown ex-data is public error
-  data + the trace egress) — NOT in-process correctness; the canonical
-  (non-sensitive) params still flow normally on the success path.
-
-  CLJC so the JVM run (`clojure -M:test`, the load-bearing gate) exercises it;
-  the schemas artefact is a test-only dep, so the Malli validator + the shared
-  walker / redaction hooks are bound here by requiring `re-frame.schemas`."
+  "A params-schema validation failure must not leak a `:sensitive?` params slot
+  or ride a `:large?` slot raw. Both the raw `:params` and the explainer's
+  `:error` can carry conforming sensitive siblings of the field that failed, so
+  the shared validation leaf redacts `:params` per slot from the schema props
+  and routes the explainer output through `:schemas/redact-validation-tags`.
+  The threat is the AI boundary and logs (the thrown ex-data and the trace
+  egress); the success path still carries the canonical params."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [clojure.string :as str]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.registry :as rf.resources.registry]
@@ -42,20 +27,11 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; A params schema with a CONFORMING sensitive sibling (`:token`) and a FAILING
-;; non-sensitive field (`:age` declared `:int`, supplied a string). The failure
-;; is on `:age`, but the raw params + explainer carry the conforming sensitive
-;; `:token` alongside it — the sibling-leak shape this suite prevents.
+;; the failure is on the non-sensitive :age, while the raw params and the
+;; explainer carry the conforming sensitive :token beside it
 (def ^:private sensitive-params-schema
   [:map
    [:token {:sensitive? true} :string]
-   [:age :int]])
-
-;; A params schema marking a sibling `:large?`; the failing field is again the
-;; non-sensitive `:age`; the large sibling should elide consistently.
-(def ^:private large-params-schema
-  [:map
-   [:blob {:large? true} :string]
    [:age :int]])
 
 (def ^:private bad-params {:token "SECRET-TOKEN-42" :age "not-an-int"})
@@ -67,92 +43,39 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (ex-data e))))
 
-;; ===========================================================================
-;; Resource params-schema validation failure — no sensitive leak
-;; ===========================================================================
+(defn- resource-failure [resource-id schema params]
+  (ex->data #(rf.resources.registry/validate+canonicalize-params
+               resource-id {:params-schema schema} params 'rf/ensure)))
 
 (deftest resource-invalid-params-redacts-sensitive-sibling
-  (testing "a resource params-schema failure on a NON-sensitive
-            field must NOT leak a conforming `:sensitive?` sibling param in the
-            thrown ex-data — neither under `:params` nor under the explainer
-            `:error`"
-    (let [spec {:params-schema sensitive-params-schema}
-          data (ex->data
-                 #(rf.resources.registry/validate+canonicalize-params
-                    :report/by-account spec bad-params 'rf/ensure))]
-      (is (some? data) "the failure throws ex-info")
-      (is (= :rf.error/resource-invalid-params (:rf.error/id data))
-          "the canonical invalid-params error id is preserved")
-      ;; the structural slots stay so the failure stays locatable
-      (is (= :report/by-account (:resource-id data)) "resource-id preserved")
-      ;; the sensitive param slot is redacted in :params
-      (is (= rf.privacy/redacted-sentinel (get-in data [:params :token]))
-          "the `:sensitive?` :token param slot is redacted in :params")
-      (is (= "not-an-int" (get-in data [:params :age]))
-          "the non-sensitive failing field rides verbatim (it must, to be diagnostic)")
-      ;; the raw secret appears NOWHERE in the whole ex-data (params + error)
-      (is (not (str/includes? (pr-str data) "SECRET-TOKEN-42"))
-          "the raw sensitive param value does not ride ANYWHERE in the ex-data"))))
+  (let [data (resource-failure :report/by-account sensitive-params-schema bad-params)]
+    (is (= [:rf.error/resource-invalid-params :report/by-account
+            {:token rf.privacy/redacted-sentinel :age "not-an-int"} false]
+           [(:rf.error/id data) (:resource-id data) (:params data)
+            (str/includes? (pr-str data) "SECRET-TOKEN-42")])
+        "the :token slot is redacted, the failing field stays diagnostic, and the secret rides nowhere")))
 
 (deftest resource-invalid-params-elides-large-sibling
-  (testing "a resource params-schema failure elides a `:large?`
-            sibling param consistently with resource params egress"
-    (let [big  (apply str (repeat 500 "x"))
-          spec {:params-schema large-params-schema}
-          data (ex->data
-                 #(rf.resources.registry/validate+canonicalize-params
-                    :feed/by-cursor spec {:blob big :age "bad"} 'rf/ensure))]
-      (is (= :rf.error/resource-invalid-params (:rf.error/id data)))
-      (is (contains? (get-in data [:params :blob]) :rf.size/large-elided)
-          "the `:large?` :blob param slot is elided to the size marker")
-      (is (not (str/includes? (pr-str (get-in data [:params :blob])) big))
-          "the raw large param value does not ride in :params"))))
+  (let [big  (apply str (repeat 500 "x"))
+        data (resource-failure :feed/by-cursor [:map [:blob {:large? true} :string] [:age :int]]
+                               {:blob big :age "bad"})]
+    (is (= [:rf.error/resource-invalid-params true false]
+           [(:rf.error/id data) (contains? (get-in data [:params :blob]) :rf.size/large-elided)
+            (str/includes? (pr-str (get-in data [:params :blob])) big)])
+        "the :large? :blob slot is elided to the size marker")))
 
 (deftest resource-invalid-params-no-marks-rides-verbatim
-  (testing "with NO classified params slot the error data is
-            unchanged — the canonicalization / nil-vs-missing behavior for
-            ordinary invalid params is preserved (the raw failing value rides
-            so the failure stays diagnostic)"
-    (let [spec {:params-schema [:map [:age :int]]}
-          data (ex->data
-                 #(rf.resources.registry/validate+canonicalize-params
-                    :plain/r spec {:age "nope"} 'rf/ensure))]
-      (is (= :rf.error/resource-invalid-params (:rf.error/id data)))
-      (is (= {:age "nope"} (:params data))
-          "the raw (unclassified) params ride verbatim — diagnostic, no over-redaction")
-      (is (some? (:error data))
-          "the explainer output is present (no classified slot to redact against)"))))
-
-;; ===========================================================================
-;; Mutation params-schema validation failure — no sensitive leak
-;; ===========================================================================
+  (let [data (resource-failure :plain/r [:map [:age :int]] {:age "nope"})]
+    (is (= [:rf.error/resource-invalid-params {:age "nope"} true]
+           [(:rf.error/id data) (:params data) (some? (:error data))])
+        "with no classified slot the params and the explainer output ride as they are")))
 
 (deftest mutation-invalid-params-redacts-sensitive-sibling
-  (testing "the analogous mutation params-schema failure must NOT
-            leak a conforming `:sensitive?` sibling param in the thrown ex-data"
-    (let [spec {:params-schema sensitive-params-schema}
-          data (ex->data
-                 #(rf.resources.mutation-registry/validate+canonicalize-params
-                    :acct/update spec bad-params 'rf.mutation/execute))]
-      (is (some? data) "the failure throws ex-info")
-      (is (= :rf.error/mutation-invalid-params (:rf.error/id data))
-          "the canonical mutation invalid-params error id is preserved")
-      (is (= :acct/update (:mutation-id data)) "mutation-id preserved")
-      (is (= rf.privacy/redacted-sentinel (get-in data [:params :token]))
-          "the `:sensitive?` :token param slot is redacted in :params")
-      (is (= "not-an-int" (get-in data [:params :age]))
-          "the non-sensitive failing field rides verbatim")
-      (is (not (str/includes? (pr-str data) "SECRET-TOKEN-42"))
-          "the raw sensitive param value does not ride ANYWHERE in the ex-data"))))
-
-(deftest mutation-invalid-params-no-marks-rides-verbatim
-  (testing "an unclassified mutation params failure rides verbatim
-            (canonicalization preserved for ordinary invalid params)"
-    (let [spec {:params-schema [:map [:age :int]]}
-          data (ex->data
-                 #(rf.resources.mutation-registry/validate+canonicalize-params
-                    :plain/m spec {:age "nope"} 'rf.mutation/execute))]
-      (is (= :rf.error/mutation-invalid-params (:rf.error/id data)))
-      (is (= {:age "nope"} (:params data))
-          "the raw (unclassified) params ride verbatim")
-      (is (some? (:error data)) "the explainer output is present"))))
+  (let [data (ex->data
+               #(rf.resources.mutation-registry/validate+canonicalize-params
+                  :acct/update {:params-schema sensitive-params-schema} bad-params 'rf.mutation/execute))]
+    (is (= [:rf.error/mutation-invalid-params :acct/update
+            {:token rf.privacy/redacted-sentinel :age "not-an-int"} false]
+           [(:rf.error/id data) (:mutation-id data) (:params data)
+            (str/includes? (pr-str data) "SECRET-TOKEN-42")])
+        "the mutation arm redacts through the same leaf under its own error descriptor")))
