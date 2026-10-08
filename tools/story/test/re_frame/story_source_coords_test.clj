@@ -1,53 +1,10 @@
 (ns re-frame.story-source-coords-test
-  "Regression net for the source-coord Story's nine `reg-*` macros stamp.
-
-  The coordinate has two halves, and each is pinned here.
-
-  ## WHICH file string gets picked
-
-  `coords-form` prefers `(:file (meta &form))` over the `*file*` it is
-  handed. The CLJS analyzer never binds Clojure's `*file*` during macro
-  expansion (it binds `cljs.analyzer/*cljs-file*` instead), so `*file*`
-  keeps the JVM compiler's default sentinel, and a coordinate read from it
-  would stamp `:file \"NO_SOURCE_PATH\"` on the `:rf.assert/*` events
-  surfaced from `:script` sequences. The CLJS analyzer reads source files
-  via tools.reader's `indexing-push-back-reader`, which attaches
-  `{:file ...}` to every collection-form's metadata, so the form-meta path
-  is the portable answer across both compilation hosts.
-
-  ## Whether that string is USABLE
-
-  Picking the right string is not enough: both compilation hosts hand the
-  macro only the CLASSPATH-RELATIVE portion of the path
-  (`counter_with_stories/stories.cljs`, never the on-disk location). There
-  is no browser-side checkout-root pipeline to supply the missing root.
-  The dev-server endpoint resolves a relative coordinate itself, but the
-  endpoint is only the PREFERRED path. On any non-2xx the open-in-editor
-  client falls back to an `editor://` URI, and a 422 is exactly what the
-  endpoint answers when `launch-editor` declines a coordinate-bearing
-  request. With a relative `:file` and no project-root configured, that
-  fallback would ship
-  `windsurf://file/counter_with_stories/stories.cljs:196:3` — a path no
-  editor's scheme handler can resolve, and a chip that silently misses.
-
-  Story's macro pipeline is separate from core's, so
-  `re-frame.story.macros/coords-form` delegates to
-  `re-frame.source-coords/coords-form` outright, which resolves the
-  classpath-relative `:file` through the context class-loader ON THE JVM,
-  AT MACROEXPANSION, and bakes the absolute path into the emitted literal.
-  Nothing resolves anything in the browser.
-
-  ## Why the pins below are shape assertions, not literals
-
-  The absolutised path is the BUILDING MACHINE's path, so every assertion
-  here is computed — `absolute-path?`, an on-disk existence check, and a
-  suffix match against the classpath-relative tail. A literal expected path
-  would pin one developer's checkout.
-
-  JVM-only: the macro helpers live in `.clj`, visible only from the JVM.
-  The CLJS half — a real registration compiled by shadow-cljs, driven
-  through the 422 decline into the URI fallback — is
-  `re-frame.story-open-in-editor-cljs-test`
+  "The source coordinate Story's `reg-*` macros stamp: `coords-form` prefers
+  `(:file (meta &form))` over `*file*` (the CLJS analyzer never binds
+  `*file*`), and resolves the classpath-relative `:file` to an absolute path
+  at macroexpansion, so an `editor://` fallback URI names a file an editor can
+  open. Paths are the building machine's, so the pins are shapes, not
+  literals. The CLJS half is `re-frame.story-open-in-editor-cljs-test`
   §`endpoint-422-falls-back-to-an-absolute-uri-for-a-real-story-coord`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -56,155 +13,66 @@
             [re-frame.story :as rf.story]
             [re-frame.story.macros :as rf.story.macros]))
 
-;; ---- helpers ----------------------------------------------------------------
-
 (defn- eval-coords-form
-  "Evaluate what `coords-form` returns: a MAP LITERAL built at expansion
-  time (for evaluation-order transparency) rather than a `cond->` form,
-  but its `:ns` slot holds a `(quote sym)` form, so `eval` is how the test
-  reads back the map the macro expansion would bind."
+  "`coords-form` returns a map literal whose `:ns` slot is a `(quote sym)`."
   [form-meta file ns-sym]
   (eval (rf.story.macros/coords-form form-meta file ns-sym)))
 
-;; A real Story source file that IS on this JVM gate's classpath, so the
-;; classpath probe inside `absolutise-file` has something to resolve.
-;; `counter_with_stories/stories.cljs` — the coordinate the ns docstring
-;; cites — resolves under the shadow-cljs compile (`tools/story/testbeds`
-;; is a source path there) but not under `clojure -M:test`, whose classpath
-;; is `src` + `test`. Absolutisation degrades to a pass-through for an
-;; unresolvable path by design, so pinning that literal here would assert
-;; nothing at all. The CLJS half of this net exercises a real testbed-shaped
-;; registration under the real toolchain.
+;; A Story source file on this JVM gate's classpath, so absolutisation has
+;; something to resolve (an unresolvable path passes through by design).
 (def ^:private on-classpath-story-file
   "re_frame/story/macros.clj")
 
 (defn- assert-absolute-and-real!
-  "Shared shape assertions for an absolutised `:file`: absolute per the
-  same predicate `rf.source-coords.editor-uri/compose-path` uses, present on disk, and
-  still ending in the classpath-relative tail it started as."
+  "Absolute per `editor-uri/absolute-path?`, on disk, and still ending in the
+  classpath-relative tail it started as."
   [path tail because]
-  (is (rf.source-coords.editor-uri/absolute-path? path)
-      (str because " — :file must be ABSOLUTE, got " (pr-str path)))
-  (is (str/ends-with? (str/replace path "\\" "/") tail)
-      (str because " — the absolutised path must still end in the "
-           "classpath-relative tail " (pr-str tail)))
-  (is (.exists (io/file path))
-      (str because " — the absolutised path must name a file that "
-           "exists on disk (a rename must fail loudly here)")))
-
-;; ---- which string gets picked ----------------------------------------------
+  (is (rf.source-coords.editor-uri/absolute-path? path) (str because " " (pr-str path)))
+  (is (str/ends-with? (str/replace path "\\" "/") tail) because)
+  (is (.exists (io/file path)) because))
 
 (deftest file-omitted-when-both-sources-are-sentinel
-  (testing "if BOTH (meta &form) :file and *file* resolve to
-            NO_SOURCE_PATH (pathological cljs case), omit :file entirely
-            rather than poisoning the slot with the sentinel"
-    (let [coords (eval-coords-form
-                   {:line 1 :column 1 :file "NO_SOURCE_PATH"}
-                   "NO_SOURCE_PATH"
-                   'some.ns)]
-      (is (not (contains? coords :file))
-          ":file is omitted rather than carrying the NO_SOURCE_PATH sentinel")
-      (is (= 1 (:line coords)))
-      (is (= 'some.ns (:ns coords))))))
+  (is (= {:line 1 :column 1 :ns 'some.ns}
+         (select-keys (eval-coords-form {:line 1 :column 1 :file "NO_SOURCE_PATH"}
+                                        "NO_SOURCE_PATH" 'some.ns)
+                      [:line :column :ns :file]))
+      ":file is omitted rather than carrying the sentinel"))
 
 (deftest gen-reg-call-carries-absolutised-file-into-pending-coords
-  (testing "end-to-end: the gen-reg-call expansion (which
-            reg-variant feeds) carries the form-meta :file through to
-            the *pending-coords* binding form — covers the actual macro
-            path Story uses for variants whose :script sequences emit
-            :rf.assert/* events"
-    (let [form-meta {:line 42 :column 3 :file on-classpath-story-file}
-          expansion (rf.story.macros/gen-reg-call
-                      form-meta
-                      "NO_SOURCE_PATH"             ; simulate CLJS *file*
-                      'my.app.stories
-                      'irrelevant-reg-fn
-                      :my.app/variant
-                      {:doc "x"})
-          ;; The expansion is `(when ... (binding [*pending-coords*
-          ;; <coords-map>] ...))`. Pull the literal out of the binding
-          ;; vector and evaluate it (its `:ns` slot is a `(quote ...)`).
-          ;; Structure: (when _ (binding [_ <coords>] _))
-          binding-form (-> expansion (nth 2))      ; (binding [...] ...)
-          coords       (eval (-> binding-form second second))]
-      (is (not= "NO_SOURCE_PATH" (:file coords))
-          "NO_SOURCE_PATH must not leak into the coords map")
-      (assert-absolute-and-real!
-        (:file coords) on-classpath-story-file
-        "the emitted *pending-coords* literal carries the
-         absolutised path, not the classpath-relative one")
-      (is (= 42 (:line coords)))
-      (is (= 3  (:column coords)))
-      (is (= 'my.app.stories (:ns coords))))))
-
-;; ---- a REAL Story registration, pinned absolute ---------------------------
-;;
-;; Everything above drives `coords-form` directly. This drives the actual
-;; `rf.story/reg-story` macro at a real source location in a real Story
-;; artefact file, and reads the coordinate back off the registrar the way
-;; every consumer does — `(rf.story/handler-meta :story id)` → `:source`.
-;; The file this registration sits in IS on the gate's classpath, so the
-;; class-loader probe has a genuine resolution to make.
+  (testing "with a CLJS-style NO_SOURCE_PATH *file*, the expansion's
+            *pending-coords* literal takes the form-meta :file, absolutised"
+    (let [expansion (rf.story.macros/gen-reg-call
+                      {:line 42 :column 3 :file on-classpath-story-file}
+                      "NO_SOURCE_PATH" 'my.app.stories 'irrelevant-reg-fn
+                      :my.app/variant {:doc "x"})
+          ;; (when _ (binding [_ <coords>] _))
+          coords    (eval (-> expansion (nth 2) second second))]
+      (assert-absolute-and-real! (:file coords) on-classpath-story-file "pending coords")
+      (is (= [42 3 'my.app.stories] ((juxt :line :column :ns) coords))))))
 
 (deftest a-real-story-registration-stamps-an-absolute-file
-  (testing "a registration written the way a Story author writes one
-            carries an ABSOLUTE :file in its :source slot, not
-            `re_frame/story_source_coords_test.clj` — the
-            classpath-relative tail on its own."
-    (rf.story/reg-story :story.source-coords.absolute-pin
-      {:doc "fixture — the coordinate under test IS this form's."})
-    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.absolute-pin))]
-      (is (some? coord) "the registration carries a :source coord at all")
-      (assert-absolute-and-real!
-        (:file coord) "re_frame/story_source_coords_test.clj"
-        "a real Story registration's :file")
-      (is (pos-int? (:line coord)) ":line is captured from the real form")
-      (is (pos-int? (:column coord)) ":column is captured from the real form")
-      (is (= 're-frame.story-source-coords-test (:ns coord))
-          ":ns names the registering namespace"))))
+  (rf.story/reg-story :story.source-coords.absolute-pin {:doc "fixture"})
+  (let [coord (:source (rf.story/handler-meta :story :story.source-coords.absolute-pin))]
+    (assert-absolute-and-real! (:file coord) "re_frame/story_source_coords_test.clj" "registration")
+    (is (pos-int? (:line coord)))
+    (is (pos-int? (:column coord)))
+    (is (= 're-frame.story-source-coords-test (:ns coord)))))
 
-;; ---- the 422 → URI fallback, with that coordinate -------------------------
-;;
-;; `re-frame.source-coords.open-endpoint/fetch-launcher!` invokes the
-;; caller's `fallback!` thunk on ANY non-2xx, and 422 is the status
-;; `re-frame.testbed.open-in-editor-server` answers when launch-editor
-;; declines a coordinate-bearing request (the Windsurf case). The fallback
-;; resolves the coord through
-;; `rf.source-coords.editor-uri/editor-uri` with whatever `:project-root` the host set —
-;; nil for a repository dev testbed, since there is no browser-side
-;; checkout-root pipeline. That composition is `.cljc` and pure, so the shape the
-;; fallback ships is pinnable here; the CLJS half drives the same coordinate
-;; through the real client seam.
+;; On a 422 decline the open-in-editor client falls back to
+;; `editor-uri/editor-uri` with the host's `:project-root` (nil on a dev
+;; testbed); that composition is pure `.cljc`, so its output is pinned here.
 
 (deftest declined-endpoint-falls-back-to-a-resolvable-uri
-  (testing "with NO project-root configured — the state every
-            repository dev testbed is in — the URI the 422 fallback ships
-            for a real Story coordinate names an absolute path the editor
-            can open"
-    (rf.story/reg-story :story.source-coords.fallback-pin
-      {:doc "fixture — this form's coordinate feeds the URI below."})
-    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.fallback-pin))
-          ;; Exactly what `open-in-editor/resolve-uri` builds when
-          ;; `config/get-project-root` returns nil.
-          uri   (rf.source-coords.editor-uri/editor-uri :windsurf coord {:project-root nil})]
-      (is (str/starts-with? uri "windsurf://file/")
-          "the fallback is an editor:// URI")
-      (let [path (-> uri
-                     (subs (count "windsurf://file/"))
-                     (str/replace #":\d+:\d+$" ""))]
-        (assert-absolute-and-real!
-          path "re_frame/story_source_coords_test.clj"
-          "the URI the declined endpoint falls back to")
-        (is (not= "re_frame/story_source_coords_test.clj" path)
-            "a bare classpath-relative path in the URI is exactly what
-             the editor cannot resolve"))))
-  (testing "an explicitly configured :rf.story/project-root does
-            NOT double-prefix an already-absolute coord. The knob serves
-            external / static / non-shadow hosts, and it is inert over a
-            coordinate the macro has absolutised."
-    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.fallback-pin))
-          bare  (rf.source-coords.editor-uri/editor-uri :windsurf coord {:project-root nil})
-          rooted (rf.source-coords.editor-uri/editor-uri :windsurf coord
-                                        {:project-root "/some/external/root"})]
-      (is (= bare rooted)
-          "an absolute :file passes through compose-path untouched"))))
+  (rf.story/reg-story :story.source-coords.fallback-pin {:doc "fixture"})
+  (let [coord (:source (rf.story/handler-meta :story :story.source-coords.fallback-pin))
+        uri   (rf.source-coords.editor-uri/editor-uri :windsurf coord {:project-root nil})]
+    (testing "with no project-root, the fallback URI names an absolute path"
+      (is (str/starts-with? uri "windsurf://file/"))
+      (assert-absolute-and-real! (-> uri
+                                     (subs (count "windsurf://file/"))
+                                     (str/replace #":\d+:\d+$" ""))
+                                 "re_frame/story_source_coords_test.clj"
+                                 "fallback URI"))
+    (testing "a configured project-root does not double-prefix an absolute coord"
+      (is (= uri (rf.source-coords.editor-uri/editor-uri
+                   :windsurf coord {:project-root "/some/external/root"}))))))
