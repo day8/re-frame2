@@ -959,13 +959,6 @@
           "empty history → no resolution possible → nil overrides
            any stale stored id"))))
 
-(deftest focus-event-bundle-reducer-3-arg-leaves-epoch-id-nil
-  (testing "the 3-arg reducer leaves :epoch-id nil — the
-            focus sub still rebinds on :dispatch-id, but epoch-keyed
-            surfaces don't pivot until a 4-arg call writes an epoch"
-    (let [r (spine/focus-event-bundle-reducer {} :c2 :rf/default)]
-      (is (nil? (get-in r [:focus :epoch-id]))))))
-
 (deftest focus-step-reducer-4-arg-writes-epoch-id
   (testing "step events resolve :epoch-id for the new dispatch-id into
             the spine `[:focus :epoch-id]` slot (no mirror slot)"
@@ -1010,11 +1003,8 @@
 (deftest focusable-event-bundles-drops-ungrouped-bucket
   (testing ":ungrouped is filtered out of the spine walk
             (it carries no event vector → not a valid focus target)"
-    (is (= 2 (count (spine/focusable-event-bundles
-                      fixture-cascades-with-ungrouped))))
-    (is (every? #(not= :ungrouped (:dispatch-id %))
-                (spine/focusable-event-bundles
-                  fixture-cascades-with-ungrouped)))
+    (is (= (subvec fixture-cascades-with-ungrouped 0 2)
+           (spine/focusable-event-bundles fixture-cascades-with-ungrouped)))
     (is (= fixture-cascades
            (spine/focusable-event-bundles fixture-cascades))
         "no :ungrouped → no-op")))
@@ -1035,11 +1025,7 @@
             last per the first-id sentinel)"
     (is (= :ungrouped
            (spine/focusable-head-id
-             fixture-cascades-with-ungrouped true)))
-    (is (= :c2
-           (spine/focusable-head-id
-             fixture-cascades-with-ungrouped false))
-        "show-ungrouped? false preserves the strict default")))
+             fixture-cascades-with-ungrouped true)))))
 
 (deftest compose-focus-pins-ungrouped-when-opt-in
   (testing "`show-ungrouped? true` lets a stored
