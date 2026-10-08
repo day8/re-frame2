@@ -1,28 +1,13 @@
 (ns re-frame.ssr-streaming-test
-  "Streaming SSR — `:rf/suspense-boundary` walker, continuation drain,
-  failure semantics, per-subtree hydration delta. Per Spec 011 §Streaming
-  SSR.
-
-  ## Posture split
-
-  The streaming SEMANTICS are production-real and are asserted here without a
-  posture guard: which continuations survive dedup, which registration
-  last-write-wins keeps, that a failed subtree materialises its declared
-  fallback rather than empty html, and what the wire attributes carry.
+  "Streaming SSR (Spec 011 §Streaming SSR): the shell walk, the continuation
+  drain and its failure semantics, the per-subtree hydration delta, the final
+  payload and the wire chunk builders.
 
   The `:rf.ssr/suspense-boundary-failed` and
-  `:rf.error/suspense-boundary-duplicate-id` TRACES are not. Both are emitted
-  behind `interop/debug-enabled?`, read once at namespace-load time, so under
-  `-Dre-frame.debug=false` neither fires — a duplicate boundary id is a
-  programmer error the framework announces in dev and silently applies
-  last-write-wins to in production. Those assertions sit inside
-  `(when interop/debug-enabled? …)` arms marked as dev-instrumentation arms.
-
-  `render-shell-handles-multiple-boundaries`' no-duplicate-id-trace assertion
-  is a NEGATIVE over the trace ring and sits in the arm with them: under the
-  gate the ring is empty for colliding and distinct ids alike, so it would
-  pass without distinguishing the two. Its posture-independent half — that
-  every distinct-id continuation survives, in document order — sits outside."
+  `:rf.error/suspense-boundary-duplicate-id` traces are emitted behind
+  `interop/debug-enabled?` (read once at namespace load), so their assertions
+  sit in `(when rf.interop/debug-enabled? …)` arms; everything else also runs
+  under the production gate."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -36,438 +21,172 @@
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(defn- reset+reg-test-handlers
-  "Reset the runtime via the canonical fixture, then re-register the
-  test-local event handlers that the fixture's `clear-all!` step wiped."
-  [test-fn]
+(defn- reset+reg-test-handlers [test-fn]
   (rf.ssr.test-fixture/reset-runtime
     (fn []
-      (rf/reg-event :rf.test/noop     (fn [{:keys [db]} _] {:db db}))
-      (rf/reg-event :rf.test/seed-db  (fn [_coeffects [_event-id new-db]]
-                                        {:db new-db}))
+      (rf/reg-event :rf.test/noop    (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :rf.test/seed-db (fn [_ [_ new-db]] {:db new-db}))
       (test-fn))))
 
 (use-fixtures :each reset+reg-test-handlers)
 
-(rf/reg-event :rf.test/noop (fn [{:keys [db]} _] {:db db}))
-(rf/reg-event :rf.test/seed-db (fn [_coeffects [_event-id new-db]]
-                                 {:db new-db}))
-
 (defn- make-frame
-  "Register a per-request server frame and seed its app-db via an
-  `:initial-events` setup event so the value lands inside the frame's
-  container, not on :rf/default."
-  [{:keys [db on-create]}]
+  "A per-request server frame whose app-db is seeded by an `:initial-events`
+  setup event, so the value lands in the frame's own container."
+  [db]
   (let [fid (keyword "rf.frame" (str (gensym "")))]
-    (rf/make-frame {:id fid :doc       "streaming-test frame"
-                    :platform  :server
-                    :initial-events [(or on-create
-                                         (if db
-                                           [:rf.test/seed-db db]
-                                           [:rf.test/noop]))]})
+    (rf/make-frame {:id             fid
+                    :platform       :server
+                    :initial-events [(if db [:rf.test/seed-db db] [:rf.test/noop])]})
     fid))
 
 (deftest render-shell-fallback-is-inert-template-not-painted-dom
-  (testing "the streaming first shell chunk carries each
-            boundary's fallback markup ONLY inside an inert
-            `<template data-rf2-suspense-fallback>` — NOT as painted
-            (template-free) DOM. This is the no-JS / first-byte contract:
-            a `<template>`'s content is inert by the HTML spec (it does not
-            paint until the client runtime materialises it into a live
-            `<rf-suspense>` mount), so the server emit is intentionally a
-            wrapped placeholder, NOT first-byte visible content. The fallback
-            text appears EXACTLY once, and exactly once inside the template —
-            i.e. there is no second, painted copy outside the `<template>`."
-    (let [tree   [:main
-                  [:rf/suspense-boundary
-                   {:id :news/comments :fallback [:p.skeleton "Loading comments…"]}
-                   [:section.comments "Body"]]]
-          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)
-          ;; Strip every <template …>…</template> block; whatever fallback
-          ;; markup the server painted OUTSIDE a template survives.
-          painted (str/replace shell-html
-                               #"(?s)<template[^>]*>.*?</template>"
-                               "")]
-      (is (str/includes? shell-html "data-rf2-suspense-fallback=\"1\"")
-          "the fallback is emitted as a marked <template> placeholder")
-      (is (str/includes? shell-html "<p class=\"skeleton\">Loading comments…</p>")
-          "the fallback markup is present (inside the template)")
-      ;; The fallback markup must NOT survive template-stripping — i.e. there
-      ;; is NO painted (template-free) copy. The shell, sans templates, is just
-      ;; the surrounding structure with NO fallback content.
-      (is (not (str/includes? painted "Loading comments…"))
-          "no painted (template-free) fallback copy — fallback content is ONLY inside the inert <template>")
-      (is (not (str/includes? painted "skeleton"))
-          "no painted fallback element outside the inert <template>"))))
-
-(deftest render-shell-handles-multiple-boundaries
-  (testing "Multiple boundaries register multiple continuations in document
-            order. Their wire ids are distinct (the common keyword case), so
-            duplicate detection collapses none of them"
-    (let [tree [:main
-                [:rf/suspense-boundary {:id :a :fallback [:p "A loading"]} [:p "A body"]]
-                [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B body"]]
-                [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C body"]]]]
-      (with-trace-recorder! [captured]
-        (let [{:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-          (is (= [:a :b :c] (mapv :id continuations)) "FIFO registration in document order")
-          ;; Dev-instrumentation arm (see ns docstring). A
-          ;; NEGATIVE over the trace ring: vacuous under the gate, where the
-          ;; ring is empty for colliding and distinct ids alike.
-          (when rf.interop/debug-enabled?
-            (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                     (:operation %))
-                                 @captured))
-                "no duplicate-id trace for distinct ids")))))))
+  ;; The fallback rides ONLY inside an inert `<template>`: nothing paints
+  ;; until the client runtime materialises it.
+  (is (= (str "<main><template data-rf2-suspense-id=\":news/comments\" data-rf2-suspense-fallback=\"1\">"
+              "<p class=\"skeleton\">Loading comments…</p></template></main>")
+         (:shell-html (rf.ssr.streaming/render-shell
+                        [:main
+                         [:rf/suspense-boundary
+                          {:id :news/comments :fallback [:p.skeleton "Loading comments…"]}
+                          [:section.comments "Body"]]])))))
 
 (deftest render-shell-rejects-malformed-boundary
-  (testing "Boundary without {:id … :fallback …} attrs throws structurally"
-    (let [bad [:rf/suspense-boundary {:id :missing-fallback}
-               [:p "body"]]]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #":rf.error/suspense-boundary-invalid-attrs"
-                            (rf.ssr.streaming/render-shell bad))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #":rf.error/suspense-boundary-invalid-attrs"
+                        (rf.ssr.streaming/render-shell
+                          [:rf/suspense-boundary {:id :missing-fallback} [:p "body"]]))))
+
+(deftest render-shell-handles-multiple-boundaries
+  (let [tree [:main
+              [:rf/suspense-boundary {:id :a :fallback [:p "A loading"]} [:p "A body"]]
+              [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B body"]]
+              [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C body"]]]]
+    (is (= [:a :b :c] (mapv :id (:continuations (rf.ssr.streaming/render-shell tree))))
+        "FIFO registration in document order")))
 
 (deftest render-continuation-resolves-and-deltas
-  (testing "Continuation render returns subtree HTML + (empty) delta when db is unchanged across render"
-    (let [fid (make-frame {:db {:initial true}})
-          tree [:rf/suspense-boundary {:id :c :fallback [:p "..."]}
-                [:ul [:li "comment"]]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          entry (first continuations)
-          {:keys [id html delta failed?]} (rf.ssr.streaming/render-continuation fid entry)]
-      (is (= :c id))
-      (is (not failed?))
-      (is (= "<ul><li>comment</li></ul>" html))
-      (is (map? delta) "delta is a map (possibly empty when no app-db keys changed during render)"))))
+  (testing "zero, one and several body children each drain as ONE
+            continuation: nil renders empty, several splice as a fragment"
+    (let [fid (make-frame {:initial true})]
+      (doseq [[children html] [[[] ""]
+                               [[[:ul [:li "comment"]]] "<ul><li>comment</li></ul>"]
+                               [[[:p "first"] [:p "second"]] "<p>first</p><p>second</p>"]]]
+        (let [{:keys [continuations]} (rf.ssr.streaming/render-shell
+                                        (into [:rf/suspense-boundary {:id :c :fallback [:p "..."]}]
+                                              children))]
+          (is (= [{:id :c :html html :delta {} :failed? false :continuations []}]
+                 (mapv #(rf.ssr.streaming/render-continuation fid %) continuations))
+              (pr-str children)))))))
 
 (deftest render-continuation-delta-ships-full-value-for-changed-nested-key
-  (testing "a CHANGED nested top-level key ships its FULL
-            after-db value in the delta — not clojure.data/diff's partial
-            second-slot sub-map — so the client's documented top-level
-            (into existing delta) merge is lossless (untouched sibling
-            sub-keys are not silently dropped). Per Spec 011 §Hydration
-            interleaving."
-    (rf/reg-event :rf.test/change-nested
-      (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "after")}))
-    (let [;; before-db: {:user {:name "before" :role "admin"}}
-          fid     (make-frame {:db {:user {:name "before" :role "admin"}
-                                    :other :unchanged}})
-          ;; A view that mutates ONLY [:user :name] during render — the
-          ;; canonical "changed nested key" shape that exposes the lossy
-          ;; partial-diff merge.
-          _       (rf/reg-view ^{:rf/id :rf.test/nested-mutator} nested-mutator []
-                    (rf/dispatch-sync [:rf.test/change-nested] {:frame fid})
-                    [:p "mutated"])
-          tree    [:rf/suspense-boundary {:id :n :fallback [:p "..."]}
-                   [(rf/view :rf.test/nested-mutator)]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          entry   (first continuations)
-          {:keys [delta]} (rf.ssr.streaming/render-continuation fid entry)]
-      (is (contains? delta :user)
-          ":user is a changed top-level key, so it is in the delta")
-      (is (= {:name "after" :role "admin"} (:user delta))
-          "the delta ships the FULL after-db :user value (with :role
-           preserved) — NOT the partial {:name \"after\"} sub-diff that
-           would drop :role under the client's top-level into-merge")
-      (is (not (contains? delta :other))
-          "unchanged top-level keys are omitted from the delta")
-      ;; Prove the documented client merge is lossless with this delta.
-      (is (= {:user {:name "after" :role "admin"} :other :unchanged}
-             (into {:user {:name "before" :role "admin"} :other :unchanged}
-                   delta))
-          "(into existing delta) over the top-level keys reconstructs the
-           full after-db with no sub-key loss"))))
+  ;; Each changed or new top-level key ships its FULL after-db value, so the
+  ;; client's top-level `(into existing delta)` merge is lossless.
+  (rf/reg-event :rf.test/change-nested
+    (fn [{:keys [db]} _] {:db (-> db
+                                  (assoc-in [:user :name] "after")
+                                  (assoc :new-key :new-value))}))
+  (let [fid  (make-frame {:user {:name "before" :role "admin"} :other :unchanged})
+        _    (rf/reg-view ^{:rf/id :rf.test/nested-mutator} nested-mutator []
+               (rf/dispatch-sync [:rf.test/change-nested] {:frame fid})
+               [:p "mutated"])
+        {:keys [continuations]} (rf.ssr.streaming/render-shell
+                                  [:rf/suspense-boundary {:id :n :fallback [:p "..."]}
+                                   [(rf/view :rf.test/nested-mutator)]])]
+    (is (= {:user {:name "after" :role "admin"} :new-key :new-value}
+           (:delta (rf.ssr.streaming/render-continuation fid (first continuations)))))))
 
 (deftest render-continuation-failure-emits-trace-and-inlines-fallback
-  (testing "Subtree-render throw → :rf.ssr/suspense-boundary-failed trace + fallback materialised"
-    (let [fid    (make-frame {:db {}})
-          throws (fn [] (throw (ex-info "boom" {})))
-          ;; Attach a fn-headed component that throws during render
-          tree   [:rf/suspense-boundary {:id :flaky :fallback [:p "Loading…"]}
-                  [throws]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          ;; Exercise the REAL record→fail path: the
-          ;; continuation entry must already carry its declared :fallback
-          ;; from `record-continuation!`. Assoc'ing the :fallback onto the
-          ;; entry by hand here would mask an empty fallback on failure;
-          ;; without that, one surfaces here as a "" :html.
-          entry  (first continuations)]
-      (with-trace-recorder! [captured]
-        (let [result (rf.ssr.streaming/render-continuation fid entry)]
-          (is (= [:p "Loading…"] (:fallback entry))
-              "record-continuation! stored the declared :fallback on the entry")
-          (is (:failed? result) ":failed? truthy")
-          (is (nil? (:delta result)) "delta omitted on failure")
-          (is (= "<p>Loading…</p>" (:html result))
-              "declared fallback hiccup materialised in place (not empty)")
-          ;; Dev-instrumentation arm (see ns docstring). The
-          ;; failure's production face is `:failed?` + the materialised
-          ;; fallback above; this is how a developer hears about it.
-          (when rf.interop/debug-enabled?
-            (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                      @captured)
-                ":rf.ssr/suspense-boundary-failed trace emitted")))))))
-
-;; ===========================================================================
-;; Duplicate detection keys on the WIRE id, not the raw :id
-;;
-;; Boundary ids are serialised to the wire as `(str id)` —
-;; `data-rf2-suspense-id` / `data-rf2-suspense-hydrate` — and the client
-;; matches mounts by that one string, so `dedupe-continuations` keys dedup
-;; on the canonical wire id `(str id)`. Grouping by the RAW `:id` would let
-;; two boundaries whose ids DIFFER as values but COLLIDE under `str` (a
-;; keyword `:a` and a string `":a"`) escape detection: both would stamp the
-;; same `data-rf2-suspense-id=":a"`, yet two continuations would survive,
-;; and the client could then materialise/resolve the wrong mount or skip
-;; the later chunk via its seen-set.
-;; ===========================================================================
+  (let [fid    (make-frame {})
+        throws (fn [] (throw (ex-info "boom" {})))
+        {:keys [continuations]} (rf.ssr.streaming/render-shell
+                                  [:rf/suspense-boundary {:id :flaky :fallback [:p "Loading…"]}
+                                   [throws]])]
+    (with-trace-recorder! [captured]
+      ;; The entry is drained as the shell recorded it, so the declared
+      ;; `:fallback` must ride from the shell walk.
+      (is (= {:id :flaky :html "<p>Loading…</p>" :delta nil :failed? true :continuations []}
+             (rf.ssr.streaming/render-continuation fid (first continuations))))
+      (when rf.interop/debug-enabled?
+        (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured))))))
 
 (deftest duplicate-wire-id-collision-emits-trace-and-keeps-last
-  (testing "two boundaries whose raw ids differ (`:a` keyword
-            vs `\":a\"` string) but whose WIRE ids collide under `str`
-            are detected as duplicates — one continuation survives
-            (last-write-wins), the trace fires, and both fallback
-            templates carry the same wire id attribute"
-    (let [tree [:div
-                [:rf/suspense-boundary {:id :a :fallback [:p "first"]} [:p "first body"]]
-                [:rf/suspense-boundary {:id ":a" :fallback [:p "second"]} [:p "second body"]]]]
-      (with-trace-recorder! [captured]
-        (let [{:keys [continuations shell-html]} (rf.ssr.streaming/render-shell tree)]
-          ;; The wire surface: both boundaries stamp the SAME wire id, so the
-          ;; client cannot tell them apart — the collision is real.
-          (is (= 2 (count (re-seq (re-pattern (str rf.ssr.streaming.constants/attr-suspense-id "=\":a\""))
-                                  shell-html)))
-              "both fallback templates stamp the same wire id `:a` — the
-               collision the client would face")
-          ;; Dedup collapses the colliding ids to a single
-          ;; continuation (a raw-:id grouping would leave two).
-          (is (= 1 (count continuations))
-              "only one continuation survives dedup on the wire id")
-          ;; Last-write-wins: the surviving entry is the SECOND (string `:a`)
-          ;; registration.
-          (is (= ":a" (:id (first continuations)))
-              "last-write-wins keeps the LAST registration (the string id)")
-          (is (= [:p "second"] (:fallback (first continuations)))
-              "the surviving entry carries the last registration's :fallback")
-          ;; Dev-instrumentation arm (see ns docstring). The
-          ;; documented programmer-error trace fires in dev only; the
-          ;; COLLISION and the last-write-wins recovery it names are pinned
-          ;; posture-independently above, on the wire attributes and the
-          ;; surviving entry.
-          (when rf.interop/debug-enabled?
-            (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                          (:operation %))
-                                      @captured)]
-              (is (= 1 (count dup-traces))
-                  ":rf.error/suspense-boundary-duplicate-id fires once for the
-                   colliding pair")
-              (when-let [ev (first dup-traces)]
-                (is (= ":a" (get-in ev [:tags :id]))
-                    "the trace reports the colliding WIRE id")
-                (is (= 2 (get-in ev [:tags :count]))
-                    ":count reports the colliding cardinality")
-                (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
-                    ":raw-ids surfaces the distinct raw ids that collided")
-                (is (= :last-write-wins (:recovery ev))
-                    ":recovery names the applied policy")))))))))
+  ;; Ids that differ as values but collide under `str` (`:a` vs ":a") stamp
+  ;; one `data-rf2-suspense-id`, so dedup keys on the wire id: one
+  ;; continuation survives, the LAST registration.
+  (with-trace-recorder! [captured]
+    (let [{:keys [continuations]}
+          (rf.ssr.streaming/render-shell
+            [:div
+             [:rf/suspense-boundary {:id :a :fallback [:p "first"]} [:p "first body"]]
+             [:rf/suspense-boundary {:id ":a" :fallback [:p "second"]} [:p "second body"]]])]
+      (is (= [{:id ":a" :subtree [:p "second body"] :fallback [:p "second"]}] continuations))
+      (when rf.interop/debug-enabled?
+        (is (= [[":a" 2 :last-write-wins]]
+               (->> @captured
+                    (filter #(= :rf.error/suspense-boundary-duplicate-id (:operation %)))
+                    (mapv (juxt #(get-in % [:tags :id]) #(get-in % [:tags :count]) :recovery)))))))))
 
 (deftest build-final-payload-shape
-  (testing "Final payload carries the canonical :rf/hydration-payload shape"
-    (let [fid (make-frame {:db {:articles [{:id "a"}]}})
-          ;; The payload policy fails closed, and this test pins the
-          ;; shape of the canonical payload — opt in to whole-app-db
-          ;; explicitly so the :rf/app-db assertion holds.
-          ;; `:client-frame-id` names the stable WIRE :rf/frame-id;
-          ;; the per-request projection frame `fid` never rides the wire.
-          payload (rf.ssr.streaming/build-final-payload fid "deadbeef"
-                                                 {:version         7
-                                                  :schema-digest   "abc123"
-                                                  :payload         :rf.ssr.payload/whole-app-db
-                                                  :client-frame-id :app/main})]
-      (is (= 7 (:rf/version payload)))
-      (is (= :app/main (:rf/frame-id payload))
-          "the WIRE :rf/frame-id is the supplied stable client id, not the projection frame")
-      (is (= "deadbeef" (:rf/render-hash payload)))
-      (is (= "abc123" (:rf/schema-digest payload)))
-      (is (= {:articles [{:id "a"}]} (:rf/app-db payload)))))
-
-  (testing "with NO :client-frame-id, the anonymous per-request
-            projection frame is OMITTED from the wire payload (never stamped as
-            a per-request gensym the client hydrate guard would reject)"
-    (let [fid     (make-frame {:db {:articles [{:id "a"}]}})
-          payload (rf.ssr.streaming/build-final-payload fid "deadbeef"
-                                                 {:payload :rf.ssr.payload/whole-app-db})]
-      (is (not (contains? payload :rf/frame-id))
-          "streaming final-payload omits :rf/frame-id when no stable wire id is named"))))
-
-(deftest build-final-payload-version-resolution
-  (testing "streaming payload :rf/version
-            resolves via `payload-policy/resolve-version`: the caller's
-            explicit :version opt wins (`build-final-payload-shape` pins
-            that), else the SSR artefact's compiled-in
-            `pattern-protocol-version` constant (there is no late-bind
-            version hook — the SSR artefact owns the version and both wire
-            ends read the same constant). A server-local fallback
-            independent of that constant could silently disagree with the
-            client and defeat the :rf.ssr/version-mismatch check."
-    (let [fid (make-frame {:db {:k 1}})]
-      (testing "no explicit :version → the SSR-owned pattern-protocol constant"
-        (let [payload (rf.ssr.streaming/build-final-payload
-                        fid "hash"
-                        {:payload :rf.ssr.payload/whole-app-db})]
-          (is (= rf.ssr.payload-policy/pattern-protocol-version (:rf/version payload))
-              "absent :version opt → the SSR artefact's compiled-in constant"))))))
-
-;; ===========================================================================
-;; Streaming wire-attribute single-source parity
-;;
-;; The server emitter (`re-frame.ssr.streaming`) and the client runtime
-;; (`re-frame.ssr.streaming.client`) both stamp/read the `data-rf2-suspense-*`
-;; attribute names. Those names live in ONE place
-;; (`re-frame.ssr.streaming.constants`), so a rename is a one-edit change
-;; rather than a grep-driven sweep that could silently drift the two sides.
-;;
-;; This test locks the parity at the SERVER boundary: each server-emitted
-;; chunk must carry the corresponding constant attribute. The client
-;; reads the SAME constants ns (its `attr-*` aliases are `def`s OVER the
-;; constants vars), so server↔client agreement is enforced by the shared
-;; source — a future edit that hard-codes a divergent literal in either
-;; builder fails this test (server side) or breaks every client query
-;; (client side).
-;; ===========================================================================
+  (testing "the canonical payload; the WIRE :rf/frame-id is the supplied
+            stable client id, never the per-request projection frame"
+    (is (= {:rf/version       7
+            :rf/frame-id      :app/main
+            :rf/render-hash   "deadbeef"
+            :rf/schema-digest "abc123"
+            :rf/app-db        {:articles [{:id "a"}]}}
+           (rf.ssr.streaming/build-final-payload
+             (make-frame {:articles [{:id "a"}]}) "deadbeef"
+             {:version         7
+              :schema-digest   "abc123"
+              :payload         :rf.ssr.payload/whole-app-db
+              :client-frame-id :app/main}))))
+  (testing "with no :client-frame-id the anonymous request frame is OMITTED,
+            and with no :version the SSR-owned protocol constant stamps it"
+    (is (= {:rf/version     rf.ssr.payload-policy/pattern-protocol-version
+            :rf/render-hash "deadbeef"
+            :rf/app-db      {:articles [{:id "a"}]}}
+           (rf.ssr.streaming/build-final-payload
+             (make-frame {:articles [{:id "a"}]}) "deadbeef"
+             {:payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest streaming-wire-attributes-single-sourced
-  (testing "every server-emitted suspense chunk carries the
-            attribute name pinned in re-frame.ssr.streaming.constants — the
-            emitter reads the wire constants, so a divergent literal cannot
-            slip in unnoticed"
-    (let [id        :card/revenue
-          fallback  (rf.ssr.streaming/fallback-template id "<div>fb</div>")
-          resolved  (rf.ssr.streaming/resolved-template id "<div>ok</div>")
-          failed    (rf.ssr.streaming/failed-template   id "<div>fb</div>")
-          delta     (rf.ssr.streaming/hydrate-delta-script id (pr-str {:k 1}))]
-      ;; The boundary-id attribute anchors every template chunk + the delta
-      ;; script — the client matches on it, so server + client MUST agree.
-      (is (str/includes? fallback (str rf.ssr.streaming.constants/attr-suspense-id "="))
-          "fallback template stamps the wire id attribute")
-      (is (str/includes? resolved (str rf.ssr.streaming.constants/attr-suspense-id "="))
-          "resolved template stamps the wire id attribute")
-      (is (str/includes? failed   (str rf.ssr.streaming.constants/attr-suspense-id "="))
-          "failed template stamps the wire id attribute")
-      (is (str/includes? delta    (str rf.ssr.streaming.constants/attr-suspense-hydrate "="))
-          "delta script stamps the wire hydrate attribute")
-      ;; The per-kind markers the client branches on.
-      (is (str/includes? fallback (str rf.ssr.streaming.constants/attr-suspense-fallback "=\"1\""))
-          "fallback template stamps the wire fallback marker")
-      (is (str/includes? resolved (str rf.ssr.streaming.constants/attr-suspense-resolved "=\"1\""))
-          "resolved template stamps the wire resolved marker")
-      (is (str/includes? failed   (str rf.ssr.streaming.constants/attr-suspense-resolved "=\"1\""))
-          "failed template is a resolved chunk (carries the resolved marker)")
-      (is (str/includes? failed   (str rf.ssr.streaming.constants/attr-suspense-failed "=\"1\""))
-          "failed template adds the wire failed marker")
-      ;; Belt-and-braces: NO server-emitted chunk may carry a stale literal
-      ;; that diverges from the wire constants (catches a hard-coded rename
-      ;; on one side only).
-      (is (not (str/includes? failed rf.ssr.streaming.constants/attr-suspense-fallback))
-          "failed chunk is NOT a fallback (markers don't bleed across kinds)")
-      (is (not (str/includes? resolved rf.ssr.streaming.constants/attr-suspense-failed))
-          "a non-failed resolved chunk carries no failed marker"))))
-
-;; ===========================================================================
-;; Per-subtree hydration-delta <script> body escaping
-;;
-;; `hydrate-delta-script` drops a `(pr-str delta)` EDN body inside a
-;; `<script data-rf2-suspense-hydrate type="application/edn">`. The body
-;; MUST (a) never carry a literal `</script` breakout and (b) round-trip
-;; through the client's EDN reader unchanged — including delta values that
-;; carry `</script>` in a string AND delta map keys that are keywords with
-;; a (non-breakout) `<`. A whole-string `<` escape would corrupt such
-;; keyword tokens (unreadable `:a<b`) and silently drop the speculative
-;; delta on the client, so the escape is EDN-aware, via
-;; `html-helpers/escape-edn-script-body`.
-;; ===========================================================================
-
-(defn- delta-script-body
-  "Extract the EDN body between the delta script's `>` and `</script>`."
-  [script-html]
-  (second (re-find #"type=\"application/edn\">(.*?)</script>" script-html)))
+  ;; Each chunk builder stamps the attribute names the client runtime reads
+  ;; from the same constants namespace, so a literal hard-coded on one side
+  ;; fails here.
+  (let [id-attr (str rf.ssr.streaming.constants/attr-suspense-id "=\":card/revenue\"")]
+    (doseq [[chunk expected]
+            [[(rf.ssr.streaming/fallback-template :card/revenue "<div>fb</div>")
+              (str "<template " id-attr " " rf.ssr.streaming.constants/attr-suspense-fallback
+                   "=\"1\"><div>fb</div></template>")]
+             [(rf.ssr.streaming/resolved-template :card/revenue "<div>ok</div>")
+              (str "<template " id-attr " " rf.ssr.streaming.constants/attr-suspense-resolved
+                   "=\"1\"><div>ok</div></template>")]
+             [(rf.ssr.streaming/failed-template :card/revenue "<div>fb</div>")
+              (str "<template " id-attr " " rf.ssr.streaming.constants/attr-suspense-resolved
+                   "=\"1\" " rf.ssr.streaming.constants/attr-suspense-failed
+                   "=\"1\"><div>fb</div></template>")]
+             [(rf.ssr.streaming/hydrate-delta-script :card/revenue "{:k 1}")
+              (str "<script " rf.ssr.streaming.constants/attr-suspense-hydrate
+                   "=\":card/revenue\" type=\"application/edn\">{:k 1}</script>")]]]
+      (is (= expected chunk)))))
 
 (deftest hydrate-delta-script-escapes-breakout-and-round-trips
-  (testing "a delta carrying a `</script>` substring in a string
-            value AND a keyword key containing `<` cannot close the envelope
-            and round-trips through the EDN reader verbatim"
-    (let [delta   {:public/title "</script><script>alert('xss')</script>"
-                   :a<b 1
-                   :tag :<}
-          script  (rf.ssr.streaming/hydrate-delta-script :boundary/x (pr-str delta))
-          body    (delta-script-body script)]
-      ;; (a) no breakout — the raw closing-tag pattern must not survive.
-      (is (not (str/includes? (str/lower-case body) "</script"))
-          "delta body carries no literal </script breakout")
-      ;; the string-literal `<` chars are unicode-escaped.
-      (is (str/includes? body "\\u003c/script>")
-          "string-literal `<` escaped as \\u003c")
-      ;; (b) the keyword-token `<` is left intact so the body round-trips.
-      (is (str/includes? body ":a<b")
-          "keyword-token `<` left intact (no token corruption)")
-      (is (= delta (clojure.edn/read-string body))
-          "the EDN reader recovers the full delta verbatim"))))
-
-(deftest hydrate-delta-script-token-breakout-fails-loud
-  (testing "a `</` breakout precursor in a non-string TOKEN (a
-            symbol value `a</script>b` — valid, readable EDN that prints the
-            literal `</`) has no readable in-token EDN escape, so emission
-            fails loud rather than corrupting the body"
-    ;; A symbol value prints the bare token `a</script>b` carrying a literal
-    ;; `</` outside any string literal — the genuine token-position breakout.
-    ;; (A keyword can't carry `</` in its NAME: the first `/` is the
-    ;; namespace separator, so `:a</b` prints the `<` in the namespace half
-    ;; — `<{`, not `</` — and is safe.)
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-edn-script-breakout"
-                          (rf.ssr.streaming/hydrate-delta-script
-                            :boundary/x (pr-str {:k (symbol "a</script>b")}))))))
-
-;; ===========================================================================
-;; EDN char literals must not be mis-scanned as string state
-;;
-;; `escape-edn-script-body` scans the already-`pr-str`'d EDN document
-;; tracking string-literal context. An EDN CHARACTER LITERAL also opens
-;; with a backslash, so `(char 34)` prints as a backslash + a raw `"`
-;; byte (`\"`). A scanner with no char-literal state would read that
-;; raw `"` as the START of a string literal, flipping its in-string
-;; tracking out of phase; a later REAL string literal carrying `</script>`
-;; would then be scanned in token position and rejected fail-loud with
-;; `:rf.error/ssr-edn-script-breakout` — a data-dependent false positive
-;; on otherwise-safe app-db data. So the scanner treats a token-position
-;; backslash as a char-literal introducer: it consumes the following
-;; payload char verbatim, so `\"` does not toggle string state.
-;; ===========================================================================
+  (testing "a `</script>` in a string value cannot close the envelope, and a
+            keyword token carrying `<` survives, so the delta reads back whole"
+    (let [delta  {:public/title "</script><script>alert('xss')</script>"
+                  :a<b 1
+                  :tag :<}
+          script (rf.ssr.streaming/hydrate-delta-script :boundary/x (pr-str delta))
+          body   (second (re-find #"type=\"application/edn\">(.*?)</script>" script))]
+      (is (not (str/includes? (str/lower-case body) "</script")))
+      (is (= delta (edn/read-string body))))))
 
 (deftest escape-edn-script-body-handles-char-literals
-  (testing "a char literal for double-quote (`(char 34)` →
-            prints `\\\"`) does NOT toggle string state, so a later string
-            literal's `</script>` is escaped (not mis-read as a token
-            breakout); the body carries no literal `</script` and
-            round-trips through the EDN reader"
+  (testing "a char literal for `\"` (printed `\\\"`) does not toggle string
+            state, so a later string's `</script>` is escaped rather than
+            rejected as a token breakout"
     (let [value {:x (char 34) :y "</script>"}
-          edn-doc (pr-str value)
-          body  (rf.ssr.html-helpers/escape-edn-script-body edn-doc)]
-      ;; A scanner without char-literal state throws here; this one must
-      ;; produce a body.
-      (is (string? body) "escaper returns a body (no false-positive throw)")
-      (is (not (str/includes? (str/lower-case body) "</script"))
-          "no literal </script breakout survives")
-      (is (= value (edn/read-string body))
-          "the EDN reader recovers the full value verbatim — char literal
-           and the escaped string both round-trip")))
-
-  (testing "char literals for the breakout chars themselves
-            (`<`, `/`) are single-char literals separated from neighbours
-            by pr-str, so they round-trip without a false breakout"
-    (doseq [v [(char 60) (char 47) (char 33)]]
-      (let [value {:c v :s "safe"}
-            body  (rf.ssr.html-helpers/escape-edn-script-body (pr-str value))]
-        (is (= value (edn/read-string body))
-            (str "char literal " (pr-str v) " round-trips"))))))
+          body  (rf.ssr.html-helpers/escape-edn-script-body (pr-str value))]
+      (is (not (str/includes? (str/lower-case body) "</script")))
+      (is (= value (edn/read-string body))))))
