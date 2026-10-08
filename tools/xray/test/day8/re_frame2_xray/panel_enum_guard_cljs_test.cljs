@@ -149,16 +149,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest enum-entries-are-well-formed
-  (testing "every panel-enum entry has a keyword :id, a `mount-*!`
-            string, and a tier from the closed vocabulary; ids + mount
-            names are unique"
-    (doseq [{:keys [id mount tier] :as entry} panel-enum/panel-enum]
-      (is (keyword? id) (str "entry :id is a keyword: " entry))
-      (is (and (string? mount) (re-matches #"mount-[a-z][a-z0-9-]*!" mount))
-          (str "entry :mount is a `mount-*!` string: " entry))
-      (is (contains? #{:l3-tab :overlay :inline :spine :full-shell} tier)
-          (str "entry :tier is from the closed vocabulary: " entry)))
-    (is (= (count panel-enum/panel-enum) (count panel-enum/panel-ids))
-        "panel :id values are unique")
-    (is (= (count panel-enum/panel-enum) (count panel-enum/mount-fn-names))
-        "panel :mount values are unique")))
+  (is (= []
+         (remove (fn [{:keys [id mount tier]}]
+                   (and (keyword? id)
+                        (string? mount)
+                        (re-matches #"mount-[a-z][a-z0-9-]*!" mount)
+                        (contains? #{:l3-tab :overlay :inline :spine :full-shell} tier)))
+                 panel-enum/panel-enum))
+      "every entry has a keyword :id, a `mount-*!` :mount and a closed-vocabulary :tier")
+  (is (= (count panel-enum/panel-enum)
+         (count panel-enum/panel-ids)
+         (count panel-enum/mount-fn-names))
+      "panel :id and :mount values are unique"))
