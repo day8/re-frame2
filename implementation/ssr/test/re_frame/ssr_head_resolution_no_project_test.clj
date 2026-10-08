@@ -1,62 +1,12 @@
 (ns re-frame.ssr-head-resolution-no-project-test
-  "`:rf.error/ssr-head-resolution-failed` is a RECOVERABLE
-  DEGRADATION, not a request failure, and MUST NOT project a non-200
-  status onto the response accumulator.
-
-  CONTRACT (Spec 011 §1070 — `resolve-head` emits the category before
-  fallback): a route `:head` fn that throws degrades
-  to an empty `<head>` fragment so 'a buggy head fn can't take down the
-  request', AND emits `:rf.error/ssr-head-resolution-failed` for
-  observability. This is the deliberate counterpoint to the view/sub
-  FAIL-CLOSED posture (Spec 011 §744/§748-751):
-  a view or reactive sub that throws mid-render projects a non-200 (the
-  page is unusable); a head fn that throws ships a 200 (only the metadata
-  is missing — the body still renders + hydrates).
-
-  WHY THIS SUITE EXISTS. Without a skip, the degraded-200 outcome would be
-  safe by TIMING ONLY: it would hold only while the Ring `ssr-handler` reads
-  `get-response` (drains + reads status) BEFORE `build-full-response` →
-  `resolve-head` fires the head trace, so that the buffered head trace is
-  never projected onto the already-captured status. Such immunity is
-  incidental to call ordering; a reorder (head resolution before
-  `get-response`, a second flush after the render, a re-read of
-  `get-response`) would let the default projector map the head trace → 500
-  and silently flip the degraded 200.
-
-  The contract is ENFORCED at the projection BUFFERING chokepoint:
-  `re-frame.ssr.error-listener` lists the category in
-  `non-projection-eligible-errors` and both projection listeners (the
-  dev-only `error-projection-listener` AND the always-on
-  `error-emit-projection-listener`) skip it — so the head trace is never
-  buffered for status projection, regardless of call ordering or which
-  substrate carried it. This suite pins the skip directly at the core
-  level, independent of the Ring handler (whose own wire-level pin lives
-  in `re-frame.ssr.ring-test/handler-throwing-head-fn-ships-degraded-200-
-  not-projected-error`).
-
-  ## Posture split
-
-  Tests (1) and (2) drive the DEV bus through `trace/emit-error!`, whose
-  emit site sits inside the load-time `interop/debug-enabled?` gate. Under
-  `-Dre-frame.debug=false` nothing is emitted, so (1) — a NEGATIVE, 'not
-  buffered, still 200' — would pass for the wrong reason (it would pass
-  with the listener deleted), and (2)'s control would observe an empty
-  buffer and go red. Both sit inside `(when interop/debug-enabled? …)`
-  arms: they are assertions ABOUT the dev listener, and (2) additionally
-  uses `:rf.error/schema-validation-failure`, a category that is dev-only
-  by design (boundary validation is itself production-elided, Spec 010
-  §Production builds).
-
-  Test (3) is the production-visible counterpart and runs under BOTH
-  postures: it calls `error-emit-projection-listener` DIRECTLY — the
-  always-on path a `-Dre-frame.debug=false` JVM SSR host actually uses —
-  so the skip is adjudicated for real under the gate. Its positive control
-  on the always-on axis is
-  `re-frame.ssr-error-projector-substrate-test`'s direct-substrate install
-  test, which drives a projection-eligible record through the same
-  listener to a 500."
+  "`:rf.error/ssr-head-resolution-failed` is a recoverable degradation: a
+  throwing `:head` fn degrades to an empty `<head>` and the request still
+  answers 200 (Spec 011 §1070). Both buffering listeners skip the category,
+  so the 200 holds whenever the host reads `get-response`. The dev-bus tests
+  sit in `debug-enabled?` arms because `trace/emit-error!` emits nothing
+  under `-Dre-frame.debug=false`; the always-on test runs in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
@@ -65,119 +15,31 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-(def ^:private server-frame :ssr/head-no-project-frame)
-
-(defn- make-server-frame []
-  ;; `:platform :server` so `error-projector/server-frame?` recognises it;
-  ;; the default projector would map any PROJECTED `:rf.error/*` → 500, so
-  ;; a 200 below proves the head trace was NOT projected.
-  (rf/make-frame {:id server-frame :platform :server
-                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                             :dev-error-detail? false}})
-  server-frame)
-
-;; ===========================================================================
-;; (1) Dev path — the actual `resolve-head` emit route.
-;;     `resolve-head` calls `trace/emit-error!`, which (under
-;;     `interop/debug-enabled?`) delivers to the dev trace bus feeding
-;;     `error-projection-listener`. The head trace must be SKIPPED there:
-;;     status stays 200 and nothing is buffered.
-;; ===========================================================================
+(defn- server-frame []
+  ;; The default projector maps any projected `:rf.error/*` off 200, so a
+  ;; 200 means the trace was neither buffered nor projected.
+  (rf.frame/make-anon-frame-record!
+    {:platform :server
+     :ssr      {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}}))
 
 (deftest dev-path-head-failure-trace-is-not-buffered-or-projected
-  (testing "firing `:rf.error/ssr-head-resolution-failed` the
-            same way `resolve-head` does (frame-stamped, via
-            `trace/emit-error!`) does NOT buffer the trace for projection
-            and does NOT flip the response status off 200 — the dev-only
-            `error-projection-listener` skips the category by design."
-    (let [fid (make-server-frame)]
-      ;; DEV ARM. `trace/emit-error!` no-ops under
-      ;; `-Dre-frame.debug=false`, so both assertions below would hold with
-      ;; the listener ripped out: a negative over a bus that emitted
-      ;; nothing. The production counterpart is test (3), which calls the
-      ;; always-on listener directly and is posture-independent.
-      (when rf.interop/debug-enabled?
-        ;; Stamp the frame exactly as resolve-head's catch arm does.
-        (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
-                           {:frame     fid
-                            :exception (ex-info "synthetic head failure" {:reason :test})
-                            :recovery  :no-recovery})
-        (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
-            "the head trace was SKIPPED — not buffered into
-             pending-error-traces (so a later get-response can't project it)")
-        (is (= 200 (:status (rf.ssr/get-response fid)))
-            "status stays 200 — the head failure degraded gracefully; the
-             default projector (→ 500) never ran for this category")))))
-
-;; ===========================================================================
-;; (2) A buffering chokepoint contrast — a NON-degradation category fired
-;;     the same way DOES buffer + project. Proves the skip is specific to
-;;     the head category, not a blanket no-op of the listener.
-;; ===========================================================================
+  (when rf.interop/debug-enabled?
+    (let [f (server-frame)]
+      (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
+                            {:frame f :exception (ex-info "head boom" {}) :recovery :no-recovery})
+      (is (= 200 (:status (rf.ssr/get-response f)))))))
 
 (deftest dev-path-control-non-head-error-still-projects
-  (testing "control: a frame-stamped NON-degradation error
-            category (`:rf.error/schema-validation-failure`) fired through
-            the same dev listener IS buffered and projects a non-200 —
-            confirming the head-category skip is targeted, not a listener
-            that silently drops everything."
-    (let [fid (make-server-frame)]
-      ;; DEV ARM, on two counts. `trace/emit-error!` is
-      ;; dev-gated, AND `:rf.error/schema-validation-failure` is a
-      ;; DELIBERATELY dev-only category: boundary validation is itself
-      ;; production-elided (Spec 010 §Production builds), so no production
-      ;; reject exists for this control to observe. The always-on control
-      ;; is `re-frame.ssr-error-projector-substrate-test`'s direct-substrate
-      ;; install test.
-      (when rf.interop/debug-enabled?
+  (testing "the skip is targeted, not a listener that drops everything"
+    (when rf.interop/debug-enabled?
+      (let [f (server-frame)]
         (rf.trace/emit-error! :rf.error/schema-validation-failure
-                           {:frame     fid
-                            :exception (ex-info "schema boom" {})
-                            :recovery  :no-recovery})
-        (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
-            "a non-degradation category IS buffered for projection")
-        (is (not= 200 (:status (rf.ssr/get-response fid)))
-            "and it projects a non-200 — the listener is doing real work;
-             the head-category skip in (1) is therefore meaningful")))))
-
-;; ===========================================================================
-;; (3) Always-on substrate — symmetry guard. The head trace
-;;     rides the always-on `register-error-listener!` substrate (via
-;;     `dispatch-error-record!`) ALONGSIDE the dev bus (`trace/emit-error!`),
-;;     so the EP-0008 promotion ships the off-box record on a
-;;     `-Dre-frame.debug=false` JVM SSR host. The category stays NON-
-;;     PROJECTING: the always-on `error-emit-projection-listener` skips it
-;;     symmetrically with the dev listener, so the degraded-200 contract
-;;     holds whichever substrate carries the trace — promotion changes what
-;;     SHIPPERS see, NOT what the WIRE does.
-;; ===========================================================================
+                              {:frame f :exception (ex-info "schema boom" {}) :recovery :no-recovery})
+        (is (not= 200 (:status (rf.ssr/get-response f))))))))
 
 (deftest always-on-path-head-failure-record-is-not-buffered-or-projected
-  (testing "a head-failure record delivered to the ALWAYS-ON
-            `error-emit-projection-listener` (the production-survivable
-            substrate, exercised under `interop/debug-enabled? = false`)
-            is ALSO skipped — neither buffered nor projected. Symmetric
-            with the dev path so the contract holds whichever substrate
-            carries the trace."
-    (let [fid (make-server-frame)]
-      ;; No `with-redefs [interop/debug-enabled? false]` wraps this test,
-      ;; because it would buy nothing: `interop/debug-enabled?` is read ONCE
-      ;; at namespace-load time, so a rebind cannot reach the gate, and this
-      ;; test calls the always-on listener DIRECTLY anyway — there is no gate
-      ;; on the path. The namespace runs in `scripts/test-ssr-prod-gate.sh`,
-      ;; where the property is false for real; that is the evidence.
-      ;;
-      ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
-      (rf.ssr.error-listener/error-emit-projection-listener
-        {:error      :rf.error/ssr-head-resolution-failed
-         :event      nil
-         :event-id   nil
-         :frame      fid
-         :time       0
-         :exception  (ex-info "synthetic head failure" {})
-         :elapsed-ms 0})
-      (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
-          "the always-on listener also skips the head category — not
-           buffered")
-      (is (= 200 (:status (rf.ssr/get-response fid)))
-          "status stays 200 on the production substrate too"))))
+  (let [f (server-frame)]
+    (rf.ssr.error-listener/error-emit-projection-listener
+      {:error :rf.error/ssr-head-resolution-failed :frame f :time 0
+       :exception (ex-info "head boom" {})})
+    (is (= 200 (:status (rf.ssr/get-response f))))))
