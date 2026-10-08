@@ -1,25 +1,13 @@
 (ns re-frame.after-timer-completed-at-test
-  "The machine `:after` timer reply path carries the CAUSAL `:completed-at`
-  (EP-0011 §Timer Reply / Managed-Effects §Causal completion metadata).
-
-  The spawned-machine `:rf.machine/done` reply threads the finishing
-  dispatch's `:rf.cofx :rf/time-ms` into the reply + trace; the `:after`
-  timer reply path does the same. The synthetic `:after`-elapsed dispatch is
-  itself a causal token carrying a fresh router-stamped `:rf/time-ms` (the
-  same fire-time token the firing guard / action read), and a fired `:after`
-  timer's transition can mutate machine snapshot `:data` — so per
-  Managed-Effects §Causal completion metadata the completion time rides the
-  fired-timer reply, and §Tracing carries it on the stale-timer suppression
-  trace too.
-
-  These tests drive the REAL `rf.interop/schedule-after!` fire boundary so the
-  timer-fire dispatch is router-stamped with a known fire-time clock value,
-  then assert `:rf.reply/completed-at` rides the `:rf.machine.timer/fired`
-  and `:rf.machine.timer/stale-after` traces. The trace-tag rows carry ONLY
-  the reply-envelope `:rf.reply/completed-at`, with no bare duplicate; the
-  reply MAP's canonical `:completed-at` is pinned by the reply-conformance
-  artefact."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "A fired `:after` timer's dispatch is its own causal envelope (EP-0010
+  §Dispatch Envelope Stamping, Spec 002 §The World-Input Rule): the timer
+  callback supplies no `:rf.cofx`, so the router stamps `:rf/time-ms` at FIRE
+  time, and the transition's guard and action read that stamp rather than the
+  scheduling dispatch's token. The timer traces carry the firing dispatch's
+  time as the causal completion time (Managed-Effects §Causal completion
+  metadata), only ever as `:rf.reply/completed-at` — never a bare
+  `:completed-at` (Conventions §The naming rules)."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -31,86 +19,71 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
 (def ^:private PARENT-TIME-MS 1000000000)
 (def ^:private FIRE-TIME-MS   2000000000)
 
-;; ---- integration: real fire boundary, trace-stamped --------------------
+(defn- completion-tags
+  "The completion-time slots a trace row actually carries."
+  [ev]
+  (select-keys (:tags ev) [:rf.reply/completed-at :completed-at]))
 
-(deftest after-fired-trace-carries-causal-completed-at
-  (testing "the :rf.machine.timer/fired trace carries the
-            firing dispatch's causal :completed-at (router-stamped fire-time
-            :rf/time-ms), driven through the REAL schedule-after! boundary"
-    (let [clock          (atom PARENT-TIME-MS)
-          captured-thunk (atom nil)
-          m {:initial :idle
-             :data    {}
-             :states  {:idle    {:on {:fetch :loading}}
-                       :loading {:after {5000 :timeout}}
-                       :timeout {}}}
-          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-      (rf/reg-machine :hawtjr/fired m)
-      (rf.machines.test-support/with-trace-capture captured
-        (with-redefs [rf.interop/schedule-after!
-                      (fn [f _ms] (reset! captured-thunk f) ::stub-handle)
-                      rf.interop/epoch-now-ms (fn [] @clock)]
-          (rf/dispatch-sync [:hawtjr/fired [:fetch]]
-                            {:rf.cofx {:rf/time-ms PARENT-TIME-MS}})
-          (is (= :loading (:state (snapshot :hawtjr/fired))))
-          (is (some? @captured-thunk) "armed a host-clock callback")
-          ;; advance the wall clock to a DISTINCT fire-time value
-          (reset! clock FIRE-TIME-MS)
-          (try
-            (rf.late-bind/set-fn! :router/dispatch! rf.router/dispatch-sync!)
-            (@captured-thunk)
-            (finally
-              (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))
-        (is (= :timeout (:state (snapshot :hawtjr/fired)))
-            "the timer fired and drove the transition")
-        (let [fired (->> @captured
-                         (filter #(and (= :rf.machine.timer/fired (:operation %))
-                                       (true? (:fired? (:tags %)))))
-                         first)]
-          (is (some? fired) "a :rf.machine.timer/fired trace was emitted")
-          ;; The causal completion time rides ONLY as the reply-envelope
-          ;; :rf.reply/completed-at (no bare :completed-at trace-tag
-          ;; duplicate).
-          (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags fired)))
-              "the fired trace carries the FRESH fire-time causal :rf.reply/completed-at, not the parent scheduling-time token")
-          (is (not (contains? (:tags fired) :completed-at))
-              "no bare :completed-at duplicate on the reply-envelope fired trace"))))))
+(deftest after-timer-fire-stamps-fresh-causal-token
+  ;; The host-clock thunk is captured and the epoch clock advanced between arm
+  ;; and fire, so an inherited scheduling token and a fresh stamp differ.
+  (let [clock          (atom PARENT-TIME-MS)
+        captured-thunk (atom nil)
+        guard-saw      (atom nil)
+        action-saw     (atom nil)
+        m {:initial :idle
+           :data    {}
+           :guards  {:capture (fn [{cofx :rf.cofx}] (reset! guard-saw (:rf/time-ms cofx)) true)}
+           :actions {:capture (fn [{cofx :rf.cofx}] (reset! action-saw (:rf/time-ms cofx)) nil)}
+           :states  {:idle    {:on {:fetch :loading}}
+                     :loading {:after {5000 {:target :timeout
+                                             :guard  :capture
+                                             :action :capture}}}
+                     :timeout {}}}
+        orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
+    (rf/reg-machine :after-fresh/m m)
+    (rf.machines.test-support/with-trace-capture captured
+      (with-redefs [rf.interop/schedule-after! (fn [f _ms] (reset! captured-thunk f) ::stub-handle)
+                    rf.interop/epoch-now-ms    (fn [] @clock)]
+        (rf/dispatch-sync [:after-fresh/m [:fetch]]
+                          {:rf.cofx {:rf/time-ms PARENT-TIME-MS}})
+        (reset! clock FIRE-TIME-MS)
+        ;; The thunk runs outside any handler, so sync routing is legal and
+        ;; keeps the cascade inline.
+        (try
+          (rf.late-bind/set-fn! :router/dispatch! rf.router/dispatch-sync!)
+          (@captured-thunk)
+          (finally
+            (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))
+      (is (= [FIRE-TIME-MS FIRE-TIME-MS] [@guard-saw @action-saw])
+          "the timer's guard and action read the fire-time stamp, not the scheduling token")
+      (is (= {:rf.reply/completed-at FIRE-TIME-MS}
+             (completion-tags (first (filter #(and (= :rf.machine.timer/fired (:operation %))
+                                                    (true? (:fired? (:tags %))))
+                                              @captured))))
+          "the fired trace carries the fire-time :rf.reply/completed-at, with no bare :completed-at"))))
 
 (deftest after-stale-trace-carries-causal-completed-at
-  (testing "the :rf.machine.timer/stale-after trace carries the
-            firing dispatch's causal :completed-at"
-    (let [m {:initial :idle
-             :data    {}
-             :states  {:idle    {:on {:fetch :loading}}
-                       :loading {:after {5000 :warn}
-                                 :on    {:loaded :ready}}
-                       :warn    {}
-                       :ready   {}}}]
-      (rf/reg-machine :hawtjr/stale m)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:hawtjr/stale [:fetch]])
-        (let [epoch (get-in (snapshot :hawtjr/stale)
-                            [:data :rf/after-epoch [:loading]])]
-          ;; Move off :loading so the [:loading] node is no longer active —
-          ;; the next firing of its scheduled-epoch timer is stale.
-          (rf/dispatch-sync [:hawtjr/stale [:loaded]])
-          (is (= :ready (:state (snapshot :hawtjr/stale))))
-          ;; Fire the now-stale timer with a scripted causal token.
-          (rf/dispatch-sync [:hawtjr/stale [:rf.machine.timer/after-elapsed
-                                            5000 epoch [:loading]]]
-                            {:rf.cofx {:rf/time-ms FIRE-TIME-MS}})
-          (let [stale (->> @captured
-                           (filter #(= :rf.machine.timer/stale-after (:operation %)))
-                           first)]
-            (is (some? stale) "a :rf.machine.timer/stale-after trace was emitted")
-            ;; Carries the causal time ONLY as the reply-envelope
-            ;; :rf.reply/completed-at (no bare :completed-at duplicate).
-            (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags stale)))
-                "the stale-after trace carries the causal :rf.reply/completed-at")
-            (is (not (contains? (:tags stale) :completed-at))
-                "no bare :completed-at duplicate on the reply-envelope stale trace")))))))
+  (rf/reg-machine :hawtjr/stale
+                  {:initial :idle
+                   :data    {}
+                   :states  {:idle    {:on {:fetch :loading}}
+                             :loading {:after {5000 :warn}
+                                       :on    {:loaded :ready}}
+                             :warn    {}
+                             :ready   {}}})
+  (rf.machines.test-support/with-trace-capture captured
+    (rf/dispatch-sync [:hawtjr/stale [:fetch]])
+    (let [epoch (get-in (rf.machines.test-support/snapshot :hawtjr/stale)
+                        [:data :rf/after-epoch [:loading]])]
+      ;; Leaving :loading makes its timer stale; fire it by hand with a scripted token.
+      (rf/dispatch-sync [:hawtjr/stale [:loaded]])
+      (rf/dispatch-sync [:hawtjr/stale [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]]
+                        {:rf.cofx {:rf/time-ms FIRE-TIME-MS}})
+      (is (= {:rf.reply/completed-at FIRE-TIME-MS}
+             (completion-tags (first (filter #(= :rf.machine.timer/stale-after (:operation %))
+                                              @captured))))
+          "the stale-after trace carries the causal :rf.reply/completed-at, with no bare :completed-at"))))
