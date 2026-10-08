@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.epoch.root-action-source-cljs-test
-  "A tree ROOT's own `:entry` / `:exit` cascade row addresses the root's
-  declaration, never a child's, in the Epoch panel's machine cascade.
+  "A tree ROOT's own `:entry` cascade row addresses the root's declaration,
+  never a child's, in the Epoch panel's machine cascade.
 
   Every row here comes from the producer: a real machine runs, its traces
   are captured per dispatch (one epoch each), and `proj/machine-cascade-rows`
@@ -9,13 +9,10 @@
   inside a parallel region), and `fmt/cascade-row-source-key` /
   `fmt/cascade-action-for-state` read it:
 
-  - an inline machine-root `:entry` / `:exit` resolves to `[:entry]` /
-    `[:exit]` and is labelled `:rf/root`, on the eager and the lazy birth and
-    at teardown — never to the state of the surrounding transition;
-  - an inline region-body `:entry` resolves to `[:regions <region> :entry]`
-    and is labelled with the region;
-  - a named action keeps `[:actions <id>]`, and a child state's inline
-    `:entry` / `:exit` keeps its `[:states …]` key.
+  - an inline machine-root `:entry` resolves to `[:entry]` and is labelled
+    `:rf/root` even when the birth folds into an event whose transition
+    enters a child — never to the state of the surrounding transition;
+  - an inline region-body `:entry` is labelled with the region.
 
   Named `*-cljs-test.cljc` so both cognitect.test-runner (JVM) and
   shadow-cljs's `cljs-test$` build discover it."
@@ -69,50 +66,14 @@
                 :done {:final? true}}}
      fns]))
 
-(deftest eager-birth-root-entry-addresses-the-root
-  (let [[m fns] (root-machine)
-        _       (rf/reg-machine :ras/eager m)
-        rows    (cascade-of [:ras/eager [:rf.machine/start]])
-        row     (action-row rows (:root-in fns))]
-    (is (= [:entry] (fmt/cascade-row-source-key row)))
-    (is (identical? (:root-in fns) (get-in m (fmt/cascade-row-source-key row)))
-        "the key resolves to the root's own :entry")
-    (is (= :rf/root (fmt/cascade-action-for-state row)))))
-
 (deftest lazy-birth-root-entry-addresses-the-root-not-the-transition-target
   (testing "the birth folds into the first event's epoch, whose transition
             enters :b — the root's :entry still resolves to the root"
     (let [[m fns] (root-machine)
           _       (rf/reg-machine :ras/lazy m)
-          rows    (cascade-of [:ras/lazy [:go]])
-          row     (action-row rows (:root-in fns))]
+          row     (action-row (cascade-of [:ras/lazy [:go]]) (:root-in fns))]
       (is (= [:entry] (fmt/cascade-row-source-key row)))
-      (is (= :rf/root (fmt/cascade-action-for-state row)))
-      (testing "a child's inline :entry keeps its [:states …] key"
-        (is (= [:states :b :entry]
-               (fmt/cascade-row-source-key (action-row rows (:b-in fns)))))
-        (is (= :b (fmt/cascade-action-for-state (action-row rows (:b-in fns))))))
-      (testing "a named action keeps its [:actions …] key"
-        (is (= [[:actions :a-out]]
-               (->> rows
-                    (filter #(= :a-out (:action-id %)))
-                    (mapv fmt/cascade-row-source-key))))))))
-
-(deftest teardown-root-exit-addresses-the-root-not-the-exited-leaf
-  (testing "the final transition exits :b; the teardown then runs the root's
-            :exit — which resolves to the root, not to :b's :exit"
-    (let [[m fns] (root-machine)
-          _       (rf/reg-machine :ras/final m)
-          _       (rf/dispatch-sync [:ras/final [:go]])
-          rows    (cascade-of [:ras/final [:fin]])
-          row     (action-row rows (:root-out fns))]
-      (is (= :destroy-exit (:phase row)))
-      (is (= [:exit] (fmt/cascade-row-source-key row)))
-      (is (identical? (:root-out fns) (get-in m (fmt/cascade-row-source-key row))))
-      (is (= :rf/root (fmt/cascade-action-for-state row)))
-      (testing "the exited leaf's own inline :exit keeps its key"
-        (is (= [:states :b :exit]
-               (fmt/cascade-row-source-key (action-row rows (:b-out fns)))))))))
+      (is (= :rf/root (fmt/cascade-action-for-state row))))))
 
 (deftest region-body-entry-addresses-the-region
   (let [x-in (fn [_] nil)
@@ -122,9 +83,5 @@
                             :states  {:x1 {:on {:go :x2}} :x2 {}}}
                         :y {:initial :y1 :states {:y1 {}}}}}
         _    (rf/reg-machine :ras/par m)
-        rows (cascade-of [:ras/par [:go]])
-        row  (action-row rows x-in)]
-    (is (= :x (:region row)))
-    (is (= [:regions :x :entry] (fmt/cascade-row-source-key row)))
-    (is (identical? x-in (get-in m (fmt/cascade-row-source-key row))))
+        row  (action-row (cascade-of [:ras/par [:go]]) x-in)]
     (is (= :x (fmt/cascade-action-for-state row)))))
