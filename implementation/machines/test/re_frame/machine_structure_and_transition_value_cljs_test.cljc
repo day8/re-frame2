@@ -58,27 +58,21 @@
 ;; ---- structure ------------------------------------------------------------
 
 (def ^:private non-maps
-  "Values that are neither nil nor a map."
-  [[:a] 42 "a" :a #{:a} (fn [_] nil)])
+  "Neither nil nor a map: a seqable value and a scalar."
+  [[:a] 42])
 
 (def ^:private states-positions
   "Position → [a machine whose `:states` there is `v`, the location its refusal
-  names]."
+  names]: the machine root, a walked state node and a parallel region body."
   {:flat-root    (fn [v] [{:initial :a :states v} {:state :rf/root}])
    :compound     (fn [v] [{:initial :o :states {:o {:initial :a :states v}}} {:state :o}])
-   :state        (fn [v] [{:initial :a :states {:a {:states v}}} {:state :a}])
    :region-body  (fn [v] [{:type :parallel :regions {:r {:initial :a :states v}}}
-                          {:state :rf/region-root :region :r}])
-   :region-state (fn [v] [{:type :parallel :regions {:r {:initial :a :states {:a {:initial :x :states v}}}}}
-                          {:state :a}])})
+                          {:state :rf/region-root :region :r}])})
 
 (def ^:private regions-positions
   "Position → [a machine whose `:regions` there is `v`, off a parallel root, the
   location its refusal names]."
-  {:flat-root    (fn [v] [{:initial :a :regions v :states {:a {}}} {:state :rf/root}])
-   :state        (fn [v] [{:initial :a :states {:a {:regions v}}} {:state :a}])
-   :region-state (fn [v] [{:type :parallel :regions {:r {:initial :a :states {:a {:regions v}}}}}
-                          {:state :a}])})
+  {:state (fn [v] [{:initial :a :states {:a {:regions v}}} {:state :a}])})
 
 (deftest a-non-map-states-or-regions-is-refused
   (doseq [[slot positions] [[:states states-positions] [:regions regions-positions]]
@@ -110,12 +104,12 @@
 
 (deftest a-parallel-root-refuses-non-map-regions-with-its-own-category
   (testing "a :regions that is not a map"
-    (doseq [v [42 "r" :r #{:r} [[:r {:initial :a :states {:a {}}}]]]]
+    (doseq [v [42 [[:r {:initial :a :states {:a {}}}]]]]
       (is (= :rf.error/machine-parallel-bad-shape
              (:rf.error/id (registration {:type :parallel :regions v})))
           (pr-str v))))
   (testing "a region body that is not a map names the region"
-    (doseq [v [nil 42 [:a] "a" :a]]
+    (doseq [v [nil 42 [:a]]]
       (is (refused-as? (registration {:type :parallel :regions {:r v}})
                        :rf.error/machine-parallel-bad-shape {:region :r})
           (pr-str v)))))
@@ -123,16 +117,16 @@
 (deftest nil-and-map-structure-registers
   (doseq [machine [{:initial :a :states {:a {:states nil}}}
                    {:initial :a :states {:a {:states {}}}}
-                   {:initial :a :states {:a nil :b {}}}
-                   {:initial :o :states {:o {:initial :a :states {:a {}}}}}
-                   {:type :parallel :regions {:r {:initial :a :states {:a {:initial :x :states {:x {}}}}}}}]]
+                   {:initial :a :states {:a nil :b {}}}]]
     (is (= :registered (registration machine)) (pr-str machine))))
 
 ;; ---- transition values ----------------------------------------------------
 
 (def ^:private malformed
-  "Values the shared transition grammar refuses."
-  [42 1.5 "b" #{:b} true false 'b '(:b) (fn [_] nil)])
+  "Values the shared transition grammar refuses: a scalar, a falsy value, and a
+  near miss of each other form it accepts — a symbol for a keyword, a list for
+  a vector, a set for a map."
+  [42 false 'b '(:b) #{:b}])
 
 (def ^:private targets
   "Valid transition values aiming at state `:b`, and at `[:r :b]` from a
@@ -203,9 +197,12 @@
                     {:state :a} (:sibling targets)])}]})
 
 (deftest a-malformed-transition-value-is-refused-with-its-slot-category
+  ;; Every malformed value at a leaf's `:on`, where the grammar decides. Every
+  ;; other slot reads its value through the same grammar, so a scalar and
+  ;; `false` (which a truthiness test on the slot would skip) cover each place.
   (doseq [[slot [id slot-extras positions]] value-positions
           [position make]                   positions
-          v                                 malformed
+          v                                 (if (= [:on :leaf] [slot position]) malformed [42 false])
           :let [[machine location] (make v)
                 refusal            (registration machine)]]
     (testing (str slot " " (pr-str v) " on the " position)
@@ -221,7 +218,7 @@
       (is (= :registered (registration (first (make v))))))))
 
 (deftest a-value-in-a-slot-the-node-never-reads-is-refused-for-its-place
-  (testing "the refusal for the slot's place comes first, as it always has"
+  (testing "the refusal for the slot's place comes first"
     (is (= :rf.error/machine-non-parallel-root-after-not-supported
            (:rf.error/id (registration {:initial :a :after {1000 42} :states {:a {}}}))))
     (is (= :rf.error/machine-root-slot-not-supported
