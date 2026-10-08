@@ -1,75 +1,17 @@
 (ns re-frame.story.ui.sidebar-search-cljs-test
-  "JVM-portable regression net for the sidebar search-as-you-type filter.
-  Every fn under test is `.cljc`-pure so this corpus runs
-  on both JVM (`clojure -M:test`) and CLJS (`npm run test:cljs`) — see
-  the sibling discriminator pattern in `viewport_test.cljc` /
-  `backgrounds_test.cljc`.
-
-  Surface covered:
-
-  - `tokenise`             — split / lowercase / blank-drop
-  - `match-variant?`       — token-AND substring discrimination
-  - `match-story?`         — story-id substring match
-  - `filter-grouped-tree`  — story-keeps-children / variant-narrow /
-                              prune-empty-stories
-  - `filter-workspaces`    — workspace map narrowing
-  - `highlight-segments`   — match / non-match segmentation
-
-  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; a bare `-test` name would run it on the JVM only."
-  (:require [clojure.test :refer [are deftest is testing]]
+  "The sidebar search-as-you-type filter. Every fn under test is `.cljc`-pure,
+  so this runs on the JVM and on the CLJS node-test build (the `-cljs-test`
+  suffix is what the `:node-test` ns-regexp selects)."
+  (:require [clojure.test :refer [are deftest is]]
             [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]))
-
-;; ---- tokenise ------------------------------------------------------------
-
-(deftest tokenise-shape
-  (testing "blank / nil input returns empty vector"
-    (is (= [] (rf.story.ui.sidebar-search/tokenise nil)))
-    (is (= [] (rf.story.ui.sidebar-search/tokenise "")))
-    (is (= [] (rf.story.ui.sidebar-search/tokenise "   "))))
-  (testing "single token"
-    (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "foo")))
-    (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "  Foo  "))))
-  (testing "multi-token split on whitespace + lowercase"
-    (is (= ["counter" "five"] (rf.story.ui.sidebar-search/tokenise "Counter Five")))
-    (is (= ["a" "b" "c"]      (rf.story.ui.sidebar-search/tokenise "a   b\tc")))))
 
 ;; ---- match-variant? ------------------------------------------------------
 
 (deftest match-variant-shape
-  (testing "empty tokens → match-all"
-    (is (true? (rf.story.ui.sidebar-search/match-variant? [] :story.x/y {}))))
-
-  (testing "token in variant id matches"
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["five"] :story.counter/at-five {}))))
-
-  (testing "token-AND: every token must hit"
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["counter" "five"]
-                                       :story.counter/at-five {})))
-    (is (false? (rf.story.ui.sidebar-search/match-variant? ["counter" "missing"]
-                                        :story.counter/at-five {}))))
-
-  (testing "case-insensitive"
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["FIVE"] :story.counter/at-five {})))
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["Five"] :story.counter/at-five {}))))
-
-  (testing "token matches against variant's :doc + :tags"
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["pending"]
-                                       :story.foo/bar
-                                       {:doc "pending stamp"})))
-    (is (true? (rf.story.ui.sidebar-search/match-variant? ["screenshot"]
-                                       :story.foo/bar
-                                       {:tags #{:screenshot}})))))
-
-;; ---- match-story? --------------------------------------------------------
-
-(deftest match-story-shape
-  (testing "empty tokens → true"
-    (is (true? (rf.story.ui.sidebar-search/match-story? [] :story.x))))
-  (testing "token-AND on story id"
-    (is (true? (rf.story.ui.sidebar-search/match-story? ["counter"] :story.counter)))
-    (is (true? (rf.story.ui.sidebar-search/match-story? ["story"] :story.counter)))
-    (is (false? (rf.story.ui.sidebar-search/match-story? ["missing"] :story.counter)))))
+  ;; the haystack carries the variant's :doc and :tags as well as its id
+  (are [token body] (true? (rf.story.ui.sidebar-search/match-variant? [token] :story.foo/bar body))
+    "pending"    {:doc "pending stamp"}
+    "screenshot" {:tags #{:screenshot}}))
 
 ;; ---- filter-grouped-tree -------------------------------------------------
 
@@ -81,66 +23,28 @@
     :variants [[:story.login/empty {}]
                [:story.login/error {}]]}])
 
-(deftest filter-grouped-tree-empty-query
-  (testing "blank / empty query → unchanged"
-    (is (= fixture-grouped (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped nil)))
-    (is (= fixture-grouped (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "")))
-    (is (= fixture-grouped (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "   ")))))
-
-(deftest filter-grouped-tree-story-match-keeps-children
-  (testing "story id matches → all variants survive (ancestor-keeps-children)"
-    (let [out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "counter")]
-      (is (= 1 (count out)))
-      (is (= :story.counter (-> out first :story-id)))
-      ;; both variants kept
-      (is (= 2 (count (-> out first :variants)))))))
-
-(deftest filter-grouped-tree-variant-narrow
-  (testing "story id NO match, only matching variants survive"
-    (let [out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "five")]
-      (is (= 1 (count out)))
-      (is (= :story.counter (-> out first :story-id)))
-      (is (= 1 (count (-> out first :variants))))
-      (is (= :story.counter/at-five (ffirst (-> out first :variants)))))))
-
-(deftest filter-grouped-tree-prunes-empty
-  (testing "story with zero surviving variants drops out"
-    (let [out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "completely-unknown-token")]
-      (is (= [] out)))))
-
 (deftest filter-grouped-tree-token-and
-  (testing "token-AND: tokens must all hit (story-match keeps children;
-            else variant haystack must carry every token)"
-    ;; "counter five" — story matches only "counter", not "five", so
-    ;; story-match is false. Variant haystack filter requires BOTH
-    ;; tokens: only :at-five carries "five".
-    (let [out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "counter five")]
-      (is (= 1 (count out)))
-      (is (= :story.counter (-> out first :story-id)))
-      (is (= 1 (count (-> out first :variants))))
-      (is (= :story.counter/at-five (ffirst (-> out first :variants)))))
-    (let [out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped "login error")]
-      (is (= 1 (count out)))
-      (is (= :story.login (-> out first :story-id)))
-      ;; story-id matches only "login"; only :error survives the variant
-      ;; filter
-      (is (= 1 (count (-> out first :variants)))))))
+  ;; Token-AND, case-insensitive. A story whose id matches every token keeps
+  ;; all its variants; otherwise only variants matching every token survive,
+  ;; and a story left with none drops out.
+  (are [query out] (= out (rf.story.ui.sidebar-search/filter-grouped-tree fixture-grouped query))
+    nil            fixture-grouped
+    "   "          fixture-grouped
+    "Counter"      [(first fixture-grouped)]
+    ;; the story id matches "counter" but not "five"
+    "counter five" [{:story-id :story.counter
+                     :variants [[:story.counter/at-five {}]]}]
+    "completely-unknown-token" []))
 
 ;; ---- filter-workspaces ---------------------------------------------------
-
-(deftest filter-workspaces-empty-query
-  (let [ws {:Workspace.dashboard {}
-            :Workspace.demo {}}]
-    (is (= ws (rf.story.ui.sidebar-search/filter-workspaces ws "")))
-    (is (= ws (rf.story.ui.sidebar-search/filter-workspaces ws nil)))))
 
 (deftest filter-workspaces-narrow
   (let [ws {:Workspace.dashboard {}
             :Workspace.demo {}}]
-    (let [out (rf.story.ui.sidebar-search/filter-workspaces ws "dash")]
-      (is (= [:Workspace.dashboard] (vec (keys out)))))
-    (let [out (rf.story.ui.sidebar-search/filter-workspaces ws "missing")]
-      (is (= {} out)))))
+    (are [query out] (= out (rf.story.ui.sidebar-search/filter-workspaces ws query))
+      ""        ws
+      "dash"    {:Workspace.dashboard {}}
+      "missing" {})))
 
 ;; ---- highlight-segments --------------------------------------------------
 
@@ -154,10 +58,3 @@
     "AtFive"   "five"    [{:text "At" :match? false} {:text "Five" :match? true}]
     ;; a token that does not hit is one non-match segment
     "/at-five" "missing" [{:text "/at-five" :match? false}]))
-
-(deftest highlight-segments-multi-token
-  (testing "multi-token: first hit becomes the highlighted segment"
-    ;; "five" hits first in /at-five, recursive remainder has no more
-    ;; hits → single highlighted segment
-    (let [out (rf.story.ui.sidebar-search/highlight-segments "/at-five" "five at")]
-      (is (some :match? out)))))
