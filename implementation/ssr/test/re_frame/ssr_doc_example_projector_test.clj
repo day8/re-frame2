@@ -1,48 +1,11 @@
 (ns re-frame.ssr-doc-example-projector-test
-  "The `reg-error-projector` example printed in `docs/api/re-frame.ssr.md`
-  is executed, not merely read.
-
-  WHY THIS SUITE EXISTS. An API-page example is the artefact a reader
-  COPIES, and no other gate evaluates it. The api-manifest doc gate
-  (`re-frame.api-manifest.doc-api-check`) verifies that every public var
-  HAS a docs/api entry — var existence, the APPEARANCE of documentation.
-  The runtime suites (`re-frame.ssr-route-miss-404-production-test`,
-  `re-frame.ssr-error-projector-substrate-test`) verify the BUILT-IN
-  projector. Between those two sits the one projector a reader actually
-  ships: the documented one. Without a gate that evaluates it, it can
-  drift silently in two ways:
-
-    - an example returning fewer than the four locked `public-error-keys`
-      would be discarded by `project-error` on EVERY error in favour of the
-      locked generic-500 — even with the closed-shape rule stated on the
-      same page.
-    - an example branching on `:rf.error/no-such-route` would have a dead
-      404 arm under production hardening: the page describes that category
-      as caller misuse of `route-url` riding the DEV-gated trace stream, so
-      a release build never reaches it, while the category that DOES answer
-      an unroutable URL in production (`:rf.error/no-such-handler` with
-      `[:tags :kind]` `:route`) would fall through to the example's generic
-      500.
-
-  Both defects are invisible to a reader and to every other gate. Both
-  are caught below by DRIVING the documented projector, so the test cannot
-  drift from the page: the fn under test is read out of the markdown fence
-  at run time rather than copied here.
-
-  WHY 404-ON-THE-WIRE IS THE CONFORMANCE PROOF. A non-conformant projector
-  return is replaced by `fallback-public-error` — status 500, message
-  \"Something went wrong\". So observing the EXAMPLE'S OWN 404 and its own
-  message on the response accumulator proves the example passed
-  `public-error-shape?`; there is no path by which a malformed return
-  produces them. That makes one assertion cover both the closed-key-set
-  rule and the `:kind` gate's positive arm.
-
-  POSTURE-INDEPENDENT. Every assertion reads the response accumulator and
-  the pure projector; none touches the dev trace bus. The namespace
-  therefore executes under `scripts/test-ssr-prod-gate.sh`'s real
-  `-Dre-frame.debug=false` gate as well as in the ordinary lane — which is
-  the posture that matters, since one drift this suite pins is a 404 arm
-  that would fire only in dev."
+  "The `reg-error-projector` example in `docs/api/re-frame.ssr.md` is the
+  projector a reader ships, so it is read out of the page and driven: it
+  must return the four locked keys (or `project-error` replaces every answer
+  with the generic 500), and its 404 arm must fire on the category that
+  reports an unroutable URL in production — `:rf.error/no-such-handler` with
+  `:kind :route` — and on nothing else. The page's `project-error` `;; =>`
+  result comment is held to the runtime too."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -52,45 +15,22 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; The fixture must NOT clear the always-on error-listener registry:
-;; `re-frame.ssr` installs its `::error-projection` listener at ns-load
-;; time and that listener IS the production status-projection path these
-;; assertions exercise. Wiping it would turn every 404 below into a
-;; vacuous 200. Same note as `re-frame.ssr-route-miss-404-production-test`.
+;; The fixture leaves the always-on listener registry alone: the façade's
+;; projection listener there is the production status-projection path.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; Reading the documented example out of the page
-;; ---------------------------------------------------------------------------
-
 (def ^:private api-page
-  "`docs/api/re-frame.ssr.md`, anchored to a CLASSPATH RESOURCE rather than
-  the working directory (the same anchoring
-  `re-frame.ssr-conformance-test` uses for the conformance corpus). A
-  `(io/file \"../../docs/...\")` form would resolve correctly under the
-  per-artefact gate run from `implementation/ssr/` and silently MIS-SCOPE
-  under the combined `implementation/deps.edn :test` alias. This namespace's
-  own source is on the test classpath, so five parents
-  (`…_test.clj → re_frame → test → ssr → implementation → repo root`)
-  reach the repo root from wherever the JVM was started."
+  "Anchored to this file's classpath resource (five parents up is the repo root)."
   (let [res (io/resource "re_frame/ssr_doc_example_projector_test.clj")]
-    (assert res
-            (str "ssr-doc-example-projector-test cannot locate its own source "
-                 "on the classpath — the ssr test/ dir must be on the test "
-                 "classpath for the API page to be found."))
-    (-> (io/file res)  ; …/ssr/test/re_frame/ssr_doc_example_projector_test.clj
+    (assert res "the ssr test/ dir must be on the classpath to find the API page")
+    (-> (io/file res)
         .getParentFile .getParentFile .getParentFile .getParentFile .getParentFile
         (io/file "docs" "api" "re-frame.ssr.md")
         .getCanonicalFile)))
 
 (defn- fence
-  "The text of the one ```clojure fence on the API page containing
-  `needle`. Hard-errors on zero or many matches, so a rewritten page fails
-  loudly rather than silently pinning nothing.
-
-  Line endings are normalised first: the page is stored LF but checks out
-  CRLF on a Windows dev box (`core.autocrlf`), and a `\\n`-only fence regex
-  matches zero blocks there while passing on the Linux CI runner."
+  "The one ```clojure fence on the page containing `needle`; hard-errors on
+  zero or many. CRLF is normalised for a Windows checkout."
   [needle]
   (let [md   (str/replace (slurp api-page) "\r\n" "\n")
         hits (->> (re-seq #"(?s)```clojure\n(.*?)```" md)
@@ -98,112 +38,52 @@
                   (filter #(str/includes? % needle)))]
     (assert (= 1 (count hits))
             (str "expected EXACTLY ONE ```clojure fence in " api-page
-                 " containing " (pr-str needle) ", found " (count hits)
-                 " — the pin has lost its anchor."))
+                 " containing " (pr-str needle) ", found " (count hits)))
     (first hits)))
 
 (def ^:private documented-projector-fn
-  "The `(fn [trace-event] …)` from the page's `reg-error-projector`
-  example, read and evaluated. `read-string` drops the fence's `;;`
-  comments; the body uses only `clojure.core`, so evaluating it in this
-  namespace resolves every symbol."
+  "The `(fn [trace-event] …)` of the page's `reg-error-projector` example."
   (delay
-    (let [form (read-string (fence "rf/reg-error-projector :app/public-error"))]
-      (is (= 'rf/reg-error-projector (first form))
-          "the example calls reg-error-projector")
-      (binding [*ns* (find-ns 're-frame.ssr-doc-example-projector-test)]
-        (eval (last form))))))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures — the proven production path from the route-miss suite
-;; ---------------------------------------------------------------------------
-
-(defn- register-routes! []
-  (rf/reg-route :route/home {} "/")
-  (rf/reg-route :rf.route/not-found {} "/not-found")
-  (rf/reg-view* :pages/not-found (fn [] [:main.not-found [:h1 "No such page"]])))
+    (binding [*ns* (find-ns 're-frame.ssr-doc-example-projector-test)]
+      (eval (last (read-string (fence "rf/reg-error-projector :app/public-error")))))))
 
 (defn- server-frame-using-the-documented-projector []
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :rf.route/not-found {} "/not-found")
+  (rf/reg-view* :pages/not-found (fn [] [:main.not-found [:h1 "No such page"]]))
   (rf/reg-error-projector :app/public-error @documented-projector-fn)
   (rf.frame/make-anon-frame-record!
     {:platform :server
      :ssr      {:public-error-id   :app/public-error
                 :dev-error-detail? false}}))
 
-;; ===========================================================================
-;; (1) The documented projector is CONFORMANT and answers a real route miss
-;; ===========================================================================
-
 (deftest the-documented-example-answers-an-unroutable-url-with-its-own-404
-  (testing "a reader who pastes the page's `reg-error-projector`
-            example gets a projector that survives `public-error-shape?`
-            (its own 404 reaches the wire rather than the locked
-            generic-500) AND fires on the category that actually reports an
-            unroutable URL in production."
-    (register-routes!)
+  (testing "the example's own 404 and message reach the wire, so its return
+            passed the closed four-key check"
     (let [f (server-frame-using-the-documented-projector)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
       (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
-        (is (= 404 (:status response))
-            "the documented projector's 404 reached the response accumulator")
-        (is (= :not-found (:code public-error))
-            "and it is the example's OWN projection, not the locked fallback")
-        (is (= "We couldn't find that page." (:message public-error))
-            "the example's own message proves the four-key shape passed
-             conformance — a non-conforming return would have been replaced
-             by fallback-public-error's \"Something went wrong\"")
-        (is (= rf.ssr/public-error-keys (set (keys public-error)))
-            "exactly the four locked keys, none extra (:dev-error-detail?
-             is false, so the runtime appended no :details)")))))
-
-;; ===========================================================================
-;; (2) The documented projector carries the `:kind :route` gate
-;; ===========================================================================
+        (is (= [404 :not-found "We couldn't find that page." rf.ssr/public-error-keys]
+               [(:status response) (:code public-error) (:message public-error)
+                (set (keys public-error))]))))))
 
 (deftest the-documented-example-gates-its-404-on-kind-route
-  (testing "`:rf.error/no-such-handler` covers three
-            misses discriminated by `:kind`. An example that branched on
-            `:operation` alone would answer 404 for an event id the server
-            forgot to register — telling the client its URL was wrong when
-            the server was. Driven through a real dispatch, then unit-tested
-            on the extracted fn so a regression names the arm."
-    (register-routes!)
+  (testing "an unregistered EVENT is a server defect, and every non-route
+            `:kind` takes the 500"
     (let [f (server-frame-using-the-documented-projector)]
       (rf/dispatch-sync [:never/registered] {:frame f})
-      (is (= 500 (:status (rf.ssr/flush-response! f)))
-          "an unregistered EVENT dispatch is a server defect — generic 500"))
-    (let [project @documented-projector-fn]
-      (is (= 404 (:status (project {:operation :rf.error/no-such-handler
-                                    :tags      {:kind :route}})))
-          ":kind :route → 404")
-      (is (= 500 (:status (project {:operation :rf.error/no-such-handler
-                                    :tags      {:kind :event}})))
-          ":kind :event → 500")
-      (is (= 500 (:status (project {:operation :rf.error/no-such-handler
-                                    :tags      {:kind :frame}})))
-          ":kind :frame → 500")
-      (is (= 500 (:status (project {:operation :rf.error/no-such-handler
-                                    :tags      {}})))
-          "no :kind → 500; the 404 arm is opt-in on the discriminator"))))
-
-;; ===========================================================================
-;; (3) The `project-error` example's `;; =>` result comment is the real one
-;; ===========================================================================
+      (is (= [500 500 500]
+             [(:status (rf.ssr/flush-response! f))
+              (:status (@documented-projector-fn {:operation :rf.error/no-such-handler
+                                                  :tags      {:kind :frame}}))
+              (:status (@documented-projector-fn {:operation :rf.error/no-such-handler
+                                                  :tags      {}}))])
+          "[unregistered event, :kind :frame, no :kind]"))))
 
 (deftest the-project-error-example-result-comment-matches-the-runtime
-  (testing "the page's `project-error` example claims
-            a return value in a `;; =>` comment. It is the default
-            projector's actual 404 projection — all four locked keys,
-            `:retryable?` included."
-    (let [claimed (-> (fence "ssr/project-error :rf/default trace-event")
-                      (->> (re-find #"(?m)^\s*;;\s*=>\s*(\{.*\})\s*$"))
-                      second
-                      edn/read-string)]
-      (is (some? claimed) "the example carries a `;; =>` result comment")
-      (is (= rf.ssr/public-error-keys (set (keys claimed)))
-          "the documented result names exactly the four locked keys")
-      (is (= claimed
-             (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
-                                              :tags      {:kind :route}}))
-          "and it is byte-for-byte what the default projector returns for the
-           route miss the example describes"))))
+  (is (= (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
+                                             :tags      {:kind :route}})
+         (-> (fence "ssr/project-error :rf/default trace-event")
+             (->> (re-find #"(?m)^\s*;;\s*=>\s*(\{.*\})\s*$"))
+             second
+             edn/read-string))))
