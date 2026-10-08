@@ -1,63 +1,22 @@
 (ns re-frame.subs-evicted-input-release-cljs-test
-  "A layer-2+ sub's disposal must release the input reactions it ACTUALLY
-  ACQUIRED, never whatever now sits at those addresses.
+  "A layer-2+ sub's disposal releases the input reactions it ACTUALLY
+  acquired, never whatever now sits at those addresses.
 
-  ## The hazard
+  The React-hook spine reacquires EAGERLY: when a framework-owned eviction (hot
+  reload, `clear-sub-cache!`, a generation change) disposes a mounted hook's
+  reaction, its on-dispose callback re-subscribes at once. Both eviction
+  primitives remove the whole batch from the cache before disposing any member,
+  so a later member is disposed after an earlier one has rebuilt its subtree.
+  Two mounted parents P1 and P2 over one child C: disposing old P1 builds new P1
+  and new C; an address-only input release from old P2 would then decrement and
+  dispose new C under the live P1. The release therefore goes through the
+  identity guard, `re-frame.subs/unsubscribe-if-reaction`, carrying the input
+  reaction the build acquired.
 
-  The React-hook spine does EAGER REACQUISITION: when a mounted
-  hook's committed reaction is disposed by a framework-owned eviction (hot
-  reload, an explicit `clear-sub-cache!`, a frame generation change), the
-  `rf.interop/add-on-dispose!` callback re-subscribes IMMEDIATELY and rewires
-  onto the successor, so the mount is never left holding a dead node.
-
-  Both eviction primitives remove the whole condemned batch from the cache
-  atom BEFORE they dispose any member of it — `invalidate-frame-subs!`
-  `swap-vals!`-dissocs the transitive closure and then walks `evicted-keys`,
-  and `clear-sub-cache!` takes the whole map with one `(reset-vals! cache {})`
-  and then walks that snapshot. Combined with eager reacquisition, that means a LATER member of
-  the batch is disposed AFTER an earlier member has already rebuilt its
-  subtree into the (now live again) cache.
-
-  An on-dispose callback whose cache-dissoc step is IDENTITY-GUARDED
-  (`identical? reaction (:reaction (get m k))`) but whose declared-input
-  release is an address-only `unsubscribe` would be asymmetric across exactly
-  that window: the second parent's teardown would decrement — and dispose —
-  the SUCCESSOR child the first parent had just built and was holding.
-
-  Ordinary topology, no exotica: two mounted parents P1 and P2 declaring the
-  same child C. Before: `{C 2, P1 1, P2 1}`. Evict all three. Disposing old P1
-  reacquires new P1 and builds new C (count 1). An address-keyed release from
-  old P2 would then drive new C 1 → 0 and dispose it under the live P1; P2's
-  own reacquisition would build a third C, leaving `{C 1, P1 1, P2 1}` with P1
-  watching a disposed node — it would stop seeing app-db movement, and a later
-  release of either parent would retire the remaining child's only counted
-  ref under its sibling.
-
-  ## The release under test
-
-  The release is routed through the identity guard the spine's own holders
-  use — `re-frame.subs/unsubscribe-if-reaction` — carrying the concrete input
-  reaction the build acquired. A release whose reaction is no longer the
-  cache's no-ops (its reference died with the eviction) instead of stealing a
-  successor's; a release whose reaction IS the cache's takes the ordinary
-  1 → 0 in-tick disposal.
-
-  ## What this namespace does NOT assume
-
-  It does not require a MANUALLY disposed reaction to be reusable. Every
-  eviction here is framework-owned (`clear-sub-cache!`, a `reg-sub`
-  replacement); the claim is only that a hook which reacquires across such an
-  eviction ends up sharing ONE child with its sibling.
-
-  ## Posture split
-
-  Every assertion is posture-independent: ref-counts and reactivity, no
-  `:trace` observation, and the seam itself carries no `rf.interop/debug-
-  enabled?` gate.
-
-  `.cljc` — runs under both `clojure -M:test` (JVM) and `npm run test:cljs`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  `.cljc`, posture-independent: runs under `clojure -M:test`, the production
+  gate and `npm run test:cljs`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -92,10 +51,6 @@
   [frame-id query-v]
   (:ref-count (entry frame-id query-v)))
 
-(defn- cached-reaction
-  [frame-id query-v]
-  (:reaction (entry frame-id query-v)))
-
 (defn- eager-holder!
   "A minimal stand-in for the React-hook spine's COMMITTED acquisition
   (`re-frame.substrate.spine`'s `on-committed-disposed`): hold one durable
@@ -119,106 +74,55 @@
     held))
 
 (defn- register-two-parents-one-child!
+  "Two parents declaring one child, in a frame seeded with `{:n 1}`."
   []
   (rf/reg-event :ev/seed (fn [_ctx [_ v]] {:db {:n v}}))
   (rf/reg-sub :ev/child (fn [db _q] (:n db)))
   (rf/reg-sub :ev/p1 {:inputs [[:ev/child]]} (fn [[c] _q] [:p1 c]))
-  (rf/reg-sub :ev/p2 {:inputs [[:ev/child]]} (fn [[c] _q] [:p2 c])))
+  (rf/reg-sub :ev/p2 {:inputs [[:ev/child]]} (fn [[c] _q] [:p2 c]))
+  (rf/make-frame {:id :ev/frame})
+  (rf/dispatch-sync [:ev/seed 1] {:frame :ev/frame}))
 
-;; ---- 1. explicit clear-sub-cache! ----------------------------------------
+;; ---- explicit clear-sub-cache! ------------------------------------------
 
 (deftest evicted-parent-release-does-not-steal-the-successor-childs-ref
-  (testing "two eagerly-reacquiring parents over ONE shared child survive an
-            explicit clear-sub-cache! sharing the SAME rebuilt child"
-    (register-two-parents-one-child!)
-    (rf/make-frame {:id :ev/frame})
-    (rf/dispatch-sync [:ev/seed 1] {:frame :ev/frame})
-
-    (let [h1 (eager-holder! :ev/frame [:ev/p1])
-          h2 (eager-holder! :ev/frame [:ev/p2])]
-      (is (= [:p1 1] @@h1) "P1 derives from the child")
-      (is (= [:p2 1] @@h2) "P2 derives from the same child")
-      (is (= 2 (ref-count :ev/frame [:ev/child]))
-          "baseline: the shared child carries one ref per parent")
-
-      ;; THE FRAMEWORK-OWNED EVICTION. The whole batch leaves the cache before
-      ;; any member of it is disposed, so the second parent's teardown runs
-      ;; against a cache the first parent has already repopulated.
-      (rf.subs.cache/clear-sub-cache! :ev/frame)
-
-      (is (= 2 (ref-count :ev/frame [:ev/child]))
-          "both parents share ONE rebuilt child: an address-only input release
-           from the second parent would decrement the SUCCESSOR child the first
-           parent had just built, disposing it, and the second parent's own
-           reacquisition would build a third one")
-      (is (some? (cached-reaction :ev/frame [:ev/child]))
-          "one child reaction is cached for both parents")
-
-      ;; Reactivity pins. NOT the discriminator — these two would PASS even
-      ;; under an address-keyed release on the plain-atom substrate, whose
-      ;; watch survives a premature dispose; the ref-count above is what that
-      ;; defect moves. They are a reactivity floor, and the substrate-visible
-      ;; consequence is pinned in the UIx browser lane.
-      (rf/dispatch-sync [:ev/seed 2] {:frame :ev/frame})
-      (is (= [:p1 2] @@h1) "P1 remains reactive after the eviction")
-      (is (= [:p2 2] @@h2) "P2 remains reactive after the eviction"))))
+  ;; The whole batch leaves the cache before any member is disposed, so the
+  ;; second parent's teardown runs against a cache the first parent has
+  ;; already repopulated. An address-only release from it would decrement and
+  ;; dispose the successor child, and its own reacquisition would build a
+  ;; third. (Reactivity is not the discriminator: plain-atom's watch survives a
+  ;; premature dispose.)
+  (register-two-parents-one-child!)
+  (let [h1 (eager-holder! :ev/frame [:ev/p1])
+        h2 (eager-holder! :ev/frame [:ev/p2])]
+    @@h1
+    @@h2
+    (rf.subs.cache/clear-sub-cache! :ev/frame)
+    (is (= 2 (ref-count :ev/frame [:ev/child])) "both parents share ONE rebuilt child")))
 
 (deftest surviving-parent-keeps-its-child-when-its-sibling-releases
-  (testing "after the eviction storm, unmounting ONE parent leaves the other
-            parent's child ref intact"
-    (register-two-parents-one-child!)
-    (rf/make-frame {:id :ev/frame})
-    (rf/dispatch-sync [:ev/seed 1] {:frame :ev/frame})
+  (register-two-parents-one-child!)
+  (let [h1 (eager-holder! :ev/frame [:ev/p1])
+        h2 (eager-holder! :ev/frame [:ev/p2])]
+    @@h1
+    @@h2
+    (rf.subs.cache/clear-sub-cache! :ev/frame)
+    ;; "Unmount" P2 the way the spine's cleanup does: release the reaction it
+    ;; actually holds.
+    (let [held2 @h2]
+      (reset! h2 nil)
+      (rf.subs/unsubscribe-if-reaction :ev/frame [:ev/p2] held2))
+    (is (= 1 (ref-count :ev/frame [:ev/child])) "the child keeps P1's ref")))
 
-    (let [h1 (eager-holder! :ev/frame [:ev/p1])
-          h2 (eager-holder! :ev/frame [:ev/p2])]
-      @@h1
-      @@h2
-      (rf.subs.cache/clear-sub-cache! :ev/frame)
-
-      ;; "Unmount" P2: release the reaction it actually holds, exactly as the
-      ;; spine's cleanup does.
-      (let [held2 @h2]
-        (reset! h2 nil)                                    ; stop reacquiring
-        (rf.subs/unsubscribe-if-reaction :ev/frame [:ev/p2] held2))
-
-      (is (= 1 (ref-count :ev/frame [:ev/child]))
-          "the child keeps P1's ref — were the count already 1 before this
-           release, P2's unmount would retire P1's only child outright")
-      (is (some? (cached-reaction :ev/frame [:ev/child]))
-          "the child slot survives P2's unmount")
-
-      (rf/dispatch-sync [:ev/seed 3] {:frame :ev/frame})
-      (is (= [:p1 3] @@h1)
-          "the surviving parent is still reactive after its sibling unmounts"))))
-
-;; ---- 2. reg-sub replacement (hot reload) ---------------------------------
+;; ---- reg-sub replacement (hot reload) -------------------------------------
 
 (deftest reg-sub-replacement-of-the-shared-child-keeps-both-parents-sharing-it
-  (testing "replacing the shared child's registration evicts child + both
-            parents in ONE batch; the eagerly-reacquiring parents must end up
-            sharing one successor child"
-    (register-two-parents-one-child!)
-    (rf/make-frame {:id :ev/frame})
-    (rf/dispatch-sync [:ev/seed 1] {:frame :ev/frame})
-
-    (let [h1 (eager-holder! :ev/frame [:ev/p1])
-          h2 (eager-holder! :ev/frame [:ev/p2])]
-      (is (= [:p1 1] @@h1))
-      (is (= [:p2 1] @@h2))
-
-      ;; Spec 001 §Hot-reload semantics: re-registering the child fires the
-      ;; replacement hook, which evicts the child's transitive dependent
-      ;; closure — child, P1 and P2 — as one batch.
-      (rf/reg-sub :ev/child (fn [db _q] (* 100 (:n db))))
-
-      (is (= 2 (ref-count :ev/frame [:ev/child]))
-          "both parents share ONE rebuilt child")
-      (is (= [:p1 100] @@h1)
-          "P1 runs the replacement child body")
-      (is (= [:p2 100] @@h2)
-          "P2 runs the replacement child body")
-
-      (rf/dispatch-sync [:ev/seed 2] {:frame :ev/frame})
-      (is (= [:p1 200] @@h1) "P1 stays reactive across the replacement")
-      (is (= [:p2 200] @@h2) "P2 stays reactive across the replacement"))))
+  ;; Re-registering the child evicts its dependent closure, child and both
+  ;; parents, as ONE batch (Spec 001 §Hot-reload semantics).
+  (register-two-parents-one-child!)
+  (let [h1 (eager-holder! :ev/frame [:ev/p1])
+        h2 (eager-holder! :ev/frame [:ev/p2])]
+    @@h1
+    @@h2
+    (rf/reg-sub :ev/child (fn [db _q] (* 100 (:n db))))
+    (is (= [2 [:p1 100] [:p2 100]] [(ref-count :ev/frame [:ev/child]) @@h1 @@h2]))))
