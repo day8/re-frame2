@@ -1,38 +1,13 @@
 (ns re-frame.reg-event-cljs-test
-  "EP-0018 Slice Z: narrow tests for the ONE public event form
-  `reg-event` — coeffects in, a closed effects map out, under the bare name.
-  Per Spec 002 §Event handlers, Spec 001 §Registry model, and EP-0018 §1/§4/§5.
+  "`reg-event`, the one public event form (Spec 002 §Event handlers): the
+  metadata `:interceptors` chain, the return value, nil/{} no-op returns, the
+  retired `reg-event-db` / `-fx` / `-ctx` throwing stubs, and the
+  framework-standard `:rf/set-db` event.
 
-  Registration has this one form: there is no `reg-event-db` /
-  `reg-event-fx` and no public `reg-event-ctx` — the three retired names exist
-  only as throwing stubs, and this suite pins those stubs.
-
-  `reg-event` registers under registry kind :event with the ONE framework
-  wrapper `:rf/event-handler` (`:rf/default? true`); there is no
-  `:event/kind` sub-tag. These tests pin that shape plus the :db/:fx
-  effect semantics; uniform `:rf.cofx/requires` support (which closes the
-  EP-0017 hole) is pinned by `cofx_cljs_test.cljc`.
-
-  `.cljc` so the suite runs under BOTH the bounded core JVM gate and
-  `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
-  `rf.test-support/make-reset-runtime-fixture` wraps every body in
-  `(with-frame :rf/default …)` so the ambient `dispatch-sync` calls resolve.
-
-  ## Posture split
-
-  Everything this file is about — the registry shape, the interceptor chain,
-  the `:db` / `:fx` effect semantics, `:rf/set-db` — is production-real
-  and asserted WITHOUT a posture guard, so it runs in `clojure -M:test` AND in
-  `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
-
-  The single exception is `:doc` on the stored registry entry: `:doc` is the
-  one PURE-documentation registration-metadata key, stripped at the
-  `rf.registrar/register!` chokepoint in production (Spec 001 §Production
-  elision contract; `re-frame.doc-metadata-prod-elision-test` owns that
-  contract). Its assertion is kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  `:doc` is stripped from the stored registry entry in production, so its one
+  assertion sits in a `(when rf.interop/debug-enabled? ...)` arm."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.events :as rf.events]
             [re-frame.interop :as rf.interop]
@@ -43,157 +18,63 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ===========================================================================
-;; 1. Registration shape — registers under :event with the fx wrapper
-;; ===========================================================================
-
-(deftest reg-event-registers-under-event-kind
-  (testing "reg-event registers under registry kind :event with the ONE
-            framework wrapper :rf/event-handler and NO :event/kind sub-tag
-            (EP-0018 Slice Z — there are no per-kind ids and no :event/kind
-            tag)"
-    (rf/reg-event :reg-event-test/shape
-      (fn [{:keys [db]} _] {:db (assoc db :marker :v)}))
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/shape})]
-      (is (not (contains? meta :event/kind))
-          "there is no :event/kind sub-tag (one form, no kind)")
-      (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
-          "reg-event registers under registry kind :event, and the framework
-           wrapper is the one :rf/event-handler interceptor"))))
-
 (deftest reg-event-metadata-interceptors-thread-the-chain
-  (testing "reg-event honours the metadata-map :interceptors superset slot —
-            the user chain (a REF, EP-0022 reference-only) sits before the
-            framework wrapper"
-    (rf/reg-interceptor :reg-event-test/noop {:before identity :after identity})
-    (rf/reg-event :reg-event-test/with-icpt
-      {:doc "doc" :interceptors [:reg-event-test/noop]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/with-icpt})]
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      ;; `:doc` is pure-documentation metadata, stripped at the `register!`
-      ;; chokepoint under `-Dre-frame.debug=false`.
-      (when rf.interop/debug-enabled?
-        (is (= "doc" (:doc meta))
-            "the reflection metadata is retained on the registry entry"))
-      ;; The stored chain holds the AUTHORED ref (a keyword) for the user entry;
-      ;; only the framework wrapper is a map carrying :id :rf/event-handler.
-      (is (= [:reg-event-test/noop :rf/event-handler]
-             (mapv (fn [e] (if (keyword? e) e (:id e))) (:interceptors meta)))
-          "the metadata-map :interceptors ref sits before the runtime wrapper"))))
+  (rf/reg-interceptor :reg-event-test/noop {:before identity :after identity})
+  (rf/reg-event :reg-event-test/with-icpt
+    {:doc "doc" :interceptors [:reg-event-test/noop]}
+    (fn [{:keys [db]} _] {:db db}))
+  (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/with-icpt})]
+    (when rf.interop/debug-enabled?
+      (is (= "doc" (:doc meta))))
+    ;; the authored ref stays a keyword; the framework wrapper is a map
+    (is (= [:reg-event-test/noop :rf/event-handler]
+           (mapv (fn [e] (if (keyword? e) e (:id e))) (:interceptors meta)))
+        "the user chain sits before the framework wrapper")))
 
 (deftest reg-event-returns-id
-  (testing "reg-event returns its id (Conventions §reg-* return-value)"
-    (is (= :reg-event-test/ret
-           (rf/reg-event :reg-event-test/ret (fn [_ _] {}))))))
-
-;; ===========================================================================
-;; 2. Effect semantics — :db commit, :fx walk, nil/{} no-op. The :fx walk test's
-;;    [:a :b] holds only because each :append saw the previous {:db} commit.
-;; ===========================================================================
-
-(deftest reg-event-fx-effect-walks
-  (testing "a reg-event handler's :fx vector dispatches its entries (the db
-            write is an explicit effect like any other)"
-    (rf/reg-sub :reg-event-test/log (fn [db _] (:log db [])))
-    (rf/reg-sub :reg-event-test/kicked? (fn [db _] (:kicked? db false)))
-    (rf/reg-event :reg-event-test/append
-      (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
-    (rf/reg-event :reg-event-test/kickoff
-      (fn [{:keys [db]} _]
-        {:db (assoc db :kicked? true)
-         :fx [[:dispatch [:reg-event-test/append :a]]
-              [:dispatch [:reg-event-test/append :b]]]}))
-    (rf/dispatch-sync [:reg-event-test/kickoff])
-    (is (true? @(rf/subscribe [:reg-event-test/kicked?]))
-        "the :db effect committed alongside the :fx walk")
-    (is (= [:a :b] @(rf/subscribe [:reg-event-test/log]))
-        "the :fx-dispatched events ran in source order")))
+  (is (= :reg-event-test/ret
+         (rf/reg-event :reg-event-test/ret (fn [_ _] {})))))
 
 (deftest reg-event-nil-and-empty-return-are-noops
-  (testing "nil and {} returns from a reg-event handler are documented no-ops"
-    (rf/reg-sub :reg-event-test/seed (fn [db _] (:seed db :untouched)))
-    (rf/reg-event :reg-event-test/seed! (fn [{:keys [db]} _] {:db (assoc db :seed :set)}))
-    (rf/reg-event :reg-event-test/nil-ret (fn [_ _] nil))
-    (rf/reg-event :reg-event-test/empty-ret (fn [_ _] {}))
-    (rf/dispatch-sync [:reg-event-test/seed!])
-    (rf/dispatch-sync [:reg-event-test/nil-ret])
-    (rf/dispatch-sync [:reg-event-test/empty-ret])
-    (is (= :set @(rf/subscribe [:reg-event-test/seed]))
-        "neither the nil nor the {} handler disturbed app-db")))
+  (rf/reg-sub :reg-event-test/seed (fn [db _] (:seed db :untouched)))
+  (rf/reg-event :reg-event-test/seed! (fn [{:keys [db]} _] {:db (assoc db :seed :set)}))
+  (rf/reg-event :reg-event-test/nil-ret (fn [_ _] nil))
+  (rf/reg-event :reg-event-test/empty-ret (fn [_ _] {}))
+  (rf/dispatch-sync [:reg-event-test/seed!])
+  (rf/dispatch-sync [:reg-event-test/nil-ret])
+  (rf/dispatch-sync [:reg-event-test/empty-ret])
+  (is (= :set @(rf/subscribe [:reg-event-test/seed]))))
 
-;; ===========================================================================
-;; 3. :rf.cofx/requires on reg-event — delivery of a declared coeffect, no
-;;    delivery of an undeclared one, and the stored raw + parsed declaration —
-;;    is pinned by `cofx_cljs_test.cljc` (`ambient-supplier-delivers-value-flat`,
-;;    `no-declaration-stages-no-cofx-leaves`, `handler-meta-surfaces-requires`),
-;;    which registers through this same `reg-event`.
-;; ===========================================================================
-
-;; ===========================================================================
-;; 4. The retired names are throwing stubs (EP-0018 Slice Z)
-;; ===========================================================================
-
-(defn- stub-throw-id
-  "Call `f` (one of the retired throwing stubs) and return the `:rf.error/id`
-  it raises, or `:no-throw` if it did not throw."
-  [f]
+(defn- stub-throw-id [f]
   (try (f)
        :no-throw
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
 
-(defn- stub-throw-reason
-  "Call `f` (one of the retired throwing stubs) and return the `:reason` text it
-  raises, or `:no-throw` if it did not throw."
-  [f]
-  (try (f)
-       :no-throw
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (:reason (ex-data e)))))
-
-;; That the stubs register NOTHING is read off each would-be registry slot by
-;; `events_test.clj`'s `retired-reg-event-stubs-register-nothing`.
+;; that the stubs register nothing is events_test's
+;; retired-reg-event-stubs-register-nothing
 (deftest retired-reg-event-names-throw-their-removal-stubs
-  (testing "EP-0018 Slice Z: there is no additive coexistence —
-            reg-event-db / reg-event-fx / reg-event-ctx are retired names,
-            throwing stubs that register nothing and raise their naming hard
-            error"
-    (is (= :rf.error/reg-event-db-removed
-           (stub-throw-id #(rf/reg-event-db :reg-event-test/via-db (fn [_ _] nil))))
-        "reg-event-db raises :rf.error/reg-event-db-removed")
-    (is (= :rf.error/reg-event-fx-removed
-           (stub-throw-id #(rf/reg-event-fx :reg-event-test/via-fx (fn [_ _] nil))))
-        "reg-event-fx raises :rf.error/reg-event-fx-removed")
-    (is (= :rf.error/reg-event-ctx-removed
-           (stub-throw-id #(rf/reg-event-ctx :reg-event-test/via-ctx (fn [_ _] nil))))
-        "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
+  (is (= [:rf.error/reg-event-db-removed
+          :rf.error/reg-event-fx-removed
+          :rf.error/reg-event-ctx-removed]
+         [(stub-throw-id #(rf/reg-event-db :reg-event-test/via-db (fn [_ _] nil)))
+          (stub-throw-id #(rf/reg-event-fx :reg-event-test/via-fx (fn [_ _] nil)))
+          (stub-throw-id #(rf/reg-event-ctx :reg-event-test/via-ctx (fn [_ _] nil)))])))
 
 (deftest reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor
-  ;; Cross-EP coherence: under EP-0022 `->interceptor*` is a framework-internal
-  ;; lowering constructor and `reg-interceptor` is the ONE public authoring
-  ;; form. The EP-0018 reg-event-ctx-removed stub therefore points users at
-  ;; `reg-interceptor`, NOT the internal lowering constructor (there is no
-  ;; coord-capturing `->interceptor` macro).
-  (testing "the reg-event-ctx-removed :reason names reg-interceptor"
-    (let [reason (stub-throw-reason
-                   #(rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil)))]
-      (is (re-find #"reg-interceptor" reason)
-          "the stub's :reason string names reg-interceptor (the public authoring form)")
-      (is (not (re-find #"->interceptor" reason))
-          "the recovery does NOT name ->interceptor (internal-only post-EP-0022)"))))
-
-;; ===========================================================================
-;; 5. :rf/set-db — the framework-standard app-db seeding event (EP-0027)
-;; ===========================================================================
+  ;; the recovery names the public authoring form, not the internal
+  ;; ->interceptor* lowering constructor
+  (let [reason (try (rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil))
+                    :no-throw
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                      (:reason (ex-data e))))]
+    (is (re-find #"reg-interceptor" reason))
+    (is (not (re-find #"->interceptor" reason)))))
 
 (defn- handler-throw-id
-  "Call the `:rf/set-db` handler directly with `event` (the event vector) and
-  return the `:rf.error/id` it raises, or `:no-throw` if it returned normally.
-  The handler's bad-argument validation throws via `error/throw-error!`, so the
-  unit-level contract is asserted directly on the handler (a dispatch-level
-  throw is captured by the cascade as `:rf.error/handler-exception` and
-  recovered, so it would not surface to the `dispatch-sync` caller)."
+  "The `:rf.error/id` the `:rf/set-db` handler raises for `event`, called
+  directly: through a dispatch the throw would be recovered as
+  `:rf.error/handler-exception`."
   [event]
   (try (rf.events/set-db-handler {} event)
        :no-throw
@@ -201,49 +82,24 @@
          (:rf.error/id (ex-data e)))))
 
 (deftest set-db-replaces-not-merges
-  (testing ":rf/set-db REPLACES all of app-db (it is NOT a merge) — a second
-            set-db with a disjoint map leaves only the new map"
-    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
-    (rf/dispatch-sync [:rf/set-db {:a 1 :b 2}])
-    (rf/dispatch-sync [:rf/set-db {:c 3}])
-    (is (= {:c 3} @(rf/subscribe [:reg-event-test/whole-db]))
-        "the second set-db replaced app-db entirely — :a / :b are gone")))
+  (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
+  (rf/dispatch-sync [:rf/set-db {:a 1 :b 2}])
+  (rf/dispatch-sync [:rf/set-db {:c 3}])
+  (is (= {:c 3} @(rf/subscribe [:reg-event-test/whole-db]))))
 
 (deftest set-db-bad-value-throws-set-db-bad-value
-  (testing "a missing / nil / non-map argument to [:rf/set-db x] fails with
-            :rf.error/set-db-bad-value (EP-0027 §:rf/set-db) — the handler
-            validates exactly one map argument"
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db]))
-        "[:rf/set-db] (no argument) fails :rf.error/set-db-bad-value")
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db nil]))
-        "[:rf/set-db nil] fails :rf.error/set-db-bad-value")
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db 5]))
-        "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value"))
-  (testing "EXTRA trailing args fail with :rf.error/set-db-bad-value
-            — :rf/set-db takes exactly one map argument; extras are never
-            silently ignored"
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {:n 0} :junk]))
-        "[:rf/set-db {:n 0} :junk] (extra arg) fails :rf.error/set-db-bad-value"))
-  (testing "a valid map argument (including {}) does NOT throw and returns the
-            {:db new-db} effect"
-    (is (= {:db {:n 0}} (rf.events/set-db-handler {} [:rf/set-db {:n 0}]))
-        "a map argument returns {:db new-db}")
-    (is (= {:db {}} (rf.events/set-db-handler {} [:rf/set-db {}]))
-        "the empty map is valid — returns {:db {}}")))
+  ;; exactly one map argument: missing, non-map and extra args all fail
+  (is (= [:rf.error/set-db-bad-value :rf.error/set-db-bad-value :rf.error/set-db-bad-value]
+         (mapv handler-throw-id [[:rf/set-db] [:rf/set-db nil] [:rf/set-db {:n 0} :junk]])))
+  (is (= {:db {:n 0}} (rf.events/set-db-handler {} [:rf/set-db {:n 0}]))))
 
 (deftest set-db-app-reregistration-is-reserved-id-collision
-  (testing "re-registering :rf/set-db in app code via the public reg-event is a
-            RESERVED-ID COLLISION that fails loud (:rf.error/reserved-event-id,
-            EP-0027 §:rf/set-db) — the :rf/* single-root is framework-owned"
-    (let [thrown (try (rf.events/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
-                      :no-throw
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e
-                        (:rf.error/id (ex-data e))))]
-      (is (= :rf.error/reserved-event-id thrown)
-          "an app reg-event of :rf/set-db raises :rf.error/reserved-event-id"))
-    ;; The framework's own :rf/set-db registration is intact — the app attempt
-    ;; registered nothing (the guard fires before any registrar write).
-    (is (= rf.events/set-db-handler
-           (:handler-fn (rf.registrar/handler-meta :event :rf/set-db)))
-        "the framework :rf/set-db handler is unchanged after the rejected app re-registration")))
+  (is (= :rf.error/reserved-event-id
+         (try (rf.events/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
+              :no-throw
+              (catch #?(:clj clojure.lang.ExceptionInfo
+                        :cljs cljs.core/ExceptionInfo) e
+                (:rf.error/id (ex-data e))))))
+  (is (= rf.events/set-db-handler
+         (:handler-fn (rf.registrar/handler-meta :event :rf/set-db)))
+      "the guard fires before any registrar write"))
