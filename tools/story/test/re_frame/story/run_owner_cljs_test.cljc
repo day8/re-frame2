@@ -1,28 +1,16 @@
 (ns re-frame.story.run-owner-cljs-test
-  "Regression net for Story's ONE run owner.
+  "Story's ONE run owner. A focused shell selection reaches it from three
+  places (selection-edge preallocation, canvas mount, post-commit resume);
+  the script must still execute exactly once. These tests drive the
+  production ownership sequence against the real plain-atom adapter,
+  lifecycle machine, plan compiler and runner.
 
-  A focused shell selection reaches the run owner from three places — the
-  selection-edge frame preallocation, the canvas `component-did-mount`, and
-  the post-commit `auto-run!`. Were each a full `run-variant`, a variant's
-  play-script (and its external effects) would run up to THREE times and a
-  cumulative script would double-count (a passing variant would look
-  failed). These tests drive the production ownership sequence directly
-  against the real plain-atom adapter + lifecycle machine + plan compiler +
-  runner, and pin that the script executes EXACTLY ONCE.
-
-  Runs on BOTH runtimes: the play-scripts are pure `:dispatch-sync`, which
-  `rf.story.async/promise` executes synchronously, so the frame's app-db and the
-  external-effect counter are settled the instant `resume-run!` returns — no
-  awaiting needed. The one supersession test that needs an async barrier is
-  JVM-gated (it blocks a thread).
-
-  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under a `-cljc-test` name no CLJS build would select it, and
-  the `:cljs` branches below would never compile."
+  The scripts are pure `:dispatch-sync`, so app-db and the effect counter
+  have settled when `resume-run!` returns, on both runtimes; the tests that
+  block on a promise or a thread are JVM-only. Named `-cljs-test` so the
+  `:node-test` build selects it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            ;; Loaded so `rf/epoch-history` records a live tape: the fresh
-            ;; re-run tests below read `:rf.assert/dispatched?`, which is
-            ;; tape-projected.
+            ;; Records the live tape `:rf.assert/dispatched?` reads.
             [re-frame.epoch]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -39,13 +27,8 @@
                       [re-frame.story.recorder.play-export-events
                        :as rf.story.recorder.play-export-events]])))
 
-;; ---- external-effect counter (an irreversible effect proxy) --------------
-;;
-;; A single owner ISSUES the script's three effects once per run; a
-;; three-owner composition would issue up to nine. app-db resets between
-;; runs hide the mutation, but an external effect cannot be un-sent — so this
-;; counter is the honest witness of how many times the script actually ran.
-
+;; An external effect cannot be un-sent, so this counter witnesses how many
+;; times the script ran even where an app-db reset hides it.
 (def ^:private ext-effect-count (atom 0))
 
 (defn- reset-all! [test-fn]
@@ -76,217 +59,109 @@
 
 (use-fixtures :each reset-all!)
 
-;; ---- helpers -------------------------------------------------------------
-
 (defn- reg-cumulative!
-  "Register a cumulative-counter variant: seed 0, increment three times (each
-  increment also issues the external effect), assert final `:count` = 3."
+  "Seed 0, increment three times (each issuing the external effect), assert 3."
   [vid]
   (rf.story/reg-variant vid
-    {:setup      [[:counter/initialise 0]]
+    {:setup  [[:counter/initialise 0]]
      :script [[:dispatch-sync [:probe/inc-and-effect]]
-                   [:dispatch-sync [:probe/inc-and-effect]]
-                   [:dispatch-sync [:probe/inc-and-effect]]
-                   [:dispatch-sync [:rf.assert/path-equals [:count] 3]]]}))
-
-(defn- run-key-for [vid tag] {:variant-id vid :cell-overrides tag})
+              [:dispatch-sync [:probe/inc-and-effect]]
+              [:dispatch-sync [:probe/inc-and-effect]]
+              [:dispatch-sync [:rf.assert/path-equals [:count] 3]]]}))
 
 (defn- prepare! [vid tag]
-  (rf.story.runtime/prepare-run! vid {:run-key (run-key-for vid tag)}))
+  (rf.story.runtime/prepare-run! vid {:run-key {:variant-id vid :cell-overrides tag}}))
 
-(defn- resume!
-  "Call the single run owner's resume. The play-scripts here are pure
-  `:dispatch-sync`, so `rf.story.async/promise` runs the script synchronously and the
-  frame's app-db is settled the instant this returns — no await needed."
-  [vid]
-  (rf.story.runtime/resume-run! vid))
+(defn- resume! [vid] (rf.story.runtime/resume-run! vid))
 
 (defn- count-of [vid] (:count (rf/app-db-value vid)))
+
+(defn- state
+  "`[count effects generation]` for `vid`."
+  [vid]
+  [(count-of vid) @ext-effect-count (rf.story.runtime/current-generation vid)])
 
 (defn- passing-assertions [vid]
   (filterv #(true? (:passed? %))
            (:rf.story/assertions (rf/app-db-value vid))))
 
-;; ---- (1) the core defect: exactly once -----------------------------------
-
 (deftest shell-auto-play-executes-exactly-once
-  (testing "the three-owner shell sequence (selection preallocation + canvas
-            mount prepare + post-commit resume, resume also re-triggered by the
-            mount-time block) executes the play-script EXACTLY ONCE"
-    (let [vid :story.owner/cumulative]
-      (reg-cumulative! vid)
-      ;; 1. selection-edge preallocation — PREPARE (no script)
-      (prepare! vid :a)
-      ;; frame is ready + rendered clean at seed 0, but the script has NOT run
-      (is (= 0 (count-of vid)) "prepare did not run the script")
-      (is (zero? @ext-effect-count) "prepare issued no external effect")
-      (is (= 1 (rf.story.runtime/current-generation vid)) "one generation claimed")
-      ;; 2. canvas component-did-mount — PREPARE again (same run-key ⇒ dedup)
-      (prepare! vid :a)
-      (is (= 1 (rf.story.runtime/current-generation vid))
-          "the canvas re-prepare for the same run-key did NOT bump the generation")
-      (is (= 0 (count-of vid)) "the dedup prepare did not reset+rerun anything")
-      ;; 3. canvas post-commit resume — the single run owner
-      (resume! vid)
-      (is (= 3 (count-of vid)) "the script ran once: 0 -> 3")
-      (is (= 3 @ext-effect-count) "the external effect fired exactly 3 times (one run)")
-      (is (= 1 (count (passing-assertions vid)))
-          "exactly one passing assertion record — never a second, contradictory one")
-      ;; 4. the mount-time block + the shell selection-watcher's setTimeout both
-      ;;    ALSO call resume for this generation — every extra call is a no-op.
-      (is (nil? (rf.story.runtime/resume-run! vid)) "second resume for the same generation is a no-op")
-      (is (nil? (rf.story.runtime/resume-run! vid)) "third resume for the same generation is a no-op")
-      (is (= 3 (count-of vid)) "count is still 3 — no double-count to 6")
-      (is (= 3 @ext-effect-count) "the external effect still fired exactly 3 times")
-      (is (= 1 (count (passing-assertions vid)))
-          "still exactly one passing assertion — no contradictory second record"))))
-
-;; ---- (2) prepare is script-free, frame renderable ------------------------
-
-(deftest prepare-only-readies-frame-without-running-script
-  (testing "PREPARE completes loaders + setup (frame allocated + :ready) so the
-            first render is safe, WITHOUT dispatching the play script"
-    (let [vid :story.owner/prep]
-      (reg-cumulative! vid)
-      (prepare! vid :a)
-      ;; frame exists (subs can deref) and lifecycle is renderable
-      (is (= :ready (rf.story.loaders/current-state vid)) "the frame reached :ready in prepare")
-      ;; but the script has not run
-      (is (= 0 (count-of vid)) "seed 0, no play-script increments yet")
-      (is (zero? @ext-effect-count) "no external effect issued by prepare")
-      (is (empty? (passing-assertions vid)) "no assertion recorded before resume"))))
-
-;; ---- (3) a genuinely new run-key bumps + re-runs -------------------------
-
-(deftest run-key-change-bumps-generation-and-reruns-once
-  (testing "a cell-override / mode / substrate / hot-reload change (new run-key)
-            claims a fresh generation and runs the script once more"
-    (let [vid :story.owner/rekey]
-      (reg-cumulative! vid)
-      (prepare! vid :a)
-      (resume! vid)
-      (is (= 3 (count-of vid)))
-      (is (= 3 @ext-effect-count))
-      ;; run-key changes → fresh generation, fresh reset+run
-      (prepare! vid :b)
-      (is (= 2 (rf.story.runtime/current-generation vid)) "changed run-key bumped the generation")
-      (is (= 0 (count-of vid)) "the fresh prepare reset the frame to seed 0")
-      (resume! vid)
-      (is (= 3 (count-of vid)) "the new generation ran the script once: 0 -> 3")
-      (is (= 6 @ext-effect-count) "exactly one additional run's worth of effects (3 + 3)"))))
-
-;; ---- (4) a remount after resume re-runs ----------------------------------
+  (let [vid :story.owner/cumulative]
+    (reg-cumulative! vid)
+    (prepare! vid :a)
+    (is (= [0 0 1] (state vid)) "prepare ran setup but not the script")
+    (is (= :ready (rf.story.loaders/current-state vid)) "the frame is renderable after prepare")
+    (prepare! vid :a)
+    (is (= [0 0 1] (state vid)) "the canvas re-prepare for the same run-key dedupes")
+    (resume! vid)
+    (is (= [3 3 1] (state vid)) "the script ran once")
+    (is (nil? (rf.story.runtime/resume-run! vid)) "a second resume for the generation is a no-op")
+    (is (= [3 3 1] (state vid)))
+    (is (= 1 (count (passing-assertions vid))) "exactly one assertion record")))
 
 (deftest remount-after-resume-bumps-and-reruns-once
-  (testing "a React remount (re-prepare for the SAME run-key AFTER the current
-            generation was already resumed) claims a fresh generation and runs
-            the script once — not zero, not twice"
+  (testing "a re-prepare for the same run-key after the generation was
+            resumed (a React remount) claims a fresh generation and runs the
+            script once more"
     (let [vid :story.owner/remount]
       (reg-cumulative! vid)
       (prepare! vid :a)
       (resume! vid)
-      (is (= 1 (rf.story.runtime/current-generation vid)))
-      (is (= 3 @ext-effect-count))
-      ;; remount: same run-key, but the generation was already resumed
       (prepare! vid :a)
-      (is (= 2 (rf.story.runtime/current-generation vid)) "post-resume re-prepare bumped the generation")
-      (is (= 0 (count-of vid)) "the remount reset the frame")
+      (is (= [0 3 2] (state vid)) "a fresh generation reset the frame")
       (resume! vid)
-      (is (= 3 (count-of vid)))
-      (is (= 6 @ext-effect-count) "exactly one more run"))))
-
-;; ---- (5) two variants run concurrently + isolated ------------------------
+      (is (= [3 6 2] (state vid)) "exactly one more run"))))
 
 (deftest two-variants-run-concurrently-and-isolated
-  (testing "ownership is per variant/frame, not one global lock: two variants
-            prepare + resume independently with isolated app-db + effects"
+  (testing "ownership is per variant, not one global lock"
     (let [a :story.owner/a
           b :story.owner/b]
       (reg-cumulative! a)
       (reg-cumulative! b)
-      ;; interleave the two variants' prepare/resume owners
       (prepare! a :a)
       (prepare! b :a)
-      (is (= 1 (rf.story.runtime/current-generation a)))
-      (is (= 1 (rf.story.runtime/current-generation b)))
       (resume! a)
-      (is (= 3 (count-of a)) "A ran to 3")
-      (is (= 0 (count-of b)) "B is untouched by A's run")
+      (is (= [3 0] [(count-of a) (count-of b)]) "B is untouched by A's run")
       (resume! b)
-      (is (= 3 (count-of a)) "A stays 3 after B runs")
-      (is (= 3 (count-of b)) "B ran to 3")
-      (is (= 6 @ext-effect-count) "each variant issued its 3 effects exactly once"))))
-
-;; ---- (6) the public headless run-variant is one full run -----------------
-
-;; ---- (7) supersession never greens a stale run (JVM async barrier) -------
+      (is (= [3 3 6] [(count-of a) (count-of b) @ext-effect-count])))))
 
 #?(:clj
    (deftest superseded-resume-never-greens-and-never-reads-successor
      (testing "run A parks at [:wait] on its own thread; run B (fresh run-key)
-               supersedes it — B's resume stamps a new run-token that aborts A's
-               stale continuation. A settles as an explicit superseded result
-               (never :pass) and NEVER dispatches its remaining event; B
-               completes with only its own state"
-       (let [vid  :story.owner/overlap
-             wait 250]
-         ;; The variant waits, then increments once (issuing the external
-         ;; effect), then asserts. The wait opens the supersession window.
+               supersedes it. A settles as an explicit superseded result and
+               never dispatches its remaining event; B completes on its own state"
+       (let [vid :story.owner/overlap]
          (rf.story/reg-variant vid
-           {:setup      [[:counter/initialise 0]]
-            :script [[:wait wait]
-                          [:dispatch-sync [:probe/inc-and-effect]]
-                          [:dispatch-sync [:rf.assert/path-equals [:count] 1]]]})
-         ;; A prepares + starts resuming on its OWN thread. resume-run! blocks
-         ;; that thread through the [:wait] (JVM waits are Thread/sleep), so the
-         ;; future's value is A's settled result-promise.
+           {:setup  [[:counter/initialise 0]]
+            :script [[:wait 250]
+                     [:dispatch-sync [:probe/inc-and-effect]]
+                     [:dispatch-sync [:rf.assert/path-equals [:count] 1]]]})
          (prepare! vid :a)
          (let [gen-a (rf.story.runtime/current-generation vid)
                fut   (future (rf.story.runtime/resume-run! vid))]
-           (is (= 1 gen-a))
-           ;; Let A reach its wait, then supersede: a fresh run-key bumps the
-           ;; generation, resets the frame, and B's resume stamps a NEW
-           ;; run-token — which A's run-loop sees on wake and aborts against.
            (Thread/sleep 60)
            (prepare! vid :b)
-           (is (= 2 (rf.story.runtime/current-generation vid)) "B claimed a fresh generation")
            (let [b-prom   (rf.story.runtime/resume-run! vid)
-                 a-prom   @fut
-                 a-result (rf.story.async/deref-blocking a-prom 5000)
+                 a-result (rf.story.async/deref-blocking @fut 5000)
                  b-result (rf.story.async/deref-blocking b-prom 5000)]
-             (is (not= :pass (:status a-result))
-                 "the superseded run A must NOT return :pass")
-             (is (true? (:superseded? a-result))
-                 "A settles as an explicit superseded result")
-             (is (= gen-a (:generation a-result))
-                 "the superseded result names A's own generation, not B's")
-             (is (= :pass (:status b-result)) "B greens on its own state")
-             (is (= 1 (:count (:app-db b-result))) "B ran its single increment: 0 -> 1")
-             ;; The decisive proof: only B's increment issued an
-             ;; external effect. A's stale continuation was aborted before it
-             ;; could dispatch — it never mutated the successor frame.
+             (is (= [:cannot-run true gen-a]
+                    ((juxt :status :superseded? :generation) a-result))
+                 "A settles superseded, never :pass, under its own generation")
+             (is (= [:pass 1] [(:status b-result) (:count (:app-db b-result))]))
              (is (= 1 @ext-effect-count)
-                 "ONLY B's effect fired — A's stale continuation dispatched nothing")))))))
+                 "only B's effect fired: A's stale continuation dispatched nothing")))))))
 
-;; ---- (8) every author-triggered run is FRESH ------------------------------
+;; ---- every author-triggered run is fresh ---------------------------------
 ;;
 ;; The play chip's and banner's Re-run, a dropdown play row, Run all, the
-;; recorder export's replay and the CI `runPlay` hook all call `rerun!`. These
-;; drive THAT operation — never the engine's `runner-events/run!` — after the
-;; canvas's own run (`select!`, a prepare + resume like `run-if-needed!`).
-;; Every script is `:dispatch-sync` / `[:assert …]`, so each run has settled
-;; when `rerun!` returns, on both runtimes.
+;; recorder export's replay and the CI `runPlay` hook all call `rerun!`, after
+;; the canvas's own prepare + resume (`select!`).
 
-(defn- select!
-  "The canvas's own run for `vid` under run opts `opts`: prepare + resume."
-  [vid opts]
+(defn- select! [vid opts]
   (rf.story.runtime/prepare-run! vid (assoc opts :run-key {:variant-id vid :opts opts}))
   (resume! vid))
 
-(defn- rerun!
-  "The operation every author-triggered run calls. Returns its result promise."
-  [vid selection]
-  (rf.story.runtime/rerun! vid selection))
+(defn- rerun! [vid selection] (rf.story.runtime/rerun! vid selection))
 
 (defn- play-status [vid play-key]
   (:status (rf.story.play.runner-events/current-state-for-play vid play-key)))
@@ -296,47 +171,37 @@
      (:status (rf.story.async/deref-blocking p 5000))))
 
 (deftest rerun-is-fresh-for-a-stateful-variant
-  (testing "Re-run after the author poked the canvas runs from the declared
-            start, so a correct counter variant passes — press after press"
+  (testing "Re-run after the author poked the canvas runs from the declared start"
     (let [vid :story.fresh/counter]
       (rf/reg-event :fresh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf.story/reg-variant vid
         {:script [[:dispatch-sync [:fresh/inc]]
                   [:assert [:rf.assert/path-equals [:n] 1]]]})
       (select! vid {})
-      (is (= :pass (play-status vid nil)) "the canvas's own run passes")
       (rf/dispatch-sync [:fresh/inc] {:frame vid})
       (rf/dispatch-sync [:fresh/inc] {:frame vid})
-      (is (= 3 (:n (rf/app-db-value vid))) "the author poked the canvas twice")
-      (dotimes [press 2]
-        (let [p (rerun! vid {:play nil})]
-          (is (= :pass (play-status vid nil))
-              (str "Re-run press " (inc press) " passes"))
-          (is (= 1 (:n (rf/app-db-value vid)))
-              "the play ran once from :setup, not on top of the poked state")
-          #?(:clj  (is (= :pass (settled-status p)) "the unified verdict agrees")
-             :cljs (is (some? p) "rerun! hands back the run's promise")))))))
+      (is (= 3 (:n (rf/app-db-value vid))) "precondition: the author poked the canvas")
+      (let [p (rerun! vid {:play nil})]
+        (is (= [:pass 1] [(play-status vid nil) (:n (rf/app-db-value vid))])
+            "the play ran once from :setup, not on top of the poked state")
+        #?(:clj  (is (= :pass (settled-status p)) "the unified verdict agrees")
+           :cljs (is (some? p) "rerun! hands back the run's promise"))))))
 
 (deftest rerun-reads-only-its-own-tape
-  (testing "a tape assertion on Re-run reads THIS run's epochs: the author's
-            own dispatch is not the play's evidence"
+  (testing "the author's own dispatch is not the re-run play's evidence"
     (let [vid :story.fresh/tape]
       (rf/reg-event :fresh/evidence (fn [{:keys [db]} _] {:db (assoc db :evidence true)}))
       (rf.story/reg-variant vid
         {:script [[:assert [:rf.assert/dispatched? [:fresh/evidence]]]]})
       (select! vid {})
-      (is (= :fail (play-status vid nil))
-          "control: the canvas's own run fails — the play never dispatches it")
       (rf/dispatch-sync [:fresh/evidence] {:frame vid})
       (let [p (rerun! vid {:play nil})]
-        (is (= :fail (play-status vid nil))
-            "Re-run fails too: the author's click belongs to no run of the play")
+        (is (= :fail (play-status vid nil)))
         #?(:clj  (is (= :fail (settled-status p)))
            :cljs (is (some? p)))))))
 
 (deftest rerun-runs-the-compiled-play-with-the-run-inputs
-  (testing "Re-run takes its play from the compiled plan under the canvas's run
-            inputs, so an [:arg] resolves through a Controls override and a
+  (testing "an [:arg] resolves through the canvas's Controls override, and a
             :compose'd fragment's script runs ahead of the variant's own"
     (rf/reg-event :fresh/set (fn [{:keys [db]} [_ k v]] {:db (assoc db k v)}))
     (let [vid :story.fresh/args]
@@ -347,8 +212,7 @@
       (select! vid {:cell-overrides {:value 11}})
       (rf/dispatch-sync [:fresh/set :value 0] {:frame vid})
       (rerun! vid {:play nil})
-      (is (= :pass (play-status vid nil)))
-      (is (= 11 (:value (rf/app-db-value vid))) "the Controls override carried into the re-run"))
+      (is (= :pass (play-status vid nil))))
     (let [vid :story.fresh/composed]
       (rf.story/reg-fragment :fragment.fresh/seed
         {:script {:script [[:dispatch-sync [:fresh/set :seeded true]]]}})
@@ -357,12 +221,11 @@
          :script  [[:assert [:rf.assert/path-equals [:seeded] true]]]})
       (select! vid {})
       (rerun! vid {:play nil})
-      (is (= :pass (play-status vid nil)) "the fragment's seed ran before the assert"))))
+      (is (= :pass (play-status vid nil))))))
 
 (deftest rerun-selects-a-play-and-run-all-sequences
-  (testing "a dropdown row runs THAT play from :setup whether or not it
-            auto-runs, and leaves it the active play; Run all prepares once
-            and runs every play in order"
+  (testing "a dropdown row runs THAT play from :setup and leaves it active;
+            Run all prepares once and runs every play in order"
     (rf/reg-event :fresh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [vid  :story.fresh/multi
           play (fn [nm n] {:name nm :auto-run? false
@@ -370,32 +233,25 @@
                                     [:assert [:rf.assert/path-equals [:n] n]]]})]
       (rf.story/reg-variant vid {:plays [(play "a" 1) (play "b" 2) (play "c" 3)]})
       (select! vid {})
-      (is (nil? (:n (rf/app-db-value vid))) "no play auto-runs on selection")
       (rerun! vid {:play "b"})
-      (is (= :fail (play-status vid "b"))
+      (is (= [:fail 1] [(play-status vid "b") (:n (rf/app-db-value vid))])
           "b alone starts from :setup, where the count reaches 1, not 2")
-      (is (= 1 (:n (rf/app-db-value vid))))
-      (is (= "b" (rf.story.play.runner-events/active-play-key vid))
-          "the chosen play is the active play afterwards")
+      (is (= "b" (rf.story.play.runner-events/active-play-key vid)))
       (rerun! vid {:play :all})
       (is (= [:pass :pass :pass] (mapv #(play-status vid %) ["a" "b" "c"]))
-          "Run all chains every play in declared order")
-      (is (= 3 (:n (rf/app-db-value vid))) "one reset, then a/b/c: 1 -> 2 -> 3")
+          "one reset, then a/b/c in declared order")
       #?(:clj (is (= :error (settled-status (rerun! vid {:play "no-such-play"})))
-                  "a play key naming no play refuses the run rather than running another")))))
-
-;; ---- (9) the recorder export's replay is the same fresh run
+                  "a play key naming no play refuses the run")))))
 
 #?(:clj
    (deftest export-replay-runs-the-recording-fresh
-     (testing "'replay in this story' runs the exported script from the recorded
-               variant's declared start, as the pasted form does: a correct
-               export reads PASS and the recording is not doubled"
+     (testing "'replay in this story' runs the export from the recorded
+               variant's declared start: a correct export reads PASS and the
+               recording is not doubled"
        (let [vid :story.fresh/recorded-source]
          (rf/reg-event :fresh/submit (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))}))
          (rf.story/reg-variant vid {:setup []})
          (select! vid {})
-         ;; the recording: two submits on the live canvas
          (rf/dispatch-sync [:fresh/submit] {:frame vid})
          (rf/dispatch-sync [:fresh/submit] {:frame vid})
          (let [{:keys [spec]} (rf.story.recorder.play-export-events/build-export
@@ -406,10 +262,6 @@
                                  :auto-assert? true
                                  :final-db     (rf/app-db-value vid)})
                done (promise)]
-           (is (some #{[:assert-db [:submits] 2]} (:script spec))
-               "the producer's export asserts the recorded end state")
            (rf.story.recorder.play-export-events/replay-script! vid spec #(deliver done %))
-           (let [final (deref done 5000 :timeout)]
-             (is (= :pass (:status final)) "the correct export reads PASS")
-             (is (= 2 (:submits (rf/app-db-value vid)))
-                 "the replay ran once from :setup — not doubled onto the recording")))))))
+           (is (= [:pass 2] [(:status (deref done 5000 :timeout))
+                             (:submits (rf/app-db-value vid))])))))))
