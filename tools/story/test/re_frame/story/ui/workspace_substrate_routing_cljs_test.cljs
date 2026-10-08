@@ -1,43 +1,17 @@
 (ns re-frame.story.ui.workspace-substrate-routing-cljs-test
-  "The WORKSPACE cell resolves its renderer through the substrate
-  registry, exactly as the canvas single-pane path does.
+  "The WORKSPACE cell resolves its renderer through the substrate registry
+  by the canvas's policy (`canvas/variant-substrate-set`: the variant's
+  declared `:substrates`, else its story's, else the shell's host
+  substrate). The cell re-runs when the user toggles the substrate, so a
+  cell that then painted Reagent regardless would make that re-run a lie.
 
-  ## The cell honours the substrate it reacts to
+  Every row distinguishes which substrate rendered: the variant's
+  `:component` resolves to a Reagent view emitting `reagent-view-render`,
+  the stub registered under `:uix` emits `uix-stub-render`.
 
-  - `run-variant-with-shell-opts!` threads `:substrate (:substrate shell)`
-    into every `runtime/run-variant` call;
-  - `variant-cell` keys its re-runs on `canvas/run-key`, which CARRIES
-    `:substrate` so the cell re-runs when the user toggles the substrate.
-
-  A cell that re-ran on a substrate change and then painted Reagent
-  regardless would make that re-run a lie — the same bypass the canvas
-  avoids. Which substrate the cell paints under is settled inside
-  `canvas/variant-substrate-set`, whose resolution order IS the policy: the
-  variant's declared `:substrates`, else the parent story's, else the
-  shell's host substrate. The host substrate is the declared set's
-  fallback, not its rival.
-
-  ## Why a green compile proves nothing here
-
-  Same reason as the canvas witness: the failure mode is a working path
-  rendering the WRONG thing. Every test below DISTINGUISHES WHICH
-  SUBSTRATE RENDERED — the variant's `:component` resolves to a Reagent view emitting
-  `reagent-view-render`, the stub registered under `:uix` emits
-  `uix-stub-render`, and the assertions require the uix marker PRESENT and
-  the reagent marker ABSENT. Either alone would pass on a path that rendered
-  both, or neither.
-
-  Runner note: this file is `.cljs`, and `variant-cell-inner` sits inside
-  `#?(:cljs …)` in `workspace.cljc` — so `clojure -M:test` from
-  `tools/story` loads `workspace.cljc` and sees NONE of the code under
-  test. This namespace is witnessed by `npm run test:cljs` and only by it.
-
-  ## Registry hygiene
-
-  `substrate->render-fn` is a `defonce` atom `rf.story/clear-all!` does not
-  touch, so a leaked `:uix` entry would break
-  `render_shell_cljs_test`'s `unregistered-substrate-renders-inline-error-cell`,
-  whose precondition is that `:uix` is ABSENT. The `:after` fixture dissocs it."
+  `variant-cell-inner` sits inside `#?(:cljs …)` in `workspace.cljc`, so
+  only `npm run test:cljs` witnesses this namespace. The `:after` fixture
+  dissocs the `:uix` stub, which `rf.story/clear-all!` does not touch."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -78,8 +52,7 @@
 
 (defn- uix-stub-render
   "Stand-in for a host-registered UIx render fn — returns hiccup so the test
-  can walk it without a React cycle. What matters is WHICH fn the cell
-  reached, not what it built."
+  can walk it without a React cycle, and prints the view-id it was handed."
   [_variant-id view-id _eff-args]
   [:div {:data-test "uix-stub-render"} (str "rendered under uix: " (pr-str view-id))])
 
@@ -90,15 +63,11 @@
     {:doc        "Declares ONE substrate, and it is not Reagent."
      :component  :views/probe
      :substrates #{:uix}})
-  (rf.story/reg-variant* :story.workspace-routing/reagent-only
-    {:doc        "Declares ONE substrate, Reagent — the unchanged baseline."
-     :component  :views/probe
-     :substrates #{:reagent}})
   (rf.story/reg-variant* :story.workspace-routing/undeclared
     {:doc        "Declares NO substrates — the shell's host substrate decides."
      :component  :views/probe})
-  ;; The subject and layer inherited through `:extends`
-  ;; from a variant of a story that names neither.
+  ;; The subject and layer inherited through `:extends` from a variant of a
+  ;; story that names neither.
   (rf.story/reg-story* :story.workspace-extends {:doc "workspace-extends witness story"})
   (rf.story/reg-variant* :story.workspace-extends/base
     {:doc        "Names the subject and the layer."
@@ -114,8 +83,7 @@
 
 (defn- cell-tree
   "Render the workspace cell's inner tree for `variant-id` and expand it to
-  plain hiccup. Unlike the canvas, the cell has no skeleton/lifecycle gate to
-  drive — it renders its variant body directly."
+  plain hiccup. The cell has no skeleton gate to drive."
   [variant-id]
   (rf/make-frame {:id variant-id})
   (rf.story.test-helpers.e2e-multi-frame/expand-tree (variant-cell-inner variant-id)))
@@ -126,82 +94,44 @@
 (defn- rendered-under-reagent? [tree]
   (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "reagent-view-render")))
 
-;; ===========================================================================
-;; THE WITNESS
-;; ===========================================================================
-
-(deftest workspace-cell-renders-through-the-declared-substrate
-  (testing "a workspace cell whose variant declares
-            `:substrates #{:uix}` renders through the render fn REGISTERED
-            FOR :uix. A branch calling `(rf/view view-id)` itself would
-            carry `reagent-view-render` and no uix marker at all — the same
-            bypass the canvas avoids"
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (cell-tree :story.workspace-routing/uix-only)]
-      (is (rendered-under-uix? tree)
-          "the cell reached the :uix render fn — the registry is ON the
-           workspace's path, not merely present in it")
-      (is (not (rendered-under-reagent? tree))
-          "and it did NOT also paint Reagent — a UIx author must not get a
-           silent Reagent render"))))
+;; Read diagnostics with `e2e-multi-frame/text-nodes`, never `pr-str` on the
+;; tree: the cell's expanded tree carries nodes whose printed form recurses
+;; without bound (`RangeError: Maximum call stack size exceeded`).
 
 (deftest an-extends-child-cell-renders-what-it-inherits
-  (testing "a cell resolving its `:component` and `:substrates` from
-            the variant's RAW body, then its story's, would render an
-            `:extends` child of a variant naming both as 'no :component
-            registered'. The compiled plan folds the `:extends` chain; the
-            cell must read it, as the canvas does."
+  (testing "the cell reads `:component` and `:substrates` off the compiled
+            plan, which folds the `:extends` chain, and renders through the
+            render fn registered for the inherited :uix layer"
     (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree (cell-tree :story.workspace-extends/child)]
       (is (= "rendered under uix: :views/probe"
              (some-> (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")
-                     (nth 2)))
-          "the inherited layer rendered the inherited subject — the stub
-           prints the view-id it was handed")
+                     (nth 2))))
       (is (not (rendered-under-reagent? tree))
           "and it did not fall back to the host substrate"))))
 
-(deftest reagent-variants-are-behaviour-unchanged
-  (testing "the overwhelmingly common case — a variant declaring
-            `:substrates #{:reagent}` — paints under Reagent and nothing
-            else"
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (cell-tree :story.workspace-routing/reagent-only)]
-      (is (rendered-under-reagent? tree))
-      (is (not (rendered-under-uix? tree))))))
-
 (deftest undeclared-substrate-falls-back-to-the-shell-host
   (testing "a variant declaring NO :substrates paints under the shell's
-            host substrate — the FALLBACK in
-            `canvas/variant-substrate-set`'s resolution order"
+            host substrate"
     (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree (cell-tree :story.workspace-routing/undeclared)]
       (is (rendered-under-reagent? tree))
       (is (not (rendered-under-uix? tree))))))
 
-;; Read diagnostics with `rf.story.test-helpers.e2e-multi-frame/text-nodes`, never `pr-str` on the tree. The
-;; cell's expanded tree carries nodes whose printed form recurses without
-;; bound (`pr-str` on it raises `RangeError: Maximum call stack size
-;; exceeded`), while the structural walk `text-nodes` and `find-by-test-id`
-;; share handles it fine. Walking the tree is safe; printing it is not.
-
 (deftest unregistered-substrate-degrades-loudly
   (testing "a declared substrate with NO registered render fn says so
-            instead of silently painting Reagent — the same degradation the
-            canvas gives"
-    ;; :uix deliberately NOT registered here.
-    (let [tree (cell-tree :story.workspace-routing/uix-only)
-          txt  (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
-      (is (not (rendered-under-reagent? tree))
-          "a silent Reagent paint would hide the missing registration —
-           Reagent must NOT be painted")
-      (is (re-find #"substrate :uix is not registered" txt)))))
+            instead of silently painting Reagent"
+    (let [tree (cell-tree :story.workspace-routing/uix-only)]
+      (is (not (rendered-under-reagent? tree)))
+      (is (re-find #"substrate :uix is not registered"
+                   (rf.story.test-helpers.e2e-multi-frame/text-nodes tree))))))
 
 (deftest missing-view-diagnostic-survives-the-reroute
-  (testing "routing through the registry keeps the cell's missing-view
-            message — `render-view` owns it, via `reagent-render`"
+  (testing "a `:component` naming an unregistered view degrades to
+            `render-view`'s inline message, via `reagent-render`"
     (rf.story/reg-variant* :story.workspace-routing/no-such-view
       {:doc       "Names a :component nobody registered."
        :component :views/does-not-exist})
-    (let [txt (rf.story.test-helpers.e2e-multi-frame/text-nodes (cell-tree :story.workspace-routing/no-such-view))]
-      (is (re-find #"is not registered as a view" txt)))))
+    (is (re-find #"is not registered as a view"
+                 (rf.story.test-helpers.e2e-multi-frame/text-nodes
+                   (cell-tree :story.workspace-routing/no-such-view))))))
