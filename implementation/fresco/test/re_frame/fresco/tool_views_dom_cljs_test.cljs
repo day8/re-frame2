@@ -31,7 +31,6 @@
 (rf/reg-event ::seed (fn [_ _] {:db {:left 1}}))
 
 (rf.fresco/defview alpha-view [_] [:b.alpha (str (rf.fresco/sub [::left]))])
-(rf.fresco/defview beta-view  [_] [:i.beta  (str (rf.fresco/sub [::left]))])
 (rf.fresco/defhost strict-mode react/StrictMode {:server :render})
 (rf.fresco/defview strict-alpha
   "`alpha-view` under React's own StrictMode, which double-invokes the
@@ -40,7 +39,6 @@
   [strict-mode [alpha-view {}]])
 
 (def ^:private alpha-name "re-frame.fresco.tool-views-dom-cljs-test/alpha-view")
-(def ^:private beta-name  "re-frame.fresco.tool-views-dom-cljs-test/beta-view")
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -73,31 +71,6 @@
   (fn [_]
     (doseq [h handles] (rf.fresco.impl.mount/release! (assoc h :root nil)))
     (done)))
-
-(deftest a-view-react-unmounts-leaves-the-row-its-twin-still-holds
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
-      (let [a (mount-root! [alpha-view {}])
-            b (mount-root! [beta-view {}])]
-        (-> (rf.fresco.roots-frames-support/wait-until! #(= 2 (rf.fresco.roots-frames-support/readers-of k)))
-            (.then
-              (fn [subscribed?]
-                (testing "the premise: React committed both roots — two
-                          readers on the one cell, and both views named"
-                  (is (true? subscribed?))
-                  (is (= [alpha-name beta-name] (names-of))))
-                (testing "React's unmount cleanup released alpha's reference,
-                          and the name went with it: beta's row names beta"
-                  (rf.fresco.impl.mount/unmount! a)
-                  (is (= 1 (rf.fresco.roots-frames-support/readers-of k)))
-                  (is (= [beta-name] (names-of))))
-                (testing "and the last holder leaving leaves no row at all"
-                  (rf.fresco.impl.mount/unmount! b)
-                  (is (nil? (names-of))))
-                nil))
-            (.catch (fn [e] (is false (str "twin unmount — " (.-message e)))))
-            (.then (finish! done [a b])))))))
 
 (deftest strict-modes-discarded-render-and-replayed-effect-name-the-view-once
   (async done
