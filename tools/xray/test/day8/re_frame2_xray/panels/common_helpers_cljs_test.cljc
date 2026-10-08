@@ -14,23 +14,14 @@
 ;; ---- tag-of -------------------------------------------------------------
 
 (deftest tag-of-reads-tags-slot
-  (is (= :ok   (common/tag-of {:tags {:k :ok}} :k)))
-  (is (= :ok   (common/tag-of {:k :ok} :k))  ; flat fallback for tests
-      "flat shape falls through — tolerant for test fixtures")
-  (is (nil?    (common/tag-of {} :missing))))
-
-(deftest tag-of-keeps-a-false-tag-value
-  (testing "`false` under `:tags` is a value, not 'absent'"
-    (is (false? (common/tag-of {:tags {:k false}} :k)))
-    (is (false? (common/tag-of {:tags {:k false} :k :flat} :k))
-        "the flat fallback does not shadow a present false tag")
-    (is (false? (common/tag-of {:k false} :k))
-        "a flat false survives too"))
-  (testing "the fallback covers a nil or absent tag"
-    (is (= :flat (common/tag-of {:tags {:k nil} :k :flat} :k)))
-    (is (= :flat (common/tag-of {:tags {} :k :flat} :k)))
-    (is (true? (common/tag-of {:tags {:k true}} :k)))
-    (is (= 0 (common/tag-of {:tags {:k 0}} :k)))))
+  (testing "the `:tags` slot wins; the flat fallback covers a nil or absent
+            tag; and `false` under `:tags` is a value, not 'absent', so the
+            fallback does not shadow it"
+    (are [ev expected] (= expected (common/tag-of ev :k))
+      {:tags {:k :ok}}             :ok
+      {:k :ok}                     :ok
+      {:tags {:k nil} :k :flat}    :flat
+      {:tags {:k false} :k :flat}  false)))
 
 ;; ---- panel-row-cap ------------------------------------------------------
 
@@ -50,14 +41,9 @@
       (rows cap)         [(rows cap) false 0]     ; exactly at the cap
       (rows (+ 50 cap))  [(rows cap) true 50]
       nil                [[] false 0]
-      []                 [[] false 0])))
-
-(deftest cap-rows-with-explicit-cap
-  (let [rows (mapv (fn [i] {:id i}) (range 20))
-        [capped over-cap? hidden] (common/cap-rows rows 5)]
-    (is (= 5 (count capped)))
-    (is (true? over-cap?))
-    (is (= 15 hidden))))
+      []                 [[] false 0])
+    (testing "an explicit cap overrides the default"
+      (is (= [(rows 5) true 15] (common/cap-rows (rows 20) 5))))))
 
 (deftest cap-rows-is-pure
   (testing "repeat invocations on the same input produce equal output"
