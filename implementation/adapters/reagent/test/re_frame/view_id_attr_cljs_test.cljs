@@ -1,29 +1,11 @@
 (ns re-frame.view-id-attr-cljs-test
-  "Per Spec 006 §View tagging contract: when
-  `interop/debug-enabled?` is true, the Reagent substrate adapter MUST
-  also inject `data-rf-view=\"<id>\"` on the rendered root DOM element
-  of every registered view — ALONGSIDE `data-rf2-source-coord`. The
-  view-id attribute is the runtime view-id capture surface, read
-  forward (id → rendered root) and in reverse (node → producing view).
-
-  Coverage (mirrors `source_coord_dom_cljs_test.cljs` shape):
-
-    - DOM-keyword root WITH an existing attrs map: both attributes are
-      merged in alongside the user's attrs.
-    - User-supplied data-rf-view wins (don't overwrite).
-    - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs,
-      spliced into a root with no attrs map, the view attribute's value
-      being `(str id)` — i.e. `\":ns/sym\"`. A top-level root with no
-      attrs map takes the same splice; `source_coord_dom_cljs_test.cljs`
-      pins its coord.
-
-  React Fragment and `[:> Cmp …]` interop roots are exempt from both
-  attributes by the same branch; `re-frame.source-coord-dom-cljs-test`
-  pins both exemptions.
-
-  Production elision (interop/debug-enabled? = false at build time) is
-  verified separately by the elision-probe build via the
-  `data-rf-view` sentinel registered in `scripts/check-elision.cjs`."
+  "In debug builds the Reagent adapter tags every registered view's DOM root
+  with `data-rf-view=\"<id>\"` beside `data-rf2-source-coord` (Spec 006 §View
+  tagging contract): merged into an existing attrs map, never over a
+  user-supplied value, and spliced onto a Form-2 view's inner output. The
+  bare-root splice and the Fragment and interop exemptions are pinned in
+  `re-frame.source-coord-dom-cljs-test`; production elision by the
+  elision-probe build's `data-rf-view` sentinel."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -52,8 +34,6 @@
        (map? (second hiccup))
        (:data-rf2-source-coord (second hiccup))))
 
-;; ---- DOM-keyword root, no existing attrs map ------------------------------
-
 ;; ---- DOM-keyword root with attrs map --------------------------------------
 
 (deftest tags-dom-root-with-existing-attrs
@@ -62,18 +42,12 @@
             user attrs (without disturbing them)"
     (rf/reg-view ^{:rf/id :rf.view-id-test/with-attrs} with-attrs-view []
       [:div {:class "card" :id "x"} "body"])
-    (let [render (rf/view :rf.view-id-test/with-attrs)
-          out    (render)
-          attrs  (second out)]
-      (is (vector? out))
-      (is (= :div (first out)))
-      (is (map? attrs))
-      (is (= "card" (:class attrs)) "user :class preserved")
-      (is (= "x"    (:id    attrs)) "user :id preserved")
-      (is (= ":rf.view-id-test/with-attrs" (:data-rf-view attrs))
-          ":data-rf-view merged in alongside user attrs")
-      (is (string? (:data-rf2-source-coord attrs))
-          ":data-rf2-source-coord still merged in (parity)"))))
+    (let [out   ((rf/view :rf.view-id-test/with-attrs))
+          attrs (second out)]
+      (is (= [:div {:class "card" :id "x" :data-rf-view ":rf.view-id-test/with-attrs"} true]
+             [(first out) (select-keys attrs [:class :id :data-rf-view])
+              (string? (:data-rf2-source-coord attrs))])
+          "both attributes merged in beside the user's, which are untouched"))))
 
 ;; ---- user-supplied data-rf-view wins --------------------------------------
 
@@ -98,13 +72,7 @@
       (fn []
         (fn inner-render []
           [:section.f2 "form-2 body"])))
-    (let [wrapper (rf/view :rf.view-id-test/form-2)
-          out     (wrapper)]
-      (is (fn? out) "outer wrapper returns a fn (Form-2 shape preserved)")
-      (let [inner-out (out)]
-        (is (vector? inner-out) "inner fn returns hiccup")
-        (is (= :section.f2 (first inner-out)))
-        (is (= ":rf.view-id-test/form-2" (root-view-attr inner-out))
-            ":data-rf-view landed on the inner output's root")
-        (is (string? (root-coord-attr inner-out))
-            ":data-rf2-source-coord landed on the inner output's root too")))))
+    (let [inner-out (((rf/view :rf.view-id-test/form-2)))]
+      (is (= [:section.f2 ":rf.view-id-test/form-2" true]
+             [(first inner-out) (root-view-attr inner-out) (string? (root-coord-attr inner-out))])
+          "the outer fn's inner output carries both attributes, the view's being (str id)"))))
