@@ -1,35 +1,17 @@
 (ns re-frame.derivation-graph-test
-  "Tests for the internal derivation/process GRAPH-INSPECTION helper.
-  Per [spec/Derivations.md] §Graph inspection — internal but structured —
-  and the `:rf/derivation-graph` shape in [spec/Spec-Schemas.md].
+  "The internal derivation/process graph composer, `re-frame.derivation.graph`
+  (spec/Derivations.md §Graph inspection — internal but structured;
+  `:rf/derivation-graph` in spec/Spec-Schemas.md). `derivation-graph` composes
+  the five algebra-view tooling siblings (subs / flows / resources / routes /
+  machines) into ONE `{:mode :nodes :edges}` graph, and `live-derivation-graph`
+  is its live counterpart. A family whose contributor is absent contributes no
+  nodes. There is no public accessor: Xray and the conformance fixtures name
+  the bundle-isolated namespace directly.
 
-  `re-frame.derivation.graph/derivation-graph` composes the five
-  algebra-view tooling siblings (subs / flows / resources / routes /
-  machines) into ONE `{:mode :nodes :edges}` graph — the shape an Xray
-  panel renders as one graph even though the underlying runtime mechanisms
-  are subscription cache, flow registry, route slice, resource cache, and
-  machine snapshots. `…/live-derivation-graph` is the live counterpart.
-
-  These tests pin:
-    - the assembled graph contains nodes from ALL FIVE families + their
-      edges;
-    - canonical node-id tagging per family (`[:sub …] / [:flow …] /
-      [:resource …] / [:machine …] / [:rf/route …]`);
-    - `:input` edges from `[:sub …]` declared inputs, `:param` edges from a
-      route's `:resource-edges`, and `:selector` edges from a machine to
-      its selector subscription;
-    - the static vs live split (a parametric sub contributes NO static
-      edge; the live sub-cache realizes them — CLJS-only, so the JVM live
-      test pins the route slice + resource cache realized nodes);
-    - bundle isolation: a family whose contributor is absent contributes
-      no nodes (the no-flows / no-resources story).
-
-  There is NO public accessor: the
-  composer lives in the bundle-isolated `re-frame.derivation.graph` ns,
-  consumed by Xray + the conformance fixtures; there is no
-  `re-frame.core` facade export and no api-manifest row (it mirrors the
-  five siblings' CLJS-side fns — reached directly by the consuming tool)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The derivation-conformance suite proves the EP-0014 laws over an explicit
+  contributor map; JVM `default-contributors` auto-resolution is pinned here."
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.derivation.graph :as rf.derivation.graph]
@@ -55,9 +37,8 @@
   (rf.flows/reset-last-inputs!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; re-`require` every optional façade so its framework registrations
-  ;; (registrar kinds, framework events, subs) are present after the
-  ;; clear-all! above.
+  ;; re-`require` every optional façade so its framework registrations are
+  ;; present after the clear-all! above.
   (require 're-frame.routing :reload)
   (require 're-frame.resources :reload)
   (require 're-frame.machines :reload)
@@ -67,12 +48,8 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- the JVM contributor map: every family present ------------------------
-;;
-;; On the JVM `default-contributors` auto-resolves every sibling on the
-;; classpath. We build the contributor map explicitly so the test pins the
-;; composition regardless of resolution, and exercises the explicit-arg
-;; path the CLJS consumer uses.
+;; The explicit contributor map, so the composition does not depend on JVM
+;; auto-resolution and takes the explicit-arg path the CLJS consumer uses.
 (def all-contributors
   {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
                :live-fn    rf.subs.tooling/sub-cache-algebra-view
@@ -91,447 +68,162 @@
                :live-shape        :map
                :selector-targets  rf.machines.tooling/machine-selector-targets}})
 
+(defn- machine! [id]
+  (rf/reg-machine id {:initial :idle :data {} :states {:idle {}}}))
+
 (defn- register-one-of-each! []
-  ;; :subs — a static declared-input sub (an :input edge source) + a layer-1 sub.
+  ;; :subs — a declared-input sub over a layer-1 sub, and a machine selector.
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-  (rf/reg-sub :cart/total
-              {:inputs [[:cart/items]]}
-              (fn [[items] _] (count items)))
-  ;; :subs — a machine selector (a sub over [:rf/machine …]) — gets the
-  ;; :selector edge from the machine process.
+  (rf/reg-sub :cart/total {:inputs [[:cart/items]]} (fn [[items] _] (count items)))
   (rf/reg-sub :upload/progress
               {:inputs [[:rf/machine :upload/main]]}
               (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
-  ;; :flows — a materialized after-event derivation.
   (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} count)
-  ;; :resources — a process node (runtime-db / remote authority).
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]}
                    (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get
-                                :url    (str "/api/articles/" slug)}}))
-  ;; :routes — a route fact (runtime-db / on-route).
-  (rf/reg-route :route/article {} "/articles/:slug")
-  ;; :machines — a process node (runtime-db / on-transition).
-  (rf/reg-machine :upload/main
-                  {:initial :idle
-                   :data    {:progress 0}
-                   :states  {:idle      {:on {:upload/start {:target :uploading}}}
-                             :uploading {:on {:upload/done {:target :idle}}}}}))
+                     {:request {:method :get :url (str "/api/articles/" slug)}}))
+  ;; The route owns the resource's activation, which draws a :param edge.
+  (rf/reg-route :route/article
+                {:resources [{:resource :article/by-slug :blocking? true}]}
+                "/articles/:slug")
+  (machine! :upload/main))
 
-;; ---- empty / shape contract ----------------------------------------------
-
-(deftest empty-graph-has-the-mode-nodes-edges-shape
-  (testing "(derivation-graph) returns the {:mode :static :nodes :edges} shape"
-    (let [g (rf.derivation.graph/derivation-graph all-contributors)]
-      (is (= :static (:mode g)))
-      (is (map? (:nodes g)))
-      (is (vector? (:edges g)))))
-  (testing "(live-derivation-graph) carries :mode :live + :frame"
-    (let [g (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)]
-      (is (= :live (:mode g)))
-      (is (= :rf/default (:frame g)))
-      (is (map? (:nodes g)))
-      (is (vector? (:edges g))))))
-
-;; ---- the headline acceptance contract: ALL FIVE families + edges ----------
+(defn- families [g]
+  (into #{} (map :rf/family) (vals (:nodes g))))
 
 (deftest static-graph-contains-nodes-from-all-five-families
-  (testing "the assembled static graph carries nodes from subs, flows,
-            resources, routes, AND machines"
-    (register-one-of-each!)
-    (let [g        (rf.derivation.graph/derivation-graph all-contributors)
-          nodes    (:nodes g)
-          families (->> nodes vals (map :rf/family) set)]
-      ;; Every family contributed at least one node.
-      (is (= #{:subs :flows :resources :routes :machines} families)
-          "all five algebra-view families are present in the assembled graph")
-      ;; Each family's node sits under its canonical id — [:sub …],
-      ;; [:resource …], [:machine …], [:rf/route …], and the FRAME-SCOPED
-      ;; [:flow <frame-id> <flow-id>], so a reused flow-id across frames does
-      ;; not collapse onto one slot — and carries its superkind, so a tool
-      ;; that knows only the two superkinds can classify every node.
-      (is (= :derivation (get-in nodes [[:sub :cart/total] :kind])))
-      (is (= :derivation (get-in nodes [[:flow :rf/default :cart/materialized-total] :kind])))
-      (is (= :process    (get-in nodes [[:resource :article/by-slug] :kind])))
-      (is (= :process    (get-in nodes [[:rf/route :route/article] :kind])))
-      (is (= :process    (get-in nodes [[:machine :upload/main] :kind])))
-      ;; The informative refinement rides on :refinement, never :kind — the
-      ;; three :process families share one closed superkind.
-      (is (= :resource-process (get-in nodes [[:resource :article/by-slug] :refinement])))
-      (is (= :route-fact       (get-in nodes [[:rf/route :route/article] :refinement])))
-      (is (= :machine-process  (get-in nodes [[:machine :upload/main] :refinement]))))))
+  ;; Each family's node sits under its canonical id, a flow's frame-scoped,
+  ;; with its superkind and refinement. A machine selector stays a
+  ;; :derivation and is refined :machine-selector; an ordinary sub is not.
+  (register-one-of-each!)
+  (let [expected {[:sub :cart/total]                           [:subs :derivation nil]
+                  [:sub :upload/progress]                      [:subs :derivation :machine-selector]
+                  [:flow :rf/default :cart/materialized-total] [:flows :derivation nil]
+                  [:resource :article/by-slug]                 [:resources :process :resource-process]
+                  [:rf/route :route/article]                   [:routes :process :route-fact]
+                  [:machine :upload/main]                      [:machines :process :machine-process]}
+        g        (rf.derivation.graph/derivation-graph all-contributors)]
+    (is (= [:static expected]
+           [(:mode g)
+            (into {} (map (fn [id] [id ((juxt :rf/family :kind :refinement) (get-in g [:nodes id]))]))
+                  (keys expected))]))))
 
-(deftest static-graph-edges-carry-input-and-selector-roles
-  (testing "the assembled edges carry :input and :selector roles"
-    (register-one-of-each!)
-    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          edges (:edges g)]
-      ;; :input — :cart/total depends on :cart/items. In the STATIC graph
-      ;; subscription nodes are keyed by bare sub-id, and a [:sub [:q]]
-      ;; declared input resolves to that node id (the qv's head).
-      (is (some #(= % {:from [:sub :cart/items]
-                       :to   [:sub :cart/total]
-                       :role :input})
-                edges)
-          "the static declared-input edge from :cart/items to :cart/total")
-      ;; :selector — :upload/main → :upload/progress (the machine selector).
-      (is (some #(= % {:from [:machine :upload/main]
-                       :to   [:sub :upload/progress]
-                       :role :selector})
-                edges)
-          "the :selector edge from the machine process to its selector sub")
-      ;; The selector sub node is ENRICHED with the
-      ;; :machine-selector refinement (still a :derivation superkind — not a
-      ;; second subscription system; the refinement is colour, not contract).
-      (is (= :machine-selector
-             (get-in (:nodes g) [[:sub :upload/progress] :refinement]))
-          "the selector sub node carries :refinement :machine-selector")
-      (is (= :derivation (get-in (:nodes g) [[:sub :upload/progress] :kind]))
-          "the selector remains an ordinary :derivation — refinement is not a superkind")
-      ;; A NON-selector sub (no machine input) carries no machine-selector
-      ;; refinement — only the actual selector targets are enriched.
-      (is (nil? (get-in (:nodes g) [[:sub :cart/total] :refinement]))
-          "a non-selector sub is not falsely refined :machine-selector"))))
+(deftest static-graph-edges-carry-input-selector-and-param-roles
+  ;; A static declared input resolves to the bare sub-id node; a route's
+  ;; :resources metadata runs route → resource.
+  (register-one-of-each!)
+  (let [expected #{{:from [:sub :cart/items]         :to [:sub :cart/total]           :role :input}
+                   {:from [:machine :upload/main]    :to [:sub :upload/progress]      :role :selector}
+                   {:from [:rf/route :route/article] :to [:resource :article/by-slug] :role :param}}
+        edges    (into #{} (map #(select-keys % [:from :to :role]))
+                       (:edges (rf.derivation.graph/derivation-graph all-contributors)))]
+    (is (= expected (set/intersection expected edges)))))
 
 (deftest same-flow-id-on-two-frames-stays-distinct
-  ;; A flow is FRAME-SCOPED — the same flow-id may
-  ;; register against two frames with different :inputs / :derive / :output-path.
-  ;; The composed graph must preserve the frame dimension so one frame's
-  ;; flow does NOT overwrite another's when their ids match.
-  (testing "the SAME flow-id registered on two frames yields TWO distinct
-            composed flow nodes, keyed by [:flow <frame-id> <flow-id>]"
-    (rf/make-frame {:id :app/a})
-    (rf/make-frame {:id :app/b})
-    ;; Same flow-id, different output paths, on two different frames.
-    (rf/with-frame :app/a
-      (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))
-    (rf/with-frame :app/b
-      (rf/reg-flow :shared/total {:inputs [[:basket :lines]] :output-path [:b-total]} count))
-    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          nodes (:nodes g)
-          a-id  [:flow :app/a :shared/total]
-          b-id  [:flow :app/b :shared/total]]
-      (is (= #{a-id b-id}
-             (set (keep (fn [[id node]] (when (= :shared/total (:id node)) id)) nodes)))
-          "the graph keys the shared flow-id under two DISTINCT ids (no collapse)")
-      ;; Each keeps its own per-frame output — collapsing them onto one
-      ;; slot would leave only one of these.
-      (is (= [:db [:a-total]] (get-in nodes [a-id :output]))
-          "frame A's flow kept its own :output path")
-      (is (= [:db [:b-total]] (get-in nodes [b-id :output]))
-          "frame B's flow kept its own :output path")
-      (is (= [:frame :app/a] (get-in nodes [a-id :owner])))
-      (is (= [:frame :app/b] (get-in nodes [b-id :owner]))))))
-
-(deftest route-resource-activation-edge-is-param-role
-  (testing "a route's :resources route-metadata becomes a :param edge"
-    ;; The Resources artefact publishes :resources as an accepted route key;
-    ;; both façades are loaded in this core test, so reg-route accepts it.
-    (rf/reg-route :route/article
-                  {:resources [{:resource :article/by-slug
-                                :blocking? true}]} "/articles/:slug")
-    (rf/reg-resource :article/by-slug
-                     {:scope         :rf.scope/global
-                      :params-schema [:map [:slug :string]]}
-                     (fn [{:keys [slug]} _ctx]
-                       {:request {:method :get
-                                  :url    (str "/api/articles/" slug)}}))
-    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          edges (:edges g)
-          param (filter #(= :param (:role %)) edges)]
-      (is (some #(and (= [:rf/route :route/article] (:from %))
-                      (= [:resource :article/by-slug] (:to %))
-                      (= :param (:role %)))
-                param)
-          "the route-owned resource activation edge runs route → resource"))))
-
-;; ---- precise machine→selector edge targeting ------------------------------
+  ;; A flow is frame-scoped, so one frame's flow never overwrites another's.
+  (rf/make-frame {:id :app/a})
+  (rf/make-frame {:id :app/b})
+  (rf/with-frame :app/a
+    (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))
+  (rf/with-frame :app/b
+    (rf/reg-flow :shared/total {:inputs [[:basket :lines]] :output-path [:b-total]} count))
+  (is (= {[:flow :app/a :shared/total] [[:db [:a-total]] [:frame :app/a]]
+          [:flow :app/b :shared/total] [[:db [:b-total]] [:frame :app/b]]}
+         (into {} (keep (fn [[id node]]
+                          (when (= :shared/total (:id node))
+                            [id ((juxt :output :owner) node)])))
+               (:nodes (rf.derivation.graph/derivation-graph all-contributors))))))
 
 (deftest machine-selector-edge-targets-only-the-machine-it-reads
-  (testing "in a multi-machine app a selector edge runs ONLY from the machine
-            the selector reads — never the cross product of every machine"
-    ;; Two registered machines; ONE selector reading ONLY :upload/main.
-    (rf/reg-machine :upload/main
-                    {:initial :idle
-                     :data    {:progress 0}
-                     :states  {:idle {:on {:upload/start {:target :uploading}}}
-                               :uploading {:on {:upload/done {:target :idle}}}}})
-    (rf/reg-machine :download/main
-                    {:initial :idle
-                     :data    {:bytes 0}
-                     :states  {:idle {:on {:download/start {:target :fetching}}}
-                               :fetching {:on {:download/done {:target :idle}}}}})
-    (rf/reg-sub :upload/progress
-                {:inputs [[:rf/machine :upload/main]]}
-                (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
-    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          edges (:edges g)
-          sel   (filter #(= :selector (:role %)) edges)]
-      ;; EXACTLY one selector edge, from :upload/main → :upload/progress.
-      (is (= [{:from [:machine :upload/main]
-               :to   [:sub :upload/progress]
-               :role :selector}]
-             (vec sel))
-          "one selector edge, from the machine the selector actually reads —
-           none from the unrelated :download/main machine (no cross product)"))))
-
-(deftest machine-has-tag-selector-targets-the-named-machine
-  (testing "a [:rf.machine/has-tag? machine-id tag] selector targets only that machine"
-    (rf/reg-machine :upload/main
-                    {:initial :idle :data {} :states {:idle {}}})
-    (rf/reg-machine :download/main
-                    {:initial :idle :data {} :states {:idle {}}})
-    (rf/reg-sub :upload/busy?
-                {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
-                (fn [[tagged?] _] (boolean tagged?)))
-    (let [g   (rf.derivation.graph/derivation-graph all-contributors)
-          sel (filter #(= :selector (:role %)) (:edges g))]
-      (is (= [{:from [:machine :upload/main]
-               :to   [:sub :upload/busy?]
-               :role :selector}]
-             (vec sel))
-          "the has-tag? selector edge runs from the named machine only"))))
-
-;; ---- static vs live: the don't-execute rule -------------------------------
-
-(deftest parametric-sub-contributes-no-static-edge
-  (testing "a parametric input-fn sub contributes no static :input edge (don't-execute rule)"
-    (rf/reg-sub :article/page
-                {:inputs (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])}
-                (fn [[a c] _] {:article a :comments c}))
-    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          node  (get (:nodes g) [:sub :article/page])]
-      (is (= :parametric (:inputs node)) "its declared inputs are the :parametric marker")
-      ;; No static edge names a realized [:article/by-slug …] input — those
-      ;; only appear in the LIVE graph (per concrete query vector).
-      (is (not-any? #(= [:sub :article/page] (:to %)) (:edges g))
-          "no static input edge points at the parametric sub"))))
-
-;; ---- the bundle-isolation / artefact-absence story ------------------------
+  ;; Never the cross product of every registered machine.
+  (machine! :upload/main)
+  (machine! :download/main)
+  (rf/reg-sub :upload/progress
+              {:inputs [[:rf/machine :upload/main]]}
+              (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
+  (is (= [{:from [:machine :upload/main] :to [:sub :upload/progress] :role :selector}]
+         (filterv #(= :selector (:role %))
+                  (:edges (rf.derivation.graph/derivation-graph all-contributors))))))
 
 (deftest absent-family-contributes-no-nodes
-  (testing "a family whose contributor is absent contributes no nodes"
-    (register-one-of-each!)
-    ;; Drop the resources + machines contributors — simulate a no-resources
-    ;; / no-machines app. Those families must vanish from the graph.
-    (let [subset (dissoc all-contributors :resources :machines)
-          g      (rf.derivation.graph/derivation-graph subset)
-          families (->> (:nodes g) vals (map :rf/family) set)]
-      (is (= #{:subs :flows :routes} families)
-          "only the present families' nodes appear")
-      (is (not (contains? (:nodes g) [:resource :article/by-slug])))
-      (is (not (contains? (:nodes g) [:machine :upload/main])))))
-  (testing "the subs-only graph still assembles (the core-only app)"
-    (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-    (let [g (rf.derivation.graph/derivation-graph {:subs (:subs all-contributors)})]
-      (is (= #{:subs} (->> (:nodes g) vals (map :rf/family) set)))
-      (is (contains? (:nodes g) [:sub :cart/items])))))
-
-;; ---- default-contributors auto-resolution (JVM) ---------------------------
+  ;; The no-resources / no-machines app, and the core-only app.
+  (register-one-of-each!)
+  (is (= [#{:subs :flows :routes} #{:subs}]
+         (mapv #(families (rf.derivation.graph/derivation-graph (select-keys all-contributors %)))
+               [[:subs :flows :routes] [:subs]]))))
 
 (deftest default-contributors-resolves-every-jvm-sibling
-  (testing "on the JVM default-contributors auto-resolves all five families"
-    ;; Every artefact is on the core :test classpath, so resolution yields
-    ;; the full set (the no-arg derivation-graph composes them all).
-    (register-one-of-each!)
-    (let [g        (rf.derivation.graph/derivation-graph)
-          families (->> (:nodes g) vals (map :rf/family) set)]
-      (is (= #{:subs :flows :resources :routes :machines} families)
-          "the zero-arg form auto-resolves and composes every present family")
-      ;; And it equals the explicit-contributor composition.
-      (is (= (:nodes (rf.derivation.graph/derivation-graph))
-             (:nodes (rf.derivation.graph/derivation-graph all-contributors)))
-          "the auto-resolved graph equals the explicit-contributor graph"))))
+  ;; Every artefact is on the core :test classpath, so the zero-arg form
+  ;; composes the same graph as the explicit five-family map.
+  (register-one-of-each!)
+  (let [g (rf.derivation.graph/derivation-graph)]
+    (is (= [#{:subs :flows :resources :routes :machines}
+            (rf.derivation.graph/derivation-graph all-contributors)]
+           [(families g) g]))))
 
-;; ---- live graph: realized route slice + resource entries ------------------
+(deftest default-contributors-wires-the-machine-selector-targets-surface
+  ;; The zero-arg graph draws the precise machine → selector edge, so the
+  ;; resolver carries the machines family's selector-target extractor.
+  (machine! :upload/main)
+  (rf/reg-sub :upload/progress {:inputs [[:rf/machine :upload/main]]} (fn [[snapshot] _] snapshot))
+  (is (some #{{:from [:machine :upload/main] :to [:sub :upload/progress] :role :selector}}
+            (:edges (rf.derivation.graph/derivation-graph)))))
 
-(deftest live-graph-realizes-the-route-slice
-  (testing "the live graph carries the materialized route slice node"
-    (rf/reg-route :route/article {} "/articles/:slug")
-    ;; Drive a navigation so the route slice is materialized in runtime-db.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
-    (let [g     (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
-          slice (get (:nodes g) :rf/route)]
-      (is (= :route/article (:route-id slice)) "the live matched route id")
-      (is (= {:slug "welcome"} (:params slice)) "the live matched params"))))
+(deftest resolve-sibling-yields-nil-for-an-absent-family
+  ;; A genuinely-absent optional family is tolerated, not an error.
+  (is (nil? (#'rf.derivation.graph/resolve-sibling 'totally.absent.sibling/static-view
+                                                  'totally.absent.sibling/live-view
+                                                  :map))))
 
 ;; ---- live graph: realized route-owned resource edges ----------------------
 ;;
-;; The composer's live route→resource edge derivation is exercised through
-;; the PUBLIC `live-derivation-graph` over CUSTOM contributors that return
-;; the realized shapes a navigation-then-fetch produces — the live route
-;; slice with its `[:route route-id nav-token]` owner, and a concrete
-;; scoped-key resource entry whose `:lifecycle :owners` carries that SAME
-;; route owner. Driving these through the real edge-extraction path (not a
-;; private fn) pins that the static graph's `:parametric` route-resource
-;; marker resolves to a concrete edge in the live graph.
+;; Custom contributors return the realized shapes a navigation-then-fetch
+;; produces: the live route slice with its `[:route route-id nav-token]`
+;; owner, and a scoped-key resource entry whose `:lifecycle :owners` carries a
+;; route owner. The static graph's `:parametric` route-resource marker
+;; resolves to a concrete edge only in the live graph.
 
-(def ^:private nav-token-fixture 42)
 (def ^:private scoped-key-fixture
   [[:rf.scope/global] :article/by-slug {:slug "welcome"}])
 
-(defn- live-route-node-fixture []
-  {:id         :rf/route
-   :kind       :process
-   :refinement :route-fact
-   :route-id   :route/article
-   :params     {:slug "welcome"}
-   :nav-token  nav-token-fixture
-   :owner      [:route :route/article nav-token-fixture]
-   :output     [:runtime [:rf.runtime/routing :current]]
-   :storage    :runtime-db :evaluation :on-route :lifecycle :frame})
-
-(defn- live-resource-node-fixture [owners]
-  {:id         scoped-key-fixture
-   :kind       :process
-   :refinement :resource-process
-   :inputs     [[:scope [:rf.scope/global]] [:param {:slug "welcome"}]]
-   :output     [:runtime [:rf.runtime/resources :entries scoped-key-fixture]]
-   :storage    :runtime-db
-   :authority  {:kind :remote :system :server}
-   :evaluation #{:on-route}
-   :lifecycle  {:kind :scoped-resource-key :owners owners}
-   :status     :loaded})
-
-(defn- fixture-live-contributors
-  "A contributor map whose route + resource live-fns return the supplied
-  fixture nodes (and whose other families contribute nothing), so the
-  composer's live edge derivation runs over realized shapes."
-  [route-node resource-node]
-  {:routes    {:static-fn (constantly {}) :live-shape :node
-               :live-fn   (constantly route-node)}
-   :resources {:static-fn (constantly {}) :live-shape :map
-               :live-fn   (constantly (when resource-node
-                                        {scoped-key-fixture resource-node}))}})
+(defn- live-graph-with-resource-owner [owner]
+  (rf.derivation.graph/live-derivation-graph
+   :rf/default
+   {:routes    {:static-fn  (constantly {})
+                :live-shape :node
+                :live-fn    (constantly
+                             {:id         :rf/route
+                              :kind       :process
+                              :refinement :route-fact
+                              :route-id   :route/article
+                              :params     {:slug "welcome"}
+                              :nav-token  42
+                              :owner      [:route :route/article 42]
+                              :output     [:runtime [:rf.runtime/routing :current]]
+                              :storage    :runtime-db :evaluation :on-route :lifecycle :frame})}
+    :resources {:static-fn  (constantly {})
+                :live-shape :map
+                :live-fn    (constantly
+                             {scoped-key-fixture
+                              {:id         scoped-key-fixture
+                               :kind       :process
+                               :refinement :resource-process
+                               :inputs     [[:scope [:rf.scope/global]] [:param {:slug "welcome"}]]
+                               :output     [:runtime [:rf.runtime/resources :entries scoped-key-fixture]]
+                               :storage    :runtime-db
+                               :authority  {:kind :remote :system :server}
+                               :evaluation #{:on-route}
+                               :lifecycle  {:kind :scoped-resource-key :owners #{owner}}
+                               :status     :loaded}})}}))
 
 (deftest live-graph-draws-realized-route-owned-resource-edge
-  (testing "a route-owned resource entry (owner [:route route-id nav-token])
-            yields a :param edge from the live route node to the CONCRETE
-            [:resource <scoped-key>] node — the live resolution of the
-            static graph's :parametric route-resource marker"
-    (let [route-node (live-route-node-fixture)
-          res-node   (live-resource-node-fixture
-                       #{[:route :route/article nav-token-fixture]})
-          g          (rf.derivation.graph/live-derivation-graph
-                       :rf/default
-                       (fixture-live-contributors route-node res-node))
-          res-id     [:resource scoped-key-fixture]]
-      (is (contains? (:nodes g) :rf/route) "the live route node is present")
-      (is (contains? (:nodes g) res-id) "the concrete scoped-key resource node is present")
-      (is (some #(= % {:from  :rf/route
-                       :to    res-id
-                       :role  :param
-                       :owner [:route :route/article nav-token-fixture]})
-                (:edges g))
-          "the realized route→concrete-resource :param edge targets the concrete scoped key")))
-
-  (testing "a NON-route owner (e.g. a :rf.scope/global activation owner)
-            draws NO route-resource edge — only realized route owners do"
-    (let [route-node (live-route-node-fixture)
-          ;; owner is NOT a [:route …] shape → no route edge.
-          res-node   (live-resource-node-fixture #{[:component :some/widget]})
-          g          (rf.derivation.graph/live-derivation-graph
-                       :rf/default
-                       (fixture-live-contributors route-node res-node))]
-      (is (not-any? #(and (= :param (:role %))
-                          (= [:resource scoped-key-fixture] (:to %)))
-                    (:edges g))
-          "no route-resource edge for a non-route owner")))
-
-  (testing "an owner whose nav-token does NOT match any live route node
-            draws no edge (a stale / superseded owner)"
-    (let [route-node (live-route-node-fixture)        ;; nav-token 42
-          res-node   (live-resource-node-fixture
-                       #{[:route :route/article 999]}) ;; stale token
-          g          (rf.derivation.graph/live-derivation-graph
-                       :rf/default
-                       (fixture-live-contributors route-node res-node))]
-      (is (not-any? #(and (= :param (:role %))
-                          (= [:resource scoped-key-fixture] (:to %)))
-                    (:edges g))
-          "no edge when the resource owner's route nav-token matches no live route")))
-
-  (testing "the STATIC graph draws NO realized route-resource edge — realized
-            owners are live-only"
-    ;; The static-fns hand the composer the SAME realized route and resource
-    ;; nodes the first block draws an edge between, so the only thing keeping
-    ;; that edge out of the static graph is the composer's live-mode gate.
-    (let [g (rf.derivation.graph/derivation-graph
-              {:routes    {:static-fn (constantly {:route/article (live-route-node-fixture)})}
-               :resources {:static-fn (constantly
-                                        {scoped-key-fixture
-                                         (live-resource-node-fixture
-                                           #{[:route :route/article nav-token-fixture]})})}})]
-      (is (contains? (:nodes g) [:rf/route :route/article])
-          "the static graph carries the route node and its realized owner")
-      (is (contains? (:nodes g) [:resource scoped-key-fixture])
-          "the static graph carries the resource node that owner owns")
-      (is (not-any? #(= :param (:role %)) (:edges g))
-          "the static graph emits no realized route-resource edge"))))
-
-;; ---- optional-contributor loading (the no-flows / no-resources story) -----
-;;
-;; `resolve-var` tolerates a genuinely-absent optional family namespace (a
-;; FileNotFoundException → nil), the EXPECTED-absence a core-only / no-flows
-;; app produces. A present namespace resolves to its var; an init/compile
-;; failure of a present namespace propagates (not tested here — it requires a
-;; deliberately-broken sibling on the classpath).
-
-(deftest resolve-sibling-yields-nil-for-an-absent-family
-  (testing "an absent optional sibling resolves to nil (the family contributes
-            nothing) — the no-flows / no-resources story"
-    (is (nil? (#'rf.derivation.graph/resolve-sibling 'totally.absent.sibling/static-view
-                                       'totally.absent.sibling/live-view
-                                       :map))
-        "a genuinely-absent family yields nil (tolerated)")))
-
-(deftest default-contributors-wires-the-machine-selector-targets-surface
-  (testing "the JVM default contributors wire the machine selector-target
-            extractor (the machine-selector refinement reads it) — present
-            and callable, not dropped by the resolver"
-    (let [c (rf.derivation.graph/default-contributors)]
-      (is (fn? (get-in c [:machines :selector-targets]))
-          "the :machines contributor carries a callable :selector-targets extractor")
-      ;; and the assembled default-contributors graph draws the precise
-      ;; selector edge — the wiring is live end-to-end.
-      (rf/reg-machine :upload/main
-                      {:initial :idle :data {} :states {:idle {}}})
-      (rf/reg-sub :upload/progress
-                  {:inputs [[:rf/machine :upload/main]]}
-                  (fn [[snapshot] _] snapshot))
-      (let [g   (rf.derivation.graph/derivation-graph)            ;; zero-arg → default-contributors
-            sel (filter #(= :selector (:role %)) (:edges g))]
-        (is (some #(= % {:from [:machine :upload/main]
-                         :to   [:sub :upload/progress]
-                         :role :selector})
-                  sel)
-            "the default-contributor graph draws the precise machine→selector edge")))))
-
-;; ---- fixed family set: only the five in-tree families compose -------------
-;;
-;; The graph composes EXACTLY the five in-tree families (subs / flows /
-;; resources / routes / machines), iterating `rf.derivation.graph/families` filtered to the
-;; ones a contributor map carries. A contributor key OUTSIDE that fixed set
-;; contributes nothing — there is no synthetic-family extension path
-;; (pre-alpha posture: a sixth family is a spec/code change here).
-
-(deftest a-family-outside-the-fixed-five-contributes-no-nodes
-  (testing "a contributor key the central `families` vector does not list is
-            simply ignored — only the fixed five families compose"
-    (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-    (let [contributors {:subs    (:subs all-contributors)
-                        ;; :widgets is not one of the five — no contract entry,
-                        ;; not in `families` → never iterated, never composed.
-                        :widgets {:static-fn  (constantly {:w/a {:id :w/a :kind :process}})
-                                  :live-shape :map
-                                  :live-fn    (constantly {})}}
-          g     (rf.derivation.graph/derivation-graph contributors)
-          nodes (:nodes g)]
-      (is (contains? nodes [:sub :cart/items])
-          "the in-tree :subs family composes")
-      (is (= #{:subs} (->> nodes vals (map :rf/family) set))
-          "no node from the off-set :widgets family appears")
-      (is (not (contains? @#'rf.derivation.graph/family-contract :widgets))
-          "core has no contract entry for a family outside the fixed five"))))
+  ;; Only an owner matching a live route node's nav-token draws the edge; a
+  ;; stale or superseded owner draws none.
+  (is (= [{:from  :rf/route
+           :to    [:resource scoped-key-fixture]
+           :role  :param
+           :owner [:route :route/article 42]}]
+         (:edges (live-graph-with-resource-owner [:route :route/article 42]))))
+  (is (= [] (:edges (live-graph-with-resource-owner [:route :route/article 999])))))
