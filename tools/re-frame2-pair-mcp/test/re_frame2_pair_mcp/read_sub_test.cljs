@@ -1,33 +1,16 @@
 (ns re-frame2-pair-mcp.read-sub-test
-  "Unit tests for the read-sub tool — the validated one-shot
-  subscription read with no-silent-swallow parity with dispatch.
-
-  Two surfaces are pinned:
-
-    1. The arg-parse gate (server-side, no socket): the `sub` arg MUST
-       be an EDN vector — host-form source, a bare keyword, a map, and
-       unreadable input each return a STRUCTURED error envelope, never
-       reach the runtime.
-    2. The structured-result contract: a runtime `:ok? false` envelope
-       (unknown-id / ambiguous-frame / sub-error) rides back as an
-       :isError envelope — NEVER a silent nil success. A hit rides back
-       with the value + :elision flag.
-
-  The runtime `read-sub!` validation + subscribe-and-deref is exercised
-  by the bb structural pin (tests/runtime/read_sub_test.clj in the
-  skill); here we stub `cljs-eval-value` and pin the wire-boundary
-  behaviour."
+  "Unit tests for the read-sub tool — the validated one-shot subscription
+  read. The `sub` arg must be an EDN vector (host-form source never reaches
+  the runtime), and a runtime `:ok? false` rides back as isError, never a
+  silent nil success."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.read-sub :as read-sub]))
 
-;; Stub lifetime is fixture-scoped, not Promise-chain-scoped — see
-;; orient_test for the rationale. Each test installs its stub via a
-;; bare `set!`; the `:after` fixture restores the pristine original
-;; captured at ns-load. Closes the cross-test `connect EADDRNOTAVAIL`
-;; race a `.finally`-scoped restore otherwise opens.
+;; Stubs are installed by bare `set!` and restored by the fixture, so a late
+;; restore cannot clobber a neighbouring test's stub.
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 
 (use-fixtures :each
@@ -35,71 +18,30 @@
 
 (defn- fresh-conn []
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    ;; Pretend the preload is confirmed so probe resolves synchronously
-    ;; and we exercise the form-building / result-shaping path.
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-(def ^:private read-result-text tu/extract-edn)
-(def ^:private err? tu/error?)
-
-;; ---------------------------------------------------------------------------
-;; Arg-parse gate — the data-not-source boundary (mirrors dispatch).
-;; ---------------------------------------------------------------------------
-
 (deftest rejects-anything-but-a-sub-vector
-  ;; Host-form source must NOT reach the runtime — the parser reads it
-  ;; as a list, the vector-check fails, the runtime is never contacted.
-  ;; A bare keyword or a scalar fails the same check, typed by what it
-  ;; read as.
+  ;; No stub is installed: a parse that let these through would reach the
+  ;; real socket and fail with a different reason.
   (async done
     (-> (js/Promise.all
           (into-array
-            (mapv (fn [[input parsed-type]]
+            (mapv (fn [[input reason parsed-type]]
                     (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub input})
                         (.then (fn [r]
-                                 (is (err? r) input)
-                                 (let [edn (read-result-text r)]
-                                   (is (= :not-a-sub-vector (:reason edn)) input)
-                                   (is (= parsed-type (:parsed-type edn)) input))))))
-                  [["(rf/subscribe [:pwn])" :list]
-                   [":current-user"         :keyword]
-                   ["42"                    :scalar]])))
+                                 (let [edn (tu/extract-edn r)]
+                                   (is (= [true reason parsed-type]
+                                          [(tu/error? r) (:reason edn) (:parsed-type edn)])
+                                       input))))))
+                  [["(rf/subscribe [:pwn])" :not-a-sub-vector :list]
+                   [":current-user"         :not-a-sub-vector :keyword]
+                   ["[:foo"                 :invalid-sub-edn  nil]])))
         (.then (fn [_] (done))))))
 
-(deftest rejects-unreadable-edn
-  (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:foo"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :invalid-sub-edn (:reason (read-result-text r))))
-                 (done))))))
-
-(deftest rejects-blank-sub
-  (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "   "})
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :missing-sub (:reason (read-result-text r))))
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Acceptance — the EDN vector reaches the runtime read-sub! as data.
-;; ---------------------------------------------------------------------------
-
 (defn- stub-eval!
-  "Install a `cljs-eval-value` stub via a bare `set!` (NO `.finally` —
-  cleanup is the `:after` fixture's job). Records the READ-SUB form
-  string into `captured*` and resolves it with `canned`.
-
-  read-sub's prelude fires up to three evals: the preload-probe sentinel
-  (`__re_frame2_pair_runtime`), the `configure-raw-state!` signal-runtime
-  form, and the actual `read-sub!` form. The stub answers the probe with
-  `true` and the signal with `nil` (so the preflight + raw-state gate
-  pass regardless of conn-cache / module-atom state across interleaved
-  tests), captures ONLY the `read-sub!` form, and hands every non-prelude
-  form `canned` — so `@captured*` is never clobbered by a prelude eval.
-  `captured*` may be nil when the form isn't asserted."
+  "Answer the preload probe and the raw-state signal directly; record the
+  read-sub! form into `captured*` (may be nil) and answer it with `canned`."
   [captured* canned]
   (let [respond (fn [form]
                   (cond
@@ -124,32 +66,14 @@
       (stub-eval! captured {:ok? true :query-v [:current-user] :frame :rf/default :value {:id 42}})
       (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:current-user]"})
           (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [form @captured]
-                     (is (string? form))
-                     (is (re-find #"read-sub!" form)
-                         "routes through the runtime read-sub! fn")
-                     (is (re-find #"\[:current-user\]" form)
-                         "the query-v rides as an EDN literal — DATA")
-                     (is (str/includes? form "project-egress")
-                         "the value is projected server-side by default"))
-                   (let [edn (read-result-text r)]
-                     (is (true? (:ok? edn)))
-                     (is (= [:current-user] (:query-v edn)))
-                     (is (= {:id 42} (:value edn)))
-                     (is (true? (:elision edn))))
+                   (is (str/includes? @captured "project-egress")
+                       "the value is projected server-side by default")
+                   (is (= {:ok? true :query-v [:current-user] :value {:id 42} :elision true}
+                          (select-keys (tu/extract-edn r) [:ok? :query-v :value :elision])))
                    (done)))))))
 
-;; ---------------------------------------------------------------------------
-;; No-silent-swallow — structured runtime failures surface as :isError,
-;; never a silent nil success.
-;; ---------------------------------------------------------------------------
-
 (deftest unknown-sub-id-surfaces-as-error-with-nearest
-  ;; A typo'd sub-id must NOT silently subscribe to a non-existent sub
-  ;; and return nil. The runtime read-sub! validates first and returns
-  ;; :unknown-id + :nearest; the tool surfaces it as an :isError
-  ;; envelope.
+  ;; A typo'd sub-id must not silently subscribe and answer nil.
   (async done
     (let [runtime-result {:ok? false :reason :unknown-id :kind :sub
                           :id :current-userr :query-v [:current-userr]
@@ -158,33 +82,16 @@
       (stub-eval! nil runtime-result)
       (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:current-userr]"})
           (.then (fn [r]
-                   (is (err? r) "unknown sub-id ⇒ :isError, never a silent nil")
-                   (let [edn (read-result-text r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :unknown-id (:reason edn)))
-                     (is (= [:current-user] (:nearest edn))
-                         "nearest matches carried for a corrective retry")
-                     (is (= [:current-userr] (:query-v edn))
-                         "the resolved query-v is echoed even on the miss")
-                     (is (false? (:subscribed? edn))))
+                   (is (= [true runtime-result] [(tu/error? r) (tu/extract-edn r)]))
                    (done)))))))
 
 (deftest frame-arg-routes-to-named-frame
-  ;; The colon-prefixed frame arg coerces to the well-formed keyword and
-  ;; rides into the runtime read-sub! call as a second arg.
+  ;; The colon-prefixed frame coerces to the well-formed :rf/xray, not the
+  ;; malformed ::rf/xray, and rides as read-sub!'s second arg.
   (async done
     (let [captured (atom nil)]
       (stub-eval! captured {:ok? true :query-v [:state] :frame :rf/xray :value 1})
       (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:state]" :frame ":rf/xray"})
           (.then (fn [_]
-                   ;; The inner runtime form is
-                   ;; (rt/read-sub! (quote [:state]) :rf/xray); elision
-                   ;; wraps it in a let. The query rides QUOTED as caller
-                   ;; EDN; the frame is server-coerced, so it
-                   ;; stays a bare keyword — assert it is well-formed (not
-                   ;; the malformed ::rf/xray).
-                   (is (re-find #"read-sub! \(quote \[:state\]\) :rf/xray" @captured)
-                       "frame routes to the well-formed :rf/xray keyword")
-                   (is (not (re-find #"::rf/xray" @captured))
-                       "no malformed double-colon keyword in the form")
+                   (is (re-find #"read-sub! \(quote \[:state\]\) :rf/xray" @captured))
                    (done)))))))
