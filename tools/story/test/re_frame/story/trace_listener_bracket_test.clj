@@ -1,23 +1,9 @@
 (ns re-frame.story.trace-listener-bracket-test
-  "JVM pins for the register/try/finally trace-listener bracket that
-  runtime's phase-1/2 capture and frames' setup + teardown capture share
-  (`rf.story.error/with-trace-listener`).
-
-  The three call sites share one bracket and differ only by the
-  listener-id prefix, so these tests pin the ids each call site
-  registers — what lands on the trace bus — observed through the trace
-  registry itself:
-
-  - `:re-frame.story.runtime/capture-<n>`        — phases 1 and 2;
-  - `:re-frame.story.frames/setup-capture-<n>`    — the `:frame-setup`
-                                                    `:init` walk;
-  - `:re-frame.story.frames/teardown-capture-<n>` — the `:loaders-teardown`
-                                                    and decorator `:teardown`
-                                                    walks.
-
-  Each prefix counts on its own: consecutive brackets of one prefix carry
-  consecutive `<n>`, whatever the other prefixes did in between. And every
-  bracket removes its listener when its body returns."
+  "The register/try/finally trace-listener bracket
+  (`rf.story.error/with-trace-listener`) that runtime's phase-1/2 capture
+  and frames' setup and teardown capture share: each call site registers
+  under its own id prefix, and every bracket removes its listener when its
+  body returns."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -30,8 +16,6 @@
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.story.play       :as rf.story.play]
             [re-frame.trace.tooling    :as rf.trace.tooling]))
-
-;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all [test-fn]
   (rf.story/clear-all!)
@@ -51,8 +35,6 @@
 
 (use-fixtures :each reset-all)
 
-;; ---- the registry probe ---------------------------------------------------
-
 (def ^:private bracket-shapes
   {["re-frame.story.runtime" "capture"]          :runtime
    ["re-frame.story.frames"  "setup-capture"]    :setup
@@ -69,9 +51,7 @@
 (defn- with-registry-probe
   "Run `body-fn` with the trace registry instrumented. Returns
   `{:registered [id …] :live #{id …}}` — every id registered, in order, and
-  the ids still registered once `body-fn` returns. Redefining the
-  `re-frame.trace.tooling` vars reaches every registration: the facade's
-  `:trace` arm calls them at call time."
+  the ids still registered once `body-fn` returns."
   [body-fn]
   (let [registered (atom [])
         live       (atom #{})]
@@ -89,12 +69,9 @@
       (body-fn))
     {:registered @registered :live @live}))
 
-;; ---- the pins -------------------------------------------------------------
-
 (deftest every-bracket-registers-its-own-prefixed-id
   (testing "two run/destroy cycles of a variant that reaches all three
-            brackets register exactly these ids: runtime's capture-<n>,
-            frames' setup-capture-<n> and teardown-capture-<n>, each prefix
+            brackets register each site's prefixed ids, each prefix
             counting on its own, and none survives its bracket"
     (rf/reg-event :tlb/noop (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-decorator :tlb-frame-setup
@@ -110,17 +87,15 @@
               (dotimes [_ 2]
                 (rf.story.async/deref-blocking (rf.story/run-variant :story.tlb/v) 5000)
                 (rf.story/destroy-variant! :story.tlb/v))))
-          brackets (keep bracket-id registered)
           by-shape (reduce (fn [m [shape n]] (update m shape (fnil conj []) n))
                            {}
-                           brackets)]
+                           (keep bracket-id registered))]
       (is (= {:runtime 4 :setup 2 :teardown 4}
              (update-vals by-shape count))
           "per cycle: phases 1 and 2 bracket once each, the :init walk once,
            the :loaders-teardown and decorator :teardown walks once each")
       (doseq [[shape ns] by-shape]
         (is (= ns (vec (range (first ns) (+ (first ns) (count ns)))))
-            (str shape " ids count on their own prefix's counter — "
-                 "consecutive, never interleaved with the other two")))
-      (is (not-any? (comp some? bracket-id) live)
+            (str shape " ids count on their own prefix's counter")))
+      (is (not-any? bracket-id live)
           "every bracket unregistered its listener"))))
