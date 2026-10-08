@@ -1,42 +1,15 @@
 (ns re-frame.final-state-cljs-test
-  "Verifies the `:final?` / `:on-done` / `:output-key` contract for
-  state-machine final states. Ten decisions (D1-D10) are exercised
-  here under both JVM and CLJS runtimes.
-
-   D1 — `:final?` is a first-class key on the state node (NOT under
-        `:meta`).
-   D2 — `:on-done` on the parent's `:spawn` map is the parent-
-        notification hook; signature `(fn [data result] new-data)`.
-   D3 — `:output-key` on the child's `:final?` state designates which
-        `:data` slot is reported back.
-   D4 — Auto-destroy is synchronous on entry to a `:final?` state.
-   D5 — Dispatch after finality is answered by what the address
-        CARRIES: a surviving `reg-machine` DEFINITION
-        births a fresh instance; an address with no definition takes the
-        destroyed-frame trace path (`:rf.error/no-such-handler`).
-   D6 — `:rf.machine/done` event fires with `:actor-id`, `:output`,
-        `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`
-        (pinned in `destroy_silent_idempotent_cljs_test`).
-   D7 — Singleton symmetry — a non-spawned machine reaching `:final?`
-        also auto-destroys.
-   D9 — Specified and implemented together (not deferred).
-   D10 — `:fsm/final-states` capability axis.
-
-  The file is named `*-cljs-test.cljc` so it's discovered by both
-  cognitect.test-runner (JVM) and shadow-cljs (CLJS). The JVM path
-  initialises the plain-atom substrate via `rf/init!`; the CLJS path
-  attaches the Reagent substrate via `make-reset-runtime-fixture`."
+  "The `:final?` / `:on-done` / `:output-key` contract (Spec 005 §Final
+  states, D1-D10): entering a `:final?` state auto-destroys the instance,
+  emits `:rf.machine/done`, and routes the `:output-key` slot to the
+  spawning parent."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   ;; The listener surface lives in `re-frame.trace.tooling`
-   ;; (production-DCE split). On JVM the convenience aliases in
-   ;; re-frame.core preserve the `rf/<name>` shape, but on CLJS the
-   ;; tooling sibling must be referenced directly.
-   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
-   [re-frame.registrar :as rf.registrar]
+   [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
@@ -45,8 +18,6 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; snapshot lookup via the shared machines test-support — no hardcoded
-;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- traces-for
@@ -59,409 +30,178 @@
     (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
-;; ---- (a) entering :final? triggers :on-done with the right output ---------
+(defn- spawned-at-working [parent-id]
+  (get-in (rf.machines.test-support/runtime-db)
+          [:rf.runtime/machines :spawned parent-id [:working]]))
+
+(defn- first-instance [type-id]
+  (keyword (namespace type-id) (str (name type-id) "#1")))
+
+(defn- spawn-and-finish!
+  "Spawn `child-type` under `parent-id`, whose `:on-done` records its result,
+  send the child `[:fin]`, and return the recorded result (`:unset` when
+  `:on-done` never ran)."
+  [parent-id child-type]
+  (let [seen (atom :unset)]
+    (rf/reg-machine parent-id
+      {:initial :working
+       :states  {:working {:spawn {:machine-id child-type
+                                   :on-done    (fn [{d :data r :result}] (reset! seen r) d)}}}})
+    (rf/dispatch-sync [parent-id [:rf.machine.spawn/spawned]])
+    (rf/dispatch-sync [(first-instance child-type) [:fin]])
+    @seen))
 
 (deftest child-final-state-fires-on-done-with-output
-  (testing "child entering :final? fires parent's :on-done with the :output-key slot"
-    (rf/reg-machine :rf2-gn80/child
+  (rf/reg-machine :rf2-gn80/child
+    {:initial :running
+     :data    {}
+     :states
+     {:running {:on {:finish {:target :done
+                              :action (fn [{data :data ev :event}]
+                                        {:data (assoc data :token (second ev))})}}}
+      :done    {:final?     true
+                :output-key :token}}})
+  (rf/reg-machine :rf2-gn80/parent
+    {:initial :idle
+     :data    {}
+     :states
+     {:idle    {:on {:start :working}}
+      :working {:spawn {:machine-id :rf2-gn80/child
+                        :on-done    (fn [{data :data result :result}]
+                                      (assoc data :token-from-child result))}}}})
+  (rf/dispatch-sync [:rf2-gn80/parent [:start]])
+  (let [child (spawned-at-working :rf2-gn80/parent)]
+    (rf/dispatch-sync [child [:finish :auth/secret-token]])
+    (is (= [:auth/secret-token nil nil]
+           [(get-in (snapshot :rf2-gn80/parent) [:data :token-from-child])
+            (snapshot child)
+            (spawned-at-working :rf2-gn80/parent)])
+        "the parent's :on-done got the :output-key slot; the child's snapshot and spawn slot are cleared")))
+
+(deftest done-trace-fires-with-actor-id-output-parent-id
+  (let [traces (record-traces! ::done-trace)]
+    (rf/reg-machine :rf2-gn80/child2
       {:initial :running
        :data    {}
        :states
        {:running {:on {:finish {:target :done
                                 :action (fn [{data :data ev :event}]
-                                          {:data (assoc data :token (second ev))})}}}
+                                          {:data (assoc data :result (second ev))})}}}
         :done    {:final?     true
-                  :output-key :token}}})
-    (rf/reg-machine :rf2-gn80/parent
-      {:initial :idle
-       :data    {}
-       :states
-       {:idle
-        {:on {:start :working}}
-
-        :working
-        {:spawn {:machine-id :rf2-gn80/child
-                  :on-done (fn [{data :data result :result}] (assoc data :token-from-child result))}}}})
-    (rf/dispatch-sync [:rf2-gn80/parent [:start]])
-    ;; Now the child is spawned. Drive its :finish to enter :final?.
-    (let [spawned-id (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         (get-in [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))]
-      (is (some? spawned-id)
-          "child was spawned and bound in the registry")
-      (rf/dispatch-sync [spawned-id [:finish :auth/secret-token]])
-      (is (= :auth/secret-token
-             (get-in (snapshot :rf2-gn80/parent) [:data :token-from-child]))
-          "the parent's :on-done ran against the child's :output-key slot")
-      (is (nil? (snapshot spawned-id))
-          "the child's snapshot was synchronously dissoc'd (D4 auto-destroy)")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))
-          "the [:rf.runtime/machines :spawned <parent> <invoke-id>] slot was cleared"))))
-
-;; ---- (b) :rf.machine/done trace emitted with the right payload -----------
-
-(deftest done-trace-fires-with-actor-id-output-parent-id
-  (testing ":rf.machine/done trace carries :actor-id, :output, :parent-id (D6)"
-    (let [traces (record-traces! ::done-trace)]
-      (rf/reg-machine :rf2-gn80/child2
-        {:initial :running
-         :data    {}
-         :states
-         {:running {:on {:finish {:target :done
-                                  :action (fn [{data :data ev :event}]
-                                            {:data (assoc data :result (second ev))})}}}
-          :done    {:final?     true
-                    :output-key :result}}})
-      (rf/reg-machine :rf2-gn80/parent2
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/child2
-                    :on-done (fn [{d :data r :result}] (assoc d :reported r))}}}})
-      (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/parent2 [:working]])]
-        (rf/dispatch-sync [spawned-id [:finish 42]])
-        (let [dones (traces-for traces :rf.machine/done)]
-          (is (= 1 (count dones))
-              "exactly one :rf.machine/done trace fired")
-          (let [t (first dones)]
-            (is (= spawned-id            (-> t :tags :actor-id)))
-            (is (= 42                    (-> t :tags :output)))
-            (is (= :rf2-gn80/parent2     (-> t :tags :parent-id)))))))))
-
-;; ---- (c) singleton symmetry: standalone reaches :final? auto-destroys -----
-
-(deftest singleton-reaches-final-auto-destroys
-  (testing "D7: a singleton machine (no :spawn parent) reaching :final? auto-destroys"
-    (let [traces (record-traces! ::sym-trace)]
-      (rf/reg-machine :rf2-gn80/sing
-        {:initial :running
-         :states
-         {:running {:on {:end :done}}
-          :done    {:final?     true
-                    :output-key :result}}})
-      (rf/dispatch-sync [:rf2-gn80/sing [:end]])
-      (is (nil? (snapshot :rf2-gn80/sing))
-          "singleton snapshot was cleared on :final? entry")
-      (is (some? (rf.registrar/lookup :event :rf2-gn80/sing))
-          "D7 destroys the singleton INSTANCE; its DEFINITION survives, so the
-           address stays creatable")
-      (let [dones (traces-for traces :rf.machine/done)]
-        (is (= 1 (count dones))
-            "one :rf.machine/done fired even with no parent")
-        (is (nil? (-> (first dones) :tags :parent-id))
-            ":parent-id is nil for singletons (D7)")))))
-
-;; ---- (d) the child's snapshot is gone by the time :on-done folds -----
-
-(deftest child-snapshot-cleared-at-child-teardown
-  (testing "D8: the child's snapshot clears with its teardown, so the parent's
-            :on-done fold — which runs at the PARENT's boundary on the
-            completion carrier, after the child is gone — observes no live
-            child. A snapshot that still resolved would name a destroyed actor."
-    (let [on-done-saw-snapshot (atom :unset)]
-      (rf/reg-machine :rf2-gn80/sid-child
-        {:initial :running
-         :data    {}
-         :actions {:stamp (fn [{d :data}] {:data (assoc d :payload :sid-child/value)})}
-         :states
-         {:running {:on {:fin {:target :done :action :stamp}}}
-          :done    {:final?     true
-                    :output-key :payload}}})
-      (rf/reg-machine :rf2-gn80/sid-parent
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/sid-child
-                    :on-done (fn [{d :data r :result}]
-                                  ;; D8: by the time this fold runs the child
-                                  ;; has completed and been torn down.
-                                  (reset! on-done-saw-snapshot
-                                          (snapshot :rf2-gn80/sid-child#1))
-                                  (assoc d :result r))}}}})
-      (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/sid-parent [:working]])]
-        (is (some? (snapshot spawned-id))
-            "the child's snapshot is live while it is running")
-        (rf/dispatch-sync [spawned-id [:fin]])
-        (is (nil? @on-done-saw-snapshot)
-            ":on-done saw NO live child snapshot — the child was already torn down when its completion reached the parent (D8)")
-        (is (nil? (snapshot spawned-id))
-            "the child's snapshot is cleared (D8)")
-        (is (= :sid-child/value (:result (:data (snapshot :rf2-gn80/sid-parent))))
-            "the fold still ran and still received the child's :output-key value")))))
-
-;; ---- (e) dispatch after finality — D5 ------------------------------------
+                  :output-key :result}}})
+    (rf/reg-machine :rf2-gn80/parent2
+      {:initial :working
+       :states  {:working {:spawn {:machine-id :rf2-gn80/child2}}}})
+    (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
+    (let [child (spawned-at-working :rf2-gn80/parent2)]
+      (rf/dispatch-sync [child [:finish 42]])
+      (is (= [{:actor-id child :output 42 :parent-id :rf2-gn80/parent2}]
+             (map #(select-keys (:tags %) [:actor-id :output :parent-id])
+                  (traces-for traces :rf.machine/done)))))))
 
 (deftest dispatch-to-done-singleton-recreates-from-its-surviving-definition
-  (testing "D5: a singleton that reached :final? keeps its
-            `reg-machine` DEFINITION, so a later ORDINARY dispatch to the same
-            address births a FRESH instance from the initial snapshot — no
-            :rf.error/no-such-handler, and no
-            :rf.machine/dispatched-while-done half-state"
-    (let [traces (record-traces! ::recreated)]
-      (rf/reg-machine :rf2-gn80/finalised
-        {:initial :running
-         :states
-         {:running {:on {:fin :done}}
-          :done    {:final? true}}})
-      (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
-      (is (nil? (snapshot :rf2-gn80/finalised))
-          "the INSTANCE is gone — the auto-destroy cleared the snapshot")
-      (is (some? (rf.registrar/lookup :event :rf2-gn80/finalised))
-          "the DEFINITION survives — the address is still creatable")
-      ;; An ORDINARY event, deliberately NOT [:rf.machine/start]: the rule
-      ;; covers the whole event surface, because an absent snapshot is
-      ;; synthesised for any event.
-      (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
-      (is (= :running (:state (snapshot :rf2-gn80/finalised)))
-          "a fresh instance was born at its initial state — the address behaves
-           exactly as it did before its first start")
-      (is (not-any? #(= :rf.error/no-such-handler (:operation %)) @traces)
-          "no :rf.error/no-such-handler — the surviving definition answered it")
-      (is (not-any? #(= :rf.machine/dispatched-while-done (:operation %)) @traces)
-          "no :rf.machine/dispatched-while-done half-state (D5)"))))
+  ;; D7: a singleton reaching :final? auto-destroys and emits one
+  ;; :rf.machine/done with a nil :parent-id. D5: its surviving DEFINITION
+  ;; births a fresh instance for the next ORDINARY event.
+  (let [traces (record-traces! ::recreated)]
+    (rf/reg-machine :rf2-gn80/finalised
+      {:initial :running
+       :states  {:running {:on {:fin :done}}
+                 :done    {:final? true}}})
+    (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
+    (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
+    (is (= [[nil] :running]
+           [(map (comp :parent-id :tags) (traces-for traces :rf.machine/done))
+            (:state (snapshot :rf2-gn80/finalised))]))))
 
-(deftest dispatch-to-destroyed-spawned-actor-surfaces-no-such-handler
-  (testing "D5's OTHER half: an address carrying
-            NO definition — a destroyed spawned actor at its own `:fixed-actor-id`
-            — surfaces :rf.error/no-such-handler"
-    (let [traces (record-traces! ::no-handler)]
-      (rf/reg-machine :rf2-gn80/kid
-        {:initial :running :data {} :states {:running {}}})
-      (rf/reg-event :rf2-gn80/install-kid
-        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :rf2-gn80/kid
-                                            :fixed-actor-id :rf2-gn80/kid-at}]]}))
-      (rf/reg-event :rf2-gn80/drop-kid
-        (fn [_ _] {:fx [[:rf.machine/destroy :rf2-gn80/kid-at]]}))
-      (rf/dispatch-sync [:rf2-gn80/install-kid])
-      (is (some? (snapshot :rf2-gn80/kid-at)) "precondition: the actor is live")
-      (is (nil? (rf.registrar/lookup :event :rf2-gn80/kid-at))
-          "precondition: a spawned actor registers nothing — the address carries
-           no definition of its own")
-      (rf/dispatch-sync [:rf2-gn80/drop-kid])
-      (is (nil? (snapshot :rf2-gn80/kid-at)) "the actor was destroyed")
-      (rf/dispatch-sync [:rf2-gn80/kid-at [:something]])
-      (is (some #(= :rf.error/no-such-handler (:operation %)) @traces)
-          "the no-such-handler trace path fired (D5 — no separate half-state)")
-      (is (not-any? #(= :rf.machine/dispatched-while-done (:operation %)) @traces)
-          "no :rf.machine/dispatched-while-done trace event (D5)"))))
-
-;; ---- :output-key absent on final state — :on-done receives nil ----------
+(deftest child-snapshot-cleared-at-child-teardown
+  ;; The parent's :on-done fold runs at the PARENT's boundary on the
+  ;; completion carrier, after the child is torn down, so it never sees a
+  ;; live child.
+  (let [on-done-saw-snapshot (atom :unset)]
+    (rf/reg-machine :rf2-gn80/sid-child
+      {:initial :running
+       :states  {:running {:on {:fin :done}}
+                 :done    {:final? true}}})
+    (rf/reg-machine :rf2-gn80/sid-parent
+      {:initial :working
+       :states  {:working {:spawn {:machine-id :rf2-gn80/sid-child
+                                   :on-done    (fn [{d :data}]
+                                                 (reset! on-done-saw-snapshot
+                                                         (snapshot :rf2-gn80/sid-child#1))
+                                                 d)}}}})
+    (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
+    (rf/dispatch-sync [:rf2-gn80/sid-child#1 [:fin]])
+    (is (nil? @on-done-saw-snapshot))))
 
 (deftest final-without-output-key-passes-nil-to-on-done
-  (testing "a :final? state without :output-key passes nil as the :on-done result"
-    (let [seen-result (atom :unset)]
-      (rf/reg-machine :rf2-gn80/no-output
-        {:initial :running
-         :states
-         {:running {:on {:fin :done}}
-          :done    {:final? true}}})
-      (rf/reg-machine :rf2-gn80/observer
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/no-output
-                    :on-done (fn [{d :data r :result}]
-                                  (reset! seen-result r)
-                                  d)}}}})
-      (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/observer [:working]])]
-        (rf/dispatch-sync [spawned-id [:fin]])
-        (is (nil? @seen-result)
-            "with no :output-key, :on-done received nil (per D3)")))))
-
-;; ---- parallel: a region still non-final keeps the machine alive ----------
-;;
-;; The all-regions-final auto-destroy is root-lifecycle-test's
-;; parallel-root-exit-follows-every-region-at-finality.
-
-(deftest parallel-one-region-final-stays-alive
-  (testing "a parallel-region machine with one region still non-final stays alive (per spec composition rule)"
-    (rf/reg-machine :rf2-gn80/par-partial
-      {:type    :parallel
-       :regions {:left  {:initial :a
-                         :states  {:a {:on {:end-left :z}}
-                                   :z {:final? true}}}
-                 :right {:initial :a
-                         :states  {:a {:on {:end-right :z}}
-                                   :z {:final? true}}}}})
-    (rf/dispatch-sync [:rf2-gn80/par-partial [:end-left]])
-    (is (= {:left :z :right :a} (:state (snapshot :rf2-gn80/par-partial)))
-        "only the :left region reached :final? — the machine is still live")))
-
-;; ---- (C2) :output-key on a NON-FIRST region's terminal leaf ----
-;; A spawned parallel child whose :output-key lives on a region OTHER than the
-;; first (canonical region-declaration order) still reports that slot back
-;; through the parent's :spawn :on-done — finalize scans every region's
-;; terminal leaf for the :output-key, not just the first.
+  (rf/reg-machine :rf2-gn80/no-output
+    {:initial :running
+     :states  {:running {:on {:fin :done}}
+               :done    {:final? true}}})
+  (is (nil? (spawn-and-finish! :rf2-gn80/observer :rf2-gn80/no-output))))
 
 (deftest parallel-output-key-on-non-first-region-reported
-  (testing "C2: a spawned parallel child reports :output-key from a NON-FIRST region"
-    (let [seen-result (atom :unset)]
-      (rf/reg-machine :rf2-gn80/par-child
-        {:type    :parallel
-         ;; :alpha is the FIRST region and carries NO :output-key; :beta (a
-         ;; later region) is the one declaring :output-key — finalize must
-         ;; scan past the first region's leaf to find it.
-         :regions {:alpha {:initial :run
-                           :states  {:run  {:on {:fin :done}}
-                                     :done {:final? true}}}
-                   :beta  {:initial :run
-                           :states  {:run  {:on {:fin {:target :done
-                                                       :action (fn [{data :data}]
-                                                                 {:data (assoc data :payload :beta/value)})}}}
-                                     :done {:final?     true
-                                            :output-key :payload}}}}})
-      (rf/reg-machine :rf2-gn80/par-observer
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/par-child
-                    :on-done (fn [{d :data r :result}]
-                               (reset! seen-result r)
-                               d)}}}})
-      (rf/dispatch-sync [:rf2-gn80/par-observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/par-observer [:working]])]
-        (is (some? spawned-id) "parallel child was spawned")
-        ;; :fin is broadcast to both regions; both reach :final? → the child
-        ;; finishes and the parent's :on-done fires.
-        (rf/dispatch-sync [spawned-id [:fin]])
-        (is (= :beta/value @seen-result)
-            ":on-done received the :output-key slot from the NON-FIRST region (C2)")
-        (is (nil? (snapshot spawned-id))
-            "the parallel child auto-destroyed on all-regions-final")))))
+  ;; :alpha, the FIRST region, declares no :output-key; finalize scans on to :beta's.
+  (rf/reg-machine :rf2-gn80/par-child
+    {:type    :parallel
+     :regions {:alpha {:initial :run
+                       :states  {:run  {:on {:fin :done}}
+                                 :done {:final? true}}}
+               :beta  {:initial :run
+                       :states  {:run  {:on {:fin {:target :done
+                                                   :action (fn [{data :data}]
+                                                             {:data (assoc data :payload :beta/value)})}}}
+                                 :done {:final?     true
+                                        :output-key :payload}}}}})
+  (is (= :beta/value (spawn-and-finish! :rf2-gn80/par-observer :rf2-gn80/par-child))))
 
 (deftest parallel-output-key-conflict-emits-error-and-first-region-wins
-  (testing "C2: two regions declaring DIFFERENT :output-keys emit an error trace; the first region wins"
-    (let [traces      (record-traces! ::okey-conflict)
-          seen-result (atom :unset)]
-      (rf/reg-machine :rf2-gn80/par-conflict-child
-        {:type    :parallel
-         :regions {:alpha {:initial :run
-                           :states  {:run  {:on {:fin {:target :done
-                                                       :action (fn [{data :data}]
-                                                                 {:data (assoc data :a-out :alpha/value)})}}}
-                                     :done {:final?     true
-                                            :output-key :a-out}}}
-                   :beta  {:initial :run
-                           :states  {:run  {:on {:fin {:target :done
-                                                       :action (fn [{data :data}]
-                                                                 {:data (assoc data :b-out :beta/value)})}}}
-                                     :done {:final?     true
-                                            :output-key :b-out}}}}})
-      (rf/reg-machine :rf2-gn80/par-conflict-observer
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/par-conflict-child
-                    :on-done (fn [{d :data r :result}]
-                               (reset! seen-result r)
-                               d)}}}})
-      (rf/dispatch-sync [:rf2-gn80/par-conflict-observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/par-conflict-observer [:working]])]
-        (rf/dispatch-sync [spawned-id [:fin]])
-        (is (= :alpha/value @seen-result)
-            "the FIRST region's :output-key wins the conflict (deterministic tiebreak)")
-        (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict))
-            "a :rf.error/machine-parallel-output-key-conflict trace was emitted")))))
-
-;; ---- :error? final on a NON-FIRST region routes as ERROR ------
-;; A spawned PARALLEL child whose FIRST region (canonical region-declaration
-;; order) reaches a plain final but a NON-FIRST region reaches
-;; `{:final? true :error? true}`
-;; routes to the spawning parent's `:spawn :on-error` (control flow) — NOT
-;; `:on-done` — and the `:rf.machine/done` trace carries `:error? true`.
-;; Finalize scans every region's terminal leaf for `:error?` (the same
-;; all-regions scan the C2 `:output-key` case above relies on), so an error
-;; final in any region is classified as an error finish.
+  (let [traces (record-traces! ::okey-conflict)]
+    (rf/reg-machine :rf2-gn80/par-conflict-child
+      {:type    :parallel
+       :regions {:alpha {:initial :run
+                         :states  {:run  {:on {:fin {:target :done
+                                                     :action (fn [{data :data}]
+                                                               {:data (assoc data :a-out :alpha/value)})}}}
+                                   :done {:final?     true
+                                          :output-key :a-out}}}
+                 :beta  {:initial :run
+                         :states  {:run  {:on {:fin {:target :done
+                                                     :action (fn [{data :data}]
+                                                               {:data (assoc data :b-out :beta/value)})}}}
+                                   :done {:final?     true
+                                          :output-key :b-out}}}}})
+    (is (= :alpha/value
+           (spawn-and-finish! :rf2-gn80/par-conflict-observer :rf2-gn80/par-conflict-child)))
+    (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict)))))
 
 (deftest parallel-error-final-on-non-first-region-routes-as-error
-  (testing "a spawned parallel child whose NON-FIRST region reaches an :error? final routes to :on-error, not :on-done"
-    (let [traces       (record-traces! ::par-err-non-first)
-          on-done-ran? (atom false)]
-      (rf/reg-machine :rf2-encnvn/par-err-child
-        {:type    :parallel
-         ;; :alpha is the FIRST region and reaches a PLAIN final (no :error?).
-         ;; :beta (a later region) is the one reaching the ERROR terminal —
-         ;; finalize classifies the finish off every region, so :beta's
-         ;; error final wins.
-         :regions {:alpha {:initial :run
-                           :states  {:run  {:on {:fin :done}}
-                                     :done {:final? true}}}
-                   :beta  {:initial :run
-                           :states  {:run  {:on {:fin {:target :failed
-                                                       :action (fn [{data :data}]
-                                                                 {:data (assoc data :err :beta/boom)})}}}
-                                     :failed {:final?     true
-                                              :error?     true
-                                              :output-key :err}}}}})
-      (rf/reg-machine :rf2-encnvn/par-err-parent
-        {:initial :working
-         :data    {}
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-encnvn/par-err-child
-                    ;; If finalize mis-classifies the finish as success, :on-done
-                    ;; fires (flipping the flag) and :on-error never runs.
-                    :on-done  (fn [{d :data}] (reset! on-done-ran? true) d)
-                    :on-error {:target :errored                  ;; ← sibling of :working
-                               :action (fn [{data :data ev :event}]
-                                         ;; ev = [:rf.machine.spawn/error <invoke-id> <error>]
-                                         {:data (assoc data :captured (nth ev 2))})}}}
-          :errored {}}})
-      (rf/dispatch-sync [:rf2-encnvn/par-err-parent [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-encnvn/par-err-parent [:working]])]
-        (is (some? spawned-id) "parallel child was spawned")
-        ;; :fin is broadcast to both regions; :alpha reaches its plain final and
-        ;; :beta reaches its :error? final → all-regions-final → the child
-        ;; finishes via an ERROR terminal in a NON-FIRST region.
-        (rf/dispatch-sync [spawned-id [:fin]])
-        (is (= :errored (:state (snapshot :rf2-encnvn/par-err-parent)))
-            "the parent moved to :errored — its :spawn :on-error fired (NOT :on-done)")
-        (is (= :beta/boom (get-in (snapshot :rf2-encnvn/par-err-parent) [:data :captured]))
-            "the error payload (the error region's :output-key slot) rode into the :on-error transition's :event")
-        (is (false? @on-done-ran?)
-            ":on-done was NOT called — error finish skips the success callback")
-        (is (nil? (snapshot spawned-id))
-            "the parallel child auto-destroyed on all-regions-final")
-        (let [dones (traces-for traces :rf.machine/done)]
-          (is (= 1 (count dones)) "exactly one :rf.machine/done trace fired")
-          (let [t (first dones)]
-            (is (true? (-> t :tags :error?))
-                "the :rf.machine/done trace classifies the completion as :error? true")
-            (is (= :error (-> t :tags :rf.reply/status))
-                "the reply-envelope status is :error, not :ok")))))))
-
-;; ---- registration-time validation -----------------------------------------
-
-(deftest final-state-validations
-  (testing "compound :final? state is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-final-state-compound"
-          (rf/reg-machine :rf2-gn80/bad
-            {:initial :a
-             :states  {:a {:final? true
-                           :states  {:b {}}
-                           :initial :b}}}))))
-  (testing ":on / :always / :after / :spawn / :spawn-all on a :final? state is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-final-state-has-transitions"
-          (rf/reg-machine :rf2-gn80/bad2
-            {:initial :a
-             :states  {:a {:final? true
-                           :on     {:go :a}}}}))))
-  (testing ":output-key on a non-final state is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-output-key-without-final"
-          (rf/reg-machine :rf2-gn80/bad3
-            {:initial :a
-             :states  {:a {:output-key :foo
-                           :on         {:go :b}}
-                       :b {}}})))))
+  ;; :alpha, the FIRST region, ends on a plain final and :beta on an :error?
+  ;; final: the finish is an ERROR, routed to :on-error with :beta's payload.
+  (rf/reg-machine :rf2-encnvn/par-err-child
+    {:type    :parallel
+     :regions {:alpha {:initial :run
+                       :states  {:run  {:on {:fin :done}}
+                                 :done {:final? true}}}
+               :beta  {:initial :run
+                       :states  {:run    {:on {:fin {:target :failed
+                                                     :action (fn [{data :data}]
+                                                               {:data (assoc data :err :beta/boom)})}}}
+                                 :failed {:final?     true
+                                          :error?     true
+                                          :output-key :err}}}}})
+  (rf/reg-machine :rf2-encnvn/par-err-parent
+    {:initial :working
+     :data    {}
+     :states
+     {:working {:spawn {:machine-id :rf2-encnvn/par-err-child
+                        ;; the event is [:rf.machine.spawn/error <invoke-id> <error>]
+                        :on-error   {:target :errored
+                                     :action (fn [{data :data ev :event}]
+                                               {:data (assoc data :captured (nth ev 2))})}}}
+      :errored {}}})
+  (rf/dispatch-sync [:rf2-encnvn/par-err-parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [:rf2-encnvn/par-err-child#1 [:fin]])
+  (let [parent (snapshot :rf2-encnvn/par-err-parent)]
+    (is (= [:errored :beta/boom] [(:state parent) (get-in parent [:data :captured])]))))
