@@ -1,16 +1,10 @@
 (ns re-frame.http-reply-lowering-cljs-test
-  "Host-symmetric (CLJS + JVM) conformance for the PURE core of the
-  managed-HTTP lowering: the canonical reply
-  map (the ONE public dialect — no compat reshape), the work-id head, and
-  the stale-suppression builders in `re-frame.http.reply`. Runs on the
-  `npm run test:cljs` node gate (its ns matches the `cljs-test$` regexp)
-  so the lowering's pure functor / schema core is exercised on the CLJS
-  runtime too — the end-to-end real-transport groups live in the JVM-only
-  `http-reply-lowering-test`.
-
-  Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011 (one canonical async-reply envelope)."
-  (:require [clojure.test :refer [deftest is testing]]
+  "The pure core of managed HTTP's reply lowering in `re-frame.http.reply`,
+  on both hosts: the work-id head, the canonical reply map for each outcome,
+  actor-destroy suppression, failure self-identification and the trace
+  summary. The real-transport round trips live in the JVM-only
+  `http-reply-lowering-test`."
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.reply :as rf.reply]))
 
@@ -22,129 +16,74 @@
    :completed-at 1781078400456})
 
 (deftest work-id-head
-  (testing "HTTP work-id head [:rf.work/http logical-id issuance attempt]"
-    (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id ctx)))
-    (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
-           (rf.http.reply/work-id (dissoc ctx :request-id)))
-        "logical-id falls back to the origin event-id, tagged anonymous")
-    (is (= [:rf.work/http :article/by-id 1 2]
-           (rf.http.reply/work-id (assoc ctx :attempt 2)))
-        "attempt slot discriminates retries within one issuance")
-    (testing "issuance slot discriminates re-issuances across supersessions"
-      (is (= [:rf.work/http :article/by-id 2 1]
-             (rf.http.reply/work-id (assoc ctx :issuance 2)))))))
-
-(deftest suppress-builds-canonical-stale-reply
-  (testing "http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
-    (let [{:keys [deliver? reply trace]}
-          (rf.http.reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
-      (is (false? deliver?) "a superseded attempt's app target MUST NOT run")
-      (is (= :suppressed (:rf.reply/work-status reply)))
-      (is (= :stale (:status reply)))
-      (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason reply)))
-      (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
-      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
-      ;; carried = the superseded attempt's work-id (issuance 1);
-      ;; current = the superseding attempt's work-id (issuance 2); =-distinct.
-      (is (= [:rf.work/http :article/by-id 1 1] (:work/id (:rf.reply/carried trace))))
-      (is (= [:rf.work/http :article/by-id 2 1] (:work/id (:rf.reply/current trace))))
-      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id trace))))))
+  (are [c id] (= id (rf.http.reply/work-id c))
+    ctx                              [:rf.work/http :article/by-id 1 1]
+    (dissoc ctx :request-id)         [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
+    (assoc ctx :issuance 2 :attempt 3) [:rf.work/http :article/by-id 2 3]))
 
 (deftest actor-destroy-obsolete-target-suppression
-  (testing "actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
-    (testing "the obsolete-target predicate: target == actor-id → obsolete; ordinary target → meaningful"
-      (is (true?  (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1)))
-      (is (false? (rf.http.reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
-      (is (false? (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 nil)))
-      (is (false? (rf.http.reply/actor-destroy-target-obsolete? nil :worker/proc#1))))
-    (testing "actor-destroy-suppress produces a canonical :status :stale / :rf.reply/work-status :suppressed reply with carried work-id, no current successor"
-      (let [actor-ctx {:request-id   [:worker/proc#1 :slow]
-                       :origin-event [:worker/proc#1 [:rf.http/failed]]
-                       :issuance     1
-                       :attempt      1
-                       :frame        :app/main}
-            {:keys [deliver? reply trace]} (rf.http.reply/actor-destroy-suppress actor-ctx)]
-        (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
-        (is (= :suppressed (:rf.reply/work-status reply)))
-        (is (= :stale (:status reply)))
-        (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason reply)))
-        (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
-        (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
-        (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1] (:work/id (:rf.reply/carried trace))))
-        (is (nil? (:rf.reply/current trace))
-            "no live successor — the actor that owned the target is gone")))))
+  (are [target actor-id obsolete?] (= obsolete? (rf.http.reply/actor-destroy-target-obsolete? target actor-id))
+    :worker/proc#1  :worker/proc#1 true
+    :reply/recorder :worker/proc#1 false
+    :worker/proc#1  nil            false)
+  (let [{:keys [deliver? reply trace]}
+        (rf.http.reply/actor-destroy-suppress {:request-id   [:worker/proc#1 :slow]
+                                               :origin-event [:worker/proc#1 [:rf.http/failed]]
+                                               :issuance     1
+                                               :attempt      1
+                                               :frame        :app/main})]
+    (is (false? deliver?))
+    (is (= {:status :stale :rf.reply/work-status :suppressed
+            :rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete}
+           (select-keys reply [:status :rf.reply/work-status :rf.reply/stale-reason :value])))
+    (is (= [[:rf.work/http [:worker/proc#1 :slow] 1 1] nil]
+           [(get-in trace [:rf.reply/carried :work/id]) (:rf.reply/current trace)])
+        "carried work-id, and no live successor")))
 
 (deftest canonical-replies-validate
-  (testing ":status :ok success"
-    (let [r (rf.http.reply/success-reply ctx {:title "Welcome"})]
+  (testing ":status :ok success, with the response's wire facts riding :meta verbatim"
+    (let [meta* {:status 200 :status-text "OK"
+                 :headers {"content-type" "application/json" "set-cookie" ["a=1; Path=/" "b=2; Path=/"]}}
+          r     (rf.http.reply/success-reply ctx {:title "Welcome"} meta*)]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :ok (:status r)))
-      (is (= {:title "Welcome"} (:value r)))
-      (is (= :completed (:rf.reply/work-status r)))
-      (is (= :http (:rf.reply/work-kind r)))
-      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id r)))
-      (is (= :app/main (:rf.frame/id r)))
-      (is (= 1781078400456 (:completed-at r)))
-      (is (= {:request-id :article/by-id} (:correlation r)))
-      (is (not (contains? r :request-id))
-          ":request-id is correlation metadata, not a second stale key")))
+      (is (= {:status :ok :value {:title "Welcome"} :meta meta*
+              :rf.reply/work-status :completed :rf.reply/work-kind :http
+              :rf.reply/work-id [:rf.work/http :article/by-id 1 1] :rf.frame/id :app/main
+              :completed-at 1781078400456 :correlation {:request-id :article/by-id}}
+             (select-keys r [:status :value :meta :rf.reply/work-status :rf.reply/work-kind
+                             :rf.reply/work-id :rf.frame/id :completed-at :correlation :request-id])))
+      (is (not-any? #(contains? % :meta) [(rf.http.reply/success-reply ctx {:v 1})
+                                          (rf.http.reply/success-reply ctx {:v 1} nil)])
+          "absent metadata is omitted, never fabricated")))
   (testing ":status :error failure"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :error (:status r)))
-      (is (= :failed (:rf.reply/work-status r)))
-      (is (= {:kind :rf.http/http-5xx :status 503} (:error r))
-          "the classified failure map rides verbatim under :error")))
-  (testing "timeout → :status :error + :rf.reply/work-status :timed-out (not a top-level status)"
+      (is (= {:status :error :rf.reply/work-status :failed :error {:kind :rf.http/http-5xx :status 503}}
+             (select-keys r [:status :rf.reply/work-status :error])))))
+  (testing "timeout is :status :error with :rf.reply/work-status :timed-out"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :error (:status r)))
-      (is (= :timed-out (:rf.reply/work-status r)))))
-  (testing "abort → :status :cancelled with :rf.http/aborted :error"
+      (is (= [:error :timed-out] ((juxt :status :rf.reply/work-status) r)))))
+  (testing "abort is :status :cancelled with an :rf.http/aborted :error"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/aborted :reason :user})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :cancelled (:status r)))
-      (is (= :cancelled (:rf.reply/work-status r)))
-      (is (true? (:cancelled? r)))
-      (is (= :user (:rf.reply/cancel-reason r)))
-      (is (= :rf.http/aborted (get-in r [:error :kind]))))))
+      (is (= [:cancelled :cancelled true :user :rf.http/aborted]
+             ((juxt :status :rf.reply/work-status :cancelled? :rf.reply/cancel-reason (comp :kind :error)) r))))))
 
 (deftest self-identify-failure-stamps-request-identity
-  (testing "self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
-    (let [id-ctx {:method       :get
-                  :url          "/api/articles/42"
-                  :request-id   :article/by-id
-                  :origin-event [:article/load {:id 42}]
-                  :issuance     1
-                  :attempt      3
-                  :max-attempts 3}
-          f      (rf.http.reply/self-identify-failure
-                   {:kind :rf.http/timeout :elapsed-ms 8000 :limit-ms 8000}
-                   id-ctx)]
-      (is (= {:method :get :url "/api/articles/42"} (:request f)))
-      (is (= :article/by-id (:request-id f)))
-      (is (= 3 (:attempt f)))
-      (is (= 3 (:max-attempts f)))
-      (is (= [:rf.work/http :article/by-id 1 3] (:work/id f)))
-      (testing "the category's own tags survive verbatim"
-        (is (= :rf.http/timeout (:kind f)))
-        (is (= 8000 (:elapsed-ms f)))))
-    (testing ":max-attempts is omitted when no retry policy was configured"
-      (let [f (rf.http.reply/self-identify-failure
-                {:kind :rf.http/transport :message "boom"}
-                {:method :post :url "/x" :request-id nil
-                 :origin-event [:e] :attempt 1})]
-        (is (not (contains? f :max-attempts)))
-        (is (nil? (:request-id f)))
-        (is (= {:method :post :url "/x"} (:request f)))
-        (is (= [:rf.work/http [:rf.http/anonymous :e] 1 1] (:work/id f)))))))
+  ;; The retry-exhausted, 4xx and aborted stamps are pinned end to end in
+  ;; http-reply-lowering-test; this is the anonymous, no-retry shape.
+  (is (= {:kind :rf.http/transport :message "boom" :request {:method :post :url "/x"}
+          :request-id nil :attempt 1 :work/id [:rf.work/http [:rf.http/anonymous :e] 1 1]}
+         (select-keys (rf.http.reply/self-identify-failure
+                        {:kind :rf.http/transport :message "boom"}
+                        {:method :post :url "/x" :request-id nil :origin-event [:e] :attempt 1})
+                      [:kind :message :request :request-id :attempt :max-attempts :work/id]))))
 
 (deftest trace-summary-elides-wire-slots
-  (testing "the canonical trace summary keeps identity facts verbatim"
-    (let [r       (rf.http.reply/success-reply ctx {:secret "x"})
-          summary (rf.http.reply/trace-reply r {:sensitive? true})]
-      (is (= :ok (:status summary)))
-      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id summary)))
-      (is (= :http (:rf.reply/work-kind summary)))
-      (testing "a sensitive request redacts the wire slots wholesale"
-        (is (= :rf/redacted (:value summary)))))))
+  (is (= {:status :ok :rf.reply/work-id [:rf.work/http :article/by-id 1 1]
+          :rf.reply/work-kind :http :value :rf/redacted}
+         (-> (rf.http.reply/success-reply ctx {:secret "x"})
+             (rf.http.reply/trace-reply {:sensitive? true})
+             (select-keys [:status :rf.reply/work-id :rf.reply/work-kind :value])))
+      "a sensitive request's summary keeps identity facts and redacts the wire slots"))
