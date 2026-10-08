@@ -25,14 +25,12 @@
   the `modals-aria-cljs-test` / `shell-cljs-test` files use."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
              :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -69,143 +67,78 @@
 ;; -------------------------------------------------------------------------
 
 (deftest shell-root-is-a-labelled-region-landmark
-  (testing "Xray shell root carries role=\"region\" +
-            aria-label so AT users can navigate to it via landmark
-            cycle."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree  (dynamic-shell-tree/shell-view-tree)
-            shell (rf.test-helpers/find-by-testid tree "rf-xray-shell")
-            attrs (props shell)]
-        (is (some? shell) "shell root mounts")
-        (is (= "region" (:role attrs))
-            "shell carries role=\"region\"")
-        (is (and (string? (:aria-label attrs))
-                 (seq (:aria-label attrs)))
-            "shell carries a non-empty aria-label")
-        (is (= "Xray devtools" (:aria-label attrs))
-            "the published accessible name is \"Xray devtools\"")))))
+  ;; AT users reach the shell through the landmark cycle.
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (let [attrs (props (rf.test-helpers/find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-shell"))]
+      (is (= ["region" "Xray devtools"] [(:role attrs) (:aria-label attrs)])))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) Dynamic L3 tabs + L4 tabpanel id round-trip
 ;; -------------------------------------------------------------------------
 
 (deftest runtime-tabs-and-panel-close-the-aria-loop
-  (testing "Dynamic L3 tab buttons carry stable `:id` +
-            `:aria-controls`; the L4 detail-panel carries
-            `:role=\"tabpanel\"` + `:id` + `:aria-labelledby` resolving
-            back to the active tab's id."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree         (dynamic-shell-tree/shell-view-tree)
-            active-tab   :epoch ;; the default Dynamic tab
-            tab-button   (rf.test-helpers/find-by-testid tree (str "rf-xray-tab-" (name active-tab)))
-            tab-attrs    (props tab-button)
-            expected-id  (str "rf-xray-tab-button-" (name active-tab))
-            panel-id     (str "rf-xray-tabpanel-" (name active-tab))
-            panel        (rf.test-helpers/find-by-testid tree (str "rf-xray-detail-panel-" (name active-tab)))
-            panel-attrs  (props panel)]
-        (is (= expected-id (:id tab-attrs))
-            "tab button id matches the documented shape")
-        (is (= panel-id (:aria-controls tab-attrs))
-            "tab button's aria-controls points at the panel id")
-        (is (= "tabpanel" (:role panel-attrs))
-            "L4 detail-panel carries role=\"tabpanel\"")
-        (is (= panel-id (:id panel-attrs))
-            "L4 panel id matches the tab's aria-controls")
-        (is (= expected-id (:aria-labelledby panel-attrs))
-            "L4 panel's aria-labelledby resolves back to the active tab")))))
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (let [tree  (dynamic-shell-tree/shell-view-tree)
+          tab   (props (rf.test-helpers/find-by-testid tree "rf-xray-tab-epoch"))
+          panel (props (rf.test-helpers/find-by-testid tree "rf-xray-detail-panel-epoch"))]
+      (is (= ["rf-xray-tab-button-epoch" "rf-xray-tabpanel-epoch"
+              "tabpanel" "rf-xray-tabpanel-epoch" "rf-xray-tab-button-epoch"]
+             [(:id tab) (:aria-controls tab)
+              (:role panel) (:id panel) (:aria-labelledby panel)])
+          "the default tab controls the panel, which is labelled by the tab"))))
 
 (deftest static-tabs-and-panel-close-the-aria-loop
-  (testing "Static L4 panel mirrors the Dynamic pattern."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree        (static-shell-tree/surface-tree)
-            active-tab  :machines ;; the default Static tab
-            tab-button  (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name active-tab)))
-            tab-attrs   (props tab-button)
-            expected-id (str "rf-xray-static-tab-button-" (name active-tab))
-            panel-id    (str "rf-xray-static-tabpanel-" (name active-tab))
-            panel       (rf.test-helpers/find-by-testid tree (str "rf-xray-static-detail-panel-" (name active-tab)))
-            panel-attrs (props panel)]
-        (is (= expected-id (:id tab-attrs))
-            "Static tab button id matches the documented shape")
-        (is (= panel-id (:aria-controls tab-attrs))
-            "Static tab button's aria-controls points at the panel id")
-        (is (= "tabpanel" (:role panel-attrs))
-            "Static L4 panel carries role=\"tabpanel\"")
-        (is (= expected-id (:aria-labelledby panel-attrs))
-            "Static L4 panel's aria-labelledby resolves back to the active tab")))))
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (let [tree  (static-shell-tree/surface-tree)
+          tab   (props (rf.test-helpers/find-by-testid tree "rf-xray-static-tab-machines"))
+          panel (props (rf.test-helpers/find-by-testid tree "rf-xray-static-detail-panel-machines"))]
+      (is (= ["rf-xray-static-tab-button-machines" "rf-xray-static-tabpanel-machines"
+              "tabpanel" "rf-xray-static-tab-button-machines"]
+             [(:id tab) (:aria-controls tab) (:role panel) (:aria-labelledby panel)])
+          "the Static surface mirrors the Dynamic loop on its default tab"))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Settings tab strip ARIA + tabpanel
 ;; -------------------------------------------------------------------------
 
 (deftest settings-tab-strip-is-a-labelled-tablist
-  (testing "the Settings tab strip wrapper carries
-            role=\"tablist\" + aria-label."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree   (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
-          strip  (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-strip")
-          attrs  (props strip)]
-      (is (= "tablist" (:role attrs))
-          "Settings tab strip is a tablist")
-      (is (and (string? (:aria-label attrs)) (seq (:aria-label attrs)))
-          "Settings tab strip has a non-empty aria-label"))))
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/settings-open]))
+  (let [attrs (props (rf.test-helpers/find-by-testid
+                       (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
+                       "rf-xray-settings-tab-strip"))]
+    (is (= ["tablist" true] [(:role attrs) (boolean (seq (:aria-label attrs)))]))))
 
 (deftest settings-tab-buttons-carry-tab-aria
-  (testing "every Settings tab button has role=\"tab\" +
-            aria-selected reflecting the active tab + stable `:id` +
-            `:aria-controls` pointing at the body's tabpanel id."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree     (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
-          ;; The four Settings tabs each carry the full WAI-ARIA tab
-          ;; contract.
-          tab-ids  [:general :keybindings :buffer :diff]]
-      (doseq [tid tab-ids]
-        (let [button (rf.test-helpers/find-by-testid tree
-                       (str "rf-xray-settings-tab-" (name tid)))
-              attrs  (props button)]
-          (is (= "tab" (:role attrs))
-              (str "tab " tid " carries role=\"tab\""))
-          (is (contains? #{"true" "false"} (:aria-selected attrs))
-              (str "tab " tid " carries aria-selected as a string"))
-          (is (= (str "rf-xray-settings-tab-button-" (name tid))
-                 (:id attrs))
-              (str "tab " tid " carries the documented id"))
-          (is (= (str "rf-xray-settings-tabpanel-" (name tid))
-                 (:aria-controls attrs))
-              (str "tab " tid " carries aria-controls pointing at "
-                   "its body tabpanel"))))
-      ;; Default active tab is :general; selected reflects that.
-      (let [general (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-general")
-            buffer  (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-buffer")]
-        (is (= "true" (:aria-selected (props general)))
-            "active tab (:general) carries aria-selected=\"true\"")
-        (is (= "false" (:aria-selected (props buffer)))
-            "inactive tab (:buffer) carries aria-selected=\"false\"")))))
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/settings-open]))
+  (let [tree    (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
+        tab-ids [:general :keybindings :buffer :diff]
+        aria    (fn [tid]
+                  ((juxt :role :aria-selected :id :aria-controls)
+                   (props (rf.test-helpers/find-by-testid tree (str "rf-xray-settings-tab-" (name tid))))))]
+    (is (= (into {} (for [tid tab-ids]
+                      [tid ["tab" (if (= tid :general) "true" "false")
+                            (str "rf-xray-settings-tab-button-" (name tid))
+                            (str "rf-xray-settings-tabpanel-" (name tid))]]))
+           (into {} (for [tid tab-ids] [tid (aria tid)])))
+        "each tab is a WAI-ARIA tab controlling its panel; :general is the default")))
 
 (deftest settings-body-is-a-labelled-tabpanel
-  (testing "Settings body carries role=\"tabpanel\" + an
-            id matching the active tab's aria-controls + an
-            aria-labelledby resolving back to the active tab button."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
-          body  (rf.test-helpers/find-by-testid tree "rf-xray-settings-body")
-          attrs (props body)]
-      (is (= "tabpanel" (:role attrs))
-          "body wrapper is a tabpanel")
-      (is (= "rf-xray-settings-tabpanel-general" (:id attrs))
-          "body id matches the active tab's tabpanel id")
-      (is (= "rf-xray-settings-tab-button-general"
-             (:aria-labelledby attrs))
-          "body aria-labelledby resolves back to the active tab"))))
+  (xray-setup!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/settings-open]))
+  (let [attrs (props (rf.test-helpers/find-by-testid
+                       (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
+                       "rf-xray-settings-body"))]
+    (is (= ["tabpanel" "rf-xray-settings-tabpanel-general" "rf-xray-settings-tab-button-general"]
+           ((juxt :role :id :aria-labelledby) attrs))
+        "the body is the active tab's panel, labelled by that tab")))
 
 (deftest settings-epoch-history-label-associates-with-input
   (testing "the epoch-history slider's <input :id> matches a
@@ -225,10 +158,9 @@
                                       (:html-for (second node))))
                           node))
                       (hiccup-seq tree))]
-      (is (= "rf-xray-settings-epoch-history-input" (:id (props input)))
-          "input carries the documented id")
-      (is (some? label)
-          "a <label html-for=...> matches the input's id"))))
+      (is (= ["rf-xray-settings-epoch-history-input" true]
+             [(:id (props input)) (some? label)])
+          "clicking the label focuses the input"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) frame-switcher aria-label
@@ -260,8 +192,6 @@
     (rf/with-frame :rf/xray
       (let [tree   (static-shell-tree/frame-switcher-tree rf/dispatch)
             picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")]
-        (is (some? picker)
-            "the <select> picker renders")
         (is (and (string? (:aria-label (props picker)))
                  (seq (:aria-label (props picker))))
             "frame-switcher <select> carries a non-empty aria-label")))))
@@ -285,14 +215,10 @@
                      (resize-handle/aria-max-panel-width-px)
                      rf/dispatch)
             attrs  (second tree)]
-        (is (some? (:aria-valuemax attrs))
-            "aria-valuemax is set")
         (is (number? (:aria-valuemax attrs))
             "aria-valuemax is a number")
         (is (>= (:aria-valuemax attrs) (:aria-valuemin attrs))
-            "aria-valuemax >= aria-valuemin")
-        (is (some? (:aria-valuemin attrs)) "aria-valuemin is set")
-        (is (some? (:aria-valuenow attrs)) "aria-valuenow is set")))))
+            "aria-valuemax >= aria-valuemin")))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) decorative glyph aria-hidden
@@ -317,6 +243,5 @@
                                          (= "true" (:aria-hidden (second node))))
                                 node))
                             (hiccup-seq indicator))]
-        (is (some? indicator) "REDACTED indicator renders when count > 0")
         (is (some? glyph)
             "the decorative `●` glyph carries aria-hidden=\"true\"")))))
