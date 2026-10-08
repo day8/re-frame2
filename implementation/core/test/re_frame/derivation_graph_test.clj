@@ -121,6 +121,19 @@
                        (:edges (rf.derivation.graph/derivation-graph all-contributors)))]
     (is (= expected (set/intersection expected edges)))))
 
+(deftest parametric-sub-is-a-node-with-no-static-input-edge
+  ;; An input-fn sub's static `:inputs` is the `:parametric` marker: the sub is
+  ;; a node, and the marker draws no edge, because the static graph never runs
+  ;; the input-fn to learn its realized inputs.
+  (rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
+  (rf/reg-sub :article/page
+              {:inputs (fn [[_ id]] [[:article/by-id id]])}
+              (fn [[article] _] article))
+  (let [g (rf.derivation.graph/derivation-graph all-contributors)]
+    (is (= [:parametric []]
+           [(get-in g [:nodes [:sub :article/page] :inputs])
+            (filterv #(= [:sub :article/page] (:to %)) (:edges g))]))))
+
 (deftest same-flow-id-on-two-frames-stays-distinct
   ;; A flow is frame-scoped, so one frame's flow never overwrites another's.
   (rf/make-frame {:id :app/a})
