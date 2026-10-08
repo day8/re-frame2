@@ -173,6 +173,38 @@
                   (rf.story/destroy-variant! :story.evidence-link/retained)
                   (done)))))))))
 
+(deftest real-unretained-row-renders-no-link-rf2-v5p6l
+  (testing "a failed assertion whose epoch the ring evicted renders no link,
+            so a click can never land on a neighbouring beat"
+    (rf.epoch/clear-history!)
+    (rf/configure! {:epoch-history {:depth 1}})
+    (rf/reg-event :evidence-link/set
+      (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
+    (rf.story/reg-variant :story.evidence-link/unretained
+      {:script {:script [[:assert-db [:count] 99]
+                         [:dispatch-sync [:evidence-link/set]]]}})
+    (async done
+      (-> (rf.story/run :story.evidence-link/unretained)
+          (rf.story.async/then
+            (fn [result]
+              (try
+                (let [narrative (:narrative result)
+                      row       (rf.story.ui.test-mode.pure/assertion-row
+                                  (first (:assertions result)))]
+                  (is (= :fail (:status row)))
+                  (is (nil? (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99]))
+                      "control: the depth-1 ring evicted the assertion's own epoch")
+                  (is (some? (beat-for-trigger narrative [:evidence-link/set]))
+                      "control: the later dispatch step's epoch is the one retained")
+                  (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
+                              :story.evidence-link/unretained narrative row))
+                      "no link is rendered for a row whose beat was not retained"))
+                (finally
+                  ;; `:depth` is process-global — restore the framework default.
+                  (rf/configure! {:epoch-history {:depth 50}})
+                  (rf.story/destroy-variant! :story.evidence-link/unretained)
+                  (done)))))))))
+
 ;; ===========================================================================
 ;; pass / fail / skip row detail
 ;;
