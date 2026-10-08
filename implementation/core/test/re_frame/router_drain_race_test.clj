@@ -1,17 +1,11 @@
 (ns re-frame.router-drain-race-test
-  "Per Spec 002 §Run-to-completion §single-drainer invariant: stress-test
-  the JVM-only race between the executor thread's `next-tick` drain callback
-  and a main-thread `dispatch-sync!` drain. A drainer that admitted both
-  threads would produce the `[:sync-only :sync-only]` corruption
-  (double-peek of one envelope, drop of another) at ~4 fails / 1000 iters;
-  the property must hold across many thousands of iterations.
-
-  This file is the production-side companion to
-  `async-dispatch-resolves-after-current-drain` (`re-frame.drain-test`),
-  which wraps itself in a `with-redefs [interop/next-tick ...]` that
-  bypasses the executor; this file targets the SAME failure shape without
-  bypassing the executor — exercising the actual production code path the
-  single-drainer lock lives in."
+  "The single-drainer invariant under real JVM threads (Spec 002
+  §Run-to-completion): an executor-thread async drain racing a main-thread
+  `dispatch-sync` drain, and many submitter threads racing one frame's
+  drain, never drop or double-process an envelope. Both run on the real
+  `interop/next-tick` executor, because the race window exists only there;
+  a drainer that admitted two threads fails at roughly 4 per 1000
+  iterations."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -29,50 +23,27 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002: establish a `:rf/default` frame SCOPE so the
-  ;; single-drainer stress test's ambient top-level `dispatch` /
-  ;; `dispatch-sync` calls resolve a target (the carried-invariant
-  ;; contract — no synthesised default floor). `concurrent-dispatch-
-  ;; stress` carries an explicit `{:frame :stress.race/main}` and is
-  ;; unaffected by the binding.
+  ;; The ambient scope the stress loop's bare dispatches resolve against.
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; The stress iteration count keeps CI under ~60s on the JVM while staying
-;; well above the per-1000 failure rate an unlocked drainer exhibits
-;; (~4/1000). 5000 iterations should land at 0/5000 with high confidence.
+;; Well above the per-1000 failure rate of an unlocked drainer, and under
+;; ~60s on the JVM.
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_YNK7_STRESS_ITERS") Long/parseLong)
       5000))
 
 (deftest single-drainer-invariant-stress
-  ;; Spec 002 §Run-to-completion §single-drainer invariant.
-  ;; Without a single drainer the same scenario produces ~4 fails / 1000
-  ;; iters, the race producing `[:sync-only :sync-only]` (the async envelope
-  ;; peek'd twice and a different envelope dropped by the trailing pop).
-  ;; The CAS on `:drain-lock` admits a single drainer at a time; the spin-CAS-wait in `drain-block!` keeps `dispatch-sync`'s
-  ;; cascade-settled-before-return contract intact even when the
-  ;; executor is mid-drain.
-  ;;
-  ;; This test does NOT use `with-redefs [interop/next-tick ...]` — the
-  ;; real JVM executor MUST be in the picture for the race window to
-  ;; appear. The drain-test variant uses the with-redefs form
-  ;; because it pins a different property (the executor's callback
-  ;; ordering); this test pins the underlying race.
-  (testing (str "no [:sync-only :sync-only] corruption across "
-                stress-iters " iterations")
-    (rf/reg-event :outside-async
-      (fn [{:keys [db]} _] {:db (assoc db :outside? true)}))
-    (rf/reg-event :sync-only
-      (fn [{:keys [db]} _] {:db (assoc db :sync? true)}))
-
-    (let [failures (atom [])
-          ;; Capture the per-iter `order` atom through a global indirection
-          ;; so we don't have to re-register handlers each iter (which
-          ;; can race with leftover envelopes from a prior iter).
+  ;; The race: the executor's drain of the async envelope and the main
+  ;; thread's sync drain both peek one queue. Unlocked, it shows as
+  ;; [:sync-only :sync-only] — one envelope run twice, another dropped.
+  (testing (str "no envelope dropped or run twice across " stress-iters " iterations")
+    (let [failures      (atom [])
+          ;; Per-iteration state behind one indirection, so the handlers are
+          ;; registered once rather than racing leftover envelopes each iteration.
           current-order (atom (atom []))
           done-promise  (atom (promise))]
       (rf/reg-event :outside-async-stress
@@ -89,23 +60,13 @@
               done  (promise)]
           (reset! current-order order)
           (reset! done-promise done)
-          ;; Schedule the async dispatch FIRST. Its drain callback rides
-          ;; the real `interop/next-tick` → JVM single-thread executor.
           (rf/dispatch [:outside-async-stress])
-          ;; Then run a sync drain. The race window sits between the
-          ;; executor's wake-up and main thread's drain on the SAME
-          ;; queue; without a single drainer both threads could peek the
-          ;; same envelope.
           (rf/dispatch-sync [:sync-only-stress])
-          ;; Wait for the async cascade to settle. If we time out, the
-          ;; async event was dropped (the race shape).
-          (let [d (deref done 5000 :timeout)]
-            (when (= :timeout d)
-              (swap! failures conj {:iter i :reason :timeout :order @order})))
-          ;; Validate: both events ran exactly once.
+          (when (= :timeout (deref done 5000 :timeout))
+            (swap! failures conj {:iter i :reason :timeout :order @order}))
           (let [final-order @order
-                sync-count   (count (filter #{:sync-only} final-order))
-                async-count  (count (filter #{:outside-async} final-order))]
+                sync-count  (count (filter #{:sync-only} final-order))
+                async-count (count (filter #{:outside-async} final-order))]
             (when-not (and (= 1 sync-count) (= 1 async-count))
               (swap! failures conj {:iter        i
                                     :order       final-order
@@ -118,29 +79,17 @@
                  (str ". First few: " (pr-str (vec (take 5 @failures))))))))))
 
 (deftest concurrent-dispatch-stress
-  ;; A second stress shape: many submitter threads concurrently
-  ;; `dispatch`-ing to one frame while another thread runs
-  ;; `dispatch-sync`. Tests that the single-drainer invariant holds
-  ;; under high contention — every dispatched event runs exactly once,
-  ;; no envelope is dropped, no envelope is double-processed.
-  ;;
-  ;; This is the broader single-drainer correctness property: at most one
-  ;; thread inside `drain!` at any instant; the orphan window (envelope
-  ;; queued between empty-check and lock release) is closed by the
-  ;; orphan-prevention seam.
+  ;; Many submitter threads dispatching to one frame while the main thread
+  ;; drains synchronously: every event runs exactly once, including those
+  ;; enqueued in the window between a drainer's empty-check and its release.
   (testing "N submitter threads + sync drain — no events lost or duplicated"
     (let [n-submitters 8
           per-thread   200
           total        (* n-submitters per-thread)]
-      ;; Use a dedicated frame with a high :drain-depth so the cascade
-      ;; doesn't trip the default 100-event limit and roll back the
-      ;; partial cascade per Spec 002 §Run-to-completion §Rules rule 3.
-      ;; This test is about the single-drainer invariant, not depth-
-      ;; limit behaviour.
+      ;; A :drain-depth high enough that the default 100 never halts the cascade.
       (rf/make-frame {:id :stress.race/main :drain-depth (* 4 (+ total 2))})
       (rf/reg-event :bump
         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      ;; Spin up submitter threads. They all dispatch concurrently.
       (let [latch   (java.util.concurrent.CountDownLatch. 1)
             futures (vec (for [_ (range n-submitters)]
                            (future
@@ -148,16 +97,10 @@
                              (dotimes [_ per-thread]
                                (rf/dispatch [:bump] {:frame :stress.race/main})))))]
         (.countDown latch)
-        ;; While submitters are running, the main thread fires a sync
-        ;; drain. The single-drainer invariant must keep both safe.
         (rf/dispatch-sync [:bump] {:frame :stress.race/main})
-        ;; Wait for all submitters to finish dispatching.
         (doseq [f futures] @f)
-        ;; Now drain anything still queued by riding one more sync
-        ;; drain. The drain-block! contract is "spin-CAS until the
-        ;; lock is free, then drain everything until empty".
+        ;; A final sync drain waits for the lock, then drains whatever is queued.
         (rf/dispatch-sync [:bump] {:frame :stress.race/main}))
-      ;; Total = N submitters * per-thread + 2 sync drains.
       (let [expected (+ total 2)
             actual   (:n (rf/app-db-value :stress.race/main))]
         (is (= expected actual)
