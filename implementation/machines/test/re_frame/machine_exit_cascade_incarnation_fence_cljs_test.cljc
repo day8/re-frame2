@@ -1,29 +1,14 @@
 (ns re-frame.machine-exit-cascade-incarnation-fence-cljs-test
-  "The destroy-time `:exit` helper (`run-child-exit!`) keeps its
-  post-exit snapshot write and its nested `:fx` walk bound to the exact frame
-  incarnation that entered teardown.
-
-  The outer destroy tail is fenced too
-  (`machine_destroy_tail_incarnation_fence_test.clj`), but that suite's `:exit`
-  returns `(:data ctx)` with no `{:data ...}` rider and no `:fx`, so the helper's
-  own write + effect tail never runs there. Here the `:exit` returns a CHANGED
-  `:data` and two real custom effects, and ownership is lost at each of the
-  helper's three boundaries:
-
-    1. the `:rf.machine/action-ran` trace the pure cascade emits (a listener is
-       a reachable replacement boundary even when the authored action is pure)
-       destroys A and publishes a same-id B;
-    2. the FIRST exit effect destroys A — the second effect and the walk's
-       terminal `:rf.fx/do-fx` marker must not run. (A successor cannot be
-       published from inside an effect: EP-0027 refuses frame construction
-       while `*handler-scope*` is bound, so loss is the reachable case there.);
-    3. a container watch on the post-exit write destroys A and publishes B — no
-       commit-epoch bump may be attributed to B, and no effect may follow.
-
-  Where B exists it must stay byte-identical with zero A-derived effects. The
-  live-owner and eventless controls keep the intended write-before-effects
-  ordering and full teardown. Per Spec 005 §Declarative `:spawn` §Composition
-  with explicit `:entry` / `:exit`."
+  "The destroy-time `:exit` helper (`run-child-exit!`) keeps its post-exit
+  snapshot write and its nested `:fx` walk bound to the exact frame
+  incarnation that entered teardown. Here the `:exit` returns a CHANGED `:data`
+  and two real effects, and ownership is lost at each of the helper's three
+  callback boundaries: the destroy-exit `:rf.machine/action-ran` trace, the
+  first exit effect, and a container watch on the post-exit write. A successor
+  cannot be published from inside an effect (frame construction is refused
+  while `*handler-scope*` is bound), so loss is the reachable case there.
+  Per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry` /
+  `:exit`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -61,7 +46,8 @@
 
   The loss fires once. Every effect run is recorded with whether it ran in B
   and whether the post-exit write was visible when it ran; effects and terminal
-  markers that run after the first-effect loss are recorded separately."
+  markers that run after the first-effect loss are recorded separately, because
+  the frame-destroy cascade inside that loss runs the `:exit` again."
   [frame-id mode]
   (let [effects          (atom [])
         after-loss       (atom [])
@@ -128,8 +114,7 @@
           (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-id actor)
           (rf.frame/call-with-event-owner-token frame-id token-a
             (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-id} actor))))
-        {:fired?           @fired?
-         :b-birth          @b-birth
+        {:b-birth          @b-birth
          :b-runtime        (runtime-db frame-id)
          :b-commit         @b-commit
          :commit           (rf.frame/frame-commit-epoch frame-id)
@@ -142,61 +127,31 @@
           (rf.trace.tooling/unregister-listener! ::observer)
           (remove-watch container-a ::exit-write))))))
 
-(defn- assert-b-untouched [{:keys [fired? b-birth b-runtime b-commit commit effects do-fx-in-b]}]
-  (is (true? fired?) "the replacement boundary ran (fence exercised)")
-  (is (some? b-birth) "same-id successor B was published")
-  (is (= b-birth b-runtime)
-      "B's runtime-db is byte-identical to its birth value — A's post-exit snapshot write did not land in B")
-  (is (= b-commit commit)
-      "no commit-epoch bump was attributed to B")
-  (is (empty? (filter :in-b? effects))
-      "zero A-derived exit effects ran in B")
-  (is (zero? do-fx-in-b)
-      "A's exit walk emitted no terminal :rf.fx/do-fx marker against B"))
+(defn- assert-b-untouched [{:keys [b-birth b-runtime b-commit commit effects do-fx-in-b]}]
+  ;; b-birth is nil unless the replacement ran, so the first pair also proves
+  ;; the fence was exercised.
+  (is (= [b-birth b-commit [] 0]
+         [b-runtime commit (filterv :in-b? effects) do-fx-in-b])
+      "B's runtime-db and commit epoch are unchanged since birth, and no A-derived exit effect or terminal :rf.fx/do-fx marker ran in B"))
 
 (deftest action-ran-loss-fences-exit-write-and-effects
-  (testing "a destroy-exit :rf.machine/action-ran listener replaces A with B:
-            the helper rechecks ownership after the pure cascade, so A's
-            changed :data never reaches B and A's exit effects never run in B"
-    (assert-b-untouched (run-destroy :rf2-fzbj-1/action-ran-frame :action-ran))))
+  (assert-b-untouched (run-destroy :rf2-fzbj-1/action-ran-frame :action-ran)))
 
 (deftest first-effect-loss-fences-remaining-exit-effects
-  (testing "the first exit effect destroys A: the nested walk carries A's exact
-            token, so the second effect and the terminal marker do not run"
-    (let [{:keys [fired? effects after-loss do-fx-after-loss]}
-          (run-destroy :rf2-fzbj-1/effect-frame :first-effect)]
-      (is (true? fired?) "the first effect destroyed A (fence exercised)")
-      (is (= {:value 1 :in-b? false :exit-marker :from-a} (first effects))
-          "the first effect ran in A after A's exit write, before the loss")
-      (is (empty? after-loss)
-          "no exit effect of the lost walk ran after A was destroyed")
-      (is (zero? do-fx-after-loss)
-          "the lost walk emitted no terminal :rf.fx/do-fx marker"))))
+  (testing "the nested walk carries A's exact token, so the second effect and the terminal marker do not run"
+    (let [{:keys [effects after-loss do-fx-after-loss]} (run-destroy :rf2-fzbj-1/effect-frame :first-effect)]
+      (is (= [{:value 1 :in-b? false :exit-marker :from-a} [] 0]
+             [(first effects) after-loss do-fx-after-loss])))))
 
 (deftest exit-write-watch-loss-fences-epoch-and-effects
-  (testing "a container watch on A's post-exit write replaces A with B: the
-            write binds to A's own container, the epoch bump is not attributed
-            to B, and no exit effect follows"
-    (assert-b-untouched (run-destroy :rf2-fzbj-1/write-frame :exit-write))))
+  (assert-b-untouched (run-destroy :rf2-fzbj-1/write-frame :exit-write)))
 
-(deftest live-owner-exit-writes-then-fires-then-tears-down
-  (testing "control: with no loss, the exit write lands before both effects
-            run (in order, once each) and the snapshot is removed"
-    (let [{:keys [fired? snapshot effects]} (run-destroy :rf2-fzbj-1/live-frame :live)]
-      (is (false? fired?))
-      (is (= [{:value 1 :in-b? false :exit-marker :from-a}
-              {:value 2 :in-b? false :exit-marker :from-a}]
-             effects)
-          "both exit effects ran once, in order, each seeing the post-exit write")
-      (is (nil? snapshot) "the teardown removed the actor's snapshot"))))
-
-(deftest eventless-destroy-keeps-full-exit-authority
-  (testing "control: the eventless frame-destroy entry has no owner token, so
-            the exit write and both effects run exactly as in the live-owner
-            control"
-    (let [{:keys [snapshot effects]} (run-destroy :rf2-fzbj-1/eventless-frame :eventless)]
-      (is (= [{:value 1 :in-b? false :exit-marker :from-a}
-              {:value 2 :in-b? false :exit-marker :from-a}]
-             effects)
-          "both exit effects ran once, in order, each seeing the post-exit write")
-      (is (nil? snapshot) "the teardown removed the actor's snapshot"))))
+(deftest owner-intact-exit-writes-then-fires-then-tears-down
+  (testing "with no loss — under A's event owner, or eventless as the frame-destroy cascade runs it — the exit write lands before both effects run, in order, and the snapshot is removed"
+    (doseq [[frame-id mode] [[:rf2-fzbj-1/live-frame :live]
+                             [:rf2-fzbj-1/eventless-frame :eventless]]]
+      (is (= {:effects  [{:value 1 :in-b? false :exit-marker :from-a}
+                         {:value 2 :in-b? false :exit-marker :from-a}]
+              :snapshot nil}
+             (select-keys (run-destroy frame-id mode) [:effects :snapshot]))
+          (str mode)))))
