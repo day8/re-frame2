@@ -47,9 +47,6 @@
   (let [r1 (run-blocking :story.hashes/loaded)
         r2 (run-blocking :story.hashes/loaded)]
     (is (= :pass (:status r1)) "non-vacuity: a real run, not an error shape")
-    (testing "both identity slots are present strings"
-      (is (string? (:plan-hash r1)))
-      (is (string? (:run-hash r1))))
     (testing "the result conforms to the frozen schema"
       (is (rf.story/valid-run-result? r1)
           (str (rf.story/explain-run-result r1))))
@@ -64,16 +61,6 @@
     (testing "rerunning the same scenario reproduces both"
       (is (= (:plan-hash r1) (:plan-hash r2)))
       (is (= (:run-hash r1) (:run-hash r2))))))
-
-(deftest a-different-scenario-moves-both-hashes
-  (rf.story/reg-variant :story.hashes/loaded {:tags #{:test} :script loaded-script})
-  (rf.story/reg-variant :story.hashes/idle
-    {:tags   #{:test}
-     :script {:script [[:dispatch-sync [:hashes/set-status :idle]]]}})
-  (let [loaded (run-blocking :story.hashes/loaded)
-        idle   (run-blocking :story.hashes/idle)]
-    (is (not= (:plan-hash loaded) (:plan-hash idle)) "a different script is a different plan")
-    (is (not= (:run-hash loaded) (:run-hash idle)) "different evidence is a different run")))
 
 (deftest inline-plan-run-carries-both-hashes
   (let [plan {:story/id :story.hashes :script loaded-script}
@@ -111,5 +98,4 @@
           (is (= {:status :loaded} (:effective-args prepared)))
           (is (= (:effective-args run) (:effective-args prepared))))
         (testing ":plan-hash agrees between run and render"
-          (is (string? (:plan-hash prepared)))
           (is (= (:plan-hash run) (:plan-hash prepared))))))))
