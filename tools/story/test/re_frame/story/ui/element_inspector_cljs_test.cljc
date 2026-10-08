@@ -78,6 +78,7 @@
                       :rect       {:top 100 :left 200 :width 300 :height 40}})
        (is (nil? (rf.story.ui.element-inspector/overlay))))
      (testing "active but no hover → nil"
+       (swap! rf.story.ui.element-inspector/state dissoc :hover)
        (rf.story.ui.element-inspector/set-active! true)
        (is (nil? (rf.story.ui.element-inspector/overlay))))))
 
