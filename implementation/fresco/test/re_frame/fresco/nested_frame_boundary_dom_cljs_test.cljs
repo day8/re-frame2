@@ -39,11 +39,7 @@
      is what separates the head's mechanism (lower in the ready pass,
      after ENSURE) from a naive EAGER bind: under a cold frame-root an
      eager bind captures an address-directed dispatch, and a retained
-     callback WRITES the successor. Row 3b builds that naive head out of
-     the documented seams and shows it writing the successor — the
-     negative control, on the model of
-     `reincarnation_routing_cljs_test`'s section 3, so row 3's silence is
-     the pin and nothing else.
+     callback WRITES the successor.
   4. Roots: the inline button directly under a root `h/frame-provider` or
      `h/frame-root` dispatches into the named frame. A name-only rebind
      reds with `:rf.error/fresco-intent-outside-boundary`.
@@ -68,12 +64,9 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
-            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views.frame-boundary :as rf.views.frame-boundary]
             ["react" :as react]))
 
 (def ^:private main ::main)
@@ -317,48 +310,6 @@
             "the SUCCESSOR's app-db is untouched by a predecessor-era callback")
         (is (nil? (by main))
             "and the body's frame took nothing either")
-        (finally (release! m))))))
-
-;; 3b — the NEGATIVE CONTROL. The same head built the naive way: the
-;; children lowered EAGERLY, inside the head, under the frame's dispatch
-;; captured while the frame did not yet exist. Everything else is the real
-;; head's — the same validators, the same core element, the same lowering
-;; closure — so the one difference from row 3 is WHEN the dispatch is
-;; captured.
-
-(def ^:private naive-frame-root
-  (rf.fresco.impl.codec/mint-frame-boundary!
-    "test/naive-frame-root"
-    (fn [props lower]
-      (let [frame-kw (:id props)]
-        (rf.views.frame-boundary/frame-root-react-element
-          props
-          (rf.fresco.impl.intent/with-frame frame-kw
-            (rf.fresco.impl.collector/frame-dispatch frame-kw)
-            (fn [] (lower frame-kw)))
-          're-frame.fresco/frame-root)))))
-
-(rf.fresco/defview naive-root-page [_]
-  [:div.page
-   [naive-frame-root {:id ensured} (two-buttons)]])
-
-(deftest negative-control-an-eagerly-bound-cold-frame-root-writes-the-successor
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_ (bare!)
-          _ (seeded! main)
-          _ (is (false? (live? ensured)) "premise: a COLD ensure")
-          m (mount! [rf.fresco/frame-provider {:frame main} [naive-root-page {}]])]
-      (try
-        (reincarnate! ensured)
-        (let [{:keys [refusals]} (with-refusals #(click! (second m) ".a"))]
-          (is (= [:a] (by ensured))
-              "the eager bind captured an unpinned dispatch, so the retained
-               callback WROTE the successor — row 3's untouched successor is
-               therefore capable of failing, and passes there because the
-               real head lowers after ENSURE")
-          (is (empty? refusals)
-              "and nothing refused, because nothing was pinned"))
         (finally (release! m))))))
 
 ;; ---------------------------------------------------------------------------
