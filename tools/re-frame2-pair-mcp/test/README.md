@@ -9,7 +9,7 @@ integration scripts.
 |---|---|
 | Does a per-tool function build the right eval form / wire envelope? | **CLJS** — `re_frame2_pair_mcp/<tool>_test.cljs` |
 | Does a cross-cutting concern (cache, cap, dedup, elision, sensitive) reshape an envelope correctly? | **CLJS** — `re_frame2_pair_mcp/<concern>_test.cljs` |
-| Does `tools/invoke` preserve build resolution → precheck → dispatch → cache → cap order? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
+| Do `tools/invoke`'s precheck, dispatch, cache and cap steps compose correctly at their seams? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
 | Does the full tool catalogue (the ordered `registry/tools` list) still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
@@ -54,16 +54,17 @@ What this layer covers:
   `cursor_pagination_test.cljs`, `args_test.cljs`,
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
   concern's public surface.
-- Pipeline glue — `invoke_test.cljs` covers build resolution →
-  precheck → dispatch → cache → cap.
+- Pipeline glue — `invoke_test.cljs` covers the seams between
+  precheck, dispatch, cache and cap; `sticky_build_invoke_test.cljs`
+  covers build resolution through `tools/invoke`.
 - Conformance corpus — `conformance_test.cljs`: one
   inline-fixture corpus driving every tool through `tools/invoke`
   against a stub conn, asserting recorded wire-shape EDN. Sibling
   to `re-frame.ssr-conformance-test` / `re-frame.machines-conformance-test`
   / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
   on the framework side.
-- Snapshot pipeline / wire shape — `snapshot_test.cljs`,
-  `list_subscriptions_test.cljs`, `wire_cap_test.cljs`,
+- Snapshot pipeline / wire shape — `list_subscriptions_test.cljs`,
+  `wire_cap_test.cljs`,
   `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
   stubbed at `nrepl/cljs-eval-value`.

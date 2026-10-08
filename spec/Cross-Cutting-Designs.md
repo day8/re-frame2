@@ -24,7 +24,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 
 - [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
-- `tools/re-frame2-pair-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
+- `tools/re-frame2-pair-mcp/` — applies the walker app-side, inside the eval form each tool ships over nREPL; the `egress_elision_test.cljs` suite pins those forms.
 - `tools/xray/` — on-box trace listener panels default `:rf.egress/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
 - `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; the schema-owned egress products consume them (`re-frame.resources.classification` for a resource `:params-schema` validation-failure trace, `re-frame.http.privacy-body` for a managed-HTTP `:decode` body). Schemas own the deep walker; `re-frame.elision` does not read it.

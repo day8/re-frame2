@@ -139,8 +139,7 @@
   shared `eval-form` DSL — the SAME plumbing read-dom uses.
   Only present entry points / knobs ride (the runtime enforces the
   precedence view-id > point > selector). Pure form-builder, no
-  connection: callable directly by the form-composition regression guard
-  so the alias-trap check covers BOTH ops, not just read-dom.
+  connection.
 
   `frame`, when supplied, is expected ALREADY coerced to a keyword (or
   nil) by the caller — see `read-ui-tool`'s `args/->frame-keyword` call.

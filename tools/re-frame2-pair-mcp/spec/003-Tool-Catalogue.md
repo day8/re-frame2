@@ -568,10 +568,11 @@ one. Missing, non-numeric and future timestamps are dropped, so a
 connected runtime with no usable heartbeat reads `:unknown`, never
 `:fresh`. The JVM-half read is **retried once** before an
 unreadable-state `:unknown` — a nil first read is most often a transient
-socket hiccup. For every **non-`:fresh`** verdict the `:hint` is
-**actionable**: it names the EXACT `http://localhost:<port>` to reload
-(when discover-app was called with a `:port`, which also rides on the
-token). An `:unknown` token carries `:unknown-reason` —
+socket hiccup. For a **`:stale-build`** or **`:no-runtime`** verdict the
+`:hint` is **actionable**: it names the EXACT thing to reload —
+`http://localhost:<port>` when discover-app was called with a `:port`
+(which also rides on the token), else the build. An `:unknown` token
+carries `:unknown-reason` —
 `:jvm-unreadable`, `:no-build-worker` or `:heartbeat-unavailable` —
 keeps whatever worker, build and runtime facts were read, and its hint
 names one bounded next step: re-run discover-app, then check the build
