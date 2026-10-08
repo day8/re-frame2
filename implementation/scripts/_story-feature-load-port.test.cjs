@@ -53,7 +53,6 @@ test('automatic resolution skips an occupied preferred port', async () => {
   const server = await occupy(preferred);
   try {
     const port = await findAvailablePort(preferred, { attempts: 5 });
-    assert.notEqual(port, preferred);
     assert.ok(port > preferred);
   } finally {
     await close(server);
