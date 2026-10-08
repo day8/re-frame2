@@ -1,35 +1,16 @@
 (ns re-frame.resources-infinite-load-more-cljs-test
-  "Runtime behaviour for the infinite-feed `:rf.resource/load-more` event +
-  page reply handlers + the R6 refetch reset (EP-0021, Spec 016
-  §Infinite resources and load-more feeds).
+  "The infinite-feed `:rf.resource/load-more` event, the page reply handlers and
+  the refetch reset (Spec 016 §Infinite resources and load-more feeds), driven
+  through the event layer. A load-more fetches the next page and appends it; a
+  terminal feed, a feed with no page 0 and a load-more already in flight fire
+  nothing; a superseded page reply is suppressed; a page failure keeps the feed
+  and records `:page-error`; and a refetch keeps the visible window, refreshing
+  page 0 in place unless `:refetch-all-pages?` or `:refetch-window` sweeps more
+  pages in sequence.
 
-  These tests drive the PURE entry transitions (`empty-infinite-entry` /
-  `next-param-for` / `entry-append-page` / `entry-page-failed` / …) through
-  the EVENT layer:
-
-    1. `:rf.resource/ensure` on an infinite resource fetches PAGE 0 only
-       (page ctx `{:rf.resource/page-param nil :rf.resource/page-index 0}`),
-       seeds an `empty-infinite-entry`, and addresses the PAGE reply handlers;
-    2. `:rf.resource/load-more` derives the next page param from the tail,
-       issues the next page (index = page-count), and APPENDS on success +
-       advances the cursor;
-    3. a TERMINAL feed (`:next-page-param` nil) load-more is a no-op;
-    4. a load-more while a page fetch is in flight DEDUPES (no second request);
-    5. a stale / superseded page reply is SUPPRESSED (never appends to a newer
-       feed);
-    6. a page-fetch failure is the THIRD error channel — the feed keeps its
-       pages + records `:page-error` (NOT `:error` / `:refresh-error`);
-    7. `:rf.resource/refetch` preserves the visible window by default (R6 —
-       refresh page 0 in place); the `:refetch-all-pages?` / `:refetch-window`
-       opt-ins refresh a MULTI-PAGE window IN SEQUENCE (a chained sweep, one
-       leg at a time, replacing each page in place; the accumulation is never
-       truncated).
-
-  The capturing transport REPLAYS the real reply-append shape (Spec 014 §Reply
-  addressing — the live transport conj's its result as the LAST arg of the
-  internal reply event), so the page reply handlers run against the genuine
-  3-element event. The subscription family is tested in
-  `resources-infinite-subs-cljs-test`."
+  The capturing transport replays the real reply-append shape (Spec 014 §Reply
+  addressing: the result is conj'd as the last arg of the internal reply
+  event). The subscriptions are `resources-infinite-subs-cljs-test`'s."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -48,19 +29,13 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport that REPLAYS the real reply-append shape ----------
-
 (def ^:private last-managed-args (atom nil))
 
-;; Captures the `:rf.resource/schedule-timers` fx (real host timer
-;; scheduling is tested elsewhere) so the page-0 abort/failure timer arming
-;; can be asserted deterministically, without a wall clock — mirrors
-;; `resources-invalidation-gc-cljs-test`'s capturing pattern.
+;; the `:rf.resource/schedule-timers` fx, captured so timer arming is asserted
+;; without a wall clock
 (def ^:private scheduled-timers (atom []))
 
-;; Captures the opportunistic `:rf.http/managed-abort` fx (the
-;; frame-qualified request-id) so an owner release can be asserted not to
-;; abort a page attempt another held owner still needs.
+;; the frame-qualified request-ids of `:rf.http/managed-abort`
 (def ^:private aborts (atom []))
 
 (defn- capturing-transport-fixture
@@ -81,14 +56,11 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- runtime-db
-  ([] (runtime-db :rf/default))
-  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
-(defn- entry
-  ([scoped-key] (entry :rf/default scoped-key))
-  ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
+
+(defn- page-count [scoped-key] (rf.resources.state/page-count (entry scoped-key)))
 
 (defn- reply-success!
   "Dispatch the captured `:on-success` reply with the transport's success
@@ -97,23 +69,24 @@
   ([args data]
    (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data}))))
 
-(defn- reply-failure!
-  ([failure] (reply-failure! @last-managed-args failure))
-  ([args failure]
-   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
+(defn- reply-failure! [failure]
+  (rf/dispatch-sync (conj (:on-failure @last-managed-args) {:status :error :error failure})))
 
 (defn- reply-aborted!
-  "Feed the captured `:on-failure` reply an `:rf.http/aborted` envelope (an
-  intentional cancellation, not a failure) — `page-failed-
-  handler` branches this into the ABORT / cancellation settle."
-  ([] (reply-aborted! @last-managed-args))
-  ([args] (reply-failure! args {:kind :rf.http/aborted :reason :user})))
+  "An `:rf.http/aborted` envelope: an intentional cancellation, not a failure."
+  []
+  (reply-failure! {:kind :rf.http/aborted :reason :user}))
+
+(defn- in-flight-page-index []
+  (:rf.resource/page-index (second (:on-success @last-managed-args))))
 
 (defn- last-schedule-for [scoped-key]
   (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
+(defn- work-status [work-id]
+  (:status (rf.resources.work-ledger/get-record (runtime-db) work-id)))
+
 (def ^:private next-cursor
-  "Read the next cursor off a page's `:page-info` envelope; nil ⇒ terminal."
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
 
 (def ^:private prev-cursor
@@ -126,8 +99,6 @@
    {:items items :page-info {:next-cursor next-c :prev-cursor prev-c}}))
 
 (defn- feed-spec
-  "A minimal valid infinite-feed resource spec (global scope, a :filter param,
-  cursor pagination via :page-info)."
   ([] (feed-spec {}))
   ([overrides]
    (merge {:scope            :rf.scope/global
@@ -153,25 +124,30 @@
                      {:resource resource :scope :rf.scope/global
                       :params {:filter :recent} :owner [:test :w]}]))
 
-(defn- load-more! [resource]
-  ;; The supported idiom: a load-more is OWNERLESS — the feed's
-  ;; liveness is the route/ensure owner's, never a per-page owner.
+(defn- load-more!
+  "The supported idiom: a load-more is OWNERLESS — the feed's liveness is the
+  route/ensure owner's, never a per-page owner."
+  [resource]
   (rf/dispatch-sync [:rf.resource/load-more
                      {:resource resource :scope :rf.scope/global
                       :params {:filter :recent}
                       :cause [:user :feed/load-more]}]))
 
-(defn- load-more-with-owner!
-  "A load-more carrying a MISTAKEN `owner` (the unsupported, warn-and-ignored
-  input). The feed identity (scope + resource + canonical
-  params) is unchanged — only the stray owner differs from the route/ensure
-  owner. A load-more is OWNERLESS by contract, so this dispatch is expected to
-  emit `:rf.warning/resource-load-more-owner-ignored` and drop the owner."
-  [resource owner]
-  (rf/dispatch-sync [:rf.resource/load-more
-                     {:resource resource :scope :rf.scope/global
-                      :params {:filter :recent} :owner owner
-                      :cause [:user :feed/load-more]}]))
+(defn- refetch-feed! [resource]
+  (rf/dispatch-sync [:rf.resource/refetch {:resource resource :scope :rf.scope/global
+                                           :params {:filter :recent} :cause [:test :refresh]}]))
+
+(defn- invalidate-feed! []
+  (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
+                                                   :tags #{[:feed :recent]}
+                                                   :cause [:test :write]}]))
+
+(defn- release-and-invalidate!
+  "Release the ensure owner, then invalidate: the owner-free feed is only marked
+  stale, with no request."
+  []
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+  (invalidate-feed!))
 
 (defn- load-page-0!
   "Ensure (page-0) a feed and settle it with `pg`. Returns the scoped key."
@@ -181,543 +157,229 @@
   (reply-success! pg)
   (feed-key resource))
 
-;; ===========================================================================
-;; 1. ensure on an infinite resource fetches page 0 only (seed + page ctx)
-;; ===========================================================================
-
-(deftest ensure-infinite-seeds-feed-and-page-0-ctx
-  (testing "ensure of an infinite resource seeds an empty infinite entry +
-            fetches page 0 with the reserved page ctx (R8)"
-    (rf/reg-resource :inf1/feed (feed-spec) feed-spec-request)
-    (ensure! :inf1/feed)
-    (let [e (entry (feed-key :inf1/feed))]
-      (is (rf.resources.state/infinite-entry? e) "seeded an infinite entry (R1)")
-      (is (= :loading (:status e)) "first load (no data) is :loading")
-      (is (= [] (:data e)) "page vector still empty (page-0 in flight)"))
-    (testing "the request received the page-0 ctx {:page-param nil :page-index 0}"
-      (let [req-params (get-in @last-managed-args [:request :params])]
-        (is (= 0 (:page-index req-params)) "page-index 0")
-        (is (not (contains? req-params :cursor)) "page-0 cursor is nil")))
-    (testing "the reply is addressed at the PAGE reply handler (not the scalar)"
-      (is (= :rf.resource.internal/page-succeeded (first (:on-success @last-managed-args))))
-      (is (= :rf.resource.internal/page-failed (first (:on-failure @last-managed-args)))))))
-
-;; ===========================================================================
-;; 2. load-more appends + advances the cursor (the headline behaviour)
-;; ===========================================================================
-
-(deftest load-more-appends-and-advances-cursor
-  (testing "load-more on a loaded feed fetches the NEXT page (derived param) +
-            transitions to :fetching, then appends on success (R2)"
-    (let [k (load-page-0! :lm/feed (page [:a] "c1"))]
-      (load-more! :lm/feed)
-      (let [e (entry k)]
-        (is (= :fetching (:status e)) "feed has data → refresh-class :fetching")
-        (is (= 1 (rf.resources.state/page-count e)) "page vector unchanged while in flight (pages stay visible)"))
-      (testing "the load-more request carried the derived next param + index 1"
-        (let [req-params (get-in @last-managed-args [:request :params])]
-          (is (= 1 (:page-index req-params)))
-          (is (= "c1" (:cursor req-params)) "the cursor is the page-0-derived next param")))
-      (reply-success! (page [:b] "c2"))
-      (let [e (entry k)]
-        (is (= :loaded (:status e)))
-        (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
-        (is (= [nil "c1"] (:page-params e)) "param per page, page-0 = nil")
-        (is (= "c2" (:next-page-param e)) "cursor advanced to page-1's next")))))
-
-(deftest load-more-recomputes-prev-mirror
-  (testing "append re-derives :prev-page-param from the head (R7 mirror)"
-    (let [k (load-page-0! :lmp/feed (page [:a] "c1" "p-head"))]
-      (load-more! :lmp/feed)
-      (reply-success! (page [:b] "c2" "p-tail"))
-      (is (= "p-head" (:prev-page-param (entry k))) "prev comes from the FIRST page"))))
-
-;; ===========================================================================
-;; 3. terminal-nil load-more is a no-op (R2)
-;; ===========================================================================
-
-(deftest load-more-terminal-is-noop
-  (testing "load-more on a feed whose next-param is nil fires NO request (R2)"
-    ;; page-0 has a nil next-cursor → terminal
-    (let [k (load-page-0! :term/feed (page [:a] nil))]
-      (is (nil? (:next-page-param (entry k))) "feed is terminal")
-      (reset! last-managed-args nil)
-      (load-more! :term/feed)
-      (is (nil? @last-managed-args) "no request issued on a terminal load-more")
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "feed unchanged (still :loaded)")
-        (is (= 1 (rf.resources.state/page-count e)) "no page appended")
-        (is (nil? (:current-work e)) "no work record created")))))
-
-(deftest load-more-no-feed-is-noop
-  (testing "load-more before page-0 exists is a no-op (the first page is ensure's)"
-    (rf/reg-resource :nf/feed (feed-spec) feed-spec-request)
-    (reset! last-managed-args nil)
-    (load-more! :nf/feed)
-    (is (nil? @last-managed-args) "no request when there is no accumulated feed")
-    (is (nil? (entry (feed-key :nf/feed))) "no entry conjured by a load-more")))
-
-;; ===========================================================================
-;; 4. concurrent load-more dedupes against the in-flight page (R2)
-;; ===========================================================================
-
-(deftest concurrent-load-more-dedupes
-  (testing "a second load-more while one is in flight JOINS — no second request,
-            no new generation (R2 dedupe)"
-    (let [k (load-page-0! :dd/feed (page [:a] "c1"))]
-      (load-more! :dd/feed)
-      (let [e1   (entry k)
-            wid1 (:current-work e1)
-            gen1 (:generation e1)
-            args1 @last-managed-args]
-        (is (= :fetching (:status e1)))
-        (reset! last-managed-args nil)
-        ;; a second load-more while the first is still in flight
-        (load-more! :dd/feed)
-        (let [e2 (entry k)]
-          (is (nil? @last-managed-args) "no second request fired (deduped)")
-          (is (= gen1 (:generation e2)) "no new generation on dedupe")
-          (is (= wid1 (:current-work e2)) "same in-flight work record"))
-        ;; the single in-flight page settles ONCE → exactly one append
-        (reply-success! args1 (page [:b] "c2"))
-        (let [e3 (entry k)]
-          (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e3))
-              "exactly one page appended despite two load-mores"))))))
-
-;; ===========================================================================
-;; 5. stale / superseded page reply is suppressed (mandatory boundary)
-;; ===========================================================================
-
-(deftest stale-page-reply-suppressed
-  (testing "a late page reply carrying a superseded work-id / generation NEVER
-            appends to the newer feed (Spec 016 §stale suppression)"
-    (let [k (load-page-0! :st/feed (page [:a] "c1"))]
-      ;; first load-more (generation N) — capture its in-flight args, do NOT reply
-      (load-more! :st/feed)
-      (let [args1 @last-managed-args
-            wid1  (:current-work (entry k))
-            gen1  (:generation (entry k))]
-        ;; a refetch supersedes the in-flight load-more (forces a new generation)
-        (rf/dispatch-sync [:rf.resource/refetch
-                           {:resource :st/feed :scope :rf.scope/global
-                            :params {:filter :recent} :cause [:test :supersede]}])
-        (let [gen2 (:generation (entry k))]
-          (is (not= gen1 gen2) "refetch forced a new generation")
-          ;; the OLD load-more page reply lands late — it must be suppressed
-          (reply-success! args1 (page [:STALE] "cX"))
-          (let [e (entry k)]
-            (is (not (some #(= % (page [:STALE] "cX")) (:data e)))
-                "the stale page was NOT appended")
-            (is (= gen2 (:generation e)) "entry generation unchanged by the stale reply"))
-          (testing "the suppressed work row settles terminal :suppressed"
-            (let [rec (rf.resources.work-ledger/get-record (runtime-db) wid1)]
-              (is (= :suppressed (:status rec))))))))))
-
-;; ===========================================================================
-;; 6. page-fetch failure is the THIRD error channel (keep feed + :page-error).
-;;    The page reply handler routes every non-abort load-more failure alike,
-;;    so the full keep-feed + :page-error settle is pinned once, by
-;;    `load-more-decode-failure-keeps-pages-records-page-error` (6b).
-;; ===========================================================================
-
-(deftest page-failure-recovers-on-next-success
-  (testing "a successful load-more after a page failure clears :page-error"
-    (let [k (load-page-0! :pfr/feed (page [:a] "c1"))]
-      (load-more! :pfr/feed)
-      (reply-failure! {:kind :rf.http/server :status 503})
-      (is (some? (:page-error (entry k))) "failure recorded")
-      ;; retry the load-more — it succeeds this time
-      (load-more! :pfr/feed)
-      (reply-success! (page [:b] "c2"))
-      (let [e (entry k)]
-        (is (nil? (:page-error e)) "the next success cleared the page-error")
-        (is (= 2 (rf.resources.state/page-count e)) "the retried page appended")))))
-
-;; ===========================================================================
-;; 6b. per-page VALIDATION rides the request :decode
-;; ===========================================================================
-;;
-;; There is no resource-level page schema (registration rejects
-;; :page-data-schema). The per-page validation surface is the managed-HTTP
-;; request's :decode: a Malli page schema JSON-decodes + validates each page
-;; BEFORE a success reply exists. A page whose body fails that schema surfaces
-;; as the transport's
-;; {:kind :rf.http/decode-failure :schema-validation-failure? true} envelope
-;; (Spec 014 — re-frame.http.transport §decode). It is a NON-abort failure, so
-;; the page reply handlers route it with the correct page-0-vs-page-N semantics:
-;;   - a PAGE-0 (first-load) decode failure settles first-load :error (no feed);
-;;   - a LOAD-MORE (page N>0) decode failure preserves the prior pages + records
-;;     :page-error (the third channel — never :error / :refresh-error).
-;; Both settle a terminal :failed work row.
-
-(def ^:private PageSchema
-  "A Malli page schema supplied on the request :decode — the per-page validation
-  surface."
-  [:map
-   [:items [:vector :keyword]]
-   [:page-info [:map [:next-cursor {:optional true} [:maybe :string]]]]])
-
-(defn- decode-failure
-  "The managed-HTTP failure envelope the real transport produces when a response
-  body fails the request's Malli :decode schema (Spec 014 — re-frame.http.
-  transport: :kind :rf.http/decode-failure, :schema-validation-failure? true)."
-  [body-text]
-  {:kind                       :rf.http/decode-failure
-   :body-text                  body-text
-   :cause                      "the decoded response body failed Malli schema validation"
-   :schema-validation-failure? true})
-
-(def ^:private decoding-feed-request
-  "A feed :request that supplies the per-page schema on :decode — the
-  per-page validation surface."
-  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-    {:request {:method :get :url "/api/feed"
-               :params (cond-> {:filter filter :page-index page-index}
-                         page-param (assoc :cursor page-param))}
-     :decode  PageSchema}))
-
-(deftest page-0-decode-failure-settles-first-load-error
-  (testing "a PAGE-0 body that fails the :decode schema surfaces
-            as :rf.http/decode-failure and settles first-load :error (no pages),
-            with a terminal :failed work row"
-    (rf/reg-resource :dec0/feed (feed-spec) decoding-feed-request)
-    (ensure! :dec0/feed)
-    (let [k   (feed-key :dec0/feed)
-          wid (:current-work (entry k))]
-      (reply-failure! (decode-failure "{\"items\":[1,2,3]}"))
-      (let [e (entry k)]
-        (is (= :error (:status e)) "first-load decode failure settles :error")
-        (is (= :rf.http/decode-failure (:kind (:error e)))
-            "the :error envelope is the decode-failure the schema produced")
-        (is (true? (:schema-validation-failure? (:error e)))
-            "flagged a schema-validation failure (not a JSON syntax error)")
-        (is (nil? (:data e))
-            "no usable pages — the first-load :error clears :data (mirrors the scalar path)")
-        (is (nil? (:current-work e)) "no in-flight work after the settle")
-        (is (nil? (:page-error e)) "NOT the load-more :page-error channel"))
-      (is (= :failed (:status (rf.resources.work-ledger/get-record (runtime-db) wid)))
-          "the work row settles terminal :failed"))))
-
-(deftest load-more-decode-failure-keeps-pages-records-page-error
-  (testing "a LOAD-MORE page that fails the :decode schema
-            preserves the prior pages + records :page-error (never :error /
-            :refresh-error), with a terminal :failed work row"
-    (rf/reg-resource :decn/feed (feed-spec) decoding-feed-request)
-    (ensure! :decn/feed)
-    (reply-success! (page [:a] "c1"))          ;; page 0 validates + appends
-    (let [k (feed-key :decn/feed)]
-      (is (= 1 (rf.resources.state/page-count (entry k))) "page 0 accumulated")
-      (load-more! :decn/feed)
-      (let [wid (:current-work (entry k))]
-        (reply-failure! (decode-failure "{\"items\":[1]}"))
-        (let [e (entry k)]
-          (is (= :loaded (:status e)) "feed returns to :loaded (NOT :error)")
-          (is (= [(page [:a] "c1")] (:data e)) "page vector untouched")
-          (is (= "c1" (:next-page-param e)) "cursor untouched — retry is possible")
-          (is (= :rf.http/decode-failure (:kind (:page-error e)))
-              ":page-error records the decode-failure (third channel)")
-          (is (true? (:schema-validation-failure? (:page-error e)))
-              "the schema-validation flag rides the page-error envelope")
-          (is (nil? (:error e)) "NOT the first-load :error channel")
-          (is (nil? (:refresh-error e)) "NOT the refresh :refresh-error channel")
-          (is (nil? (:current-work e)) ":current-work cleared"))
-        (is (= :failed (:status (rf.resources.work-ledger/get-record (runtime-db) wid)))
-            "the work row settles terminal :failed")))))
-
-;; ===========================================================================
-;; 7. refetch reset — R6 window-preserving default + opt-ins
-;; ===========================================================================
-
-(defn- accumulate-3! [resource spec-overrides]
-  "Register + load page 0 + two load-mores → a 3-page feed. Returns key."
+(defn- accumulate-3!
+  "Register + load page 0 + two load-mores → a 3-page feed. Returns the key."
+  [resource spec-overrides]
   (rf/reg-resource resource (feed-spec spec-overrides) feed-spec-request)
   (ensure! resource) (reply-success! (page [:a] "c1"))
   (load-more! resource) (reply-success! (page [:b] "c2"))
   (load-more! resource) (reply-success! (page [:c] "c3"))
   (feed-key resource))
 
+;; ===========================================================================
+;; load-more appends, a terminal / pageless / in-flight load-more fires nothing
+;; ===========================================================================
+
+(deftest load-more-appends-and-advances-cursor
+  (let [k (load-page-0! :lm/feed (page [:a] "c1"))]
+    (load-more! :lm/feed)
+    (is (= [:fetching 1 {:page-index 1 :cursor "c1"}]
+           [(:status (entry k)) (page-count k)
+            (select-keys (get-in @last-managed-args [:request :params]) [:page-index :cursor])])
+        "the next page is fetched with the derived cursor while the pages stay visible")
+    (reply-success! (page [:b] "c2"))
+    (is (= [:loaded [(page [:a] "c1") (page [:b] "c2")] [nil "c1"] "c2"]
+           ((juxt :status :data :page-params :next-page-param) (entry k)))
+        "the page appends in order with its param, and the cursor advances")))
+
+(deftest load-more-recomputes-prev-mirror
+  (let [k (load-page-0! :lmp/feed (page [:a] "c1" "p-head"))]
+    (load-more! :lmp/feed)
+    (reply-success! (page [:b] "c2" "p-tail"))
+    (is (= "p-head" (:prev-page-param (entry k))) "prev comes from the FIRST page")))
+
+(deftest load-more-terminal-is-noop
+  (let [k (load-page-0! :term/feed (page [:a] nil))]
+    (reset! last-managed-args nil)
+    (load-more! :term/feed)
+    (let [e (entry k)]
+      (is (= [nil nil :loaded 1 nil]
+             [(:next-page-param e) @last-managed-args (:status e) (page-count k) (:current-work e)])
+          "a nil cursor is terminal: no request, and the feed is unchanged"))))
+
+(deftest load-more-no-feed-is-noop
+  (rf/reg-resource :nf/feed (feed-spec) feed-spec-request)
+  (load-more! :nf/feed)
+  (is (= [nil nil] [@last-managed-args (entry (feed-key :nf/feed))])
+      "the first page is ensure's: a load-more fires nothing and conjures no entry"))
+
+(deftest concurrent-load-more-dedupes
+  (let [k (load-page-0! :dd/feed (page [:a] "c1"))]
+    (load-more! :dd/feed)
+    (let [e1    (entry k)
+          args1 @last-managed-args]
+      (reset! last-managed-args nil)
+      (load-more! :dd/feed)
+      (is (= [nil (:generation e1) (:current-work e1)]
+             [@last-managed-args (:generation (entry k)) (:current-work (entry k))])
+          "the second load-more joins the page in flight: no request, no new generation")
+      (reply-success! args1 (page [:b] "c2"))
+      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data (entry k)))
+          "the single page appends once"))))
+
+(deftest stale-page-reply-suppressed
+  (let [k (load-page-0! :st/feed (page [:a] "c1"))]
+    (load-more! :st/feed)
+    (let [args1 @last-managed-args
+          wid1  (:current-work (entry k))]
+      (refetch-feed! :st/feed)
+      (let [gen2 (:generation (entry k))]
+        (reply-success! args1 (page [:STALE] "cX"))
+        (is (= [[(page [:a] "c1")] gen2 :suppressed]
+               [(:data (entry k)) (:generation (entry k)) (work-status wid1)])
+            "a refetch supersedes the load-more, whose late page is suppressed, not appended")))))
+
+;; ===========================================================================
+;; a load-more failure is the THIRD error channel (keep feed + :page-error)
+;; ===========================================================================
+
+(deftest load-more-failure-keeps-the-feed-and-recovers-on-next-success
+  (let [k        (load-page-0! :pfr/feed (page [:a] "c1"))
+        envelope {:kind :rf.http/server :status 503}]
+    (load-more! :pfr/feed)
+    (let [wid (:current-work (entry k))]
+      (reply-failure! envelope)
+      (is (= [:loaded [(page [:a] "c1")] "c1" envelope nil nil nil :failed]
+             (conj ((juxt :status :data :next-page-param :page-error :error :refresh-error :current-work)
+                    (entry k))
+                   (work-status wid)))
+          "the feed and its cursor are kept, :page-error records the failure, the row settles :failed"))
+    (load-more! :pfr/feed)
+    (reply-success! (page [:b] "c2"))
+    (is (= [nil 2] [(:page-error (entry k)) (page-count k)])
+        "the retried page appends and clears :page-error")))
+
+;; ===========================================================================
+;; refetch keeps the window: page 0 in place by default, or a sequential sweep
+;; ===========================================================================
+
 (deftest refetch-preserves-window-by-default
-  (testing "the R6 DEFAULT preserves the visible window — a refetch keeps
-            the accumulated pages visible (does NOT collapse to page 0) and
-            replaces page-0 in place on success"
-    (let [k (accumulate-3! :rw/feed {})]
-      (is (= 3 (rf.resources.state/page-count (entry k))) "3 pages accumulated")
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :rw/feed :scope :rf.scope/global
-                          :params {:filter :recent} :cause [:test :refresh]}])
-      (let [e (entry k)]
-        (is (= :fetching (:status e)) "refetch is refresh-class (data kept)")
-        (is (= 3 (rf.resources.state/page-count e)) "WINDOW PRESERVED — feed NOT collapsed to page 0"))
-      (testing "the replacement fetches page-0 (index 0, nil cursor)"
-        (let [req-params (get-in @last-managed-args [:request :params])]
-          (is (= 0 (:page-index req-params)))
-          (is (not (contains? req-params :cursor)))))
-      (reply-success! (page [:a*] "c1"))
-      (let [e (entry k)]
-        (is (= :loaded (:status e)))
-        (is (= [(page [:a*] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e))
-            "page-0 replaced in place, tail preserved, still 3 pages")))))
+  (let [k (accumulate-3! :rw/feed {})]
+    (refetch-feed! :rw/feed)
+    (is (= [:fetching 3 {:page-index 0}]
+           [(:status (entry k)) (page-count k)
+            (select-keys (get-in @last-managed-args [:request :params]) [:page-index :cursor])])
+        "a refresh-class refetch of page 0 with no cursor; the window is not collapsed")
+    (reply-success! (page [:a*] "c1"))
+    (is (= [:loaded [(page [:a*] "c1") (page [:b] "c2") (page [:c] "c3")]]
+           ((juxt :status :data) (entry k)))
+        "page 0 is replaced in place and the tail kept")))
 
 (deftest refetch-all-pages-opt-in-refreshes-every-page-in-sequence
-  ;; :refetch-all-pages? re-fetches EVERY accumulated page param IN SEQUENCE
-  ;; (TanStack parity), replacing each in place. The feed never collapses to
-  ;; page 0 — its length is preserved; one fetch is in flight at a time (the
-  ;; chained sweep).
-  (testing ":refetch-all-pages? sweeps page 0, then page 1, then page 2 in order"
-    (let [k (accumulate-3! :ra/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :ra/feed :scope :rf.scope/global
-                          :params {:filter :recent} :cause [:test :refresh-all]}])
-      (testing "the issue-time fetch is page 0; the feed is NOT truncated"
-        (is (= 3 (rf.resources.state/page-count (entry k))) "WINDOW PRESERVED — feed not collapsed")
-        (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-            "the first fetch is page 0 (index 0)"))
-      ;; page-0 reply replaces in place, then CHAINS the page-1 leg.
-      (reply-success! (page [:a*] "c1"))
-      (let [e (entry k)]
-        (is (= 3 (rf.resources.state/page-count e)) "still 3 pages after page-0 replacement")
-        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page-0 replaced in place"))
-      (testing "the sweep CHAINED a page-1 fetch (the next leg, in sequence)"
-        (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-            "the second fetch is page 1")
-        (is (= "c1" (:rf.resource/page-param (second (:on-success @last-managed-args))))
-            "page 1 re-fetched with its original :page-param"))
-      ;; page-1 reply replaces in place, then chains page-2.
-      (reply-success! (page [:b*] "c2"))
-      (let [e (entry k)]
-        (is (= 3 (rf.resources.state/page-count e)))
-        (is (= (page [:b*] "c2") (nth (:data e) 1)) "page-1 replaced in place"))
-      (testing "the sweep CHAINED a page-2 fetch (the final leg)"
-        (is (= 2 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-            "the third fetch is page 2"))
-      ;; page-2 reply replaces in place — the sweep is now exhausted.
-      (reply-success! (page [:c*] "c3"))
-      (let [e (entry k)]
-        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] (:data e))
-            "every page replaced in place, in order")
-        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared when exhausted")
-        (is (= :loaded (:status e)) "feed settled :loaded")))))
+  (let [k (accumulate-3! :ra/feed {:refetch {:refetch-all-pages? true}})]
+    (refetch-feed! :ra/feed)
+    (is (= [3 0] [(page-count k) (in-flight-page-index)]))
+    (reply-success! (page [:a*] "c1"))
+    (is (= [(page [:a*] "c1") 3 1 "c1"]
+           [(nth (:data (entry k)) 0) (page-count k) (in-flight-page-index)
+            (:rf.resource/page-param (second (:on-success @last-managed-args)))])
+        "page 0 is replaced in place, then the sweep chains page 1 with its original param")
+    (reply-success! (page [:b*] "c2"))
+    (is (= [(page [:b*] "c2") 2] [(nth (:data (entry k)) 1) (in-flight-page-index)]))
+    (reply-success! (page [:c*] "c3"))
+    (let [e (entry k)]
+      (is (= [[(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] false :loaded]
+             [(:data e) (contains? e :refetch-sweep) (:status e)])
+          "every page is replaced in order, and the exhausted sweep is cleared"))))
 
 (deftest refetch-window-opt-in-refreshes-the-bounded-window-in-sequence
-  ;; :refetch-window n refreshes the first n pages in place
-  ;; (page 0 + the chained legs up to n-1), keeping pages beyond n untouched.
-  (testing ":refetch-window 2 refreshes pages 0 and 1, leaves page 2 alone"
-    (let [k (accumulate-3! :rwn/feed {:refetch {:refetch-window 2}})]
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :rwn/feed :scope :rf.scope/global
-                          :params {:filter :recent} :cause [:test :window]}])
-      (is (= 3 (rf.resources.state/page-count (entry k))) "feed NOT truncated — full window preserved")
-      (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args)))) "page 0 first")
-      (reply-success! (page [:a*] "c1"))
-      (testing "the sweep chained the page-1 leg (the bounded window)"
-        (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args)))) "then page 1"))
-      (reply-success! (page [:b*] "c2"))
-      (let [e (entry k)]
-        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c] "c3")] (:data e))
-            "pages 0 and 1 refreshed, page 2 left UNTOUCHED (outside the window)")
-        (is (not (contains? e :refetch-sweep)) "sweep cleared (window exhausted)")))))
+  (let [k (accumulate-3! :rwn/feed {:refetch {:refetch-window 2}})]
+    (refetch-feed! :rwn/feed)
+    (is (= [3 0] [(page-count k) (in-flight-page-index)]))
+    (reply-success! (page [:a*] "c1"))
+    (is (= 1 (in-flight-page-index)) "the sweep chains page 1")
+    (reply-success! (page [:b*] "c2"))
+    (let [e (entry k)]
+      (is (= [[(page [:a*] "c1") (page [:b*] "c2") (page [:c] "c3")] false]
+             [(:data e) (contains? e :refetch-sweep)])
+          ":refetch-window 2 refreshes pages 0 and 1 and leaves page 2 untouched"))))
 
 (deftest refetch-sweep-failure-stops-the-sweep-keeps-pages
-  ;; A page failure DURING a sweep stops the chain (clears the
-  ;; cursor) and records :page-error, keeping all accumulated pages.
-  (testing "a page-1 sweep-leg failure stops the sweep + records :page-error"
-    (let [k (accumulate-3! :rsf/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :rsf/feed :scope :rf.scope/global
-                          :params {:filter :recent} :cause [:test :refresh-all]}])
-      (reply-success! (page [:a*] "c1"))          ;; page 0 replaced ⇒ chains page 1
-      (is (= 1 (:rf.resource/page-index (second (:on-failure @last-managed-args)))) "page-1 leg in flight")
-      (reply-failure! {:kind :rf.http/server :status 503})
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "feed stays :loaded (pages kept)")
-        (is (= 3 (rf.resources.state/page-count e)) "all pages preserved")
-        (is (some? (:page-error e)) ":page-error recorded for the failed sweep leg")
-        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared — chain stopped")))))
-
-(deftest ensure-of-an-invalidated-feed-sweeps-per-its-refetch-policy
-  ;; Spec 016 §Refetch and invalidation of an infinite feed: tag invalidation
-  ;; marks the feed stale and "the feed refetches per the refetch rule above on
-  ;; the next ensure". An OWNER-FREE feed is only marked stale, so that next
-  ;; ensure is the re-entry path — refreshing page 0 alone there, with page 0's
-  ;; settle clearing `:invalidated-at` for the whole feed, would leave the tail
-  ;; pre-invalidation and reading fresh.
-  (testing ":refetch-all-pages? sweeps every page on the ensure that follows an
-            owner-free invalidation"
-    (let [k (accumulate-3! :ris/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
-      (reset! last-managed-args nil)
-      (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
-                                                       :tags #{[:feed :recent]}
-                                                       :cause [:test :write]}])
-      (testing "FIXTURE — the owner-free feed went stale without a request"
-        (is (some? (:invalidated-at (entry k))))
-        (is (nil? @last-managed-args)))
-      (ensure! :ris/feed)
-      (testing "the ensure fetches page 0 and arms the sweep for the tail"
-        (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args)))))
-        (is (= [["c1" 1] ["c2" 2]] (:refetch-sweep (entry k)))))
-      (reply-success! (page [:a*] "c1"))
-      (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-          "page 0's settle chained the page-1 leg")
-      (reply-success! (page [:b*] "c2"))
-      (is (= 2 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-          "then the page-2 leg")
-      (reply-success! (page [:c*] "c3"))
-      (let [e (entry k)]
-        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] (:data e))
-            "every page refreshed — no tail left holding pre-invalidation data")
-        (is (nil? (:invalidated-at e)))
-        (is (not (contains? e :refetch-sweep)) "the sweep is exhausted")
-        (is (= :loaded (:status e)))))))
-
-;; ===========================================================================
-;; 8. ensure dedupe / fresh-skip applies to an infinite feed's page-0
-;; ===========================================================================
+  (let [k (accumulate-3! :rsf/feed {:refetch {:refetch-all-pages? true}})]
+    (refetch-feed! :rsf/feed)
+    (reply-success! (page [:a*] "c1"))
+    (is (= 1 (in-flight-page-index)) "FIXTURE — the page-1 leg is in flight")
+    (reply-failure! {:kind :rf.http/server :status 503})
+    (let [e (entry k)]
+      (is (= [:loaded 3 true false]
+             [(:status e) (page-count k) (some? (:page-error e)) (contains? e :refetch-sweep)])
+          "a failed leg records :page-error, keeps every page and stops the sweep"))))
 
 (deftest ensure-infinite-fresh-skip-serves-cache
-  (testing "a second ensure of a fresh loaded infinite feed serves cache (no
-            new page-0 fetch) — the scalar fresh-skip applies"
-    (let [k (load-page-0! :fs/feed (page [:a] "c1"))
-          gen0 (:generation (entry k))]
-      (reset! last-managed-args nil)
-      (ensure! :fs/feed)
-      (is (nil? @last-managed-args) "fresh loaded feed served from cache, no refetch")
-      (is (= gen0 (:generation (entry k))) "no new generation")
-      (is (= 1 (rf.resources.state/page-count (entry k))) "feed untouched"))))
+  (let [k    (load-page-0! :fs/feed (page [:a] "c1"))
+        gen0 (:generation (entry k))]
+    (reset! last-managed-args nil)
+    (ensure! :fs/feed)
+    (is (= [nil gen0 1] [@last-managed-args (:generation (entry k)) (page-count k)])
+        "a second ensure of a fresh loaded feed serves the cache")))
 
 ;; ===========================================================================
-;; 8b. page-0 abort/failure uses FIRST-LOAD cleanup, not the
-;;     load-more / kept-feed cleanup — an infinite feed's first page never
-;;     landed, so there is no feed to keep.
+;; a page-0 abort or failure with no pages is a FIRST load, not a load-more
 ;; ===========================================================================
 ;;
-;; A first-load (page-0, no accumulated pages) abort settles to `:idle`
-;; (mirroring the scalar `entry-abort-settled` first-load branch), so a later
-;; ensure re-fetches. Settling it through the load-more abort branch —
-;; unconditionally `:status :loaded` — would leave a `:loaded` feed with ZERO
-;; pages, which the fresh-skip check (`ensure-infinite-fresh-skip-serves-cache`,
-;; above) cannot tell from a genuinely loaded feed, so every later
-;; `:rf.resource/ensure` would serve the permanently empty "cache" and the feed
-;; would hang. The non-abort first-load `:error` settle arms the GC/stale
-;; timers, as the scalar first-load failure path does.
+;; Settling an aborted first load `:loaded` would leave a zero-page feed the
+;; fresh-skip above cannot tell from a loaded one, so the feed would hang.
 
-(deftest page-0-abort-settles-idle-not-loaded
-  (testing "an ABORTED page-0 fetch with NO accumulated pages settles :idle
-            (first-load cleanup), NEVER :loaded (the load-more cleanup)"
-    (rf/reg-resource :ab0/feed (feed-spec) feed-spec-request)
-    (ensure! :ab0/feed)
-    (let [k   (feed-key :ab0/feed)
-          wid (:current-work (entry k))]
-      (reply-aborted!)
-      (let [e (entry k)]
-        (is (= :idle (:status e)) "first-load abort settles :idle, not :loaded")
-        (is (= [] (:data e)) "no pages accumulated")
-        (is (nil? (:current-work e)) "no in-flight work after the abort settle")
-        (is (nil? (:error e)) "an abort is not an :error settle"))
-      (is (= :cancelled (:status (rf.resources.work-ledger/get-record (runtime-db) wid)))
-          "the work row settles terminal :cancelled"))))
-
-(deftest page-0-abort-does-not-fresh-skip-future-ensure
-  (testing "because the abort settles :idle (not :loaded), a later ensure of
-            the SAME feed re-fetches page 0 rather than fresh-skipping a
-            permanently-empty 'cache' (which would hang the feed)"
-    (rf/reg-resource :ab1/feed (feed-spec) feed-spec-request)
-    (ensure! :ab1/feed)
+(deftest page-0-abort-settles-idle-so-a-later-ensure-refetches
+  (rf/reg-resource :ab0/feed (feed-spec) feed-spec-request)
+  (ensure! :ab0/feed)
+  (let [k   (feed-key :ab0/feed)
+        wid (:current-work (entry k))]
     (reply-aborted!)
+    (is (= [:idle [] nil nil :cancelled]
+           (conj ((juxt :status :data :current-work :error) (entry k)) (work-status wid)))
+        "an aborted first load settles :idle with no error, never :loaded")
     (reset! last-managed-args nil)
-    (ensure! :ab1/feed)
-    (is (some? @last-managed-args)
-        "a second ensure after a page-0 abort issues a NEW page-0 fetch — it
-         must NOT fresh-skip the empty, never-loaded feed")
-    (is (= 0 (get-in @last-managed-args [:request :params :page-index]))
-        "the re-issued fetch is page-0")
-    (is (= :loading (:status (entry (feed-key :ab1/feed))))
-        "the re-issued first load is :loading")))
+    (ensure! :ab0/feed)
+    (is (= [0 :loading] [(get-in @last-managed-args [:request :params :page-index]) (:status (entry k))])
+        "so a later ensure fetches page 0 again rather than fresh-skipping the empty feed")))
 
 (deftest page-0-abort-arms-gc-and-stale-timers
-  (testing "a page-0 ABORT (first-load cleanup) arms the GC (+ stale) timer
-            exactly like the scalar first-load abort; without it an
-            owner-free empty feed would leak"
-    (rf/reg-resource :ab2/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
-                     feed-spec-request)
-    (ensure! :ab2/feed)
-    (let [k (feed-key :ab2/feed)]
-      (reset! scheduled-timers [])
-      (reply-aborted!)
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted on the page-0 abort settle")
-        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
-        (is (= 1000 (get-in args [:timers :stale])) "stale timer armed at :stale-after-ms")
-        (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))))
+  (rf/reg-resource :ab2/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000}) feed-spec-request)
+  (ensure! :ab2/feed)
+  (reset! scheduled-timers [])
+  (reply-aborted!)
+  (is (= {:gc 5000 :stale 1000 :poll nil} (:timers (last-schedule-for (feed-key :ab2/feed))))
+      "an aborted first load arms GC and stale, as the scalar first-load abort does"))
 
 (deftest page-0-failure-arms-gc-and-stale-timers
-  (testing "a page-0 FAILURE (non-abort) with no accumulated pages also arms
-            the GC (+ stale) timer, mirroring the scalar first-load :error
-            arming"
-    (rf/reg-resource :fl0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
-                     feed-spec-request)
-    (ensure! :fl0/feed)
-    (let [k (feed-key :fl0/feed)]
-      (reset! scheduled-timers [])
-      (reply-failure! {:kind :rf.http/server :status 503})
-      (let [e (entry k)]
-        (is (= :error (:status e)) "first-load failure settles :error")
-        (is (nil? (:current-work e)) "no in-flight work after the error settle"))
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted on the page-0 :error settle")
-        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
-        (is (= 1000 (get-in args [:timers :stale])) "stale timer armed at :stale-after-ms")
-        (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))))
+  (rf/reg-resource :fl0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000}) feed-spec-request)
+  (ensure! :fl0/feed)
+  (let [k   (feed-key :fl0/feed)
+        wid (:current-work (entry k))]
+    (reset! scheduled-timers [])
+    (reply-failure! {:kind :rf.http/server :status 503})
+    (is (= [:error nil :failed] [(:status (entry k)) (:current-work (entry k)) (work-status wid)])
+        "a failed first load settles :error and its row :failed")
+    (is (= {:gc 5000 :stale 1000 :poll nil} (:timers (last-schedule-for k)))
+        "and arms GC and stale, as the scalar first-load :error does")))
 
 (deftest load-more-abort-keeps-loaded-no-rearm
-  (testing "an ABORTED load-more (page N>0, feed already has pages) is NOT a
-            first load: it keeps its pages, stays :loaded, and re-arms NO
-            timer (already armed on the prior page-0 success)"
-    (rf/reg-resource :lma/feed (feed-spec {:gc-after-ms 5000}) feed-spec-request)
-    (ensure! :lma/feed)
-    (reply-success! (page [:a] "c1"))
-    (let [k (feed-key :lma/feed)]
-      (is (some? (last-schedule-for k)) "the page-0 success armed the GC timer")
-      (reset! scheduled-timers [])
-      (load-more! :lma/feed)
-      (reply-aborted!)
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "load-more abort keeps :loaded")
-        (is (= 1 (rf.resources.state/page-count e)) "page-0 kept")
-        (is (nil? (:page-error e)) "an abort is not a page-error"))
-      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
-          "no timer re-armed by the load-more abort (already armed on the
-           prior page-0 success)"))))
+  (rf/reg-resource :lma/feed (feed-spec {:gc-after-ms 5000}) feed-spec-request)
+  (ensure! :lma/feed)
+  (reply-success! (page [:a] "c1"))
+  (let [k (feed-key :lma/feed)]
+    (is (some? (last-schedule-for k)) "FIXTURE — the page-0 success armed the GC timer")
+    (reset! scheduled-timers [])
+    (load-more! :lma/feed)
+    (reply-aborted!)
+    (is (= [:loaded 1 nil nil]
+           [(:status (entry k)) (page-count k) (:page-error (entry k)) (last-schedule-for k)])
+        "an aborted load-more keeps the feed :loaded, records no :page-error and re-arms no timer")))
 
 ;; ===========================================================================
-;; 9. a load-more given a MISTAKEN (non-route) owner is WARN-AND-IGNORED
+;; an :owner on a load-more is warned about and dropped
 ;; ===========================================================================
 ;;
-;; A `:rf.resource/load-more` is OWNERLESS by contract (EP-0021): the feed's
-;; liveness is the ROUTE owner's (the route that ensured page 0), and a
-;; load-more is a user-caused page extension during that route's lifetime, NOT
-;; a new owner. The page reply never depends on the owner (the scoped key /
-;; work-id / reply payload never carry it; live-entry-for-reply matches on
-;; :rf.frame/id + :work/id + :generation), but honouring a stray owner would
-;; attach a SECOND durable owner to the feed (:active-owners + the derived
-;; :owner-index), silently extending its liveness / GC lifetime until an
-;; explicit :rf.resource/release-owner.
-;;
-;; So a non-nil :owner on a load-more (ANY owner, not only a conflicting one)
-;; is recognised-but-unhonourable input: the runtime emits a loud, recoverable
-;; WARNING (:rf.warning/resource-load-more-owner-ignored, per Conventions §No silent
-;; swallow — a WARNING, not an error, because the cascade continues safely),
-;; NORMALIZES the owner to nil (it reaches NEITHER :active-owners, the
-;; :owner-index, NOR the work record), and STILL fetches + appends the page.
-;; :cause is untouched (attribution preserved). These tests assert that guard:
-;; the warning fires, no owner leaks, and the page still appends in order.
+;; A load-more is OWNERLESS by contract: the feed's liveness is the owner that
+;; ensured page 0, and honouring a stray owner would attach a second durable
+;; owner, extending the feed's lifetime until an explicit release. So a
+;; supplied owner raises a recoverable warning, is normalized to nil, and the
+;; page is still fetched and appended; the :cause is kept.
 
 (defn- record-resource-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  trace event whose :operation is a `:rf.resource/*` OR a `:rf.warning/*` op
-  emitted during it (in capture order). The listener is unregistered in a
-  `finally`. (The owner-ignored diagnostic is a `:rf.warning/*`-namespaced op,
-  not a `:rf.resource/*` lifecycle op, so both namespaces are captured.)"
+  "Run `body-fn` with a trace listener installed; return every `:rf.resource/*`
+  and `:rf.warning/*` trace it emits, in capture order."
   [body-fn]
   (let [seen (atom [])
         k    ::resource-trace-recorder]
@@ -731,16 +393,8 @@
          (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-(defn- owner-ignored-warnings
-  "The captured `:rf.warning/resource-load-more-owner-ignored` events."
-  [traces]
-  (filterv #(= :rf.warning/resource-load-more-owner-ignored (:operation %))
-           traces))
-
-(defn- owner-index-keys
-  "The set of OWNERS currently in the derived :owner-index."
-  []
-  (-> (runtime-db) (get-in (rf.resources.state/owner-index-path)) keys set))
+(defn- owner-ignored-warnings [traces]
+  (filterv #(= :rf.warning/resource-load-more-owner-ignored (:operation %)) traces))
 
 (defn- owners-for-key
   "Owners in the :owner-index whose set contains this feed's key-id."
@@ -751,106 +405,31 @@
          (map key)
          set)))
 
-(deftest load-more-mistaken-owner-WARNS-but-STILL-APPENDS-the-page
-  ;; A load-more carrying an owner DIFFERENT
-  ;; from ensure's ([:wrong :owner] vs ensure's [:test :w]) emits a loud, RECOVER-
-  ;; ABLE warning and STILL issues the request + appends: the owner is absent from
-  ;; the scoped key, the work-id, and the reply verification (live-entry-for-reply),
-  ;; so the user's data keeps loading.
-  (testing "a load-more with a MISTAKEN owner WARNS, then still fires the request + appends"
-    (let [k (load-page-0! :mo/feed (page [:a] "c1"))]
-      (reset! last-managed-args nil)
-      (let [traces (record-resource-traces!
-                     #(load-more-with-owner! :mo/feed [:wrong :owner]))
-            warns  (owner-ignored-warnings traces)]
-        (testing "the recoverable warning fired at the point of the mistake"
-          (is (= 1 (count warns))
-              "exactly one :rf.warning/resource-load-more-owner-ignored")
-          (let [w (first warns)]
-            (is (= :warning (:op-type w)) "it is a WARNING (recoverable), not an error")
-            ;; emit!'s third arg lands under :tags (per build-event)
-            (is (= [:wrong :owner] (get-in w [:tags :owner]))
-                "the warning names the offending owner")
-            (is (some? (get-in w [:tags :hint]))
-                "the warning carries a fix hint (remove :owner)"))))
-      (is (some? @last-managed-args) "the load-more DID issue a page request (warn-and-PROCEED, not dropped)")
-      (let [e (entry k)]
-        (is (= :fetching (:status e)) "feed transitioned to :fetching (data kept)")
-        (is (= "c1" (get-in @last-managed-args [:request :params :cursor]))
-            "the request carried the page-0-derived next param — the ignored owner did not divert it"))
-      ;; the page reply lands — verified by work-id + generation, NOT owner
-      (reply-success! (page [:b] "c2"))
-      (let [e (entry k)]
-        (testing "the page APPENDED despite the ignored owner (warn-and-PROCEED)"
-          (is (= :loaded (:status e)))
-          (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
-          (is (= "c2" (:next-page-param e)) "cursor advanced from the appended page"))))))
-
-(deftest load-more-mistaken-owner-DROPS-the-stray-owner-NO-leak
-  ;; The guard against the owner leak: a stray non-route owner is IGNORED.
-  ;; It is NORMALIZED
-  ;; to nil before the entry update, so it reaches NEITHER :active-owners NOR the
-  ;; derived :owner-index NOR the work record — :active-owners is UNCHANGED, no
-  ;; second owner pins the feed, and the page still appends. :cause survives.
-  (testing "page-0 ensure attaches ONLY the ensure owner"
-    (let [k (load-page-0! :ml/feed (page [:a] "c1"))
-          e (entry k)]
-      (is (= #{[:test :w]} (:active-owners e))
-          "before the mistaken load-more, only ensure's owner is attached")
-      (is (= #{[:test :w]} (owners-for-key k))
-          ":owner-index agrees — one owner for this key")
-      (testing "a load-more with a MISTAKEN owner does NOT attach a second owner"
-        (record-resource-traces!
-          #(load-more-with-owner! :ml/feed [:wrong :owner]))
-        (let [e' (entry k)]
-          (is (not (contains? (:active-owners e') [:wrong :owner]))
-              "the stray owner was DROPPED — NOT attached to :active-owners (no leak)")
-          (is (contains? (:active-owners e') [:test :w])
-              "the original ensure owner is still present")
-          (is (= #{[:test :w]} (:active-owners e'))
-              ":active-owners UNCHANGED — exactly one owner still holds the feed")))
-      (testing "the dropped owner is absent from the derived :owner-index"
-        (is (not (contains? (owner-index-keys) [:wrong :owner]))
-            "the stray owner is NOT a key in :owner-index")
-        (is (= #{[:test :w]} (owners-for-key k))
-            ":owner-index lists only the original owner against this feed's key"))
-      (testing "the work record never carries the ignored owner — only the feed's held owner"
-        (let [e' (entry k)
-              rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e'))]
-          (is (some? rec) "a work record exists for the in-flight load-more page")
-          ;; A new page attempt inherits the feed's :active-owners
-          ;; (it mints none), so the row holds exactly ensure's owner.
-          (is (= #{[:test :w]} (:owners rec))
-              "the work record's :owners is the held owner — the ignored owner never joined it")
-          (is (= [[:user :feed/load-more]] (:causes rec))
-              "the load-more's :cause is recorded on the work record (owner dropped, cause kept)")))
-      (testing "no leak survives the page reply (the feed stays at one owner)"
-        (reply-success! (page [:b] "c2"))
-        (let [e' (entry k)]
-          (is (= #{[:test :w]} (:active-owners e'))
-              "still exactly one owner after settle — no durable leak to release"))))))
-
-(deftest load-more-ownerless-emits-no-owner-ignored-warning
-  ;; The bright-line guard fires ONLY on a supplied owner: a
-  ;; correct, OWNERLESS load-more (the documented idiom) emits no warning.
-  (testing "an ownerless load-more (the supported idiom) does NOT warn"
-    (let [k (load-page-0! :ok/feed (page [:a] "c1"))
-          traces (record-resource-traces!
-                   #(rf/dispatch-sync [:rf.resource/load-more
-                                       {:resource :ok/feed :scope :rf.scope/global
-                                        :params {:filter :recent}
-                                        :cause [:user :feed/load-more]}]))]
-      (is (empty? (owner-ignored-warnings traces))
-          "no :rf.warning/resource-load-more-owner-ignored for an ownerless load-more")
-      (reply-success! (page [:b] "c2"))
-      (let [e (entry k)]
-        (is (= 2 (rf.resources.state/page-count e)) "the ownerless load-more appended normally")
-        (is (= #{[:test :w]} (:active-owners e))
-            "still exactly the route/ensure owner — load-more added no owner")))))
-
-;; ===========================================================================
-;; 11. new page attempts inherit the feed's held owners
-;; ===========================================================================
+(deftest load-more-owner-is-warned-dropped-and-the-page-still-appends
+  (let [k (load-page-0! :mo/feed (page [:a] "c1"))]
+    (is (empty? (owner-ignored-warnings (record-resource-traces! #(load-more! :mo/feed))))
+        "CONTROL — the supported ownerless load-more does not warn")
+    (reply-success! (page [:b] "c2"))
+    (let [warns (owner-ignored-warnings
+                  (record-resource-traces!
+                    #(rf/dispatch-sync [:rf.resource/load-more
+                                        {:resource :mo/feed :scope :rf.scope/global
+                                         :params {:filter :recent} :owner [:wrong :owner]
+                                         :cause [:user :feed/load-more]}])))
+          w     (first warns)]
+      ;; emit!'s third arg lands under :tags
+      (is (= [1 :warning [:wrong :owner] true]
+             [(count warns) (:op-type w) (get-in w [:tags :owner]) (some? (get-in w [:tags :hint]))])
+          "a supplied owner raises one recoverable warning naming it, with a fix hint"))
+    (let [rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k)))]
+      (is (= [:fetching "c2" #{[:test :w]} #{[:test :w]} #{[:test :w]} [[:user :feed/load-more]]]
+             [(:status (entry k)) (get-in @last-managed-args [:request :params :cursor])
+              (:active-owners (entry k)) (owners-for-key k) (:owners rec) (:causes rec)])
+          "the owner is dropped from the entry, the owner index and the work row; the request and :cause go ahead"))
+    (reply-success! (page [:c] "c3"))
+    (is (= [[(page [:a] "c1") (page [:b] "c2") (page [:c] "c3")] "c3" #{[:test :w]}]
+           ((juxt :data :next-page-param :active-owners) (entry k)))
+        "the page appends in order and the feed still has its one owner")))
 
 (deftest page-attempts-inherit-the-feeds-held-owners
   ;; A load-more / sweep leg never MINTS an owner, but the owners already
@@ -866,26 +445,23 @@
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
     (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner b)])
     (reply-success! (page [:a] "c1"))
-    (testing "an ownerless load-more inherits both held owners; releasing one does not abort it"
-      (load-more! :own/feed)
-      (let [wid (:current-work (entry k))]
-        (is (= #{a b} (:owners (rec))) "the load-more row carries the held owners and mints none")
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
-        (is (not (contains? (set @aborts)
-                            (rf.resources.work-ledger/managed-request-id :rf/default wid)))
-            "the load-more is not aborted while b still holds the feed")
-        (is (= #{b} (:owners (rec))))
-        (reply-success! (page [:b] "c2"))
-        (is (= 2 (rf.resources.state/page-count (entry k))) "its page reply is accepted")))
-    (testing "a refetch-sweep leg inherits the held owner too"
-      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause [:test :all])])
-      (reply-success! (page [:a*] "c1"))
-      (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
-          "the page-1 leg is in flight")
-      (is (= #{b} (:owners (rec))) "the sweep leg row carries the held owner"))))
+    (load-more! :own/feed)
+    (let [wid (:current-work (entry k))]
+      (is (= #{a b} (:owners (rec))) "the load-more row carries the held owners and mints none")
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
+      (is (= [false #{b}]
+             [(contains? (set @aborts) (rf.resources.work-ledger/managed-request-id :rf/default wid))
+              (:owners (rec))])
+          "releasing one owner does not abort the page the other still holds")
+      (reply-success! (page [:b] "c2"))
+      (is (= 2 (page-count k)) "its page reply is accepted"))
+    (refetch-feed! :own/feed)
+    (reply-success! (page [:a*] "c1"))
+    (is (= [1 #{b}] [(in-flight-page-index) (:owners (rec))])
+        "a refetch-sweep leg inherits the held owner too")))
 
 ;; ===========================================================================
-;; 12. an accepted page success produces + indexes the feed :tags
+;; an accepted page success produces + indexes the feed :tags
 ;; ===========================================================================
 
 (defn- tag-members [tag]
@@ -908,20 +484,18 @@
                                             :params {:filter :recent} :owner [:test :idle]}])
     (reply-success! (page [:x] nil))
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :idle]}])
-    (testing "the feed carries its produced tag and is indexed under it, like the scalar"
-      (is (= #{[:feed :recent]} (:tags (entry kf))))
-      (is (= (set (map rf.resources.state/key-id [kf ki ks])) (tag-members [:feed :recent]))))
-    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
-                                                     :tags #{[:feed :recent]}
-                                                     :cause [:test :write]}])
-    (testing "invalidation refetches the OWNED feed, as it does the owned scalar control"
-      (is (= :fetching (:status (entry kf))) "the owned feed refetches")
-      (is (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry kf))))
-      (is (= :fetching (:status (entry ks))) "the scalar control refetches"))
-    (testing "the OWNER-FREE feed goes durably stale without a request"
-      (is (some? (:invalidated-at (entry ki))))
-      (is (= :loaded (:status (entry ki))))
-      (is (nil? (:current-work (entry ki)))))))
+    (is (= [#{[:feed :recent]} (set (map rf.resources.state/key-id [kf ki ks]))]
+           [(:tags (entry kf)) (tag-members [:feed :recent])])
+        "the feed carries its produced tag and is indexed under it, like the scalar")
+    (invalidate-feed!)
+    (is (= [:fetching true :fetching]
+           [(:status (entry kf))
+            (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry kf)))
+            (:status (entry ks))])
+        "invalidation refetches the OWNED feed, as it does the owned scalar control")
+    (is (= [true :loaded nil]
+           [(some? (:invalidated-at (entry ki))) (:status (entry ki)) (:current-work (entry ki))])
+        "the OWNER-FREE feed goes durably stale without a request")))
 
 (deftest feed-tags-follow-the-accumulated-pages
   (let [item-tags (fn [{:keys [filter]} pages]
@@ -936,22 +510,19 @@
       (ensure! :tgd/other) (reply-success! (page [:a] nil))
       (ensure! :tgd/feed)  (reply-success! (page [:a] "c1"))
       (is (= #{[:feed :recent] [:item :a]} (:tags (entry k))) "page 0's items tag the feed")
-      (testing "an appended page adds its items' tags"
-        (load-more! :tgd/feed)
-        (reply-success! (page [:b] nil))
-        (is (= #{[:feed :recent] [:item :a] [:item :b]} (:tags (entry k))))
-        (is (= #{kid} (tag-members [:item :b]))))
-      (testing "a page replaced in place drops the tags only it produced; other keys keep theirs"
-        (rf/dispatch-sync [:rf.resource/refetch {:resource :tgd/feed :scope :rf.scope/global
-                                                 :params {:filter :recent} :cause [:test :refresh]}])
-        (reply-success! (page [:a2] "c1"))
-        (is (= #{[:feed :recent] [:item :a2] [:item :b]} (:tags (entry k))))
-        (is (= #{kid} (tag-members [:item :a2])))
-        (is (= #{(rf.resources.state/key-id ko)} (tag-members [:item :a]))
-            "the obsolete tag no longer indexes this feed; the other feed still holds it")))))
+      (load-more! :tgd/feed)
+      (reply-success! (page [:b] nil))
+      (is (= [#{[:feed :recent] [:item :a] [:item :b]} #{kid}]
+             [(:tags (entry k)) (tag-members [:item :b])])
+          "an appended page adds its items' tags")
+      (refetch-feed! :tgd/feed)
+      (reply-success! (page [:a2] "c1"))
+      (is (= [#{[:feed :recent] [:item :a2] [:item :b]} #{kid} #{(rf.resources.state/key-id ko)}]
+             [(:tags (entry k)) (tag-members [:item :a2]) (tag-members [:item :a])])
+          "a page replaced in place drops the tags only it produced; the other feed keeps its own"))))
 
 ;; ===========================================================================
-;; 13. a failed page-0 refresh of a LOADED feed is :refresh-error
+;; a failed page-0 refresh of a LOADED feed is :refresh-error
 ;; ===========================================================================
 
 (deftest loaded-feed-page-0-refresh-failure-is-a-refresh-error
@@ -960,37 +531,28 @@
         envelope {:kind :rf.http/http-5xx :status 503}]
     (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
     (reply-failure! envelope)
-    (testing "the feed survives :loaded and the failure lands on :refresh-error, never :page-error"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)))
-        (is (= [(page [:a] "c1")] (:data e)) "pages kept")
-        (is (= envelope (:refresh-error e)) "the whole-feed refresh channel")
-        (is (nil? (:page-error e)) "NOT the load-more channel")
-        (is (nil? (:error e)) "NOT the first-load channel")
-        (is (nil? (:current-work e)))))
-    (testing "the public projections agree"
-      (is (= envelope @(rf/subscribe [:rf.resource/refresh-error q])))
-      (is (nil? @(rf/subscribe [:rf.resource/page-error q]))))
-    (testing "the next successful refresh clears it"
-      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
-      (reply-success! (page [:a*] "c1"))
-      (is (nil? (:refresh-error (entry k)))))))
+    (is (= [:loaded [(page [:a] "c1")] envelope nil nil nil]
+           ((juxt :status :data :refresh-error :page-error :error :current-work) (entry k)))
+        "the feed survives :loaded and the failure lands on :refresh-error alone")
+    (is (= [envelope nil]
+           [@(rf/subscribe [:rf.resource/refresh-error q]) @(rf/subscribe [:rf.resource/page-error q])])
+        "the public projections agree")
+    (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
+    (reply-success! (page [:a*] "c1"))
+    (is (nil? (:refresh-error (entry k))) "the next successful refresh clears it")))
 
 (deftest loaded-feed-page-0-refresh-failure-stops-the-sweep
-  (testing "a multi-page refresh whose page 0 fails records :refresh-error, keeps every page, chains no leg"
-    (let [k (accumulate-3! :rfs/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/refetch {:resource :rfs/feed :scope :rf.scope/global
-                                               :params {:filter :recent} :cause [:test :refresh-all]}])
-      (reply-failure! {:kind :rf.http/server :status 503})
-      (let [e (entry k)]
-        (is (= :loaded (:status e)))
-        (is (= 3 (rf.resources.state/page-count e)))
-        (is (some? (:refresh-error e)))
-        (is (nil? (:page-error e)))
-        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared")))))
+  (let [k (accumulate-3! :rfs/feed {:refetch {:refetch-all-pages? true}})]
+    (refetch-feed! :rfs/feed)
+    (reply-failure! {:kind :rf.http/server :status 503})
+    (let [e (entry k)]
+      (is (= [:loaded 3 true nil false]
+             [(:status e) (page-count k) (some? (:refresh-error e)) (:page-error e)
+              (contains? e :refetch-sweep)])
+          "a multi-page refresh whose page 0 fails records :refresh-error, keeps every page, chains no leg"))))
 
 ;; ===========================================================================
-;; 14. a page settle clears only a stale mark its attempt COVERS
+;; a page settle clears only a stale mark its attempt COVERS
 ;; ===========================================================================
 ;;
 ;; A settle keeps a stale mark written DURING the settling attempt (an
@@ -1000,31 +562,17 @@
 ;; a load-more never clears the mark, and a sweep clears one only when it
 ;; predates the sweep, at the leg that completes the refresh window.
 
-(defn- invalidate-feed! []
-  (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
-                                                   :tags #{[:feed :recent]}
-                                                   :cause [:test :write]}]))
-
-(defn- refetch-feed! [resource]
-  (rf/dispatch-sync [:rf.resource/refetch {:resource resource :scope :rf.scope/global
-                                           :params {:filter :recent} :cause [:test :refresh]}]))
-
-(defn- in-flight-page-index []
-  (:rf.resource/page-index (second (:on-success @last-managed-args))))
-
 (deftest a-load-more-keeps-a-mark-the-feed-already-had
   (let [k    (accumulate-3! :wa/feed {})
         held (:data (entry k))]
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
-    (invalidate-feed!)
+    (release-and-invalidate!)
     (is (some? (:invalidated-at (entry k))) "FIXTURE — the owner-free feed is marked stale")
     (load-more! :wa/feed)
     (reply-success! (page [:d] nil))
-    (let [e (entry k)]
-      (is (= (conj held (page [:d] nil)) (:data e)) "page 3 appended; pages 0-2 untouched")
-      (is (some? (:invalidated-at e)) "the append refreshed none of the pages the mark covers"))
+    (is (= [(conj held (page [:d] nil)) true] [(:data (entry k)) (some? (:invalidated-at (entry k)))])
+        "page 3 appends and refreshes none of the pages the mark covers")
     (ensure! :wa/feed)
-    (is (= 0 (in-flight-page-index)) "the next ensure refetches rather than fresh-skipping")))
+    (is (= 0 (in-flight-page-index)) "so the next ensure refetches rather than fresh-skipping")))
 
 (deftest a-later-sweep-leg-keeps-a-mark-written-during-an-earlier-one
   (let [k (accumulate-3! :wb/feed {:refetch {:refetch-all-pages? true}})]
@@ -1036,49 +584,43 @@
     (reply-success! (page [:b*] "c2"))
     (is (some? (:invalidated-at (entry k))) "page 1 does not refresh page 0's pre-write data")
     (reply-success! (page [:c*] "c3"))
-    (let [e (entry k)]
-      (is (not (contains? e :refetch-sweep)) "FIXTURE — the sweep ran to its end")
-      (is (some? (:invalidated-at e)) "page 0 still holds pre-invalidation data, so the feed ends stale"))))
+    (is (= [false true] [(contains? (entry k) :refetch-sweep) (some? (:invalidated-at (entry k)))])
+        "the sweep ran to its end, and page 0 still holds pre-invalidation data, so the feed ends stale")))
 
 (deftest a-sweep-clears-a-mark-it-covers-only-once-the-window-is-refetched
   (testing "a mark that predates the sweep survives until the final leg"
     (let [k (accumulate-3! :wc/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
-      (invalidate-feed!)
+      (release-and-invalidate!)
       (ensure! :wc/feed)
       (reply-success! (page [:a*] "c1"))
-      (is (some? (:invalidated-at (entry k))) "pages 1-2 still hold pre-invalidation data")
-      (is (= 1 (in-flight-page-index)) "the sweep continues; the owned feed is not refetched again")
+      (is (= [true 1] [(some? (:invalidated-at (entry k))) (in-flight-page-index)])
+          "pages 1-2 still hold pre-invalidation data, and the ensure's sweep continues")
       (reply-success! (page [:b*] "c2"))
       (is (some? (:invalidated-at (entry k))))
       (reply-success! (page [:c*] "c3"))
       (is (nil? (:invalidated-at (entry k))) "the final leg completes the refresh window")))
   (testing "a leg that fails leaves the feed stale"
     (let [k (accumulate-3! :wd/feed {:refetch {:refetch-all-pages? true}})]
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
-      (invalidate-feed!)
+      (release-and-invalidate!)
       (ensure! :wd/feed)
       (reply-success! (page [:a*] "c1"))
       (reply-failure! {:kind :rf.http/server :status 503})
-      (let [e (entry k)]
-        (is (not (contains? e :refetch-sweep)) "FIXTURE — the failed leg stopped the sweep")
-        (is (some? (:invalidated-at e)) "pages 1-2 were never refreshed"))))
+      (is (= [false true] [(contains? (entry k) :refetch-sweep) (some? (:invalidated-at (entry k)))])
+          "the failed leg stops the sweep, and pages 1-2 were never refreshed")))
   (testing "CONTROL — the window-preserving default refreshes page 0 only, which covers it"
     (let [k (accumulate-3! :we/feed {})]
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
-      (invalidate-feed!)
+      (release-and-invalidate!)
       (ensure! :we/feed)
       (reply-success! (page [:a*] "c1"))
       (is (nil? (:invalidated-at (entry k)))))))
 
 ;; ===========================================================================
-;; 15. an authoritative write drops the superseded read's sweep
+;; an authoritative write drops the superseded read's sweep
 ;; ===========================================================================
 ;;
 ;; A `:populates` / `:patches` write supersedes a read in flight. The sweep
-;; that read would have chained goes with it, or the
-;; next load-more's settle picks its obsolete cursor up and re-fetches pages the
-;; write just installed.
+;; that read would have chained goes with it, or the next load-more's settle
+;; picks its obsolete cursor up and re-fetches pages the write just installed.
 
 (def ^:private written-pages
   [(page [:A] "c1") (page [:B] "c2") (page [:C] "c3")])
@@ -1106,22 +648,20 @@
                                                :instance :w5p2p}])
       (reply-success! written-pages)
       (let [e (entry k)]
-        (testing "the write lands and supersedes the read in flight (controls)"
-          (is (= written-pages (:data e)))
-          (is (nil? (:current-work e))))
-        (is (not (contains? e :refetch-sweep)) "the superseded read's sweep goes with it"))
+        (is (= [written-pages nil false] [(:data e) (:current-work e) (contains? e :refetch-sweep)])
+            "the write lands, supersedes the read in flight, and drops that read's sweep"))
       (reply-success! page-0 (page [:old] "c1"))
       (is (= written-pages (:data (entry k))) "the late page-0 reply is suppressed")
       (load-more! resource)
       (let [load-more-args @last-managed-args]
         (is (= 3 (in-flight-page-index)) "FIXTURE — the load-more fetches page 3")
         (reply-success! (page [:D] nil))
-        (is (= (conj written-pages (page [:D] nil)) (:data (entry k))))
-        (is (identical? load-more-args @last-managed-args) "no abandoned sweep leg is fetched")
-        (is (nil? (:current-work (entry k))) "nothing is in flight")))
-    (testing "a deliberate refetch still sweeps per the policy"
-      (refetch-feed! resource)
-      (is (= [["c1" 1] ["c2" 2] ["c3" 3]] (:refetch-sweep (entry k)))))))
+        (is (= [(conj written-pages (page [:D] nil)) true nil]
+               [(:data (entry k)) (identical? load-more-args @last-managed-args) (:current-work (entry k))])
+            "the page appends, no abandoned sweep leg is fetched, and nothing is in flight")))
+    (refetch-feed! resource)
+    (is (= [["c1" 1] ["c2" 2] ["c3" 3]] (:refetch-sweep (entry k)))
+        "a deliberate refetch still sweeps per the policy")))
 
 (deftest a-populate-drops-the-sweep-of-the-read-it-supersedes
   (write-over-a-sweep-then-load-more! :wpp/feed :wp/populate))
