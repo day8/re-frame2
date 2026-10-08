@@ -1,44 +1,20 @@
 (ns re-frame.story.xray-dependency-honesty-test
   "Dependency-honesty gate for Story's Xray coupling.
 
-  ## Why the gate exists
-
   Story's shipped shell hard-`:require`s `day8.re-frame2-xray.*`
-  namespaces from four sources — `re-frame.story.ui.xray-embed`
-  (mount + panels), `re-frame.story.xray-preset` (mount + config +
-  keybinding), `re-frame.story.ui.evidence-spine` (core) and
-  `re-frame.story.ui.shell` (core). So `tools/story/deps.edn` must
-  declare the `day8/re-frame2-xray` dependency.
+  namespaces, so `tools/story/deps.edn` must declare the
+  `day8/re-frame2-xray` dependency. The repository-wide Shadow build
+  carries `../tools/xray/src` on its GLOBAL `:source-paths`, so every
+  in-repo build compiles whether or not Story declares it; without the
+  declaration a fresh consumer whose only tool dependency is
+  `day8/re-frame2-story` could not compile the shell at all.
 
-  The repository-wide Shadow build carries `../tools/xray/src` on its
-  GLOBAL `:source-paths`, so every in-repo build compiles whether or not
-  Story declares it. Without the declaration, a fresh consumer whose only
-  tool dependency is `day8/re-frame2-story` could not compile the shell at
-  all:
+  Required namespaces are found by parsing each source file's `ns` form
+  (a grep is blind to a require split across a line wrap), and declared
+  roots are read from `deps.edn` alone. Resolution never consults the
+  live classpath, so a leaked `tools/xray/src` cannot satisfy the gate.
 
-      No such namespace: day8.re-frame2-xray.mount
-      ... in re_frame/story/xray_preset.cljc
-
-  ## What this test asserts
-
-  Every `day8.*` namespace Story's own sources hard-require must be
-  reachable from Story's OWN declared dependency graph — the
-  `:local/root` entries in `tools/story/deps.edn` — and not from a
-  path some outer build happens to supply.
-
-  ## The leak control
-
-  `required-day8-namespaces` is computed by parsing each source file's
-  `ns` form (not by grepping, which is blind to a require split across
-  a line wrap), and `declared-source-roots` is computed from
-  `deps.edn` alone. Resolution NEVER consults the live classpath, so a
-  leaked `tools/xray/src` entry cannot satisfy the assertion: delete
-  the `day8/re-frame2-xray` entry from `deps.edn` and this test reds
-  even though the repository Shadow build still compiles.
-
-  This is a JVM-only `.clj` test: it reads files off disk, so it runs
-  under `clojure -M:test` from `tools/story` and is invisible to the
-  shadow-cljs `:node-test` build."
+  JVM-only `.clj`: it reads files off disk."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -142,36 +118,23 @@
 
 ;; ---- the gate -------------------------------------------------------------
 
+;; release-story.yml finds the coordinate by this literal `:local/root` to
+;; rewrite it to `:mvn/version`, which keeps Story and Xray lockstep-versioned.
 (deftest xray-is-declared-in-story-deps
-  (testing "Story's shell hard-requires Xray, so `day8/re-frame2-xray`
-            must be a declared dependency — not something an outer
-            build's global :source-paths happens to supply."
-    (let [coord (get-in (read-deps) [:deps 'day8/re-frame2-xray])]
-      (is (some? coord)
-          "tools/story/deps.edn must declare day8/re-frame2-xray in its
-           main :deps — without it a consumer whose only tool dependency
-           is day8/re-frame2-story cannot compile the Story shell")
-      (is (= "../xray" (:local/root coord))
-          "the dep rides tools/xray at :local/root during development;
-           the release workflow rewrites it to :mvn/version, which is
-           what keeps Story and Xray lockstep-versioned"))))
+  (is (= "../xray" (get-in (read-deps) [:deps 'day8/re-frame2-xray :local/root]))
+      "tools/story/deps.edn must declare day8/re-frame2-xray at :local/root
+       \"../xray\" in its main :deps"))
 
 (deftest every-required-day8-namespace-is-declared
-  (testing "LEAK CONTROL — every `day8.*` namespace Story's sources
-            require must resolve under a root Story itself declares.
-            Resolution reads deps.edn + the file system only, so a
-            leaked tools/xray/src on some outer classpath cannot
-            satisfy it: drop the day8/re-frame2-xray entry and this
-            reds, even though the repository Shadow build still
-            compiles."
+  (testing "every `day8.*` namespace Story's sources require resolves
+            under a root Story itself declares"
     (let [roots    (vals (declared-source-roots (read-deps)))
           required (required-day8-namespaces)
           missing  (into (sorted-map)
                          (remove (fn [[sym _]] (resolvable-under? roots sym)))
                          required)]
       (is (seq required)
-          "sanity: Story's sources must require at least one day8.*
-           namespace — an empty set would make this gate vacuous")
+          "control: an empty required set would make this gate vacuous")
       (is (= {} (into {} missing))
           (str "these namespaces are required by Story's sources but are "
                "NOT reachable from any :local/root declared in "
@@ -182,9 +145,8 @@
                               missing)))))))
 
 (deftest story-does-not-depend-on-story-from-xray
-  (testing "the coupling is one-way Story → Xray. If Xray ever required
-            Story back, the two artefacts would form a dependency cycle
-            and neither could be published."
+  (testing "the coupling is one-way Story → Xray: Xray requiring Story back
+            would make a dependency cycle neither artefact could publish"
     (let [xray-src (io/file (artefact-root) ".." "xray" "src")
           cycles   (when (.exists xray-src)
                      (->> (file-seq xray-src)
@@ -200,20 +162,3 @@
       (is (empty? cycles)
           (str "Xray sources must not require re-frame.story.* — found: "
                (str/join ", " cycles))))))
-
-;; No test here asserts that `day8.re-frame2-xray.filters.config` is
-;; absent: the preset drives the surface Xray actually ships
-;; (`config/configure!`'s `:rf.xray/filters` seed + the
-;; `:rf.xray/hydrate-filters` event), and asserting the absence of a
-;; namespace nothing references would pin a fact with no consequence.
-;;
-;; The filter check is behavioural, not structural: the CLJS suite
-;; (`xray-preset-cljs-test`) asserts the real `:rf/xray` `:active-filters`
-;; slot and a real matcher outcome, so an inert preset reds on the
-;; BEHAVIOUR rather than on a namespace-absence proxy.
-;;
-;; A source-text assertion ("xray_preset.cljc must not contain
-;; find-ns-obj") would be satisfiable by rewording a comment, and would
-;; red-light on any prose that names the probe. The
-;; `required-day8-namespaces` gate above covers the structural half
-;; honestly — it parses ns forms rather than grepping text.
