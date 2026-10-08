@@ -3,31 +3,10 @@
 'use strict';
 
 /*
- * Runtime integration smoke for orchestrator teardown.
- *
- * The static gate (_orchestrator-teardown-policy.test.cjs) proves every
- * serve-and-run-*.cjs orchestrator is WIRED to the shared teardown helper.
- * This test proves the wiring actually reaps a long-lived grandchild when
- * the orchestrator is terminated.
- *
- * Shape:
- *   parent (this test)
- *     └─ orchestrator child  — a tiny script that uses the REAL shared
- *        createHarnessCleanup() to spawn + trackProcess() a long-lived
- *        grandchild "server", prints the grandchild PID on stdout, then
- *        idles forever.
- *          └─ grandchild "server" — `setInterval` forever (stands in for
- *             http-server / shadow-cljs).
- *
- * We let the orchestrator come up, capture the grandchild PID, then
- * terminate the orchestrator and assert the grandchild is gone. That
- * exercises the ownership invariant: a tracked child must not outlive its
- * orchestrator.
- *
- * The first case verifies the observable process-tree result on every
- * platform without depending on which termination hook Node uses. POSIX also
- * gets a dedicated SIGINT case for the installed JavaScript signal handler;
- * reliable SIGINT delivery to a detached child is not available on Windows.
+ * Runtime check behind _orchestrator-teardown-policy.test.cjs: a tiny orchestrator
+ * using the REAL shared harness spawns and tracks a long-lived grandchild; when the
+ * orchestrator is terminated, the grandchild must not survive it. SIGINT gets its
+ * own case on POSIX only, where it can be delivered to a detached child.
  */
 
 const assert = require('assert/strict');
@@ -47,9 +26,7 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Is a PID alive? `process.kill(pid, 0)` throws ESRCH when the process is
-// gone and EPERM when it exists but we may not signal it (treat EPERM as
-// alive — it exists). Works on POSIX and Windows.
+// EPERM means the process exists but may not be signalled.
 function isAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -68,14 +45,7 @@ async function waitUntilDead(pid, timeoutMs) {
   return !isAlive(pid);
 }
 
-// A tiny orchestrator: requires the REAL shared harness, spawns a
-// long-lived grandchild, tracks it, installs signal handlers, prints
-// `GRANDCHILD <pid>` then idles. `mode` selects which teardown path we
-// drive after spawn — but both ultimately route through the same tracked
-// kill-sweep; the script body is identical, only the parent's kill differs.
 function orchestratorSource() {
-  // The harness path is interpolated as a JSON string literal so Windows
-  // backslashes survive into the child source.
   const harnessLit = JSON.stringify(HARNESS);
   return [
     "'use strict';",
@@ -97,7 +67,6 @@ async function spawnOrchestrator() {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 
-  // Read the grandchild PID from the orchestrator's first stdout line.
   const grandchildPid = await new Promise((resolve, reject) => {
     let buf = '';
     const onData = (chunk) => {
@@ -118,11 +87,8 @@ async function spawnOrchestrator() {
   } };
 }
 
-// Core invariant (cross-platform): when the orchestrator dies, its tracked
-// grandchild "server" dies too. We terminate via child.kill('SIGTERM');
-// on POSIX the SIGTERM handler runs cleanup() then exits; on Windows
-// child.kill maps to TerminateProcess and the 'exit' handler's cleanupSync
-// reaps the tracked grandchild. Either way the grandchild MUST NOT survive.
+// SIGTERM runs the handler on POSIX; on Windows it is TerminateProcess and the
+// 'exit' handler's sweep reaps the grandchild.
 test('orchestrator teardown reaps its tracked grandchild on termination', async () => {
   const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();
   try {
@@ -131,16 +97,13 @@ test('orchestrator teardown reaps its tracked grandchild on termination', async 
     const orchestratorExit = new Promise((resolve) => child.once('exit', resolve));
     child.kill('SIGTERM');
 
-    // Orchestrator must exit promptly.
     const exited = await Promise.race([
       orchestratorExit.then(() => true),
       sleep(15000).then(() => false),
     ]);
     assert.ok(exited, 'orchestrator process should exit after SIGTERM');
 
-    // The tracked grandchild must be reaped — generous timeout because on
-    // Windows the sweep goes through `taskkill /T /F` (spawnSync), which is
-    // multi-second on a loaded host.
+    // Generous: on Windows the sweep is a multi-second `taskkill /T /F`.
     const dead = await waitUntilDead(grandchildPid, 30000);
     assert.ok(
       dead,
@@ -149,7 +112,6 @@ test('orchestrator teardown reaps its tracked grandchild on termination', async 
     );
   } finally {
     if (isAlive(grandchildPid)) {
-      // Defensive: never leave a stray grandchild if the assertion failed.
       try { process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
     }
     if (!child.killed && child.exitCode == null) {
@@ -159,9 +121,6 @@ test('orchestrator teardown reaps its tracked grandchild on termination', async 
   }
 });
 
-// POSIX-only: assert the SIGINT signal-handler arm specifically. On Windows
-// there is no JS SIGINT delivery to a non-console child, so this arm is
-// skipped; the platform-neutral termination case above covers the outcome.
 test('orchestrator teardown reaps its grandchild on SIGINT (POSIX)', async () => {
   if (process.platform === 'win32') {
     console.log('  SKIP (Windows: JS SIGINT delivery to a child is not reliable)');
