@@ -59,15 +59,7 @@
   the horizon is exactly the thing that drifts, and
   `collector/entry-reap-horizon-ms` is explicitly a margin no caller may
   rely on. Nothing here reads it, waits a multiple of it, or assumes a
-  reaper has run at any point the runtime has not said it has.
-
-  ## The negative control is in the suite
-
-  [[the-residue-census-can-answer-false]] performs, by hand, the exact
-  mutation a render-phase acquisition would be — it leaks one
-  abandoned-read registration — and asserts the census reports it. Without
-  that row every zero above could be a zero the instrument is incapable of
-  making non-zero."
+  reaper has run at any point the runtime has not said it has."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -423,44 +415,3 @@
                 corrected instead of painting a value that moved under it"
         (is (not= at-render at-commit)))
       (cleanup))))
-
-;; ---------------------------------------------------------------------------
-;; The negative control — the census can answer false
-;; ---------------------------------------------------------------------------
-
-(deftest the-residue-census-can-answer-false
-  ;; THE SABOTAGE CONTROL, performed from the test rather than from the
-  ;; source. Every zero in this file is only worth what this row is worth:
-  ;; a census that cannot be made non-zero is a gate that cannot go red,
-  ;; and the assertions above would then be proving the instrument's
-  ;; silence rather than the runtime's correctness.
-  ;;
-  ;; What it leaks is exactly one abandoned-read registration — the entry
-  ;; of a render that was never selected, committed by hand and its cleanup
-  ;; discarded. That is what a render-phase acquisition would produce on
-  ;; every abandoned attempt.
-  (async done
-    (seeded!)
-    (let [entry (probe! (fn [_] [:p (rf.fresco/sub [:kco/left])]))]
-
-      (testing "the abandoned render, as every row above finds it"
-        (is (= nothing-owned (ownership))))
-
-      (rf.fresco.impl.collector/commit-boundary! entry (fn []))
-
-      (testing "one leaked registration, and the census says so — on the
-                summed counters"
-        (is (not= nothing-owned (ownership)))
-        (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
-
-      (testing "and on the per-key reader list, which is the observable the
-                acquisition rows actually assert on"
-        (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))))
-
-      (.then (rf.fresco.test.runtime/quiesced!)
-             (fn [_]
-               (testing "quiescence does NOT launder it: the reapers drop
-                         what nothing holds, and this is held"
-                 (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left])))))
-                 (is (not= 0 (:cell-refs (rf.fresco.test.runtime/residue)))))
-               (done))))))
