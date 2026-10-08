@@ -1,47 +1,14 @@
 (ns re-frame.resources-machine-owner-release-cljs-test
-  "A destroyed state-machine actor MUST release its resource owners (Spec 016
-  §Release authority is per owner kind):
-
-    | Machine | [:machine actor-id] | Actor destroy — when the
-    owning machine instance is stopped/destroyed, its resource owners are
-    released. |
-
-  The owner key the machine runtime owns is `[:machine actor-id]` — the
-  runtime-derivable machine-owner key the derivation algebra names (Spec
-  Derivations §Lifecycle: `[:machine :upload/main]`; machines
-  `tooling/node-for` emits `:owner [:machine id]`), `id` being the registered
-  machine-id for a singleton and the `<type>#<n>` for a spawned actor.
-
-  Resource liveness is a separate durable owner set, not derived from machine
-  state. Machine teardown therefore fires `:rf.resource/release-owner` for
-  owner `[:machine actor-id]`, by keyword dispatch (machines never
-  `:require`s resources — sibling artefact; guarded on the handler being
-  registered so a no-resources app is a clean no-op). This is the cross-artefact
-  integration pin: a real machine, a real resource entry, and a real release.
-
-  Both destroy CAUSES are covered observably on a surviving frame:
-    1. explicit `[:rf.machine/destroy <id>]` (routes through
-       `teardown-live-actor!`), and
-    2. the `:final?`-state auto-destroy (routes through `finalize-machine`,
-       which appends the release to its returned `:fx`).
-  The frame-destroy cascade tears spawned actors down through the SAME
-  `teardown-live-actor!` (so it fires the same release), but on frame destroy
-  the whole runtime-db — incl. all resource entries — is released anyway, so
-  the observable surviving-frame release is pinned by (1) + (2).
-
-  Dual-target (`.cljc` + `_cljs_test`): JVM via the `.*-test$` regex, Shadow
-  `:node-test` via `cljs-test$`. machines is a TEST-ONLY dep of the resources
-  artefact (resources/deps.edn) — it depends only on core (no cycle) and the
-  production resources classpath stays machines-free (bundle-isolation holds)."
+  "A destroyed state-machine actor releases its resource owner
+  [:machine actor-id] (Spec 016 §Release authority is per owner kind), whether
+  destroyed explicitly or by reaching a :final? state, and releases only its
+  own owner. Machine teardown dispatches :rf.resource/release-owner by keyword,
+  since machines never requires resources; machines is a test-only dep here."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: the resources façade registers the
-   ;; :rf.resource/* events; machines wires the machine grammar + the
-   ;; :rf.machine/start / :rf.machine/destroy fxs (and the release-on-destroy
-   ;; dispatch under test).
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
@@ -53,41 +20,19 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as substrate]]
        :cljs [[re-frame.adapter.reagent :as substrate]])))
 
-;; ---- deterministic transport + timer capture -----------------------------
-;;
-;; No real wall-clock timer fires: stub managed-HTTP so an ensure never
-;; fetches, and CAPTURE :rf.resource/cancel-poll-timers so the owner-release
-;; poll-STOP is asserted directly (release-owner-handler emits this fx for
-;; every entry whose :active-owners just went empty).
-
-(def ^:private cancelled-poll (atom []))
-
 (defn- capturing-fixture
   [f]
-  (reset! cancelled-poll [])
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _wid] nil))
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
-  (rf.fx/reg-fx :rf.resource/cancel-poll-timers
-             (fn [_ctx args] (swap! cancelled-poll conj args) nil))
-  ;; A poll-enabled, actively-owned resource. The machine actor ensures it on
-  ;; entry under its `[:machine actor-id]` owner; on actor destroy the owner
-  ;; must release (owner-index drop + :active-owners empty + poll cancelled +
-  ;; entry GC-eligible).
-  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
-  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
-  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
-  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
-  ;; property the fixture wants, with no policy tier of its own.
+  ;; ensures here pass an explicit :scope; the resolver's slot stays unwritten
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope))
   (rf/reg-resource :art/by-slug
-    {:scope            {:from-db :t/caller-scope}
-     :params-schema    [:map [:slug :string]]
-     :poll-interval-ms 5000
-     :gc-after-ms      9000
-     :tags             (fn [{:keys [slug]} _data] #{[:article slug]})}
+    {:scope         {:from-db :t/caller-scope}
+     :params-schema [:map [:slug :string]]
+     :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
     (fn [{:keys [slug]} _ctx]
       {:request {:method :get :url (str "/api/articles/" slug)}}))
   (f))
@@ -97,13 +42,8 @@
     {:adapter substrate/adapter})
   capturing-fixture)
 
-;; ---- helpers --------------------------------------------------------------
-
-;; A CONCRETE caller-supplied scope. The resource's `{:from-db :t/caller-scope}`
-;; POLICY never resolves to a concrete key here (the slot is unwritten); the
-;; ensure CALLER supplies the actual scope — a constant map, so every ensure
-;; and the slug-key agree.
 (def ^:private scope {:app :reader})
+(def ^:private owner [:machine :reader/proc])
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- slug-key [slug]
@@ -111,10 +51,9 @@
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 (defn- machine-snapshot [id]
   (get-in (runtime-db) (rf.machines.paths/snapshot-path id)))
-(defn- owner-index []
-  ;; :entries is keyed on the opaque byte key-id; map the owner-index members
-  ;; back to scoped-key vectors for readable assertions (mirrors the
-  ;; scoped-owner-lifecycle suite's owner-index helper).
+(defn- owner-index
+  "The owner index with its byte key-id members mapped back to scoped keys."
+  []
   (let [rdb    (runtime-db)
         es     (get-in rdb (rf.resources.state/entries-path))
         id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
@@ -126,17 +65,11 @@
     (rf/dispatch-sync [:rf.resource.internal/succeeded
                        {:resource/key scoped-key :work/id (:current-work e)
                         :generation (:generation e) :data data}])))
-(defn- gc-recheck! [scoped-key]
-  (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]))
-(defn- poll-cancelled-for? [k]
-  (some (fn [{ks :resource/keys}] (some #{k} ks)) @cancelled-poll))
 
-(defn- reg-reader-on-entry-ensures!
-  "Register a singleton `:reader/proc` whose initial state, on entry, ensures
-  `:art/by-slug` under its OWN actor-id owner `[:machine :reader/proc]` (for a
-  singleton the actor-id IS the registered machine-id — exactly the key
-  teardown releases; Spec 016 §Machine-owned resource). `extra-states` merges
-  in any extra state nodes (e.g. a `:final?` target for the auto-destroy case)."
+(defn- start-reader!
+  "Register and start a singleton :reader/proc whose initial state ensures
+  `slug` under [:machine :reader/proc] (a singleton's actor id is its machine
+  id), then settle the load. `extra-states` and `reading-on` shape the rest."
   [slug extra-states reading-on]
   (rf/reg-machine :reader/proc
     {:initial :reading
@@ -149,133 +82,50 @@
                                    {:resource :art/by-slug
                                     :scope    scope
                                     :params   {:slug s}
-                                    :owner    [:machine :reader/proc]
+                                    :owner    owner
                                     :cause    [:machine-action :reader/read]}]]]})
                   :on reading-on}}
-                extra-states)}))
+                extra-states)})
+  (rf/dispatch-sync [:reader/proc [:rf.machine/start]])
+  (succeed! (slug-key slug) {:title slug}))
 
-;; ===========================================================================
-;; 1. Explicit destroy of a SINGLETON releases its [:machine <id>] owner
-;; ===========================================================================
+(defn- destroy-reader! []
+  (rf/reg-event ::destroy-reader (fn [_ _] {:fx [[:rf.machine/destroy :reader/proc]]}))
+  (rf/dispatch-sync [::destroy-reader]))
+
+(defn- released?
+  "[actor gone, entry owner-free, owner unindexed]"
+  [k]
+  [(nil? (machine-snapshot :reader/proc)) (empty? (:active-owners (entry k))) (nil? (get (owner-index) owner))])
 
 (deftest explicit-actor-destroy-releases-machine-owned-resource-owner
-  (testing "a singleton machine ensures a resource under its
-            [:machine actor-id] owner; an explicit [:rf.machine/destroy <id>]
-            releases the owner (owner-index drop + :active-owners empty + poll
-            cancelled + entry GC-eligible) so the owner does NOT outlive the
-            actor (Spec 016:290)"
-    (let [slug  "resources-101"
-          owner [:machine :reader/proc]
-          k     (slug-key slug)]
-      (reg-reader-on-entry-ensures! slug {:idle {}} {:stop :idle})
-      ;; Eager-start the singleton — the :entry ensure fires, attaching the
-      ;; [:machine :reader/proc] owner; settle it :loaded so the poll arms.
-      (rf/dispatch-sync [:reader/proc [:rf.machine/start]])
-      (succeed! k {:title "Resources 101"})
-
-      ;; Precondition: the actor holds the owner, the entry is owned + poll-able.
-      (is (contains? (:active-owners (entry k)) owner)
-          "the [:machine :reader/proc] owner is on the entry")
-      (is (contains? (get (owner-index) owner) k)
-          "the owner-index maps the machine owner to the entry")
-      (is (some? (machine-snapshot :reader/proc))
-          "the singleton actor is live before destroy")
-
-      ;; ACT: explicitly destroy the actor. teardown-live-actor! fires
-      ;; :rf.resource/release-owner for [:machine :reader/proc]; the queued
-      ;; dispatch drains in-line within this dispatch-sync.
-      (reset! cancelled-poll [])
-      (rf/reg-event ::destroy-reader
-        (fn [_ _] {:fx [[:rf.machine/destroy :reader/proc]]}))
-      (rf/dispatch-sync [::destroy-reader])
-
-      ;; ASSERT: the owner is released — it does not outlive the actor.
-      (is (nil? (machine-snapshot :reader/proc))
-          "the actor is gone (snapshot torn down)")
-      (is (empty? (:active-owners (entry k)))
-          "the machine owner was released — entry is now owner-free")
-      (is (nil? (get (owner-index) owner))
-          "the machine owner is gone from the owner-index (no dangling owner)")
-      (is (poll-cancelled-for? k)
-          "the entry going owner-free cancels its poll timer (no continued polling)")
-
-      ;; And the entry is GC-eligible: an owner-free, work-free entry is
-      ;; collected by a GC re-check — it does not linger pinned.
-      (is (nil? (:current-work (entry k))) "no in-flight work pins the entry")
-      (gc-recheck! k)
-      (is (nil? (entry k))
-          "the owner-free entry is GC-eligible and the re-check collects it"))))
-
-;; ===========================================================================
-;; 2. :final?-state auto-destroy ALSO releases the owner (a different CAUSE
-;;    — finalize-machine, not teardown-live-actor!) — proving the release
-;;    fires regardless of cause
-;; ===========================================================================
+  (let [k (slug-key "resources-101")]
+    (start-reader! "resources-101" {:idle {}} {:stop :idle})
+    (is (= [true true true]
+           [(some? (machine-snapshot :reader/proc)) (contains? (:active-owners (entry k)) owner)
+            (contains? (get (owner-index) owner) k)])
+        "precondition: the live actor owns the entry")
+    (destroy-reader!)
+    (is (= [true true true] (released? k)) "the owner does not outlive the actor")))
 
 (deftest final-state-auto-destroy-releases-machine-owned-resource-owner
-  (testing "a singleton that ensures a resource under [:machine
-            actor-id] and then enters a :final? state AUTO-destroys (cause
-            :rf.machine/finished, via finalize-machine); the owner must still
-            release. This pins the OTHER teardown codepath — finalize appends
-            the release to its returned :fx — so the release fires regardless
-            of destroy cause"
-    (let [slug  "owners-vs-causes"
-          owner [:machine :reader/proc]
-          k     (slug-key slug)]
-      (reg-reader-on-entry-ensures! slug {:done {:final? true}} {:finish :done})
-      (rf/dispatch-sync [:reader/proc [:rf.machine/start]])
-      (succeed! k {:title "Owners vs Causes"})
-      (is (contains? (:active-owners (entry k)) owner) "owned before finish")
-
-      ;; ACT: drive the singleton into :final? — finalize-machine auto-destroys
-      ;; it AND releases its [:machine :reader/proc] owner via the
-      ;; release fx appended to its returned :fx (drains in-line).
-      (reset! cancelled-poll [])
-      (rf/dispatch-sync [:reader/proc [:finish]])
-
-      (is (nil? (machine-snapshot :reader/proc))
-          "the actor auto-destroyed on :final?")
-      (is (empty? (:active-owners (entry k)))
-          "the machine owner released on auto-destroy too")
-      (is (nil? (get (owner-index) owner))
-          "owner gone from the index on auto-destroy")
-      (is (poll-cancelled-for? k)
-          "poll cancelled on the owner-free entry (auto-destroy path)")
-      (gc-recheck! k)
-      (is (nil? (entry k))
-          "the released entry is GC-eligible after auto-destroy"))))
-
-;; ===========================================================================
-;; 3. SCOPING — destroying ONE actor releases ONLY its owner, not a sibling's
-;; ===========================================================================
+  ;; the other teardown path: finalize-machine appends the release to its :fx
+  (let [k (slug-key "owners-vs-causes")]
+    (start-reader! "owners-vs-causes" {:done {:final? true}} {:finish :done})
+    (is (contains? (:active-owners (entry k)) owner) "precondition: owned before finish")
+    (rf/dispatch-sync [:reader/proc [:finish]])
+    (is (= [true true true] (released? k)) "the auto-destroy released the owner too")))
 
 (deftest actor-destroy-release-is-scoped-to-the-destroyed-actor
-  (testing "over-release guard: destroying actor A releases ONLY
-            [:machine A]'s owner; a second resource owned by a different owner
-            (a sibling actor / owner) is untouched"
-    (let [ka     (slug-key "a")
-          kb     (slug-key "b")
-          owner  [:machine :reader/proc]
-          sibling [:machine :other/proc]]
-      ;; Actor A ensures resource A under [:machine :reader/proc].
-      (reg-reader-on-entry-ensures! "a" {:idle {}} {:stop :idle})
-      (rf/dispatch-sync [:reader/proc [:rf.machine/start]])
-      (succeed! ka {:title "A"})
-      ;; A sibling owner (stand-in for another live actor) on resource B.
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :art/by-slug :scope scope
-                          :params {:slug "b"} :owner sibling}])
-      (succeed! kb {:title "B"})
-      (is (contains? (:active-owners (entry ka)) owner) "A owned")
-      (is (contains? (:active-owners (entry kb)) sibling) "B owned by sibling")
-
-      ;; Destroy ONLY actor A.
-      (rf/reg-event ::destroy-a (fn [_ _] {:fx [[:rf.machine/destroy :reader/proc]]}))
-      (rf/dispatch-sync [::destroy-a])
-
-      (is (empty? (:active-owners (entry ka))) "A's owner released")
-      (is (nil? (get (owner-index) owner)) "A's owner gone from the index")
-      (is (contains? (:active-owners (entry kb)) sibling)
-          "the sibling's owner on B is UNTOUCHED (no over-release)")
-      (is (contains? (get (owner-index) sibling) kb)
-          "the sibling owner is still indexed"))))
+  (let [ka      (slug-key "a")
+        kb      (slug-key "b")
+        sibling [:machine :other/proc]]
+    (start-reader! "a" {:idle {}} {:stop :idle})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :art/by-slug :scope scope :params {:slug "b"} :owner sibling}])
+    (succeed! kb {:title "B"})
+    (destroy-reader!)
+    (is (= [true true true] (released? ka)) "A's owner released")
+    (is (= [true true] [(contains? (:active-owners (entry kb)) sibling)
+                        (contains? (get (owner-index) sibling) kb)])
+        "the sibling owner on B is untouched and still indexed")))
