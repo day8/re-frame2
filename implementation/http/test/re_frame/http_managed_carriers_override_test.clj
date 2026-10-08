@@ -100,14 +100,12 @@
                    {:request    {:method :get
                                  :url    (str "http://127.0.0.1:" (:port srv) "/x")}
                     :on-failure nil}]]}))
-        (let [f (rf/make-frame {})]
-          (is (some? f)
-              "rf/make-frame {} assembles — not :rf.error/image-duplicate-id")
-          (let [m (rf/handler-meta {:frame f :kind :fx :id :rf.http/managed})]
-            (is (= {:headers ["X-Honeycomb-Team"]} (:carriers m))
-                "the frame resolves the application's :carriers block")
-            (is (= this-ns (str (:rf.provenance/ns m)))
-                "…from the application's own registration, not the framework's"))
+        ;; make-frame throws :rf.error/image-duplicate-id if assembly kept both.
+        (let [f (rf/make-frame {})
+              m (rf/handler-meta {:frame f :kind :fx :id :rf.http/managed})]
+          (is (= [{:headers ["X-Honeycomb-Team"]} this-ns]
+                 [(:carriers m) (str (:rf.provenance/ns m))])
+              "the frame resolves the application's registration, not the framework's")
           (rf.trace.tooling/register-listener! ::capture #(swap! captured conj %))
           (rf/dispatch-sync [:api/fetch] {:frame f})
           (rf.test-support/poll-until
@@ -115,11 +113,9 @@
             {:timeout-ms 3000 :label "carriers-override http-5xx"})
           (let [ev      (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
                 headers (get-in ev [:tags :headers])]
-            (is (= "plain-value" (find-header headers "X-Plain-Probe"))
-                "control: response headers reach the trace, and a name that is
-                 not a carrier rides verbatim")
-            (is (= :rf/redacted (find-header headers "X-Honeycomb-Team"))
-                "the application-declared carrier header is redacted")
+            (is (= ["plain-value" :rf/redacted]
+                   [(find-header headers "X-Plain-Probe") (find-header headers "X-Honeycomb-Team")])
+                "a non-carrier header rides verbatim; the declared carrier is redacted")
             (is (not (str/includes? (pr-str @captured) "hc-secret-token"))
                 "the carrier's value appears nowhere in the captured trace")))
         (finally
