@@ -80,6 +80,10 @@
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            ;; Required for its registrations: the narrow image in §5
+            ;; selects this namespace, so it must load before the reset
+            ;; fixture below captures its baseline.
+            [re-frame.fresco.todo-support]
             [re-frame.interop :as rf.interop]
             [re-frame.subs :as rf.subs]
             [re-frame.test-support :as rf.test-support]))
