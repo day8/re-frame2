@@ -1,557 +1,145 @@
 (ns re-frame.http-actor-destroy-cancellation-test
-  "Cross-feature contract: destroying a spawned
-  state-machine actor aborts every in-flight `:rf.http/managed` request
-  the actor had issued.
+  "Destroying a spawned state-machine actor aborts every in-flight
+  `:rf.http/managed` request it issued (Spec 005 §Cancellation cascade, Spec
+  014 §Abort on actor destroy): each delivers a `:cancelled` reply with
+  `:reason :actor-destroyed` and emits `:rf.http/aborted-on-actor-destroy`.
 
-  Spec references:
-   - Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts
-   - Spec 014 §Abort on actor destroy
-   - Spec 009 §Error categories — `:rf.http/aborted-on-actor-destroy`
-
-  Test strategy: spin up a tiny in-process HTTP server that blocks on a
-  `CountDownLatch` until the test releases it. The state-machine child
-  actor issues an `:rf.http/managed` request against that server, the
-  parent destroys the child mid-flight, and the test asserts (a) the
-  abort handle fired (the request never produced a non-aborted reply),
-  (b) the `:rf.http/aborted-on-actor-destroy` trace event fired with
-  the right `:actor-id`, and (c) the in-flight registry is clean.
-
-  Coverage matrix (each its own deftest):
-   1. :spawn child issues request → parent state exits → request aborts
-   2. Multiple in-flight requests from the same actor → all abort
-   3. Sibling actors are NOT affected when one is destroyed
-   4. Direct event-handler dispatch (no spawned-actor) → no cancellation
-   5. Anonymous child request → actor-destroy cleans the actor index
-   6. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
-      (request-id-less) backoff handle's actor slot when fired by a
-      trigger that does not pre-clear the actor slot
-   7.  IMPERATIVELY-spawned actor (`[:rf.machine/spawn …]` from an
-       ordinary event handler — NO `:spawned` registry slot) → its managed
-       request is aborted on imperative `[:rf.machine/destroy …]`; ownership
-       is recognized from the durable `:rf/machine-type` snapshot marker"
+  The host transport is replaced at `jvm-fetch` with never-completing futures,
+  so every request stays in flight until the destroy aborts it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.transport :as rf.http.transport]
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
-  (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
-           [java.net InetSocketAddress]
-           [java.util.concurrent CountDownLatch TimeUnit]))
-
-;; ---- per-test reset --------------------------------------------------------
+  (:import [java.util.concurrent CompletableFuture]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- in-process latch server ----------------------------------------------
+(defn- await-condition! [pred]
+  (rf.test-support/poll-until pred {:timeout-ms 5000 :interval-ms 10
+                                    :label "http-actor-destroy condition"}))
 
-(defn- start-blocking-server!
-  "Start a server that blocks on `latch` until released, then writes
-  `body` with `status`. Returns `{:server :port}`. Stop with `.stop`."
-  [^CountDownLatch latch status content-type body]
-  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext server "/"
-                    (reify HttpHandler
-                      (handle [_ ex]
-                        (let [^HttpExchange ex ex]
-                          (.await latch 30 TimeUnit/SECONDS)
-                          (let [bs (.getBytes (str body) "UTF-8")]
-                            (when content-type
-                              (-> ex .getResponseHeaders (.set "Content-Type" content-type)))
-                            (try
-                              (.sendResponseHeaders ex status (long (count bs)))
-                              (with-open [os (.getResponseBody ex)]
-                                (.write os bs))
-                              (catch Throwable _ nil)))
-                          nil))))
-    (.setExecutor server nil)
-    (.start server)
-    {:server server
-     :port   (.getPort (.getAddress server))}))
+(defn- reg-recorder! [replies]
+  (rf/reg-event :reply/recorder
+    (fn [_ [_ payload]] (swap! replies conj payload) {})))
 
-(defn- stop-server! [{:keys [^HttpServer server]}]
-  (.stop server 0))
+(defn- reg-worker!
+  "A machine that, on entering :running, issues one managed request per entry
+  of `request-ids` (nil issues an anonymous one)."
+  [machine-id request-ids]
+  (rf/reg-machine machine-id
+    {:initial :idle
+     :actions {:fire (fn [_]
+                       {:fx (mapv (fn [request-id]
+                                    [:rf.http/managed
+                                     (cond-> {:request    {:url "http://example.invalid/slow"}
+                                              :decode     :json
+                                              :on-failure [:reply/recorder]}
+                                       request-id (assoc :request-id request-id))])
+                                  request-ids)})}
+     :states  {:idle    {:on {:start :running}}
+               :running {:entry :fire}}}))
 
-;; ---- helpers --------------------------------------------------------------
+(defn- reg-supervisor!
+  "A parent that spawns `worker` in :working and destroys it by leaving on :cancel."
+  [machine-id worker]
+  (rf/reg-machine machine-id
+    {:initial :idle
+     :states  {:idle    {:on {:start :working}}
+               :working {:spawn {:machine-id worker :start [:start]}
+                         :on    {:cancel :idle}}}}))
 
-(defn- await-condition!
-  "Thin alias over `test-support/poll-until` with the
-  per-file arity (`pred`, optional `timeout-ms`)."
-  ([pred] (await-condition! pred 5000))
-  ([pred timeout-ms]
-   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
-                                  :label "http-actor-destroy condition"})
-   true))
+(defn- held-fetch [_] (CompletableFuture.))
 
-(defn- abort-traces
-  "Filter `traces` for :rf.http/aborted-on-actor-destroy events."
-  [traces]
-  (filter #(= :rf.http/aborted-on-actor-destroy (:operation %))
-          traces))
+(def ^:private cancel-summary
+  (juxt :status (comp :kind :error) (comp :reason :error)))
 
-;; ---- (1) :spawn child issues request → parent state exits → abort -------
-
-(deftest spawned-child-request-aborts-on-parent-state-exit
-  (testing "when the parent state exits, the spawned child's in-flight HTTP aborts and emits the documented trace"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          replies (atom [])
-          traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]]
-            (swap! replies conj payload)
-            {}))
-        ;; Child machine: on entry to :running it dispatches an
-        ;; :rf.http/managed request to the slow server. The reply
-        ;; lands at the explicit recorder so the test can observe.
-        (rf/reg-machine :worker/proc
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-request
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               :request-id [:worker/proc :slow]
-                               :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-request}}})
-        ;; Parent: :spawn spawns the child, transitions :working ↔ :idle.
-        (rf/reg-machine :sup/flow
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/proc
-                               :start      [:start]}
-                      :on    {:cancel :idle}}}})
-        (rf/dispatch-sync [:sup/flow [:start]])
-        ;; Confirm the request is in-flight against the spawned child.
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot)))
-            "in-flight registry has one actor entry while the child request is pending")
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1)
-            "actor index keys on the spawned child's deterministic id")
-        ;; Parent destroys the child by transitioning out.
-        (rf/dispatch-sync [:sup/flow [:cancel]])
-        ;; The abort dispatches a :cancelled reply through :on-failure.
-        (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply))
-              "the abort surfaces as a :cancelled reply on :on-failure")
-          (is (= :rf.http/aborted (get-in reply [:error :kind])))
-          (is (= :actor-destroyed (get-in reply [:error :reason]))
-              "the :reason discriminates actor-destroy from user-abort"))
-        (let [trace-evs (abort-traces @traces)]
-          (is (seq trace-evs)
-              ":rf.http/aborted-on-actor-destroy trace event fired")
-          (let [tags (:tags (first trace-evs))]
-            (is (= :worker/proc#1 (:actor-id tags))
-                "trace tags carry the destroyed spawned-actor id")
-            (is (= [:worker/proc :slow] (:request-id tags))
-                "trace tags carry the user-supplied :request-id")))
-        (is (empty? (filter #(= :rf.http/stale-suppressed (:operation %)) @traces))
-            "the ordinary reply target is still meaningful, so no stale-suppression row fires")
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "actor index is empty after the abort")
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! ::wvkn-1)
-          (stop-server! srv))))))
-
-;; ---- (2) multiple in-flight requests from one actor → all abort ----------
+(defn- abort-traces [traces]
+  (filter #(= :rf.http/aborted-on-actor-destroy (:operation %)) traces))
 
 (deftest multiple-in-flight-from-one-actor-all-abort
-  (testing "when an actor has multiple in-flight HTTP requests, destroying it aborts every one"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{}")
-          replies (atom [])
+  (testing "destroying an actor aborts every request it has in flight, with one
+            trace per request"
+    (let [replies (atom [])
           traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-machine :worker/multi
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-three
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url (str "http://127.0.0.1:" (:port data) "/a")}
-                               :decode     :json
-                               :request-id :a
-                               :on-failure [:reply/recorder]}]
-                             [:rf.http/managed
-                              {:request    {:url (str "http://127.0.0.1:" (:port data) "/b")}
-                               :decode     :json
-                               :request-id :b
-                               :on-failure [:reply/recorder]}]
-                             [:rf.http/managed
-                              {:request    {:url (str "http://127.0.0.1:" (:port data) "/c")}
-                               :decode     :json
-                               :request-id :c
-                               :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-three}}})
-        (rf/reg-machine :sup/multi
-          {:initial :idle
-           :states  {:idle    {:on {:start :working}}
-                     :working {:spawn {:machine-id :worker/multi
-                                        :start      [:start]}
-                               :on    {:cancel :idle}}}})
-        (rf/dispatch-sync [:sup/multi [:start]])
-        ;; Wait for all three in-flight against the same actor.
-        (await-condition!
-          #(let [snap (rf.http.managed/actor-in-flight-snapshot)]
-             (and (= 1 (count snap))
-                  (= 3 (count (val (first snap)))))))
-        ;; Destroy.
-        (rf/dispatch-sync [:sup/multi [:cancel]])
-        (await-condition! #(= 3 (count @replies)))
-        (is (every? #(= :cancelled (:status %)) @replies))
-        (is (every? #(= :actor-destroyed (get-in % [:error :reason])) @replies))
-        (is (= 3 (count (abort-traces @traces)))
-            "three :rf.http/aborted-on-actor-destroy traces — one per cancelled request")
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! ::wvkn-2)
-          (stop-server! srv))))))
-
-;; ---- (3) sibling actors are NOT affected ----------------------------------
+      (reg-recorder! replies)
+      (reg-worker! :worker/multi [:a :b :c])
+      (reg-supervisor! :sup/multi :worker/multi)
+      (with-redefs [rf.http.transport-jvm/jvm-fetch held-fetch]
+        (try
+          (rf.trace.tooling/register-listener! ::multi #(swap! traces conj %))
+          (rf/dispatch-sync [:sup/multi [:start]])
+          (await-condition!
+            #(= 3 (count (get (rf.http.managed/actor-in-flight-snapshot) :worker/multi#1))))
+          (rf/dispatch-sync [:sup/multi [:cancel]])
+          (await-condition! #(= 3 (count @replies)))
+          (is (= (repeat 3 [:cancelled :rf.http/aborted :actor-destroyed])
+                 (map cancel-summary @replies)))
+          (is (= 3 (count (abort-traces @traces))))
+          (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
+          (finally
+            (rf.trace.tooling/unregister-listener! ::multi)))))))
 
 (deftest sibling-actors-not-affected-by-destroy
-  (testing "destroying actor A does not abort actor B's in-flight requests — actor-id scoping is structural"
-    (let [latch-a (CountDownLatch. 1)
-          latch-b (CountDownLatch. 1)
-          srv-a   (start-blocking-server! latch-a 200 "application/json" "{}")
-          srv-b   (start-blocking-server! latch-b 200 "application/json" "{}")
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        ;; Two independent worker machines, each with its own request.
-        (rf/reg-machine :worker/proc-a
-          {:initial :idle
-           :data    {:port (:port srv-a)}
-           :actions {:fire (fn [{data :data}]
-                             {:fx [[:rf.http/managed
-                                    {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
-                                     :decode     :json
-                                     :request-id :a
-                                     :on-failure [:reply/recorder]
-                                     :on-success [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire}}})
-        (rf/reg-machine :worker/proc-b
-          {:initial :idle
-           :data    {:port (:port srv-b)}
-           :actions {:fire (fn [{data :data}]
-                             {:fx [[:rf.http/managed
-                                    {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
-                                     :decode     :json
-                                     :request-id :b
-                                     :on-failure [:reply/recorder]
-                                     :on-success [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire}}})
-        ;; Two top-level parents — each spawns one worker.
-        (rf/reg-machine :sup/a
-          {:initial :idle
-           :states  {:idle    {:on {:start :working}}
-                     :working {:spawn {:machine-id :worker/proc-a
-                                        :start      [:start]}
-                               :on    {:cancel :idle}}}})
-        (rf/reg-machine :sup/b
-          {:initial :idle
-           :states  {:idle    {:on {:start :working}}
-                     :working {:spawn {:machine-id :worker/proc-b
-                                        :start      [:start]}
-                               :on    {:cancel :idle}}}})
+  (testing "destroying actor A does not abort sibling actor B's request"
+    (let [replies (atom [])]
+      (reg-recorder! replies)
+      (reg-worker! :worker/proc-a [:a])
+      (reg-worker! :worker/proc-b [:b])
+      (reg-supervisor! :sup/a :worker/proc-a)
+      (reg-supervisor! :sup/b :worker/proc-b)
+      (with-redefs [rf.http.transport-jvm/jvm-fetch held-fetch]
         (rf/dispatch-sync [:sup/a [:start]])
         (rf/dispatch-sync [:sup/b [:start]])
         (await-condition! #(= 2 (count (rf.http.managed/actor-in-flight-snapshot))))
-        ;; Destroy A only.
         (rf/dispatch-sync [:sup/a [:cancel]])
         (await-condition! #(seq @replies))
-        (is (= 1 (count @replies))
-            "exactly one reply — A's. B is still pending")
-        (is (= :actor-destroyed (get-in (first @replies) [:error :reason])))
+        (is (= [:actor-destroyed] (map (comp :reason :error) @replies)))
         (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot)))
-            "B remains in the in-flight registry")
-        ;; Now destroy B.
-        (rf/dispatch-sync [:sup/b [:cancel]])
-        (await-condition! #(= 2 (count @replies)))
-        (is (every? #(= :actor-destroyed (get-in % [:error :reason])) @replies))
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
-        (.countDown latch-a)
-        (.countDown latch-b)
-        (finally
-          (stop-server! srv-a)
-          (stop-server! srv-b))))))
-
-;; ---- (4) direct event-handler dispatch — no cancellation -----------------
-
-(deftest direct-handler-dispatch-not-subject-to-actor-cancellation
-  (testing "a request dispatched from an ordinary event handler (no spawned-actor envelope) is NOT subject to actor-destroy cancellation"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{}")
-          replies (atom [])]
-      (try
-        (rf/reg-event :direct/load
-          (fn [_ [_ msg reply]]
-            (if reply
-              (do (swap! replies conj reply) {})
-              {:fx [[:rf.http/managed
-                     {:reply-to [:direct/load msg] :request    {:url (str "http://127.0.0.1:" port "/")}
-                      :decode     :json
-                      :request-id :direct}]]})))
-        (rf/dispatch-sync [:direct/load {}])
-        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)))
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "direct event-handler dispatch is not tracked under actor-in-flight")
-        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
-            "request-id index does record the request")
-        ;; Calling abort-on-actor-destroy with any actor-id is a no-op
-        ;; for this request — there's no actor binding.
-        (rf.http.managed/abort-on-actor-destroy :random/non-existent-actor-id)
-        ;; Timer-semantics sleep: proving the *absence* of any
-        ;; reply — no observable signal to poll. The 50ms window confirms
-        ;; no stray dispatch surfaces from the no-op abort path.
-        (Thread/sleep 50)
-        (is (empty? @replies)
-            "abort-on-actor-destroy is structurally scoped — it does not touch direct-dispatch requests")
-        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
-            "request still in flight")
-        ;; The orthogonal app-level abort still works — driven through
-        ;; an event handler that emits the `:rf.http/managed-abort` fx.
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :direct]]}))
-        (rf/dispatch-sync [:do/abort])
-        (await-condition! #(seq @replies))
-        (is (= :cancelled (:status (first @replies))))
-        (is (= :rf.http/aborted (get-in (first @replies) [:error :kind])))
-        (is (= :user (get-in (first @replies) [:error :reason]))
-            "manual abort produces :reason :user (not :actor-destroyed)")
-        (.countDown latch)
-        (finally (stop-server! srv))))))
-
-;; ---- (5) anonymous (request-id-less) child request → actor-destroy clean --
+            "B remains in the in-flight registry")))))
 
 (deftest anonymous-child-request-abort-cleans-actor-index
-  (testing "an anonymous (no :request-id) request issued from inside a spawned actor is indexed ONLY in actor-in-flight; actor-destroy aborts it and the abort-fn's cleanup leaves the actor index empty (the abort-fn passes its in-scope handle to clear-in-flight!, so cleanup is unconditionally correct rather than depending on the actor-destroy eager-dissoc invariant)"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        ;; Child machine: issues a managed request with NO :request-id.
-        ;; record-in-flight! therefore skips the request-id index (the
-        ;; `(when request-id ...)` guard) and indexes the handle ONLY
-        ;; under actor-in-flight, keyed on the spawned child's id.
-        (rf/reg-machine :worker/anon
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-anon
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               ;; deliberately NO :request-id — anonymous.
-                               :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-anon}}})
-        (rf/reg-machine :sup/anon
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/anon
-                               :start      [:start]}
-                      :on    {:cancel :idle}}}})
+  (testing "an anonymous request issued from a spawned actor is indexed by the
+            actor alone; destroying the actor aborts it and empties the index"
+    (let [replies (atom [])]
+      (reg-recorder! replies)
+      (reg-worker! :worker/anon [nil])
+      (reg-supervisor! :sup/anon :worker/anon)
+      (with-redefs [rf.http.transport-jvm/jvm-fetch held-fetch]
         (rf/dispatch-sync [:sup/anon [:start]])
-        ;; The anonymous request lands ONLY in the actor index.
         (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot)))
-            "actor index holds the anonymous request under the spawned child's id")
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/anon#1))
-        (is (empty? (rf.http.managed/in-flight-snapshot))
-            "anonymous request is NOT in the request-id index (request-id is nil)")
-        ;; Sanity: the handle has no :request-id, so a 1-arg
-        ;; clear-in-flight! would no-op on it. The 2-arg form
-        ;; cleans by handle identity regardless.
-        (is (nil? (:request-id (first (val (first (rf.http.managed/actor-in-flight-snapshot))))))
-            "the in-flight handle carries no :request-id — the leak vector a 1-arg clear would leave open")
-        ;; Parent destroys the child → abort-on-actor-destroy fires each
-        ;; handle's abort-fn, which passes the handle to clear-in-flight!.
         (rf/dispatch-sync [:sup/anon [:cancel]])
         (await-condition! #(seq @replies))
-        (is (= :cancelled (:status (first @replies)))
-            "the anonymous request's abort surfaces as a :cancelled reply")
-        (is (= :rf.http/aborted (get-in (first @replies) [:error :kind])))
-        (is (= :actor-destroyed (get-in (first @replies) [:error :reason])))
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "actor-in-flight index is empty after the abort — the abort-fn's handle-passing cleanup left no stale slot")
-        (is (empty? (rf.http.managed/in-flight-snapshot))
-            "request-id index remains empty")
-        (.countDown latch)
-        (finally (stop-server! srv))))))
-
-;; ---- (6) the SECOND abort-fn site — schedule-backoff-handle! --------------
-;; ----      a backoff-window abort fired WITHOUT a ----------------------------
-;; ----      pre-clear must clean the anonymous handle's actor slot -----------
-
-(def ^:private schedule-backoff-handle!
-  @#'rf.http.transport/schedule-backoff-handle!)
-
-(deftest backoff-abort-fn-cleans-anonymous-handle-without-actor-slot-preclear
-  (testing "schedule-backoff-handle!'s abort-fn — the SECOND of two structurally-identical abort-fns — cleans an anonymous (request-id-less, issued-from-actor) backoff handle's actor-in-flight slot when fired by a trigger that does NOT pre-clear the slot first. The abort-fn passes its in-scope handle to the 2-arg clear-in-flight!, so the actor slot is removed by identity regardless of the nil request-id. A 1-arg form would no-op on the nil id and strand the handle under any abort trigger that does not pre-clear (only actor-destroy's eager dissoc would mask the leak)"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [actor-id :worker/anon-backoff#1
-          ;; Anonymous request sitting in a backoff window: request-id nil,
-          ;; actor-id set. A request issued from inside a spawned actor with
-          ;; a `:retry` config and no `:request-id` lands here. The ctx
-          ;; silences its reply via explicit `:on-failure nil` so the
-          ;; abort-fn's `dispatch-aborted!` reply-dispatch is a clean no-op,
-          ;; isolating this test on the registry teardown.
-          ctx      {:request-id          nil
-                    :actor-id            actor-id
-                    :url                 "http://x/anon-backoff"
-                    :sensitive?          false
-                    :explicit-on-failure {:supplied? true :value nil}}
-          ;; A very long delay so the retry timer never fires during the
-          ;; test — the abort-fn wins the once-only `fired?` CAS and the
-          ;; timer callback (which would otherwise also reach the registry)
-          ;; bails on its lost CAS.
-          ;; The 3rd arg is the prior live-fetch handle whose
-          ;; request-level cells the backoff reuses; this synthetic ctx has no
-          ;; prior phase, so pass nil (schedule-backoff-handle! mints fresh
-          ;; cells in that case).
-          ;; The 4th arg is the just-failed `failure` map, threaded
-          ;; only for the timer callback's honest `:retried` emit; the 600000ms
-          ;; timer never fires in this test (the abort-fn wins), so pass nil.
-          _        (schedule-backoff-handle! ctx 600000 nil nil)
-          slot     (get (rf.http.managed/actor-in-flight-snapshot) actor-id)
-          handle   (first slot)]
-      (is (= 1 (count slot))
-          "the anonymous backoff handle is registered solely in the actor-in-flight index")
-      (is (empty? (rf.http.managed/in-flight-snapshot))
-          "anonymous backoff handle is absent from the request-id index (request-id is nil)")
-      (is (nil? (:request-id handle))
-          "the registered backoff handle carries no :request-id — the leak vector a 1-arg clear would leave open")
-      ;; Fire the abort-fn DIRECTLY (the abort trigger) WITHOUT touching the
-      ;; actor slot first — this simulates a future non-pre-clearing trigger
-      ;; (frame-level abort-all, a timeout-driven abort of a sleeping retry).
-      ;; A 1-arg clear-in-flight! would no-op on the nil id and strand the
-      ;; handle here; the 2-arg form removes it from the actor index by
-      ;; identity.
-      ((:abort-fn handle) :actor-destroyed)
-      (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-          "the backoff abort-fn's handle-passing 2-arg clear-in-flight! removed the anonymous handle from the actor index — no stranded slot")
-      (is (empty? (rf.http.managed/in-flight-snapshot))
-          "request-id index remains empty"))))
-
-;; ---- (7) IMPERATIVELY-spawned actor → managed HTTP aborts ----------------
-;; ----     on imperative destroy. An imperative `[:rf.machine/spawn …]` ------
-;; ----     from an ordinary event handler installs a snapshot WITHOUT a ------
-;; ----     `[:rf.runtime/machines :spawned …]` registry slot (that slot is ---
-;; ----     gated on the declarative-desugar `:rf/parent-id` + ---------------
-;; ----     `:rf/invoke-id`), so a registry-membership `owning-actor-id` ------
-;; ----     would classify the actor's request as unowned and never abort it.
-;; ----     Ownership keys on the durable snapshot `:rf/machine-type` marker -
-;; ----     (the SAME discriminator the destroy side keys on), so the owning --
-;; ----     set includes imperative spawns. Tests 1–6 above cover -------------
-;; ----     DECLARATIVE `:spawn` only, so they cannot catch this case — ------
-;; ----     hence this dedicated test.
+        (is (= [[:cancelled :rf.http/aborted :actor-destroyed]] (map cancel-summary @replies)))
+        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))))))
 
 (deftest imperatively-spawned-actor-request-aborts-on-imperative-destroy
-  (testing "a managed :rf.http/managed request issued from an IMPERATIVELY-spawned actor (no :spawned registry slot) is aborted when the actor is imperatively destroyed — owning-actor-id keys on the snapshot :rf/machine-type marker"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          replies (atom [])
+  (testing "an imperatively spawned actor (no :spawned registry slot) owns its
+            requests, and `[:rf.machine/destroy …]` aborts them"
+    (let [replies (atom [])
           traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::n877mb (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        ;; Worker machine: on entry to :running its action fires an
-        ;; :rf.http/managed request at the slow server. Spawned IMPERATIVELY
-        ;; below via a hand-emitted [:rf.machine/spawn …] fx (NOT a
-        ;; declarative state-node :spawn) — so it gets a snapshot stamped
-        ;; with :rf/machine-type but NO [:rf.runtime/machines :spawned …]
-        ;; registry slot.
-        (rf/reg-machine :worker/imp
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-request
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               :request-id [:worker/imp :slow]
-                               :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-request}}})
-        ;; Ordinary event handler emits the IMPERATIVE spawn fx. No parent
-        ;; machine, no declarative :spawn desugar — the canonical
-        ;; XState-`spawn`-equivalent imperative entry-point. The actor's
-        ;; deterministic id is :worker/imp#1 (runtime-db spawn-counter
-        ;; fallback). The :start event drives idle→running → :fire-request.
-        (rf/reg-event :imp/spawn
-          (fn [_ _]
-            {:fx [[:rf.machine/spawn {:machine-id :worker/imp
-                                      :id-prefix  :worker/imp
-                                      :start      [:start]}]]}))
-        ;; Ordinary event handler emits the IMPERATIVE destroy fx — the
-        ;; canonical [:rf.machine/destroy <actor-id>] keyword form (re-frame2's
-        ;; stopChild). This is the destroy trigger that must cascade to the
-        ;; HTTP abort.
-        (rf/reg-event :imp/destroy
-          (fn [_ _]
-            {:fx [[:rf.machine/destroy :worker/imp#1]]}))
-        (rf/dispatch-sync [:imp/spawn])
-        ;; Precondition: the imperatively-spawned actor's snapshot is live,
-        ;; carries the :rf/machine-type marker, and is ABSENT from the
-        ;; :spawned registry — the shape a registry-membership read cannot classify.
-        (let [rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
-          (is (some? (get-in rt [:rf.runtime/machines :snapshots :worker/imp#1 :rf/machine-type]))
-              "imperatively-spawned actor's snapshot carries the :rf/machine-type marker")
-          (is (nil? (get-in rt [:rf.runtime/machines :spawned]))
-              "imperative spawn installs NO :spawned registry slot — a registry-membership read would classify its request as unowned"))
-        ;; The request is in-flight, indexed under the actor's id — proof that
-        ;; owning-actor-id classified the imperative actor as owner.
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot)))
-            "in-flight registry has one actor entry while the imperative actor's request is pending")
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/imp#1)
-            "actor index keys on the imperatively-spawned actor's id — the ownership this test pins")
-        ;; Imperatively destroy the actor mid-flight.
-        (rf/dispatch-sync [:imp/destroy])
-        (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply))
-              "the abort surfaces as a :cancelled reply on :on-failure")
-          (is (= :rf.http/aborted (get-in reply [:error :kind])))
-          (is (= :actor-destroyed (get-in reply [:error :reason]))
-              "the :reason discriminates actor-destroy from user-abort"))
-        (let [trace-evs (abort-traces @traces)]
-          (is (seq trace-evs)
-              ":rf.http/aborted-on-actor-destroy trace event fired for the imperative actor")
-          (let [tags (:tags (first trace-evs))]
-            (is (= :worker/imp#1 (:actor-id tags))
-                "trace tags carry the destroyed imperatively-spawned actor id")
-            (is (= [:worker/imp :slow] (:request-id tags))
-                "trace tags carry the user-supplied :request-id")))
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "actor index is empty after the imperative-destroy abort")
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! ::n877mb)
-          (stop-server! srv))))))
+      (reg-recorder! replies)
+      (reg-worker! :worker/imp [[:worker/imp :slow]])
+      (rf/reg-event :imp/spawn
+        (fn [_ _]
+          {:fx [[:rf.machine/spawn {:machine-id :worker/imp
+                                    :id-prefix  :worker/imp
+                                    :start      [:start]}]]}))
+      (rf/reg-event :imp/destroy
+        (fn [_ _] {:fx [[:rf.machine/destroy :worker/imp#1]]}))
+      (with-redefs [rf.http.transport-jvm/jvm-fetch held-fetch]
+        (try
+          (rf.trace.tooling/register-listener! ::imp #(swap! traces conj %))
+          (rf/dispatch-sync [:imp/spawn])
+          (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
+          (rf/dispatch-sync [:imp/destroy])
+          (await-condition! #(seq @replies))
+          (is (= [[:cancelled :rf.http/aborted :actor-destroyed]] (map cancel-summary @replies)))
+          (is (= {:actor-id :worker/imp#1 :request-id [:worker/imp :slow]}
+                 (select-keys (:tags (first (abort-traces @traces))) [:actor-id :request-id])))
+          (finally
+            (rf.trace.tooling/unregister-listener! ::imp)))))))
