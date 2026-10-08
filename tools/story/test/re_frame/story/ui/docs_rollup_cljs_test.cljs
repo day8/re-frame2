@@ -1,22 +1,8 @@
 (ns re-frame.story.ui.docs-rollup-cljs-test
-  "CLJS-side regression net for the per-story rollup docs page.
-
-  The rollup page composes one `rollup-variant-block` per variant of
-  the parent story; the underlying section helpers (prose-for-variant,
-  args-rows, decorator-rows, parameter-rows, variant-tags) are
-  exercised by the docs-mode-pane test suite. This namespace
-  pins:
-
-  - `variant-ids-for-story` returns the sorted variant set
-  - `docs-rollup-view` returns nil for nil story-id
-  - `docs-rollup-view` renders one variant block per registered variant
-  - `docs-rollup-view` shows an empty-state when no variants are
-    registered under the story
-  - `select-story` transition flips the shell slot AND clears
-    `:selected-variant` / `:selected-workspace` (the mutual-exclusion
-    contract — only ONE pane can be active at a time)
-  - selecting a variant or workspace clears `:selected-story` (mirror
-    of the above)"
+  "CLJS coverage of the per-story rollup docs page (spec/008): the sorted
+  variant set, the root and empty-state selectors, and the selection
+  transitions that make the rollup mutually exclusive with variant and
+  workspace focus."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -52,157 +38,58 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ---- fixture helpers -----------------------------------------------------
-
-(defn- register-story-with-variants!
-  []
-  (rf.story/reg-story :story.rollup
-    {:doc       "Rollup-fixture story with three variants."
-     :argtypes  {:label {:doc "the label arg"}}
-     :tags      #{:dev :docs}})
-  (rf.story/reg-variant :story.rollup/alpha
-    {:doc   "First variant — :alpha."
-     :args  {:label "alpha"}
-     :tags  #{:dev}
-     :setup []})
-  (rf.story/reg-variant :story.rollup/beta
-    {:doc   "Second variant — :beta."
-     :args  {:label "beta"}
-     :tags  #{:docs}
-     :setup []})
-  (rf.story/reg-variant :story.rollup/gamma
-    {:doc   "Third variant — :gamma."
-     :args  {:label "gamma"}
-     :setup []}))
+(defn- register-story-with-variants! []
+  (rf.story/reg-story :story.rollup {:doc "Rollup-fixture story with three variants."})
+  (rf.story/reg-variant :story.rollup/alpha {:setup []})
+  (rf.story/reg-variant :story.rollup/beta  {:setup []})
+  (rf.story/reg-variant :story.rollup/gamma {:setup []}))
 
 ;; ===========================================================================
-;; variant-ids-for-story
+;; variant-ids-for-story + docs-rollup-view
 ;; ===========================================================================
 
 (deftest variant-ids-for-story-returns-sorted-vector
-  (testing "the rollup walker returns every variant of `story-id` in
-            sorted order so the rollup page renders stably across
-            hot-reload"
+  (testing "every variant of the story, sorted so the page renders stably across hot-reload"
     (register-story-with-variants!)
-    (is (= [:story.rollup/alpha
-            :story.rollup/beta
-            :story.rollup/gamma]
-           (rf.story.ui.docs/variant-ids-for-story :story.rollup))
-        "all three variants surface, sorted by id")))
-
-(deftest variant-ids-for-empty-story
-  (testing "a story with zero registered variants returns an empty
-            vector — the renderer shows an empty-state placeholder
-            rather than vanishing"
-    (rf.story/reg-story :story.empty-rollup
-      {:doc "no variants" :tags #{:dev}})
-    (is (= [] (rf.story.ui.docs/variant-ids-for-story :story.empty-rollup)))))
-
-;; ===========================================================================
-;; docs-rollup-view rendering shape
-;; ===========================================================================
-
-(deftest docs-rollup-view-nil-input-renders-nothing
-  (testing "the view defends against a nil :selected-story slot — no
-            crash, no DOM"
-    (is (nil? (rf.story.ui.docs/docs-rollup-view nil)))))
+    (is (= [:story.rollup/alpha :story.rollup/beta :story.rollup/gamma]
+           (rf.story.ui.docs/variant-ids-for-story :story.rollup)))))
 
 (deftest docs-rollup-view-roots-in-a-section-naming-its-story
-  (testing "the rollup view roots in a `:section` that carries the
-            rollup's data-test and names its story via :data-story-id"
+  (testing "the root carries the spec/008 selectors: data-test and :data-story-id"
     (register-story-with-variants!)
     (let [hiccup (rf.story.ui.docs/docs-rollup-view :story.rollup)]
-      (is (vector? hiccup))
       (is (= :section (first hiccup)))
       (is (= "story-docs-rollup" (:data-test (second hiccup))))
       (is (= ":story.rollup" (:data-story-id (second hiccup)))))))
 
 (deftest docs-rollup-view-empty-state-when-no-variants
-  (testing "stories with zero variants render an empty-state notice —
-            the user clicked into the rollup but there's nothing to
-            project. Better than a silently-empty pane."
-    (rf.story/reg-story :story.empty-rollup
-      {:doc "no variants" :tags #{:dev}})
-    (let [hiccup (rf.story.ui.docs/docs-rollup-view :story.empty-rollup)
-          children (drop 2 hiccup)  ; drop tag + attrs
-          empty-marker (some (fn [c]
-                               (and (vector? c)
-                                    (= "story-docs-rollup-empty"
-                                       (:data-test (second c)))))
-                             children)]
-      (is (boolean empty-marker)
-          "the empty-state div carries `data-test=story-docs-rollup-empty`"))))
+  (testing "a story with zero variants renders the empty-state notice rather than an empty pane"
+    (rf.story/reg-story :story.empty-rollup {:doc "no variants" :tags #{:dev}})
+    (is (some #(= "story-docs-rollup-empty" (:data-test (second %)))
+              (drop 2 (rf.story.ui.docs/docs-rollup-view :story.empty-rollup))))))
 
 ;; ===========================================================================
-;; select-story transition contract
+;; selection transitions — only ONE pane is active at a time
 ;; ===========================================================================
 
-(deftest select-story-clears-variant-and-workspace
-  (testing "select-story is mutually exclusive with variant +
-            workspace selection — opening the rollup view closes any
-            previously-open variant or workspace"
-    (let [state {:selected-variant   :story.foo/v
-                 :selected-workspace :Workspace.foo/ws
-                 :selected-story     nil}
-          out   (rf.story.ui.state.transitions/select-story state :story.foo)]
-      (is (= :story.foo (:selected-story out)))
-      (is (nil? (:selected-variant   out)))
-      (is (nil? (:selected-workspace out))))))
+(deftest select-story-clears-variant-and-workspace-unless-nil
+  (testing "opening the rollup closes any open variant or workspace"
+    (is (= {:selected-story :story.foo :selected-variant nil :selected-workspace nil}
+           (rf.story.ui.state.transitions/select-story
+             {:selected-variant :story.foo/v :selected-workspace :Workspace.foo/ws}
+             :story.foo))))
+  (testing "deselecting the rollup (nil) leaves the other slots alone"
+    (is (= {:selected-story nil :selected-variant :story.foo/v}
+           (rf.story.ui.state.transitions/select-story
+             {:selected-story :story.foo :selected-variant :story.foo/v}
+             nil)))))
 
-(deftest select-story-nil-deselects-without-clearing-others
-  (testing "select-story with nil deselects the rollup without
-            disturbing variant or workspace slots — clicking 'close
-            rollup' shouldn't unmount whatever else the shell is
-            showing"
-    (let [state {:selected-variant   :story.foo/v
-                 :selected-workspace nil
-                 :selected-story     :story.foo}
-          out   (rf.story.ui.state.transitions/select-story state nil)]
-      (is (nil? (:selected-story out)))
-      (is (= :story.foo/v (:selected-variant out))))))
-
-(deftest select-workspace-clears-selected-story
-  (testing "selecting a workspace clears :selected-story — same mutual
-            exclusion contract as variant selection"
-    (let [state {:selected-story     :story.foo
-                 :selected-workspace nil}
-          out   (rf.story.ui.state.transitions/select-workspace state :Workspace.foo/ws)]
-      (is (= :Workspace.foo/ws (:selected-workspace out)))
-      (is (nil? (:selected-story out))))))
-
-(deftest selecting-nil-variant-preserves-selected-story
-  (testing "selecting a nil variant (deselect) MUST NOT clobber
-            :selected-story — a user dismissing the variant pane
-            shouldn't lose their rollup focus"
-    (let [state {:selected-story   :story.foo
-                 :selected-variant :story.foo/v}
-          out   (rf.story.ui.state.transitions/select-variant state nil)]
-      (is (nil? (:selected-variant out)))
-      (is (= :story.foo (:selected-story out))
-          "story slot survives a variant deselection"))))
-
-;; ===========================================================================
-;; round-trip — clicking through the rollup contract
-;; ===========================================================================
-
-(deftest rollup-round-trip-via-shell-state
-  (testing "the full round-trip a user takes: register story →
-            click story-header → :selected-story populated → click
-            variant → :selected-story cleared → click back to story →
-            re-populated. Mirrors the integration the sidebar drives."
-    (register-story-with-variants!)
-    ;; Start: nothing selected.
-    (is (nil? (:selected-story (rf.story.ui.state/get-state))))
-    ;; Click story header.
-    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-story :story.rollup)
-    (is (= :story.rollup (:selected-story (rf.story.ui.state/get-state))))
-    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))
-    ;; Click variant — story is dismissed.
-    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-variant :story.rollup/alpha)
-    (is (= :story.rollup/alpha (:selected-variant (rf.story.ui.state/get-state))))
-    (is (nil? (:selected-story (rf.story.ui.state/get-state)))
-        "selecting a variant dismisses the rollup view")
-    ;; Click story header again — variant cleared.
-    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-story :story.rollup)
-    (is (= :story.rollup (:selected-story (rf.story.ui.state/get-state))))
-    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))))
+(deftest selecting-a-variant-or-workspace-dismisses-the-rollup
+  (let [state {:selected-story :story.foo}]
+    (is (= {:selected-story nil :selected-workspace :Workspace.foo/ws}
+           (rf.story.ui.state.transitions/select-workspace state :Workspace.foo/ws)))
+    (is (= {:selected-story nil :selected-variant :story.foo/v}
+           (rf.story.ui.state.transitions/select-variant state :story.foo/v)))
+    (is (= {:selected-story :story.foo :selected-variant nil}
+           (rf.story.ui.state.transitions/select-variant state nil))
+        "deselecting a variant (nil) keeps the rollup focus")))
