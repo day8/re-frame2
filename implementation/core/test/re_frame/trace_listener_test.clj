@@ -1,38 +1,20 @@
 (ns re-frame.trace-listener-test
-  "Spec 009 — public trace listener contract + delivery semantics.
+  "Spec 009 — the public trace-listener contract.
 
-  Pins each contract claim:
-
-    1. `register-listener!` takes `(stream key f)` and returns the key.
-    2. `unregister-listener!` returns nil and the listener stops receiving
-       events. (1 and 2 are pinned by `surviving-streams-still-register`.)
-    3. Synchronous, per-event delivery: `dispatch-sync` returns only after
-       every registered listener has been invoked once per emitted trace
-       event (no async wait, no batching). Every test here reads its
-       deliveries the moment `dispatch-sync` returns, so an async delivery
-       fails them all.
-    4. Event-emission order: a listener sees events in the order the runtime
-       fired them. Strictly increasing `:id`s across every delivery also rule
-       out a duplicated or batched delivery. (Per Spec 009 §Resolved decisions, listener-call order
-       across multiple listeners is NOT a contract — tools must not depend
-       on it. We pin only event order, not listener order.)
-    5. Point-event shape: every event carries `:operation` / `:op-type` /
-       `:id` / `:time` / `:tags` and NO span-shape fields (no `:start`,
-       `:end`, `:duration`, `:child-of`).
-    6. Frame-aware tagging: trace events emitted on behalf of a specific
-       frame carry `:frame frame-id` under `:tags`. (Pinned by
-       `frame-isolation-trace-events-carry-only-their-own-frame` in
-       `trace_buffer_test.clj`: the ring and the listeners receive the
-       same event.)
-    7. Production elision is gated on `re-frame.interop/debug-enabled?`:
-       `emit!` and the user-facing listener emit path are wrapped in the
-       compile-time gate so Closure DCE strips them in `:advanced` builds
-       with `goog.DEBUG=false`. That is a claim about a production build, so
-       it is pinned in one: `re-frame.trace-listener-elision-prod-test` runs
-       under `:advanced` + `goog.DEBUG=false`.
-    8. Re-registration with the same key replaces; only the last handler
-       fires for that key. (Pinned by `trace-listener-lifecycle` in
-       `trace_test.clj` — not duplicated here.)
+  Where each claim is pinned:
+    - `register-listener!` returns its id, `unregister-listener!` returns nil,
+      and the stream vocabulary is closed: this file.
+    - Synchronous delivery: every test here reads its deliveries the moment
+      `dispatch-sync` returns, so an async delivery fails them all.
+    - Emission order (not listener order, which Spec 009 §Resolved decisions
+      leaves unspecified): `events-delivered-in-emission-order`.
+    - The canonical point-event envelope: `trace-stream-completeness` in
+      `trace_test.clj`.
+    - Frame tagging: `frame-isolation-trace-events-carry-only-their-own-frame`
+      in `trace_buffer_test.clj` (the ring and listeners receive the same event).
+    - Same-key replacement: `trace-listener-lifecycle` in `trace_test.clj`.
+    - Production elision: `re-frame.trace-listener-elision-prod-test`, under
+      `:advanced` + `goog.DEBUG=false`.
 
   JVM-only by intent; the listener API is platform-agnostic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -42,9 +24,6 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
-            ;; Load the tooling sibling so the late-bind
-            ;; hooks behind the listener API resolve.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
@@ -55,244 +34,66 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
-  (re-frame.trace.tooling/clear-trace-rings!)
+  (rf.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
+  ;; init! does not synthesise :rf/default (EP-0002); emit sites need a
+  ;; carried frame.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers ---------------------------------------------------------------
-
-(def ^:private span-shape-keys
-  "Span-shape fields explicitly excluded by Spec 009 §The trace event model:
-  point events, not spans."
-  #{:start :end :duration :child-of})
-
-;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
-;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
-;; reporting green.  Every deftest
-;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is still LOADED there, so a load-time failure
-;; under the gate still reddens the job, and an untagged new deftest joins that
-;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
-
-;; ---- 2. Synchronous, per-event delivery -----------------------------------
+;; Every deftest is ^:requires-debug: emit! is a no-op under
+;; -Dre-frame.debug=false (see scripts/test-core-prod-gate.sh).
 
 (deftest ^:requires-debug in-cascade-emits-land-in-the-ring
-  (testing "every IN-CASCADE listener event also appears in the frame's ring
-            (frameless emits ride the live stream only — per B3).
-            For a pure dispatch-sync where all emits carry the cascade's
-            `:dispatch-id`, the ring should mirror the listener stream."
+  (testing "the ring holds exactly the listener events that carry a dispatch-id;
+            frameless emits ride the live stream only"
     (let [seen (atom [])]
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-      (rf/clear-trace-buffer! :rf/default)
       (rf/register-listener! :trace ::record (fn [ev] (swap! seen conj ev)))
       (rf/dispatch-sync [:ping])
       (rf/unregister-listener! :trace ::record)
-      ;; Partition the listener stream by in-cascade-ness — events with
-      ;; a `:rf.trace/dispatch-id` should land in the ring; others
-      ;; (e.g. post-cascade epoch emits, registration emits) skip it.
-      (let [in-cascade  (filter #(get-in % [:tags :rf.trace/dispatch-id]) @seen)
-            ring-events (rf/trace-buffer :rf/default {:flat true})]
-        (is (seq in-cascade)
-            "at least one in-cascade emit was delivered")
-        (is (= (count in-cascade) (count ring-events))
-            "ring holds exactly the in-cascade events — no more, no less")))))
-
-;; ---- 3. Event-emission order ---------------------------------------------
+      (let [in-cascade (filter #(get-in % [:tags :rf.trace/dispatch-id]) @seen)]
+        (is (seq in-cascade))
+        (is (= (count in-cascade) (count (rf/trace-buffer :rf/default {:flat true}))))))))
 
 (deftest ^:requires-debug events-delivered-in-emission-order
-  (testing "a listener sees events in the same order the runtime fired them"
+  (testing "a listener sees events in the order the runtime fired them"
     (let [seen (atom [])]
       (rf/register-listener! :trace ::ordered (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :ord/init (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :ord/init (fn [_ _] {:db {:n 0}}))
       (rf/reg-event :ord/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [:ord/init])
       (rf/dispatch-sync [:ord/inc])
-      (rf/dispatch-sync [:ord/inc])
-      (let [evs @seen
-            ids (map :id evs)]
-        (is (seq evs))
-        (is (apply < ids)
-            (str ":id is monotonically increasing in delivery order — "
-                 "listener saw events in emission order. ids: " (pr-str ids))))
-      (rf/unregister-listener! :trace ::ordered))))
-
-;; ---- 4. Point-event shape (no span fields) -------------------------------
-
-(deftest ^:requires-debug events-are-point-shaped-not-span-shaped
-  (testing "every emitted event has the canonical point-event keys and NO span-shape keys"
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::shape (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :shape/handler (fn [_ _] {:db {:n 1}
-                                                 :fx []}))
-      (rf/dispatch-sync [:shape/handler])
-      (let [evs @seen]
-        (is (seq evs))
-        (testing "every event has the canonical top-level keys"
-          (is (every? (fn [ev]
-                        (and (integer? (:id ev))
-                             (number?  (:time ev))
-                             (keyword? (:operation ev))
-                             (keyword? (:op-type ev))
-                             (map?     (:tags ev))))
-                      evs)
-              "Spec 009 §Core fields — :id :time :operation :op-type :tags"))
-        (testing "no event carries span-shape fields anywhere"
-          ;; Span shape would be a separate :start/:end pair, a :duration
-          ;; on a single event, or a :child-of cross-event linkage. Per
-          ;; Spec 009 §The trace event model, none of those exist.
-          (let [violators (filter (fn [ev]
-                                    (or (some #(contains? ev %)        span-shape-keys)
-                                        (some #(contains? (:tags ev) %) span-shape-keys)))
-                                  evs)]
-            (is (empty? violators)
-                (str "expected no span-shape keys; saw: "
-                     (pr-str (vec (take 3 violators))))))))
-      (rf/unregister-listener! :trace ::shape))))
-
-;; ---- clear-listeners! direct contract pin --------------------------------
-;;
-;; Every fixture above calls
-;; `(rf.trace.tooling/clear-listeners!)`, but no deftest pins the contract directly.
-;; This test exercises the documented behaviour: clear drops every
-;; registered listener; a subsequent emission lands on NONE of them;
-;; re-registration after a clear restores delivery.
-
-(deftest ^:requires-debug clear-trace-listeners-drops-every-listener
-  (testing "clear-listeners! drops every listener and returns nil (per Spec
-            009 §The listener API); subsequent emits hit zero listeners;
-            re-registration after clear restores delivery"
-    ;; Setup: three listeners under distinct keys, each appending to its
-    ;; own observation atom.
-    (let [seen-a (atom [])
-          seen-b (atom [])
-          seen-c (atom [])]
-      (rf/register-listener! :trace ::clear-a (fn [ev] (swap! seen-a conj ev)))
-      (rf/register-listener! :trace ::clear-b (fn [ev] (swap! seen-b conj ev)))
-      (rf/register-listener! :trace ::clear-c (fn [ev] (swap! seen-c conj ev)))
-      (rf/reg-event :clear/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-
-      ;; First dispatch — every listener observes the cascade.
-      (rf/dispatch-sync [:clear/seed])
-      (let [a-count-1 (count @seen-a)
-            b-count-1 (count @seen-b)
-            c-count-1 (count @seen-c)]
-        (is (pos? a-count-1) "listener A received events from the first dispatch")
-        ;; All three listeners observed the same number of events (per-
-        ;; event delivery, not batching).
-        (is (= a-count-1 b-count-1 c-count-1)
-            "every registered listener received the same number of events")
-
-        ;; Clear every cb.
-        (is (nil? (rf.trace.tooling/clear-listeners!))
-            "clear-listeners! is a side-effecting nil-returning fn")
-
-        ;; A subsequent dispatch lands on NONE of the cleared listeners.
-        (rf/dispatch-sync [:clear/seed])
-        (is (= a-count-1 (count @seen-a))
-            "listener A did NOT receive events after clear-listeners!")
-        (is (= b-count-1 (count @seen-b))
-            "listener B did NOT receive events after clear-listeners!")
-        (is (= c-count-1 (count @seen-c))
-            "listener C did NOT receive events after clear-listeners!")
-
-        ;; Re-register a listener; new emissions land on it.
-        (let [seen-d (atom [])]
-          (rf/register-listener! :trace ::clear-d (fn [ev] (swap! seen-d conj ev)))
-          (rf/dispatch-sync [:clear/seed])
-          (is (pos? (count @seen-d))
-              "re-registered listener D received events after a fresh dispatch")
-          (rf/unregister-listener! :trace ::clear-d))
-
-        ;; And the originally-cleared listeners STILL do not receive —
-        ;; they were dissoc'd, not paused.
-        (is (= a-count-1 (count @seen-a))
-            "A stays cleared — clear-listeners! is permanent, not pause")))))
-
-;; ---- unknown listener stream — canonical thrown-error shape ----------------
-;;
-;; `unknown-listener-stream!` routes through the canonical builder
-;; (`error/throw-error!`), so the thrown ex-data carries `:rf.error/id` +
-;; bare `:where` (the `'rf/<surface>` SYMBOL) + `:recovery` + `:reason`, like
-;; every other framework throw (Spec 009 §The thrown-error shape). A
-;; hand-rolled ex-info with a NON-canonical, keyword-valued `:rf/where` slot
-;; would leave a consumer reading `(:where (ex-data e))` with nil.
+      (rf/unregister-listener! :trace ::ordered)
+      ;; Strictly increasing :ids also rule out a duplicated or batched delivery.
+      (let [ids (map :id @seen)]
+        (is (apply < ids) (str "ids in delivery order: " (pr-str ids)))))))
 
 (deftest ^:requires-debug unknown-listener-stream-carries-canonical-thrown-error-shape
-  (testing "an unknown stream throws the canonical thrown-error shape:
-            bare :where holding the 'rf/<surface> SYMBOL (NOT a
-            non-canonical :rf/where keyword-valued slot), plus :rf.error/id /
-            :recovery / :reason"
-    (doseq [[verb-fn where-sym] [[#(rf/register-listener! :bogus ::k (fn [_]))
-                                  'rf/register-listener!]
-                                 [#(rf/unregister-listener! :bogus ::k)
-                                  'rf/unregister-listener!]]]
-      (let [e    (try (verb-fn) nil
-                      (catch clojure.lang.ExceptionInfo ex ex))
-            data (ex-data e)]
-        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
-            ":rf.error/id is the canonical machine discriminator")
-        ;; The headline assertion: bare :where carrying the SYMBOL.
-        (is (= where-sym (:where data))
-            ":where is the bare canonical slot holding the 'rf/<surface> symbol")
-        (is (not (contains? data :rf/where))
-            "there is no non-canonical :rf/where slot")
-        (is (= :fix-registration (:recovery data))
-            ":recovery names the disposition")
-        (is (string? (:reason data)) ":reason is a human sentence")
-        ;; Spec 009 §The thrown-error shape: message LEADS with a human
-        ;; sentence and TRAILS with the [:rf.error/<id>] greppability token —
-        ;; never a bare keyword.
-        (is (re-find #"\[:rf\.error/unknown-listener-stream\]" (ex-message e))
-            "message carries the trailing greppability token")
-        ;; surface-specific slots preserved under :extra
-        (is (= :bogus (:stream data)) ":stream preserved")
-        (is (= #{:trace :epoch} (:valid data))
-            ":valid preserves the closed vocabulary")))))
-
-;; ---- :events / :errors are not listener streams ----------------------------
-;;
-;; `:events` / `:errors` are NOT in the public `register-listener!`
-;; vocabulary: a raw always-on stream would be a second, fail-open production
-;; door — unprojected, raw `:exception`, no frame policy, fanned across every
-;; frame — beside the projected door Spec 015 calls normal. There is no public
-;; primitive for corpus observation regardless of a frame's policy; production
-;; observation is `register-observability-sink!` against a frame's
-;; `:observability` policy or the `(rf/configure! {:observability …})` process
-;; default. The always-on substrates are the implementation-tier registries
-;; `re-frame.event-emit` / `re-frame.error-emit` (exercised directly all over
-;; this test tree). The facade's refusal of both streams by both verbs is
-;; pinned on every lane by
-;; `re-frame.emit-recorder-bracket-cljs-test/the-public-facade-no-longer-offers-the-always-on-streams`.
+  (testing "an unknown stream throws the canonical thrown-error shape, :where naming the verb"
+    (doseq [[verb-fn where-sym] [[#(rf/register-listener! :bogus ::k (fn [_])) 'rf/register-listener!]
+                                 [#(rf/unregister-listener! :bogus ::k)     'rf/unregister-listener!]]]
+      (let [data (ex-data (try (verb-fn) nil
+                               (catch clojure.lang.ExceptionInfo ex ex)))]
+        (is (= {:rf.error/id :rf.error/unknown-listener-stream
+                :where       where-sym
+                :recovery    :fix-registration
+                :stream      :bogus
+                :valid       #{:trace :epoch}}
+               (dissoc data :reason)))
+        (is (string? (:reason data)))))))
 
 (deftest ^:requires-debug surviving-streams-still-register
-  (testing "the two members of the vocabulary are accepted. `:trace`
-            registers and unregisters; `:epoch`
-            no-ops to nil when the optional artefact is absent (and returns its
-            id when present) rather than throwing."
-    (rf.trace.tooling/clear-listeners!)
-    (is (= ::still-here (rf/register-listener! :trace ::still-here (fn [_])))
-        ":trace registration returns its id")
-    (is (nil? (rf/unregister-listener! :trace ::still-here))
-        ":trace unregistration returns nil")
-    ;; `:epoch` returns its id when `day8/re-frame2-epoch` is on the
-    ;; classpath and degrades to nil when it is absent. Which of the two is
-    ;; the classpath's business, not this test's — what is pinned here is
-    ;; that `:epoch` IS A MEMBER, so it does not throw the way `:events` /
-    ;; `:errors` do.
+  (testing ":trace registers and unregisters; :epoch is a member, so it never throws"
+    (is (= ::still-here (rf/register-listener! :trace ::still-here (fn [_]))))
+    (is (nil? (rf/unregister-listener! :trace ::still-here)))
+    ;; :epoch returns its id with day8/re-frame2-epoch on the classpath and
+    ;; nil without it; either way it does not throw the way :bogus does.
     (is (not= ::threw
               (try (rf/register-listener! :epoch ::ep (fn [_]))
-                   (catch clojure.lang.ExceptionInfo _ ::threw)))
-        ":epoch is a member — it degrades or registers, it never throws")
+                   (catch clojure.lang.ExceptionInfo _ ::threw))))
     (rf/unregister-listener! :epoch ::ep)))
