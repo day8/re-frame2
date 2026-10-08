@@ -1,51 +1,15 @@
 (ns re-frame.resources-scope-leak-boundary-cljs-test
-  "The scoped-cache LEAK BOUNDARY as an executable security guarantee
-  (guide §\"Scope — the leak boundary other libraries do not have\").
-
-  re-frame2's differentiating proposition: cache SCOPE is a first-class,
-  fail-closed isolation axis. The benchmarked class (TanStack Query, RTK
-  Query, SWR, shipclojure/re-frame-query) puts viewer identity inside a query
-  key / tag BY CONVENTION — nothing structurally stops a forgotten key segment
-  from silently sharing one principal's cache with the next. re-frame2's
-  boundary is STRUCTURAL: the resolved scope is IN the cache key, a sub
-  resolves that scope (or fails closed), logout `clear-scope` removes a
-  principal's entries causally, and a scoped invalidation reaches exactly the
-  resolved scope.
-
-  The owner-lifecycle non-interference property (a held owner on scope A
-  neither pins nor collects scope B's entry) is pinned by
-  `resources_scoped_owner_lifecycle_cljs_test.cljc`; the named-resolver
-  resolution mechanics (event / route / sub / clear-scope / mismatch warning)
-  by `resources_from_db_scope_cljs_test.cljc`; the per-target scoped
-  invalidation engine by `resources_invalidation_descriptors_cljs_test.cljc`.
-
-  What THIS suite pins — the same boundary expressed as the READ-PATH security
-  guarantee those suites do not assert: that NO principal's live subscription
-  can ever observe ANOTHER principal's cached data, across logout, a wrong
-  scope, and a multi-scope invalidation. It asserts at the live `rf/subscribe`
-  read (the seam a real leak would be visible at), not only at the durable
-  entry. The leak-boundary scenarios:
-
-    1. LOGOUT clear-scope — after principal A logs out and the session scope is
-       cleared, principal B's next session structurally cannot read A's
-       entries: B's live sub reads B's (un-ensured) idle empty-state, never
-       A's stale-cached data (the cross-user leak test).
-    2. WRONG-but-valid scope — a sub that resolves a DIFFERENT valid scope than
-       the owning ensure reads ITS OWN (empty) entry, never a silent shared
-       read of the other principal's data; a nil-resolving reference FAILS
-       CLOSED loudly at the resolution boundary (the runtime suite's
-       `sub-side-scope-fail-closed`).
-    3. MIXED-scope invalidation — a clear-scope / scoped invalidation reaches
-       EXACTLY the resolved scope's entries and no other principal's, so an
-       invalidation can never cross the principal boundary without the
-       explicit, audited cross-scope escape.
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$` regex.
-  Cross-host so the boundary holds identically server- and client-side."
+  "The scoped-cache LEAK BOUNDARY as an executable security guarantee (guide
+  §\"Scope — the leak boundary other libraries do not have\"): the resolved
+  scope is IN the cache key, so no principal's live subscription can observe
+  another principal's cached data — across logout `clear-scope`, a wrong but
+  valid scope, and a scoped invalidation. Asserted at the live `rf/subscribe`
+  read, the seam a real leak would show at. The resolution mechanics are
+  `resources_from_db_scope_cljs_test`'s; owner non-interference across scopes
+  is `resources_scoped_owner_lifecycle_cljs_test`'s."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events
@@ -62,14 +26,10 @@
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
-;; ---- fixture --------------------------------------------------------------
-
 (defn- init!
-  "A default app frame; stub managed-HTTP so ensure never fetches; register a
-  named tenant-scope resolver (db-derived viewer identity, the EP-0016 D3
-  form) plus a tenant-scoped feed resource whose spec :scope is the
-  `{:from-db :t/tenant}` reference. `:t/login` writes the resolver's app-db
-  input (the viewer's tenant id); `:t/logout` removes it."
+  "A tenant-scoped feed whose spec :scope is the `{:from-db :t/tenant}`
+  reference over the viewer's tenant id, which `:t/login` writes and
+  `:t/logout` removes; the transport never fetches."
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "scope-leak-boundary suite default app frame."})
@@ -96,28 +56,25 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-;; `:entries` is keyed on the byte `key-id`; return a vector-keyed
-;; VIEW (re-keyed from each entry's `:resource/key`) so the scope-isolation
-;; assertions speak scoped-key vectors.
-(defn- entries []
-  (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
-        (get-in (runtime-db) (rf.resources.state/entries-path))))
+
+(defn- cached-keys
+  "The scoped keys of every cached entry."
+  []
+  (set (map :resource/key (vals (get-in (runtime-db) (rf.resources.state/entries-path))))))
+
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
-(defn- tenant-key
-  "The scoped feed key for tenant `t`, page `page`."
-  [t page]
+(defn- tenant-key [t page]
   (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
 
+(defn- tenant-scope [t] [:rf.scope/tenant {:tenant-id t}])
+
 (defn- ensure-feed!
-  "Ensure + load the tenant-scoped feed for tenant `t`, page `page`, under
-  owner `owner`, with `data`. First writes the resolver's app-db input to
-  `t` (a tenant switch / impersonation) so the named resolver yields tenant
-  `t`'s scope at use time, then drives the entry to :loaded."
+  "Log in as tenant `t`, so the named resolver yields its scope, then ensure
+  and load its feed page `page` under `owner` with `data`."
   [t page owner data]
   (rf/dispatch-sync [:t/login t])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page page}
-                                          :owner owner}])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page page} :owner owner}])
   (let [e (entry (tenant-key t page))]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
                        {:resource/key (tenant-key t page)
@@ -125,229 +82,91 @@
                         :generation   (:generation e)
                         :data         data}])))
 
+(defn- invalidate-feed-in! [t]
+  (rf/dispatch-sync [:rf.resource/invalidate-tags
+                     {:scope (tenant-scope t) :tags #{[:feed]} :cause [:test :scoped-invalidate]}]))
+
 ;; ===========================================================================
-;; 1. LOGOUT clear-scope — the cross-user leak test.
-;;    After tenant A logs out and its session scope is cleared, tenant B's
-;;    next session structurally cannot read A's entries.
+;; logout clear-scope
 ;; ===========================================================================
 
 (deftest next-principal-sub-cannot-read-the-logged-out-principals-data
-  ;; THE CROSS-USER LEAK TEST, at the live read. tenant "acme" loads a feed,
-  ;; logs out (scope cleared), then tenant "globex" logs in on the SAME frame
-  ;; and a live sub (scope derived from app-db via the {:from-db} spec policy)
-  ;; reads what globex sees.
+  ;; THE CROSS-USER LEAK TEST: acme loads, logs out (scope cleared), and globex
+  ;; logs in on the same frame, reading through the {:from-db} spec policy
   (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
-  (let [old-scope (rf/resolve-resource-scope (rf/app-db-value :rf/default) :t/tenant)]
-    (rf/dispatch-sync [:rf.resource/clear-scope {:scope old-scope :cause :logout}])
-    (rf/dispatch-sync [:t/logout]))
-  ;; globex's session now begins on the same frame
+  (rf/dispatch-sync [:rf.resource/clear-scope
+                     {:scope (rf/resolve-resource-scope (rf/app-db-value :rf/default) :t/tenant) :cause :logout}])
+  (rf/dispatch-sync [:t/logout])
   (rf/dispatch-sync [:t/login "globex"])
-  (let [q   {:resource :t/feed :params {:page 1}}   ;; no :scope — derived from app-db
-        st  (rf/subscribe [:rf/resource q])
-        dat (rf/subscribe [:rf.resource/data q])]
-    (testing "globex's live sub resolves GLOBEX's tenant scope and reads its
-              own (un-ensured) idle empty-state — NEVER acme's cleared data.
-              This is the structural property TanStack/RTK/SWR enforce only by
-              convention: the resolved scope is IN the key, so globex's read
-              cannot address acme's entry at all"
-      (is (= :idle (:status @st)) "globex sees idle (no entry under globex's scope)")
-      (is (false? (:has-data? @st)) "no data for globex's un-ensured key")
-      (is (nil? @dat) "globex's :data is nil — never acme's {:secret \"acme-only\"}")
-      (is (nil? (entry (tenant-key "acme" 1))) "acme's entry is gone from the cache")
-      (is (nil? (entry (tenant-key "globex" 1)))
-          "globex has no entry yet — the leak boundary is not a stale-read"))))
+  (let [q  {:resource :t/feed :params {:page 1}}
+        st @(rf/subscribe [:rf/resource q])]
+    (is (= [:idle false nil #{}]
+           [(:status st) (:has-data? st) @(rf/subscribe [:rf.resource/data q]) (cached-keys)])
+        "globex reads its own un-ensured idle key, never acme's data, and acme's entry is gone")))
 
 (deftest clear-scope-isolates-the-cleared-principal-other-scopes-survive
-  ;; two tenants simultaneously cached; clearing ONE leaves the other intact —
-  ;; logout of acme must not collateral-clear globex.
   (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
   (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
-  (is (= #{(tenant-key "acme" 1) (tenant-key "globex" 1)} (set (keys (entries))))
-      "both tenants cached at once")
-  (testing "clearing acme's scope removes ONLY acme's entries — globex's
-            separately-scoped entry + data survive the clear (the leak
-            boundary holds under clear-scope)"
-    (rf/dispatch-sync [:rf.resource/clear-scope
-                       {:scope [:rf.scope/tenant {:tenant-id "acme"}] :cause :logout}])
-    (is (nil? (entry (tenant-key "acme" 1))) "acme cleared")
-    (is (some? (entry (tenant-key "globex" 1))) "globex's entry survives acme's clear")
-    (is (= {:for "globex"} (:data (entry (tenant-key "globex" 1))))
-        "globex's data intact")
-    (is (= #{(tenant-key "globex" 1)} (set (keys (entries))))
-        "exactly globex remains — acme's clear touched nothing of globex's")))
+  (is (= #{(tenant-key "acme" 1) (tenant-key "globex" 1)} (cached-keys)) "FIXTURE — both tenants cached at once")
+  (rf/dispatch-sync [:rf.resource/clear-scope {:scope (tenant-scope "acme") :cause :logout}])
+  (is (= [#{(tenant-key "globex" 1)} {:for "globex"}]
+         [(cached-keys) (:data (entry (tenant-key "globex" 1)))])
+      "clearing acme's scope removes only acme's entries; globex's survives with its data"))
 
 ;; ===========================================================================
-;; 2. WRONG-but-valid scope — a sub at the wrong scope reads its OWN entry,
-;;    never a silent shared read; a nil-resolving reference fails closed.
+;; a wrong but valid scope reads its own entry
 ;; ===========================================================================
 
 (deftest wrong-scope-sub-reads-its-own-empty-entry-never-the-other-principals
-  ;; acme has a loaded feed; a view subscribes with an EXPLICIT — but WRONG —
-  ;; tenant scope (globex's). The wrong-scope read resolves globex's key, which
-  ;; has no entry: it reads idle, NEVER acme's data.
   (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
-  (let [wrong-q {:resource :t/feed :params {:page 1}
-                 :scope [:rf.scope/tenant {:tenant-id "globex"}]}
-        st      (rf/subscribe [:rf/resource wrong-q])
-        dat     (rf/subscribe [:rf.resource/data wrong-q])]
-    (testing "a wrong-but-valid scope addresses ITS OWN (empty) key — the
-              resolved scope is part of the key, so the wrong-scope sub
-              cannot reach acme's entry. It reads idle, never acme's data"
-      (is (= :idle (:status @st)) "the wrong scope's key has no entry — idle")
-      (is (nil? @dat) "never a silent shared read of acme's {:secret \"acme-only\"}")
-      (is (some? (entry (tenant-key "acme" 1)))
-          "acme's entry is untouched — the wrong-scope read did not address it"))))
-
-(deftest wrong-scope-override-reads-its-own-empty-entry
-  ;; A route/event ensures under scope A; a view subscribes with an explicit
-  ;; `:scope` OVERRIDE naming a DIFFERENT scope. The sub reads its own (empty)
-  ;; entry — :idle forever, which is correct: fail-closed, never a
-  ;; wrong-principal read.
-  (rf/reg-resource :t/notes
-    {:scope         {:from-db :t/tenant}
-     :params-schema [:map]}
-    (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
-  ;; ensure + load acme's notes under acme's explicit scope (an ACTIVE owner)
-  (rf/dispatch-sync [:rf.resource/ensure
-                     {:resource :t/notes :params {}
-                      :scope [:rf.scope/tenant {:tenant-id "acme"}]
-                      :owner [:app :n 1]}])
-  (let [ka (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {})
-        e  (entry ka)]
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key ka :work/id (:current-work e)
-                        :generation (:generation e) :data {:secret "acme-notes"}}]))
-  (testing "a sub whose explicit :scope override names a DIFFERENT scope than
-            the active ensure reads :idle (fail-closed) — never a
-            wrong-principal read"
-    (let [wrong-q {:resource :t/notes :params {}
-                   :scope [:rf.scope/tenant {:tenant-id "globex"}]}
-          st      (rf/subscribe [:rf/resource wrong-q])]
-      (is (= :idle (:status @st)) "wrong-scope read is idle (fail-closed)")
-      (is (nil? (:data @st)) "never acme's notes")))
-  (testing "acme's own entry is untouched by the wrong-scope read"
-    (is (some? (entry (rf.resources.state/scoped-resource-key
-                        [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {}))))))
+  (let [wrong-q {:resource :t/feed :params {:page 1} :scope (tenant-scope "globex")}]
+    (is (= [:idle nil true]
+           [(:status @(rf/subscribe [:rf/resource wrong-q])) @(rf/subscribe [:rf.resource/data wrong-q])
+            (some? (entry (tenant-key "acme" 1)))])
+        "an explicit wrong scope addresses its own empty key: idle, never acme's data, acme untouched")))
 
 (deftest two-explicit-scope-subs-keep-distinct-cache-entries
-  ;; THE CACHE-WITNESS PATTERN at the suite level. Two live
-  ;; subscriptions over ONE resource with IDENTICAL params, separated only by
-  ;; an explicit `:scope` override on each query, each read their OWN loaded
-  ;; value at the same time.
-  ;;
-  ;; This is the POSITIVE counterpart of `wrong-scope-override-reads-its-own-
-  ;; empty-entry` above. That test pins the fail-closed half — an override
-  ;; addressing an EMPTY key — and is satisfied by a runtime that resolves the
-  ;; override to nothing at all. This one pins the half a collapse would
-  ;; break: two overrides addressing two POPULATED keys, neither borrowing the
-  ;; other's data. Reading two entries DIRECTLY (as
-  ;; `resources_scoped_owner_lifecycle_cljs_test.cljc`'s
-  ;; `acquire-two-scopes-are-independent-owners` does) does not reach this
-  ;; property either — the seam is the sub's own key resolution.
-  ;;
-  ;; The BROWSER witness for the same property is
-  ;; `testbeds/tenant_switcher/core.cljs` (the cache-witness panel) with step 3
-  ;; of its `spec.cjs`, where two explicit queries render two tenants' mottos
-  ;; side by side. This is the focused suite-level regression BESIDE it — it
-  ;; runs in the resources JVM lane and the CLJS node-test lane on every PR,
-  ;; where the testbed's dedicated browser job is path-gated and can be skipped.
+  ;; The positive half of the wrong-scope test, which a runtime resolving the
+  ;; override to nothing would also pass: two overrides over one resource and
+  ;; one params map address two POPULATED keys, neither borrowing the other's
+  ;; data. The browser witness is `testbeds/tenant_switcher`'s cache-witness
+  ;; panel; this runs in the always-on unit lanes beside it.
   (ensure-feed! "acme"   1 [:app :acme 1]   {:motto "acme-only"})
   (ensure-feed! "globex" 1 [:app :globex 1] {:motto "globex-only"})
-  ;; A THIRD tenant is the ambient identity, so NEITHER override coincides with
-  ;; what the `{:from-db :t/tenant}` spec policy resolves to: a read that fell
-  ;; back to the policy would address initech's un-ensured key and go idle, and
-  ;; a read that collapsed both queries onto one key would hand back the same
-  ;; motto twice. Both faults are visible in the assertions below.
+  ;; a THIRD tenant is ambient, so a read falling back to the spec policy would
+  ;; go idle, and a read collapsing both queries would return one motto twice
   (rf/dispatch-sync [:t/login "initech"])
-  (let [q-acme    {:resource :t/feed :params {:page 1}
-                   :scope [:rf.scope/tenant {:tenant-id "acme"}]}
-        q-globex  {:resource :t/feed :params {:page 1}
-                   :scope [:rf.scope/tenant {:tenant-id "globex"}]}
+  (let [q-acme    {:resource :t/feed :params {:page 1} :scope (tenant-scope "acme")}
+        q-globex  {:resource :t/feed :params {:page 1} :scope (tenant-scope "globex")}
         st-acme   (rf/subscribe [:rf/resource q-acme])
         st-globex (rf/subscribe [:rf/resource q-globex])
         d-acme    (rf/subscribe [:rf.resource/data q-acme])
         d-globex  (rf/subscribe [:rf.resource/data q-globex])
         db        (rf/app-db-value :rf/default)]
-    (testing "the two overrides resolve DIFFERENT scoped keys — one resource,
-              one params map, so the explicit scope is the only thing that
-              separates them"
-      (is (not= (rf.resources.subs/resolve-scoped-key q-acme   db)
-                (rf.resources.subs/resolve-scoped-key q-globex db))
-          "identical resource + params, two distinct keys")
-      (is (= #{(tenant-key "acme" 1) (tenant-key "globex" 1)} (set (keys (entries))))
-          "both entries are live in the cache at once"))
-    (testing "both subs are live SIMULTANEOUSLY and each reads its own loaded
-              value — the explicit `:scope` override partitions the cache at
-              the READ, so neither sub can ever observe the other's data"
-      (is (= :loaded (:status @st-acme)))
-      (is (= :loaded (:status @st-globex)))
-      (is (= {:motto "acme-only"}   @d-acme))
-      (is (= {:motto "globex-only"} @d-globex))
-      ;; re-deref both, interleaved: neither read displaces the other's value
-      (is (= {:motto "acme-only"}   (:data @st-acme)))
-      (is (= {:motto "globex-only"} (:data @st-globex)))
-      (is (not= @d-acme @d-globex)
-          "two distinct values — not one entry answering both queries"))
-    (testing "the control: the SAME resource + params with NO override falls
-              back to the `{:from-db :t/tenant}` spec policy and reads
-              initech's un-ensured key — proof the two loaded reads above came
-              from the OVERRIDES and not from the ambient policy scope"
-      (let [st-policy (rf/subscribe [:rf/resource {:resource :t/feed :params {:page 1}}])]
-        (is (= :idle (:status @st-policy)))
-        (is (nil? (:data @st-policy)))))))
+    (is (= [true #{(tenant-key "acme" 1) (tenant-key "globex" 1)}]
+           [(not= (rf.resources.subs/resolve-scoped-key q-acme db) (rf.resources.subs/resolve-scoped-key q-globex db))
+            (cached-keys)])
+        "the overrides resolve two distinct keys, both live in the cache")
+    ;; the re-derefs interleave, so neither read displaces the other's value
+    (is (= [:loaded :loaded {:motto "acme-only"} {:motto "globex-only"} {:motto "acme-only"} {:motto "globex-only"}]
+           [(:status @st-acme) (:status @st-globex) @d-acme @d-globex (:data @st-acme) (:data @st-globex)])
+        "both subs are live at once, each reading its own loaded value")
+    (let [st-policy @(rf/subscribe [:rf/resource {:resource :t/feed :params {:page 1}}])]
+      (is (= [:idle nil] [(:status st-policy) (:data st-policy)])
+          "CONTROL — with no override the spec policy reads initech's un-ensured key"))))
 
 ;; ===========================================================================
-;; 3. MIXED-scope invalidation — a scoped invalidation reaches EXACTLY the
-;;    resolved scope, never another principal's, without the audited
-;;    cross-scope escape.
+;; a scoped invalidation reaches exactly the resolved scope
 ;; ===========================================================================
 
 (deftest scoped-invalidate-tags-reaches-only-the-named-principal
-  ;; two tenants hold the SAME-tagged feed entry under their own scopes. A
-  ;; scoped invalidation of [:feed] in acme's scope marks ONLY acme stale —
-  ;; globex's same-tagged entry is untouched. Scope is part of the
-  ;; invalidation target, so a tag-invalidation cannot cross the principal
-  ;; boundary (Spec 016 §Scoped invalidation is the default).
-  ;;
-  ;; Both entries are made OWNERLESS after load (release the owner) so the
-  ;; durable :invalidated-at stale marker is observable rather than being
-  ;; cleared by the active-owner refetch the invalidation would otherwise start
-  ;; (Spec 016 §Invalidation 3/4 — owned entries refetch, ownerless go stale).
+  ;; both entries are ownerless, so the :invalidated-at stale mark is observable
+  ;; rather than cleared by the refetch an owned entry would start
   (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
   (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
   (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :acme 1]}])
   (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :globex 1]}])
-  (testing "a scoped :rf.resource/invalidate-tags reaches exactly the resolved
-            scope's entries (acme), never another principal's (globex)"
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope [:rf.scope/tenant {:tenant-id "acme"}]
-                        :tags  #{[:feed]}
-                        :cause [:test :scoped-invalidate]}])
-    (is (some? (:invalidated-at (entry (tenant-key "acme" 1))))
-        "acme's feed was invalidated (its scope was the target)")
-    (is (nil? (:invalidated-at (entry (tenant-key "globex" 1))))
-        "globex's same-tagged feed was NOT touched — invalidation is scoped, not a cross-user blast")))
-
-(deftest clear-scope-and-invalidation-compose-without-crossing-principals
-  ;; the leak boundary holds across BOTH causal scope operations in one flow:
-  ;; clear acme on logout, then invalidate globex's feed — each reaches only
-  ;; its own principal.
-  (ensure-feed! "acme"   1 [:app :acme 1]   {:for "acme"})
-  (ensure-feed! "globex" 1 [:app :globex 1] {:for "globex"})
-  ;; globex ownerless so its :invalidated-at stale marker is observable (an
-  ;; active-owner entry would refetch and clear the marker — §Invalidation 3/4).
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :globex 1]}])
-  (testing "clearing acme then invalidating globex each stays within its own
-            principal — neither operation crosses the boundary"
-    (rf/dispatch-sync [:rf.resource/clear-scope
-                       {:scope [:rf.scope/tenant {:tenant-id "acme"}] :cause :logout}])
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope [:rf.scope/tenant {:tenant-id "globex"}]
-                        :tags  #{[:feed]}
-                        :cause [:test :scoped-invalidate]}])
-    (is (nil? (entry (tenant-key "acme" 1))) "acme was cleared (logout)")
-    (is (some? (entry (tenant-key "globex" 1))) "globex survives acme's clear")
-    (is (some? (:invalidated-at (entry (tenant-key "globex" 1))))
-        "globex's feed was invalidated in its own scope")
-    (is (= #{(tenant-key "globex" 1)} (set (keys (entries))))
-        "exactly globex remains, marked stale — the two ops never crossed principals")))
+  (invalidate-feed-in! "acme")
+  (is (= [true nil]
+         [(some? (:invalidated-at (entry (tenant-key "acme" 1)))) (:invalidated-at (entry (tenant-key "globex" 1)))])
+      "acme's feed goes stale; globex's same-tagged feed is untouched"))
