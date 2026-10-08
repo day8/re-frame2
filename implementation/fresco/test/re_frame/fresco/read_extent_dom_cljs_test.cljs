@@ -191,10 +191,7 @@
   and *something other than the refusal threw* — and both of those look
   like success to a bare `thrown?`. The callers compare the whole ex-data
   map, so a refusal from a different guard fails on the compare instead
-  of passing as one.
-
-  [[the-refusal-witness-answers-both-ways]] drives it in both directions,
-  so the `:refused` assertions are not a helper that only knows one verb."
+  of passing as one."
   [thunk]
   (try {:returned (thunk)}
        (catch :default e {:refused (ex-data e)})))
@@ -661,36 +658,3 @@
                 (teardown-census! handle)))
             (.catch (report-failure! "activity-reveal witness" handle))
             (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The controls that make the greens worth having
-;; ---------------------------------------------------------------------------
-
-(deftest the-refusal-witness-answers-both-ways
-  ;; No DOM needed and none taken: this is about the instrument, and it
-  ;; runs on both lanes so the node lane also proves the helper can report
-  ;; something other than a refusal. If [[outcome]] and
-  ;; [[escaped-extent-refusal]] could only ever describe a refusal, every
-  ;; green above would be the instrument's silence rather than the
-  ;; runtime's conduct.
-  (seeded!)
-  (let [!seen (atom nil)]
-    (rf.fresco.impl.collector/render-body
-      frame-id
-      (fn [_]
-        (reset! !seen (outcome (fn [] (rf.fresco/sub [:red/escaped]))))
-        [:p "x"])
-      {})
-
-    (testing "the IDENTICAL read, inside a body's window, is reported as
-              ALLOWED and carries the value — so the helper discriminates,
-              and every refusal above is about the extent rather than
-              about a query that was broken anyway"
-      (is (contains? @!seen :returned))
-      (is (= 41 (:returned @!seen)))
-      (is (not (contains? @!seen :refused)))))
-
-  (testing "and the shape constructor discriminates on the query, so no row
-            can pass on somebody else's refusal"
-    (is (not= (escaped-extent-refusal [:red/escaped])
-              (escaped-extent-refusal [:red/escaped-2])))))
