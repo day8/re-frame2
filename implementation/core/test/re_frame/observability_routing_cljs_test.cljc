@@ -122,12 +122,20 @@
 
 (deftest unresolved-frame-routes-nothing-no-default-synthesis
   ;; Cited by the data-classification fail-closed-no-frame conformance fixture.
-  (let [seen (atom [])]
-    (rf/register-observability-sink! :test.sinks/datadog #(swap! seen conj %))
-    (rf.observability/route-handled-event! [:evt/x] :evt/x :obs/ghost :ok 1 [:db] nil)
-    (rf.observability/route-error!
-      :rf.error/handler-exception [:evt/x] :evt/x :obs/ghost (ex-info "x" {}) 1 0 nil)
-    (is (empty? @seen) "an unresolved frame routes nothing")))
+  (testing "an unresolved frame does not borrow :rf/default's sink policy"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :test.sinks/datadog #(swap! seen conj %))
+      (rf/destroy-frame! :rf/default)
+      (rf/make-frame {:id :rf/default :observability
+                      {:handled-events [{:sink :test.sinks/datadog}]
+                       :errors         [{:sink :test.sinks/datadog}]}})
+      (rf.observability/route-handled-event! [:evt/x] :evt/x :obs/ghost :ok 1 [:db] nil)
+      (rf.observability/route-error!
+        :rf.error/handler-exception [:evt/x] :evt/x :obs/ghost (ex-info "x" {}) 1 0 nil)
+      (is (empty? @seen) "an unresolved frame routes nothing")
+      (rf.observability/route-handled-event! [:evt/x] :evt/x :rf/default :ok 1 [:db] nil)
+      (is (= [:rf.observe/handled-event] (mapv :kind @seen))
+          "CONTROL — :rf/default's own policy delivers"))))
 
 (deftest buggy-sink-is-isolated-from-siblings
   (testing "a throwing sink cannot block a sibling sink on the same stream"
