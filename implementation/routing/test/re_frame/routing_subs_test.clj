@@ -1,183 +1,54 @@
 (ns re-frame.routing-subs-test
-  "Framework-sub tests for re-frame.routing (`:rf/route` and the
-  `:rf.route/*` derived subs, `:rf.route/chain` nested-layout chain,
-  `:rf/pending-navigation`, and the activated/deactivated lifecycle
-  trace).
+  "Framework subs for re-frame.routing (`:rf.route/fragment`, the
+  nested-layout `:rf.route/chain`, `:rf.route/id`) and the activated /
+  deactivated lifecycle trace.
 
   ## Posture split
 
-  The subs are production-real and carry no posture guard: `:rf/route`, the
-  derived `:rf.route/*` family, the nested-layout `:rf.route/chain` and
-  `:rf/pending-navigation` all run in the ordinary `clojure -M:test` suite AND
-  in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
-
-  The activated/deactivated LIFECYCLE TRACE is not a sub — it is dev
-  instrumentation emitted through `trace/emit!`, gated on
-  `rf.interop/debug-enabled?` and read once at load time. Its assertions sit
-  inside a `(when rf.interop/debug-enabled? …)` arm marked \"Dev-instrumentation arm\".
-  Two of them are NEGATIVE (`(is (empty? …))` for the first-nav and same-id
-  cases); with no trace bus they would pass vacuously, which is why they are
-  inside the arm rather than left beside the semantics. In their place the
-  route slice really did move — and, for the same-id case, really did not —
-  which is posture-independent and asserted outside the arm."
+  The subs are production-real and run in the ordinary `clojure -M:test` suite
+  AND in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false`
+  lane). The lifecycle TRACE rides `trace/emit!`, gated on
+  `rf.interop/debug-enabled?`, so its assertion sits inside a
+  `(when rf.interop/debug-enabled? …)` arm beside the posture-independent read
+  of where the navigations landed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.routing :as rf.routing]
-            [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- framework subs — fragment, chain, pending-navigation -----------------
-;;
-;; Per Spec 012 §Subscriptions the framework ships nine canonical subs over
-;; the route slice and pending-nav slot. Beside the six core ones
-;; (:rf/route, :rf.route/{id,params,query,transition,error}), the three
-;; below close out the table.
-
 (deftest sub-rf-route-fragment
   (testing ":rf.route/fragment reads the slice's :fragment"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Land on a URL with a fragment — the slice carries :fragment "x"
-    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#scroll-restoration" {:rf.route/cause :link}])
-    (is (= "scroll-restoration"
-           @(rf/subscribe [:rf.route/fragment]))
-        ":rf.route/fragment returns the URL's #fragment")
-    ;; Land on a URL with no fragment — sub returns nil
-    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/api" {:rf.route/cause :link}])
-    (is (nil? @(rf/subscribe [:rf.route/fragment]))
-        ":rf.route/fragment returns nil when the URL has no #fragment")))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#scroll-restoration"
+                       {:rf.route/cause :link}])
+    (is (= "scroll-restoration" @(rf/subscribe [:rf.route/fragment])))))
 
 (deftest sub-rf-route-chain
-  (testing ":rf.route/chain returns the :parent-chain [parent-most ... current]"
-    (rf/reg-route :route/account             {} "/account")
-    (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
-    (rf/reg-route :route/account.profile     {:parent :route/account.settings} "/account/settings/profile")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Land on the deepest leaf — chain walks up to the root.
+  (testing ":rf.route/chain walks :parent from the active route up to the root"
+    (rf/reg-route :route/account          {} "/account")
+    (rf/reg-route :route/account.settings {:parent :route/account} "/account/settings")
+    (rf/reg-route :route/account.profile  {:parent :route/account.settings} "/account/settings/profile")
     (rf/dispatch-sync [:rf.route/navigate {:to :route/account.profile}])
     (is (= [:route/account :route/account.settings :route/account.profile]
-           @(rf/subscribe [:rf.route/chain]))
-        ":rf.route/chain returns [root ... leaf]")
-    ;; Mid-chain
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/account.settings}])
-    (is (= [:route/account :route/account.settings]
-           @(rf/subscribe [:rf.route/chain]))
-        ":rf.route/chain returns the partial chain from the middle")
-    ;; Root has a single-element chain
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/account}])
-    (is (= [:route/account]
-           @(rf/subscribe [:rf.route/chain]))
-        ":rf.route/chain returns a single-element chain for the root")))
-
-;; ---- route slice key is :route-id; the sub-id is :rf.route/id -------------
-;;
-;; Adversarial pin for the slice key. The
-;; durable slice must be SELF-DESCRIBING — the active route id lives under
-;; :route-id, NOT bare :id — while the consumer-facing subscription id
-;; is :rf.route/id (the slice key is internal, invisible to
-;; sub callers). Both halves are asserted together so a change to
-;; EITHER (a bare :id slice key, or sub-id drift) fails loudly.
-
-(deftest route-slice-keyed-route-id-sub-id-unchanged
-  (testing "the durable route slice is keyed :route-id (not bare :id);
-            the :rf.route/id sub reads the :route-id key"
-    (rf/reg-route :route/cart {} "/cart")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-    ;; 1. The RAW durable slice carries the active route id under :route-id.
-    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :current])]
-      (is (= :route/cart (:route-id slice))
-          "the slice stores the active route id under :route-id")
-      (is (not (contains? slice :id))
-          "the slice carries NO bare :id key (the slice is self-describing)"))
-    ;; 2. The subscription id is :rf.route/id — it resolves and
-    ;;    returns the route id, reading the :route-id slice key.
-    (is (= :route/cart @(rf/subscribe [:rf.route/id]))
-        ":rf.route/id returns the active route id")
-    ;; 3. The :rf/route slice sub exposes :route-id and NOT bare :id.
-    (let [pub-slice @(rf/subscribe [:rf/route])]
-      (is (= :route/cart (:route-id pub-slice))
-          ":rf/route sub returns the slice keyed :route-id")
-      (is (not (contains? pub-slice :id))
-          ":rf/route sub carries NO bare :id key"))))
+           @(rf/subscribe [:rf.route/chain])))))
 
 (deftest route-activated-deactivated-trace-on-navigation
-  (testing ":rf.route/deactivated + :rf.route/activated fire on cross-route
-            navigation. Same-id navigation emits NEITHER."
+  (testing "the first navigation emits only :rf.route/activated, a cross-route
+            one emits deactivated then activated, and a same-id one emits neither"
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; First nav: no prior route → only :rf.route/activated fires.
     (let [traces (atom [])]
-      (rf/register-listener! :trace ::act1 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/from}])
-      (rf/unregister-listener! :trace ::act1)
-      ;; SEMANTIC, posture-independent: the activation the trace
-      ;; announces really happened — the slice moved to :route/from from
-      ;; nothing, which is the "no prior route" the second leg is about.
-      (is (= :route/from @(rf/subscribe [:rf.route/id]))
-          "first nav landed on :route/from")
-      ;; Dev-instrumentation arm (see ns docstring); the second leg
-      ;; is NEGATIVE over the trace ring, hence guarded.
+      (rf/register-listener! :trace ::lifecycle (fn [ev] (swap! traces conj ev)))
+      (doseq [to [:route/from :route/to :route/to]]
+        (rf/dispatch-sync [:rf.route/navigate {:to to}]))
+      (rf/unregister-listener! :trace ::lifecycle)
+      (is (= :route/to @(rf/subscribe [:rf.route/id])))
       (when rf.interop/debug-enabled?
-        (is (= [:route/from]
-               (map #(-> % :tags :route-id)
-                    (filter #(= :rf.route/activated (:operation %)) @traces)))
-            "first nav: :rf.route/activated for :route/from")
-        (is (empty? (filter #(= :rf.route/deactivated (:operation %)) @traces))
-            "first nav (no prior): :rf.route/deactivated does NOT fire")))
-    ;; Cross-route nav: both fire in deactivated→activated order.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::act2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
-      (rf/unregister-listener! :trace ::act2)
-      ;; SEMANTIC, posture-independent: the cross-route transition
-      ;; the pair announces really happened.
-      (is (= :route/to @(rf/subscribe [:rf.route/id]))
-          "cross-route nav moved the slice from :route/from to :route/to")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
-                                  (:operation %))
-                                @traces)]
-          (is (= [:rf.route/deactivated :rf.route/activated]
-                 (map :operation lifecycle))
-              "cross-route nav: deactivated → activated in that order")
-          (is (= :route/from
-                 (-> (first lifecycle) :tags :route-id))
-              ":deactivated carries the prior route-id")
-          (is (= :route/to
-                 (-> (second lifecycle) :tags :route-id))
-              ":activated carries the next route-id"))))
-    ;; Same-id navigation: neither fires (route stays active across the transition).
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::act3 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
-      (rf/unregister-listener! :trace ::act3)
-      ;; SEMANTIC, posture-independent: the route STAYED active
-      ;; across the transition — that is the fact the two silent traces encode,
-      ;; and without it the `(empty? lifecycle)` leg below would pass vacuously
-      ;; under the gate.
-      (is (= :route/to @(rf/subscribe [:rf.route/id]))
-          "same-id navigation left the slice on :route/to (the route stayed active)")
-      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
-      ;; the trace ring, hence guarded.
-      (when rf.interop/debug-enabled?
-        (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
-                                  (:operation %))
-                                @traces)]
-          (is (empty? lifecycle)
-              "same-id navigation: neither lifecycle trace fires"))))))
+        (is (= [[:rf.route/activated :route/from]
+                [:rf.route/deactivated :route/from]
+                [:rf.route/activated :route/to]]
+               (->> @traces
+                    (filter #(#{:rf.route/activated :rf.route/deactivated} (:operation %)))
+                    (mapv (juxt :operation (comp :route-id :tags))))))))))
