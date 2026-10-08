@@ -1,47 +1,11 @@
 (ns re-frame.ssr-error-drain-concurrency-test
-  "`consume-pending-traces!` MUST pull-and-clear a frame's pending
-  error-trace buffer ATOMICALLY.
-
-  A non-atomic shape would DEREF the atom, read the frame's traces, then
-  `swap! dissoc` the frame key in a SEPARATE transition:
-
-      (let [snap   @pending-error-traces
-            traces (get snap frame-id [])]
-        (when (seq traces)
-          (swap! pending-error-traces dissoc frame-id))   ;; <- separate
-        traces)
-
-  Under concurrent SSR / streaming error paths many server frames are
-  live at once (the canonical shape — see ssr-ring's concurrency stress
-  test). A `buffer-error-trace!` append for the SAME frame landing
-  between the deref and the dissoc would be silently dropped: the deref
-  reads the pre-append value, then the dissoc deletes the whole frame key
-  — including the just-appended trace. A dropped error trace can lose a
-  fail-closed status upgrade (a 200 shipped where a 5xx was due) or
-  incomplete diagnostics — exactly the operational path this listener is
-  meant to harden.
-
-  `consume-pending-traces!` uses `swap-vals!` so the read and the clear happen in one
-  CAS-retried transition: an append that races the drain either lands
-  before the CAS (rides in the returned `old` value) or after it
-  (survives in the atom for the next drain). No trace is lost either way.
-
-  This test reproduces the race by interleaving appends and drains across
-  many threads, then asserts CONSERVATION: every appended trace is either
-  drained exactly once OR still buffered — none vanish. The non-atomic
-  shape loses traces under this load nondeterministically; `swap-vals!`
-  never does.
-
-  JVM-only — the race requires real parallelism, which the Node CLJS
-  runtime does not have. The drain itself is platform-neutral `.cljc`
-  (`swap-vals!` exists on both runtimes); this test pins the JVM
-  concurrency contract."
-  (:require [clojure.test :refer [deftest is testing]]
+  "`consume-pending-traces!` pulls and clears a frame's pending error traces
+  in ONE atomic transition. A deref-then-dissoc drain would drop a trace
+  appended between the two steps — and with it a fail-closed status. JVM-only:
+  the race needs real parallelism."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]))
 
-;; Private fns reached via their vars — the same internal surface the
-;; runtime drives (buffer on the listener path, drain on the projection
-;; path).
 (def ^:private consume! #'rf.ssr.error-listener/consume-pending-traces!)
 
 (defn- buffer! [frame-id trace]
@@ -49,51 +13,24 @@
          update frame-id (fnil conj []) trace))
 
 (deftest consume-pending-traces-loses-no-trace-under-concurrent-append
-  (testing "interleaved appends + drains for the SAME
-            frame never lose a trace. Drained-count + still-buffered-count
-            equals total-appended (conservation)."
-    (let [frame-id      :rf.test/drain-race
-          appends       2000
-          ;; Clean slate for this frame.
-          _             (swap! rf.ssr.error-listener/pending-error-traces
-                               dissoc frame-id)
-          drained       (atom [])
-          appended      (atom 0)
-          start-gate    (java.util.concurrent.CountDownLatch. 1)
-          ;; Appender: buffers `appends` distinct traces, each a unique id.
-          appender      (Thread.
-                          (fn []
-                            (.await start-gate)
-                            (dotimes [i appends]
-                              (buffer! frame-id {:op-type   :error
-                                                 :operation :rf.error/probe
-                                                 :seq       i})
-                              (swap! appended inc))))
-          ;; Drainer: repeatedly drains the frame, collecting whatever it
-          ;; pulls, racing the appender for the full window.
-          drainer       (Thread.
-                          (fn []
-                            (.await start-gate)
-                            (dotimes [_ (* 4 appends)]
-                              (let [pulled (consume! frame-id)]
-                                (when (seq pulled)
-                                  (swap! drained into pulled))))))]
-      (.start appender)
-      (.start drainer)
-      (.countDown start-gate)
-      (.join appender)
-      (.join drainer)
-      ;; Final sweep — pull anything the drainer left behind so the
-      ;; conservation check sees the complete picture.
-      (let [leftover (consume! frame-id)
-            all-out  (into @drained leftover)
-            seen-seq (set (map :seq all-out))]
-        (is (= @appended appends)
-            "sanity: the appender buffered every trace it intended to")
-        (is (= appends (count all-out))
-            (str "CONSERVATION: drained (" (count @drained) ") + leftover ("
-                 (count leftover) ") must equal total appended (" appends
-                 ") — no trace dropped by a non-atomic pull-then-clear"))
-        (is (= (set (range appends)) seen-seq)
-            "every distinct appended trace surfaced exactly once — no loss,
-             no duplication")))))
+  (let [frame-id   :rf.test/drain-race
+        appends    2000
+        drained    (atom [])
+        start-gate (java.util.concurrent.CountDownLatch. 1)
+        appender   (Thread. (fn []
+                              (.await start-gate)
+                              (dotimes [i appends]
+                                (buffer! frame-id {:op-type :error :seq i}))))
+        drainer    (Thread. (fn []
+                              (.await start-gate)
+                              (dotimes [_ (* 4 appends)]
+                                (swap! drained into (consume! frame-id)))))]
+    (swap! rf.ssr.error-listener/pending-error-traces dissoc frame-id)
+    (.start appender)
+    (.start drainer)
+    (.countDown start-gate)
+    (.join appender)
+    (.join drainer)
+    (is (= (range appends)
+           (sort (map :seq (into @drained (consume! frame-id)))))
+        "every appended trace surfaces exactly once: no loss, no duplication")))
