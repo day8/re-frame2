@@ -745,6 +745,13 @@
 ;; forwards as `MachineChart`'s `:fit-signal` (the chart side is pinned in
 ;; machines-viz `auto-fit-view-cljs-test`).
 
+(deftest machine-tab-fit-signal-default-zero
+  ;; The chart starts from its `::unfit` sentinel, so the first activation
+  ;; (1) must differ from the value read before any activation.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (is (= 0 @(rf/subscribe [:rf.xray/machine-tab-fit-signal])))))
+
 (deftest machine-tab-fit-signal-bumps-on-dynamic-activation
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
@@ -810,6 +817,18 @@
        {:dispatch-id 4 :event-vec [:rf.xray/select-tab :event]}])
     (is (= [:cart/add-item :checkout/start]
            (mapv #(first (:event %)) @(rf/subscribe [:rf.xray/event-bundles]))))))
+
+(deftest sub-cascades-filter-also-applies-to-filtered-event-bundles
+  ;; The L2 list reads `:rf.xray/filtered-event-bundles`, so the filter must
+  ;; reach it through its `:rf.xray/event-bundles` input.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (seed-buffer-with-dispatched-events!
+      [{:dispatch-id 1 :event-vec [:cart/add-item]}
+       {:dispatch-id 2 :event-vec [:rf.xray/select-tab :machines]}
+       {:dispatch-id 3 :event-vec [:checkout/start]}])
+    (is (= [:cart/add-item :checkout/start]
+           (mapv #(first (:event %)) @(rf/subscribe [:rf.xray/filtered-event-bundles]))))))
 
 (deftest sub-suppressed-sensitive-count-reads-app-db
   ;; Each `:rf.xray/note-sensitive-suppressed` carries one task's per-frame
