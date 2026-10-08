@@ -1,13 +1,6 @@
 (ns re-frame2-pair-mcp.operating-frame-test
-  "Unit tests for `get-operating-frame` / `reset-operating-frame`'s
-  blank-runtime-result handling.
-
-  `set-operating-frame-tool` routes a non-map / `:ok? false` runtime
-  answer through `wire/err-text`, and so must `get-operating-frame-tool`
-  and `reset-operating-frame-tool` — otherwise a nil / non-map answer from
-  a degraded runtime (the eval came back blank) would silently ride back
-  as `wire/ok-text` despite carrying `:ok? false`. These tests pin that
-  BOTH siblings match `set-operating-frame-tool`'s guard."
+  "`get-operating-frame` and `reset-operating-frame` route a blank / non-map
+  runtime answer to an isError envelope, never `ok-text`."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -18,47 +11,22 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-(defn- stub-eval!
-  "Install a `cljs-eval-value` stub. Answers the preload probe with
-  `true` (so `ensure-runtime!` short-circuits) and every other
-  (non-prelude) eval with `canned` — the shape `get-form` /
-  `reset-form` resolve to."
-  [canned]
-  (let [respond (fn [form]
-                  (if (and (string? form) (re-find #"__re_frame2_pair_runtime" form))
-                    (js/Promise.resolve true)
-                    (js/Promise.resolve canned)))]
-    (set! nrepl/cljs-eval-value
-          (fn
-            ([_c _b form] (respond form))
-            ([_c _b form _o] (respond form))))))
-
-(def ^:private pristine-eval nrepl/cljs-eval-value)
-
-(defn- restore-eval! [] (set! nrepl/cljs-eval-value pristine-eval))
-
-(deftest get-operating-frame-blank-runtime-result-is-isError
+(deftest blank-runtime-result-is-isError
   (async done
-    (stub-eval! nil)
-    (-> (op-frame/get-operating-frame-tool (fresh-conn) (tu/args->js {}))
-        (.then (fn [r]
-                 (is (tu/error? r)
-                     "a blank/non-map get-operating-frame result MUST be isError: true")
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :unexpected-shape (:reason edn))))
-                 (restore-eval!)
-                 (done))))))
-
-(deftest reset-operating-frame-blank-runtime-result-is-isError
-  (async done
-    (stub-eval! nil)
-    (-> (op-frame/reset-operating-frame-tool (fresh-conn) (tu/args->js {}))
-        (.then (fn [r]
-                 (is (tu/error? r)
-                     "a blank/non-map reset-operating-frame result MUST be isError: true")
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :unexpected-shape (:reason edn))))
-                 (restore-eval!)
-                 (done))))))
+    (let [orig nrepl/cljs-eval-value
+          stub (fn
+                 ([_c _b _form] (js/Promise.resolve nil))
+                 ([_c _b _form _o] (js/Promise.resolve nil)))]
+      (set! nrepl/cljs-eval-value stub)
+      (-> (js/Promise.all
+            #js [(op-frame/get-operating-frame-tool (fresh-conn) (tu/args->js {}))
+                 (op-frame/reset-operating-frame-tool (fresh-conn) (tu/args->js {}))])
+          (.then (fn [results]
+                   (doseq [r results]
+                     (is (tu/error? r))
+                     (is (= {:ok? false :reason :unexpected-shape :value nil}
+                            (tu/extract-edn r))))))
+          (.catch (fn [e] (is false (str "rejected: " e))))
+          (.finally (fn []
+                      (tu/restore-eval! stub orig)
+                      (done)))))))
