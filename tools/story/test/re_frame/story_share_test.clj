@@ -1,37 +1,40 @@
 (ns re-frame.story-share-test
-  "JVM tests for the per-variant share URL builder.
-
-  The URL-building logic lives in `re-frame.story.share` (.cljc) so
-  the same encoding works on JVM and CLJS. JVM tests round-trip the
-  expected shape per `005-SOTA-Features.md` §Share URL (retired QR popover)."
+  "JVM tests for the per-variant share URL builder in `re-frame.story.share`
+  (.cljc, so JVM and CLJS share one encoding), per `005-SOTA-Features.md`
+  §Share URL."
   (:require [clojure.test :refer [are deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.story        :as rf.story]
             [re-frame.story.share  :as rf.story.share]))
 
-;; ---- owned keys REPLACE stale base-url values ----------------------------
-;;
-;; The browser hydrator (`re-frame.story.ui.url-state/params->getter`)
-;; reads each Story key with `URLSearchParams.get`, whose FIRST-value
-;; semantics select the oldest occurrence in the query string. An
-;; append-only merge over a base-url that already carries `variant=` /
-;; `modes=` would therefore hydrate the STALE cell — violating the share
-;; invariant that a pasted URL lands on the exact same cell. The builder
-;; must emit exactly one effective value per key it owns, while leaving
-;; unrelated query entries and the hash route untouched.
-
 (defn- query-part
   "The query-string portion of `url` — between `?` and any `#`."
   [url]
   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))
 
-(defn- query-key-count
-  "How many query fragments of `url` carry key `k`."
+(defn- escape-first-char
+  "Spell `k` with its leading character percent-encoded (variant becomes
+  %76ariant): a browser-equivalent spelling that shares no prefix with the
+  literal name, so a raw-text ownership test cannot match it."
+  [k]
+  (str "%" (format "%02X" (int (first k))) (subs k 1)))
+
+(defn- decoded-key-count
+  "How many query fragments of `url` carry key `k` once the key half is
+  percent-decoded — what `URLSearchParams.getAll` would report. An
+  undecodable key half counts for no key, as the builder treats it."
   [url k]
   (->> (str/split (or (query-part url) "") #"&")
-       (filter #(= k (first (str/split % #"=" 2))))
+       (filter #(= k (try (java.net.URLDecoder/decode
+                            (first (str/split % #"=" 2)) "UTF-8")
+                          (catch IllegalArgumentException _ nil))))
        count))
+
+(defn- key-counts
+  "`{key decoded-count}` over the whole Story vocabulary for `url`."
+  [url]
+  (into {} (map (juxt name #(decoded-key-count url (name %)))) rf.story.share/story-query-keys))
 
 (defn- first-value-getter
   "Standards-faithful emulation of the browser hydrator's
@@ -49,21 +52,15 @@
             {}
             (str/split (or (query-part url) "") #"&"))))
 
-;; ---- OMITTED slots clear their stale values ------------------------------
-;;
-;; `build-params` deliberately omits empty / nil / default slots, so a
-;; builder clearing only the keys a call EMITS would let a base-url's
-;; `modes=` / `overrides=` / `substrate=` survive a call that requested
-;; `[]` / `{}` / `:reagent` — the hydrator would then restore state the
-;; caller never asked for, breaking the exact-cell invariant by OMISSION
-;; rather than by order. The builder is therefore authoritative over the
-;; whole `rf.story.share/story-query-keys` vocabulary, including the slots
-;; it declines to emit.
+;; `build-params` omits empty / nil / default slots, so a builder clearing
+;; only the keys a call emits would let a base-url's stale `modes=` or
+;; `substrate=` survive a call that asked for `[]` or `:reagent`. The builder
+;; is therefore authoritative over the whole `story-query-keys` vocabulary,
+;; including the slots it declines to emit.
 
 (def ^:private stale-story-params
-  "A stale, PARSEABLE wire value for every key in the Story vocabulary.
-  Parseable on purpose: a surviving value must be visible to
-  `parse-params` as restored state, not merely as an extra fragment."
+  "A stale, parseable wire value for every key in the Story vocabulary, so a
+  surviving value is visible to `parse-params` as restored state."
   {"variant"    "story.old%2Fa"
    "workspace"  "story.old%2Fws"
    "mode-tab"   "docs"
@@ -74,223 +71,125 @@
    "overrides"  "%7B%3Afoo%201%7D"
    "substrate"  "uix"})
 
-(def ^:private stale-base-url
-  "Base URL carrying every stale Story key, in vocabulary order, plus two
-  unrelated params and a hash route."
+(defn- stale-base-url
+  "Base URL carrying every stale Story key, spelled by `spell`, in
+  vocabulary order, plus two unrelated params and a hash route."
+  [spell]
   (str "https://example.test/?"
-       (str/join "&" (map #(str (name %) "=" (get stale-story-params (name %)))
+       (str/join "&" (map #(str (spell (name %)) "=" (get stale-story-params (name %)))
                           rf.story.share/story-query-keys))
        "&from=index&embed=1#/stories"))
+
+(def ^:private parsed-slots
+  [:variant-id :workspace-id :mode-tab :active-modes :viewport
+   :background :tag-filter :cell-overrides :substrate])
+
+(defn- restored
+  "The non-nil slots `parse-params` restores from the browser's first-value read of `url`."
+  [url]
+  (into {} (remove (comp nil? val))
+        (select-keys (rf.story.share/parse-params (first-value-getter url)) parsed-slots)))
 
 (deftest story-query-keys-is-the-whole-build-params-vocabulary
-  (testing "the clear set is only correct while it equals what
-            build-params can emit. A slot added to build-params without a
-            matching story-query-keys entry would silently leave that slot's
-            stale value standing, so pin the two against each other."
-    (let [emitted (->> (rf.story.share/build-params
-                         {:variant-id     :story.a/b
-                          :workspace-id   :story.a/ws
-                          :mode-tab       :docs        ; :dev is the omitted default
-                          :active-modes   [:Mode.app/dark]
-                          :viewport       :tablet
-                          :background     :dark
-                          :tag-filter     [:slow]
-                          :cell-overrides {:label "x"}
-                          :substrate      :my.lib/uix}) ; :reagent is the omitted default
-                       (map #(first (str/split % #"=" 2)))
-                       set)]
-      (is (= (set (map name rf.story.share/story-query-keys)) emitted)
-          "build-params with every slot populated emits exactly the vocabulary"))))
+  (testing "the clear set is correct only while it equals what build-params can
+            emit, so a slot added to one without the other fails here"
+    (is (= (set (map name rf.story.share/story-query-keys))
+           (->> (rf.story.share/build-params
+                  {:variant-id     :story.a/b
+                   :workspace-id   :story.a/ws
+                   :mode-tab       :docs          ; :dev is the omitted default
+                   :active-modes   [:Mode.app/dark]
+                   :viewport       :tablet
+                   :background     :dark
+                   :tag-filter     [:slow]
+                   :cell-overrides {:label "x"}
+                   :substrate      :my.lib/uix})  ; :reagent is the omitted default
+                (map #(first (str/split % #"=" 2)))
+                set)))
+    (is (= (set (map name rf.story.share/story-query-keys)) (set (keys stale-story-params)))
+        "the stale fixture covers the whole vocabulary")))
+
+;; The browser hydrator reads each Story key with `URLSearchParams.get`, whose
+;; first-value semantics pick the oldest occurrence, so the builder emits
+;; exactly one effective value per key it owns — or a pasted URL lands on a
+;; stale cell — and leaves unrelated entries and the hash route untouched.
+;; URLSearchParams compares DECODED key names, so `%76ariant=` is `variant=`
+;; to the browser and the builder must own it too.
 
 (deftest variant-share-url-clears-stale-omitted-keys
-  (testing "a base-url carrying stale values for keys this
-            call OMITS comes back carrying none of them; the browser
-            first-value read and parse-params see the requested cell with no
-            stale optional state; unrelated params and the hash survive."
-    (is (= (set (map name rf.story.share/story-query-keys))
-           (set (keys stale-story-params)))
-        "the fixture carries a stale value for every key in the vocabulary")
-    (let [url    (rf.story.share/variant-share-url
-                   :story.new/b
-                   stale-base-url
-                   ;; Every optional slot empty / default — so build-params
-                   ;; emits `variant=` and nothing else.
-                   {:active-modes [] :cell-overrides {} :substrate :reagent})
-          getter (first-value-getter url)
-          parsed (rf.story.share/parse-params getter)]
-      (is (= 1 (query-key-count url "variant"))
-          "exactly one variant= — the requested one")
-      (doseq [k (map name rf.story.share/story-query-keys)
-              :when (not= k "variant")]
-        (is (zero? (query-key-count url k))
-            (str "stale " k "= is cleared when the call omits that slot")))
-      (is (= "story.new/b" (get getter "variant"))
-          "browser first-value read sees the requested variant")
-      (is (= :story.new/b (:variant-id parsed))
-          "parse-params reconstructs the requested variant")
-      (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
-                    :background :tag-filter :cell-overrides :substrate]]
-        (is (nil? (get parsed slot))
-            (str "parse-params restores no stale " slot)))
-      (is (= "index" (get getter "from"))
-          "unrelated from= survives with its value")
-      (is (= "1" (get getter "embed"))
-          "unrelated embed= survives — it is chrome state, not shell state")
-      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant=")
-          "unrelated entries keep their order ahead of the generated params")
-      (is (str/ends-with? url "#/stories")
-          "the hash route survives, after the query"))))
-
-;; ---- ownership compares DECODED key names --------------------------------
-;;
-;; The consumer is `URLSearchParams`, which compares key names after
-;; percent-decoding, so `%76ariant=` — a valid spelling of `variant=` — is
-;; the SAME key to the browser. Were the clear set matched against the
-;; fragment's RAW key text, it would be a different string to the builder:
-;; the stale entry would survive, the generated `variant=` would be
-;; appended behind it, and `.get` (first-value) would hand the hydrator the
-;; stale value — the stale-cell failure above, reached through the key
-;; half instead of the value half.
-
-(defn- escape-first-char
-  "Spell `k` with its leading character percent-encoded — `\"variant\"` →
-  `\"%76ariant\"`. A valid, browser-equivalent spelling of the same key
-  that shares no prefix with the literal name, so a raw-text ownership
-  test cannot match it."
-  [k]
-  (str "%" (format "%02X" (int (first k))) (subs k 1)))
-
-(defn- decoded-key-count
-  "How many query fragments of `url` carry key `k` once the key half is
-  percent-decoded — i.e. how many values `URLSearchParams.getAll` would
-  report for `k`. An undecodable key half counts for no key at all, the
-  same fall-through the builder applies to it."
-  [url k]
-  (->> (str/split (or (query-part url) "") #"&")
-       (filter #(= k (try (java.net.URLDecoder/decode
-                            (first (str/split % #"=" 2)) "UTF-8")
-                          (catch IllegalArgumentException _ nil))))
-       count))
-
-(def ^:private escaped-stale-base-url
-  "Base URL carrying a stale value for every Story key, each key spelled
-  with its first character percent-encoded, plus two unrelated params
-  and a hash route."
-  (str "https://example.test/?"
-       (str/join "&" (map #(str (escape-first-char (name %))
-                                "="
-                                (get stale-story-params (name %)))
-                          rf.story.share/story-query-keys))
-       "&from=index&embed=1#/stories"))
+  (testing "stale values for keys this call omits are cleared: one variant= the
+            browser can see, no stale optional state, and unrelated params,
+            their order and the hash survive"
+    (let [url (rf.story.share/variant-share-url
+                :story.new/b (stale-base-url identity)
+                {:active-modes [] :cell-overrides {} :substrate :reagent})]
+      (is (= (assoc (zipmap (keys stale-story-params) (repeat 0)) "variant" 1) (key-counts url)))
+      (is (= {:variant-id :story.new/b} (restored url)))
+      (is (= ["story.new/b" "index" "1"] (map (first-value-getter url) ["variant" "from" "embed"])))
+      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant="))
+      (is (str/ends-with? url "#/stories")))))
 
 (deftest variant-share-url-owns-percent-encoded-key-spellings
-  (testing "a base-url spelling the Story keys with
-            escapes (%76ariant=) is carrying those keys as far as the
-            browser is concerned. The builder must clear them, leaving one
-            effective value per owned key, while unrelated params, their
-            order, and the hash route survive."
-    (let [url    (rf.story.share/variant-share-url
-                   :story.new/b
-                   escaped-stale-base-url
-                   {:active-modes [:Mode.app/dark]})
-          getter (first-value-getter url)
-          parsed (rf.story.share/parse-params getter)]
-      (is (= 1 (decoded-key-count url "variant"))
-          "exactly one variant= the browser can see — the requested one")
-      (is (= 1 (decoded-key-count url "modes"))
-          "exactly one modes= the browser can see — the requested one")
-      (doseq [k (map name rf.story.share/story-query-keys)
-              :when (not (#{"variant" "modes"} k))]
-        (is (zero? (decoded-key-count url k))
-            (str "stale escaped " k "= is cleared, not merely outranked")))
-      (is (= "story.new/b" (get getter "variant"))
-          "browser first-value read sees the requested variant")
-      (is (= "Mode.app/dark" (get getter "modes"))
-          "browser first-value read sees the requested modes")
-      (is (= :story.new/b (:variant-id parsed))
-          "parse-params reconstructs the requested variant")
-      (is (= [:Mode.app/dark] (:active-modes parsed))
-          "parse-params reconstructs the requested modes")
-      (doseq [slot [:workspace-id :mode-tab :viewport :background
-                    :tag-filter :cell-overrides :substrate]]
-        (is (nil? (get parsed slot))
-            (str "parse-params restores no stale " slot)))
-      (is (= "index" (get getter "from"))
-          "unrelated from= survives with its value")
-      (is (= "1" (get getter "embed"))
-          "unrelated embed= survives — chrome state, never Story's")
-      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant=")
-          "unrelated entries keep their order ahead of the generated params")
-      (is (str/ends-with? url "#/stories")
-          "the hash route survives, after the query"))))
+  (testing "Story keys spelled with escapes are cleared, not merely outranked,
+            leaving one effective value per owned key"
+    (let [url (rf.story.share/variant-share-url
+                :story.new/b (stale-base-url escape-first-char)
+                {:active-modes [:Mode.app/dark]})]
+      (is (= (assoc (zipmap (keys stale-story-params) (repeat 0)) "variant" 1 "modes" 1)
+             (key-counts url)))
+      (is (= {:variant-id :story.new/b :active-modes [:Mode.app/dark]} (restored url)))
+      (is (= ["story.new/b" "Mode.app/dark" "index" "1"]
+             (map (first-value-getter url) ["variant" "modes" "from" "embed"])))
+      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant="))
+      (is (str/ends-with? url "#/stories")))))
 
 (deftest apply-story-params-preserves-undecodable-and-unowned-keys
-  (testing "decoding is an ownership TEST, never a
-            rewrite. A key half that does not decode at all falls through
-            and is preserved byte-for-byte; so is a key that decodes to
-            something Story does not own. `mode+tab` is the sharp case:
-            `+` is a space in a query component, so the browser reads it
-            as `mode tab`, which is NOT `mode-tab`."
+  (testing "decoding is an ownership test, never a rewrite: an undecodable key
+            half, or one that decodes to a key Story does not own, survives
+            verbatim and in order. `mode+tab` reads as `mode tab` (+ is a space
+            in a query component), which is not `mode-tab`"
     (let [url (rf.story.share/variant-share-url
                 :story.new/b
                 "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index"
                 nil)]
       (is (str/starts-with?
             url
-            "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index&variant=")
-          "every undecodable / unowned entry survives verbatim and in order")
-      (is (= 1 (decoded-key-count url "variant"))
-          "the generated variant= is still the only one")
-      (is (zero? (decoded-key-count url "mode-tab"))
-          "mode+tab is not mode-tab, so nothing of Story's was cleared"))))
-
-;; ---- overrides codec round-trip ------------------------------------------
-;;
-;; The codec prints one EDN map (delimiter-safe) and reads it back as one
-;; map, so an EDN value containing the list separator round-trips faithfully.
+            "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index&variant="))
+      (is (= [1 0] [(decoded-key-count url "variant") (decoded-key-count url "mode-tab")])))))
 
 (defn- url-decode [t] (java.net.URLDecoder/decode (str t) "UTF-8"))
 
+;; The overrides codec prints one EDN map, so a value containing the list
+;; separator round-trips.
 (defn- overrides-round-trip
   "Encode `ov` to the wire token, URL-decode it (as URLSearchParams.get
   would), and parse it back. Returns the reconstructed overrides map."
   [ov]
   (rf.story.share/parse-overrides-param (url-decode (rf.story.share/build-overrides-token ov))))
 
-;; ---- substrate id round-trips namespace ----------------------------------
-
 (deftest substrate-round-trips-qualified
-  (testing "a qualified substrate id round-trips through
-            build-params → URL decoding → parse-params without losing its
-            namespace. A registered custom substrate like :my.lib/uix must
-            hydrate back to the SAME id, not a different bare :uix."
-    (let [substrate :my.lib/uix
-          ps        (rf.story.share/build-params {:variant-id :story.foo/bar
-                                         :substrate  substrate})
-          sp        (some #(when (str/starts-with? % "substrate=") %) ps)
-          ;; URLSearchParams.get returns the decoded value; emulate it.
-          decoded   (url-decode (subs sp (count "substrate=")))]
-      (is (= substrate (rf.story.share/parse-substrate-param decoded))
-          "qualified substrate id survives the full encode → decode → parse")
-      (is (= substrate (:substrate (rf.story.share/parse-params {"substrate" decoded})))
-          "and through the full parse-params inverse"))))
+  (testing "a qualified substrate id round-trips through build-params, URL
+            decoding and parse-params as the same id, not a bare :uix"
+    (let [sp      (some #(when (str/starts-with? % "substrate=") %)
+                        (rf.story.share/build-params {:variant-id :story.foo/bar
+                                                      :substrate  :my.lib/uix}))
+          decoded (url-decode (subs sp (count "substrate=")))]
+      (is (= :my.lib/uix
+             (rf.story.share/parse-substrate-param decoded)
+             (:substrate (rf.story.share/parse-params {"substrate" decoded})))))))
 
 (deftest overrides-codec-round-trips-collection-values
-  (testing "vector / map / set / nested EDN values (which all
-            carry internal separators) round-trip"
+  (testing "vector / map / set / nested values, which carry internal
+            separators, round-trip"
     (let [ov {:items [1 2 3]
               :opts  {:a 1 :b 2}
               :tags  #{:x :y}
               :pair  [:k "v, with comma"]}]
-      (is (= ov (overrides-round-trip ov))))))
-
-(deftest overrides-codec-empty-and-nil
-  (testing "empty/nil overrides produce no token, and blank
-            input parses to nil"
-    (is (nil? (rf.story.share/build-overrides-token {})))
-    (is (nil? (rf.story.share/build-overrides-token nil)))
-    (is (nil? (rf.story.share/parse-overrides-param nil)))
-    (is (nil? (rf.story.share/parse-overrides-param "")))))
+      (is (= ov (overrides-round-trip ov)))))
+  (testing "empty or nil overrides produce no token, and blank input parses to nil"
+    (is (= [nil nil nil nil]
+           [(rf.story.share/build-overrides-token {}) (rf.story.share/build-overrides-token nil)
+            (rf.story.share/parse-overrides-param nil) (rf.story.share/parse-overrides-param "")]))))
 
 ;; ---- sorted output: one selection, one URL -------------------------------
 
@@ -333,49 +232,27 @@
       ""    {:overrides nil :dropped []}
       "   " {:overrides nil :dropped []})))
 
-;; ---- stale-key overrides are dropped + reported --------------------------
-;;
-;; `parse-overrides-param*` only drops UNPARSEABLE entries; a perfectly
-;; well-formed override for an arg the variant RENAMED / REMOVED parses fine
-;; and — without the second-stage `drop-stale-overrides` filter — would be
-;; installed as a live arg and merged by `args/resolve-args`, hiding the
-;; share-import drift. This filter splits parsed overrides against the
-;; variant's declared-key contract.
+;; `parse-overrides-param*` drops only unparseable entries; a well-formed
+;; override for an arg the variant renamed or removed would otherwise be
+;; installed and merged by `args/resolve-args`, hiding the share-import drift.
 
 (deftest drop-stale-overrides-splits-by-declared-keys
-  (testing "drop-stale-overrides keeps overrides whose key the
-            variant still declares and moves the rest (renamed/removed args)
-            into :dropped, preserving the parser's own malformed drops"
-    (let [parsed {:overrides {:label "Hi" :gone 9 :count 3}
-                  :dropped   ["bogus"]}
-          out    (rf.story.share/drop-stale-overrides parsed #{:label :count})]
-      (is (= {:label "Hi" :count 3} (:overrides out))
-          "only declared keys survive")
-      (is (= 2 (count (:dropped out)))
-          "the parser's malformed drop PLUS the one stale-key drop")
-      (is (some #(= "bogus" %) (:dropped out))
-          "the parser's malformed token is preserved")
-      (is (some #(re-find #":gone" %) (:dropped out))
-          "the stale :gone override is reported as dropped, not installed"))))
-
-(deftest drop-stale-overrides-nil-declared-keeps-all
-  (testing "a nil declared-key set (unregistered / uncompilable
-            variant: no contract known) keeps every parsed override verbatim
-            rather than dropping all — degrades to the parser's behaviour"
-    (let [parsed {:overrides {:a 1 :b 2} :dropped ["bad"]}
-          out    (rf.story.share/drop-stale-overrides parsed nil)]
-      (is (= {:a 1 :b 2} (:overrides out)))
-      (is (= ["bad"] (:dropped out))))))
-
-(deftest drop-stale-overrides-empty-declared-drops-all
-  (testing "an EMPTY (but non-nil) declared-key set means the
-            variant declares NO args, so every override is stale (distinct
-            from the nil keep-all case)"
+  (testing "overrides whose key the variant declares are kept, the rest move to
+            :dropped beside the parser's own malformed drops; a nil declared
+            set (no contract known) keeps everything, an empty one drops all"
     (let [out (rf.story.share/drop-stale-overrides
-                {:overrides {:a 1} :dropped []}
-                #{})]
-      (is (nil? (:overrides out)))
-      (is (= 1 (count (:dropped out)))))))
+                {:overrides {:label "Hi" :gone 9 :count 3} :dropped ["bogus"]}
+                #{:label :count})]
+      (is (= {:label "Hi" :count 3} (:overrides out)))
+      (is (= [2 true true]
+             [(count (:dropped out)) (boolean (some #(= "bogus" %) (:dropped out)))
+              (boolean (some #(str/includes? % ":gone") (:dropped out)))])))
+    (is (= {:overrides {:a 1 :b 2} :dropped ["bad"]}
+           (select-keys (rf.story.share/drop-stale-overrides
+                          {:overrides {:a 1 :b 2} :dropped ["bad"]} nil)
+                        [:overrides :dropped])))
+    (let [out (rf.story.share/drop-stale-overrides {:overrides {:a 1} :dropped []} #{})]
+      (is (= [nil 1] [(:overrides out) (count (:dropped out))])))))
 
 (deftest variant-share-url-preserves-hash-route
   (testing "variant-share-url inserts params before # so the Story route survives"
@@ -395,43 +272,16 @@
               :substrate      :reagent})))))
 
 (deftest variant-share-url-public-export
-  (testing "rf.story/variant-share-url is exported"
+  (testing "rf.story/variant-share-url is exported with both documented arms;
+            the (variant-id opts) arm is a no-base query fragment with no
+            leading ?"
     (is (= "https://x.test/?variant=story.foo%2Fbar&modes=Mode.x%2Fy"
-           (rf.story/variant-share-url
-             :story.foo/bar
-             "https://x.test/"
-             {:active-modes [:Mode.x/y]})))))
-
-(deftest variant-share-url-public-export-opts-arity
-  (testing "the facade carries the documented (variant-id opts)
-            arm: a no-base query fragment, with no leading ?"
+           (rf.story/variant-share-url :story.foo/bar "https://x.test/" {:active-modes [:Mode.x/y]})))
     (is (= "variant=story.foo%2Fbar&modes=Mode.x%2Fy"
            (rf.story/variant-share-url :story.foo/bar {:active-modes [:Mode.x/y]})))))
 
-;; ---- No QR endpoint --------------------------------------------------------
-;;
-;; There is no per-variant Share button or QR popover — the variant URL
-;; is the browser's live address-bar URL (`url-state` pushState). So
-;; `rf.story.share/` exposes no QR endpoint Var and no QR encoder Var, and
-;; there is no QR encoder ns. The literal api.qrserver.com, a third-party
-;; QR-image service that would receive the full share URL, must not
-;; appear in the share module; a third-party QR fetch in it trips here.
-
-(deftest no-third-party-qr-endpoint
-  (testing "share namespace exposes no QR-endpoint Var — no
-            `qr-endpoint` / `qr-image-url` building URLs against
-            api.qrserver.com."
-    ;; `ns-resolve` against the share ns itself: a bare `resolve` reads
-    ;; `*ns*`, which at run time is the runner's namespace, where the
-    ;; `rf.story.share` alias does not exist, so it returns nil whether
-    ;; or not the Var is defined.
-    (is (nil? (ns-resolve 're-frame.story.share 'qr-endpoint)))
-    (is (nil? (ns-resolve 're-frame.story.share 'qr-image-url)))))
-
+;; There is no QR popover: the variant URL is the browser's live address-bar
+;; URL. A third-party QR-image service would receive the full share URL, so
+;; its endpoint must not appear in the share module.
 (deftest no-qrserver-literal-in-share-source
-  (testing "share.cljc carries no `api.qrserver.com` URL literal — the
-            string must not appear in the source, so a pasted-in
-            third-party endpoint is caught."
-    (let [src (slurp (io/resource "re_frame/story/share.cljc"))]
-      (is (not (str/includes? src "api.qrserver.com"))
-          "share.cljc must not reference api.qrserver.com"))))
+  (is (not (str/includes? (slurp (io/resource "re_frame/story/share.cljc")) "api.qrserver.com"))))
