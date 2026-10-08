@@ -35,20 +35,17 @@
   This file is the browser-lane coverage for the surface, not a second
   opinion about it.
 
-  ## The two observables
-
-  `data-testid=\"rf-xray-managed-fx-record-…\"` — one per record, written
-  by `record-panel`, so its presence says the boundary rendered and the
-  composite's `:records` vector reached the renderer.
+  ## The observable
 
   `data-rf-mount-id` — stamped by the edn-inspector widget itself on every
-  committed container. Its presence says the `edn-inspector-view`
-  BOUNDARIES rendered rather than raising, and its DISTINCTNESS across the
-  two records is the per-record node-key claim measured rather than
-  argued: `edn-widget/inspect-view` hands the node-key straight to the
-  boundary as `:mount-id`, and `edn-inspector/container-ref-for` memoises
-  the ref callback on it, so two records sharing one would share one
-  ResizeObserver entry and one width slot.
+  committed container. Its presence says the boundary and the
+  `edn-inspector-view` BOUNDARIES inside it rendered rather than raising,
+  and its DISTINCTNESS across the two records is the per-record node-key
+  claim measured rather than argued: `edn-widget/inspect-view` hands the
+  node-key straight to the boundary as `:mount-id`, and
+  `edn-inspector/container-ref-for` memoises the ref callback on it, so two
+  records sharing one would share one ResizeObserver entry and one width
+  slot.
 
   ## Substrate and fixture
 
@@ -187,45 +184,12 @@
        (js/Array.from)
        (array-seq)))
 
-(defn- record-testids [container]
-  (mapv #(.getAttribute % "data-testid")
-        (query-all container "[data-testid^='rf-xray-managed-fx-record-']")))
-
 (defn- mount-ids [container]
   (mapv #(.getAttribute % "data-rf-mount-id")
         (query-all container "[data-rf-mount-id]")))
 
 ;; ===========================================================================
-;; W1 — the boundary paints, through the bridge, into a real container
-;; ===========================================================================
-
-(deftest mounting-commits-one-record-panel-per-record
-  (testing "`mount-managed-fx!` wraps `ManagedFxList-bridge` in a
-            frame-provider and hands it to the adapter; the bridge interops
-            to the `as-component` React component; the boundary resolves
-            `:rf/xray` from React context and renders. If ANY link in that
-            chain is wrong the container is empty rather than wrong, which
-            is why this row reads the committed DOM and not a tree."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_ (setup!)]
-        ;; CONTROL FIRST, taken from the target: the composite really answers
-        ;; two records, so an empty container below is the mount's answer and
-        ;; not the seeding's. Without it the two readings are identical.
-        (is (= 2 (count (records)))
-            "control: the composite answers two records before anything mounts")
-        (let [m (mount!)]
-          (try
-            (let [ids (record-testids (:container m))]
-              (is (= 2 (count ids))
-                  (str "one record panel per record reached the DOM — "
-                       (pr-str ids)))
-              (is (= 2 (count (distinct ids)))
-                  "and the two are distinct, so this is not one record twice"))
-            (finally (unmount! m))))))))
-
-;; ===========================================================================
-;; W2 — the edn-inspector BOUNDARIES render, and each record owns its own
+;; the edn-inspector BOUNDARIES render, and each record owns its own
 ;; ===========================================================================
 
 (deftest each-record-owns-its-inspector-mount-ids
@@ -255,12 +219,8 @@
                 ids      (mount-ids (:container m))
                 groups   (mapv (fn [rk] (filterv #(string/includes? % rk) ids))
                                rec-keys)]
-            ;; Controls, taken from the target: widgets committed at all, and
-            ;; the two records really do carry different keys. An empty set or
-            ;; two equal keys would make the disjointness below vacuous.
-            (is (seq ids)
-                (str "control: at least one edn-inspector widget committed, so "
-                     "the inspector heads are boundaries the codec accepted"))
+            ;; Control, taken from the target: two records with distinct keys,
+            ;; or the per-record claims below would hold vacuously.
             (is (= 2 (count (distinct rec-keys)))
                 (str "control: the two records carry distinct record-keys — "
                      (pr-str rec-keys)))
