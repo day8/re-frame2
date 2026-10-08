@@ -1,66 +1,14 @@
 (ns re-frame.http-abort-retry-race-test
-  "JVM concurrency regression for the abort-vs-retry-vs-successor race.
-
-  These are JVM-only races (CLJS is single-threaded and immune): on the JVM
-  the request completion runs on a `CompletableFuture` ForkJoinPool thread
-  while the abort dispatch runs on the event thread, so they can interleave
-  mid-`maybe-retry!`.
-
-  The transitional window is the instant between `maybe-retry!` sampling the
-  abort cell (deciding the failure is retry-eligible) and the backoff handle
-  taking over the request-id slot. An unguarded abort that lands there would:
-   - DOUBLE-REPLY (the prior handle's abort-fn replies, then the freshly-armed
-     retry replies again), and
-   - RE-ISSUE a fresh network attempt for a request the caller cancelled
-     (Spec 014 §486-492).
-  The narrower sibling — an abort between a prior clear and the backoff
-  re-register — would resolve NO handle and be silently lost, and the retry
-  would fire anyway.
-
-  Deterministic repro needs INTERLEAVING INJECTION, not wall-clock timing
-  (`http_backoff_cancellation_test` fires 150ms into the settled
-  backoff, which correctly cancels the steady-state handle — not this window).
-  We drive the interleaving through `transport/set-test-interleave-hook!`, a
-  test-only seam that fires the abort SYNCHRONOUSLY at a named point inside the
-  transition (on the completion thread, while the prior handle is still
-  registered), reproducing the exact ordering under test.
-
-  Spec references:
-   - Spec 014 §Abort precedence (abort always wins), §486-492
-   - Spec 014 §Retry and backoff / §Aborts
-
-  The SECOND transition — timer-fire→attempt-N+1 — is the symmetric boundary.
-  When the backoff timer
-  fires it wins its once-only `fired?` transition, then hands off to
-  `run-attempt!`. A callback that cleared the backoff handle FIRST, sampled
-  the abort cell ONCE, then called a `run-attempt!` that minted FRESH
-  cancellation cells and only later re-registered would let an abort landing in
-  that window resolve NO handle (its abort-fn LOSES the timer's `fired?` CAS and
-  dispatches nothing) while the fresh attempt starts anyway: a cancelled
-  (possibly non-idempotent POST) request re-issued. So the SHARED cells and
-  the predecessor handle thread into `run-attempt!` (continuous handoff): the
-  successor registers FIRST, the predecessor is dropped only after, and a
-  post-registration re-check delivers the single aborted reply and suppresses
-  the fresh attempt.
-
-  Coverage:
-   1. abort injected in `maybe-retry!` (post-abort-snapshot, pre-schedule)
-      → exactly one :rf.http/aborted reply, ZERO extra server hits.
-   2. abort injected at the START of `schedule-backoff-handle!`
-      (the narrower-sibling window) → same: one aborted reply, no retry.
-   2b. abort injected at the timer-fire→attempt-N+1 HANDOFF
-      (`:retry/before-attempt`, after the timer won `fired?`, before the
-      successor registers) → same: one aborted reply, ZERO re-issue, no phantom
-      `:retried`. This is the second transition gap.
-   3. unit: `clear-in-flight!` (2-arg) is identity-conditional —
-      a completing OLD attempt evicts neither a same-id SUCCESSOR's
-      request-id slot nor its actor-index entry.
-   4. a same-id SUCCESSOR issued inside either handoff window
-      keeps the request-id slot. Each handoff decides to proceed before the
-      supersede lands, so an unconditional publication would overwrite the
-      successor's slot and its own abort re-check would then empty it, leaving
-      the successor live, unabortable and unsuperseded."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "JVM-only races between an abort, a retry and a same-id successor: the
+  completion runs on a ForkJoinPool thread while the abort runs on the event
+  thread, so they can interleave inside a retry handoff. There are two
+  handoffs, live fetch to backoff and backoff timer to attempt N+1. An abort
+  landing inside either must yield one aborted reply and no re-issue (Spec 014
+  §Abort precedence, §Aborts), and a successor issued inside either must keep
+  its request-id slot. `transport/set-test-interleave-hook!` fires the abort
+  or the successor synchronously at a named point inside the handoff, so the
+  ordering is injected rather than timed."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
@@ -76,8 +24,6 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- hit-counting always-500 server ---------------------------------------
 
 (defn- start-counting-500-server!
   []
@@ -103,8 +49,7 @@
 (defn- stop-server! [{:keys [^HttpServer server]}]
   (.stop server 0))
 
-;; A long-enough backoff that a re-issue (were one to happen) would land
-;; well inside the observation window.
+;; Long enough that a re-issue would land well inside the observation window.
 (def ^:private backoff-ms 2000)
 
 (def ^:private retry-config
@@ -119,30 +64,11 @@
                                   :label "http-abort-retry-race condition"})
    true))
 
-;; ---- shared driver ---------------------------------------------------------
-
 (defn- run-injected-abort-case!
-  "Issue a retrying request against an always-500 server; install the
-  interleaving hook so the abort fires (once) at `inject-point`, squarely in
-  the transitional window. Assert: exactly ONE :rf.http/aborted reply, the
-  server was hit exactly ONCE (no re-issue), and the registry is clean.
-
-  ALSO assert HONEST retry-timeline dispositions: because the
-  request is aborted in-window and attempt N+1 never starts, the trace stream
-  must carry NO `:rf.http/retry-attempt` claiming `:recovery :retried`. An
-  intermediate `:retried` emit ordered ahead of the
-  cancellation-safe backoff handoff would show a listener a `:retried` row (with
-  non-nil `:next-backoff-ms`) for a retry that never happened — a tool could
-  report a retry the runtime did not perform.
-
-  The `inject-point` selects WHICH transition window the abort lands in: the
-  `:maybe-retry/*` / `:backoff/*` points fire during the live-fetch→backoff
-  transition (attempt 1's completion thread, prior handle still registered),
-  while `:retry/before-attempt` fires at the timer-fire→attempt-N+1 handoff
-  (the timer has won `fired?`, the successor has not yet registered). Every
-  point yields the SAME contract outcome — one aborted reply, no re-issue,
-  clean registry, no phantom `:retried` — which is exactly the point: an abort
-  anywhere in the transition cancels the request cleanly."
+  "Issue a retrying request against an always-500 server and fire the abort
+  once at `inject-point`. Every window must give the same outcome: one aborted
+  reply, one server hit, clean registries, and no phantom `:retried`
+  retry-attempt row for an attempt that never ran."
   [inject-point]
   (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
         replies     (atom [])
@@ -162,91 +88,60 @@
                   :request-id :race
                   :on-failure [:reply/recorder]
                   :on-success [:reply/recorder]}]]}))
-      ;; The seam: fire the abort exactly once, when the retry lifecycle
-      ;; reaches `inject-point`, resolving the still-registered prior handle.
       (rf.http.transport/set-test-interleave-hook!
         (fn [point ctx]
           (when (and (= point inject-point)
                      (= :race (:request-id ctx))
                      (compare-and-set! fired? false true))
-            ;; Same seam the `:rf.http/managed-abort` fx routes through.
             (rf.http.registry/abort-in-flight! (:request-id ctx) :user))))
       (rf/dispatch-sync [:issue])
-      ;; The abort's reply must arrive.
       (await-condition! #(seq @replies))
-      (is (true? @fired?) "the interleaving hook fired the abort in-window")
-      ;; Wait past the FULL backoff window — proving the ABSENCE of a re-issue,
-      ;; which has no positive signal to poll on.
+      (is (true? @fired?) "the hook fired the abort in-window")
+      ;; A re-issue has no positive signal to poll on: wait out the backoff.
       (Thread/sleep (long (+ backoff-ms 600)))
-      (is (= 1 (.get hits))
-          "ZERO extra server hits — the cancelled request was NEVER re-issued")
-      (is (= 1 (count @replies))
-          "EXACTLY ONE terminal reply — no double-reply")
-      (let [reply (first @replies)]
-        (is (= :cancelled (:status reply))
-            "the single reply is the cancellation")
-        (is (= :rf.http/aborted (get-in reply [:error :kind]))
-            "the single reply is the canonical :rf.http/aborted")
-        (is (= :user (get-in reply [:error :reason]))))
-      (is (empty? (rf.http.registry/in-flight-snapshot))
-          "the request-id registry is clean after the cancelled transition")
-      (is (empty? (rf.http.registry/actor-in-flight-snapshot))
-          "the actor registry is clean")
-      ;; The honesty assertion: a retry that
-      ;; NEVER started must not surface a `:retried` disposition. The abort
-      ;; fired in-window and no attempt N+1 ran, so the trace stream carries
-      ;; ZERO `:rf.http/retry-attempt` events claiming `:recovery :retried`.
-      (let [retried (filter #(and (= :rf.http/retry-attempt (:operation %))
-                                  (= :retried (:recovery %)))
-                            @traces)]
-        (is (empty? retried)
-            (str "an in-window cancellation with zero reissue must NOT emit a "
-                 "phantom `:rf.http/retry-attempt` `:recovery :retried`; saw "
-                 (pr-str (mapv (fn [ev] {:recovery (:recovery ev)
-                                         :next-backoff-ms (get-in ev [:tags :next-backoff-ms])})
-                               retried)))))
+      (is (= 1 (.get hits)) "the cancelled request was never re-issued")
+      (is (= [[:cancelled :rf.http/aborted :user]]
+             (mapv (juxt :status (comp :kind :error) (comp :reason :error)) @replies)))
+      (is (and (empty? (rf.http.registry/in-flight-snapshot))
+               (empty? (rf.http.registry/actor-in-flight-snapshot))))
+      (is (empty? (filter #(and (= :rf.http/retry-attempt (:operation %))
+                                (= :retried (:recovery %)))
+                          @traces))
+          "no phantom :retried row")
       (finally
         (rf.trace.tooling/unregister-listener! listener-id)
         (rf.http.transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 
-;; ---- (1) abort in maybe-retry!'s transitional window -----------------------
-
 (deftest abort-injected-in-maybe-retry-window-no-double-reply-no-reissue
-  (testing "an abort landing after maybe-retry!'s abort-snapshot but before the backoff registers yields exactly one :rf.http/aborted reply and no fresh network attempt"
-    (run-injected-abort-case! :maybe-retry/before-schedule)))
-
-;; ---- (2) narrower-sibling window (start of schedule-backoff-handle!) --------
+  ;; After maybe-retry!'s abort snapshot, before the backoff registers.
+  (run-injected-abort-case! :maybe-retry/before-schedule))
 
 (deftest abort-injected-at-backoff-registration-boundary-no-reissue
-  (testing "narrower sibling — an abort landing at the backoff registration boundary (the prior clear is deferred, so the prior handle is still resolvable) yields one aborted reply and no retry"
-    (run-injected-abort-case! :backoff/before-register)))
-
-;; ---- (2b) timer-fire → attempt-N+1 handoff window --------------------------
+  ;; At the backoff registration boundary; the prior clear is deferred, so the
+  ;; prior handle is still resolvable.
+  (run-injected-abort-case! :backoff/before-register))
 
 (deftest abort-injected-at-timer-fire-handoff-no-reissue-no-phantom-retried
-  (testing "second transition — an abort landing at the timer-fire→attempt-N+1 handoff (after the timer won `fired?`, before the successor registers) yields exactly one :rf.http/aborted reply, ZERO re-issue, and NO phantom :retried; the abort resolves the still-registered predecessor backoff handle (its abort-fn loses the timer's fired? CAS), and run-attempt!'s post-registration re-check delivers the single reply and suppresses the fresh attempt"
-    (run-injected-abort-case! :retry/before-attempt)))
-
-;; ---- (3) identity clear survives a successor, in both indexes --------------
+  ;; After the timer won `fired?`, before the successor registers: the abort
+  ;; resolves the predecessor handle, and run-attempt!'s post-registration
+  ;; re-check delivers the reply and suppresses the fresh attempt.
+  (run-injected-abort-case! :retry/before-attempt))
 
 (deftest clear-in-flight-2arg-preserves-successor-actor-index
-  (testing "an OLD attempt's identity-conditional clear does not evict a same-id successor even when actor-indexed (mirrors remove-from-actor-index!)"
-    (rf.http.registry/clear-all-in-flight!)
-    (let [h-a (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
-          h-b (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
-      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R)))
-      (rf.http.registry/clear-in-flight! :R h-a)
-      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
-          "successor survives in the request-id index")
-      ;; H_A is removed from the actor vector (by identity); H_B remains.
-      (let [v (get (rf.http.registry/actor-in-flight-snapshot) :actor)]
-        (is (some #(identical? % h-b) v) "H_B still actor-indexed")
-        (is (not (some #(identical? % h-a) v)) "H_A dropped from the actor index by identity")))
-    (rf.http.registry/clear-all-in-flight!)))
+  ;; An OLD attempt's identity-conditional clear evicts neither a same-id
+  ;; successor's request-id slot nor its actor-index entry.
+  (rf.http.registry/clear-all-in-flight!)
+  (let [h-a (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
+        h-b (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
+    (rf.http.registry/clear-in-flight! :R h-a)
+    (let [v (get (rf.http.registry/actor-in-flight-snapshot) :actor)]
+      (is (= [true true false]
+             [(identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
+              (boolean (some #(identical? % h-b) v))
+              (boolean (some #(identical? % h-a) v))]))))
+  (rf.http.registry/clear-all-in-flight!))
 
-;; ---- (4) a successor issued inside a handoff window ----------------------
-;;
 ;; R1 gets a 500 and hands off into its retry. At `inject-point` — squarely
 ;; inside a handoff, on R1's own thread — the interleaving hook issues the
 ;; same-id successor R2 through the real fx body, exactly as the event thread
@@ -334,13 +229,7 @@
         (stop-server! srv)))))
 
 (deftest successor-issued-at-backoff-registration-keeps-its-slot
-  (testing "live-fetch → backoff handoff: a same-id successor
-            issued as the backoff is about to register keeps the slot, so
-            managed-abort reaches it"
-    (run-successor-in-window-case! :backoff/before-register)))
+  (run-successor-in-window-case! :backoff/before-register))
 
 (deftest successor-issued-at-timer-fire-handoff-keeps-its-slot
-  (testing "backoff timer → attempt N+1 handoff: a same-id
-            successor issued after the timer won `fired?` keeps the slot, so
-            managed-abort reaches it"
-    (run-successor-in-window-case! :retry/before-attempt)))
+  (run-successor-in-window-case! :retry/before-attempt))
