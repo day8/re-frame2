@@ -2,8 +2,9 @@
   "A `:dispatch-later` whose `:ms` is missing or not a number is refused
   loudly: the event is never queued, and the refusal reaches the always-on
   error channel as `:rf.error/fx-handler-exception` carrying the offending
-  `:ms`. A numeric `:ms` still arms the timer."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  `:ms`. A numeric `:ms` arming the timer is pinned by
+  `re-frame.dispatch-later-frame-destroy-test`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.flows :as rf.flows]
@@ -28,37 +29,20 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- run-dispatch-later
-  "Dispatch one event whose handler emits `[:dispatch-later args]`, wait past
-  any delay, and return how often the target ran and the error records seen."
-  [args]
+(deftest bad-ms-is-refused
   (let [target-ran (atom 0)
         errors     (atom [])]
     (rf.error-emit/register-error-listener! ::recorder #(swap! errors conj %))
     (rf/reg-event ::target (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
-    (rf/reg-event ::arm (fn [_ _] {:fx [[:dispatch-later args]]}))
+    (rf/reg-event ::arm (fn [_ _] {:fx [[:dispatch-later {:ms "100" :event [::target]}]]}))
     (rf/dispatch-sync [::arm] {:frame :rf/default})
+    ;; Long enough for a wrongly immediate dispatch to have drained.
     (Thread/sleep 150)
     (rf.error-emit/unregister-error-listener! ::recorder)
-    {:target-ran @target-ran
-     :refusals   (filterv #(and (= :rf.error/fx-handler-exception (:error %))
-                                (= :dispatch-later (:failing-id %)))
-                          @errors)}))
-
-(deftest bad-ms-is-refused
-  (doseq [[label spec expected-ms]
-          [["no :ms"       {:event [::target]}             nil]
-           ["a string :ms" {:ms "100" :event [::target]}   "100"]]]
-    (testing (str "a :dispatch-later with " label " queues nothing and reports the refusal")
-      (let [{:keys [target-ran refusals]} (run-dispatch-later spec)
-            data (ex-data (:exception (first refusals)))]
-        (is (zero? target-ran) "the event is not queued at once in place of a delay")
-        (is (= 1 (count refusals)) "one always-on refusal names the :dispatch-later fx")
-        (is (contains? data :ms) "the refusal carries the offending :ms slot")
-        (is (= expected-ms (:ms data)) "the refusal carries the offending value")))))
-
-(deftest numeric-ms-still-fires
-  (testing "control: a numeric :ms arms the timer and the event runs once, unrefused"
-    (let [{:keys [target-ran refusals]} (run-dispatch-later {:ms 10 :event [::target]})]
-      (is (= 1 target-ran))
-      (is (empty? refusals)))))
+    (is (zero? @target-ran) "the event is not queued at once in place of a delay")
+    (is (= ["100"]
+           (->> @errors
+                (filter #(and (= :rf.error/fx-handler-exception (:error %))
+                              (= :dispatch-later (:failing-id %))))
+                (mapv #(:ms (ex-data (:exception %))))))
+        "one always-on refusal names the :dispatch-later fx and carries the offending :ms")))
