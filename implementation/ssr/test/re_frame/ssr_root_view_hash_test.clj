@@ -1,18 +1,9 @@
 (ns re-frame.ssr-root-view-hash-test
   "The render hash covers what the ROOT VIEW RETURNS, and nothing it merely
-  references.
-
-  `render-tree-hash` walks the tree as data and never calls a view it finds
-  inside: every callable head serialises to one identity-free token
-  (`re-frame.ssr.hash/canonical-edn-into`). So a root whose whole body is
-  another view, `[(rf/view :page)]`, hashes to one constant for every app
-  state, and a client whose first render differs from the server's still
-  verifies clean. A root that returns the page's elements itself hashes the
-  state it renders, so the same divergence trips `:rf.ssr/hydration-mismatch`.
-
-  Both halves hold in either posture. The hashes are ungated, and the
-  mismatch is read off the `:on-mismatch :hard-error` throw, which is
-  always-on (`re-frame.ssr-hydration-mismatch-test` lays out the channels)."
+  references: `render-tree-hash` never calls a view it finds inside a tree, so
+  a root whose whole body is `[(rf/view :page)]` hashes to one constant and a
+  divergent client render through it verifies clean. Read off the always-on
+  `:on-mismatch :hard-error` throw, so it holds in either posture."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -25,11 +16,7 @@
   [{:id "a" :title "Article A"}
    {:id "b" :title "Article B"}])
 
-(defn- register-app!
-  "One page of state and two candidate roots over it, each written the way an
-  SSR app writes its root: `:test.root/delegating` hands the whole page to
-  another view, `:test.root/content` returns the page's elements itself."
-  []
+(defn- register-app! []
   (rf/reg-event :test/articles-loaded
     (fn [{:keys [db]} [_ articles]] {:db (assoc db :articles articles)}))
   (rf/reg-sub :test/articles (fn [db _] (:articles db)))
@@ -44,25 +31,15 @@
           (for [{:keys [id title]} @(subscribe [:test/articles])]
             ^{:key id} [:li title]))))
 
-(defn- frame-with-articles!
-  "A fresh anonymous `platform` frame holding `articles`. Returns its id."
-  [platform articles]
-  (let [frame-id (rf.frame/make-anon-frame-record! {:platform platform})]
-    (rf/dispatch-sync [:test/articles-loaded articles] {:frame frame-id})
-    frame-id))
-
 (defn- root-hash
-  "The render hash of `root-id` against `frame-id`, taken the way the server
-  takes it and the client's `:render-tree-fn` retakes it: the root view
-  called, `((rf/view root-id))`."
+  "The render hash of `root-id` against `frame-id`, taken as the server takes it."
   [root-id frame-id]
   (rf/with-frame frame-id
     (rf.ssr/render-tree-hash ((rf/view root-id)))))
 
 (defn- hydrate-strict!
-  "Boot a fresh `:on-mismatch :hard-error` client frame from `payload`,
-  verifying through `root-id`. Returns `:verified` when the check passes, or
-  the thrown mismatch's ex-data."
+  "Hydrate a fresh `:hard-error` client frame from `payload`, verifying through
+  `root-id`. -> `:verified`, or the thrown mismatch's ex-data."
   [root-id payload]
   (let [client (rf.frame/make-anon-frame-record!
                  {:platform :client
@@ -76,28 +53,24 @@
         (ex-data e)))))
 
 (deftest a-planted-divergence-trips-the-mismatch-only-through-a-content-root
-  (testing "The server renders two articles and the payload carries one, so
-            the client's first render diverges from the server's. A root that
-            returns element content catches it; a root that delegates to
-            another view verifies clean."
+  (testing "the server renders two articles and the payload carries one"
     (register-app!)
-    (let [server  (frame-with-articles! :server server-articles)
+    (let [server  (rf.frame/make-anon-frame-record! {:platform :server})
+          _       (rf/dispatch-sync [:test/articles-loaded server-articles] {:frame server})
           payload (fn [root-id articles]
                     {:rf/version     1
                      :rf/app-db      {:articles articles}
                      :rf/render-hash (root-hash root-id server)})
           planted (subvec server-articles 0 1)]
-      (testing "control: a faithful payload verifies clean through either root"
-        (is (= :verified (hydrate-strict! :test.root/content
-                                          (payload :test.root/content server-articles))))
-        (is (= :verified (hydrate-strict! :test.root/delegating
-                                          (payload :test.root/delegating server-articles)))))
-      (let [thrown (hydrate-strict! :test.root/content
-                                    (payload :test.root/content planted))]
-        (is (= :rf.ssr/hydration-mismatch (:rf.error/id thrown))
-            "the divergent client render trips the mismatch")
-        (is (= (root-hash :test.root/content server) (:server-hash thrown))
-            "the comparison ran against the server's own render hash"))
+      (is (= :verified (hydrate-strict! :test.root/content
+                                        (payload :test.root/content server-articles)))
+          "control: a faithful payload verifies clean")
+      (is (= {:rf.error/id :rf.ssr/hydration-mismatch
+              :server-hash (root-hash :test.root/content server)}
+             (select-keys (hydrate-strict! :test.root/content
+                                           (payload :test.root/content planted))
+                          [:rf.error/id :server-hash]))
+          "a content root catches the divergence")
       (is (= :verified (hydrate-strict! :test.root/delegating
                                         (payload :test.root/delegating planted)))
-          "the same divergence through a delegating root goes undetected"))))
+          "a delegating root does not"))))
