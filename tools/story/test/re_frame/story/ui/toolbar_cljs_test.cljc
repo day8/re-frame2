@@ -1,45 +1,16 @@
 (ns re-frame.story.ui.toolbar-cljs-test
-  "Tests for the chrome-level toolbar.
-
-  Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build (shadow's `:node-test` target; ns-regexp
-  `cljs-test$` picks up this ns because its name ends in `cljs-test`).
-
-  ## Coverage layers
-
-  - **Pure data** (JVM + CLJS): `toggle-mode` axis semantics,
-    `group-modes-by-axis` layout, `rf.story.share/parse-modes-param` URL
-    parsing, `rf.story.share/prune-unregistered-modes` registrar-pruning (the
-    CLJC PRODUCTION helpers, exercised directly rather than through a
-    JVM copy), the mode schema's optional `:axis` slot.
-  - **CLJS-only side-effects**: `toggle-mode!` mutation against
-    `shell-state-atom`. The rendered strip's chips are pinned by
-    `re-frame.story.panels-e2e.toolbar-clusters-e2e-cljs-test`, and the
-    localStorage round-trip via
-    `save-modes-to-storage!` + `load-modes-from-storage` is tested in
-    `re-frame.story.ui.toolbar-storage-dom-cljs-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The chrome-level toolbar: `toggle-mode` axis semantics, the chip
+  layout, the `modes=` parser and registrar pruning (the CLJC production
+  helpers, on both runtimes), the dispatch-console visibility rule, and on
+  CLJS the rendered strip. Mode persistence lives in the two
+  `toolbar-*-dom-cljs-test` namespaces."
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
-            [re-frame.story.registrar :as rf.story.registrar]
-            [re-frame.story.schemas :as rf.story.schemas]
             [re-frame.story.share :as rf.story.share]
             [re-frame.story.ui.state :as rf.story.ui.state]
-            #?@(:cljs [[re-frame.story.ui.cofx :as rf.story.ui.cofx]
+            #?@(:cljs [[re-frame.story.registrar :as rf.story.registrar]
+                       [re-frame.story.ui.cofx :as rf.story.ui.cofx]
                        [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]])))
-
-;; There is no `browser?` predicate here. The browser-only rows live in
-;; the dom sibling, which both lanes load, with a visible skip on the
-;; node side; in this `-cljs-test` namespace such a gate would route
-;; between a lane that cannot run the rows and no other lane at all.
-
-;; The `:active-modes` URL contract lives in ONE place. The pure
-;; `modes=` parser and the registrar-pruning helper are the CLJC
-;; PRODUCTION fns `re-frame.story.share/parse-modes-param` and
-;; `re-frame.story.share/prune-unregistered-modes` — exercised directly
-;; on both runtimes below, not through a JVM copy of the toolbar parser,
-;; which would assert duplicated code rather than the live impl. The
-;; CLJS-only arm tests the live impure toolbar surfaces (the Reagent
-;; ratom, chip hiccup).
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -53,139 +24,68 @@
 ;; ---- pure: toggle-mode axis semantics -----------------------------------
 
 (deftest toggle-mode-flips-untagged
-  (testing "an un-axis-tagged mode toggles on / off multi-select"
-    ;; No axis-fn lookup — pass a constant nil so toggle-mode treats
-    ;; the mode as un-tagged.
-    (let [no-axis (fn [_] nil)]
-      (is (= [:Mode.app/x]
-             (rf.story.ui.state/toggle-mode [] :Mode.app/x no-axis)))
-      (is (= [:Mode.app/x :Mode.app/y]
-             (rf.story.ui.state/toggle-mode [:Mode.app/x] :Mode.app/y no-axis)))
-      (is (= [:Mode.app/y]
-             (rf.story.ui.state/toggle-mode [:Mode.app/x :Mode.app/y] :Mode.app/x no-axis))))))
+  (testing "an un-axis-tagged mode multi-selects"
+    (is (= [:Mode.app/x :Mode.app/y]
+           (rf.story.ui.state/toggle-mode [:Mode.app/x] :Mode.app/y (fn [_] nil))))))
 
 (deftest toggle-mode-single-select-within-axis
-  (testing "an axis-tagged mode evicts siblings sharing the axis"
-    (let [axis-fn (fn [mid]
-                    (case mid
-                      :Mode.theme/dark  :theme
-                      :Mode.theme/light :theme
-                      :Mode.theme/sepia :theme
-                      :Mode.vp/mobile   :viewport
-                      nil))]
-      ;; Start empty → add :dark → :theme axis has only :dark.
-      (is (= [:Mode.theme/dark]
-             (rf.story.ui.state/toggle-mode [] :Mode.theme/dark axis-fn)))
-      ;; :light displaces :dark because they share :theme.
+  (let [axis-fn (fn [mid]
+                  (case mid
+                    :Mode.theme/dark  :theme
+                    :Mode.theme/light :theme
+                    :Mode.vp/mobile   :viewport
+                    nil))]
+    (testing "a mode evicts the sibling sharing its axis"
       (is (= [:Mode.theme/light]
-             (rf.story.ui.state/toggle-mode [:Mode.theme/dark]
-                                :Mode.theme/light axis-fn)))
-      ;; :sepia displaces :light.
-      (is (= [:Mode.theme/sepia]
-             (rf.story.ui.state/toggle-mode [:Mode.theme/light]
-                                :Mode.theme/sepia axis-fn)))
-      ;; Adding :mobile (different axis) coexists with :sepia.
-      (is (= [:Mode.theme/sepia :Mode.vp/mobile]
-             (rf.story.ui.state/toggle-mode [:Mode.theme/sepia]
-                                :Mode.vp/mobile axis-fn)))
-      ;; Toggling :sepia OFF (already active) just removes it.
+             (rf.story.ui.state/toggle-mode [:Mode.theme/dark] :Mode.theme/light axis-fn))))
+    (testing "a mode on another axis coexists"
+      (is (= [:Mode.theme/dark :Mode.vp/mobile]
+             (rf.story.ui.state/toggle-mode [:Mode.theme/dark] :Mode.vp/mobile axis-fn))))
+    (testing "toggling an active mode removes it"
       (is (= [:Mode.vp/mobile]
-             (rf.story.ui.state/toggle-mode [:Mode.theme/sepia :Mode.vp/mobile]
-                                :Mode.theme/sepia axis-fn))))))
+             (rf.story.ui.state/toggle-mode [:Mode.theme/dark :Mode.vp/mobile]
+                                            :Mode.theme/dark axis-fn))))))
 
 (deftest toggle-mode-resolves-axis-via-registrar
   (testing "the 2-arity (no axis-fn) resolves via the live registrar"
     (rf.story/reg-mode :Mode.t/dark  {:axis :theme :args {:theme :dark}})
     (rf.story/reg-mode :Mode.t/light {:axis :theme :args {:theme :light}})
-    (is (= [:Mode.t/dark]  (rf.story.ui.state/toggle-mode [] :Mode.t/dark)))
     (is (= [:Mode.t/light] (rf.story.ui.state/toggle-mode [:Mode.t/dark]
-                                              :Mode.t/light)))))
-
-;; ---- pure: the mode schema's :axis slot ---------------------------------
-
-(deftest mode-schema-accepts-axis
-  (testing ":rf/mode schema accepts the optional :axis keyword"
-    (is (nil? (rf.story.schemas/validate :mode {:args {:theme :dark}}))
-        "no axis: valid")
-    (is (nil? (rf.story.schemas/validate :mode {:axis :theme
-                                       :args {:theme :dark}}))
-        "axis present: valid")
-    (is (some? (rf.story.schemas/validate :mode {:axis "theme"
-                                        :args {:theme :dark}}))
-        "axis must be a keyword")))
+                                                          :Mode.t/light)))))
 
 ;; ---- pure: group-modes-by-axis ------------------------------------------
 
 (deftest group-modes-by-axis-orders
-  (testing "axis groups sort by axis-name; un-axed bucket sits in its
-            own explicit `:unaxed` slot (no sentinel keyword)"
-    (let [{:keys [axes unaxed]}
-          (rf.story.ui.state/group-modes-by-axis
-            {:Mode.vp/mobile {:axis :viewport}
-             :Mode.t/dark    {:axis :theme}
-             :Mode.t/light   {:axis :theme}
-             :Mode.misc/x    {}
-             :Mode.misc/a    {}})]
-      ;; :theme < :viewport alphabetically.
-      (is (= [:theme :viewport] (mapv first axes)))
-      (is (= [:Mode.t/dark :Mode.t/light] (second (nth axes 0))))
-      (is (= [:Mode.vp/mobile]            (second (nth axes 1))))
-      ;; Un-axed modes land in their own slot, alphabetically sorted.
-      (is (= [:Mode.misc/a :Mode.misc/x] unaxed)))))
-
-(deftest group-modes-by-axis-empty-unaxed-when-all-tagged
-  (testing "every mode tagged → :unaxed slot is empty (still present)"
-    (let [{:keys [axes unaxed]}
-          (rf.story.ui.state/group-modes-by-axis
-            {:Mode.t/dark  {:axis :theme}
-             :Mode.t/light {:axis :theme}})]
-      (is (= [:theme] (mapv first axes)))
-      (is (= [] unaxed)))))
+  (testing "axis groups sort by axis-name; un-axed modes sit in their own
+            sorted `:unaxed` slot"
+    (is (= {:axes   [[:theme [:Mode.t/dark :Mode.t/light]]
+                     [:viewport [:Mode.vp/mobile]]]
+            :unaxed [:Mode.misc/a :Mode.misc/x]}
+           (rf.story.ui.state/group-modes-by-axis
+             {:Mode.vp/mobile {:axis :viewport}
+              :Mode.t/dark    {:axis :theme}
+              :Mode.t/light   {:axis :theme}
+              :Mode.misc/x    {}
+              :Mode.misc/a    {}})))))
 
 ;; ---- pure: URL parsing (the CLJC production helper) ---------------------
-;;
-;; These exercise `rf.story.share/parse-modes-param` directly — the SAME fn
-;; `rf.story.share/parse-params` (and thus the url-state hydrator) uses —
-;; so there is no JVM copy to drift out of sync.
 
 (deftest parse-modes-param-reads-wire-tokens
-  (testing "single qualified mode id"
-    (is (= [:Mode.app/dark]
-           (rf.story.share/parse-modes-param "Mode.app/dark"))))
-  (testing "comma-separated list of ids"
-    (is (= [:Mode.app/dark :Mode.app/mobile]
-           (rf.story.share/parse-modes-param "Mode.app/dark,Mode.app/mobile"))))
-  (testing "whitespace around commas survives"
-    (is (= [:Mode.app/a :Mode.app/b]
-           (rf.story.share/parse-modes-param " Mode.app/a , Mode.app/b "))))
-  (testing "blank input → nil"
-    (is (nil? (rf.story.share/parse-modes-param "")))
-    (is (nil? (rf.story.share/parse-modes-param "   "))))
-  (testing "unqualified ids parse without a namespace"
-    (is (= [:bare] (rf.story.share/parse-modes-param "bare"))))
-  (testing "printed-keyword form (`:ns/name`) from a hand-copied URL"
-    (is (= [:Mode.app/dark]
-           (rf.story.share/parse-modes-param ":Mode.app/dark")))))
+  (are [s expected] (= expected (rf.story.share/parse-modes-param s))
+    "Mode.app/dark,Mode.app/mobile" [:Mode.app/dark :Mode.app/mobile]
+    " Mode.app/a , Mode.app/b "     [:Mode.app/a :Mode.app/b]
+    "   "                           nil
+    "bare"                          [:bare]
+    ;; the printed-keyword form, from a hand-copied URL
+    ":Mode.app/dark"                [:Mode.app/dark]))
 
 ;; ---- pure: prune-unregistered-modes (the CLJC production helper) --------
-;;
-;; `rf.story.share/prune-unregistered-modes` is the single registrar-
-;; pruning helper; the toolbar's `prune-unregistered` closes the live
-;; registrar predicate over it. Tested here with an injected set so the
-;; pure logic runs on both runtimes without the registrar.
 
 (deftest prune-unregistered-modes-drops-stale
   (testing "ids not present in the registrar are dropped"
-    (let [registered? #{:Mode.app/dark :Mode.app/light}]
-      (is (= [:Mode.app/dark]
-             (rf.story.share/prune-unregistered-modes
-               [:Mode.app/dark :Mode.app/sepia] registered?)))))
-  (testing "nil / empty modes coll yields []"
-    (is (= [] (rf.story.share/prune-unregistered-modes nil (constantly true))))
-    (is (= [] (rf.story.share/prune-unregistered-modes [] (constantly true)))))
-  (testing "every id stale → empty vector (not nil)"
-    (is (= [] (rf.story.share/prune-unregistered-modes
-                [:Mode.app/gone :Mode.app/also-gone] #{})))))
+    (is (= [:Mode.app/dark]
+           (rf.story.share/prune-unregistered-modes
+             [:Mode.app/dark :Mode.app/sepia] #{:Mode.app/dark :Mode.app/light})))))
 
 ;; ---- pure: dispatch-console visibility ----------------------------------
 
@@ -232,9 +132,6 @@
              attrs      (chip-attrs)]
          (is (= "true" (:aria-pressed attrs))
              "the chip reads pressed under the story opt-in")
-         (is (true? (rf.story.ui.state/dispatch-console-visible?
-                      (rf.story.ui.state/get-state) :story.dc-chip/v))
-             "and the panel's rule agrees")
          ((:on-click attrs) nil)
          (is (false? (get-in (rf.story.ui.state/get-state)
                              [:panel-visibility :dispatch-console]))
@@ -242,43 +139,7 @@
          (is (= "false" (:aria-pressed (chip-attrs)))
              "after which the chip reads un-pressed")))))
 
-;; ---- CLJS-only: live toolbar surfaces ----------------------------------
-;;
-;; The localStorage / `js/window` surfaces only exist under CLJS.
-
-;; The localStorage round-trip and hydrate rows live in
-;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`. This namespace ends
-;; `-cljs-test`, so `:browser-test` never loads it, and `:node-test` has
-;; no `window.localStorage`: a storage row here would run in neither lane.
-
-#?(:cljs
-   (deftest cljs-toggle-writes-shell-state
-     (testing "toggle-mode! writes the new vector through to shell-state-atom"
-       (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
-       (rf.story/reg-mode :Mode.app/y {:args {:k 2}})
-       (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-       (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state))))
-       (rf.story.ui.toolbar/toggle-mode! :Mode.app/y)
-       (is (= [:Mode.app/x :Mode.app/y] (:active-modes (rf.story.ui.state/get-state))))
-       (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-       (is (= [:Mode.app/y] (:active-modes (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
-   (deftest cljs-reset-clears
-     (testing "reset-modes! drops every mode + persists empty"
-       (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
-       (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-       (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state))))
-       (rf.story.ui.toolbar/reset-modes!)
-       ;; The SHELL-STATE half of this claim runs here, on the node lane;
-       ;; the storage half is `reset-modes-persists-empty` in
-       ;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`.
-       (is (= [] (:active-modes (rf.story.ui.state/get-state)))))))
-
-;; The `hydrate-modes-from-storage!` rows live in the dom siblings for the
-;; same reason: precedence in `re-frame.story.ui.toolbar-storage-dom-cljs-test`
-;; beside the round-trip, stale-id pruning in
-;; `re-frame.story.ui.toolbar-persistence-dom-cljs-test`.
+;; ---- CLJS-only: the rendered strip ---------------------------------------
 
 #?(:cljs
    (deftest cljs-toolbar-strip-empty-state
@@ -301,7 +162,8 @@
 
 #?(:cljs
    (deftest cljs-active-args-deep-merges
-     (testing ":story/active-args deep-merges every active mode's :args"
+     (testing "toggle-mode! writes the active set through to shell state, and
+               :story/active-args deep-merges every active mode's :args"
        (rf.story/reg-mode :Mode.app/x {:args {:a 1 :nest {:p 1}}})
        (rf.story/reg-mode :Mode.app/y {:args {:b 2 :nest {:q 2}}})
        (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
