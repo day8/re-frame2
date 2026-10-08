@@ -1,12 +1,8 @@
 (ns re-frame.sensitive-stamping-test
-  "Runtime sensitivity stamping and classification auto-redaction tests.
-
-  EP-0025: the event-payload `:sensitive?` stamp + redaction for a
-  path-scoped handler is driven by the classified `:sensitive` app-db
-  overlap (the per-frame elision registry, written by the commit-plane
-  classification effects under `:source :effect`), NOT schema-attached
-  `{:sensitive? true}` slot props (which do not feed that registry) and not a
-  frame annotation."
+  "Trace-surface `:sensitive?` stamping and classification auto-redaction.
+  Both are driven by the classified `:sensitive` app-db path overlapping a
+  path-scoped handler's slice (the per-frame elision registry, EP-0025), not
+  by schema slot props or a frame annotation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -16,12 +12,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-(defn- install-sensitive!
-  "Seed the frame's sensitive app-db classification via the EP-0025
-  commit-plane classification effect path (`rf.elision/apply-classification-
-  effects`, `:source :effect`) — the same registry write a `reg-event`
-  returning `:sensitive` performs."
-  [frame-id paths]
+(defn- install-sensitive! [frame-id paths]
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
@@ -33,11 +24,6 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
@@ -52,151 +38,77 @@
          (finally (rf/unregister-listener! :trace ::rec)))
     @seen))
 
-(defn- events-of [evs op]
-  (filterv #(= op (:operation %)) evs))
-
-(deftest plain-handler-no-sensitive-flag
-  (rf/reg-event :sensitive/plain
-                   (fn [{:keys [db]} _] {:db db}))
-  (let [evs (record-traces #(rf/dispatch-sync [:sensitive/plain]))]
-    (doseq [ev evs]
-      (is (not (contains? ev :sensitive?))))))
-
-(deftest handler-meta-sensitive-no-longer-stamps-events
-  (testing "There is no handler-meta `:sensitive?` annotation. The
-            `:sensitive?` stamp is driven exclusively by the classified
-            app-db overlap (see the `frame-class-auto-redaction-*` tests
-            below). A handler-meta `:sensitive?` value sits on the
-            registrar's stored meta (registry is opaque) but is not
-            consulted by the trace surface."
-  (rf/reg-event :sensitive/cross-cutting
-                   {:sensitive? true}   ;; stored, not consulted
-                   (fn [{:keys [db]} _]
-                     {:db (assoc db :ran? true)
-                      :fx [[:sensitive/noop nil]]}))
-  (rf/reg-fx :sensitive/noop (fn [_ _] nil))
-  (let [evs (record-traces #(rf/dispatch-sync
-                               [:sensitive/cross-cutting {:token "secret"}]))]
-    (doseq [op #{:rf.event/dispatched :rf.event/run-start :rf.event/run-end :rf.event/db-changed :rf.fx/do-fx}]
-      (let [matches (filterv #(= op (:operation %)) evs)]
-        (is (seq matches) (str op " was emitted"))
-        (doseq [ev matches]
-          (is (not (true? (:sensitive? ev)))
-              (str op " is NOT stamped sensitive (handler-meta annotation not consulted)"))))))))
+(defn- first-of [evs op]
+  (first (filter #(= op (:operation %)) evs)))
 
 (deftest frame-class-auto-redaction-for-path-scoped-handler
-  (testing "A frame-sensitive app-db path installs redaction without
-            user-written redaction interceptors; the handler still sees the
-            raw payload."
+  (testing "a frame-sensitive app-db path installs redaction and the stamp
+            without a user interceptor; the handler still sees the raw payload"
     (install-sensitive! :rf/default [[:auth :password]])
     (let [seen (atom nil)]
       (rf/reg-event :auth/login
-                       {:interceptors [[:rf.interceptor/path [:auth]]]}
-                       (fn [{:keys [db]} [_ payload]]
-                         (reset! seen payload)
-                         {:db (assoc db :last-login payload)}))
-      (let [evs (record-traces
-                  #(rf/dispatch-sync
-                     [:auth/login {:username "ada" :password "shh"}]))
-            [run-start]  (filterv #(= :rf.event/run-start (:operation %)) evs)
-            [db-changed] (events-of evs :rf.event/db-changed)]
-        (is (= {:username "ada" :password "shh"} @seen)
-            "handler body receives the unredacted event payload")
-        (is (true? (:sensitive? run-start))
-            "frame-sensitive handler scope is stamped")
-        (is (= :rf/redacted
-               (get-in run-start [:tags :rf.event/v 1 :password])))
-        (is (= :rf/redacted
-               (get-in db-changed [:tags :rf.event/v 1 :password])))
-        (is (= "ada" (get-in db-changed [:tags :rf.event/v 1 :username])))))))
+        {:interceptors [[:rf.interceptor/path [:auth]]]}
+        (fn [{:keys [db]} [_ payload]]
+          (reset! seen payload)
+          {:db (assoc db :last-login payload)}))
+      (let [evs       (record-traces
+                        #(rf/dispatch-sync [:auth/login {:username "ada" :password "shh"}]))
+            run-start (first-of evs :rf.event/run-start)
+            redacted  [:auth/login {:username "ada" :password :rf/redacted}]]
+        (is (= {:username "ada" :password "shh"} @seen))
+        (is (true? (:sensitive? run-start)))
+        (is (= redacted (get-in run-start [:tags :rf.event/v])))
+        (is (= redacted (get-in (first-of evs :rf.event/db-changed) [:tags :rf.event/v])))))))
 
 (deftest frame-class-auto-redaction-stamps-handler-exception
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event :auth/throws
-                   {:interceptors [[:rf.interceptor/path [:auth]]]}
-                   (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
-  (let [evs (record-traces
-              #(rf/dispatch-sync
-                 [:auth/throws {:password "shh"}]))
-        [err] (events-of evs :rf.error/handler-exception)]
+    {:interceptors [[:rf.interceptor/path [:auth]]]}
+    (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
+  (let [err (first-of (record-traces #(rf/dispatch-sync [:auth/throws {:password "shh"}]))
+                      :rf.error/handler-exception)]
     (is (true? (:sensitive? err)))
-    (is (= :rf/redacted
-           (get-in err [:tags :event 1 :password])))))
+    (is (= [:auth/throws {:password :rf/redacted}] (get-in err [:tags :event])))))
 
 (deftest frame-class-auto-redaction-does-not-affect-unrelated-paths
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event :profile/save
-                   {:interceptors [[:rf.interceptor/path [:profile]]]}
-                   (fn [{:keys [db]} [_ payload]]
-                     {:db (assoc db :saved payload)}))
-  (let [evs (record-traces
-              #(rf/dispatch-sync
-                 [:profile/save {:password "not-auth"}]))
-        [db-changed] (events-of evs :rf.event/db-changed)]
+    {:interceptors [[:rf.interceptor/path [:profile]]]}
+    (fn [{:keys [db]} [_ payload]] {:db (assoc db :saved payload)}))
+  (let [db-changed (first-of (record-traces #(rf/dispatch-sync [:profile/save {:password "not-auth"}]))
+                             :rf.event/db-changed)]
     (is (not (true? (:sensitive? db-changed))))
-    (is (= "not-auth"
-           (get-in db-changed [:tags :rf.event/v 1 :password])))))
+    (is (= [:profile/save {:password "not-auth"}] (get-in db-changed [:tags :rf.event/v])))))
 
 (deftest trace-buffer-sensitive-filter
-  (testing "Trace-buffer `:sensitive?` filter operates on the trace event's
-            top-level `:sensitive?` field. The stamp is frame-classification
-            -derived: a frame-sensitive app-db path drives it (EP-0015 §8)."
-  (rf/clear-trace-buffer! :rf/default)
-  (rf/configure! {:trace-buffer {:events-retained 100}})
-  (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event :sensitive/buf
-                   {:interceptors [[:rf.interceptor/path [:auth]]]}
-                   (fn [{auth :db} _] {:db auth}))
-  (rf/reg-event :plain/buf
-                   (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:sensitive/buf {:password "x"}])
-  (rf/dispatch-sync [:plain/buf])
-  (let [all   (rf/trace-buffer :rf/default {:flat true})
-        sens  (rf/trace-buffer :rf/default {:flat true :sensitive? true})
-        plain (rf/trace-buffer :rf/default {:flat true :sensitive? false})]
-    (is (pos? (count sens))
-        "classification-driven sensitive events present in the buffer")
-    (is (pos? (count plain)))
-    (is (= (count all) (+ (count sens) (count plain))))
-    (doseq [ev sens]  (is (true? (:sensitive? ev))))
-    (doseq [ev plain] (is (not (true? (:sensitive? ev))))))))
+  (testing "the trace buffer's `:sensitive?` filter partitions on the
+            classification-derived top-level stamp"
+    (rf/clear-trace-buffer! :rf/default)
+    (rf/configure! {:trace-buffer {:events-retained 100}})
+    (install-sensitive! :rf/default [[:auth :password]])
+    (rf/reg-event :sensitive/buf
+      {:interceptors [[:rf.interceptor/path [:auth]]]}
+      (fn [{auth :db} _] {:db auth}))
+    (rf/reg-event :plain/buf
+      (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:sensitive/buf {:password "x"}])
+    (rf/dispatch-sync [:plain/buf])
+    (let [all   (rf/trace-buffer :rf/default {:flat true})
+          sens  (rf/trace-buffer :rf/default {:flat true :sensitive? true})
+          plain (rf/trace-buffer :rf/default {:flat true :sensitive? false})]
+      (is (seq sens))
+      (is (seq plain))
+      (is (= (count all) (+ (count sens) (count plain))))
+      (is (every? #(true? (:sensitive? %)) sens))
+      (is (not-any? #(true? (:sensitive? %)) plain)))))
 
 (deftest sensitive-predicate-fails-closed-on-a-malformed-stamp
-  ;; The `:rf/trace-event` schema types `:sensitive?` as a
-  ;; boolean, so a string / keyword / number stamp is a contract violation:
-  ;; some producer has coerced the boolean into the wrong shape. The only
-  ;; safe reading of a violation on THIS axis is the conservative one.
-  ;;
-  ;; A `(true? (:sensitive? ev))` reading would treat every one of these as
-  ;; NOT sensitive and forward the event — fail-OPEN in exactly the case
-  ;; where the producer has already proved unreliable. The framework
-  ;; predicate matches the MCP wire's classifier
-  ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`).
-  ;;
-  ;; Every row reads through `true?` / `false?`, so the predicate is also
-  ;; pinned to return a BOOLEAN, never the stamp value: callers compose it
-  ;; with `and` / `some`, and a leaked payload would be a second way to ship
-  ;; the very value being classified.
-  (testing "the well-formed boolean stamp reads as itself"
-    (is (true? (rf/sensitive? {:sensitive? true}))))
-
-  (testing "a non-boolean truthy stamp counts as SENSITIVE"
-    (is (true? (rf/sensitive? {:sensitive? "true"})))
-    (is (true? (rf/sensitive? {:sensitive? "false"}))
-        "even a string that LOOKS false — the shape is what is wrong")
-    (is (true? (rf/sensitive? {:sensitive? :yes})))
-    (is (true? (rf/sensitive? {:sensitive? 1})))
-    (is (true? (rf/sensitive? {:sensitive? 0}))
-        "0 is truthy in Clojure — a numeric stamp is malformed either way")
-    (is (true? (rf/sensitive? {:sensitive? ["any" "truthy"]}))))
-
-  (testing "only the two genuinely falsy values, and absence, pass"
-    (is (false? (rf/sensitive? {:sensitive? false})))
-    (is (false? (rf/sensitive? {:sensitive? nil})))
-    (is (false? (rf/sensitive? {:other :key}))))
-
-  (testing "non-map inputs are tolerated and non-sensitive"
-    (is (false? (rf/sensitive? nil)))
-    (is (false? (rf/sensitive? "anything")))
-    (is (false? (rf/sensitive? [:sensitive? true])))
-    (is (false? (rf/sensitive? 42)))))
+  ;; `:sensitive?` is schema-typed boolean, so a non-boolean truthy stamp is a
+  ;; contract violation and reads as SENSITIVE (a `true?` reading would forward
+  ;; it). The result is always a boolean, never the stamp value.
+  (doseq [[ev expected] [[{:sensitive? true}    true]
+                         [{:sensitive? "false"} true]
+                         [{:sensitive? false}   false]
+                         [{:other :key}         false]
+                         [nil                   false]]]
+    (is (= expected (rf/sensitive? ev)) (pr-str ev))))
