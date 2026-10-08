@@ -20,17 +20,15 @@
 (defn make-listener-registry
   "Construct an isolated always-on listener registry. Returns a map:
 
-    {:listeners <atom of id->fn>
-     :register  (fn [id f] ...)        ;; returns id
-     :unregister (fn [id] ...)         ;; returns nil
-     :clear     (fn [] ...)            ;; returns nil
-     :fan-out   (fn [record continue?] ...)} ;; returns nil
+    {:register   (fn [id f] ...)              ;; returns id
+     :unregister (fn [id] ...)                ;; returns nil
+     :clear      (fn [] ...)                  ;; returns nil
+     :fan-out    (fn [record continue?] ...)} ;; returns nil
 
-  Caller MUST hold the returned `:listeners` atom in a `defonce` (or
-  equivalent) so that hot reload of the consuming namespace does not
-  silently drop long-lived production listeners. The `make-` factory
-  itself produces a fresh atom on every call — pass an externally-held
-  `defonce` atom via `:listeners` to bind the surface to it.
+  Pass the listener atom in as `:listeners`, held in a `defonce` (or
+  equivalent), so that hot reload of the consuming namespace does not
+  silently drop long-lived production listeners. Without it the factory
+  makes a fresh atom on every call.
 
   `fan-out` short-circuits to nil when the registry is empty so the
   per-emit hot-path cost reduces to one deref + an `empty?` check.
@@ -39,8 +37,7 @@
   sibling callbacks while ordinary callers pass `(constantly true)`."
   [{:keys [listeners]}]
   (let [reg (or listeners (atom {}))]
-    {:listeners  reg
-     :register   (fn register [id f]
+    {:register   (fn register [id f]
                    (swap! reg assoc id f)
                    id)
      :unregister (fn unregister [id]

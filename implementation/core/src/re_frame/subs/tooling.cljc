@@ -486,14 +486,8 @@
      :clj
      nil))
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; This is NOT the string the bundle-isolation gate greps.
 ;; `implementation/scripts/check-bundle-isolation.cjs`'s `subs-tooling`
 ;; entry greps the emitted module for `subscription-cache-entry`, the live
-;; node-kind value `node-base` above emits. This var is private and nothing
-;; consumes its value, so Closure `:advanced` is free to drop it; its count
-;; in a bundle proves nothing either way.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.subs.tooling/sentinel:rf2-bmzq0-2026-05-16:do-not-rename")
+;; node-kind value `node-base` above emits.

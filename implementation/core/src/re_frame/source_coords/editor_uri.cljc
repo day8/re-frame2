@@ -94,13 +94,6 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- known schemes -------------------------------------------------------
-
-(def ^:const known-editors
-  "The keyword set of built-in editor schemes. The `:custom` form is
-  not a member — `editor-uri` matches it via map-shape detection."
-  #{:vscode :cursor :windsurf :zed :idea})
-
 ;; ---- forbidden schemes ---------------------------------------------------
 ;;
 ;; The `{:custom ...}` editor template surface is deliberately open — devs
@@ -215,8 +208,9 @@
     - Absolute `path` (per `absolute-path?`): return unchanged — a
       caller whose source-coord already carries an absolute path must
       not be double-prefixed.
-    - Otherwise: strip trailing path-separators from the root, strip
-      leading path-separators from the path, join with `/`.
+    - Otherwise: strip trailing path-separators from the root and join
+      with `/`. The path carries no leading separator here, because a
+      leading `/` or backslash makes it absolute.
 
   Both `/` and `\\` are accepted as separators on input; the joined
   result uses `/` (every editor scheme handler tested — VS Code,
@@ -226,9 +220,7 @@
     (or (nil? project-root) (str/blank? project-root)) path
     (absolute-path? path)                              path
     :else
-    (let [root (str/replace project-root #"[/\\]+$" "")
-          tail (str/replace path #"^[/\\]+" "")]
-      (str root "/" tail))))
+    (str (str/replace project-root #"[/\\]+$" "") "/" path)))
 
 ;; ---- pure: scheme builders ----------------------------------------------
 

@@ -1354,14 +1354,8 @@
 (rf.late-bind/set-fn! :trace.tooling/apply-frame-events-retained-policy!
                    apply-frame-events-retained-policy!)
 
-;; ---- bundle-isolation sentinel ------------------------------------------
+;; ---- bundle isolation ----------------------------------------------------
 ;;
-;; This is NOT the string the bundle-isolation gate greps.
 ;; `implementation/scripts/check-bundle-isolation.cjs`'s `trace-tooling`
 ;; entry greps the emitted module for `trace-events`, a projection field of
-;; this ns's `trace-buffer` body. This var is private and nothing consumes
-;; its value, so Closure `:advanced` is free to drop it; its count in a
-;; bundle proves nothing either way.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.trace.tooling/sentinel:rf2-qwm0a-2026-05-16:do-not-rename")
+;; this ns's `trace-buffer` body.
