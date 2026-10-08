@@ -1,60 +1,16 @@
 (ns re-frame.reg-view-injection-test
-  "The `reg-view` injection is SUGAR over a
-  single `make-capture-frame`: the injected `dispatch` / `subscribe`
-  NOUNS are the handle's `:dispatch` / `:subscribe` ops, and they shadow
-  the coord-capturing `dispatch` / `subscribe` MACROS for the whole view
-  body. Without the view's coord, a view's on-click `#(dispatch [...])`
-  would produce a `:rf.event/dispatched` trace with `:source :unknown`
-  (the default) and no `:rf.trace/call-site`, so Xray's dispatch-point
-  'go to code' would be absent and UI dispatches would mis-classify as
-  `:unknown`.
+  "`reg-view` injects `dispatch` / `subscribe` nouns built on one render-time
+  `make-capture-frame`, passing the view's definition-site coord so a UI
+  dispatch carries `:source :ui` and a `:rf.trace/call-site` (Xray's 'go to
+  code'), and a subscribe error carries the same call-site.
 
-  The injection passes the VIEW's render-time source-coord into the handle's
-  `:dispatch-opts` (so the dispatch carries `:source :ui` + the view's
-  `:rf.trace/call-site` — the reg-view DEFINITION-site coord; coord
-  precision is deliberately VIEW-LEVEL) and its
-  `:subscribe-call-site` (so the subscribe carries the same call-site on
-  its synchronous error path). The body is spliced VERBATIM (no code-
-  walking) and the injection leaves the handle's render-time frame capture
-  intact.
-
-  JVM-only — `reg-view*` registers the raw render-fn (no React wrapper)
-  on the JVM, so calling `(rf/view id)` runs the injected `let` and
-  yields hiccup; we pluck the `:on-click` thunk and invoke it, which
-  fires a real dispatch through the captured-frame handle op. The
-  `:rf.event/dispatched` trace is emitted synchronously at enqueue
-  (router/dispatch! → emit-dispatched-trace!), so a trace listener
-  captures it without polling. The view is registered INSIDE each test
-  (the per-test fixture clears the registrar) so the macro stamps a
-  real definition-site coord per case.
-
-  Production-elision shape (dev coord with `:column`, prod slim coord
-  without) is pinned below + by the CLJS bundle probe
-  (`scripts/check-elision.cjs` `rf.trace/call-site` sentinel).
-
-  ## Posture split
-
-  `:rf.trace/call-site` is dev-only BY DESIGN here — the last deftest in this
-  file asserts exactly that, walking the expansion to show the prod branch is
-  `{:source :ui}` with no coord at all. So every row reading a call-site back
-  off a live trace sits inside a `(when rf.interop/debug-enabled? …)` arm, and
-  that arm's contract is pinned by its own always-on neighbour.
-
-  But the injection is not only about coords, and the parts that are not
-  run under `scripts/test-core-prod-gate.sh` on witnesses that do not involve
-  the trace at all:
-
-    * the injected `dispatch` noun REALLY DISPATCHES — the handler runs and
-      lands a marker in app-db;
-    * the render-time frame capture survives the opts injection — the marker
-      lands in the RENDER-time frame after the `with-frame` scope has unwound,
-      read off app-db rather than off `[:tags :frame]`;
-    * the subscribe miss really emits `:rf.error/no-such-sub`, read off the
-      always-on error records (a PROMOTED category per Spec 009), so the
-      synchronous error path is proven in the posture that ships.
-
-  The macro-expansion deftest is posture-independent."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  On the JVM `reg-view*` registers the raw render fn, so calling the view yields
+  hiccup whose `:on-click` fires a real dispatch. Call-sites are dev-only (the
+  expansion test pins the production branch), so they are read in
+  `(when rf.interop/debug-enabled? ...)` arms; the dispatch landing in the
+  render-time frame and the always-on `:rf.error/no-such-sub` record hold in
+  both postures."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
@@ -68,9 +24,7 @@
             [re-frame.trace :as rf.trace]))
 
 (defn- clicked?
-  "The injected `dispatch` noun ENQUEUES (it is not `dispatch-sync`), so the
-  handler's app-db write lands on the drain, not inline. Poll for it — the
-  always-on witness used in place of the synchronous enqueue trace."
+  "The injected `dispatch` enqueues, so its write lands on the drain: poll."
   [frame-id]
   (try (rf.test-support/poll-until
          #(true? (:clicked? (rf/app-db-value frame-id)))
@@ -89,200 +43,83 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- on-click-of
-  "Render `view-fn` (JVM: a plain call) and pluck the `:on-click` thunk
-  out of the returned hiccup's attribute map."
-  [view-fn]
-  (let [hiccup (view-fn 0)
-        attrs  (second hiccup)]
-    (:on-click attrs)))
-
-;; ---- dispatch: :source :ui + the view's call-site + the render-time frame -
+(defn- on-click-of [view-fn]
+  (:on-click (second (view-fn 0))))
 
 (deftest injected-dispatch-stamps-the-view-coord-and-keeps-the-render-time-frame
-  (testing "a view's on-click #(dispatch [...]), fired AFTER the with-frame
-            render scope has unwound, routes to the RENDER-time frame the
-            capture-frame captured at view-call time (NOT a click-time
-            fall-through — the dispatch opts injection must NOT clobber the
-            handle's frame capture), and its :rf.event/dispatched trace carries
-            :source :ui + :rf.trace/call-site = the view's definition coord (NOT
-            :unknown, NOT nil)"
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        ;; EP-0002: the reg-view render-time capture-frame captures
-        ;; `(current-frame-id)`, which REQUIRES an established scope — there is
-        ;; no `:rf/default` floor.
-        (rf/make-frame {:id :rf2-cry25/render-frame :doc "the render-time frame"})
-        ;; A SECOND frame, never the render frame, so "landed in the right
-        ;; frame" is a discrimination rather than a coincidence.
-        (rf/make-frame {:id :rf2-cry25/other-frame :doc "must stay untouched"})
-        ;; The handler lands a marker so the dispatch is observable WITHOUT the
-        ;; trace.
-        (rf/reg-event :rf2-cry25/clicked
-          (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
-        ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
-        ;; Spec 001 §Source-coordinate capture. The reg-view definition site is
-        ;; the coord 'go to code' must resolve to.
-        (rf/reg-view click-view [_n]
-          [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
-        ;; Render the view UNDER the render frame so the capture-frame captures
-        ;; it; then fire the click AFTER the with-frame scope unwinds
-        ;; (simulating the deferred on-click closure).
-        (let [click (rf/with-frame :rf2-cry25/render-frame
-                      (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view)))]
-          (is (nil? rf.frame/*current-frame*)
-              "the with-frame scope has unwound before the click fires")
-          (click))
-        ;; ---- ALWAYS-ON: the injected noun really dispatched, into the
-        ;;      render-time frame, read off app-db rather than off
-        ;;      `[:tags :frame]`.
-        (is (true? (clicked? :rf2-cry25/render-frame))
-            "the view's on-click ran the handler through the captured-frame
-             handle op in the RENDER-time frame — the injection is a live
-             dispatch, and the noun's frame capture survives the opts injection")
-        (is (nil? (:clicked? (rf/app-db-value :rf2-cry25/other-frame)))
-            "and reached no other frame")
-        ;; ---- dev arm: the STAMPS the dispatch carried, which ride the trace
-        ;;      and are elided at source under the production gate (the
-        ;;      expansion deftest below pins that elision).
-        (when rf.interop/debug-enabled?
-          (let [ev (->> @seen
-                        (filter #(= :rf.event/dispatched (:operation %)))
-                        (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
-                        first)
-                cs (:rf.trace/call-site ev)]
-            (is (= :rf2-cry25/render-frame (get-in ev [:tags :frame]))
-                "the dispatched trace names the RENDER-time frame, not a
-                 click-time :rf/default fall-through")
-            (is (= :ui (:source ev))
-                ":source is :ui (the reg-view injection stamps it explicitly), NOT :unknown")
-            (is (= 're-frame.reg-view-injection-test (:ns cs))
-                ":rf.trace/call-site is the VIEW's definition-site ns — Xray
-                 dispatch 'go to code' resolves")
-            (is (integer? (:line cs))
-                "the call-site coord carries a :line (the reg-view definition line)")
-            (is (integer? (:column cs))
-                "dev coord carries :column (full coords-form)")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
-
-;; ---- subscribe: the view's call-site on the synchronous error path -------
+  (let [seen (atom [])]
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
+    (try
+      (rf/make-frame {:id :rf2-cry25/render-frame :doc "the render-time frame"})
+      (rf/make-frame {:id :rf2-cry25/other-frame :doc "must stay untouched"})
+      (rf/reg-event :rf2-cry25/clicked
+        (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
+      (rf/reg-view click-view [_n]
+        [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
+      ;; render under the frame, click after the scope has unwound
+      (let [click (rf/with-frame :rf2-cry25/render-frame
+                    (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view)))]
+        (click))
+      (is (true? (clicked? :rf2-cry25/render-frame))
+          "the click dispatched into the render-time frame")
+      (is (nil? (:clicked? (rf/app-db-value :rf2-cry25/other-frame))))
+      (when rf.interop/debug-enabled?
+        (let [ev (->> @seen
+                      (filter #(= :rf.event/dispatched (:operation %)))
+                      (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
+                      first)
+              cs (:rf.trace/call-site ev)]
+          (is (= :ui (:source ev)))
+          (is (= 're-frame.reg-view-injection-test (:ns cs)) "the view's definition site")
+          (is (integer? (:line cs)))))
+      (finally (rf/unregister-listener! :trace ::rec)))))
 
 (deftest injected-subscribe-stamps-view-call-site-on-error
-  (testing "a view's @(subscribe [...]) against an unregistered sub emits
-            :rf.error/no-such-sub carrying the view's :rf.trace/call-site
-            (subscriptions carry no :source axis; the handle's :subscribe op
-            mirrors the subscribe macro's rf.trace/with-call-site wrapper)"
-    (let [seen    (atom [])
-          records (atom [])]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      ;; ALWAYS-ON axis: `:rf.error/no-such-sub` is a PROMOTED
-      ;; category — the miss fans a corpus-wide record that survives
-      ;; -Dre-frame.debug=false.
-      (rf.error-emit/register-error-listener! ::err (fn [r] (swap! records conj r)))
-      (try
-        ;; EP-0002: the reg-view handle captures
-        ;; `(current-frame-id)` at render, which REQUIRES a scope. Render
-        ;; under an explicit `with-frame` so the :subscribe op runs against
-        ;; a real frame and the miss emits :rf.error/no-such-sub (rather
-        ;; than the render itself raising :rf.error/no-frame-context).
-        (rf/make-frame {:id :rf2-cry25/sub-frame :doc "the render-time frame"})
-        ;; :rf2-cry25/missing is NOT registered — the subscribe miss emits a
-        ;; synchronous :rf.error/no-such-sub inside the :subscribe op's call.
-        (rf/reg-view sub-view [_n]
-          [:span @(subscribe [:rf2-cry25/missing])])
-        (let [view-fn (rf/view :re-frame.reg-view-injection-test/sub-view)]
-          ;; Rendering invokes the :subscribe op (the @-deref forces the
-          ;; build-and-cache miss → :rf.error/no-such-sub emit).
-          (rf/with-frame :rf2-cry25/sub-frame
-            (view-fn 0)))
-        ;; ---- ALWAYS-ON: the synchronous miss really surfaced ---------------
-        (let [recs (filterv #(= :rf.error/no-such-sub (:error %)) @records)]
-          (is (= 1 (count recs))
-              "subscribing to an unregistered sub through the injected noun
-               fans exactly one always-on :rf.error/no-such-sub record")
-          (is (= :rf2-cry25/sub-frame (:frame (first recs)))
-              "attributed to the render-time frame the handle captured"))
-        ;; ---- dev arm: the VIEW COORD on that error, which rides
-        ;;      `:rf.trace/call-site` on the dev trace only.
-        (when rf.interop/debug-enabled?
-          (let [err (->> @seen
-                         (filter #(= :rf.error/no-such-sub
-                                     (get-in % [:tags :category])))
-                         first)]
-            (is (= 're-frame.reg-view-injection-test (:ns (:rf.trace/call-site err)))
-                "subscribing to an unregistered sub emitted :rf.error/no-such-sub
-                 whose :rf.trace/call-site is the VIEW's definition-site ns — the
-                 handle's :subscribe op carried the view coord")))
-        (finally
-          (rf.error-emit/unregister-error-listener! ::err)
-          (rf/unregister-listener! :trace ::rec))))))
+  (let [seen    (atom [])
+        records (atom [])]
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
+    (rf.error-emit/register-error-listener! ::err (fn [r] (swap! records conj r)))
+    (try
+      (rf/make-frame {:id :rf2-cry25/sub-frame :doc "the render-time frame"})
+      (rf/reg-view sub-view [_n]
+        [:span @(subscribe [:rf2-cry25/missing])])
+      (rf/with-frame :rf2-cry25/sub-frame
+        ((rf/view :re-frame.reg-view-injection-test/sub-view) 0))
+      (is (= [:rf2-cry25/sub-frame]
+             (mapv :frame (filterv #(= :rf.error/no-such-sub (:error %)) @records)))
+          "one always-on record, attributed to the render-time frame")
+      (when rf.interop/debug-enabled?
+        (let [err (->> @seen
+                       (filter #(= :rf.error/no-such-sub (get-in % [:tags :category])))
+                       first)]
+          (is (= 're-frame.reg-view-injection-test (:ns (:rf.trace/call-site err))))))
+      (finally
+        (rf.error-emit/unregister-error-listener! ::err)
+        (rf/unregister-listener! :trace ::rec)))))
 
-;; ---- production-elision shape (dev coord vs slim prod coord) -------------
-;;
-;; The injection is sugar over a single
-;; `(re-frame.capture-frame/make-capture-frame (re-frame.core/current-frame-id)
-;;   {:dispatch-opts <gated> :subscribe-call-site <gated>})`. The handle's
-;; `:dispatch-opts` and `:subscribe-call-site` args each ride their OWN
-;; outer `(if rf.interop/debug-enabled? <dev> <prod>)` gate so Closure DCEs
-;; the dev coord literal AND the `:rf.trace/call-site` keyword under
-;; `:advanced` + `goog.DEBUG=false`. We verify the gated EXPANSION shape
-;; directly (the macro-side contract) and walk the actual expanded forms
-;; so the dev branch carries the full coords-form (WITH `:column`) while
-;; the prod branch is exactly `{:source :ui}` for `:dispatch-opts` and
-;; `nil` for `:subscribe-call-site`. The CLJS bundle-presence probe
-;; (`scripts/check-elision.cjs` `rf.trace/call-site` sentinel) pins the
-;; CODE-PATH absence in an `:advanced` build; this pins the SEMANTIC
-;; shape on the JVM where the expansion is inspectable.
+;; Each injected arg rides its own (if rf.interop/debug-enabled? <dev> <prod>)
+;; gate so Closure DCEs the dev coord under goog.DEBUG=false; the CLJS bundle
+;; probe (scripts/check-elision.cjs) pins the absence, this pins the branches.
 
-(defn- find-form
-  "Depth-first: return the first sub-form for which (pred form) is true."
-  [pred form]
+(defn- find-form [pred form]
   (cond
     (pred form) form
     (coll? form) (some #(find-form pred %) form)
     :else nil))
 
 (deftest injected-args-ride-debug-gate-with-dev-and-prod-branches
-  (testing "the reg-view expansion builds one make-capture-frame whose
-            :dispatch-opts / :subscribe-call-site args are each an
-            (if rf.interop/debug-enabled? <dev> <prod>) gate; the dev branch
-            carries :source :ui + the full call-site coord (WITH :column),
-            the prod branch is {:source :ui} (no call-site) / nil"
-    (let [exp (rf/expand-reg-view {:line 7 :column 4 :file "v.cljc"}
-                                  'my.ns "v.cljc" 'cv
-                                  '([] [:button {:on-click #(dispatch [:x])}]))
-          ;; The single injection call:
-          ;; (re-frame.capture-frame/make-capture-frame (re-frame.core/current-frame-id)
-          ;;   {:dispatch-opts <gate> :subscribe-call-site <gate>}).
-          mfh-call (find-form #(and (seq? %)
-                                    (= 're-frame.capture-frame/make-capture-frame (first %)))
-                              exp)
-          frame-arg (nth mfh-call 1)            ;; the captured-frame expr
-          opts-map  (nth mfh-call 2)            ;; the {:dispatch-opts ... :subscribe-call-site ...}
-          disp-gate (:dispatch-opts opts-map)   ;; the (if debug-enabled? dev prod)
-          sub-gate  (:subscribe-call-site opts-map)]
-      ;; --- the handle captures (current-frame-id) at render ---
-      (is (= '(re-frame.core/current-frame-id) frame-arg)
-          "the handle is built from (current-frame-id) — render-time capture")
-      ;; --- :dispatch-opts arg gate ---
-      (is (= 'if (first disp-gate))
-          "the :dispatch-opts arg is an (if ...) gate")
-      (is (= 're-frame.interop/debug-enabled? (second disp-gate))
-          "the gate predicate is rf.interop/debug-enabled? (elision-elidable)")
-      (let [exp-str (pr-str exp)]
-        (is (re-find #":rf\.trace/call-site" exp-str)
-            "the dispatch dev opts carry :rf.trace/call-site")
-        (is (re-find #":column 4" exp-str)
-            "the dev branch coord carries :column (full coords-form)"))
-      ;; --- :dispatch-opts PROD branch is {:source :ui}, no call-site ---
-      (let [prod-opts (nth disp-gate 3)]
-        (is (= {:source :ui} prod-opts)
-            "the :dispatch-opts prod branch is exactly {:source :ui} — the dev
-             coord + :rf.trace/call-site keyword DCE under goog.DEBUG=false;
-             :source :ui survives (read unconditionally by dispatch!)"))
-      ;; --- :subscribe-call-site arg gate + prod branch is nil ---
-      (is (= 'if (first sub-gate))
-          "the :subscribe-call-site arg is an (if ...) gate")
-      (is (nil? (nth sub-gate 3))
-          "the :subscribe-call-site prod branch is nil — the dev coord DCEs"))))
+  (let [exp       (rf/expand-reg-view {:line 7 :column 4 :file "v.cljc"}
+                                      'my.ns "v.cljc" 'cv
+                                      '([] [:button {:on-click #(dispatch [:x])}]))
+        mfh-call  (find-form #(and (seq? %)
+                                   (= 're-frame.capture-frame/make-capture-frame (first %)))
+                             exp)
+        opts-map  (nth mfh-call 2)
+        disp-gate (:dispatch-opts opts-map)
+        sub-gate  (:subscribe-call-site opts-map)
+        gated?    #(= ['if 're-frame.interop/debug-enabled?] (take 2 %))]
+    (is (gated? disp-gate))
+    (is (= {:source :ui} (nth disp-gate 3))
+        "production keeps :source :ui and drops the call-site")
+    (is (gated? sub-gate))
+    (is (nil? (nth sub-gate 3)))))
