@@ -760,8 +760,8 @@
   child's pre-allocated spawned-id in the live join slot's `:rf/prepared`
   scratch. `spawn-fx` consults this to CONSUME the preflight verdict rather than
   re-running its child-local `unregistered-spawn-type?` registry recheck against
-  an already-ADMITTED+prepared child: a
-  `:rf.machine.spawn-all/started` listener that UNREGISTERED the child TYPE
+  an already-ADMITTED+prepared child: in-drain application code (a
+  `[:schemas :data]` validator) that UNREGISTERED the child TYPE
   between the preflight and this per-child install would otherwise flip the
   admitted child to rejected, leaving prepared scratch and no child snapshot —
   the impossible half-live join (a live join naming a child whose snapshot a
@@ -790,7 +790,7 @@
   admitted child's snapshot unconditionally — but the snapshot alone is not a
   LIVE actor. A `:machine-id` spawn stamps the registered TYPE KEYWORD, and the
   resolver reads that keyword back through the registrar on every dispatch. So,
-  with a bare keyword, a `:rf.machine.spawn-all/started` listener that mutates
+  with a bare keyword, in-drain application code that mutates
   the registrar between the preflight and this install would leave the child
   installed-but-INERT: unregister the TYPE and the keyword resolves to nothing —
   the child never runs its synthetic `[:rf.machine.spawn/spawned]` bootstrap,
@@ -825,20 +825,17 @@
   decided by comparing the prepared definition against the registrar's CURRENT
   contents, a divergence that happens after the comparison is a divergence the
   installed snapshot does not reflect — and the callbacks between the child's
-  admission and its install (the `:rf.machine.spawn/spawned` trace) are
-  exactly where a listener can cause one. `spawn-fx*` therefore passes this as a THUNK and
+  admission and its install (in-drain application code, or the
+  `:rf.machine.spawn/spawned` trace's listeners when `spawn-fx` runs outside a
+  drain) are exactly where one can arise. `spawn-fx*` therefore passes this as a THUNK and
   `install-spawn!` forces it at the last point before the runtime-db swap, so
   the comparison is made against the registrar as it stands at COMMIT."
   [args prepared]
+  ;; A prepared child always carries its resolved definition: the preflight
+  ;; rejects an unregistered TYPE, so `:type-spec` is never nil here.
   (let [type-spec  (:type-spec prepared)
         machine-id (:machine-id args)]
     (cond
-      ;; Belt-and-braces: a prepared child always resolved to a definition (an
-      ;; unregistered TYPE is rejected at the preflight), so this is unreachable
-      ;; on the declarative path.
-      (nil? type-spec)
-      (machine-type-ref args)
-
       ;; The registrar still holds the prepared definition — keep the revertible
       ;; keyword so the child tracks its TYPE like every other spawned actor.
       (and (some? machine-id)
@@ -948,8 +945,8 @@
       ;;
       ;; But an ADMITTED+prepared `:spawn-all` child CONSUMES its
       ;; invoke's authoritative preflight verdict: skip this registry recheck
-      ;; when a keyed `:rf/prepared` entry exists (`spawn-all-prepared?`), so a
-      ;; `:rf.machine.spawn-all/started` listener that unregistered the child
+      ;; when a keyed `:rf/prepared` entry exists (`spawn-all-prepared?`), so
+      ;; in-drain application code that unregistered the child
       ;; TYPE between the preflight and this install cannot flip the
       ;; already-admitted child to rejected (stranding a half-live join whose
       ;; snapshot the recheck omitted). `spawn-fx*` then installs the exact
