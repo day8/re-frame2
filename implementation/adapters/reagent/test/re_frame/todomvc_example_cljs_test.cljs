@@ -82,10 +82,8 @@
                           :initial-events [[:todo/initialise]]})]
       ;; The invariant the whole hazard hinges on: :todos must be a
       ;; sorted-map immediately after boot, NOT nil.
-      (is (sorted? (todos f))
-          ":todos must be a sorted-map after cold-boot init, not nil")
-      (is (= 0 (count (todos f)))
-          "fresh boot starts with no todos")
+      (is (= [true 0] [(sorted? (todos f)) (count (todos f))])
+          ":todos must be an empty sorted-map after cold-boot init, not nil")
 
       ;; Add well past the 8-entry PersistentArrayMap→PersistentHashMap
       ;; promotion threshold. After each add assert the map stays sorted
@@ -93,17 +91,13 @@
       (let [n 15]
         (dotimes [i n]
           (rf/dispatch-sync [:todo/add (str "todo-" i)] {:frame f})
-          (is (sorted? (todos f))
-              (str ":todos must remain a sorted-map after add #" (inc i)))
-          (is (= (inc i) (count (todos f)))
-              (str "add #" (inc i)
-                   " must grow the map (no id collision / overwrite)")))
+          (is (= [true (inc i)] [(sorted? (todos f)) (count (todos f))])
+              (str ":todos must remain a sorted-map, grown by add #" (inc i)
+                   " (no id collision / overwrite)")))
 
         ;; Final invariants: every title preserved, and the keys are the
         ;; contiguous 1..n that allocate-next-id should yield off a sorted-map.
         (let [m (todos f)]
-          (is (= (set (map #(str "todo-" %) (range n)))
-                 (set (map :title (vals m))))
-              "every added todo survives — none was silently overwritten")
-          (is (= (range 1 (inc n)) (sort (keys m)))
-              "ids are the contiguous 1..n that a sorted-map allocator yields"))))))
+          (is (= [(set (map #(str "todo-" %) (range n))) (range 1 (inc n))]
+                 [(set (map :title (vals m))) (sort (keys m))])
+              "every added todo survives under the contiguous ids 1..n a sorted-map allocator yields"))))))
