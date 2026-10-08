@@ -108,17 +108,14 @@
        :port-file      <abs-file | nil>    ;; the specific port file we cached
        :port           <int | nil>         ;; the port last seen
        :conn           <atom | nil>        ;; the persistent nREPL conn
-       :discovered?    <bool>              ;; have we run discovery yet?
-       :discovery-error <ex-info | nil>}   ;; LAST failure, diagnostic only
+       :discovered?    <bool>}             ;; have we run discovery yet?
 
   Resetting `:discovered? false` triggers a full re-discovery on the
   next tool call — used by the operator-initiated re-attach branch.
 
-  `:discovery-error` records the most recent failed-discovery rejection
-  for diagnostics; it does NOT gate. While `:discovered?` is
-  false, every tool call re-runs the cascade, so a recoverable failure
-  (shadow not up at the first call) self-heals on a later call once the
-  operator starts the build.
+  While `:discovered?` is false, every tool call re-runs the cascade, so
+  a recoverable failure (shadow not up at the first call) self-heals on a
+  later call once the operator starts the build.
 
   `:transition` / `:transition-token` make discovery + endpoint replacement
   single-flight (`ensure-connection!` / `run-transition!`): the first caller
@@ -131,7 +128,6 @@
          :port             nil
          :conn             nil
          :discovered?      false
-         :discovery-error  nil
          :transition       nil
          :transition-token nil}))
 
@@ -152,7 +148,6 @@
                          :port             nil
                          :conn             nil
                          :discovered?      false
-                         :discovery-error  nil
                          :transition       nil
                          :transition-token nil}))
 
@@ -162,7 +157,7 @@
   it verbatim) and flip `:discovered?`. Exposed so a stub discovery thunk
   can mimic a successful attach without the npm SDK."
   [conn]
-  (swap! session-state assoc :conn conn :discovered? true :discovery-error nil))
+  (swap! session-state assoc :conn conn :discovered? true))
 
 (defn set-discovered-for-tests!
   "Record a FULLY-discovered session (conn + port + the exact cached
@@ -175,7 +170,7 @@
   (swap! session-state assoc
          :conn conn :port port :port-file port-file
          :project-home project-home
-         :discovered? true :discovery-error nil))
+         :discovered? true))
 
 ;; The Server instance is captured here when `build-server` returns it,
 ;; so the discovery flow can reach `listRoots()` and `elicitInput()`
@@ -362,15 +357,11 @@
 
 (defn- run-discovery!
   "Run the discovery cascade thunk and settle to the freshly-cached conn.
-  On failure, record `:discovery-error` (diagnostic only — the session is
-  NOT wedged; the next call re-runs discovery) and re-reject so the waiter
-  surfaces the structured error."
+  A failure rejects with the structured error; the session is NOT wedged,
+  because the next call re-runs discovery."
   [launch-flags discover-fn]
   (-> (discover-fn launch-flags)
-      (.then (fn [_] (:conn @session-state)))
-      (.catch (fn [e]
-                (swap! session-state assoc :discovery-error e)
-                (js/Promise.reject e)))))
+      (.then (fn [_] (:conn @session-state)))))
 
 (defn ensure-connection!
   "Lazy-discovery entry: called before every tool dispatch. Three paths:
@@ -404,17 +395,15 @@
   ## Discovery failure is RETRIED, never sticky
 
   A failed discovery (`discover-and-cache!` rejected: no nREPL port yet,
-  shadow not started, ambiguous-and-declined) leaves `:discovered? false`
-  and records `:discovery-error` for diagnostics — but it does NOT wedge
-  the session. Each subsequent tool call RE-RUNS the cascade, so a
-  recoverable failure (e.g. a tool call landed before `shadow-cljs watch`
+  shadow not started, ambiguous-and-declined) leaves `:discovered? false`,
+  which does NOT wedge the session. Each subsequent tool call RE-RUNS the
+  cascade, so a recoverable failure (e.g. a tool call landed before `shadow-cljs watch`
   was up) self-heals once the operator starts the build — no MCP-server
   restart needed. The cascade is bounded (sync env/flag steps; the async
   roots/HTTP probes cap at `shadow-discovery/probe-timeout-ms`), so
   re-running it per call on the failure path is cheap and is the only
   thing that lets a session self-heal when the operator fixes the
-  underlying cause. `:discovery-error` is kept purely as a diagnostic
-  breadcrumb of the LAST failure; it does not gate.
+  underlying cause.
 
   Returns a Promise resolving to the live conn atom, or rejecting with a
   fresh structured discovery error when the cascade still can't resolve.
@@ -445,8 +434,7 @@
             (fn []
               (log! "cached port file disappeared at" port-file "— re-discovering")
               (nrepl/close! conn)
-              (swap! session-state assoc :discovered? false :conn nil
-                     :discovery-error nil)
+              (swap! session-state assoc :discovered? false :conn nil)
               (run-discovery! launch-flags discover-fn)))
 
           ;; Port changed — shadow restarted on a new ephemeral port. Replace
@@ -711,7 +699,7 @@
   ([reason] (shutdown! reason (fn [code] (js/process.exit code))))
   ([reason exit-fn]
    (if-not (compare-and-set! shutdown-claimed? false true)
-     (js/Promise.resolve :already-shutting-down)
+     (js/Promise.resolve nil)
      (do
        (log! "stdin EOF —" reason "— closing nREPL socket and exiting")
        (when-let [conn (:conn @session-state)]

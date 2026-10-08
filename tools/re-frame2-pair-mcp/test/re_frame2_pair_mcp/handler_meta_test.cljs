@@ -11,7 +11,7 @@
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
-            [re-frame2-pair-mcp.tools :as tools]
+            [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.handler-meta :as hm]))
 
@@ -62,7 +62,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- find-descriptor [name]
-  (some #(when (= name (:name %)) %) tools/tool-descriptors))
+  (some #(when (= name (:name %)) %) registry/tool-descriptors))
 
 (def ^:private kinds
   "The published kind vocabulary. `flow` and `frame` are reserved-but-EMPTY

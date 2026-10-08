@@ -96,30 +96,6 @@
                 {:port port :port-file pf})))
           port-file-candidates)))
 
-(defn read-port-from-fs
-  "Synchronous slice of the port-discovery cascade — the explicit
-  override path + env var + cwd-relative file scan. Returns an integer
-  or nil.
-
-  A pure-sync helper so unit tests can pin the file-system
-  precedence without driving the async HTTP probe. Production boot
-  prefers `discover-port` (async) which composes this with the shadow
-  HTTP step.
-
-  ## Precedence (highest first)
-
-    1. `--port-file <path>`   explicit, cwd-independent escape hatch.
-                              Passed as `explicit-port-file`.
-    2. `$SHADOW_CLJS_NREPL_PORT` env var.
-    3. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
-       `.shadow-cljs/nrepl.port`, then `.nrepl-port`."
-  ([] (read-port-from-fs nil))
-  ([explicit-port-file]
-   (or (when (and explicit-port-file (seq explicit-port-file))
-         (read-port-file explicit-port-file))
-       (read-env-port)
-       (some read-port-file port-file-candidates))))
-
 (defn discover-port*
   "Full nREPL port-discovery cascade with every async step injected so
   tests can drive each branch without sockets or network. Production
@@ -142,8 +118,7 @@
                               verbatim rather than deriving a
                               `.shadow-cljs/nrepl.port` that may not exist.
                               An explicit-but-unreadable / non-numeric file
-                              falls through to steps 2-5 —
-                              mirroring `read-port-from-fs` — so a stale
+                              falls through to steps 2-5, so a stale
                               port file can't strand a live port reachable
                               via env / roots / HTTP / cwd.
     2. `$SHADOW_CLJS_NREPL_PORT` env var. `:project-home` left nil
@@ -207,8 +182,7 @@
     ;; Step 1 — explicit --port-file flag. Wins ONLY when it actually
     ;; reads a port. An explicit-but-unreadable / non-numeric port file
     ;; (a stale leftover, a typo'd path) MUST fall through to env →
-    ;; roots → HTTP → cwd — exactly the precedence `read-port-from-fs`
-    ;; (the sync slice) implements via its leading `or`. A stale
+    ;; roots → HTTP → cwd. A stale
     ;; `--port-file` must NOT short-circuit the whole cascade when the env
     ;; var / configured roots / shadow HTTP endpoint / cwd scan could
     ;; find a live port.

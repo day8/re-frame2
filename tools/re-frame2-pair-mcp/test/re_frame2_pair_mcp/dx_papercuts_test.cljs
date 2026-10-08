@@ -46,7 +46,7 @@
   (let [form (get-path/batch-paths-form (ef/rt-call 'snapshot :rf/default)
                                         [[:cart :total] [:user :id]]
                                         ":rf/default"
-                                        (elision/egress-opts-edn false))]
+                                        (elision/egress-opts-edn false false))]
     (is (str/includes? form "(quote [[:cart :total] [:user :id]])"))))
 
 (deftest get-path-batch-usage-errors

@@ -116,7 +116,7 @@
   ;; gate-OFF posture must reach the runtime before the replay runs.
   (async done
     (let [forms (atom [])
-          prev  (raw-state/allow-raw-state-enabled?)]
+          prev  (raw-state/raw-state-allowed?)]
       (raw-state/set-allow-raw-state! false)
       (-> (with-captured-all! forms success-envelope
             #(replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"}))

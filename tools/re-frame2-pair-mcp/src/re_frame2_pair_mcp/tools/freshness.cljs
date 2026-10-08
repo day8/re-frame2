@@ -330,7 +330,6 @@
   unambiguous."
   [{:keys [port build-id]}]
   (cond
-    (number? port) (str "http://localhost:" port)
     (some? port)   (str "http://localhost:" port)
     (some? build-id) (str "the app served by build " (pr-str build-id))
     :else          "the app tab"))

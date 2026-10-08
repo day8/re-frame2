@@ -501,7 +501,7 @@
             ;; router as 42 — the replay would use a DIFFERENT causal fact
             ;; from the one scripted, which is exactly what a recorded
             ;; cofx exists to prevent. The WHOLE map is quoted rather
-            ;; than slot-by-slot: `emit-arg` does not recurse into maps,
+            ;; than slot-by-slot: `emit` does not recurse into maps,
             ;; so a per-slot node would print as the IR vector it is.
             ;; Every value in here is data, so quoting changes nothing
             ;; else.
