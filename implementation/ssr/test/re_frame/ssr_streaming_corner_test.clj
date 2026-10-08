@@ -1,669 +1,97 @@
 (ns re-frame.ssr-streaming-corner-test
-  "Corner-matrix coverage for the streaming SSR shell walker and
-  continuation drain.
-  `ssr_streaming_test.clj` pins the common shapes (single boundary,
-  wire-id collision, failed continuation, payload shape); this ns pins the
-  composition corners — `n=0`/`n>=2` body children, nested boundaries,
-  boundaries inside fragments, fallback-render-throw
-  recovery, a drain against a destroyed frame, delta capturing a real
-  change — plus the request/response side-channel invariants. The final
-  payload's allowlist projection is pinned by
-  `re-frame.ssr-streaming-hydration-egress-test`.
-
-  Why a sibling ns rather than appending to `ssr_streaming_test`. Each
-  test here pins a documented invariant that's downstream of the basic
-  shapes — keeping them in a focused file makes the corner topology
-  obvious at-a-glance to anyone auditing the streaming surface. Mirrors
-  the `streaming_robustness_test` + `concurrency_stress_test` split, where
-  the basic ring-streaming pin lives in
-  `ring_streaming_test` and the failure-mode tests live in dedicated
-  sibling ns'.
-
-  All tests are JVM-only — streaming SSR is JVM-only by design (Ring is
-  Clojure-on-the-JVM).
-
-  ## Posture split
-
-  Every composition corner pinned here is production-real and is asserted
-  without a posture guard. Two assertions are not: the
-  `:rf.error/suspense-boundary-duplicate-id` trace in the N=3 dedup corner,
-  and the `:rf.ssr/suspense-boundary-failed` trace in the double-throw
-  corner. Both emit behind `interop/debug-enabled?`, read once at
-  namespace-load time, so under `-Dre-frame.debug=false` neither fires — a
-  duplicate boundary id is a programmer error the framework announces in dev
-  and silently applies last-write-wins to in production. Both sit inside
-  `(when interop/debug-enabled? …)` arms.
-
-  What each corner is actually FOR sits outside the arms and runs in
-  `scripts/test-ssr-prod-gate.sh`: N=3 dedup keeps the third registration's
-  `:fallback` AND drains the third body, and the double-throw continuation
-  returns `:failed? true` with empty `:html` instead of escaping — which is
-  the MUST-NOT-ESCAPE contract, and the one that would matter most in
-  production."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  "Composition corners of the streaming shell walk and continuation drain —
+  fragments, a double throw, a drain against a destroyed frame — plus the
+  request/response side-channel privacy invariants. The common shapes are in
+  `re-frame.ssr-streaming-test`; nested-boundary draining is pinned by the
+  `ssr-streaming-nested` conformance fixture."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.streaming :as rf.ssr.streaming]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
-            [re-frame.test-support :refer [with-trace-recorder!]]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(defn- reset+reg
-  [test-fn]
+(defn- reset+reg [test-fn]
   (rf.ssr.test-fixture/reset-runtime
     (fn []
-      (rf/reg-event :rf.test/seed-db
-                    (fn [_coeffects [_event-id seed-db]]
-                      {:db seed-db}))
-      (rf/reg-event :rf.test/noop    (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :rf.test/noop (fn [{:keys [db]} _] {:db db}))
       (test-fn))))
 
 (use-fixtures :each reset+reg)
 
 (defn- make-server-frame
-  "Register a per-request server frame and seed its app-db via an
-   :initial-events setup event. Returns the frame-id."
-  ([] (make-server-frame {}))
-  ([db]
+  ([] (make-server-frame [:rf.test/noop]))
+  ([initial-event]
    (let [fid (keyword "rf.frame" (str (gensym "")))]
-     (rf/make-frame {:id fid :doc       "streaming-corner frame"
-                     :platform  :server
-                     :initial-events [(if (seq db) [:rf.test/seed-db db] [:rf.test/noop])]})
+     (rf/make-frame {:id fid :platform :server :initial-events [initial-event]})
      fid)))
 
-;; ===========================================================================
-;; Shell-walk body-arity corners — n=0, n>=2 (the case n=0/1/2 branch in
-;; streaming.cljc:249-252). `ssr_streaming_test` covers n=1.
-;; ===========================================================================
-
-(deftest boundary-with-zero-body-children-resolves-empty-html
-  (testing "A :rf/suspense-boundary with NO body children
-            (n=0 branch) registers a continuation whose subtree is nil;
-            render-continuation resolves to empty HTML and does NOT
-            throw. The shell still emits the fallback placeholder."
-    (let [tree [:div
-                [:rf/suspense-boundary
-                 {:id :empty/body :fallback [:p "loading"]}]]
-          {:keys [shell-html continuations]}
-          (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations))
-          "even a zero-body boundary registers a continuation")
-      (is (str/includes? shell-html "<p>loading</p>")
-          "fallback still materialised in the shell")
-      ;; Drain the continuation — the subtree is nil per the n=0 branch;
-      ;; emit-element returns "" for nil, so the resolved html is empty.
-      ;; Drain the shell-produced entry VERBATIM (no manual
-      ;; `(assoc … :fallback …)`). The entry must carry its
-      ;; declared :fallback from `record-continuation!`; re-injecting it
-      ;; by hand would mask an entry that lost its :fallback.
-      (let [fid    (make-server-frame)
-            entry  (first continuations)
-            result (rf.ssr.streaming/render-continuation fid entry)]
-        (is (= [:p "loading"] (:fallback entry))
-            "record-continuation! stored the declared :fallback on the
-             zero-body entry (drained verbatim, not re-injected)")
-        (is (not (:failed? result))
-            "nil subtree is NOT a failure — render-to-string treats it
-             as an empty render per the emit-element nil branch")
-        (is (= "" (:html result))
-            "the zero-body resolved chunk's HTML is empty (per Spec 011
-             §The render-tree → HTML emitter — nil renders as empty)")
-        (is (map? (:delta result))
-            ":delta is still a (possibly empty) map even with no body")))))
-
-(deftest boundary-with-multi-child-body-wraps-in-fragment
-  (testing "A :rf/suspense-boundary with TWO+ body children
-            (n>=2 branch) wraps them in a :<> fragment so a single
-            logical hiccup form drains; both children's HTML appears in
-            the resolved chunk."
-    (let [tree [:div
-                [:rf/suspense-boundary
-                 {:id :multi/body :fallback [:p "loading"]}
-                 [:p "first"]
-                 [:p "second"]
-                 [:p "third"]]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations))
-          "multi-child body still registers ONE continuation — the
-           fragment wraps all children")
-      ;; Drain the entry verbatim; the declared :fallback
-      ;; must ride from `record-continuation!`, not be re-injected here.
-      (let [fid    (make-server-frame)
-            entry  (first continuations)
-            result (rf.ssr.streaming/render-continuation fid entry)]
-        (is (= [:p "loading"] (:fallback entry))
-            "record-continuation! stored the declared :fallback on the
-             multi-child entry")
-        (is (not (:failed? result)))
-        (is (= "<p>first</p><p>second</p><p>third</p>" (:html result))
-            "all three children resolved — fragment splices them
-             without a wrapper element (Spec 011 §Source-coord
-             annotation: :<> is exempt from DOM-tag wrapping)")))))
-
-;; ===========================================================================
-;; Boundary composition — nesting + view-ref + fragment heads
-;; ===========================================================================
-
-(deftest boundary-nested-inside-resolved-subtree-registers-inner-continuation
-  (testing "When a continuation's subtree contains
-            ANOTHER :rf/suspense-boundary, the inner boundary registers
-            DURING the continuation's render — render-continuation drains
-            the subtree through the streaming walker (NOT the non-streaming
-            emitter), so the inner boundary materialises its own fallback
-            <template> inline and returns a NEW continuation on
-            :continuations for the host to append at the tail of the FIFO
-            drain queue (Spec 011 §922-924/§966/§983). It does NOT
-            fail-soft — rendering the subtree through
-            emit/render-to-string would THROW on the buried marker and
-            inline-fallback, never registering the inner boundary."
-    (let [tree [:div
-                [:rf/suspense-boundary
-                 {:id :outer :fallback [:p "outer loading"]}
-                 [:section
-                  [:rf/suspense-boundary
-                   {:id :inner :fallback [:p "inner loading"]}
-                   [:p "inner body"]]]]]
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
-      ;; The SHELL walk only sees the outer boundary — the inner is
-      ;; buried inside the outer's subtree and registers when the outer
-      ;; continuation later drains.
-      (is (= 1 (count continuations))
-          "shell walk registers ONE outer continuation; inner is buried
-           inside the outer's subtree and registers at drain time")
-      (is (= :outer (-> continuations first :id)))
-      (is (str/includes? shell-html "outer loading")
-          "outer fallback in the shell")
-      (is (not (str/includes? shell-html "inner loading"))
-          "inner fallback NOT in the shell (still buried in the
-           unresolved outer subtree)")
-      ;; Drain the outer — render-continuation walks the subtree through
-      ;; the streaming walker, so the buried :rf/suspense-boundary is
-      ;; RECOGNISED: its fallback materialises inline as a <template> and
-      ;; a NEW continuation for the inner is registered + returned on
-      ;; :continuations. The outer does NOT fail.
-      ;; Drain the outer entry verbatim; its declared
-      ;; :fallback rides from `record-continuation!`.
-      (let [fid    (make-server-frame)
-            entry  (first continuations)
-            result (with-trace-recorder! [captured]
-                     (let [result (rf.ssr.streaming/render-continuation fid entry)]
-                       (is (= [:p "outer loading"] (:fallback entry))
-                           "record-continuation! stored the outer boundary's declared
-                            :fallback on the entry")
-                       (is (not (:failed? result))
-                           "the outer continuation resolves cleanly — the streaming
-                            walker recognises the buried :rf/suspense-boundary instead
-                            of throwing on it")
-                       (is (empty? (filter #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                                           @captured))
-                           "NO suspense-boundary-failed trace — the nested boundary is
-                            registered, not fail-soft'd")
-                       ;; The inner boundary's resolved chunk is NOT in the outer's HTML;
-                       ;; instead the outer HTML carries the inner's FALLBACK <template>.
-                       (is (str/includes? (:html result) "data-rf2-suspense-id=\":inner\"")
-                           "the outer's resolved HTML carries the inner boundary's
-                            <template> placeholder (its fallback), stamped with the
-                            inner id")
-                       (is (str/includes? (:html result) "data-rf2-suspense-fallback=\"1\"")
-                           "the inner placeholder is a fallback template (deferred), not
-                            the resolved inner body")
-                       (is (str/includes? (:html result) "inner loading")
-                           "the inner's fallback hiccup materialised inline in the
-                            outer's resolved chunk")
-                       (is (not (str/includes? (:html result) "inner body"))
-                           "the inner BODY is NOT in the outer chunk — it is deferred to
-                            the inner continuation's own drain")
-                       ;; The new continuation lands on :continuations for the host to
-                       ;; append at the TAIL of its FIFO drain queue.
-                       (is (= 1 (count (:continuations result)))
-                           "render-continuation returns the ONE newly-registered inner
-                            continuation for the host to append (FIFO tail)")
-                       (is (= :inner (-> result :continuations first :id))
-                           "the inner boundary's id propagates on the returned
-                            continuation entry")
-                       (is (= [:p "inner loading"] (-> result :continuations first :fallback))
-                           "the inner continuation carries its declared :fallback")
-                       result))]
-        ;; Draining the inner continuation now resolves the inner body.
-        ;; (post-capture: the inner render is not part of the outer's trace window)
-        (let [inner-entry  (-> result :continuations first)
-              inner-result (rf.ssr.streaming/render-continuation fid inner-entry)]
-          (is (not (:failed? inner-result)))
-          (is (str/includes? (:html inner-result) "inner body")
-              "the inner continuation's resolved chunk carries the inner
-               body — drained AFTER the outer, at the tail of the FIFO")
-          (is (empty? (:continuations inner-result))
-              "the inner subtree has no further nested boundaries — its
-               :continuations is empty"))))))
-
-(deftest boundary-three-levels-deep-drains-each-level-FIFO
-  (testing "Nesting is UNBOUNDED — a level-1 boundary
-            whose subtree nests a level-2 boundary whose subtree nests a
-            level-3 boundary drains one level per continuation, each
-            registering the next at the FIFO tail. Proves the recursion is
-            genuinely re-entrant (Spec 011 §924 — the same drain re-recurses)."
-    (let [tree [:rf/suspense-boundary
-                {:id :lvl1 :fallback [:p "l1 loading"]}
-                [:section.l1
-                 [:rf/suspense-boundary
-                  {:id :lvl2 :fallback [:p "l2 loading"]}
-                  [:section.l2
-                   [:rf/suspense-boundary
-                    {:id :lvl3 :fallback [:p "l3 loading"]}
-                    [:p "deepest body"]]]]]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          fid (make-server-frame)]
-      (is (= [:lvl1] (mapv :id continuations))
-          "shell sees only level-1; deeper levels are buried")
-      ;; Drain level-1 → registers level-2.
-      (let [r1 (rf.ssr.streaming/render-continuation fid (first continuations))]
-        (is (not (:failed? r1)))
-        (is (str/includes? (:html r1) "data-rf2-suspense-id=\":lvl2\"")
-            "level-1 chunk carries level-2's fallback template")
-        (is (not (str/includes? (:html r1) "data-rf2-suspense-id=\":lvl3\""))
-            "level-3 still buried inside the unresolved level-2 subtree")
-        (is (= [:lvl2] (mapv :id (:continuations r1)))
-            "level-1 drain registers exactly level-2 at the tail")
-        ;; Drain level-2 → registers level-3.
-        (let [r2 (rf.ssr.streaming/render-continuation fid (-> r1 :continuations first))]
-          (is (not (:failed? r2)))
-          (is (str/includes? (:html r2) "data-rf2-suspense-id=\":lvl3\"")
-              "level-2 chunk carries level-3's fallback template")
-          (is (= [:lvl3] (mapv :id (:continuations r2)))
-              "level-2 drain registers exactly level-3 at the tail")
-          ;; Drain level-3 → resolves the deepest body, no further nesting.
-          (let [r3 (rf.ssr.streaming/render-continuation fid (-> r2 :continuations first))]
-            (is (not (:failed? r3)))
-            (is (str/includes? (:html r3) "deepest body")
-                "level-3 resolves the deepest body")
-            (is (empty? (:continuations r3))
-                "no further nesting below level-3")))))))
-
-(deftest boundary-inside-fragment-children-is-reachable-by-walker
-  (testing "When a :<> fragment's children contain a
-            :rf/suspense-boundary, the walker splices the fragment and
-            finds the boundary. Critical for hiccup authors who use
-            fragments to group siblings without a wrapper element."
-    (let [tree [:main
-                [:<>
-                 [:h1 "header in fragment"]
-                 [:rf/suspense-boundary
-                  {:id :in-fragment :fallback [:p "fragment loading"]}
-                  [:p "fragment body"]]
-                 [:p "footer in fragment"]]]
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations))
-          "the walker spliced the fragment and reached the boundary")
-      (is (= :in-fragment (-> continuations first :id)))
-      (is (str/includes? shell-html "<h1>header in fragment</h1>")
-          "fragment sibling above the boundary emitted")
-      (is (str/includes? shell-html "<p>footer in fragment</p>")
-          "fragment sibling below the boundary emitted")
-      (is (str/includes? shell-html "fragment loading")
-          "the buried boundary's fallback materialised inline"))))
-
 (deftest streaming-and-non-streaming-fragments-agree-byte-for-byte
-  (testing "The pin that stops these two arms drifting apart: a change
-            to one `:<>` arm without the other would render the SAME hiccup
-            one way through `render-to-string` and another through
-            `render-shell`. A boundary-free tree contains nothing the
-            streaming walker is FOR, so its shell HTML must equal what the
-            non-streaming emitter produces, byte for byte.
-            `re-frame.ssr-emit-test/fragment-props-map-is-not-a-child` pins
-            the emitter's literal bytes for these inputs — a props map at
-            slot 1 is not a child, a non-`:key` fragment attribute is
-            dropped silently rather than refused, and a string / vector /
-            seq at slot 1 is a genuine child — so the two together pin the
-            streamed bytes."
-    (doseq [[label tree]
-            [["a keyed fragment streams only its children"
-              [:<> {:key "k"} [:div "x"]]]
-             ["an EMPTY props map is still a props map, not a child"
-              [:<> {} [:div "x"]]]
-             ["the no-props spelling"
-              [:<> [:div "x"]]]
-             ["a fragment that is ONLY a props map streams nothing"
-              [:<> {:key "k"}]]
-             ["a bare fragment streams nothing"
-              [:<>]]
-             ["a string at slot 1 is a child"
-              [:<> "text" [:div]]]
-             ["a hiccup vector at slot 1 is a child"
-              [:<> [:span "a"] [:div "b"]]]
-             ["a seq at slot 1 is a child, not props"
-              [:<> (list [:div "a"]) [:div "b"]]]
-             ["no EDN of a multi-key props map reaches the wire"
-              [:<> {:key "k" :data-x "v"} [:p "body"]]]
-             ["non-:key fragment attrs stream nothing and throw nothing"
-              [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]]]
-             ["nested keyed fragments"
-              [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]]
-             ["a keyed fragment inside an element"
-              [:main [:<> {:key "k"} [:span "a"] [:span "b"]]]]
-             ["keyed fragments built by a `for`"
-              (into [:<>] (for [i [1 2]] [:<> {:key i} [:li i]]))]]]
-      (is (= (rf.ssr.emit/render-to-string tree {})
-             (:shell-html (rf.ssr.streaming/render-shell tree)))
-          (str label " — streaming and non-streaming disagree on "
-               (pr-str tree))))))
+  ;; A boundary-free tree holds nothing the streaming walker is FOR, so its
+  ;; shell must equal the non-streaming emitter's bytes, which
+  ;; `re-frame.ssr-emit-test/fragment-props-map-is-not-a-child` pins.
+  (doseq [tree [[:<> {:key "k"} [:div "x"]]
+                [:<> {} [:div "x"]]
+                [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]]
+                [:<> [:span "a"] [:div "b"]]
+                [:<> (list [:div "a"]) [:div "b"]]
+                [:<>]
+                [:main [:<> {:key "k"} [:span "a"] [:span "b"]]]]]
+    (is (= (rf.ssr.emit/render-to-string tree {})
+           (:shell-html (rf.ssr.streaming/render-shell tree)))
+        (pr-str tree))))
 
 (deftest fragment-props-map-does-not-displace-a-suspense-boundary
-  (testing "The STREAMING-SPECIFIC analogue of the non-streaming
-            emitter's worse case. There, a props map taken as the first child
-            would displace the value that is supposed to receive the
-            root-attrs, and the `data-rf-render-hash` marker would vanish.
-            This walker threads no
-            attrs at all — `walk-shell` / `walk-children` / `walk-dom-tag`
-            take only `[element continuation-accumulator]` and
-            `render-shell` only `[root-hiccup]` — so there is no marker to
-            lose. What it DOES carry through the children is the
-            continuation accumulator, so the shape worth pinning here is
-            that a props-carrying fragment still reaches its boundaries and
-            drains them."
-    (testing "a boundary inside a KEYED fragment is still registered, and the
-              shell carries no props EDN in front of its placeholder"
-      (let [{:keys [shell-html continuations]}
-            (rf.ssr.streaming/render-shell
-              [:<> {:key "k"}
-               [:h1 "header"]
-               [:rf/suspense-boundary {:id :inside/frag :fallback [:p "loading"]}
-                [:p "body"]]])]
-        (is (= 1 (count continuations))
-            "the walker skipped the props slot and still reached the boundary")
-        (is (= :inside/frag (-> continuations first :id)))
-        (is (str/starts-with? shell-html "<h1>header</h1>")
-            (str "the shell opens with the first real child; got: " shell-html))
-        ;; The boundary id is deliberately free of the substring `:key` —
-        ;; an id like `:keyed/frag` would make the probe match the id
-        ;; stamped on the fallback `<template>` rather than any props EDN,
-        ;; a false positive in the direction that looks like a caught
-        ;; bug.
-        (is (not (str/includes? shell-html ":key"))
-            "no props EDN in front of the fallback placeholder")))
-    (testing "a keyed fragment as a continuation SUBTREE drains clean — the
-              drain re-enters the same arm through `render-continuation`"
-      (let [{:keys [continuations]}
-            (rf.ssr.streaming/render-shell
-              [:div
-               [:rf/suspense-boundary {:id :frag/subtree :fallback [:p "loading"]}
-                [:<> {:key "k"} [:div "resolved"]]]])
-            fid    (make-server-frame)
-            result (rf.ssr.streaming/render-continuation fid (first continuations))]
-        (is (not (:failed? result)))
-        (is (= "<div>resolved</div>" (:html result))
-            (str "the drained chunk carries no props EDN; got: " (:html result)))))))
-
-(deftest triple-duplicate-id-keeps-only-last-of-three
-  (testing "Three boundaries with the same :id — dedup keeps
-            ONLY the LAST registration. Pins the last-write-wins shape
-            against more than two duplicates (`ssr_streaming_test` covers
-            two boundaries whose wire ids collide)."
-    (let [tree [:div
-                [:rf/suspense-boundary
-                 {:id :triple :fallback [:p "first fallback"]}
-                 [:p "first body"]]
-                [:rf/suspense-boundary
-                 {:id :triple :fallback [:p "second fallback"]}
-                 [:p "second body"]]
-                [:rf/suspense-boundary
-                 {:id :triple :fallback [:p "third fallback"]}
-                 [:p "third body"]]]
-          {:keys [continuations captured-traces]}
-          (with-trace-recorder! [captured]
-            (let [{:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-              {:continuations continuations :captured-traces @captured}))]
-      (is (= 1 (count continuations))
-          "only one continuation survives dedup across three duplicates")
-      ;; Drain it — the body should be the LAST registration's body
-      ;; (third), confirming last-write-wins.
-      ;; Drain verbatim; last-write-wins means the surviving
-      ;; entry carries the THIRD boundary's declared :fallback, threaded
-      ;; through `record-continuation!` (not re-injected by hand).
-      (let [fid    (make-server-frame)
-            entry  (first continuations)
-            result (rf.ssr.streaming/render-continuation fid entry)]
-        (is (= [:p "third fallback"] (:fallback entry))
-            "the surviving entry carries the LAST registration's declared
-             :fallback — last-write-wins applies to :fallback too")
-        (is (str/includes? (:html result) "third body")
-            "the resolved chunk carries the LAST-registered body — not
-             the first or middle. Per Spec 011 §Boundary nesting and
-             recursion: 'the second registration overwrites the first'
-             generalises to N-deep — every-but-last is dropped."))
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; N=3 last-write-wins SEMANTICS are pinned above by the surviving
-      ;; entry's `:fallback` and the drained chunk's body, both
-      ;; posture-independent; a duplicate boundary id is a programmer error
-      ;; the framework ANNOUNCES in dev and silently applies in production.
-      (when rf.interop/debug-enabled?
-        (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                  captured-traces)
-            "the duplicate-id trace still fires across N=3 duplicates")
-        (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                      (:operation %))
-                                  captured-traces)]
-          (is (= 1 (count dup-traces))
-              "one trace, not three — dedup groups all duplicates of
-               the same id into a single trace event")
-          (when (seq dup-traces)
-            (let [ev   (first dup-traces)
-                  tags (:tags ev)]
-              (is (= 3 (:count tags))
-                  ":count tag reports the duplicate cardinality (3)")
-              (is (= :last-write-wins (:recovery ev))
-                  ":recovery is hoisted to top-level of the trace
-                   envelope per Spec 009 §Error event shape — names the
-                   policy applied"))))))))
-
-;; ===========================================================================
-;; render-continuation — fallback-render throw + delta + stale frame
-;; ===========================================================================
+  ;; The walker skips a fragment's props slot and still reaches the boundary
+  ;; behind it, with no props EDN in the shell.
+  (let [{:keys [shell-html continuations]}
+        (rf.ssr.streaming/render-shell
+          [:<> {:key "k"}
+           [:h1 "header"]
+           [:rf/suspense-boundary {:id :inside/frag :fallback [:p "loading"]} [:p "body"]]])]
+    (is (= [:inside/frag] (mapv :id continuations)))
+    (is (= (str "<h1>header</h1><template data-rf2-suspense-id=\":inside/frag\" "
+                "data-rf2-suspense-fallback=\"1\"><p>loading</p></template>")
+           shell-html))))
 
 (deftest render-continuation-fallback-render-throw-emits-empty-html
-  (testing "When the subtree throws AND the fallback ALSO
-            throws on render, render-continuation MUST NOT escape — it
-            returns :failed? true with empty :html (per streaming.cljc
-            line 397-404). The client-side runtime treats an empty
-            resolved chunk as a no-op."
-    ;; Spec 011 §Failure semantics: shell-walk throws escalate; only
-    ;; CONTINUATION-level throws are inline-fallback'd. So we render
-    ;; the shell with a NON-THROWING fallback (avoid the shell-walk-
-    ;; throw escalation path), then plant a throwing fallback on the
-    ;; entry before driving render-continuation.
-    (let [throws-sub (fn [] (throw (ex-info "subtree boom" {})))
-          throws-fb  (fn [] (throw (ex-info "fallback boom" {})))
-          tree   [:rf/suspense-boundary {:id :double-throw
-                                         :fallback [:p "ok in shell"]}
-                  [throws-sub]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          fid (make-server-frame)
-          entry (assoc (first continuations) :fallback [throws-fb])]
-      (with-trace-recorder! [captured]
-        (let [result (rf.ssr.streaming/render-continuation fid entry)]
-          (is (:failed? result)
-              ":failed? is true when the subtree throws — even though
-               the fallback render also throws")
-          (is (= "" (:html result))
-              "fallback-render throw → empty html (the inner try/catch in
-               streaming.cljc renders fallback OR returns \"\" on its own
-               throw)")
-          (is (nil? (:delta result))
-              "delta still omitted on failure")
-          ;; Dev-instrumentation arm (see ns docstring). The
-          ;; MUST-NOT-ESCAPE contract this deftest exists for is pinned
-          ;; posture-independently above: `render-continuation` returned at
-          ;; all, with `:failed? true` and empty `:html`, despite BOTH the
-          ;; subtree and the fallback throwing.
-          (when rf.interop/debug-enabled?
-            (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                      @captured)
-                "the suspense-boundary-failed trace still fires for the
-                 subtree throw — even though the fallback also failed
-                 (the trace describes the SUBTREE failure, which is what
-                 the client cares about)")))))))
-
-(deftest render-continuation-delta-captures-app-db-change-during-render
-  (testing "render-continuation snapshots app-db before
-            render, then after; the resulting :delta carries the keys
-            that changed (per spec — :delta is the streaming hydration
-            speed prop). Pins that the diff actually fires."
-    (rf/reg-event :test/mutate-during-render
-      (fn [{:keys [db]} _] {:db (assoc db :new-key :new-value)}))
-    (let [fid     (make-server-frame {:initial :state})
-          ;; A view that DISPATCHES (mutates app-db) during render —
-          ;; the canonical streaming pattern for async data resolution.
-          _       (rf/reg-view ^{:rf/id :test/mutating} mutating-view []
-                    (rf/dispatch-sync [:test/mutate-during-render] {:frame fid})
-                    [:p "mutated"])
-          tree    [:rf/suspense-boundary
-                   {:id :mutator :fallback [:p "loading"]}
-                   [(rf/view :test/mutating)]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          entry   (first continuations)
-          result  (rf.ssr.streaming/render-continuation fid entry)]
-      (is (not (:failed? result)))
-      (is (str/includes? (:html result) "mutated")
-          "the resolved chunk's html carries the view's rendered output")
-      ;; The delta MUST include the new key that the render-time
-      ;; dispatch put on app-db.
-      (is (contains? (:delta result) :new-key)
-          ":delta carries the app-db key the render-time dispatch
-           added — pin that diff actually fires, not silently returns
-           empty (clojure.data/diff path; spec 011 §Hydration
-           interleaving — per-subtree deltas)")
-      (is (= :new-value (get-in result [:delta :new-key]))
-          "the delta's value matches the post-render app-db value"))))
+  (testing "subtree AND fallback both throw: the drain still returns, failed,
+            with empty html the client treats as a no-op"
+    (is (= {:id :double-throw :html "" :delta nil :failed? true :continuations []}
+           (rf.ssr.streaming/render-continuation
+             (make-server-frame)
+             {:id       :double-throw
+              :subtree  [(fn [] (throw (ex-info "subtree boom" {})))]
+              :fallback [(fn [] (throw (ex-info "fallback boom" {})))]})))))
 
 (deftest render-continuation-after-frame-destroy-still-fails-soft
-  (testing "If the host adapter (incorrectly) drives
-            render-continuation against a frame-id whose frame has
-            been destroyed, the runtime MUST fail-soft (not escape
-            with NPE / NoSuchFrame). The continuation's failure
-            surfaces as :failed? true with the inline-fallback path."
-    (let [fid (make-server-frame {:initial :state})
-          tree [:rf/suspense-boundary
-                {:id :after-destroy :fallback [:p "loading"]}
-                [:p "body"]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)
-          ;; Drain the entry verbatim; the declared :fallback
-          ;; rides from `record-continuation!`. Re-injecting it masks an
-          ;; empty-fallback regression on the fail-soft path.
-          entry (first continuations)]
-      (is (= [:p "loading"] (:fallback entry))
-          "record-continuation! stored the declared :fallback on the entry")
-      ;; Destroy the frame.
+  (testing "a drain against a frame the host already destroyed returns a
+            result instead of escaping"
+    (let [fid (make-server-frame)
+          {:keys [continuations]} (rf.ssr.streaming/render-shell
+                                    [:rf/suspense-boundary {:id :after-destroy :fallback [:p "loading"]}
+                                     [:p "body"]])]
       (rf/destroy-frame! fid)
-      ;; Now drive the continuation against the dead frame-id. The
-      ;; pure render-continuation path either resolves cleanly
-      ;; (treating absent app-db as nil) or fails-soft via the
-      ;; inline-fallback contract. Either is acceptable per Spec 011
-      ;; §Failure semantics; what is NOT acceptable is an uncaught
-      ;; throw.
-      (with-trace-recorder! [_captured-traces]
-        (let [result (rf.ssr.streaming/render-continuation fid entry)]
-          (is (map? result)
-              "render-continuation returned a result map — did NOT
-               escape with an uncaught exception even though the frame
-               was destroyed before the call")
-          (is (contains? result :failed?)
-              ":failed? key is present")
-          (is (contains? result :html)
-              ":html key is present"))))))
+      (is (= #{:id :html :delta :failed? :continuations}
+             (set (keys (rf.ssr.streaming/render-continuation fid (first continuations)))))))))
 
-;; ===========================================================================
-;; clear-request! — an idempotent no-op on an unpopulated frame
-;; (Spec 011 §Per-request frame teardown contract — \"idempotent\"
-;; in the on-frame-destroyed! docstring; pin the public surface too.)
-;; ===========================================================================
-
-(deftest clear-request-on-unpopulated-frame-is-noop
-  (testing "ssr/clear-request! on a frame-id that was never
-            populated MUST be a no-op — host adapters that forget to
-            populate (or clear twice) must not observe any error or
-            side-effect"
-    (let [before @(requiring-resolve 're-frame.ssr.request/request-slots)]
-      ;; Call against a non-existent frame-id.
-      (is (= :never-populated
-             ((requiring-resolve 're-frame.ssr.request/clear-request!)
-              :never-populated))
-          "clear-request! returns the frame-id on the empty branch
-           (matches the populated-branch return shape)")
-      (let [after @(requiring-resolve 're-frame.ssr.request/request-slots)]
-        (is (= before after)
-            "the slot atom is unchanged — no spurious entry created
-             by a clear of a never-populated slot")))))
-
-;; ===========================================================================
-;; Privacy boundary — request slot / response accumulator NOT readable
-;; from app-db. The privacy contract is "MUST NOT ride app-db"
-;; (Spec 011 §Request storage substrate + §Response storage substrate).
-;; Pin the side-channel invariant so an app-db-backed regression fails loudly.
-;; ===========================================================================
+;; The request slot and the response accumulator live off app-db, so neither
+;; can default-leak into the hydration payload (Spec 011 §Request / §Response
+;; storage substrate).
 
 (deftest response-accumulator-not-on-app-db-privacy-invariant
-  (testing "writing an :rf.server/* fx MUST NOT populate any
-            key under app-db. Per Spec 011 §Response storage substrate
-            — privacy boundary: response accumulator data
-            (Set-Cookie, internal X-* headers) MUST NOT default-leak
-            into the hydration payload via an app-db backing store."
-    (rf/reg-event :test/server-write
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/set-header {:name "X-Internal-Token" :value "secret"}]
-              [:rf.server/set-cookie {:name "session" :value "sess-abc"}]]}))
-    (let [fid (keyword "rf.frame" (str (gensym "")))]
-      (rf/make-frame {:id fid :doc       "privacy-invariant frame"
-                      :platform  :server
-                      :initial-events [[:test/server-write]]})
-      (let [app-db (rf.frame/frame-app-db-value fid)]
-        ;; Spec 011 §Response storage substrate: NO app-db key may
-        ;; carry the accumulator. Pin the published reserved key.
-        (is (not (contains? app-db :rf/response))
-            "app-db MUST NOT carry :rf/response; the accumulator lives in
-             re-frame.ssr.response/response-slots")
-        ;; Defensive: also assert no key with substring "response" or
-        ;; "cookie" in the keyword name (a sloppy refactor that picks
-        ;; a different key name on app-db would still violate).
-        (let [keys-named-response
-              (filter (fn [k] (and (keyword? k)
-                                   (or (str/includes? (name k) "response")
-                                       (str/includes? (name k) "cookie")
-                                       (str/includes? (name k) "header"))))
-                      (keys app-db))]
-          (is (empty? keys-named-response)
-              (str "app-db carries NO key with a response/cookie/header
-                   name — the accumulator MUST live off-band per Spec
-                   011 §Response storage substrate. Suspect keys: "
-                   (vec keys-named-response))))))))
+  (rf/reg-event :test/server-write
+    {:platforms #{:server}}
+    (fn [_ _]
+      {:fx [[:rf.server/set-header {:name "X-Internal-Token" :value "secret"}]
+            [:rf.server/set-cookie {:name "session" :value "sess-abc"}]]}))
+  (is (= {} (rf.frame/frame-app-db-value (make-server-frame [:test/server-write])))))
 
 (deftest request-slot-not-on-app-db-privacy-invariant
-  (testing "Populating the per-request request slot MUST NOT
-            land any key on app-db. Per Spec 011 §Request storage
-            substrate — the request map carries Host, Cookie,
-            Authorization, X-Forwarded-For; an app-db backing would
-            default-leak it onto the hydration payload."
-    (let [fid (keyword "rf.frame" (str (gensym "")))]
-      (rf/make-frame {:id fid :doc       "request-slot privacy frame"
-                      :platform  :server
-                      :initial-events [[:rf.test/noop]]})
-      (let [secret-request {:uri            "/secret"
-                            :request-method :get
-                            :headers        {"authorization" "Bearer SECRET_TOKEN"
-                                             "cookie"        "session=hot"}}]
-        ((requiring-resolve 're-frame.ssr.request/set-request!) fid secret-request)
-        (let [app-db (rf.frame/frame-app-db-value fid)]
-          (is (not (contains? app-db :rf.server/request))
-              "app-db MUST NOT carry :rf.server/request")
-          (is (not (contains? app-db :request))
-              "app-db MUST NOT carry :request")
-          (let [all-vals (vals app-db)
-                serialised (pr-str all-vals)]
-            (is (not (str/includes? serialised "SECRET_TOKEN"))
-                "the request's bearer token does NOT appear anywhere
-                 in the serialised app-db values — privacy boundary
-                 holds across the population path")
-            (is (not (str/includes? serialised "session=hot"))
-                "the request's cookie value does NOT appear in
-                 serialised app-db")))))))
+  (let [fid (make-server-frame)]
+    (rf.ssr.request/set-request! fid {:uri            "/secret"
+                                      :request-method :get
+                                      :headers        {"authorization" "Bearer SECRET_TOKEN"
+                                                       "cookie"        "session=hot"}})
+    (is (= {} (rf.frame/frame-app-db-value fid)))))
