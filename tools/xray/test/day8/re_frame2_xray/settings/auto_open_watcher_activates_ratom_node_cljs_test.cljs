@@ -1,36 +1,13 @@
 (ns day8.re-frame2-xray.settings.auto-open-watcher-activates-ratom-node-cljs-test
-  "`install-auto-open-watcher!` puts its `:rf.xray/issues-ribbon`
-  subscription on the substrate's PUSH path ITSELF, so auto-open-on-error
-  actually fires on the ratom family.
-
-  THE DEFECT CLASS THIS PINS. An installer that did `subscribe` → plain
-  deref → `add-watch`, on the premise that \"a reagent/re-frame reaction is
-  already live the instant `subscribe` returns\", would be wrong on the
-  ratom family, and silently so: the subscription IS a bare Reaction, built
-  WITHOUT `:auto-run`, and a Reaction learns its sources only through
-  `deref-capture`. A plain deref taken outside `*ratom-context*` runs the
-  body raw and leaves `watching` nil — the node is in nobody's watcher set,
-  so the installed `add-watch` records a callback that CANNOT fire. Xray
-  would never auto-open on the first error under Reagent / reagent-slim,
-  and nothing would say so.
-
-  WHY OTHER SUITES CANNOT SEE IT. `:rf.xray/issues-ribbon` is a SIGNAL, never a rendered
-  value (`panels.cljs` §Issues: there is no Issues tab), so no component render
-  ever supplies it a capture context — the one thing that hides this defect
-  everywhere else. The sibling suite (`settings.effects-cljs-test`) runs the
-  headless plain-atom adapter, whose derived subscriptions are not `IWatchable`
-  at all, and drives the watch fn DIRECTLY. Calling the watch fn by hand is
-  precisely what cannot see this: everything looks correct until a CHANGE has
-  to propagate.
-
-  So this file installs a ratom-family adapter (reagent-slim — the adapter
-  Xray's own `deps.edn` declares) and drives the whole production path: the
-  real `install-auto-open-watcher!`, the real `add-watch` on the real reaction,
-  and a real app-db write that must reach it.
-
-  Node, no DOM: the claim is about the notification channel, not about a
-  render. Template: `re-frame.observation-port-activates-ratom-node-cljs-test`,
-  the same proof for the observation port."
+  "`install-auto-open-watcher!` must put its `:rf.xray/issues-ribbon`
+  subscription on the substrate's push path itself. On the ratom family
+  that subscription is a bare Reaction, which learns its sources only
+  through a capture context; derefed outside one, the installed
+  `add-watch` can never fire. The ribbon is a signal no component renders,
+  so nothing else supplies that context, and the plain-atom adapter the
+  rest of the suite uses cannot show the defect. These rows install
+  reagent-slim and drive a real app-db write through the real watch.
+  Template: `re-frame.observation-port-activates-ratom-node-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -41,32 +18,19 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; A RATOM-family adapter, deliberately — the plain-atom default the rest of
-  ;; the Xray suite uses is exactly the substrate on which this defect is
-  ;; invisible. `:runtime` clears the persisted settings so the
-  ;; `:auto-open-on-error?` flips below start from the shipped default.
   (xray-test-support/make-xray-runtime-fixture
     {:adapter    rf.adapter.reagent-slim/adapter
      :tier       :runtime
-     :post-reset (fn [] (effects/detach-auto-open-watcher!))}))
+     :post-reset effects/detach-auto-open-watcher!}))
 
-;; ---- the issues feed, driven through app-db ------------------------------
-;;
-;; `:rf.xray/issues-ribbon` joins `:rf.xray/focus` against
-;; `:rf.xray/epoch-history` and projects the focused epoch's `:trace-events`
-;; into the issue subset. `:rf.xray/sync-epoch-history` writes the history
-;; slot AND focuses the head epoch, so one dispatch is a complete, ordinary
-;; app-db write of the kind the production feed makes.
+;; `:rf.xray/sync-epoch-history` writes the history slot AND focuses the head
+;; epoch, so one dispatch is an ordinary app-db write of the issues feed.
 
-(defn- quiet-epoch
-  "An epoch whose trace carries no issue — the ribbon reads `:issues []`."
-  [epoch-id]
+(defn- quiet-epoch [epoch-id]
   {:epoch-id     epoch-id
    :trace-events [{:id 0 :time 0 :op-type :rf.event :operation :app/anything}]})
 
-(defn- error-epoch
-  "An epoch carrying one `:error` trace event — the ribbon reads one issue."
-  [epoch-id]
+(defn- error-epoch [epoch-id]
   {:epoch-id     epoch-id
    :trace-events [{:id        1
                    :time      0
@@ -82,12 +46,10 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- the mount surface the watcher reopens through -----------------------
-
 (defn- with-hidden-shell-exports
   "Stand the browser API exports the preload installs, with `status`
-  reporting a HIDDEN shell (the auto-open precondition) and each reopen
-  export recording its own name. Calls `(f invoked-atom)`."
+  reporting a HIDDEN shell and each reopen export recording its own name.
+  Calls `(f invoked-atom)`."
   [f]
   (let [invoked     (atom [])
         had-window? (exists? js/globalThis.window)
@@ -108,59 +70,35 @@
           (when-not had-window?
             (js-delete js/globalThis "window")))))))
 
-(defn- install-watcher! []
+(defn- install-watcher!
+  "Install the watcher and return the reaction it watches."
+  []
   (effects/detach-auto-open-watcher!)
   (effects/install-auto-open-watcher!)
-  ;; The reaction the installer actually watched — the object under test.
   @@#'effects/auto-open-watcher)
 
-;; ===========================================================================
-
 (deftest auto-open-on-error-fires-through-the-real-watch-on-a-ratom-substrate
-  (testing "the installed watcher hears a real app-db write: on the
-            empty → non-empty issue edge, with the toggle on and the shell
-            hidden, Xray reopens. A watch held on a node that cannot
-            notify would never reopen at all"
+  (testing "on the empty → non-empty issue edge, with the toggle on and the
+            shell hidden, a real app-db write reaches the watch and Xray reopens"
     (setup!)
     (config/update-setting! :general :auto-open-on-error? true)
-    ;; Baseline — a focused epoch that carries NO issues, so the installer
-    ;; seeds `last-issue-count` at 0 and the next write is a genuine edge.
+    ;; A baseline with no issues, so the next write is a genuine edge.
     (sync-history! [(quiet-epoch 1)])
     (with-hidden-shell-exports
       (fn [invoked]
-        (let [reaction (install-watcher!)]
-          (is (some? reaction)
-              "precondition — the watcher installed and holds the reaction")
-          (is (satisfies? IWatchable reaction)
-              "precondition — the node IS watchable, so a silent channel here
-               is the installer's fault and not the host's")
-          (is (some? (.-watching reaction))
-              "the install ACTIVATED the node: it is subscribed to its
-               sources. A plain-deref install leaves this nil — watchable,
-               watched, and unable to notify")
-          (is (empty? @invoked)
-              "activation itself reopened nothing")
-
-          ;; The edge, driven the way production drives it.
-          (sync-history! [(quiet-epoch 1) (error-epoch 2)])
-          (ratom/flush!)
-
-          (is (= ["toggle_BANG_"] @invoked)
-              "the write reached the watch and Xray reopened — through the
-               surface-preserving `toggle!` route, once")
-
-          ;; …and the edge is still an EDGE on the now-live channel.
-          (sync-history! [(quiet-epoch 1) (error-epoch 2) (error-epoch 3)])
-          (ratom/flush!)
-
-          (is (= ["toggle_BANG_"] @invoked)
-              "a second, non-empty → non-empty push is not the edge: the
-               live channel did not reopen again"))))))
+        (install-watcher!)
+        (sync-history! [(quiet-epoch 1) (error-epoch 2)])
+        (ratom/flush!)
+        (is (= ["toggle_BANG_"] @invoked)
+            "reopened once, through the surface-preserving `toggle!` route")
+        (sync-history! [(quiet-epoch 1) (error-epoch 2) (error-epoch 3)])
+        (ratom/flush!)
+        (is (= ["toggle_BANG_"] @invoked)
+            "a non-empty → non-empty push is not the edge")))))
 
 (deftest the-toggle-still-gates-the-now-live-channel
-  (testing "activation puts the node on the push path; it must not make the
-            reopen unconditional. With `:auto-open-on-error?` OFF the same
-            write reaches the same live watch and nothing opens"
+  (testing "with `:auto-open-on-error?` OFF the same write reaches the same
+            live watch and nothing opens"
     (setup!)
     (config/update-setting! :general :auto-open-on-error? false)
     (sync-history! [(quiet-epoch 1)])
@@ -172,5 +110,4 @@
                gate and not a dead watch")
           (sync-history! [(quiet-epoch 1) (error-epoch 2)])
           (ratom/flush!)
-          (is (empty? @invoked)
-              "toggle off → no reopen, even on the edge"))))))
+          (is (empty? @invoked)))))))
