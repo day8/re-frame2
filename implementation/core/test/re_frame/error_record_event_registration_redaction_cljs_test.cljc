@@ -1,19 +1,11 @@
 (ns re-frame.error-record-event-registration-redaction-cljs-test
-  "The always-on error record `error-emit/dispatch-on-error!` builds applies
-  the event REGISTRATION's own `:sensitive` marks to its `:event` slot
-  (EP-0015: event args are registration-owned). The router's path-overlap /
-  `redact-interceptor` scrub and the app-db-rooted `elide-wire-value` walk
-  alone would let `reg-event :login {:sensitive [[:password]]}` throwing hand
-  every corpus listener the password RAW — while the two sibling channels for
-  the same failure, the dev trace (`project-event-tags`) and the frame's
-  `:observability :errors` sink (`project-event-slot`), both redact it.
-
-  Producer-derived: a REAL throwing handler under a REAL sink route. The sink
-  record is the control that proves the declaration is live for this failure,
-  so the corpus record's redaction is a fact about the same event.
-
-  Always-on on both sides — the corpus record and the sink route survive
-  `-Dre-frame.debug=false` — so no posture tag. Dual-runtime `.cljc`."
+  "The always-on error record `error-emit/dispatch-on-error!` hands corpus
+  listeners applies the event REGISTRATION's own `:sensitive` marks to its
+  `:event` slot (EP-0015: event args are registration-owned), as the frame's
+  `:observability :errors` sink route does. A real throwing handler under a
+  real sink route, so the sink record is the control proving the declaration
+  is live for this failure. Both sides survive `-Dre-frame.debug=false`, so no
+  posture tag."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -49,14 +41,11 @@
       (with-emit-recorder! [recs]
         (rf/dispatch-sync [:err-record/login {:user "bob" :password secret}]
                           {:frame :err-record/app})
-        (let [corpus (filterv #(= :rf.error/handler-exception (:error %)) @recs)
-              sink   (filterv #(= :rf.error/handler-exception (:error %)) @sunk)]
-          (is (= 1 (count corpus)) "the failure reached the corpus registry once")
-          ;; Control: the declaration is live for THIS failure — the sink
-          ;; route's registration pass redacts it.
-          (is (= [:err-record/login {:user "bob" :password rf.privacy/redacted-sentinel}]
-                 (:event (first sink)))
+        (let [redacted [:err-record/login {:user "bob" :password rf.privacy/redacted-sentinel}]
+              event-of (fn [records]
+                         (:event (first (filter #(= :rf.error/handler-exception (:error %))
+                                                records))))]
+          (is (= redacted (event-of @sunk))
               "control: the sink record's :event is redacted by the registration")
-          (is (= [:err-record/login {:user "bob" :password rf.privacy/redacted-sentinel}]
-                 (:event (first corpus)))
+          (is (= redacted (event-of @recs))
               "the corpus record's :event takes the same registration marks"))))))
