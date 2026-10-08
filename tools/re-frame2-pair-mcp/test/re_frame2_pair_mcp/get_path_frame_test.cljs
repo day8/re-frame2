@@ -1,38 +1,17 @@
 (ns re-frame2-pair-mcp.get-path-frame-test
   "Operating-frame resolution for the `get-path` tool.
 
-  ## What this pins
+  `get-path` resolves explicit override -> session pin -> sole app frame
+  -> nil, and REFUSES at nil. An implicit-frame form would read
+  `(get db nil)` and tell the agent the path does not exist when the truth
+  is that it could not tell which frame was meant.
 
-  `get-path` is frame-targeted, so the Tool-Pair contract makes it
-  resolve explicit override -> session pin -> sole app frame -> nil,
-  and REFUSE at nil rather than read some other frame. An
-  implicit-frame form — `(snapshot)` with no frame and no guard —
-  would resolve to `(rf/app-db-value nil)` = nil, and `get-in` over
-  nil answers `:path-not-found` (singular) or `{:exists? false}` for
-  every path (batch). The tool would tell the agent \"that path does
-  not exist\" when the truth is \"I could not tell which frame you
-  meant\" — and an agent that believes it goes off and adds a path
-  that was already there.
-
-  ## Why the stub reads the form
-
-  A test that canned an `:ambiguous-frame` response would pass on the
-  DEFECT, because the tool faithfully relays whatever the runtime
-  hands it — the relay is not where the defect lives. So `runtime-answer`
-  below does not take a canned envelope. It plays a live runtime with
-  a given set of app frames and a given pin, DERIVES the operating
-  frame from the emitted form exactly as `pure/resolve-operating-frame`
-  would, and answers accordingly:
-
-    - resolved id is nil AND the form guards on it -> the refusal;
-    - resolved id is nil and the form does NOT guard -> the read runs
-      against `(get db nil)` = nil, and reports the miss — the very
-      falsehood the refusal exists to prevent;
-    - resolved id is non-nil -> the read runs against that frame's db.
-
-  So the same test body distinguishes a guarded form from an
-  unguarded one, and the singular/batch refusal tests fail on an
-  implicit-frame tree. The tests here drive `get-path-tool` itself."
+  A stub canning an `:ambiguous-frame` response would pass on that defect,
+  because the tool relays whatever the runtime hands it. So
+  `runtime-answer` plays a live runtime instead: it DERIVES the operating
+  frame from the emitted form and refuses only when the form guards on a
+  nil frame before reading; an unguarded form reads nil and reports the
+  miss."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -52,8 +31,7 @@
 (def ^:private read-edn tu/extract-edn)
 (def ^:private err? tu/error?)
 
-;; Two app frames, no pin — the session shape the resolver calls
-;; ambiguous and the one where a wrong guess is unrecoverable.
+;; Two app frames, no pin: the session the resolver calls ambiguous.
 (def ^:private two-frames [:rf/default :stories])
 
 ;; ---------------------------------------------------------------------------
@@ -61,11 +39,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- guards-ambiguity?
-  "True when `form` detects the ambiguity WHERE IT ARISES: it binds the
-  resolved id, branches to `ambiguous-frame-error` on nil, and only
-  then reads app-db. The ordering is the assertion — a form that
-  merely mentions the refusal after reading would still have taken
-  the wrong branch."
+  "True when `form` binds the resolved id, branches to
+  `ambiguous-frame-error` on nil, and only then reads app-db. The
+  ordering is the assertion."
   [form]
   (let [resolve-at (str/index-of form "(let [fid (re-frame2-pair.runtime/current-frame")
         refuse-at  (str/index-of form
@@ -76,14 +52,9 @@
                   (< resolve-at refuse-at read-at)))))
 
 (defn- resolved-id
-  "The id the browser-side resolver would return for `form` in a session
-  holding `app-frames` with `pin` selected. Mirrors
-  `pure/resolve-operating-frame`: override -> pin -> sole app frame ->
-  nil. The override is read off the form because that is where the
-  tool puts it — on the resolve call, or on the `snapshot` call of an
-  implicit-frame shape — so this models BOTH shapes faithfully and
-  tier 1 stays a real control rather than an artefact of the
-  simulator."
+  "The id the browser-side resolver returns for `form`: override (read off
+  the resolve call or, in an implicit-frame shape, the `snapshot` call) ->
+  pin -> sole app frame -> nil."
   [form app-frames pin]
   (if-let [override (second (or (re-find #"current-frame\s+(:[^\s)]+)\)" form)
                                 (re-find #"snapshot\s+(:[^\s)]+)\)" form)))]
@@ -92,9 +63,8 @@
         (when (= 1 (count app-frames)) (first app-frames)))))
 
 (defn- ambiguous-envelope
-  "The envelope `re-frame2-pair.runtime/ambiguous-frame-error` builds —
-  reproduced here because the preload is not on this test's classpath.
-  Shape per `pure/ambiguous-frame-envelope`."
+  "The runtime's `ambiguous-frame-error` envelope, reproduced because the
+  preload is not on this test's classpath."
   [app-frames pin]
   {:ok?              false
    :reason           :ambiguous-frame
@@ -107,17 +77,12 @@
                           "`select-frame!` / set-operating-frame, then retry.")})
 
 (defn- runtime-answer
-  "Answer `form` as a live runtime would, given the session described by
-  `app-frames` / `pin` / `db` (a frame-id -> app-db map). `path` /
-  `paths` are the caller's request; the FRAME is whatever the form
-  resolves, which is the whole point."
+  "Answer `form` as a live runtime holding `app-frames` / `pin` / `db`
+  would. The FRAME is whatever the form resolves."
   [form {:keys [app-frames pin db path paths]}]
   (let [fid (resolved-id form app-frames pin)]
     (if (and (nil? fid) (guards-ambiguity? form))
       (ambiguous-envelope app-frames pin)
-      ;; No guard (or an unambiguous session): the read proceeds. For a
-      ;; nil frame `(get db nil)` is nil and every lookup misses —
-      ;; reproducing the implicit-frame falsehood exactly.
       (let [frame-db (get db fid)
             missing  (js-obj)]
         (if paths
@@ -136,9 +101,8 @@
               {:ok? true :exists? true :path path :value v :elided-count 0})))))))
 
 (defn- stub-runtime!
-  "Install the simulator. Prelude evals (the preload sentinel and the
-  raw-state signal) are answered directly; the get-path form is
-  captured into `captured*` and answered by `runtime-answer`."
+  "Install the simulator. The preload probe and raw-state signal are
+  answered directly; the get-path form is captured into `captured*`."
   [captured* session]
   (let [respond
         (fn [form]
@@ -166,126 +130,62 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest singular-ambiguous-frame-refuses-rather-than-reporting-path-not-found
-  ;; Two app frames, no pin, no `frame` arg.
+  ;; The path exists in BOTH frames, so :path-not-found would be a falsehood.
   (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:app-frames two-frames
-                               :pin        nil
-                               :db         {:rf/default {:cart {:items [1 2]}}
-                                            :stories    {:cart {:items []}}}
-                               :path       [:cart :items]})
-      (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:cart :items]"}))
-          (.then (fn [r]
-                   (let [edn (read-edn r)]
-                     (is (err? r) "an unanswerable read is an isError envelope")
-                     (is (= false (:ok? edn)))
-                     (is (= :ambiguous-frame (:reason edn))
-                         "the refusal names the ambiguity, not a missing path")
-                     (is (not= :path-not-found (:reason edn))
-                         "REGRESSION: the path exists in BOTH frames — reporting it absent is a falsehood")
-                     (is (= :get-path (:operation edn)))
-                     (is (= two-frames (:available-frames edn))
-                         "the candidate frames are named so the agent can choose")
-                     (is (nil? (:selected-frame edn)))
-                     (is (not (contains? edn :deepest-valid-prefix))
-                         "no path-discovery breadcrumbs on a question that was never asked"))
-                   (done)))))))
-
-(deftest batch-ambiguous-frame-refuses-rather-than-reporting-every-path-absent
-  ;; The batch shape must not answer `:ok? true` with an
-  ;; all-missing results map — the more damaging of the two, since it
-  ;; presents as a SUCCESS.
-  (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:app-frames two-frames
-                               :pin        nil
-                               :db         {:rf/default {:cart {:items [1 2]} :user {:id 7}}
-                                            :stories    {:cart {:items []} :user {:id 9}}}
-                               :paths      [[:cart :items] [:user :id]]})
-      (-> (get-path/get-path-tool (fresh-conn)
-                                  (tu/args->js {:paths "[[:cart :items] [:user :id]]"}))
-          (.then (fn [r]
-                   (let [edn (read-edn r)]
-                     (is (err? r))
-                     (is (= false (:ok? edn))
-                         "REGRESSION: an all-missing batch presented as :ok? true reads as success")
-                     (is (= :ambiguous-frame (:reason edn)))
-                     (is (= :get-path (:operation edn)))
-                     (is (= two-frames (:available-frames edn)))
-                     (is (not (contains? edn :results))
-                         "a refusal carries no :results — `:results nil` reads as 'nothing there'"))
-                   (done)))))))
-
-(deftest refusal-names-the-next-action
-  ;; The stance: an ambiguity error that merely says "ambiguous" is not
-  ;; good ergonomics. The hint must name what to DO.
-  (async done
-    (stub-runtime! nil {:app-frames two-frames :pin nil :db {} :path [:a]})
-    (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:a]"}))
+    (stub-runtime! nil {:app-frames two-frames
+                        :pin        nil
+                        :db         {:rf/default {:cart {:items [1 2]}}
+                                     :stories    {:cart {:items []}}}
+                        :path       [:cart :items]})
+    (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:cart :items]"}))
         (.then (fn [r]
-                 (let [hint (:hint (read-edn r))]
-                   (is (string? hint))
-                   (is (str/includes? hint "frame") "names the `frame` arg")
-                   (is (str/includes? hint "set-operating-frame")
-                       "names the pin tool the agent already has")
-                   (is (str/includes? hint ":stories")
-                       "names the candidates inline, so choosing needs no second call"))
+                 (is (= [true (ambiguous-envelope two-frames nil)] [(err? r) (read-edn r)]))
                  (done))))))
 
-;; ---------------------------------------------------------------------------
-;; Where the detection sits — the branch, not the message.
-;; ---------------------------------------------------------------------------
+(deftest batch-ambiguous-frame-refuses-rather-than-reporting-every-path-absent
+  ;; The batch shape would present an all-missing results map as a SUCCESS.
+  (async done
+    (stub-runtime! nil {:app-frames two-frames
+                        :pin        nil
+                        :db         {:rf/default {:cart {:items [1 2]} :user {:id 7}}
+                                     :stories    {:cart {:items []} :user {:id 9}}}
+                        :paths      [[:cart :items] [:user :id]]})
+    (-> (get-path/get-path-tool (fresh-conn)
+                                (tu/args->js {:paths "[[:cart :items] [:user :id]]"}))
+        (.then (fn [r]
+                 (is (= [true (ambiguous-envelope two-frames nil)] [(err? r) (read-edn r)]))
+                 (done))))))
 
 (deftest one-resolution-serves-both-the-read-and-the-walker
-  ;; The read and the elision handle must describe the same frame. A
-  ;; SECOND, independent `(current-frame)` call from the walker could
-  ;; resolve a different one.
+  ;; The read and the elision walker must describe the same frame — a
+  ;; second resolve could pick a different one — and the raw-source wrapper
+  ;; must ship a form whose delimiters balance.
   (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:app-frames [:rf/default] :pin nil
-                               :db {:rf/default {:a 1}} :path [:a]})
-      (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:a]"}))
-          (.then (fn [_]
-                   (let [form @captured]
-                     (is (re-find #":frame fid" form)
-                         "the walker addresses the resolved id")
-                     (is (= 1 (count (re-seq #"re-frame2-pair\.runtime/current-frame" form)))
-                         "exactly ONE resolve per form — two could disagree"))
-                   (done)))))))
-
-(deftest emitted-form-is-well-formed
-  ;; Liveness: the wrapper splices raw source, so a stray paren would
-  ;; ship a form the runtime cannot read. Delimiters must balance.
-  (async done
-    (let [captured (atom nil)
-          balanced?
-          (fn [s]
-            (let [tally (fn [o c] (- (count (re-seq (re-pattern (str "\\" o)) s))
-                                     (count (re-seq (re-pattern (str "\\" c)) s))))]
-              (and (zero? (tally "(" ")"))
-                   (zero? (tally "[" "]"))
-                   (zero? (tally "{" "}")))))]
-      (stub-runtime! captured {:app-frames [:rf/default] :pin nil
-                               :db {:rf/default {:a 1}} :path [:a]})
-      (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:a]"}))
-          (.then (fn [_]
-                   (is (balanced? @captured) "singular form balances")
-                   (let [captured2 (atom nil)]
-                     (stub-runtime! captured2 {:app-frames [:rf/default] :pin nil
-                                               :db {:rf/default {:a 1}} :paths [[:a]]})
-                     (-> (get-path/get-path-tool (fresh-conn)
-                                                 (tu/args->js {:paths "[[:a]]"}))
-                         (.then (fn [_]
-                                  (is (balanced? @captured2) "batch form balances")
-                                  (done)))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Resolvable sessions keep their ordinary shapes.
-;; ---------------------------------------------------------------------------
+    (let [balanced? (fn [s]
+                      (every? (fn [[o c]] (= (count (filter #{o} s)) (count (filter #{c} s))))
+                              [[\( \)] [\[ \]] [\{ \}]]))]
+      (-> (reduce
+            (fn [p [args session]]
+              (.then p (fn [_]
+                         (let [captured (atom nil)]
+                           (stub-runtime! captured (merge {:app-frames [:rf/default] :pin nil
+                                                           :db {:rf/default {:a 1}}}
+                                                          session))
+                           (.then (get-path/get-path-tool (fresh-conn) (tu/args->js args))
+                                  (fn [_]
+                                    (let [form @captured]
+                                      (is (balanced? form) (pr-str args))
+                                      (is (re-find #":frame fid" form) (pr-str args))
+                                      (is (= 1 (count (re-seq #"re-frame2-pair\.runtime/current-frame" form)))
+                                          (pr-str args)))))))))
+            (js/Promise.resolve nil)
+            [[{:path "[:a]"} {:path [:a]}]
+             [{:paths "[[:a]]"} {:paths [[:a]]}]])
+          (.catch (fn [e] (is false (str "drive rejected: " e))))
+          (.then (fn [_] (done)))))))
 
 (deftest explicit-frame-still-reads-that-frame
-  ;; An explicit override wins tier 1 even with two frames registered,
-  ;; and the value returned is that frame's — not the other's.
+  ;; An explicit override wins even with two frames registered.
   (async done
     (stub-runtime! nil {:app-frames two-frames
                         :pin        nil
@@ -295,10 +195,6 @@
     (-> (get-path/get-path-tool (fresh-conn)
                                 (tu/args->js {:path "[:cart :items]" :frame ":stories"}))
         (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)))
-                   (is (true? (:ok? edn)))
-                   (is (true? (:exists? edn)))
-                   (is (= [:only-here] (:value edn)) "read the frame the caller named")
-                   (is (= :stories (:frame edn))))
+                 (is (= {:ok? true :exists? true :value [:only-here] :frame :stories}
+                        (select-keys (read-edn r) [:ok? :exists? :value :frame])))
                  (done))))))
