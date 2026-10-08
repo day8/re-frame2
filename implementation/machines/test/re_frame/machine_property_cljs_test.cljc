@@ -1,101 +1,14 @@
 (ns re-frame.machine-property-cljs-test
-  "Property / model-based test layer for the machines engine.
+  "Property layer for the pure `machine-transition` engine: random valid
+  machines and event sequences, run from `build-initial-snapshot`, must keep
+  invariants that hold for ANY machine — INVARIANT 1 the state is a leaf,
+  2 `:tags` is the active-configuration union, 4 transition is deterministic,
+  5 `:rf/spawn-counter` never rewinds and user `:data` keys are never dropped,
+  8 parallel selection ignores region order, 9 parallel `:always` rounds are
+  parent-owned.
 
-  The machines suite is otherwise ENTIRELY example-based — pin-and-assert
-  (one input → one expected snapshot), the 186-fixture SCXML conformance
-  corpus, and the W3C-IRP semantic-core ns. Those catch the cases someone
-  thought to write; a generative layer catches whole bug classes example
-  tests structurally miss: it draws a RANDOM valid machine + a RANDOM event
-  sequence, runs it through the pure `machine-transition` engine, and
-  asserts the INVARIANTS that must hold for ANY machine + ANY sequence.
-
-  Spec 005 itself flags a 'model-based testing harness' as planned, and
-  XState v5 ships `@xstate/test` model-based testing — the analogous
-  reference. This property tier sits alongside the example + conformance
-  suites, NOT in place of them.
-
-  ## Properties asserted (over deterministic draws)
-
-  For every drawn `[machine event-sequence]` threaded through the pure
-  `rf.machines/machine-transition` engine from its `build-initial-snapshot`
-  initial snapshot:
-
-    1. STATE-IS-LEAF — the snapshot's `:state` is ALWAYS a leaf
-       configuration: a keyword/vector path ending at a childless node for
-       flat/compound machines, a region→leaf map for parallel machines.
-       Never a non-leaf compound (a path that still has `:states`).
-    2. TAGS-IS-UNION — the snapshot's `:tags` ALWAYS equals the union of
-       every active-configuration node's declared `:tags` (the projection
-       invariant), independently recomputed from the post-transition
-       `:state`. The slot is elided exactly when that union is empty.
-    3. DEPTH-BOUND SETTLE — every macrostep SETTLES. A machine with an
-       unbounded `:always` / `:raise` cycle never hangs nor StackOverflows;
-       it returns (the engine aborts at the depth limit, rolling back to
-       the atomic target), so the harness completing at all is the proof.
-    4. NO-PARTIAL-COMMIT / DETERMINISM OF SELECTION — `machine-transition`
-       is a pure function: the SAME `[machine snapshot event]` triple
-       yields a byte-identical Result (snapshot + fx). Transition selection
-       is deterministic; a `:fail` Result (a throwing action) leaves the
-       returned snapshot equal to the rolled-back input — never a half-
-       applied configuration.
-    5. SPAWN-COUNTER MONOTONE / DATA NON-CORRUPT — the in-snapshot
-       `:rf/spawn-counter` is monotone non-decreasing across a sequence
-       (spawn-id allocation never rewinds), and user-domain `:data` keys
-       are never silently dropped by the engine's own bookkeeping (only the
-       reserved `:rf/*` captures are added).
-    6. ACTOR LIFECYCLE — every `:rf.machine/spawn` a state emits on ENTRY
-       is matched by a `:rf.machine/destroy` carrying the SAME
-       `:rf/invoke-id` when that state is EXITED (no leaked actors). This
-       tier does not draw it: the spawn conformance fixtures
-       (`spawn-on-entry-destroy-on-exit` among them) pin it by example.
-    7. REPLAY DETERMINISM — the same machine + the same event sequence
-       yields a byte-identical FINAL snapshot (the EP-0010 / EP-0017 replay
-       claim, at the machine-engine level). It follows from 4 by induction:
-       4 checks determinism at every prefix of every generated sequence.
-    8. PARALLEL DECLARATION-ORDER INDEPENDENCE — reordering a parallel
-       machine's `:regions` declarations yields the SAME selected
-       configuration (region selection is set-like, declaration-order
-       independent) — generalised from the fixed-case deftests.
-    9. PARENT-OWNED PARALLEL `:always` ROUNDS — eventless stabilization in
-       a parallel machine belongs to the PARENT, not to each region. After
-       the complete selected event set applies, the parent freezes the
-       whole configuration + `:data` for ONE selection round, selects every
-       enabled regional `:always` against that frozen view, applies the
-       preselected set in region order, and re-freezes for the next round
-       until quiescent — all before the same macrostep commits. So a
-       region's `:always` guard reading a SIBLING's same-macrostep `:data`
-       write converges in THIS macrostep, and reordering the regions cannot
-       change which `:always` SET each round SELECTS. This family's writes
-       are COMMUTATIVE by construction (see the deftest comment below), so
-       here the resolved configuration and data are order-independent too —
-       but that data-independence is a property of the commutative writes,
-       NOT a general law: non-commuting apply-phase writes to shared `:data`
-       feed the next round's freeze and can change a LATER round's selection.
-       Invariant 8 pins selection for regions that are independent by
-       construction; this one pins the law for regions that are deliberately
-       COUPLED across the freeze.
-
-  ## Why a hand-rolled seeded PRNG (not clojure.test.check)
-
-  Mirrors the project's established engine/foundation property tests
-  (`re-frame.path-laws-cljs-test`, `re-frame.routing-prism-property-cljs-test`,
-  `re-frame.identity-cedn1-cljs-test`): a 32-bit linear-congruential
-  generator drawing the SAME value stream on CLJ and CLJS, so the property
-  runs IDENTICALLY on both hosts with no `test.check` / Malli-generator
-  dependency on the machines test classpath. The engine ships on both
-  hosts, so dual-host property coverage matters; and a fixed seed means a
-  failure is a STABLE, reproducible repro — exactly what the replay-
-  determinism property itself demands. Each `deftest` re-seeds from a fixed
-  constant, so the whole layer is deterministic.
-
-  Named `*-cljs-test.cljc` so BOTH the cognitect JVM runner (`.*-test$`)
-  and the shadow-cljs `:node-test` build (`cljs-test$`) discover it — the
-  engine's invariants are exercised on both hosts from this one file.
-
-  Pure-engine only — no frame, no app-db, no `reg-machine`: every property
-  drives `rf.machines/machine-transition` (a pure fn of its arguments) from a
-  `rf.machines.parallel/build-initial-snapshot` initial snapshot, so the layer is
-  JVM-runnable from arguments alone and has no fixture."
+  The PRNG is a seeded 32-bit LCG, so the draws are identical on CLJ and CLJS
+  and every failure is a stable repro."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -104,12 +17,7 @@
    [re-frame.machines.parallel :as rf.machines.parallel]
    [re-frame.machines.transition :as rf.machines.transition]))
 
-;; ---- a deterministic, host-portable PRNG ----------------------------------
-;;
-;; The SAME 32-bit linear-congruential generator the foundation tests use
-;; (`path-laws-cljs-test` / `routing-prism-property-cljs-test`), so the
-;; draw stream is byte-identical on CLJ and CLJS. Numerical-Recipes
-;; constants; every op stays in the int32 range under `bit-and`.
+;; ---- PRNG ------------------------------------------------------------------
 
 (defn- lcg-next [state]
   (-> (unchecked-multiply (long state) 1664525)
@@ -117,79 +25,48 @@
       (bit-and 0x7fffffff)))
 
 (defn- rnd
-  "A draw in [0, n) from `state`. Returns the draw; advance `state` with
-  `lcg-next` separately so each draw site threads the PRNG explicitly."
+  "A draw in [0, n) from `state`; advance `state` with `lcg-next` separately."
   [state n]
   (mod (lcg-next state) n))
 
-;; ---- machine generators ----------------------------------------------------
+;; ---- generators ------------------------------------------------------------
 ;;
-;; The grammar each generator draws WITHIN (so every drawn machine is a
-;; VALID machine the engine accepts):
-;;
-;;   - flat:    N leaf states, each with an `:on` map of event → sibling
-;;              target (+ optionally one `:always` guarded edge, one
-;;              guarded `:action`, a `:tags` set, a `:spawn`).
-;;   - compound: one root with an `:initial` chain into nested leaves.
-;;   - parallel: 2..3 independent regions, each a flat sub-machine.
-;;
-;; The event alphabet is closed (`event-pool`) so a drawn sequence has a
-;; real chance of matching declared `:on` handlers; guards are pure fns of
-;; `:data` so `:always` edges genuinely fire (or don't) deterministically.
+;; Every generator returns `[value next-state]`. The event alphabet is closed
+;; so drawn events have a real chance of matching an `:on` key.
 
-(def ^:private state-pool
-  "Leaf-state name pool. Distinct keywords so a flat machine's siblings
-  never collide."
-  [:s0 :s1 :s2 :s3 :s4])
+(def ^:private state-pool [:s0 :s1 :s2 :s3 :s4])
+(def ^:private event-pool [:e0 :e1 :e2 :e3 :e4])
+(def ^:private tag-pool [:tag/a :tag/b :tag/c :tag/d])
 
-(def ^:private event-pool
-  "Closed event alphabet drawn for both `:on` keys and the event sequence,
-  so generated events have a real chance of resolving to a handler."
-  [:e0 :e1 :e2 :e3 :e4])
-
-(def ^:private tag-pool
-  [:tag/a :tag/b :tag/c :tag/d])
-
-;; A single shared guard + action vocabulary every generated machine
-;; references by name. The guard set spans always-true, always-false, and
-;; a `:data`-dependent predicate so `:always` edges fire conditionally; the
-;; actions mutate user-domain `:data` (so the data-non-corruption property
-;; has something to chew on) and one raises an internal event (so the
-;; raise-drain / depth-bound path is exercised).
 (def ^:private shared-guards
   {:g/true  (fn [_] true)
    :g/false (fn [_] false)
    :g/even? (fn [{d :data}] (even? (or (:n d) 0)))})
 
 (def ^:private shared-actions
-  {:a/bump  (fn [{d :data}] {:data (update d :n (fnil inc 0))})
-   :a/tag   (fn [{d :data}] {:data (assoc d :touched true)})
-   :a/raise (fn [_] {:fx [[:raise [:e0]]]})
-   :a/noop  (fn [_] {})})
+  {:a/bump (fn [{d :data}] {:data (update d :n (fnil inc 0))})
+   :a/tag  (fn [{d :data}] {:data (assoc d :touched true)})})
 
 (defn- gen-on-map
-  "Draw an `:on` map: 0..3 event → target-keyword entries drawn from
-  `targets`. Some entries carry a guarded `:action` (the richer transition
-  form) so the action / data path is exercised. Returns `[on-map next]`."
-  [state targets]
+  "0..3 event → sibling edges; unless `bare?`, an edge may carry a `:data`-writing action."
+  [state targets bare?]
   (let [n (rnd state 4)]
     (loop [i 0, s (lcg-next state), acc {}]
       (if (= i n)
         [acc s]
         (let [ev   (nth event-pool (rnd s (count event-pool)))
               tgt  (nth targets (rnd (lcg-next s) (count targets)))
-              form (rnd (lcg-next (lcg-next s)) 3)
-              edge (case form
-                     0 tgt                                    ;; bare target
-                     1 {:target tgt :action :a/bump}          ;; target + action
-                     2 {:target tgt :action :a/tag})          ;; target + action
-              ]
+              edge (if bare?
+                     tgt
+                     (case (rnd (lcg-next (lcg-next s)) 3)
+                       0 tgt
+                       1 {:target tgt :action :a/bump}
+                       2 {:target tgt :action :a/tag}))]
           (recur (inc i) (lcg-next (lcg-next (lcg-next s)))
                  (assoc acc ev edge)))))))
 
 (defn- gen-tags
-  "Draw a `:tags` set: 0..2 tags from `tag-pool` (0 ⇒ no `:tags` slot, so
-  the elision invariant is exercised). Returns `[tags-or-nil next]`."
+  "0..2 tags; nil (no `:tags` slot) for 0, so tag elision is exercised."
   [state]
   (let [n (rnd state 3)]
     (if (zero? n)
@@ -201,37 +78,36 @@
                  (conj acc (nth tag-pool (rnd s (count tag-pool))))))))))
 
 (defn- gen-leaf-node
-  "Draw one leaf state-node body. Carries an `:on` map (siblings as
-  targets), optionally a `:tags` set, optionally one `:always` guarded
-  edge, optionally a `:spawn`. Returns `[node next]`."
-  [state siblings allow-spawn?]
-  (let [[on  s1] (gen-on-map state siblings)
+  "A leaf with an `:on` map and optional `:tags`, guarded `:always` and `:spawn`.
+  An `independent?` leaf writes no `:data` and guards only on constants, so a
+  sibling region cannot observe it."
+  [state siblings spawn? independent?]
+  (let [[on s1]   (gen-on-map state siblings independent?)
         [tags s2] (gen-tags s1)
-        ;; one optional `:always` edge under a drawn guard → a sibling
-        always?  (zero? (rnd s2 2))
-        guard    (nth [:g/true :g/false :g/even?] (rnd (lcg-next s2) 3))
-        a-tgt    (nth siblings (rnd (lcg-next (lcg-next s2)) (count siblings)))
-        s3       (lcg-next (lcg-next (lcg-next s2)))
-        spawn?   (and allow-spawn? (zero? (rnd s3 3)))
-        node     (cond-> {}
-                   (seq on) (assoc :on on)
-                   tags     (assoc :tags tags)
-                   always?  (assoc :always [{:guard guard :target a-tgt}])
-                   spawn?   (assoc :spawn {:machine-id :child/worker
-                                           :start      [:begin]}))]
+        guards    (if independent? [:g/true :g/false] [:g/true :g/false :g/even?])
+        always?   (zero? (rnd s2 2))
+        guard     (nth guards (rnd (lcg-next s2) (count guards)))
+        a-tgt     (nth siblings (rnd (lcg-next (lcg-next s2)) (count siblings)))
+        s3        (lcg-next (lcg-next (lcg-next s2)))
+        spawn?    (and spawn? (zero? (rnd s3 3)))
+        node      (cond-> {}
+                    (seq on) (assoc :on on)
+                    tags     (assoc :tags tags)
+                    always?  (assoc :always [{:guard guard :target a-tgt}])
+                    spawn?   (assoc :spawn {:machine-id :child/worker
+                                            :start      [:begin]}))]
     [node (lcg-next s3)]))
 
 (defn- gen-flat-machine
-  "Draw a flat machine: 2..4 leaf states, one of them the `:initial`.
-  Returns `[machine next]`."
-  [state allow-spawn?]
-  (let [n        (+ 2 (rnd state 3))
-        names    (vec (take n state-pool))
+  "2..4 leaf states, the first one `:initial`."
+  [state spawn? independent?]
+  (let [n     (+ 2 (rnd state 3))
+        names (vec (take n state-pool))
         [states s']
         (loop [i 0, s (lcg-next state), acc {}]
           (if (= i n)
             [acc s]
-            (let [[node s1] (gen-leaf-node s names allow-spawn?)]
+            (let [[node s1] (gen-leaf-node s names spawn? independent?)]
               (recur (inc i) s1 (assoc acc (nth names i) node)))))]
     [{:initial (first names)
       :data    {:n 0}
@@ -241,17 +117,15 @@
      s']))
 
 (defn- gen-compound-machine
-  "Draw a compound machine: one root compound state with an `:initial`
-  child and 2..3 nested leaf children (themselves drawn flat). The root
-  has its own `:tags` so the union spans depth. Returns `[machine next]`."
+  "One tagged root compound state over 2..3 drawn leaves, so the tag union spans depth."
   [state]
-  (let [n        (+ 2 (rnd state 2))
-        names    (vec (take n state-pool))
+  (let [n     (+ 2 (rnd state 2))
+        names (vec (take n state-pool))
         [children s1]
         (loop [i 0, s (lcg-next state), acc {}]
           (if (= i n)
             [acc s]
-            (let [[node s'] (gen-leaf-node s names false)]
+            (let [[node s'] (gen-leaf-node s names false false)]
               (recur (inc i) s' (assoc acc (nth names i) node)))))
         [root-tags s2] (gen-tags s1)]
     [{:initial :root
@@ -264,109 +138,16 @@
      s2]))
 
 (defn- gen-parallel-machine
-  "Draw a parallel machine: 2..3 independent regions, each a flat
-  sub-machine drawn from `gen-flat-machine` (its `:initial` / `:states`
-  only — guards/actions hoist to the root). Returns `[machine next]`."
-  [state]
-  (let [n        (+ 2 (rnd state 2))
-        region-names [:rA :rB :rC]
+  "2..3 regions, each a flat machine's `:initial` / `:states`."
+  [state independent?]
+  (let [n (+ 2 (rnd state 2))
         [regions s']
         (loop [i 0, s (lcg-next state), acc {}]
           (if (= i n)
             [acc s]
-            (let [[fm s1] (gen-flat-machine s false)]
+            (let [[fm s1] (gen-flat-machine s false independent?)]
               (recur (inc i) s1
-                     (assoc acc (nth region-names i)
-                            (select-keys fm [:initial :states]))))))]
-    [(rf.machines.parallel/install-region-cache
-       {:type    :parallel
-        :data    {:n 0}
-        :guards  shared-guards
-        :actions shared-actions
-        :regions regions})
-     s']))
-
-;; ---- independent-region parallel generator (for INVARIANT 8) ---------------
-;;
-;; Both parallel selection phases are frozen select-then-apply. The event
-;; broadcast SELECTS every region's transition against ONE frozen pre-event
-;; view (incl. `:data`) before any region applies; the parent then owns the
-;; eventless stabilization, selecting every enabled regional `:always` against
-;; ONE frozen post-event view, applying that set in region order, and
-;; re-freezing per round to a fixed point (Spec 005 §Per-region `:always` /
-;; `:after` / `:spawn` scoping). No region drains a local `:always` tail, so
-;; no guard in either phase can observe a sibling's mid-set write.
-;;
-;; What declaration order STILL governs is APPLY ordering — action / `:fx`
-;; order and `:data` accumulation. Two regions writing the same `:data` key
-;; non-commutatively therefore end on different committed `:data` per
-;; ordering, which is correct behaviour, not a selection bug. This generator
-;; isolates the SELECTION invariant from that legitimate accumulation
-;; ordering by drawing regions that are independent BY CONSTRUCTION: their
-;; `:always` guards are CONSTANT (`:g/true` / `:g/false`, never the
-;; `:data`-reading `:g/even?`) and their `:on` edges carry NO action (no
-;; shared-`:data` writes at all). Reordering such regions cannot change
-;; behaviour, so any divergence is a genuine selection / broadcast bug.
-;;
-;; The COUPLED cross-region case — a region's `:always` guard reading a
-;; sibling's same-macrostep `:data` write — is not excluded from the suite;
-;; it is the subject of INVARIANT 9 below, which keeps order-independence
-;; testable by constraining the writes to be commutative rather than by
-;; removing them.
-
-(defn- gen-independent-on-map
-  "Like `gen-on-map` but every edge is a BARE target (no `:action`), so a
-  region never mutates the shared `:data` a sibling's guard might read."
-  [state targets]
-  (let [n (rnd state 4)]
-    (loop [i 0, s (lcg-next state), acc {}]
-      (if (= i n)
-        [acc s]
-        (let [ev  (nth event-pool (rnd s (count event-pool)))
-              tgt (nth targets (rnd (lcg-next s) (count targets)))]
-          (recur (inc i) (lcg-next (lcg-next s)) (assoc acc ev tgt)))))))
-
-(defn- gen-independent-leaf
-  "A leaf node for an independent region: `:on` with bare targets, optional
-  `:tags`, optional `:always` under a CONSTANT guard (never `:g/even?`)."
-  [state siblings]
-  (let [[on s1]   (gen-independent-on-map state siblings)
-        [tags s2] (gen-tags s1)
-        always?   (zero? (rnd s2 2))
-        guard     (nth [:g/true :g/false] (rnd (lcg-next s2) 2))
-        a-tgt     (nth siblings (rnd (lcg-next (lcg-next s2)) (count siblings)))
-        node      (cond-> {}
-                    (seq on) (assoc :on on)
-                    tags     (assoc :tags tags)
-                    always?  (assoc :always [{:guard guard :target a-tgt}]))]
-    [node (lcg-next (lcg-next (lcg-next s2)))]))
-
-(defn- gen-independent-region
-  "Draw one independent region body (`:initial` + `:states`), 2..3 leaves."
-  [state]
-  (let [n     (+ 2 (rnd state 2))
-        names (vec (take n state-pool))
-        [states s']
-        (loop [i 0, s (lcg-next state), acc {}]
-          (if (= i n)
-            [acc s]
-            (let [[node s1] (gen-independent-leaf s names)]
-              (recur (inc i) s1 (assoc acc (nth names i) node)))))]
-    [{:initial (first names) :states states} s']))
-
-(defn- gen-independent-parallel-machine
-  "Draw a parallel machine whose 2..3 regions are INDEPENDENT by
-  construction (constant guards, no shared-`:data`-writing actions), so
-  region reordering cannot change behaviour. Returns `[machine next]`."
-  [state]
-  (let [n            (+ 2 (rnd state 2))
-        region-names [:rA :rB :rC]
-        [regions s']
-        (loop [i 0, s (lcg-next state), acc {}]
-          (if (= i n)
-            [acc s]
-            (let [[rb s1] (gen-independent-region s)]
-              (recur (inc i) s1 (assoc acc (nth region-names i) rb)))))]
+                     (assoc acc (nth [:rA :rB :rC] i) (select-keys fm [:initial :states]))))))]
     [(rf.machines.parallel/install-region-cache
        {:type    :parallel
         :data    {:n 0}
@@ -376,18 +157,15 @@
      s']))
 
 (defn- gen-machine
-  "Draw a machine of a random shape (flat / compound / parallel). Returns
-  `[machine shape next]` — `shape` carried so a property can branch its
-  oracle on the configuration form."
+  "A flat, compound or parallel machine."
   [state]
   (case (rnd state 3)
-    0 (let [[m s'] (gen-flat-machine (lcg-next state) true)]     [m :flat s'])
-    1 (let [[m s'] (gen-compound-machine (lcg-next state))]      [m :compound s'])
-    2 (let [[m s'] (gen-parallel-machine (lcg-next state))]      [m :parallel s'])))
+    0 (gen-flat-machine (lcg-next state) true false)
+    1 (gen-compound-machine (lcg-next state))
+    2 (gen-parallel-machine (lcg-next state) false)))
 
 (defn- gen-events
-  "Draw an event sequence of 1..8 events from `event-pool`. Returns
-  `[events next]`."
+  "1..8 events from `event-pool`."
   [state]
   (let [n (inc (rnd state 8))]
     (loop [i 0, s (lcg-next state), acc []]
@@ -396,417 +174,154 @@
         (recur (inc i) (lcg-next s)
                (conj acc [(nth event-pool (rnd s (count event-pool)))]))))))
 
-;; ---- engine drivers / oracles ---------------------------------------------
+;; ---- drivers ---------------------------------------------------------------
 
-(defn- initial-snapshot
-  "The freshly-derived initial snapshot for `machine` (the same builder the
-  registration + spawn paths use). `bootstrap-pending? false` ⇒ a clean
-  post-cascade snapshot to drive the pure engine from."
-  [machine]
+(defn- initial-snapshot [machine]
   (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
 
 (defn- run-sequence
-  "Thread `events` through the pure engine from `machine`'s initial
-  snapshot, returning a vector of per-step `{:snap :fx}` Result projections
-  (one per event). A `:fail` Result keeps the prior snapshot (the engine's
-  atomic rollback), so the thread never dies on a throwing action."
+  "Every snapshot from `machine`'s initial one through `events`; a failed
+  macrostep keeps the prior snapshot."
   [machine events]
-  (loop [snap (initial-snapshot machine), evs events, acc []]
-    (if (empty? evs)
-      acc
-      (let [r     (rf.machines/machine-transition machine snap (first evs))
-            snap' (if (= :ok (:status r)) (:snapshot r) snap)]
-        (recur snap' (rest evs)
-               (conj acc {:snap snap' :fx (when (= :ok (:status r)) (:fx r))
-                          :ok? (= :ok (:status r))}))))))
+  (reductions (fn [snap ev]
+                (let [r (rf.machines/machine-transition machine snap ev)]
+                  (if (= :ok (:status r)) (:snapshot r) snap)))
+              (initial-snapshot machine)
+              events))
 
-(defn- leaf-node?
-  "True iff the node `n` is a real leaf — resolves and has no `:states`
-  children (so it is a terminal configuration node, never a non-leaf
-  compound)."
-  [n]
-  (and (map? n) (not (contains? n :states))))
+(defn- final-snapshot [machine events] (last (run-sequence machine events)))
 
-(defn- state-is-leaf?
-  "INVARIANT 1 oracle. For `machine` + post-transition `state`, true iff
-  `state` is a leaf configuration:
-   - flat / compound: a keyword or vector path resolving (via `node-at`)
-     to a childless node;
-   - parallel: a region→value map where every region value is a leaf of
-     that region's sub-machine."
-  [machine state]
+(defn- draw-with
+  "A case drawer: a machine from `gen` plus an event sequence, as `[[machine events] next]`."
+  [gen]
+  (fn [state]
+    (let [[m s1]   (gen state)
+          [evs s2] (gen-events s1)]
+      [[m evs] s2])))
+
+(defn- first-failure
+  "Draw `n` cases from `seed` and return the first non-nil `(check case)`."
+  [seed n draw check]
+  (loop [i 0, s seed]
+    (when (< i n)
+      (let [[c s'] (draw s)]
+        (or (check c) (recur (inc i) (lcg-next s')))))))
+
+(defn- reorder-regions
+  "`machine` with its `:regions` declared in `order`. `:region-order` is
+  restated because `install-region-cache` keeps a valid one unchanged, which
+  would silently no-op the reorder."
+  [machine order]
+  (rf.machines.parallel/install-region-cache
+    (assoc machine
+           :regions      (into {} (map (fn [k] [k (get-in machine [:regions k])])) order)
+           :region-order (vec order))))
+
+;; ---- INVARIANT 1: state is always a leaf -----------------------------------
+
+(defn- leaf? [node] (and (map? node) (not (contains? node :states))))
+
+(defn- state-is-leaf? [machine state]
   (if (map? state)
-    ;; parallel: every region value resolves to a leaf of its region body
-    (every?
-      (fn [[rn rstate]]
-        (let [rbody (rf.machines.parallel/region-machine machine rn)]
-          (leaf-node? (rf.machines.transition/node-at rbody (rf.machines.transition/state-path rstate)))))
-      state)
-    (leaf-node? (rf.machines.transition/node-at machine (rf.machines.transition/state-path state)))))
-
-;; ---- INVARIANT 2 oracle: an INDEPENDENT tag computation -------------------
-;;
-;; The oracle must NOT recompute the expected tag union via
-;; `rf.machines.transition/compute-tags` — that is the SAME fn the engine's commit-tags
-;; calls (`transition.cljc` `commit-tags` → `compute-tags`), so reusing it
-;; only cross-checks the elision rule + state/tag consistency, never the
-;; union math itself. Instead, walk the active-state ancestor
-;; chain HERE — descending the machine spec's `:states` map directly along
-;; the state path and reading each node's declared `:tags` slot by hand — so
-;; the expected union is derived by a genuinely independent method. The
-;; parallel branch already cross-checks the engine's `commit-tags-parallel`
-;; independently; both branches are reimplemented below for symmetry.
-
-(defn- declared-tags
-  "Coerce a node's `:tags` slot to a set — independently of the engine's
-  `node-tags` (same canonical-form tolerance, reimplemented by hand)."
-  [node]
-  (let [t (:tags node)]
-    (cond
-      (nil? t)        #{}
-      (set? t)        t
-      (sequential? t) (set t)
-      (keyword? t)    #{t}
-      :else           #{})))
-
-(defn- path->vec
-  "Normalise a single-machine `:state` (keyword or vector path) to a vector
-  path — reimplemented here so the oracle does not lean on
-  `rf.machines.transition/state-path`."
-  [state]
-  (cond
-    (vector? state)  state
-    (keyword? state) [state]
-    :else            (throw (ex-info "oracle: bad state form" {:state state}))))
-
-(defn- ancestor-chain-tags
-  "INDEPENDENT walk: descend `states-map` (a machine's `:states`) along the
-  vector `path`, collecting the `:tags` declared on EVERY node from root to
-  leaf. Returns the union. Does NOT call `compute-tags` / `nodes-along-path`
-  / `node-at` — it threads `:states` by hand, so it is a true cross-check of
-  the engine's projection rather than a re-run of the same code."
-  [states-map path]
-  (loop [m states-map, p path, acc #{}]
-    (if (empty? p)
-      acc
-      (let [node (get m (first p))]
-        (if (nil? node)
-          acc                                   ;; unresolvable: stop (defensive)
-          (recur (:states node) (rest p)
-                 (set/union acc (declared-tags node))))))))
-
-(defn- expected-tags
-  "INVARIANT 2 oracle. Independently recompute the active-configuration tag
-  union for `machine` + `state` (the projection the engine must stamp), via
-  a HAND-WRITTEN ancestor-chain walk over the machine spec — NOT via
-  `rf.machines.transition/compute-tags` (which the engine itself uses, so reusing it
-  would be circular). For parallel, union the independent walk
-  across every region; for flat/compound, walk the single path."
-  [machine state]
-  (if (map? state)
-    ;; parallel: independently walk each region's own :states by its leaf path
-    (transduce
-      (map (fn [[rn rstate]]
-             (let [rbody (rf.machines.parallel/region-machine machine rn)]
-               (ancestor-chain-tags (:states rbody) (path->vec rstate)))))
-      set/union #{} state)
-    (ancestor-chain-tags (:states machine) (path->vec state))))
-
-;; ---- INVARIANT 1: state is always a leaf ----------------------------------
+    (every? (fn [[rn rstate]]
+              (leaf? (rf.machines.transition/node-at (rf.machines.parallel/region-machine machine rn)
+                                                     (rf.machines.transition/state-path rstate))))
+            state)
+    (leaf? (rf.machines.transition/node-at machine (rf.machines.transition/state-path state)))))
 
 (deftest prop-state-is-always-a-leaf
-  (testing "the post-transition :state is ALWAYS a leaf configuration —
-            never a non-leaf compound (over generated machines + sequences)"
-    (let [failure
-          (loop [i 0, s 1001]
-            (if (= i 400)
-              nil
-              (let [[m _shape s1] (gen-machine s)
-                    [evs s2]      (gen-events s1)
-                    steps         (run-sequence m evs)]
-                (if-let [bad (some (fn [{state :snap}]
-                                     (when-not (state-is-leaf? m (:state state))
-                                       state))
-                                   steps)]
-                  [:non-leaf m evs (:state bad)]
-                  ;; the initial snapshot itself must also be a leaf config
-                  (if-not (state-is-leaf? m (:state (initial-snapshot m)))
-                    [:non-leaf-initial m (:state (initial-snapshot m))]
-                    (recur (inc i) (lcg-next s2)))))))]
-      (is (nil? failure)
-          (str "state-is-leaf property failed: " (pr-str failure))))))
+  (is (nil? (first-failure 1001 400 (draw-with gen-machine)
+              (fn [[m evs]]
+                (when-let [bad (first (remove #(state-is-leaf? m (:state %)) (run-sequence m evs)))]
+                  [m evs (:state bad)]))))))
 
-;; ---- INVARIANT 2: :tags is always the active-config union -----------------
+;; ---- INVARIANT 2: :tags is the active-configuration union ------------------
+
+(defn- path-tags
+  "The union of `:tags` on every node along `path`, walked by hand down
+  `states` rather than through the engine's own `compute-tags`, so the union
+  itself is checked."
+  [states path]
+  (loop [m states, [k & more] path, acc #{}]
+    (if-let [node (and k (get m k))]
+      (recur (:states node) more (into acc (:tags node)))
+      acc)))
+
+(defn- as-path [state] (if (vector? state) state [state]))
+
+(defn- expected-tags [machine state]
+  (if (map? state)
+    (reduce (fn [acc [rn rstate]]
+              (into acc (path-tags (:states (rf.machines.parallel/region-machine machine rn))
+                                   (as-path rstate))))
+            #{}
+            state)
+    (path-tags (:states machine) (as-path state))))
 
 (deftest prop-tags-is-active-configuration-union
-  (testing ":tags ALWAYS equals the union of active nodes' :tags, and is
-            elided exactly when that union is empty (the projection invariant)"
-    (let [failure
-          (loop [i 0, s 2002]
-            (if (= i 400)
-              nil
-              (let [[m _shape s1] (gen-machine s)
-                    [evs s2]      (gen-events s1)
-                    steps         (cons {:snap (initial-snapshot m)}
-                                        (run-sequence m evs))]
-                (if-let [bad
-                         (some
-                           (fn [{snap :snap}]
-                             (let [expect (expected-tags m (:state snap))
-                                   actual (:tags snap)]
-                               (cond
-                                 ;; non-empty union must be stamped exactly
-                                 (and (seq expect) (not= expect actual))
-                                 {:why :mismatch :state (:state snap)
-                                  :expect expect :actual actual}
-                                 ;; empty union must elide the slot entirely
-                                 (and (empty? expect) (contains? snap :tags))
-                                 {:why :not-elided :state (:state snap)
-                                  :actual actual})))
-                           steps)]
-                  [:tags m evs bad]
-                  (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "tags-union property failed: " (pr-str failure))))))
+  (testing ":tags equals the union of the active nodes' :tags, and is elided when that union is empty"
+    (is (nil? (first-failure 2002 400 (draw-with gen-machine)
+                (fn [[m evs]]
+                  (some (fn [snap]
+                          (let [expect (expected-tags m (:state snap))]
+                            (when (if (seq expect)
+                                    (not= expect (:tags snap))
+                                    (contains? snap :tags))
+                              [m evs (:state snap) expect (:tags snap)])))
+                        (run-sequence m evs))))))))
 
-;; ---- INVARIANT 3: every macrostep settles (depth-bound, no hang) ----------
-
-(deftest prop-macrostep-always-settles
-  (testing "every macrostep SETTLES — a machine with an unbounded :always /
-            :raise cycle returns (engine aborts at the depth limit) rather
-            than hanging or StackOverflowing. Reaching the assertion proves it."
-    ;; Construct adversarial cyclic machines explicitly (the random grammar
-    ;; can produce them, but pin the worst cases deterministically):
-    ;; (a) two states ping-pong via always-true :always edges; (b) a state
-    ;; whose action re-raises its own event forever.
-    (let [always-cycle {:initial :a
-                        :data    {}
-                        :guards  shared-guards
-                        :actions shared-actions
-                        :states  {:a {:always [{:guard :g/true :target :b}]}
-                                  :b {:always [{:guard :g/true :target :a}]}}}
-          raise-cycle  {:initial :loop
-                        :data    {}
-                        :guards  shared-guards
-                        :actions shared-actions
-                        :states  {:loop {:on {:e0 {:action :a/raise}}}}}
-          ;; Both calls MUST return (not hang / SOE). The harness running to
-          ;; completion is the settle proof. An unbounded :always / :raise
-          ;; cycle surfaces as a FAILED macrostep at the depth bound (XState
-          ;; v5 throws on such a runaway) — `:status :error` with the
-          ;; depth-exceeded `:kind`, NOT an :ok rollback no-op.
-          r-always (rf.machines/machine-transition
-                     always-cycle (initial-snapshot always-cycle) [:noop])
-          r-raise  (rf.machines/machine-transition
-                     raise-cycle (initial-snapshot raise-cycle) [:e0])]
-      (is (= :rf.error/machine-always-depth-exceeded (get-in r-always [:error :kind]))
-          "always-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
-      (is (nil? (:snapshot r-always))
-          "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
-      (is (= :rf.error/machine-raise-depth-exceeded (get-in r-raise [:error :kind]))
-          "raise-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
-      (is (nil? (:snapshot r-raise))
-          "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
-      ;; And over the random corpus: every step of every drawn machine
-      ;; returned (the loop below cannot complete if any macrostep hangs).
-      (let [completed
-            (loop [i 0, s 3003]
-              (if (= i 300)
-                true
-                (let [[m _ s1] (gen-machine s)
-                      [evs s2] (gen-events s1)]
-                  (run-sequence m evs)   ;; must return for every drawn case
-                  (recur (inc i) (lcg-next s2)))))]
-        (is (true? completed)
-            "every macrostep over 300 random machine+sequence draws settled")))))
-
-;; ---- INVARIANT 4: pure determinism + no partial commit --------------------
+;; ---- INVARIANT 4: transition is pure and deterministic ---------------------
 
 (deftest prop-transition-is-pure-and-deterministic
-  (testing "machine-transition is a pure fn — the SAME (machine, snapshot,
-            event) triple yields a byte-identical Result; selection is
-            deterministic and a :fail leaves the snapshot rolled back (no
-            half-applied configuration)"
-    (let [failure
-          (loop [i 0, s 4004]
-            (if (= i 400)
-              nil
-              (let [[m _ s1] (gen-machine s)
-                    [evs s2] (gen-events s1)
-                    snap0    (initial-snapshot m)]
-                ;; Re-derive a per-step probe: for each prefix, call the
-                ;; engine TWICE on the same input and compare Results.
-                (if-let [bad
-                         (loop [snap snap0, todo evs]
-                           (if (empty? todo)
-                             nil
-                             (let [ev (first todo)
-                                   r1 (rf.machines/machine-transition m snap ev)
-                                   r2 (rf.machines/machine-transition m snap ev)]
-                               (cond
-                                 (not= r1 r2)
-                                 {:why :nondeterministic :state (:state snap) :event ev}
-                                 ;; no-partial-commit: a :fail's input snapshot
-                                 ;; is what we carry forward, never a partial
-                                 (and (= :error (:status r1)) (= :error (:status r2)))
-                                 (recur snap (rest todo))
-                                 :else
-                                 (recur (:snapshot r1) (rest todo))))))]
-                  [:purity m evs bad]
-                  (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "purity/determinism property failed: " (pr-str failure))))))
+  (testing "the same (machine, snapshot, event) yields an identical Result at every step"
+    (is (nil? (first-failure 4004 400 (draw-with gen-machine)
+                (fn [[m evs]]
+                  (loop [snap (initial-snapshot m), [ev & more] evs]
+                    (when ev
+                      (let [r1 (rf.machines/machine-transition m snap ev)
+                            r2 (rf.machines/machine-transition m snap ev)]
+                        (if (= r1 r2)
+                          (recur (if (= :ok (:status r1)) (:snapshot r1) snap) more)
+                          [m (:state snap) ev]))))))))))
 
-;; ---- INVARIANT 5: spawn-counter monotone + data non-corruption ------------
+;; ---- INVARIANT 5: spawn-counter monotone, user :data keys never dropped ----
 
 (deftest prop-spawn-counter-monotone-and-data-non-corrupt
-  (testing "the in-snapshot :rf/spawn-counter is monotone non-decreasing
-            across a sequence, and the engine never drops user-domain :data
-            keys (only reserved :rf/* captures are added)"
-    (let [counter-total (fn [snap]
-                          (reduce + 0 (vals (:rf/spawn-counter snap))))
-          ;; user-domain keys the generated actions write (`:a/bump` → :n,
-          ;; `:a/tag` → :touched) plus the initial `{:n 0}`. The KEY-
-          ;; PRESERVATION oracle: the engine never silently DROPS one of
-          ;; these user keys once it is present — it adds only reserved
-          ;; `:rf/*` captures, never orphaning / discarding a user key. (The
-          ;; generated actions themselves only ever `update`/`assoc` these
-          ;; keys; none removes one — so any disappearance is the engine's.)
-          user-keys     #{:n :touched}
-          user-keys-of  (fn [d] (when (map? d)
-                                  (set/intersection user-keys (set (keys d)))))
-          failure
-          (loop [i 0, s 5005]
-            (if (= i 400)
-              nil
-              (let [[m _ s1] (gen-machine s)
-                    [evs s2] (gen-events s1)
-                    snap0    (initial-snapshot m)
-                    steps    (cons {:snap snap0} (run-sequence m evs))
-                    ;; monotone check over the running counter total
-                    [_ mono-bad]
-                    (reduce
-                      (fn [[prev _] {snap :snap}]
-                        (let [now (counter-total snap)]
-                          (if (< now prev)
-                            (reduced [now {:why :counter-rewound :prev prev :now now}])
-                            [now nil])))
-                      [(counter-total snap0) nil]
-                      steps)
-                    ;; data-non-corrupt: `:data` stays a map, AND every
-                    ;; user-domain key (`#{:n :touched}`) the engine has ever
-                    ;; carried survives into EVERY subsequent step — the engine
-                    ;; never silently drops a user key (only `:rf/*` captures
-                    ;; are added). `seen` accumulates the user keys observed so
-                    ;; far; a later step missing one of them is corruption.
-                    [_ data-bad]
-                    (reduce
-                      (fn [[seen _] {snap :snap}]
-                        (let [d (:data snap)]
-                          (cond
-                            (not (map? d))
-                            (reduced [seen {:why :data-not-a-map :data d}])
-                            ;; a previously-present user key vanished
-                            (not (set/subset? seen (set (keys d))))
-                            (reduced [seen {:why :user-key-dropped
-                                            :dropped (set/difference seen (set (keys d)))
-                                            :data d}])
-                            :else
-                            [(set/union seen (user-keys-of d)) nil])))
-                      [#{} nil]
-                      steps)]
-                (cond mono-bad [:monotone m evs mono-bad]
-                      data-bad [:data m evs data-bad]
-                      :else    (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "spawn-counter/data property failed: " (pr-str failure)))
-      ;; A positive case: a machine that genuinely spawns advances the
-      ;; counter (so the monotone check above isn't vacuously true on a
-      ;; corpus that never spawned).
-      (let [spawner {:initial :idle
-                     :data    {}
-                     :guards  shared-guards
-                     :actions shared-actions
-                     :states  {:idle    {:on {:e0 :working}}
-                               :working {:spawn {:machine-id :child/worker :start [:begin]}
-                                         :on    {:e1 :idle}}}}
-            s0 (initial-snapshot spawner)
-            r  (rf.machines/machine-transition spawner s0 [:e0])]
-        (is (= 1 (reduce + 0 (vals (:rf/spawn-counter (:snapshot r)))))
-            "entering a :spawn state bumps the in-snapshot counter to 1")))))
+  (testing ":rf/spawn-counter never rewinds, and :data stays a map that never loses a user key"
+    (let [counter-total #(reduce + 0 (vals (:rf/spawn-counter %)))
+          user-keys     #(set/intersection #{:n :touched} (set (keys %)))]
+      (is (nil? (first-failure 5005 400 (draw-with gen-machine)
+                  (fn [[m evs]]
+                    (let [snaps (run-sequence m evs)
+                          datas (map :data snaps)]
+                      (cond
+                        (not (apply <= (map counter-total snaps)))
+                        [:counter-rewound m evs (map counter-total snaps)]
 
-;; ---- INVARIANT 8: parallel declaration-order independence ------------------
+                        (not (every? map? datas))
+                        [:data-not-a-map m evs datas]
+
+                        (not (every? (fn [[a b]] (set/subset? (user-keys a) (set (keys b))))
+                                     (partition 2 1 datas)))
+                        [:user-key-dropped m evs datas])))))))))
+
+;; ---- INVARIANT 8: parallel selection ignores region declaration order ------
 
 (deftest prop-parallel-selection-is-declaration-order-independent
-  (testing "reordering an INDEPENDENT parallel machine's :regions yields the
-            SAME selected configuration (+ tag union) for the same event
-            sequence — region selection is set-like, declaration-order
-            independent. Regions are independent by construction (constant
-            guards, no shared-:data writes), which isolates SELECTION from
-            the apply-phase :data accumulation that declaration order does
-            legitimately govern. Cross-region :always coupling is covered by
-            INVARIANT 9, which keeps the writes commutative instead."
-    (let [reorder-regions
-          (fn [machine]
-            ;; Rebuild the regions map in reversed key order AND declare the
-            ;; matching `:region-order` explicitly.
-            ;;
-            ;; Declaring it is LOAD-BEARING, not belt-and-braces:
-            ;; `normalise-region-order` is idempotent by keyset — it returns a
-            ;; machine that already carries a valid `:region-order` UNCHANGED,
-            ;; and reversing the `:regions` map leaves the keyset identical. So
-            ;; re-installing the cache over an already-normalised machine keeps
-            ;; the ORIGINAL order and the "reorder" silently no-ops, making this
-            ;; property vacuous. Restating `:region-order` is the supported
-            ;; author-facing mechanism and is validated as an exact permutation.
-            (let [rs    (:regions machine)
-                  order (vec (reverse (keys rs)))
-                  rev   (into {} (map (fn [k] [k (get rs k)])) order)]
-              (rf.machines.parallel/install-region-cache
-                (-> machine
-                    (assoc :regions rev)
-                    (assoc :region-order order)))))
-          failure
-          (loop [i 0, s 8008]
-            (if (= i 300)
-              nil
-              (let [[m s1] (gen-independent-parallel-machine s)
-                    [evs s2] (gen-events s1)
-                    m'       (reorder-regions m)
-                    final-a  (:snap (last (run-sequence m evs)))
-                    final-b  (:snap (last (run-sequence m' evs)))]
-                (cond
-                  ;; the region→leaf selection must match (the :state map is
-                  ;; key-order independent under `=`)
-                  (not= (:state final-a) (:state final-b))
-                  [:selection-differs m evs (:state final-a) (:state final-b)]
-                  ;; the tag union (a set) must be identical regardless of order
-                  (not= (:tags final-a) (:tags final-b))
-                  [:tags-differ m evs (:tags final-a) (:tags final-b)]
-                  :else (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "declaration-order-independence property failed: " (pr-str failure))))))
+  (testing "reversing an independent parallel machine's :regions selects the same configuration and tags"
+    (is (nil? (first-failure 8008 300 (draw-with #(gen-parallel-machine % true))
+                (fn [[m evs]]
+                  (let [outcome #((juxt :state :tags) (final-snapshot % evs))
+                        a       (outcome m)
+                        b       (outcome (reorder-regions m (reverse (keys (:regions m)))))]
+                    (when (not= a b) [m evs a b]))))))))
 
-;; ---- INVARIANT 8 boundary: NON-commuting writes are order-SENSITIVE --------
-;;
-;; Invariant 8 holds because its regions are INDEPENDENT by construction (no
-;; shared-`:data` writes). This focused counterexample pins the OTHER side of
-;; the law the guide states (`docs/machines/parallel-states.md` — "order
-;; independence is a guarantee about SELECTION WITHIN ONE FROZEN ROUND, not an
-;; unconditional guarantee about the final outcome"): when two regions' actions
-;; write the SAME `:data` key with non-commuting values, the apply order — which
-;; declaration order governs — changes the value a subsequent selection freezes,
-;; and hence a sibling's chosen target. Reordering therefore CAN change the
-;; resolved configuration. This is the executable guard that keeps the guide's
-;; qualified claim honest against the unqualified "reordering cannot change the
-;; outcome".
-
+;; Order independence is a law about selection within one frozen round, not
+;; about the outcome (docs/machines/parallel-states.md): non-commuting writes
+;; to one key change what the next round freezes, and so a sibling's target.
 (deftest non-commuting-region-writes-are-declaration-order-sensitive
-  (testing "regions :a and :b both handle one event with ordered, non-commuting
-            writes of :x; region :c's `:always` selects its target from the
-            frozen :x. Reversing :a/:b changes the value :c freezes and thus
-            :c's resolved target — order independence is within-round selection
-            only, not an unconditional outcome guarantee"
+  (testing "regions :a and :b write :x non-commutatively on one event; region :c's :always
+            target follows the frozen :x, so reversing :a/:b changes :c's resolved state"
     (let [base {:type    :parallel
                 :data    {}
                 :guards  {:x-is-1? (fn [{d :data}] (= 1 (:x d)))
@@ -823,76 +338,35 @@
                                         :c-one {}
                                         :c-two {}}}}}
           run  (fn [order]
-                 (let [m (rf.machines.parallel/install-region-cache (assoc base :region-order order))]
-                   (:snap (last (run-sequence m [[:ev]])))))
-          ab   (run [:a :b :c])
-          ba   (run [:b :a :c])]
-      ;; last writer wins within the round → the frozen :x differs by apply order
-      (is (= 2 (get-in ab [:data :x])) "[:a :b] applies :set-x-2 last → :x=2")
-      (is (= 1 (get-in ba [:data :x])) "[:b :a] applies :set-x-1 last → :x=1")
-      ;; and that difference propagates to :c's frozen-view selection
-      (is (= :c-two (:c (:state ab)))
-          "with :x=2, :c's `:always` selected :c-two")
-      (is (= :c-one (:c (:state ba)))
-          "reversing :a/:b changed the frozen :x and hence :c's target")
-      (is (not= (:state ab) (:state ba))
-          "region reordering changed the RESOLVED configuration — the outcome
-           is not order-independent when regions' writes do not commute"))))
+                 (let [s (final-snapshot (rf.machines.parallel/install-region-cache
+                                           (assoc base :region-order order))
+                                         [[:ev]])]
+                   {:x (get-in s [:data :x]) :c (get-in s [:state :c])}))]
+      (is (= [{:x 2 :c :c-two} {:x 1 :c :c-one}]
+             [(run [:a :b :c]) (run [:b :a :c])])))))
 
-;; ---- INVARIANT 9: parent-owned parallel `:always` rounds -------------------
+;; ---- INVARIANT 9: parent-owned parallel :always rounds ---------------------
 ;;
-;; The law (Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping):
-;; `:always` TARGETING stays region-scoped, but `:always` STABILIZATION is
-;; PARENT-owned. Once the complete selected event set has applied, the parent
-;; freezes the whole configuration + `:data`, selects every enabled regional
-;; `:always` against that one frozen view, applies the preselected set in
-;; region order, then RE-FREEZES and repeats to a fixed point — all inside the
-;; one macrostep, before it commits. Two consequences this family pins:
-;;
-;;   (a) SAME-MACROSTEP CONVERGENCE — a region's `:always` guard reading a
-;;       sibling's same-macrostep `:data` write fires in THIS macrostep (the
-;;       first post-event round observes the complete event set), not on some
-;;       later event.
-;;   (b) ORDER-INDEPENDENT SELECTION ACROSS THE COUPLING — because every round
-;;       selects against a frozen view, reordering the regions cannot change
-;;       which `:always` set is selected in any round. With this family's
-;;       COMMUTATIVE writes (see below) the resolved configuration and data
-;;       are order-independent too; that data-independence is a property of the
-;;       commutative construction, NOT a general law — non-commuting apply-phase
-;;       writes to shared `:data` feed the next round's freeze and can change a
-;;       later round's selection.
-;;
-;; A region-local model — settle each region's `:always` loop before visiting
-;; the next region — would satisfy NEITHER. Under it, a region drained BEFORE
-;; the sibling it watches has applied would see no flag and strand; move that
-;; region later in the declaration and it would converge. That order
-;; sensitivity is exactly what this property detects (the minimal
-;; counterexample is pinned by `parallel_always_round_cljs_test`'s
-;; `event-round-is-order-invariant-and-sees-complete-event-set`).
-;;
-;; DISCRIMINATION BY CONSTRUCTION — every write here is COMMUTATIVE: a region
-;; only ever writes its OWN two flag keys, and only ever to the constant
-;; `true`. Disjoint key sets + constant values ⇒ apply-order cannot change the
-;; resulting `:data`, so `:data` accumulation ordering (which declaration
-;; order DOES legitimately govern) is removed as a confound. Any divergence
-;; across orderings therefore indicts SELECTION semantics, not effect order —
-;; which is what makes a failure here a real signal rather than a re-statement
-;; of apply-order.
+;; After an event applies, the PARENT freezes configuration + `:data`, selects
+;; every enabled regional `:always` against that frozen view, applies the set
+;; in region order, and re-freezes until quiescent (Spec 005 §Per-region
+;; `:always` / `:after` / `:spawn` scoping). So a region whose `:always` reads
+;; a sibling's same-macrostep write converges in that macrostep under ANY
+;; region order. A region-local settle loop fails that: a region drained before
+;; the sibling it watches strands. Every write here is region-owned and
+;; constant, so apply order cannot change `:data` — a divergence indicts
+;; selection.
 
 (def ^:private cross-region-names [:rA :rB :rC])
 
-(defn- flag-key   [rn] (keyword (str "flag-"  (name rn))))
-(defn- flag2-key  [rn] (keyword (str "flag2-" (name rn))))
+(defn- flag-key     [rn] (keyword (str "flag-"  (name rn))))
+(defn- flag2-key    [rn] (keyword (str "flag2-" (name rn))))
 (defn- flag-action  [rn] (keyword "a" (str "flag-"  (name rn))))
 (defn- flag2-action [rn] (keyword "a" (str "flag2-" (name rn))))
 (defn- flag-guard   [rn] (keyword "g" (str "flag-"  (name rn) "?")))
 (defn- flag2-guard  [rn] (keyword "g" (str "flag2-" (name rn) "?")))
 
 (def ^:private cross-region-actions
-  "Region-OWNED, COMMUTATIVE writes: region `rn` writes only `flag-rn` /
-  `flag2-rn`, and only ever to `true`. The regions' written key sets are
-  disjoint and the values constant, so applying the same set in ANY region
-  order yields the same `:data` map."
   (reduce (fn [acc rn]
             (assoc acc
                    (flag-action rn)  (fn [{d :data}] {:data (assoc d (flag-key rn) true)})
@@ -901,8 +375,6 @@
           cross-region-names))
 
 (def ^:private cross-region-guards
-  "SIBLING-reading `:always` guards — the cross-region `:data` dependency the
-  parent-round law is about. Each reads a flag some OTHER region owns."
   (reduce (fn [acc rn]
             (assoc acc
                    (flag-guard rn)  (fn [{d :data}] (true? (get d (flag-key rn))))
@@ -911,20 +383,14 @@
           cross-region-names))
 
 (defn- cross-region-body
-  "One region body for the parent-round family. `self` owns its flags;
-  `watched` is the SIBLING whose flags this region's `:always` guards read.
+  "Region `self`, whose `:always` guards read `watched`'s flags:
 
-    :s0 --ev--> :s1            (event action writes flag-SELF)
-    :s0/:s1 :always{flag-WATCHED?} --> :s2   (action writes flag2-SELF)
-    :s2     :always{flag2-WATCHED?} --> :s3  (the SECOND round's edge)
+    :s0 --ev--> :s1                          (writes flag-self)
+    :s0/:s1 --:always flag-watched?--> :s2   (writes flag2-self)
+    :s2 --:always flag2-watched?--> :s3      (drawn half the time)
 
-  Tier 1 (`:s0`/`:s1` → `:s2`) needs the sibling's EVENT write, so it can only
-  fire in a post-event round. Tier 2 (`:s2` → `:s3`) needs the sibling's
-  tier-1 ALWAYS write, so it can only fire in a round AFTER that one — which
-  is what exercises the RE-FREEZE between rounds rather than a single round.
-  No `:always` targets its declaring state (`:rf.error/machine-always-self-loop`
-  would reject that), and `:s3` is terminal, so every draw reaches a fixed
-  point well inside the depth limit."
+  The second tier can only fire a round after the first, which exercises the
+  re-freeze between rounds. `:s3` is terminal, so every draw settles."
   [state self watched]
   (let [ev     (nth event-pool (rnd state (count event-pool)))
         tier2? (zero? (rnd (lcg-next state) 2))
@@ -938,16 +404,13 @@
                               :always tier1}
                          :s2 {:tags #{(keyword (name self) "s2")}}}
                   tier2?
-                  (-> (assoc-in [:s2 :always]
-                                [{:guard (flag2-guard watched) :target :s3}])
+                  (-> (assoc-in [:s2 :always] [{:guard (flag2-guard watched) :target :s3}])
                       (assoc :s3 {:tags #{(keyword (name self) "s3")}})))}]
     [body (lcg-next (lcg-next state))]))
 
 (defn- gen-cross-region-parallel-machine
-  "Draw a parallel machine whose 2..3 regions are deliberately COUPLED across
-  the eventless freeze: region i's `:always` guards read region (i+1 mod n)'s
-  flags, so the watch relation is a cycle and every region both feeds and
-  reads a sibling. Returns `[machine next]`."
+  "2..3 regions where region i watches region (i+1 mod n), so the watch
+  relation is a cycle."
   [state]
   (let [n     (+ 2 (rnd state 2))
         names (vec (take n cross-region-names))
@@ -956,8 +419,7 @@
           (if (= i n)
             [acc s]
             (let [self      (nth names i)
-                  watched   (nth names (mod (inc i) n))
-                  [body s1] (cross-region-body s self watched)]
+                  [body s1] (cross-region-body s self (nth names (mod (inc i) n)))]
               (recur (inc i) s1 (assoc acc self body)))))]
     [(rf.machines.parallel/install-region-cache
        {:type    :parallel
@@ -967,74 +429,19 @@
         :regions regions})
      s']))
 
-(defn- permutations
-  "Every ordering of `coll` (distinct elements). `coll` here is 2..3 region
-  names, so this stays at most 6 orderings."
-  [coll]
+(defn- permutations [coll]
   (if (<= (count coll) 1)
     [(vec coll)]
-    (vec (mapcat (fn [x]
-                   (map #(vec (cons x %)) (permutations (remove #{x} coll))))
-                 coll))))
-
-(defn- reorder-regions-by
-  "Rebuild `machine`'s `:regions` in `order` and reinstall the region cache, so
-  the reordered spec is a fresh, valid machine whose canonical `:region-order`
-  is `order`.
-
-  `:region-order` is restated EXPLICITLY because `normalise-region-order` is
-  idempotent by keyset: a machine already carrying a valid `:region-order` is
-  returned unchanged, and permuting `:regions` does not change the keyset — so
-  re-installing alone would keep the original order and silently no-op the
-  reorder. An explicit `:region-order` is the supported author-facing
-  mechanism and is validated as an exact permutation of the keyset."
-  [machine order]
-  (let [rs (:regions machine)]
-    (rf.machines.parallel/install-region-cache
-      (-> machine
-          (assoc :regions (into {} (map (fn [k] [k (get rs k)])) order))
-          (assoc :region-order (vec order))))))
+    (vec (mapcat (fn [x] (map #(vec (cons x %)) (permutations (remove #{x} coll)))) coll))))
 
 (deftest prop-parallel-always-rounds-are-parent-owned
-  (testing "a parallel machine whose regions' :always guards read a SIBLING's
-            same-macrostep :data write resolves to the SAME configuration and
-            the SAME :data under EVERY :regions declaration order — parent-owned
-            frozen rounds, not per-region drains. Writes are commutative by
-            construction (disjoint region-owned keys, constant values), so
-            apply-order cannot explain a divergence; only selection can."
-    (let [failure
-          (loop [i 0, s 9009]
-            (if (= i 300)
-              nil
-              (let [[m s1]   (gen-cross-region-parallel-machine s)
-                    [evs s2] (gen-events s1)
-                    orders   (permutations (vec (keys (:regions m))))
-                    base     (:snap (last (run-sequence m evs)))
-                    bad      (some (fn [order]
-                                     (let [m'  (reorder-regions-by m order)
-                                           fin (:snap (last (run-sequence m' evs)))]
-                                       (cond
-                                         (not= (:state base) (:state fin))
-                                         {:why :state-differs :order order
-                                          :base (:state base) :got (:state fin)}
-                                         (not= (:data base) (:data fin))
-                                         {:why :data-differs :order order
-                                          :base (:data base) :got (:data fin)}
-                                         (not= (:tags base) (:tags fin))
-                                         {:why :tags-differ :order order
-                                          :base (:tags base) :got (:tags fin)})))
-                                   orders)]
-                (if bad
-                  ;; MINIMIZED counterexample: the region bodies + the event
-                  ;; sequence are the whole repro. The `:guards` / `:actions`
-                  ;; vocabularies are fixed and shared, and printing them would
-                  ;; bury the signal under fn objects — so report the shape,
-                  ;; not the machine.
-                  [:parent-round-divergence
-                   {:regions      (:regions m)
-                    :region-order (:region-order m)
-                    :events       evs
-                    :divergence   bad}]
-                  (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "parent-owned-always-rounds property failed: " (pr-str failure))))))
+  (testing "coupled regions resolve to the same state, data and tags under every :regions order"
+    (is (nil? (first-failure 9009 300 (draw-with gen-cross-region-parallel-machine)
+                (fn [[m evs]]
+                  (let [outcome #((juxt :state :data :tags) (final-snapshot % evs))
+                        base    (outcome m)]
+                    (some (fn [order]
+                            (let [got (outcome (reorder-regions m order))]
+                              (when (not= base got)
+                                {:regions (:regions m) :events evs :order order :base base :got got})))
+                          (permutations (keys (:regions m)))))))))))
