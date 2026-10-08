@@ -1,49 +1,21 @@
 (ns re-frame2-pair-mcp.read-ui-test
-  "Unit tests for the typed ui/read op — read-ui.
-
-  Two layers:
-
-    1. Form composition — `read-ui-tool` builds a single
-       `(re-frame2-pair.runtime/ui-read {...})` form. We stub
-       `cljs-eval-value` and capture the emitted form, asserting the
-       chosen entry point (view-id / point / selector) and the opts
-       (max-text / frame) ride into the runtime call, and that the
-       form is READ-ONLY (no DOM mutation host-form leaked into it).
-
-    2. Tool wiring — preflight + envelope passthrough. We pin the wire
-       shape the runtime returns: the producing :entity (view-id +
-       source-coord + render-key + subs-read), the structured :content
-       ({:tag :text :attrs}), the :rf.size/large-elided text passthrough
-       (privacy / elision), the missing-entry-point gate, and the
-       bad-selector error reason.
-
-  The browser-side semantics (does the view<->DOM map resolve? does
-  project-egress redact?) run in a real tab — exercised by the live
-  conformance corpus, out of scope for a node-runtime unit suite. This
-  suite pins the tool's outer contract; the runtime ns owns the inner
-  read."
+  "Unit tests for the typed ui/read op — read-ui: the
+  `(re-frame2-pair.runtime/ui-read {...})` form it composes from the MCP
+  args, and the envelope it forwards. The read itself runs browser-side."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [clojure.string :as str]
-            [applied-science.js-interop :as j]
+            [cljs.reader]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]))
 
 (defn- fresh-conn []
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    ;; Pretend the preload is already confirmed so the probe resolves
-    ;; synchronously and we exercise the form-building / forward path.
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; ---------------------------------------------------------------------------
-;; Form composition — capture the emitted form via a recording stub.
-;; ---------------------------------------------------------------------------
-
 (defn- with-captured-form!
-  "Stub `cljs-eval-value` to record the emitted form string into `seen`
-  (an atom) and resolve to `canned`, then run `body-fn`, restoring the
-  original in `.finally`."
+  "Stub `cljs-eval-value` to record the emitted form into `seen` and
+  resolve to `canned`, run `body-fn`, then restore."
   [seen canned body-fn]
   (let [orig nrepl/cljs-eval-value
         stub (fn
@@ -54,77 +26,30 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
-(deftest form-carries-view-id-entry-point
+(deftest form-carries-the-entry-point-and-opts
+  ;; A non-string :frame from a malformed client is dropped, not thrown on.
   (async done
-    (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true}
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn)
-                                    #js {:view-id ":my.app/counter"})))
-          (.then (fn [_]
-                   (let [form @seen]
-                     (is (str/includes? form "re-frame2-pair.runtime/ui-read")
-                         "calls the runtime ui-read fn")
-                     (is (str/includes? form ":view-id") "view-id opt rides")
-                     (is (str/includes? form ":my.app/counter")
-                         "the keyword view-id is embedded")
-                     ;; READ-ONLY by construction — no DOM mutation host-form.
-                     (doseq [mutator [".setAttribute" ".dispatchEvent"
-                                      "set! (.-" ".innerHTML" ".click"]]
-                       (is (not (str/includes? form mutator))
-                           (str "read-ui form must be read-only — found " mutator))))
-                   (done)))))))
-
-(deftest form-carries-point-max-text-and-frame
-  (async done
-    (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true}
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn)
-                                    #js {:point #js {:x 12 :y 34}
-                                         :max-text 100
-                                         :frame ":stories"})))
-          (.then (fn [_]
-                   (let [form @seen]
-                     (is (str/includes? form ":point") "point opt rides")
-                     (is (str/includes? form "12") "point x embedded")
-                     (is (str/includes? form "34") "point y embedded")
-                     (is (str/includes? form ":max-text 100") "max-text knob rides")
-                     (is (str/includes? form ":frame :stories") "frame coerced to keyword"))
-                   (done)))))))
-
-(deftest non-string-frame-does-not-throw-and-drops-cleanly
-  ;; A local :frame coercion doing a bare `(str/replace frame #"^:" "")`
-  ;; with no type guard would crash here: `str/replace` requires a
-  ;; STRING first arg, so a JSON :frame of any non-string type
-  ;; (number/boolean/array/object — e.g. a malformed client) would throw
-  ;; a raw synchronous TypeError BEFORE any Promise/.catch boundary — an
-  ;; uncaught crash, not a clean `:ok? false`.
-  ;;
-  ;; :frame routes through the shared `args/->frame-keyword` (->
-  ;; `base-args/fresh-keyword`), the same coercer every sibling read tool
-  ;; (get-path/read-sub/read-dom/handler-meta) uses — its
-  ;; `:else nil` fallback resolves a non-string/non-keyword :frame to
-  ;; nil (dropped from the emitted form; the runtime resolves the
-  ;; operating frame itself) instead of throwing.
-  ;;
-  ;; The call to `read-ui-tool` below IS the regression guard: an
-  ;; unguarded coercion would throw synchronously right here, failing
-  ;; the test with an uncaught exception rather than a normal assertion
-  ;; failure.
-  (async done
-    (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true}
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn)
-                                    #js {:selector "#save" :frame 42})))
-          (.then (fn [_]
-                   (is (not (str/includes? @seen ":frame"))
-                       "a non-string (number) :frame is dropped, not embedded raw")
-                   (done)))))))
+    (-> (reduce
+          (fn [p [args expected]]
+            (.then p (fn [_]
+                       (let [seen (atom nil)]
+                         (-> (with-captured-form! seen {:ok? true}
+                               #(read-ui/read-ui-tool (fresh-conn) args))
+                             (.then (fn [_]
+                                      (is (= expected (cljs.reader/read-string @seen))
+                                          (pr-str expected)))))))))
+          (js/Promise.resolve nil)
+          [[#js {:view-id ":my.app/counter"}
+            '(re-frame2-pair.runtime/ui-read {:max-text 2000 :view-id :my.app/counter})]
+           [#js {:point #js {:x 12 :y 34} :max-text 100 :frame ":stories"}
+            '(re-frame2-pair.runtime/ui-read {:max-text 100 :point {:x 12 :y 34} :frame :stories})]
+           [#js {:selector "#save" :frame 42}
+            '(re-frame2-pair.runtime/ui-read {:max-text 2000 :selector "#save"})]])
+        (.catch (fn [e] (is false (str "drive rejected: " e))))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Tool wiring — preflight + envelope passthrough.
+;; Tool wiring — the runtime envelope rides back :build-stamped.
 ;; ---------------------------------------------------------------------------
 
 (deftest happy-returns-entity-and-content
@@ -139,65 +64,30 @@
                   :content {:tag "div" :text "Count: 3"
                             :attrs {"class" "counter" "data-count" "3"}}}]
       (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn) #js {:view-id ":my.app/counter"})))
+            #(read-ui/read-ui-tool (fresh-conn) #js {:view-id ":my.app/counter"}))
           (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [edn     (tu/extract-edn r)
-                         entity  (:entity edn)
-                         content (:content edn)]
-                     (is (true? (:ok? edn)))
-                     (is (= :app (:build edn)) "echoes the resolved :build keyword")
-                     (is (= :view-id (:via edn)) "entry point echoed")
-                     ;; The producing ENTITY — the headline of ui/read.
-                     (is (= :my.app/counter (:view-id entity)) "producing view-id")
-                     (is (= "/abs/my/app.cljs" (get-in entity [:source-coord :file]))
-                         "source-coord :file augmented via handler-meta")
-                     (is (= 42 (get-in entity [:source-coord :line])) "source-coord :line")
-                     (is (number? (:render-key entity)) "render-key present")
-                     (is (= [[:count] [:user]] (:subs-read entity)) "subs-read query-vectors")
-                     ;; The structured CONTENT.
-                     (is (= "div" (:tag content)) "content :tag")
-                     (is (= "Count: 3" (:text content)) "content :text")
-                     (is (= "3" (get-in content [:attrs "data-count"])) "content data-* attr"))
+                   (is (= [false (assoc canned :build :app)]
+                          [(tu/error? r) (tu/extract-edn r)]))
                    (done)))))))
 
 (deftest bad-selector-error-forwarded
-  ;; A genuine `:ok? false` runtime failure (a thrown malformed-selector)
-  ;; MUST ride as `:isError true`, per spec/003-Tool-Catalogue.md
-  ;; §*Every `:ok? false` response is `isError: true`*.
-  ;; Routing every map through the shared `map-result-or-blank` /
-  ;; `ok-text` path would ship this failure as `isError:false` and make
-  ;; it cache-eligible.
+  ;; Every :ok? false is isError (spec/003-Tool-Catalogue.md), which also
+  ;; keeps a transient failure out of the response cache.
   (async done
     (let [canned {:ok? false :reason :rf.error/ui-read-bad-selector
                   :message "bad selector"}]
       (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn) #js {:selector "###"})))
+            #(read-ui/read-ui-tool (fresh-conn) #js {:selector "###"}))
           (.then (fn [r]
-                   (is (tu/error? r)
-                       "a thrown bad-selector failure is flagged isError")
-                   (let [edn (tu/extract-edn r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :rf.error/ui-read-bad-selector (:reason edn)))
-                     (is (= :app (:build edn))
-                         "the failure envelope is :build-stamped too"))
+                   (is (= [true (assoc canned :build :app)]
+                          [(tu/error? r) (tu/extract-edn r)]))
                    (done)))))))
 
 (deftest blank-eval-result-becomes-structured-error-not-host-failure
-  ;; A blank eval result (nil) must not produce a null structuredContent
-  ;; that the SDK rejects at the transport layer.
   (async done
     (-> (tu/with-stubbed-eval! nil
-          (fn []
-            (read-ui/read-ui-tool (fresh-conn) #js {:selector "body"})))
+          #(read-ui/read-ui-tool (fresh-conn) #js {:selector "body"}))
         (.then (fn [r]
-                 (is (tu/error? r))
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :rf.error/read-ui-blank-result (:reason edn))))
-                 (is (some? (j/get r :structuredContent))
-                     "structuredContent must NOT be null (a null fails the SDK outputSchema check)")
-                 (is (object? (j/get r :structuredContent)))
+                 (is (= [true {:ok? false :reason :rf.error/read-ui-blank-result :build :app}]
+                        [(tu/error? r) (dissoc (tu/extract-edn r) :hint)]))
                  (done))))))
