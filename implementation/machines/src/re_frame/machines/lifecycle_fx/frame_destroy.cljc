@@ -70,7 +70,8 @@
 
   A restored SPAWNED actor's snapshot carries `:rf/machine-type` at its
   root (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
-  — actor_liveness_test:213). The walk SPLITS on that durable
+  — `actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
+  The walk SPLITS on that durable
   discriminator: spawned actors run the full
   `rf.machines.lifecycle-fx.destroy/destroy-single-actor!` teardown (registrar
   cleanup, timer cancel, snapshot dissoc); true singletons keep the
@@ -102,7 +103,8 @@
   of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps it on
   every spawned actor (keyword TYPE or inline `:definition`), and a
   singleton's `build-initial-snapshot` snapshot never carries it
-  (actor_liveness_test:213-216). The discriminator survives
+  (`actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
+  The discriminator survives
   restore/hydration/`replace-runtime-db!` because it rides the durable
   snapshot value, so a restored spawned actor absent from the transient
   spawn-order atom is still recognised as spawned."
