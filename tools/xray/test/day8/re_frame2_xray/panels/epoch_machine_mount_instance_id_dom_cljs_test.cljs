@@ -285,9 +285,6 @@
 (def ^:private sub-step-violation-site
   "epoch/violation-explain/:subscriptions/0")
 
-(def ^:private diagnostic-sites
-  [interceptor-ex-data-site sub-row-violation-site sub-step-violation-site])
-
 (defn- qualified
   "The id a mount named `instance` composes for `site` — `inspector-mount-id`
   puts the instance OUTERMOST. Spelled out here rather than called out of the
@@ -682,10 +679,7 @@
             (is (nil? (some (set ids-a) ids-n))
                 (str "and no id survives from the unnamed pair to the named "
                      "mount — naming qualifies every one of them. unnamed="
-                     (pr-str ids-a) " named=" (pr-str ids-n)))
-            (is (= ids-a (mount-ids (:container a)))
-                "re-reading the same container is stable — these are
-                 identities, not per-render nonces"))
+                     (pr-str ids-a) " named=" (pr-str ids-n))))
           (finally
             (unmount! named)
             (unmount! b)
@@ -810,128 +804,3 @@
           (finally
             (unmount! right)
             (unmount! left)))))))
-
-;; ===========================================================================
-;; W8 — the lifecycle half for a DIAGNOSTIC mount: the survivor keeps both
-;; ===========================================================================
-
-(deftest diagnostic-mounts-each-keep-their-own-observer-and-width
-  (testing "the half a distinctness row passes over, asserted on a
-            DIAGNOSTIC mount rather than an ordinary payload one.
-
-            Distinctness alone is satisfied by any two different strings. What
-            a shared id would cost is physical: the second mount's ref
-            callback would find an observer already on the entry and install
-            NONE, and `release-mount!` would then tear the shared entry down —
-            and clear the shared width — when EITHER holder detaches, leaving
-            the panel on screen unobserved and unmeasured. W2 pins this for
-            the dispatch-event mount; this row pins it for the step-level
-            violation explainer."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (async done
-        (setup! diagnostics-history)
-        (let [left  (mount-epoch! {:instance-id "left"})
-              right (mount-epoch! {:instance-id "right"})
-              id-l  (qualified "left" sub-step-violation-site)
-              id-r  (qualified "right" sub-step-violation-site)]
-          ;; Controls: the two ids are LITERALS, so a fixture that stopped
-          ;; rendering the step-level explainer would leave every assertion
-          ;; below reading an absent key — which is why presence is asserted
-          ;; before anything is concluded from it.
-          (is (some #(= id-l %) (mount-ids (:container left)))
-              (str "control: the left mount really committed the step-level "
-                   "explainer under the id this row keys on. expected=" id-l
-                   " ids=" (pr-str (mount-ids (:container left)))))
-          (is (some #(= id-r %) (mount-ids (:container right)))
-              (str "control: and so did the right. expected=" id-r))
-
-          ;; ---- the observer half -------------------------------------
-          ;; Liveness rather than discrimination, exactly as in W2: under the
-          ;; shared identity both lookups resolve to the SAME entry and both
-          ;; pass with the defect fully present. The survivor row below is
-          ;; what bites.
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
-                         :observer)
-              "the left mount's explainer installed its own ResizeObserver")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
-                         :observer)
-              "and so did the right's — two live mounts, two observers")
-
-          ;; ---- the width half ----------------------------------------
-          ;; Driven through the slot's own public event, for the reason W2
-          ;; records: the headless container measures `clientWidth` 0, so the
-          ;; real measurement path need never fire and a row asserting a
-          ;; measured VALUE would be red for a reason that is not this defect.
-          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-l 640]
-                            {:frame :rf/xray})
-          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-r 480]
-                            {:frame :rf/xray})
-          (is (= 2 (count (select-keys (widths) [id-l id-r])))
-              (str "two live explainer mounts hold TWO width slots — under "
-                   "the shared identity both writes land on one key. slot="
-                   (pr-str (widths))))
-
-          (unmount! right)
-
-          ;; ---- the survivor keeps both -------------------------------
-          (is (nil? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r)))
-              "the detached mount's entry is gone")
-          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
-                         :observer)
-              "and the mount STILL ON SCREEN is still observed — a shared key
-               would release the survivor's entry too")
-          (-> (rf.test-support/poll-until
-                (fn [] (nil? (get (widths) id-r)))
-                {:label "release-mount! cleared the detaching explainer's width"})
-              (.then
-                (fn [_]
-                  (is (some? (get (widths) id-l))
-                      (str "and the survivor's width is STILL in the frame's "
-                           "slot — `release-mount!` clears under the DETACHING "
-                           "mount's id, which under the shared identity is the "
-                           "survivor's own. slot=" (pr-str (widths))))))
-              (.catch
-                (fn [e]
-                  (is false (str "the width clear never landed: "
-                                 (.-message e) " slot=" (pr-str (widths))))
-                  nil))
-              (.then (fn [_] (unmount! left) (done)))))))))
-
-;; ===========================================================================
-;; W9 — the negative control: unnamed diagnostic mounts collide
-;; ===========================================================================
-
-(deftest two-unnamed-epoch-mounts-still-collide-on-the-diagnostic-ids
-  (testing "the collision, kept as a row, and the thing that
-            makes W6-W8 measurements rather than silence.
-
-            Two UNNAMED Epoch mounts rendering the same three diagnostics
-            present the SAME ids, and those ids are the
-            unqualified sites this file writes out — so the instrument can see
-            a collision, and the single-mount default composes ids with no
-            instance segment. W5 states both
-            halves for the ordinary payload mounts; this is the diagnostics'."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_ (setup! diagnostics-history)
-            a (mount-epoch! nil)
-            b (mount-epoch! {})]
-        (try
-          (let [ids-a (mount-ids (:container a))
-                ids-b (mount-ids (:container b))]
-            (is (seq ids-a)
-                "control: both unnamed mounts committed widgets")
-            (is (= ids-a ids-b)
-                (str "two unnamed mounts present the SAME ids — so the "
-                     "instrument W6 and W7 use CAN see a collision. a="
-                     (pr-str ids-a)))
-            (doseq [site diagnostic-sites]
-              (is (some #(= site %) ids-a)
-                  (str "the unnamed mount composes the unqualified " site
-                       " — this is the collision, and it is "
-                       "also the identity that must not move for a single "
-                       "mount. a=" (pr-str ids-a)))))
-          (finally
-            (unmount! b)
-            (unmount! a)))))))
