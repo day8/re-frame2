@@ -1,25 +1,10 @@
 (ns re-frame.root-on-target-validation-test
-  "A non-parallel (flat/compound) machine root's own `:on` is
-  the ANCESTOR-FALLBACK transition slot: per Spec 005 §Transition resolution
-  steps 6-7, `pick-transition` consults it, stamped with decl-path `[]`,
-  when no state-path node handles the event. Target resolution at that
-  decl-path is exactly like a state's `:on` — a keyword resolves as a
-  TOP-LEVEL sibling (`target-path`'s `(drop-last [])` → `[]`).
-
-  `validate-transition-targets!` checks this root slot as well as nodes under
-  `:states`, so malformed or unresolved targets fail at registration.
-
-  This suite pins:
-   1. an unresolved keyword root :on target fails at REGISTRATION with
-      :rf.error/machine-unresolved-target (not later, at dispatch);
-   2. an unresolved VECTOR root :on target fails the same way;
-   3. a malformed-shape root :on target (neither keyword nor vector) fails
-      with :rf.error/machine-bad-target.
-
-  A valid root :on target firing as the ancestor fallback is pinned by the
-  `machine-root-on-fallback` conformance fixture; a :type :parallel root's
-  region-qualified :on is `validate-parallel!`'s job, pinned in
-  `parallel_root_on_test.clj`."
+  "A non-parallel machine root's own `:on` is the ancestor-fallback transition
+  slot (Spec 005 §Transition resolution, decl-path `[]`), and
+  `validate-transition-targets!` checks its targets at REGISTRATION: a keyword
+  resolves as a top-level sibling. A firing root fallback is pinned by the
+  `machine-root-on-fallback` conformance fixture; a parallel root's
+  region-qualified `:on` is pinned in `parallel_root_on_test.clj`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -35,8 +20,6 @@
   [machine-id machine]
   (try (rf/reg-machine machine-id machine) nil
        (catch clojure.lang.ExceptionInfo e e)))
-
-;; ---- an unresolved or malformed root :on target fails registration ------
 
 (deftest root-on-bad-targets-are-rejected-at-registration
   (doseq [[label machine-id target expected]
