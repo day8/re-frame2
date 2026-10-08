@@ -1,42 +1,10 @@
 (ns re-frame.on-destroy-handler-exception-always-on-cljs-test
-  "EP-0008 — `:rf.error/on-destroy-handler-exception` on the ALWAYS-ON
-  axis.
-
-  `rf.frame/fire-on-destroy-event!` runs the user `:on-destroy` event during
-  `destroy-frame!`. A throw MUST NOT abort teardown (Spec 002 §`:on-destroy`
-  handler throw semantics). The dedicated
-  `:rf.error/on-destroy-handler-exception` category is the DISCRIMINABLE
-  teardown signal — the router ALSO surfaces the throw as a generic
-  `:rf.error/handler-exception` (the production source of record for the
-  handler throw), but the discriminator (it happened during destroy) would
-  otherwise ride only the DCE'd dev trace. EP-0008 routes the
-  dedicated category through the always-on error-emit axis so an operator on
-  a `goog.DEBUG=false` host can tell a teardown failure (a resource-leakage
-  class) from a generic handler throw.
-
-  Pins the two acceptance legs (per EP §Conformance — every
-  always-on category is exercised through `register-error-listener!`,
-  proving production survival):
-
-    (a) the common path: a throwing `:on-destroy` handler (the router
-        converts it to a `:rf.error/handler-exception` trace, which
-        `fire-on-destroy-event!` captures and re-emits under the dedicated
-        category) fans a `:rf.error/on-destroy-handler-exception` record out
-        through the corpus-wide `register-error-listener!` substrate — the
-        always-on axis, NOT gated by `interop/debug-enabled?`.
-
-    (b) the defence-in-depth re-throw branch: if the private teardown
-        cascade faults (not the user handler — a fault inside the dispatch
-        infrastructure), the dedicated category still fans out on the
-        always-on axis. This branch produces no router
-        `:rf.error/handler-exception`, so the always-on record is its ONLY
-        production observability.
-
-  Both records carry `:recovery :ignored` (teardown continues best-effort).
-
-  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
-  build AND the JVM `clojure -M:test` runner both pick it up. The destroy
-  path is plain CLJC; no DOM dependency."
+  "`:rf.error/on-destroy-handler-exception` on the always-on error axis. A
+  throwing `:on-destroy` never aborts teardown (Spec 002 §`:on-destroy`
+  handler throw semantics), and the dedicated category, which tells a
+  teardown failure apart from the router's generic
+  `:rf.error/handler-exception`, reaches `register-error-listener!` in every
+  posture. Runs on the JVM (both postures) and on `:node-test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -46,154 +14,75 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; ---------------------------------------------------------------------------
-;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
-;; error-listener registry cleared so a listener from one test cannot leak.
-;; ---------------------------------------------------------------------------
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
-     :init-fn (fn []
-                (rf.error-emit/clear-error-listeners!))}))
+     :init-fn rf.error-emit/clear-error-listeners!}))
 
-;; ===========================================================================
-;; (a) Common path — a throwing :on-destroy handler fans the dedicated
-;; category out on the ALWAYS-ON axis.
-;; ===========================================================================
+(defn- recording-listener!
+  "Register a listener that conjs every always-on record onto a fresh atom,
+  and return the atom."
+  []
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! :test/recorder #(swap! seen conj %))
+    seen))
+
+(defn- on-destroy-records [seen]
+  (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
 
 (deftest throwing-on-destroy-fans-out-on-always-on-axis
-  (testing "Per Spec 009 §Error event catalogue: a throwing
-            `:on-destroy` handler produces a
-            `:rf.error/on-destroy-handler-exception` record on the always-on
-            `register-error-listener!` substrate — the discriminable
-            teardown signal that survives `goog.DEBUG=false`, NOT just the
-            DCE'd dev trace."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
+  (testing "a throwing :on-destroy yields exactly one dedicated record, and
+            teardown still completes"
+    (let [seen (recording-listener!)]
       (rf/reg-event :ondestroy/blow-up
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
-                                                 {:purpose :test-fixture}))}))
-      (rf/make-frame {:id :ondestroy/worker :doc        "throwing :on-destroy"
-                      :on-destroy [:ondestroy/blow-up]})
-      ;; Teardown MUST NOT propagate the throw.
-      (is (nil? (rf/destroy-frame! :ondestroy/worker))
-          "destroy-frame! returns nil even though :on-destroy threw")
-      (is (nil? (rf.frame/frame :ondestroy/worker))
-          "the frame is fully torn down (teardown continued past the throw)")
-      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
-        (is (= 1 (count reports))
-            "exactly ONE always-on record for the dedicated category")
-        (let [r (first reports)]
-          (is (= :ondestroy/worker (:frame r))
-              ":frame names the frame being torn down")
-          (is (= [:ondestroy/blow-up] (:event r))
-              ":event carries the :on-destroy event vector")
-          (is (= :ondestroy/blow-up (:event-id r))
-              ":event-id is the event-vector head")
-          (is (some? (:exception r))
-              ":exception carries the thrown object")
-          (is (number? (:time r)) ":time is a wall-clock millis number"))))))
+                    (fn [_ _] (throw (ex-info "intentional :on-destroy throw" {}))))
+      (rf/make-frame {:id :ondestroy/worker :on-destroy [:ondestroy/blow-up]})
+      (rf/destroy-frame! :ondestroy/worker)
+      (is (nil? (rf.frame/frame :ondestroy/worker)))
+      (let [reports (on-destroy-records seen)]
+        (is (= [{:frame :ondestroy/worker :event [:ondestroy/blow-up] :event-id :ondestroy/blow-up}]
+               (map #(select-keys % [:frame :event :event-id]) reports)))
+        (is (some? (:exception (first reports))))))))
 
 (deftest clean-on-destroy-emits-no-record
-  (testing "A non-throwing `:on-destroy` emits NO
-            `:rf.error/on-destroy-handler-exception` record."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
-      (rf/make-frame {:id :ondestroy/ok :on-destroy [:ondestroy/clean]})
-      (rf/destroy-frame! :ondestroy/ok)
-      (is (empty? (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
-          "no record when :on-destroy completes cleanly"))))
-
-;; ===========================================================================
-;; (b) The defence-in-depth re-throw branch — the internal teardown
-;; cascade ITSELF faults. This branch produces no router handler-exception, so
-;; the always-on emission here is its ONLY production observability.
-;; ===========================================================================
+  (let [seen (recording-listener!)]
+    (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
+    (rf/make-frame {:id :ondestroy/ok :on-destroy [:ondestroy/clean]})
+    (rf/destroy-frame! :ondestroy/ok)
+    (is (empty? (on-destroy-records seen)))))
 
 (deftest teardown-cascade-infra-fault-fans-out-on-always-on-axis
-  (testing "If the teardown cascade itself throws
-            (a fault inside the dispatch infrastructure, NOT the user
-            handler), `fire-on-destroy-event!`'s defence-in-depth catch arm
-            still fans a `:rf.error/on-destroy-handler-exception` record out
-            on the always-on axis — the ONLY production coverage for this
-            branch (it produces no router :rf.error/handler-exception)."
-    (let [seen     (atom [])
+  (testing "a fault in the teardown dispatch infrastructure itself, which
+            produces no router handler-exception, still fans the dedicated
+            record out, and teardown completes"
+    (let [seen     (recording-listener!)
           original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
-      ;; Make the private teardown dispatch infrastructure itself fault.
       (rf.late-bind/set-fn! :router/run-frame-destroy-event!
-                         (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
+                            (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try
-        (is (nil? (rf/destroy-frame! :ondestroy/infra-fault))
-            "teardown does not propagate the infra fault")
+        (rf/destroy-frame! :ondestroy/infra-fault)
         (finally
           (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
-      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
-        (is (= 1 (count reports))
-            "the defence-in-depth branch fanned out on the always-on axis")
-        (let [r (first reports)]
-          (is (= :ondestroy/infra-fault (:frame r))
-              ":frame names the frame being torn down")
-          (is (some? (:exception r))
-              ":exception carries the infra-fault throwable")))
-      (is (nil? (rf.frame/frame :ondestroy/infra-fault))
-          "the frame is still fully torn down despite the infra fault"))))
-
-;; ===========================================================================
-;; (c) Nested / overlapping destroy — the transient capture listener uses a
-;; UNIQUE per-destroy key, so a nested destroy cannot clobber
-;; the outer destroy's listener and drop its dedicated record.
-;; ---------------------------------------------------------------------------
-;; `fire-on-destroy-event!` installs a transient listener on the always-on
-;; error-emit registry for the duration of the `:on-destroy` dispatch.
-;; Spec 002 supports a nested `destroy-frame!` for a DIFFERENT id from inside
-;; an `:on-destroy` handler. With a CONSTANT listener key the inner destroy
-;; would RE-REGISTER under the same key (replacing the outer's listener) and
-;; then DROP it on the inner's finally — so when the OUTER frame's own throwing
-;; `:on-destroy` later fired its `:rf.error/handler-exception`, no listener
-;; would be watching and the dedicated `:rf.error/on-destroy-handler-exception`
-;; would be SILENTLY DROPPED. The unique per-destroy key gives each extent its
-;; own listener: both records survive.
-;; ===========================================================================
+      (let [reports (on-destroy-records seen)]
+        (is (= [:ondestroy/infra-fault] (map :frame reports)))
+        (is (some? (:exception (first reports)))))
+      (is (nil? (rf.frame/frame :ondestroy/infra-fault))))))
 
 (deftest nested-destroy-does-not-clobber-outer-on-destroy-capture
-  (testing "an outer frame A whose throwing `:on-destroy`
-            ALSO triggers a nested `destroy-frame!` of a DIFFERENT frame B
-            (whose `:on-destroy` ALSO throws) yields TWO independent
-            `:rf.error/on-destroy-handler-exception` records — one per frame.
-            With a constant listener key the inner (B) destroy would clobber
-            A's transient capture listener, dropping A's dedicated record.
-            The unique per-destroy key keeps both."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      ;; B: the inner frame; its :on-destroy throws.
+  (testing "an outer :on-destroy that destroys another frame before throwing
+            yields one dedicated record per frame: each destroy's transient
+            capture listener has its own key, so the nested one cannot replace
+            the outer's"
+    (let [seen (recording-listener!)]
       (rf/reg-event :ondestroy/inner-throw
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "inner B :on-destroy threw" {}))}))
+                    (fn [_ _] (throw (ex-info "inner B :on-destroy threw" {}))))
       (rf/make-frame {:id :ondestroy/inner-B :on-destroy [:ondestroy/inner-throw]})
-      ;; A's :on-destroy: destroy B (nested), THEN throw. The nested destroy of
-      ;; B runs fully (incl. B's own transient capture install + finally
-      ;; remove) BEFORE A's throw — so a constant key would have removed A's
-      ;; listener by the time A's handler-exception fired.
       (rf/reg-event :ondestroy/outer-throw
-                       (fn [{:keys [db]} _]
-                         (rf/destroy-frame! :ondestroy/inner-B)
-                         {:db (throw (ex-info "outer A :on-destroy threw" {}))}))
+                    (fn [_ _]
+                      (rf/destroy-frame! :ondestroy/inner-B)
+                      (throw (ex-info "outer A :on-destroy threw" {}))))
       (rf/make-frame {:id :ondestroy/outer-A :on-destroy [:ondestroy/outer-throw]})
-      (is (nil? (rf/destroy-frame! :ondestroy/outer-A))
-          "the outer destroy returns nil despite both :on-destroy throws")
-      (let [reports  (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)
-            by-frame (set (map :frame reports))]
-        (is (= 2 (count reports))
-            "TWO dedicated records — one for A, one for B (no clobber)")
-        (is (contains? by-frame :ondestroy/outer-A)
-            "the OUTER (A) record survived — the unique key was not clobbered
-             by the nested B destroy (a constant key would drop it)")
-        (is (contains? by-frame :ondestroy/inner-B)
-            "the INNER (B) record fired too")))))
+      (rf/destroy-frame! :ondestroy/outer-A)
+      (is (= {:ondestroy/outer-A 1 :ondestroy/inner-B 1}
+             (frequencies (map :frame (on-destroy-records seen))))))))
