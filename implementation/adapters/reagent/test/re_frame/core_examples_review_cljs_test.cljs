@@ -29,14 +29,14 @@
 (deftest reciprocal-zero-uses-the-spreadsheet-error
   (doseq [formula ["=(/ 0)" "=(/ (- 2 2))" "=(/ A1)" "=(+ 1 (/ 0))"]]
     (is (= :error/div-by-zero (formula-value formula {})) formula))
-  (is (= 0.25 (formula-value "=(/ 4)" {})))
-  (is (= 0 (formula-value "=(/ 0 4)" {}))
-      "A zero numerator is valid when there is a nonzero divisor."))
+  (is (= [0.25 0] [(formula-value "=(/ 4)" {}) (formula-value "=(/ 0 4)" {})])
+      "A reciprocal of a nonzero value is valid, as is a zero numerator over a nonzero divisor."))
 
 (deftest padded-cell-references-read-the-visible-cell
   (let [cell-map {"A1" {:raw "7" :formula? false :ast nil :deps #{}}}]
-    (is (= 8 (formula-value "=(+ A01 1)" cell-map)))
-    (is (= #{"A1"} (cells/collect-deps (cells/parse-formula "=(+ A001 1)"))))))
+    (is (= [8 #{"A1"}]
+           [(formula-value "=(+ A01 1)" cell-map)
+            (cells/collect-deps (cells/parse-formula "=(+ A001 1)"))]))))
 
 (deftest resize-keeps-the-canvas-and-history-inert-until-close
   (let [frame (rf/make-frame {:id ::drawer :platform :client})
@@ -46,12 +46,10 @@
     (send! [:drawer/add-circle 50 50])
     (send! [:drawer/add-circle 150 50])
     (send! [:drawer/undo])
-    (is (boolean (read! :drawer/can-undo?)))
-    (is (boolean (read! :drawer/can-redo?)))
+    (is (= [true true] [(boolean (read! :drawer/can-undo?)) (boolean (read! :drawer/can-redo?))]))
     (send! [:drawer/open-dialog 1])
     (testing "Both history controls are unavailable during the resize"
-      (is (not (read! :drawer/can-undo?)))
-      (is (not (read! :drawer/can-redo?))))
+      (is (= [false false] [(boolean (read! :drawer/can-undo?)) (boolean (read! :drawer/can-redo?))])))
     (let [html (rf/with-frame frame
                  (rds/render-to-static-markup [drawer/drawer-view]))]
       (is (str/includes? html "inert=\"\"")
