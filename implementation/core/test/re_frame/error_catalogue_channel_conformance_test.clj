@@ -1,906 +1,280 @@
 (ns re-frame.error-catalogue-channel-conformance-test
-  "EP-0008 — the conformance PIN that makes the Spec 009
-  channel assignment REAL, not documentary.
+  "The JVM conformance gate over Spec 009 §Error event catalogue. It parses the
+  catalogue table out of `spec/009-Instrumentation.md` and the `*Tags` schemas
+  out of `spec/Spec-Schemas.md`, scans every artefact's `src/` tree, and checks:
 
-  Spec 009 §Error event catalogue carries a `Channel` column (EP-0008):
-  every emitted `:rf.error/*` / `:rf.warning/*` category rides
-  exactly one of two observability channels — `always-on` (the
-  production-survivable `register-error-listener!` error-emit axis,
-  surface #4) or `diagnostic` (the dev-only trace surface, DCE'd under
-  CLJS `:advanced` + `goog.DEBUG=false`). The catalogue's own note
-  names the conformance test that pins the contract:
+    1. every row's `Channel` cell is `always-on` or `diagnostic`, and no
+       category has two rows;
+    2. the parsed always-on set equals
+       `re-frame.always-on-axis-conformance-cljs-test/always-on-categories`,
+       the literal that dual-runtime suite drives through the error-emit
+       listener, so promotion is exercised rather than documentary;
+    3. every category `src/` emits or throws through a chokepoint with a
+       literal category is catalogued, and every category passed literally to
+       an always-on chokepoint is catalogued `always-on`;
+    4. every key a canonical `*Tags` schema declares is listed in its row's
+       `:tags` cell, and `tags-column-paired-floor` records how many schemas
+       that diff reaches.
 
-    > Every emitted category therefore carries a `Channel`; a
-    > conformance test pins it — every
-    > emitted category appears in this catalogue with a channel, and
-    > every always-on category is exercised through the error-emit
-    > listener in at least one test (so promotion is real, not
-    > documentary).
-
-  This file is the FIRST leg (the catalogue-side structural pin); the
-  always-on exercise leg lives in
-  `re-frame.always-on-axis-conformance-cljs-test` (dual-runtime, drives
-  every always-on category through `error-emit/dispatch-on-error!`).
-
-  ## Why data-driven against the catalogue markdown
-
-  The catalogue is the SINGLE SOURCE OF TRUTH for category names and
-  channels (Spec 009 §Error event catalogue). Rather than hardcode a
-  fragile fixed list that drifts as categories are added, this test
-  PARSES the catalogue table out of `spec/009-Instrumentation.md` and
-  asserts structural invariants over the parsed rows:
-
-    1. Every catalogue row carries a `Channel` value, and that value is
-       one of the two channels (`always-on` / `diagnostic`).
-       A new row added WITHOUT a channel (a blank cell, or a typo'd
-       channel name) fails DIRECTLY — the parser captures the whole
-       third column, so a blank cell parses as a row with an
-       out-of-set channel and is flagged, rather than silently dropped
-       and caught only by the row-count floor.
-    2. No category appears twice (the vocabulary is a set, not a bag).
-    3. The three EP-0008-promoted categories are present and `always-on`
-       (`:rf.error/frame-teardown-failed` — the teardown report;
-       `:rf.error/write-after-destroy` — the suppressed-write partner of
-       frame-destroyed; `:rf.error/on-destroy-handler-exception` — the
-       dedicated teardown-throw discriminator).
-    4. The parsed always-on set EQUALS the literal the dual-runtime
-       exercise test iterates (`always-on-axis-conformance-cljs-test`'s
-       `always-on-categories`). This couples the two legs: a category
-       marked `always-on` in the catalogue but NOT added to the
-       exercise literal fails HERE, and once added the exercise test
-       automatically drives it through the listener. Promotion stays
-       real, not documentary, with no fragile fixed list.
-
-  ## The co-edit ratchet against the EMIT SITES
-
-  Invariants 1-4 pin the catalogue's INTERNAL consistency (and its
-  coupling to the exercise literal) — but they only ever compare the
-  catalogue against ITSELF + that literal. A production runtime that
-  EMITS a `:rf.error/*` / `:rf.warning/*` / advisory category with NO
-  catalogue row would pass all of them: the emitted-but-uncatalogued
-  category is invisible to a catalogue-only scan. The co-edit ratchet
-  lives here:
-
-    5. SOURCE-SCAN — derive the set of diagnostic/error/advisory
-       categories actually EMITTED from non-test runtime source (the
-       keyword arg to `emit-error!` / `emit-warning!` / `dispatch-on-
-       error!` / `emit-error-both!`, the second keyword of an `emit!`
-       whose op-type is `:warning` / `:advisory`, AND the
-       first literal keyword arg of the canonical thrown-error builders
-       `throw-error!` / `thrown-ex-info`, which covers the THROW axis an
-       emit-only scan would miss), across EVERY artefact's `src/`
-       tree.
-       Every emitted category must be catalogued OR on the explicit
-       `out-of-catalogue-allow-list` (the intentional EP-0008
-       exclusions). A new uncatalogued emitted category fails
-       with a missing-row diagnostic. The allow-list itself is kept honest
-       (`allow-list-stays-honest`): an entry that stops being emitted, or
-       that gets catalogued, must be dropped.
-
-  ## The TAGS-COLUMN arm
-
-  Invariants 1-5 reach the `Channel` column and the emit sites, but not
-  the `:tags` column, where drift would otherwise accumulate unseen — a
-  row missing outright, or a Tags cell missing keys its schema declares:
-
-    6. TAGS KEYS-SET DIFF — Spec-Schemas.md already defines one canonical
-       `*Tags` Malli schema per trace-emitting catalogue row, so every key
-       a schema declares must be named in its row's `:tags` cell (minus
-       `:category`, the envelope-level slot `envelope-only-tag-keys`
-       exempts). No new source
-       of truth, no roster: the pairing derives the schema name from the
-       WHOLE `:operation` and the diff is a set difference. A key must be
-       LISTED, not merely mentioned — cross-reference links are stripped
-       before keys are harvested (`markdown-link-re`), so a correctly-
-       spelled keyword in link text cannot green a cell that misspells
-       the key it lists. See the section comment above `spec-schemas-file`
-       for what falls out of the pairing by construction and why.
-    7. PAIRING COVERAGE LEDGER — invariant 6 can only diff
-       the rows it PAIRS, so losing a pairing loses coverage silently.
-       `tags-column-paired-floor` records how many schemas the diff
-       reaches; it reds when that drops, which is what a deleted or
-       renamed-away schema does and what `CLAIMED == PAIRED` can never
-       see (both numbers move together). One integer, so it enumerates
-       no members and keeps the arm roster-free.
-
-  JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s repo markdown + source
-  files, which only the JVM `clojure -M:test` runner can do. The exercise
-  leg is the dual-runtime half."
+  JVM-only (`.clj`): it slurps repo markdown and source files."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            ;; Malli reaches this ns through the schemas artefact's test-only
-            ;; dep (see implementation/core/deps.edn — core's PRODUCTION
-            ;; classpath deliberately carries none). Used by the `:where`
-            ;; type-mutation witness below, which is the only assertion here
-            ;; that VALIDATES a payload rather than diffing key sets.
-            ;; aliased `malli`, not `m` — `parse-tags-schemas` binds a local
-            ;; `m` for its matcher and a shadowed alias reads as a bug.
+            ;; A test-only dep of core (through the schemas artefact).
             [malli.core :as malli]
-            ;; The hydration-mismatch witness drives the SHIPPED
-            ;; emitters and validates the envelopes `re-frame.trace/build-event`
-            ;; actually produced, which is the only way to see a schema that
-            ;; models one of a category's two runtime shapes. `re-frame.ssr` is
-            ;; a test-only dep of core (see implementation/core/deps.edn), so
-            ;; the hiccup-tier emitter is callable here; `interop` gates the
-            ;; emit-driven half so the `:prod-gate` lane (where every trace emit
-            ;; is a no-op by design) keeps running the corpus half beside it.
             [re-frame.interop :as rf.interop]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
+            ;; A test-only dep of core, so the hiccup-tier emitter is callable here.
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
-            ;; The shared definition of the implementation source corpus,
-            ;; which this scan and the egress-chokepoint scan both use; its
-            ;; walk is depth-independent, so it reaches the nested adapter
-            ;; artefacts.
             [re-frame.impl-source-corpus :as rf.impl-source-corpus]
-            ;; The dual-runtime exercise leg's always-on literal — Test A
-            ;; pins it against the parsed catalogue (invariant #4), Test B
-            ;; iterates it. Requiring it here closes the coupling in code.
             [re-frame.always-on-axis-conformance-cljs-test :as rf.always-on-axis-conformance-cljs-test]))
 
 ;; ---------------------------------------------------------------------------
-;; Catalogue location + parser
+;; Catalogue parser
 ;; ---------------------------------------------------------------------------
 
 (def ^:private spec-009-file
-  "`spec/009-Instrumentation.md` resolved from the JVM test CWD. The core
-  JVM tests run from `implementation/core/`, so the
-  catalogue is at `../../spec/009-Instrumentation.md`; fall back to
-  `../spec/...` for a REPL run from
-  `implementation/`. Mirrors `re-frame.conformance-test/fixtures-dir`."
+  "Resolved from the core JVM test CWD (`implementation/core/`), falling back
+  to `implementation/` for a REPL run."
   (let [nested (io/file "../../spec/009-Instrumentation.md")
         legacy (io/file "../spec/009-Instrumentation.md")]
     (if (.exists nested) nested legacy)))
 
 (def ^:private catalogue-row-re
-  "Matches one catalogue table row, capturing the `:operation` category
-  keyword (group 1) and the RAW `Channel` column cell (group 2,
-  possibly blank). The table shape (Spec 009 §Error event catalogue):
-
-    | `:operation` | `:op-type` | Channel | Trigger / meaning | … |
-
-  Group 1 is the back-ticked `:rf.<area>/<category>` in column 1; the
-  `:op-type` in column 2 is skipped; group 2 is the WHOLE third column
-  cell up to the next `|` — captured verbatim (NOT pre-filtered to a
-  lowercase token) so a blank or typo'd channel cell still parses as a
-  row and is validated downstream rather than silently dropped.
-  Anchored at `^|` so it only matches genuine table rows, not prose
-  mentions of a category, and group 1 requires the back-ticked category
-  as the first cell content, so a row whose first cell is anything else
-  does not match."
+  "One catalogue row: group 1 is the back-ticked `:operation`, group 2 the RAW
+  `Channel` cell, captured whole so a blank or typo'd cell still parses and is
+  flagged rather than dropped."
   #"^\|\s*`(:rf\.[^`]+)`\s*\|\s*`?:[^|`]+`?\s*\|([^|]*)\|")
 
 (def ^:private catalogue-heading-re
-  "The canonical `### Error event catalogue` section heading — the one
-  five-column table (`:operation | :op-type | Channel | …`) that IS the
-  single source of truth. Anchored to the bare heading text so it does
-  NOT match the later `### Error event catalogue (single source of
-  truth)` prose subsection under §Resolved decisions (which carries no
-  table)."
+  "The bare `### Error event catalogue` heading, not the later prose
+  subsection whose heading carries a suffix."
   #"^###\s+Error event catalogue\s*$")
 
 (def ^:private section-heading-re
-  "Any `#`/`##`/`###`-level heading — the boundary that ends the
-  catalogue section. The catalogue table is followed by the
-  `#### History-error tag layering` subsection (a `####`, which does NOT
-  terminate the section — its rows are part of the catalogue's tag
-  prose, carrying no table rows) and then the sibling `### Schemas`
-  heading, which DOES terminate it."
+  "A `#`-`###` heading ends the catalogue section; a `####` subsection does not."
   #"^#{1,3}\s+\S")
 
 (defn- catalogue-section-lines
-  "The lines of `spec/009-Instrumentation.md` that belong to the
-  canonical `### Error event catalogue` section — from the catalogue
-  heading (exclusive) to the next sibling-or-higher heading (exclusive).
-
-  Why scope to the section: `catalogue-row-re` is anchored
-  at `^|` so it only matches genuine table rows, but the doc carries a
-  SECOND, differently-shaped table — the `#### Per-`:operation` quick
-  reference` (a 3-column `:operation | :op-type | One-line meaning`
-  table, NO Channel column). A single-category quick-ref row matches the
-  regex too, and its `One-line meaning` cell parses as the `Channel` —
-  an out-of-set value that fails every channel invariant. (Multi-
-  category slash-joined quick-ref rows escape the regex; single-category
-  ones don't.) Parsing ONLY the canonical catalogue section keeps that
-  table, and any future second `:rf.*` table elsewhere in the doc, out of
-  the parse. The blank/typo'd-channel invariant is unaffected: a
-  malformed cell WITHIN the catalogue section still parses as a row and
-  fails."
+  "The lines of the canonical catalogue section, heading excluded. Scoping
+  keeps the doc's other `:rf.*` tables (the three-column quick reference) out
+  of the parse."
   [lines]
   (->> lines
        (drop-while #(not (re-find catalogue-heading-re %)))
-       (drop 1)                                     ;; the heading line itself
+       (drop 1)
        (take-while #(not (re-find section-heading-re %)))))
 
 (defn- parse-catalogue
-  "Parse the Spec 009 error-event catalogue into a vector of
-  `{:category <kw> :channel <string>}` maps, in table order. The
-  `:channel` is the TRIMMED third-column cell — possibly the empty
-  string when the cell is blank — so the blank/invalid-channel
-  invariant is testable directly rather than relying on a
-  row-count floor. Scoped to the canonical `### Error event catalogue`
-  section so the doc's other `:rf.*` tables (e.g. the quick-reference
-  table) don't pollute the parse. Reads the markdown fresh
-  each call (cheap; one file)."
+  "`[{:category <kw> :channel <trimmed Channel cell>} …]`, in table order."
   []
   (->> (slurp spec-009-file)
        (str/split-lines)
        (catalogue-section-lines)
        (keep (fn [line]
                (when-let [[_ cat-str chan] (re-find catalogue-row-re line)]
-                 {:category (keyword (subs cat-str 1)) ;; drop leading ':'
+                 {:category (keyword (subs cat-str 1))
                   :channel  (str/trim chan)})))
        vec))
 
 (def ^:private catalogue-tag-row-re
-  "Matches one catalogue table row for the TAGS arm, capturing only the
-  `:operation` category keyword. The `:tags` cell is read positionally
-  (see `parse-catalogue-tag-rows`) rather than through the regex — the
-  cell is long, link-bearing prose and a regex over it is a liability.
-
-  Anchored the same way `catalogue-row-re` is, so only a row whose first
-  cell is a back-ticked `:rf.` category parses. A first cell in any other
-  shape — a struck-through `~~:rf...~~`, as
-  `tags-column-arm-ignores-retired-rows` pins — names no category with a
-  `:tags` payload to reconcile."
+  "A row for the tags arm. Only a back-ticked `:rf.` first cell parses, so a
+  struck-through retired row does not."
   #"^\|\s*`(:rf\.[^`]+)`\s*\|")
 
-(def ^:private allowed-channels
-  "The two EP-0008 channel values (Spec 009 §Error event
-  catalogue: \"Its value is one of two\"). The causal channel is data, not
-  a catalogue row, so it is not a `Channel` cell value."
-  #{"always-on" "diagnostic"})
+(def ^:private allowed-channels #{"always-on" "diagnostic"})
 
 ;; ---------------------------------------------------------------------------
-;; Source-scan: derive the EMITTED diagnostic/error/advisory category set
-;; from non-test runtime source, vs the parsed catalogue
+;; Source scan: the categories the runtime emits or throws
 ;; ---------------------------------------------------------------------------
 ;;
-;; The catalogue-side invariants above pin the catalogue's internal shape
-;; (every row has a valid channel; the always-on set matches the exercise
-;; literal). They do NOT close the co-edit invariant: a
-;; production runtime that EMITS a `:rf.error/*` / `:rf.warning/*` category
-;; with NO catalogue row would pass every test above — the catalogue is
-;; only compared against itself + the exercise literal, never against the
-;; actual emit sites. This scan is the ratchet that does.
-;;
-;; Scope: the error/warning/advisory emit CHOKEPOINTS — the keyword passed
-;; as the category arg to `emit-error!` / `emit-warning!` / `dispatch-on-
-;; error!`, and the SECOND keyword of `emit!` when its op-type (first
-;; keyword) is `:warning` / `:advisory`. This deliberately EXCLUDES
-;; success-path / lifecycle traces (`(emit! :rf.fx :rf.fx/handled …)`,
-;; `(emit! :rf.event …)`): those ride op-type families the catalogue lists
-;; but are not the diagnostic/error/advisory vocabulary this co-edit
-;; invariant governs. The scan is over every artefact's
-;; `src/` tree — not just core — so a feature artefact that emits an
-;; uncatalogued error is caught too.
-;;
-;; Limitation (CONSERVATIVE by design): a category emitted ONLY through an
-;; intermediate helper that takes the category as a literal arg but calls
-;; the chokepoint fns with a VARIABLE (e.g. `fx.cljc`'s `emit-fx-error!`,
-;; or the router's computed `classify-pipeline-exception` operation) is NOT
-;; captured here. That direction never false-POSITIVES (it under-reports,
-;; so a genuinely uncatalogued category emitted only via a helper would
-;; slip through) — acceptable for a ratchet whose job is to catch NEW
-;; direct emit sites. The dominant emit idiom across the corpus is the
-;; direct literal `(emit-error! :rf.x/y …)` / `(emit! :warning :rf.x/y …)`
-;; form, so coverage is high; widening to follow helper indirection is a
-;; future tightening, not a correctness gap in the ratchet's promise.
+;; Literal-only by design. A category reaching a chokepoint as a VARIABLE
+;; (`fx.cljc`'s `emit-fx-error!`, the router's computed handler-exception
+;; category, the per-surface throwers that take the category as a parameter,
+;; the SSR forwarders of a caller-built record) is not captured: the scan
+;; under-reports and never false-positives.
 
-;; Source roots + file enumeration come from `re-frame.impl-source-corpus`,
-;; which `re-frame.egress-chokepoint-conformance-test` shares: one
-;; definition, one depth-independent walk (a depth-1 enumeration would walk
-;; past the nested adapter artefacts), and
-;; `rf.impl-source-corpus/corpus-cross-check` as the coverage floor the
-;; sanity test below asserts.
-
-;; The keyword char class includes the apostrophe so categories like
-;; `:rf.warning/large-value-unschema'd` parse whole (NOT truncated at the
-;; `'`). Names are `:rf.<area>/<cat>`; the area segment may be dotted
-;; (`:rf.http.interceptor/…`, `:rf.epoch.cb/…`).
+;; The apostrophe is in the class so `:rf.warning/large-value-unschema'd`
+;; parses whole; the area segment may be dotted (`:rf.http.interceptor/…`).
 (def ^:private category-kw-class "[a-z0-9][a-z0-9'-]*")
 
 (def ^:private emit-error-re
-  "`(… emit-error! :rf.<area>/<cat> …)` / `(… dispatch-on-error!
-  :rf.<area>/<cat> …)` / `(… emit-warning! :rf.<area>/<cat> …)` /
-  `(… emit-error-both! :rf.<area>/<cat> …)` — the category keyword is the
-  token immediately after the fn symbol. The fn may be ns-qualified
-  (`rf.trace/emit-error!`, `error-emit/dispatch-on-error!`,
-  `error-emit/emit-error-both!`) or bare.
-
-  `emit-error-both!` is the shared two-channel fan-out
-  (`dispatch-on-error!` + `rf.trace/emit-error!` in one call): it takes the
-  category as its FIRST arg exactly like the others, so the scanner reaches
-  the categories routed through it (e.g.
-  `:rf.error/no-such-handler`, `:rf.error/frame-destroyed`)."
+  "The category argument of `emit-error!` / `emit-warning!` /
+  `dispatch-on-error!` / `emit-error-both!`, bare or ns-qualified."
   (re-pattern (str "(?:emit-error-both!|emit-error!|dispatch-on-error!|emit-warning!)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private emit-bang-warning-re
-  "`(… emit! :warning :rf.<area>/<cat> …)` / `(… emit! :advisory
-  :rf.<area>/<cat> …)` — `emit!` takes the op-type FIRST and the category
-  SECOND, so only treat the category as diagnostic when the op-type is a
-  warning/advisory level. An `emit!` with op-type `:rf.event` / `:rf.fx`
-  / `:rf.sub` etc. is a success-path or lifecycle trace, NOT a
-  diagnostic/error/advisory category, and is intentionally skipped."
+  "The category of an `emit!` whose op-type is `:warning` / `:advisory`.
+  Success-path and lifecycle `emit!`s are not diagnostic categories."
   (re-pattern (str "emit!\\s+:(?:warning|advisory)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private throw-error-re
-  "`(… throw-error! :rf.<area>/<cat> …)` / `(… thrown-ex-info
-  :rf.<area>/<cat> …)` — the canonical thrown-error builders (Spec 009
-  §The thrown-error shape). The category keyword is the FIRST argument; it
-  may sit on the SAME line as the fn token or on the NEXT line (the
-  dominant multi-line idiom — `(error/throw-error!\\n  :rf.error/x\\n
-  'rf/where …)`), so `\\s+` spans newlines (the scan runs `re-seq` over the
-  whole slurped file string). The fn may be ns-qualified (`error/throw-
-  error!`, `rf-error/throw-error!`) or bare.
-
-  Why a throw arm: the emit scans (`emit-
-  error!` / `dispatch-on-error!` / `emit-warning!` / `emit-error-both!` /
-  `emit! :warning|:advisory`) see only the rf.trace/error-emit axis — they are
-  BLIND to the THROW axis, so a `:rf.error/*` category that the runtime
-  ONLY ever THROWS (a registration-time / dispatch-boundary `throw-error!`,
-  never trace-emitted) would read as un-emitted and never force a catalogue row.
-  A thrown ex-info registration rejection IS a catalogue category (Spec 009
-  §Error event catalogue marks it diagnostic-channel — it is not delivered
-  to the always-on error-emit listener, but it is an emitted `:rf.error/*`
-  the catalogue must carry). Even the PRODUCTION-REACHABLE dispatch-boundary
-  throw `:rf.error/invalid-cofx` (NOT gated on `rf.interop/debug-enabled?`, so it
-  fires in `:advanced` production) is diagnostic-channel: it is a pure
-  `throw-error!` that does NOT fan out on the error-emit listener, so it rides
-  the diagnostic channel for catalogue purposes (the catalogue's
-  thrown-ex-info-is-diagnostic rule).
-
-  Same CONSERVATIVE limitation as the emit scan: a category THROWN only via
-  a VARIABLE first arg (the shared per-surface throwers that take the
-  category as a parameter — `cofx/raise-removed!`, `std-interceptors`'
-  removed-stub table, `reply/reply-category->error-id`,
-  `machines/transition` `category`, `routing/registry` `error-kw`) is NOT
-  captured here; it under-reports, never false-positives. The dominant idiom
-  is the direct literal `(throw-error! :rf.x/y …)` form, so coverage is high."
+  "The first argument of `throw-error!` / `thrown-ex-info`, on the same line or
+  the next. The emit scans cannot see a category the runtime only throws."
   (re-pattern (str "(?:throw-error!|thrown-ex-info)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
-(defn- emitted-categories
-  "Scan every non-test source file for the diagnostic/error/advisory emit
-  AND throw chokepoints and return the SET of emitted category keywords.
-  Pure text scan — no classpath load — so it sees every artefact regardless
-  of which are on the test classpath. The throw arm harvests
-  the first literal keyword arg of `throw-error!` / `thrown-ex-info`, which
-  an emit-only scan is blind to."
-  []
-  (->> (rf.impl-source-corpus/non-test-source-files)
-       (mapcat (fn [f]
-                 (let [src (slurp f)]
-                   (concat (map second (re-seq emit-error-re src))
-                           (map second (re-seq emit-bang-warning-re src))
-                           (map second (re-seq throw-error-re src))))))
-       (map (fn [s] (keyword (subs s 1)))) ;; ":rf.x/y" string → keyword
-       set))
-
 (def ^:private always-on-mechanism-re
-  "`(… emit-error-both! :rf.<area>/<cat> …)` / `(… dispatch-on-error!
-  :rf.<area>/<cat> …)` — the `emit-error-re` alternation NARROWED to the two
-  ALWAYS-ON chokepoints alone. `dispatch-on-error!` is the
-  production-survivable error-emit axis (surface #4), NOT gated on
-  `rf.interop/debug-enabled?`, and `emit-error-both!`'s axis 1 IS
-  `dispatch-on-error!` — so a category passed literally to either fn reaches
-  off-box shippers from an `:advanced` + `goog.DEBUG=false` build, whatever
-  the catalogue says. The trace-only fns (`emit-error!` / `emit-warning!`)
-  are deliberately absent: a diagnostic-catalogued category may ride those.
-
-  Same CONSERVATIVE limitation as the shared scan: a category emitted through
-  the always-on mechanism only via a VARIABLE arg (`:rf.error/handler-
-  exception` — the router computes the category and passes a variable) is not
-  captured; literal-only stays literal-only, under-reporting never
-  false-positives."
+  "The positional always-on chokepoints: `dispatch-on-error!`, and
+  `emit-error-both!`, whose first axis is `dispatch-on-error!`. Neither is
+  debug-gated, so a category passed to them reaches production."
   (re-pattern (str "(?:emit-error-both!|dispatch-on-error!)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private always-on-record-mechanism-re
-  "The THIRD always-on chokepoint: `dispatch-error-record!`.
-
-  `emit-error-both!` / `dispatch-on-error!` above take their category as a
-  POSITIONAL first argument. `dispatch-error-record!` does not — it takes a
-  PRE-BUILT union record, so the category is the value of the record's
-  `:error` KEY:
-
-      (rf.error-emit/dispatch-error-record!
-        {:error      :rf.ssr/hydration-mismatch
-         :frame      frame-id
-         …})
-
-  THIS IS WHY THE OBVIOUS EXTENSION IS A NO-OP, and it is worth stating
-  because the no-op reads exactly like coverage. Adding
-  `dispatch-error-record!` to the positional alternation above matches
-  NOTHING: after the fn token comes `{`, never `:rf.…`. Over this corpus
-  that spelling harvests ZERO additional categories — a green scan widened
-  to see nothing at all.
-
-  `:error` is the first key at every literal site, so a bounded window is
-  enough and keeps the scan from wandering into a following form. The
-  window spans newlines because the dominant idiom puts the record on the
-  line after the call. It also reaches the `(assoc tags :error …)` shape
-  that `routing/url_change.cljc` uses.
-
-  `dispatch-frame-teardown-report!` is DELIBERATELY ABSENT, and this is the
-  other half of the same trap. It is an always-on chokepoint, but it takes
-  `[frame-id hook-failures time]` — POSITIONAL, and carrying no category at
-  all. Its category is a constant built INSIDE its own definition
-  (`:rf.error/frame-teardown-failed`), so no call-site scan of any spelling
-  can harvest it, and adding its token here would only look like coverage.
-  That category is pinned instead by
-  `ep0008-promoted-categories-are-present-and-always-on` below, which names
-  it literally, and by `report-categories` in the CLJS conformance
-  companion.
-
-  Same CONSERVATIVE limitation as its siblings: a record whose `:error`
-  value is a VARIABLE (the SSR forwarders in `ssr/boot.cljc`,
-  `ssr/error_projector.cljc`, `ssr/response.cljc` and `ssr-ring/lifecycle.clj`,
-  each of which passes a record built by its caller) is not captured.
-  Literal-only stays literal-only: it under-reports, never false-positives."
+  "The `:error` value of a literal record passed to `dispatch-error-record!`.
+  The category is a map value, not a positional argument, so the positional
+  pattern above matches nothing here. The bounded window spans the newline the
+  record usually follows. `dispatch-frame-teardown-report!` builds its category
+  inside its own body, so no call-site scan can harvest it; the always-on
+  literal pins that one."
   (re-pattern (str "dispatch-error-record!(?:[\\s\\S]{0,64}?):error\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private dev-gated-record-categories
-  "Categories whose ONLY `dispatch-error-record!` sites sit inside a
-  `rf.interop/debug-enabled?` gate, so the always-on MECHANISM does not make
-  them production-reaching and their `diagnostic` Channel cell is CORRECT.
-
-  This set exists because the mechanism scan is a TEXT scan: it can see that
-  an always-on fn was called, but not that the call sits behind a debug gate.
-  Wrapping an always-on chokepoint in a debug gate is rare but deliberate —
-  it is how a site keeps a bounded record's UNBOUNDED prose off the
-  production axis while still using the union-record shape.
-
-  `:rf.error/malformed-schema` is the whole of it, at two sites, and NEITHER
-  reaches production:
-
-    * `core/router.cljc` — the candidate-transition validator's catch, whose
-      `dispatch-error-record!` is directly wrapped in
-      `(when rf.interop/debug-enabled? …)` because its `:reason` interpolates
-      the boundary name.
-    * `schemas/validate.cljc` — `emit-malformed-schema-rejection-record!`,
-      called only from `validate-app-schema!`, whose OUTERMOST form is
-      `(if rf.interop/debug-enabled? … true)`. The gate is in a DIFFERENT fn
-      from the call, which is exactly why no backwards text scan can find it.
-
-  Kept honest by `dev-gated-record-list-stays-honest` below: if a listed
-  category stops being harvested by the record scan, or becomes catalogued
-  `always-on`, the entry must be dropped in the same commit. That stops the
-  set rotting into a blanket suppression of the very drift this gate exists
-  to catch."
+  "Categories whose only `dispatch-error-record!` sites sit behind
+  `rf.interop/debug-enabled?`, so a `diagnostic` cell is correct for them: the
+  text scan sees the call but not the gate. `:rf.error/malformed-schema` is
+  dispatched from `core/router.cljc` inside `(when rf.interop/debug-enabled? …)`
+  and from `schemas/validate.cljc`, whose caller `validate-app-schema!` is
+  gated in a different fn."
   #{:rf.error/malformed-schema})
 
-(defn- always-on-mechanism-categories
-  "The SET of categories the code fans onto the always-on axis regardless of
-  their catalogue Channel cell — the union of the POSITIONAL chokepoints
-  (`emit-error-both!` / `dispatch-on-error!`) and the
-  RECORD-shaped one (`dispatch-error-record!`), less the
-  `dev-gated-record-categories` whose only record sites are debug-gated.
-
-  Passing a category literally to any of these reaches off-box shippers from
-  an `:advanced` + `goog.DEBUG=false` build, whatever the catalogue says."
-  []
-  (let [scan (fn [re]
-               (->> (rf.impl-source-corpus/non-test-source-files)
-                    (mapcat (fn [f] (map second (re-seq re (slurp f)))))
-                    (map (fn [s] (keyword (subs s 1))))
-                    set))]
-    (set/difference (set/union (scan always-on-mechanism-re)
-                               (scan always-on-record-mechanism-re))
-                    dev-gated-record-categories)))
-
-(defn- always-on-record-mechanism-categories
-  "The record-scan arm alone, unfiltered — what
-  `dev-gated-record-list-stays-honest` grades its entries against."
-  []
+(defn- scan-categories
+  "The categories `res` harvest (group 1) across every non-test source file."
+  [& res]
   (->> (rf.impl-source-corpus/non-test-source-files)
-       (mapcat (fn [f] (map second (re-seq always-on-record-mechanism-re (slurp f)))))
+       (mapcat (fn [f]
+                 (let [src (slurp f)]
+                   (mapcat #(map second (re-seq % src)) res))))
        (map (fn [s] (keyword (subs s 1))))
        set))
 
+(defn- emitted-categories []
+  (scan-categories emit-error-re emit-bang-warning-re throw-error-re))
+
+(defn- always-on-mechanism-categories
+  "Categories the code fans onto the always-on axis whatever their Channel cell."
+  []
+  (set/difference (scan-categories always-on-mechanism-re always-on-record-mechanism-re)
+                  dev-gated-record-categories))
+
 (def ^:private out-of-catalogue-allow-list
-  "Categories EMITTED from non-test runtime source that deliberately have NO
-  Spec 009 §Error event catalogue row. The set is EMPTY: ONE catalogue holds
-  everything, so every emitted category is catalogued — including the
-  categories the runtime only ever THROWS (the throw arm of the scan; e.g. the
-  production-reachable dispatch-boundary throw `:rf.error/invalid-cofx`, a pure
-  `throw-error!` that never reaches the error-emit listener and so rides the
-  diagnostic channel for catalogue purposes) and the internal-invariant guards
-  (`:rf.error/unknown-registry-kind`, `:rf.error/flow-cycle-extract-invariant`),
-  which the catalogue's co-edit invariant (\"Every `:rf.<area>/<category>`
-  error / warning / advisory event MUST land as a row in this catalogue\")
-  does not carve out.
-
-  `:rf.route/navigation-blocked` needs no entry: it is a `:rf.event` op-type
-  user-event lifecycle trace, not an error/warning category, and never
-  matches this scan's chokepoints.
-
-  The seam stays so a deliberate non-catalogue emit category can land here
-  with a rationale. A NEW uncatalogued emitted category not on this list
-  fails the coverage test loudly, and `allow-list-stays-honest` fails if any
-  entry becomes catalogued or stops being emitted, forcing the co-edit so the
-  list cannot rot into a silent blanket suppression."
+  "Emitted categories that deliberately have no catalogue row. Empty: Spec 009
+  catalogues every emitted category, thrown-only ones included."
   #{})
 
 ;; ---------------------------------------------------------------------------
-;; Tests
+;; Channel column and emit sites
 ;; ---------------------------------------------------------------------------
-
-(deftest catalogue-parses-to-a-nonempty-set-of-rows
-  (testing "Sanity: the parser finds the catalogue table. A zero-row
-            parse means the table shape changed out from under this test
-            (a column reorder, a fence change) — fail loudly rather than
-            vacuously pass every downstream invariant."
-    (let [rows (parse-catalogue)]
-      (is (.exists spec-009-file)
-          (str "spec/009-Instrumentation.md not found at " spec-009-file))
-      (is (seq rows) "catalogue parse yielded at least one row")
-      ;; A floor well below the current row count — catches a broken parse
-      ;; without pinning an exact count (the vocabulary grows).
-      (is (>= (count rows) 100)
-          "catalogue parse yielded the full table (>= 100 rows), not a
-           partial match from a shape change"))))
 
 (deftest catalogue-categories-are-unique
-  (testing "The category vocabulary is a SET — each `:rf.<area>/<category>`
-            appears in exactly one catalogue row. A duplicate row (e.g. a
-            category re-listed under a different channel) is a contract
-            bug: a consumer reading the catalogue as a map would silently
-            take one binding."
-    (let [rows (parse-catalogue)
-          dups (->> (map :category rows)
-                    frequencies
-                    (filter (fn [[_ n]] (> n 1)))
-                    (map first))]
-      (is (empty? dups)
-          (str "categories appearing in more than one catalogue row: "
-               (pr-str dups))))))
-
-(deftest ep0008-promoted-categories-are-present-and-always-on
-  (testing "Per Spec 009 §Channel-promotion catalogue rows (EP-0008): the
-            three promoted categories appear in the catalogue and ride the
-            always-on axis — the promoted rows must be classified, not
-            just emitted."
-    (let [by-cat (into {} (map (juxt :category :channel)) (parse-catalogue))]
-      (doseq [cat [:rf.error/frame-teardown-failed
-                   :rf.error/write-after-destroy
-                   :rf.error/on-destroy-handler-exception]]
-        (is (contains? by-cat cat)
-            (str cat " is catalogued"))
-        (is (= "always-on" (get by-cat cat))
-            (str cat " rides the always-on channel"))))))
+  (let [dups (->> (parse-catalogue)
+                  (map :category)
+                  frequencies
+                  (keep (fn [[c n]] (when (> n 1) c))))]
+    (is (empty? dups)
+        (str "categories with more than one catalogue row: " (pr-str dups)))))
 
 (deftest parsed-always-on-set-equals-the-exercise-literal
-  (testing "Per invariant #4: the set of always-on
-            categories PARSED from the catalogue equals the literal
-            `always-on-axis-conformance-cljs-test/always-on-categories`
-            that the dual-runtime exercise test iterates. This couples the
-            two legs WITHOUT a fragile hand-maintained duplicate:
-
-              - A category marked `always-on` in the catalogue but
-                NOT added to the exercise literal fails HERE — surfacing
-                the missing always-on coverage.
-              - A category in the literal that is NOT always-on in the
-                catalogue (a stale entry, or one demoted) also fails here.
-
-            Once the literal is corrected to match, the exercise test
-            automatically drives the new category through
-            `register-error-listener!`. Promotion is therefore enforced
-            end-to-end, never documentary, and stays green as the
-            always-on set grows."
-    (let [catalogue-always-on
-          (->> (parse-catalogue)
-               (filter #(= "always-on" (:channel %)))
-               (map :category)
-               set)]
-      (is (= catalogue-always-on rf.always-on-axis-conformance-cljs-test/always-on-categories)
-          (str "catalogue always-on set vs exercise literal — "
-               "only-in-catalogue: "
-               (pr-str (sort (set/difference
-                               catalogue-always-on
-                               rf.always-on-axis-conformance-cljs-test/always-on-categories)))
+  (testing "a category catalogued `always-on` but missing from the exercise
+            literal is never driven through the listener; a literal entry not
+            catalogued `always-on` is stale"
+    (let [catalogue-always-on (->> (parse-catalogue)
+                                   (filter #(= "always-on" (:channel %)))
+                                   (map :category)
+                                   set)
+          literal             rf.always-on-axis-conformance-cljs-test/always-on-categories]
+      (is (= catalogue-always-on literal)
+          (str "only-in-catalogue: "
+               (pr-str (sort (set/difference catalogue-always-on literal)))
                " ; only-in-literal: "
-               (pr-str (sort (set/difference
-                               rf.always-on-axis-conformance-cljs-test/always-on-categories
-                               catalogue-always-on))))))))
+               (pr-str (sort (set/difference literal catalogue-always-on))))))))
 
 (deftest every-table-row-has-a-nonblank-valid-channel
-  (testing "Per Spec 009 §Error event catalogue: EVERY catalogue row carries a
-            `Channel` value, and that value is exactly one of the two channels.
-            The catalogue parser captures the WHOLE
-            third column (not a pre-filtered lowercase token), so a row
-            whose Channel cell is BLANK or holds a typo'd value parses as
-            a row with an out-of-set `:channel` and fails HERE directly —
-            rather than silently vanishing from the parse and being caught
-            only by the >= 100 row-count
-            floor. This makes the blank/invalid-channel invariant explicit
-            and independent of the floor."
-    (let [rows         (parse-catalogue)
-          blank        (filter #(str/blank? (:channel %)) rows)
-          invalid-set  (->> rows
-                            (remove #(str/blank? (:channel %)))
-                            (remove (comp allowed-channels :channel)))]
-      (is (empty? blank)
-          (str "catalogue rows with a BLANK Channel cell: "
-               (pr-str (map :category blank))))
-      (is (empty? invalid-set)
-          (str "catalogue rows with an invalid (non-"
-               allowed-channels ") Channel cell: "
-               (pr-str (map (juxt :category :channel) invalid-set)))))))
-
-;; ---------------------------------------------------------------------------
-;; Source-scan ratchet — the co-edit invariant made testable
-;; against the ACTUAL emit sites, not just the catalogue's self-consistency.
-;; ---------------------------------------------------------------------------
+  (let [invalid (remove (comp allowed-channels :channel) (parse-catalogue))]
+    (is (empty? invalid)
+        (str "catalogue rows whose Channel cell is blank or not one of "
+             allowed-channels ": " (pr-str (map (juxt :category :channel) invalid))))))
 
 (deftest source-scan-finds-the-emit-sites
-  (testing "Sanity: the source scan reaches the artefact src trees and
-            finds the known emit chokepoints. A zero / tiny result means
-            the src roots did not resolve from the test CWD (a path-layout
-            change) — fail loudly rather than vacuously passing the
-            coverage invariant below with an empty emitted set.
-
-            `(seq roots)` alone is NOT that guard: a scan enumerating roots
-            at depth 1 would resolve plenty of them, walk hundreds of files,
-            reach none of the nested adapter artefacts, and still pass it.
-            A floor on
-            whether the walk found ANYTHING says nothing about whether it
-            found EVERYTHING, so the coverage claim is the cross-check —
-            this corpus against the independently-shaped one the repo's
-            other source-scanning lints use."
-    (let [roots      rf.impl-source-corpus/src-roots
-          cats       (emitted-categories)
+  (testing "the walk reaches every artefact (cross-checked against an
+            independently shaped enumeration of implementation/**/src/, which
+            catches a walk that skips the nested adapter artefacts) and the
+            literal `emit-error!` arm is live"
+    (let [cats (emitted-categories)
           {:keys [missing extra]} (rf.impl-source-corpus/corpus-cross-check)]
-      (is (seq roots)
-          "at least one artefact src root resolved from the JVM test CWD")
       (is (empty? missing)
-          (str "the scan MISSED production source that the path-shaped "
-               "enumeration of implementation/**/src/ finds — an artefact "
-               "root the walk does not reach, which is how a nested "
-               "artefact (the adapters) goes unscanned. Missing: "
+          (str "the walk MISSED production source under implementation/**/src/: "
                (pr-str (vec missing))))
       (is (empty? extra)
-          (str "the scan reached source OUTSIDE implementation/**/src/: "
+          (str "the walk reached source OUTSIDE implementation/**/src/: "
                (pr-str (vec extra))))
-      (is (>= (count cats) 50)
-          (str "source scan found the diagnostic/error/advisory emit "
-               "vocabulary (>= 50 categories), not a broken / empty scan; "
-               "found " (count cats)))
-      ;; Anchor on the EP-0008 common-path producer — emitted
-      ;; via `emit-error!` with a LITERAL category arg, so the emit-error!
-      ;; arm of the scan is exercised. (`:rf.error/handler-exception` is
-      ;; NOT a literal at its emit site — the router computes the category
-      ;; from the captured component identity and passes a VARIABLE to
-      ;; `dispatch-on-error!` — so it is intentionally not anchored here.)
-      (is (contains? cats :rf.error/on-destroy-handler-exception)
-          ":rf.error/on-destroy-handler-exception is among the scanned emit sites")
-      ;; Anchor on a second literal `emit-error!` category from a different
-      ;; ns (router/diagnostics) to prove the cross-file scan is live.
-      (is (contains? cats :rf.error/no-such-handler)
-          ":rf.error/no-such-handler is among the scanned emit sites"))))
+      (is (>= (count cats) 50) (str "found " (count cats) " categories"))
+      (is (contains? cats :rf.error/on-destroy-handler-exception))
+      (is (contains? cats :rf.error/no-such-handler)))))
 
 (deftest every-emitted-category-is-catalogued
-  (testing "The co-edit ratchet: EVERY diagnostic/error/
-            advisory `:rf.*` category EMITTED from non-test runtime source
-            must appear in the Spec 009 §Error event catalogue — UNLESS it
-            is on the explicit `out-of-catalogue-allow-list` (the
-            intentional EP-0008 exclusions). A production
-            source that adds a NEW uncatalogued error/warning/advisory
-            category — without a catalogue row and without an allow-list
-            entry — fails HERE with a missing-row diagnostic. The tests
-            above compare the catalogue only against itself + the exercise
-            literal, never against the actual emit sites."
-    (let [catalogued (->> (parse-catalogue) (map :category) set)
-          emitted    (emitted-categories)
-          missing    (set/difference emitted catalogued out-of-catalogue-allow-list)]
-      (is (empty? missing)
-          (str "categories EMITTED from non-test runtime source with NO "
-               "Spec 009 catalogue row and no allow-list entry "
-               "(co-edit invariant): "
-               (pr-str (sort missing))
-               " — either add the catalogue row (with a Channel) or, if it "
-               "is an intentional non-catalogue category, add it to "
-               "out-of-catalogue-allow-list with a rationale.")))))
-
-(deftest allow-list-stays-honest
-  (testing "Every category on the out-of-catalogue
-            allow-list must STILL be emitted from non-test source AND must
-            STILL be absent from the catalogue. This keeps the allow-list
-            from rotting into a stale suppression: if a listed category
-            stops being emitted it must be dropped from the list,
-            and if it gains a catalogue row it must
-            ALSO be dropped (otherwise the list silently masks a real
-            catalogued category from the coverage check). Both drifts fail
-            here, forcing the co-edit."
-    (let [catalogued (->> (parse-catalogue) (map :category) set)
-          emitted    (emitted-categories)
-          stale-unemitted  (set/difference out-of-catalogue-allow-list emitted)
-          now-catalogued   (set/intersection out-of-catalogue-allow-list catalogued)]
-      (is (empty? stale-unemitted)
-          (str "allow-list entries no longer emitted from source (drop "
-               "them): " (pr-str (sort stale-unemitted))))
-      (is (empty? now-catalogued)
-          (str "allow-list entries that are NOW catalogued (drop them so "
-               "the coverage check governs them): "
-               (pr-str (sort now-catalogued)))))))
+  (let [catalogued (->> (parse-catalogue) (map :category) set)
+        missing    (set/difference (emitted-categories) catalogued out-of-catalogue-allow-list)]
+    (is (empty? missing)
+        (str "categories emitted from src with no Spec 009 catalogue row: "
+             (pr-str (sort missing))
+             " — add the row (with a Channel), or list the category in "
+             "`out-of-catalogue-allow-list` with a rationale."))))
 
 (deftest always-on-mechanism-emits-are-catalogued-always-on
-  (testing "Every category passed as a LITERAL to
-            `emit-error-both!` / `dispatch-on-error!` in non-test runtime
-            source must be catalogued `always-on`. The two fns ARE the
-            always-on axis (surface #4, not debug-gated), so a category
-            emitted through them and catalogued `diagnostic` is a stale
-            Channel cell over a production-reaching emission — it would
-            reach Sentry/Datadog from a `goog.DEBUG=false` build while its
-            row read `diagnostic`. The other invariants never compare the
-            emit MECHANISM against the Channel column, so that state would
-            pass every one of them; this closes the class. Literal-only,
-            like the shared scan:
-            a VARIABLE category arg (`:rf.error/handler-exception`) is out
-            of scope by design."
-    (let [channel-by-cat (into {} (map (juxt :category :channel))
-                                (parse-catalogue))
+  (testing "a category emitted through an always-on chokepoint reaches
+            production whatever its Channel cell says, so a `diagnostic` cell
+            there is stale"
+    (let [channel-by-cat (into {} (map (juxt :category :channel)) (parse-catalogue))
           not-always-on  (->> (always-on-mechanism-categories)
                               (remove #(= "always-on" (channel-by-cat %)))
                               sort)]
       (is (empty? not-always-on)
-          (str "categories emitted through an always-on mechanism "
-               "(emit-error-both! / dispatch-on-error! / "
-               "dispatch-error-record!) whose Spec 009 "
-               "catalogue row is NOT `always-on`: "
+          (str "categories emitted through dispatch-on-error! / emit-error-both! / "
+               "dispatch-error-record! whose catalogue row is not `always-on`: "
                (pr-str (mapv (juxt identity channel-by-cat) not-always-on))
-               " — either graduate the row to `always-on` (and add the "
-               "category to the exercise literal in the same commit) or "
-               "demote the emission to the trace-only fns. If the site is "
-               "deliberately wrapped in a `debug-enabled?` gate, it belongs "
-               "in `dev-gated-record-categories` with its rationale.")))))
+               " — graduate the row (and add it to the exercise literal), demote "
+               "the emission to the trace-only fns, or, for a debug-gated site, "
+               "list it in `dev-gated-record-categories`.")))))
 
 (deftest dev-gated-record-list-stays-honest
-  (testing "Every entry in `dev-gated-record-categories` must
-            STILL be harvested by the record scan AND must STILL be absent
-            from the catalogue's always-on set. The set suppresses a real
-            always-on MECHANISM on the grounds that its only sites are
-            debug-gated, so it is exactly the shape that rots into a blanket
-            suppression of the drift this gate exists to catch. Both drifts
-            fail here, forcing the co-edit: a category that stopped being
-            emitted through the record mechanism no longer needs the
-            exemption, and one catalogued `always-on`
-            must be governed by the check rather than hidden from it."
-    (let [harvested  (always-on-record-mechanism-categories)
-          always-on  (->> (parse-catalogue)
-                          (filter #(= "always-on" (:channel %)))
-                          (map :category)
-                          set)
-          stale      (set/difference dev-gated-record-categories harvested)
-          graduated  (set/intersection dev-gated-record-categories always-on)]
+  (testing "each exemption is still dispatched through `dispatch-error-record!`
+            and still not catalogued `always-on`, so the list cannot rot into a
+            blanket suppression"
+    (let [harvested (scan-categories always-on-record-mechanism-re)
+          always-on (->> (parse-catalogue)
+                         (filter #(= "always-on" (:channel %)))
+                         (map :category)
+                         set)
+          stale     (set/difference dev-gated-record-categories harvested)
+          graduated (set/intersection dev-gated-record-categories always-on)]
       (is (empty? stale)
-          (str "dev-gated-record-categories entries no longer emitted through "
-               "`dispatch-error-record!` at all — drop them: "
+          (str "no longer dispatched through `dispatch-error-record!`, drop: "
                (pr-str (sort stale))))
       (is (empty? graduated)
-          (str "dev-gated-record-categories entries whose catalogue row is NOW "
-               "`always-on` — drop them so the mechanism check governs them"
-               ": " (pr-str (sort graduated)))))))
+          (str "now catalogued `always-on`, drop: " (pr-str (sort graduated)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The TAGS-COLUMN arm — the catalogue's sixth column against the
-;; canonical `*Tags` schema.
+;; The `:tags` column against the canonical `*Tags` schemas
 ;; ---------------------------------------------------------------------------
 ;;
-;; Everything above pins the CHANNEL column and the emit sites, not the `:tags`
-;; column — and a gate whose coverage never reaches the column where drift
-;; accumulates keeps reporting green over it: a whole row can be missing while
-;; its category ships, or a Tags cell can omit keys its schema declares.
-;;
-;; The arm needs NO new source of truth. Spec-Schemas.md already defines one
-;; `*Tags` Malli schema per trace-emitting catalogue row, and both files are
-;; already parsed here, so the check is a keys-set difference: every key the
-;; SCHEMA declares must be named in the ROW's `:tags` cell.
-;;
-;; There is deliberately no trace-OP arm: there is no
-;; per-op schema roster to diff against, so the only available check is "is
-;; every emitted op documented somewhere in 2500 lines of prose" — a scan with
-;; a bad false-positive rate. The expensive half for the weaker signal.
-;;
-;; WHAT FALLS OUT OF THE PAIRING BY CONSTRUCTION, and why that is not a hole.
-;; Spec-Schemas carries a `:tags` schema only for TRACE-EMITTING categories.
-;; Thrown-`ex-info` rows and always-on union-record rows have no `:tags` map at
-;; all — `re-frame.error/thrown-ex-info` builds a FLAT ex-data map, and Spec 009
-;; §The thrown-error shape already declares `:recovery` among four REQUIRED
-;; slots on it — so they never derive a schema and the arm never reasons about
-;; them. The paired rows are the trace-emitting ones, which is why the
-;; trace-event-scoped exclusion rule below is the right one.
-;;
-;; PAIRING KEYS OFF THE WHOLE `:operation`, NOT ITS NAME HALF. Spec-Schemas
-;; names a schema in one of two ways, and `derived-schema-names` reads both:
-;; the category's NAME half (`:rf.error/resource-route-plan` →
-;; `ResourceRoutePlanTags`) or the WHOLE operation, namespace tail included
-;; (`:rf.fx/handled` → `FxHandledTags`). Two distinct operations can share a
-;; name half — `:rf.http/stale-suppressed` and
-;; `:rf.route.nav-token/stale-suppressed` both derive `StaleSuppressedTags` —
-;; and the schema belongs to the nav-token category alone. That is what the
-;; second spelling is for: the author disambiguates IN THE CORPUS by naming the
-;; schema for its owning namespace, and the derivation reads what they wrote.
-;; No alias table, which is the drift generator this repo keeps removing.
-;;
-;; AN AMBIGUOUS NAME IS REPORTED, NOT DROPPED. A derived name
-;; claimed by more than one operation still identifies no operation and is
-;; diffed against neither — pairing `StaleSuppressedTags` to the HTTP row would
-;; manufacture a false pair, not surface debt. Dropping it in silence would run
-;; the pairing one row short while both count floors stayed green, so
-;; `tags-column-ambiguities` reports every collision and
-;; `tags-column-pairing-is-live` asserts CLAIMED == PAIRED, so a schema the arm
-;; holds but never exercises cannot hide behind a floor. A collision is
-;; resolved the way the report asks — by naming the schema for its owning
-;; namespace, as `RouteNavTokenStaleSuppressedTags` is, which pairs the
-;; nav-token row on the whole-`:operation` spelling and leaves the HTTP row
-;; correctly unpaired.
-;;
-;; THE SCHEMA-DELETION MUTATION, AND WHY THE IDENTITY CANNOT CATCH IT.
-;; Deleting a SCHEMA that pairs
-;; — say `ResourceRoutePlanTags` — un-pairs its row; renaming it to something no
-;; row claims does the same at an unchanged schema count. `CLAIMED == PAIRED` is
-;; powerless against both, because it is an IDENTITY BETWEEN TWO NUMBERS THAT
-;; MOVE TOGETHER: the deletion takes claimed 93 → 92 and paired 93 → 92, and the
-;; equal-count rename does exactly the same. The assertion is true in every
-;; mutated world, so it can never red on this class — which is not a gap in the
-;; assertion but the wrong KIND of assertion for a coverage question.
-;;
-;; Catching it BY NAME would need a total, identity-preserving pairing, and the
-;; two corpora cannot derive one. A standing minority of the `*Tags` corpus is
-;; legitimately claimed by NO catalogue row, for two different reasons — the
-;; success-path and other non-error siblings of `FxHandledTags`, which an ERROR
-;; catalogue has no row for, and schemas whose operation 009 never names by any
-;; derivation. Barely a handful of schema names are cited anywhere in 009, and
-;; nothing in `implementation/` references a schema name — so an orphaned schema
-;; is indistinguishable from a correctly-unpaired one without a third authority.
-;; The arm therefore stays roster-free, with no exception: no orphan
-;; allow-list, and no reading of `implementation/` to discover schema names.
-;;
-;; This paragraph deliberately quotes no raw totals: nothing asserts them, and
-;; they drift on every schema added or retired. Re-derive on
-;; demand instead: `(count (parse-tags-schemas))` for the corpus, and that minus
-;; `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))` for the
-;; unpaired population. The argument needs only that the population is
-;; non-empty, never its size.
-;;
-;; The answer is the mechanism the ROW side already ships, applied to the
-;; pairing itself. `tags-column-paired-floor` records the paired COUNT, so a
-;; drop reds without the arm ever knowing WHICH schema went. One integer, not an
-;; entry per unpaired schema: it names no member, so it cannot rot into the
-;; hand-maintained roster
-;; the arm avoids, and the only edit it admits is a deliberate lowering in
-;; the same commit that removes a pairing.
-;;
-;; The ROW half of the same mutation is covered separately: deleting
-;; `:rf.error/resource-route-plan`'s row makes invariant #5's source scan fire on
-;; the now-uncatalogued emitted category. `scripts/check_keyword_catalogue_drift.py`
-;; CHECK A does NOT also fire — `catalogue_ids` scans the WHOLE document and the
-;; id survives in 009's prose — so invariant #5 is the whole of that coverage.
-;; (An overstated cross-gate claim is how a real gap gets left alone.)
-;;
-;; The two ENVELOPE-level slots are excluded by the catalogue's own rule
-;; (009 §Error event catalogue, *Reading the two right-hand columns*):
-;; "**On a trace-event row**, two envelope-level slots are excluded from the
-;; column **by rule**" — `:recovery` (which `build-event` hoists to the
-;; envelope top level) and `:category` (synthesized on the `:error` branch
-;; only). That rule is scoped to the TRACE-EVENT reading, which is exactly the
-;; set the pairing reaches — not to every row, precisely
-;; because thrown rows contradict it (009 §The thrown-error shape declares
-;; `:recovery` REQUIRED on the flat ex-data map), and those are the rows that
-;; already fall out above. So the arm's exclusion and the catalogue's rule
-;; agree on the same domain, rather than the arm applying a wider rule than
-;; the corpus states. On the SCHEMA side the arm exempts only `:category`
-;; (`envelope-only-tag-keys` says why `:recovery` is not exempt). The same
-;; bullet says a trace-event row's column "lists
-;; the keys that genuinely ride under `:tags` **on the wire**", so every
-;; finding is a row the catalogue's own contract requires to change.
+;; Spec-Schemas.md defines one `*Tags` schema per trace-emitting catalogue row,
+;; so the check is a keys-set difference: every key a schema declares must be
+;; LISTED in its row's `:tags` cell. A schema pairs with a row through the
+;; operation's NAME half (`:rf.error/resource-route-plan` →
+;; `ResourceRoutePlanTags`) or the WHOLE operation (`:rf.fx/handled` →
+;; `FxHandledTags`); the second spelling is how the corpus disambiguates two
+;; operations sharing a name half (`RouteNavTokenStaleSuppressedTags`), so no
+;; alias table is needed. A name claimed by two rows identifies neither and is
+;; reported. Thrown-`ex-info` and union-record rows carry no `:tags` map,
+;; derive no schema, and never pair.
 
 (def ^:private spec-schemas-file
   "`spec/Spec-Schemas.md`, resolved the same way `spec-009-file` is."
@@ -909,36 +283,25 @@
     (if (.exists nested) nested legacy)))
 
 (def ^:private tags-schema-def-re
-  "The opening of a canonical per-category tags schema in Spec-Schemas.md —
-  `(def <Pascal>Tags`, at the start of a line inside a ```clojure fence."
+  "The opening of a canonical tags schema: `(def <Pascal>Tags` at line start."
   #"(?m)^\(def ([A-Za-z0-9]+Tags)\s")
 
 (defn- read-form-at
-  "The single Clojure form beginning at `idx` in `text`, read as DATA. The
-  schemas are Malli vectors, so `edn/read` is both sufficient and safer than
-  the full reader; `:default` keeps an unexpected tagged literal from throwing."
+  "The form beginning at `idx` in `text`, read as EDN data; `:default` keeps an
+  unexpected tagged literal from throwing."
   [^String text ^long idx]
   (with-open [r (java.io.PushbackReader.
                   (java.io.StringReader. (subs text idx)))]
     (edn/read {:eof nil :default (fn [_tag v] v)} r)))
 
 (def ^:private schema-arm-combinators
-  "The Malli heads whose direct vector children are ALTERNATIVE (or conjoined)
-  shapes of the same payload rather than entries of a map — so each child's
-  `[:map …]` is an arm of the schema and contributes its keys.
-
-  `:or` has a live user: `HydrationMismatchTags` models
-  its two disjoint emit tiers as two arms, because a single map cannot (required
-  hashes invalidate every adoption-tier event; optional ones admit a shape
-  neither tier emits). `:and` is reachable through the wrapping form
-  the reader below descends and is listed for the same reason."
+  "Heads whose vector children are alternative shapes of one payload, so each
+  child `[:map …]` is an arm (`HydrationMismatchTags` is an `:or` of two)."
   #{:or :and})
 
 (defn- schema-arm-maps
-  "Every `[:map …]` a schema form presents as a TOP-LEVEL arm — the map itself
-  when the schema IS one, and each arm's map when the schema is an `:or` / `:and`
-  over maps. Recursion stops at any other head, so a `[:map …]` sitting inside an
-  ENTRY's value never counts as an arm."
+  "Every top-level `[:map …]` arm of a schema form. Recursion stops at any other
+  head, so a map inside an entry's value is never an arm."
   [schema]
   (when (vector? schema)
     (cond
@@ -949,20 +312,10 @@
       (mapcat schema-arm-maps (filter vector? (rest schema))))))
 
 (defn- schema-map-keys
-  "The union of the top-level entry keys of every `[:map …]` ARM of a parsed
-  `(def XxxTags …)` form. Takes only DIRECT entries of each arm, so a nested
-  `[:map …]` inside an entry's value does not contribute keys. A properties map
-  after `:map` is skipped (it is not a vector).
-
-  UNION, not first-match. A one-map reading of a two-arm
-  schema is a SILENT NARROWING: `HydrationMismatchTags`' adoption keys would
-  simply never be diffed against the row, which is coverage lost with nothing
-  saying so. The first-`[:map …]`-anywhere reading is kept beside the
-  arms so this reader can only ever WIDEN — every `*Tags` schema except
-  `HydrationMismatchTags` is `[:map`-headed, so their key
-  sets are byte-identical either way. The exception is named rather than
-  counted: it is the durable fact, while a corpus total goes stale on the next
-  schema retired."
+  "The UNION of the direct entry keys of every arm of a parsed `(def XxxTags …)`
+  form; a first-arm-only reading would silently stop diffing the other arm's
+  keys. The first `[:map …]` found anywhere is unioned in too, so this reader
+  can only widen."
   [form]
   (let [arm-maps (concat (schema-arm-maps (last form))
                          (->> (tree-seq coll? seq form)
@@ -973,8 +326,7 @@
           arm-maps)))
 
 (defn- parse-tags-schemas
-  "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}` — every
-  `*Tags` schema Spec-Schemas.md defines, by name, with its declared key set."
+  "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}`."
   ([] (parse-tags-schemas (slurp spec-schemas-file)))
   ([text]
    (let [m (re-matcher tags-schema-def-re text)]
@@ -985,20 +337,7 @@
          acc)))))
 
 (defn- tags-schema-form
-  "The Malli FORM a named `*Tags` schema declares in Spec-Schemas.md — the
-  top-level schema vector itself, not its key set.
-
-  `parse-tags-schemas` throws the types away by design (its arm diffs key
-  sets), so a slot's declared TYPE is unreachable through it. This reader
-  keeps the form so the `:where` witness below can validate real payloads
-  against the schema the spec actually ships.
-
-  TOP-LEVEL, not the first `[:map …]` found anywhere: a
-  two-arm `HydrationMismatchTags` read down to its first arm would validate
-  every adoption-tier payload against the HICCUP map and report the shipped
-  schema rejecting events it accepts. `HydrationMismatchTags` is the corpus's
-  only non-`[:map`-headed schema, so for every OTHER schema the two readings are
-  the same vector."
+  "The top-level Malli form a named `*Tags` schema declares (types kept)."
   [schema-name]
   (let [text    (slurp spec-schemas-file)
         matcher (re-matcher tags-schema-def-re text)]
@@ -1009,123 +348,36 @@
           (recur))))))
 
 (def ^:private tags-cell-key-re
-  "A `:tags` cell entry: a back-ticked span that is EXACTLY one keyword.
-  Anchored on the whole span on purpose — the cells carry long prose in which
-  a bare `:foo` appears inside sentences and inside multi-token spans like
-  `` `:op :subscribe` ``. Reading those as documented keys would make the arm
-  MORE permissive (findings are schema keys the cell omits), i.e. would turn a
-  real red into a green. The narrow rule is the safe direction."
+  "A `:tags` cell entry: a back-ticked span that is EXACTLY one keyword. A bare
+  `:foo` in prose, or inside a multi-token span such as `#{:frame :recovery}`,
+  is not a listing."
   #"`(:[\w.*+!?<>=/'-]+)`")
 
 (def ^:private markdown-link-re
-  "A markdown inline link — `[text](target)` — anywhere in a `:tags` cell.
-  Thirteen live cells carry one, all cross-references to an owning spec
-  section (`per [014 §Privacy](014-HTTPRequests.md#privacy)`).
-
-  WHY THE LINK IS STRIPPED BEFORE KEYS ARE HARVESTED. `tags-cell-key-re` reads
-  ANY back-ticked keyword span in the cell, so a keyword sitting in a link's
-  TEXT would count as a documented key — and a cross-reference is PROSE ABOUT
-  a key, not the row listing it. That is a false-green generator in the one
-  direction that matters: a cell may MISSPELL the key it lists and still
-  satisfy the diff off a correctly-spelled mention in an adjacent link, which
-  is precisely the drift the arm exists to catch. Without the strip,
-  respelling
-  `:rf.error/resource-route-plan`'s `:plan-cause` as `:plan-cauze` while
-  adding `(see [`:plan-cause`](#error-event-catalogue))` to the same cell runs
-  the suite GREEN; `tags-column-key-in-link-text-is-not-a-documented-key`
-  pins it.
-
-  Stripping the WHOLE construct (text and target) is the rule, not just the
-  text: a target carries no back-ticks so it can hold no key, and removing the
-  pair together needs no reasoning about which half a match fell in. No live
-  cell documents a key only from inside a link, so the strip removes no key
-  from the harvest on the current corpus."
+  "A markdown inline link. Stripped before keys are harvested: a keyword in
+  link text is a cross-reference about a key, and counting it would let a cell
+  misspell the key it lists."
   #"\[[^\]]*\]\([^)]*\)")
 
 (def ^:private table-delimiter-re
-  "A markdown table COLUMN DELIMITER — a `|` that markdown itself would treat
-  as a cell boundary rather than as content.
-
-  THE RULE IS BACKSLASH-RUN PARITY, not \"is there a backslash in front of
-  it\". A backslash escapes the character after it, INCLUDING another
-  backslash, so it is the LENGTH of the run immediately before the pipe that
-  decides: an ODD run (`\\|`, `\\\\\\|`) spends its last backslash on the pipe
-  and the pipe is content, while an EVEN run (`\\\\|`, `\\\\\\\\|`) pairs off
-  entirely and the pipe is a bare delimiter.
-
-  Measured against Python-Markdown 3.10's `tables` extension, the reference
-  this reader is trying to agree with. Rendering `| one | two<run>| three |`
-  under a five-column header — wide enough that a short row is padded rather
-  than TRUNCATED, which is what makes the split visible at all — gives two
-  cells for runs of one and three (`two| three`, `two\\| three`: the pipe is
-  content) and three for runs of two and four (`two\\`, `two\\\\` then
-  `three`: the pipe is a delimiter and the surviving backslashes are the run
-  halved). `table-delimiter-honours-backslash-run-parity` pins all four.
-
-  WHY THE ESCAPE IS HONOURED AT ALL. `\\|` is how markdown writes a literal
-  pipe inside a cell, so a cell containing one is correct prose rather than a
-  typo — `:rf.error/infinite-missing-next-page-param` spells its
-  `:next-page-param` contract `(last-page → next-param \\| nil)`. Splitting on
-  it would yield NINE fields where the table has eight and slide every column
-  one place left, so that row's `:tags` cell would be read from its
-  `Default :recovery` column — and once an `InfiniteMissingNextPageParamTags`
-  schema exists to pair with the row, the pairing arm would diff a recovery
-  sentence against a tag key set. The reader, not the spec, is the side to
-  fix — the escape is valid markdown that any catalogue row may
-  legitimately use.
-
-  WHY PARITY AND NOT THE SIMPLER `(?<!\\\\)\\|`. That lookbehind reads one
-  character, so it treats EVERY backslash-prefixed pipe as escaped. It happens
-  to be right on the odd runs and is wrong on the even ones, in the direction
-  that HIDES a defect: a cell ending `\\\\` before a pipe really has broken
-  its row into an extra column, and a reader that swallows the delimiter
-  reports the sibling field count and slides its cells silently. That is
-  exactly the blind spot `tags-column-reader-honours-the-escaped-pipe`'s
-  column-alignment invariant exists to catch, so an under-splitting reader
-  disarms the guard rather than merely disagreeing with markdown.
-
-  ZERO-WIDTH ON PURPOSE. The match is the pipe alone: the run in front of it
-  is INSPECTED, never consumed, so the parity rule moves only WHERE columns
-  break and no cell loses a character. The obvious alternative —
-  `(?<!\\\\)(?:\\\\\\\\)*\\|`, which splits at the right places by EATING the
-  even run — would leave a cell reading `b\\\\` in the file as plain `b`:
-  neither the raw text nor the `b\\` a reader sees, but a third string that is
-  neither what the file says nor what markdown renders. This arm harvests from
-  cells verbatim, so raw is the one of the two it wants.
-
-  Java's lookbehind needs an obvious maximum length, hence `{0,16}` rather than
-  `*` — thirty-two backslashes in front of one pipe, which no catalogue cell
-  approaches. Beyond that bound the reader falls back to reading the pipe as
-  content — the one-character lookbehind's error, and no worse."
+  "A markdown column delimiter: a `|` after an EVEN run of backslashes (zero
+  included). An odd run spends its last backslash escaping the pipe, which is
+  then cell content (`:rf.error/infinite-missing-next-page-param` writes
+  `next-param \\| nil`). The run is inspected, never consumed, so no cell
+  loses a character; Java's lookbehind needs a bound, hence `{0,16}`."
   #"(?<=(?<!\\)(?:\\\\){0,16})\|")
 
 (defn- cell-tag-keys
-  "The keys a `:tags` cell DOCUMENTS — every back-ticked lone keyword outside a
-  markdown cross-reference link (see `markdown-link-re` for why the link goes
-  first)."
+  "The keys a `:tags` cell lists: lone back-ticked keywords outside links."
   [cell]
   (into #{} (map (comp keyword #(subs % 1) second))
         (re-seq tags-cell-key-re (str/replace cell markdown-link-re " "))))
 
 (defn- parse-catalogue-tag-rows
   "`[{:category <kw> :tags-cell <string> :field-count <int>} …]` for every
-  ACTIVE row of the canonical catalogue section. The `:tags` cell is the SIXTH
-  column; `-1` keeps trailing empties so a row whose `:tags` cell is BLANK still
-  parses (and so still reds when its schema declares keys).
-
-  `:field-count` is how many fields the split yielded — the evidence for WHICH
-  column the `:tags` cell was taken from, carried out of the one reader rather
-  than recovered by a second one. `tags-column-reader-honours-the-escaped-pipe`
-  is its only consumer: a row that splits to a different count than its siblings
-  has slid its columns, and every cell the arm reads from it is off by one.
-
-  The split is `table-delimiter-re`, which honours markdown's backslash-run
-  parity: the corpus's one escaped-pipe row —
-  `:rf.error/infinite-missing-next-page-param`, whose `:next-page-param`
-  contract reads `(last-page → next-param \\| nil)` — keeps its eight fields,
-  and a row whose cell ends in an EVEN backslash run is reported at the nine
-  fields markdown gives it rather than silently re-joined to eight. See that
-  var for why the parity, and not the presence of a backslash, is the rule."
+  active row of the catalogue section. The `:tags` cell is the sixth column;
+  `-1` keeps a blank trailing cell. `:field-count` is the split's width, so a
+  row whose columns slid can be detected."
   ([] (parse-catalogue-tag-rows (slurp spec-009-file)))
   ([text]
    (->> (str/split-lines text)
@@ -1145,22 +397,9 @@
   (->> (str/split s #"[-.]") (map str/capitalize) (apply str)))
 
 (defn- derived-schema-names
-  "The canonical `*Tags` schema names an `:operation` may carry — BOTH
-  spellings Spec-Schemas actually uses, so the pairing keys off the whole
-  `:operation` rather than only its name half:
-
-    the NAME half alone   `:rf.error/resource-route-plan` → `ResourceRoutePlanTags`
-    the WHOLE operation   `:rf.fx/handled`                → `FxHandledTags`
-                          `:rf.http.interceptor/registered` → `HttpInterceptorRegisteredTags`
-                          `:rf.route.nav-token/stale-suppressed`
-                                            → `RouteNavTokenStaleSuppressedTags`
-
-  Reading both is what resolves a shared name half WITHOUT an alias table:
-  the author disambiguates in the corpus, by naming the schema
-  for its namespace, and the derivation simply reads what they wrote. Four
-  rows the name-half-only derivation could never reach — `:rf.fx/handled`,
-  `:rf.fx/skipped-on-platform`, `:rf.http.interceptor/registered` and
-  `:rf.http.interceptor/cleared` — pair on the second spelling."
+  "Both schema names an `:operation` may carry: the name half alone
+  (`ResourceRoutePlanTags`), and the whole operation with its namespace tail
+  (`FxHandledTags`, `RouteNavTokenStaleSuppressedTags`)."
   [category]
   (let [nspace (namespace category)
         tail   (when (str/starts-with? (str nspace) "rf.") (subs nspace 3))
@@ -1169,12 +408,8 @@
       tail (conj (str (pascal tail) nm "Tags")))))
 
 (defn- schema-claims
-  "`{\"SchemaName\" [row …]}` — every canonical schema an ACTIVE catalogue row
-  CLAIMS, by either spelling. A schema claimed by exactly ONE row is paired
-  and gets its keys diffed; a schema claimed by MORE THAN ONE identifies no
-  operation and is reported (see `tags-column-ambiguities`) rather than
-  dropped. Silently dropping it was the coverage the arm lost without saying
-  so."
+  "`{\"SchemaName\" [row …]}`: every schema an active row claims, by either
+  spelling."
   [rows schemas]
   (reduce (fn [acc row]
             (reduce (fn [acc nm]
@@ -1186,26 +421,14 @@
           rows))
 
 (def ^:private envelope-only-tag-keys
-  "The slot 009 excludes from every row's `:tags` cell BY RULE, so a schema
-  declaring it is not evidence of a row defect.
-
-  `:recovery` is deliberately NOT here, which is what makes this set an
-  exemption rather than a blind spot. `re-frame.trace/build-event` strips it
-  and hoists it to the envelope top level, but subtracting it from the SCHEMA
-  side of the diff would let a schema over-declare `:recovery` with no
-  mechanical consequence, which is exactly the tolerance 009
-  §'The `:tags` column is pinned, not documentary' calls a defect. So a schema
-  that declares `:recovery` under `:tags` reds instead of being silently
-  absolved.
-
-  `:category` stays: the `:warning` branch synthesizes none and the closed
-  schemas pin it, so it is genuinely envelope-level on every row."
+  "The slot 009 excludes from every trace-event row's `:tags` cell by rule.
+  `:recovery` is deliberately absent: `build-event` hoists it to the envelope,
+  so a schema declaring it under `:tags` is a defect and must red."
   #{:category})
 
 (defn tags-column-findings
-  "`[{:category … :schema … :missing #{…}} …]` — every paired row whose `:tags`
-  cell omits a key its canonical schema declares. Pure over its two inputs so
-  the non-vacuity proof can drive it with synthetic corpora."
+  "`[{:category … :schema … :missing #{…}} …]`: every row paired to exactly one
+  schema whose `:tags` cell omits a key that schema declares."
   [rows schemas]
   (->> (schema-claims rows schemas)
        (keep (fn [[schema-name group]]
@@ -1222,27 +445,8 @@
        vec))
 
 (defn tags-column-recovery-listings
-  "`[category …]` — every ACTIVE catalogue row whose `:tags` cell LISTS
-  `:recovery`. The CELL-side guard on the slot.
-
-  `re-frame.trace/build-event` strips `:recovery` and hoists it to the
-  envelope top level on every branch, so a row that LISTS it under `:tags`
-  names a key no consumer can read there. 009 §Reading the two right-hand
-  columns calls that 'a row defect, not a counterexample', and the
-  `Default :recovery` column is where a row states its disposition, so the
-  listing is caught rather than tolerated. (The SCHEMA side is closed by the
-  ordinary keys diff — see `envelope-only-tag-keys`.)
-
-  MENTION IS NOT LISTING, and the rule applied is 009's own — §'The `:tags`
-  column is pinned, not documentary': a key must be LISTED, not merely
-  mentioned. So `cell-tag-keys` is the reading, and a multi-token back-ticked
-  span survives: the closed record slot sets
-  (`` `#{:frame :recovery :reason :scheme-class}` `` on the three safe-redirect
-  rows, the closed always-on record slot set on
-  `:rf.error/ssr-ring-response-status-invalid`) and the axis-asymmetry
-  sentences (`` `:recovery :no-scroll` ``). Those cells STATE a contract about
-  the slot instead of restating a universal, and a mention-wide rule would
-  delete a security surface's own allow-list to enforce a formatting one."
+  "`[category …]`: every row whose `:tags` cell LISTS `:recovery`, a key
+  `build-event` hoists out of `:tags` on every branch."
   [rows]
   (->> rows
        (keep (fn [{:keys [category tags-cell]}]
@@ -1252,13 +456,8 @@
        vec))
 
 (defn tags-column-ambiguities
-  "`[{:schema … :categories [… …]} …]` — every canonical schema whose name is
-  claimed by MORE THAN ONE active catalogue row. Such a schema identifies no
-  operation, so it cannot be diffed against any row — but that is a REPORTABLE
-  loss of coverage, not a quiet one. The corpus resolves it by
-  naming the schema for its owning namespace, which the second derivation
-  spelling then reads; until it does, the pairing is one row short and says
-  so. Pure over its two inputs."
+  "`[{:schema … :categories [… …]} …]`: every schema name claimed by more than
+  one row, which therefore pairs with neither."
   [rows schemas]
   (->> (schema-claims rows schemas)
        (keep (fn [[schema-name group]]
@@ -1267,245 +466,81 @@
        (sort-by :schema)
        vec))
 
-(defn- claimed-count
-  "How many canonical schemas at least one active row claims."
-  [rows schemas]
-  (count (schema-claims rows schemas)))
-
 (defn- paired-count
-  "How many claimed schemas resolve to exactly one row — the population the
-  keys-set diff actually reaches."
+  "How many schemas resolve to exactly one row, the population the diff reaches."
   [rows schemas]
   (->> (schema-claims rows schemas) vals (filter #(= 1 (count %))) count))
 
 (def ^:private tags-column-paired-floor
-  "THE PAIRING COVERAGE LEDGER — one integer.
-
-  How many canonical schemas the keys-set diff reaches. Re-derive with
-  `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))`.
-
-  WHY A COUNT AND NOT A ROSTER. Deleting a paired schema, or renaming one to a
-  name no row claims, un-pairs a row silently: `CLAIMED == PAIRED` holds in both
-  mutated worlds because both numbers move together, and a slack floor would
-  never notice. Identifying the missing schema BY NAME is not derivable from
-  the two corpora (see the section comment above), and the arm keeps no
-  hand-maintained orphan list that would fake it. A count needs no names: it
-  drops, and it reds.
-
-  SHRINK-ONLY, in the sense its sibling `tags-column-shrink-only-baseline` is —
-  the number may not move by accident in EITHER direction. Removing a pairing
-  reds `tags-column-pairing-is-live`, and the fix is to lower this integer in
-  the SAME commit, with the removal in the diff next to it. Adding one reds
-  `tags-column-baseline-stays-honest`, because a floor left below the coverage
-  the corpus already achieves has rotted: it would sit there absorbing the next
-  deletion in silence, which is the drift this ledger exists to make impossible.
-  Either way the edit is deliberate, reviewable, and one line.
-
-  The integer moves by exactly the pairings the same diff gains or loses: a
-  schema added with its row, a schema deleted with its row, or a row deleted
-  while its schema survives (a schema can live on in spec/Spec-Schemas.md as a
-  member of a larger record schema, and then no row claims it). A
-  schema whose name the row's derivation never matches is claimed by nothing
-  and diffed by nothing, so renaming it to the name-half derivation — the
-  `StaleSuppressedTags` worked example — pairs it with no alias table and no
-  code change, and raises the floor by one.
-
-  Two concurrent changes that each move the floor COMPOSE: taking either side
-  of a conflict wholesale would leave the floor one above a corpus that lost
-  two pairings — the silent-count-merge class this ledger exists to make
-  impossible, arriving in the ledger itself."
+  "THE PAIRING LEDGER: how many canonical schemas the keys-set diff reaches.
+  Deleting a paired schema, or renaming it to a name no row derives, un-pairs
+  its row with no finding to show for it; this count is what moves. Change it
+  only in the commit that adds or removes a pairing. Re-derive with
+  `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))`."
   90)
 
-(def ^:private tags-column-shrink-only-baseline
-  "SHRINK-ONLY. Rows that red when the arm runs, held as named debt so a
-  corpus reconciliation need not block the arm. Entries LEAVE this set and
-  never join it: a NEW omission fails immediately, and
-  `tags-column-baseline-stays-honest` fails the moment a listed row is fixed,
-  forcing the drop in the SAME PR.
-
-  EMPTY, and that is the finished state. A Tags cell names the LITERAL wire
-  key and states optionality in prose: `:rf.ssr/hydration-mismatch`'s cell
-  names `:first-diff-path`, the key `re-frame.ssr.hydrate/verify-hydration!`
-  conditionally `assoc`es and `HydrationMismatchTags` declares
-  `[:first-diff-path {:optional true} [:vector :any]]`, and `tags-cell-key-re`
-  reads exactly that key — a `:first-diff-path?` spelling would name a key
-  nothing carries.
-
-  An empty baseline means `tags-column-keys-are-documented` is an
-  unqualified invariant: the next undocumented schema key reds it outright.
-  Do NOT re-add an entry to buy a red back off — the set shrinks only, so a
-  new omission is a corpus fix, not a baseline edit."
-  #{})
-
 (deftest tags-column-pairing-is-live
-  (testing "Sanity, in the shape the sibling scans use: the arm actually reaches
-            both corpora. A derivation change, a Spec-Schemas fence rename, or
-            a catalogue column reorder would collapse the pairing to zero and
-            every finding-based invariant below would pass VACUOUSLY. The
-            schema-count floor is COLLAPSE insurance; the PAIRED floor is the
-            coverage ledger — it is the only assertion here that
-            moves when a paired schema is deleted or renamed away, because the
-            CLAIMED == PAIRED identity below it holds in both mutated worlds."
-    (let [rows    (parse-catalogue-tag-rows)
-          schemas (parse-tags-schemas)]
-      (is (.exists spec-schemas-file)
-          (str "spec/Spec-Schemas.md not found at " spec-schemas-file))
-      (is (>= (count schemas) 100)
-          (str "Spec-Schemas.md yielded the per-category tags schemas "
-               "(>= 100), not a partial parse; found " (count schemas)))
-      ;; THE COVERAGE LEDGER. Not collapse insurance: this is the
-      ;; assertion that reds when a paired schema is DELETED or renamed to a
-      ;; name no row claims. Both mutations drop the paired count by one and
-      ;; leave every other guard here green.
-      (is (>= (paired-count rows schemas) tags-column-paired-floor)
-          (str "canonical schemas PAIRED and diffed: "
-               (paired-count rows schemas) ", below the recorded floor of "
-               tags-column-paired-floor ". A pairing was lost — a `*Tags` "
-               "schema deleted, or renamed to a name no catalogue row derives. "
-               "Restore the pairing, or lower `tags-column-paired-floor` IN "
-               "THIS COMMIT, with the removal in the diff beside it."))
-      ;; Anchor on a schema whose keys are non-trivial, so a parse that finds
-      ;; the def but reads an empty key set is caught…
-      (is (contains? (get schemas "HandlerExceptionTags") :exception-message)
-          "HandlerExceptionTags parsed with its declared keys")
-      ;; …and generalise that anchor: EVERY parsed schema must have declared
-      ;; keys. One named schema proves the reader works on one shape; a schema
-      ;; that parses to `#{}` contributes a pair that can never produce a
-      ;; finding, which is coverage in name only.
-      (is (empty? (->> schemas (filter (comp empty? val)) (map key) sort))
-          (str "`*Tags` schemas that parsed with an EMPTY key set — the reader "
-               "found the def and lost its `[:map …]`: "
-               (pr-str (->> schemas (filter (comp empty? val)) (map key) sort))))
-      ;; THE RATCHET ON PAIRING IDENTITY. Every schema an active row claims
-      ;; must resolve to exactly one row and be diffed. A collision dropped
-      ;; silently would leave claimed one above diffed, invisible while both
-      ;; numbers sat above their floors. This is an identity, not a count — it holds at any corpus
-      ;; size, and it is what makes the ambiguity test below unmissable.
-      (is (= (claimed-count rows schemas) (paired-count rows schemas))
-          (str "canonical schemas CLAIMED by an active catalogue row: "
-               (claimed-count rows schemas) ", schemas actually PAIRED and "
-               "diffed: " (paired-count rows schemas) ". The difference is "
-               "coverage the arm holds and does not exercise — see "
-               "`tags-column-pairing-is-unambiguous` for the offenders.")))))
+  (let [rows    (parse-catalogue-tag-rows)
+        schemas (parse-tags-schemas)
+        paired  (paired-count rows schemas)]
+    (is (= tags-column-paired-floor paired)
+        (str "schemas PAIRED and diffed: " paired "; `tags-column-paired-floor` "
+             "records " tags-column-paired-floor ". Lower: a pairing was lost (a "
+             "`*Tags` schema deleted, or renamed to a name no row derives) — "
+             "restore it or lower the ledger in this commit. Higher: raise the "
+             "ledger so it cannot absorb the next lost pairing."))
+    (is (contains? (get schemas "HandlerExceptionTags") :exception-message)
+        "HandlerExceptionTags parsed with its declared keys")
+    (is (empty? (->> schemas (filter (comp empty? val)) (map key) sort))
+        (str "schemas that parsed to an EMPTY key set, which can never produce "
+             "a finding: "
+             (pr-str (->> schemas (filter (comp empty? val)) (map key) sort))))))
 
 (deftest tags-column-pairing-is-unambiguous
-  (testing "A canonical schema name claimed by two operations identifies
-            neither, so it can be diffed against neither — a real loss of
-            coverage that must not happen SILENTLY. The corpus
-            resolves it by naming the schema for its owning namespace, which
-            `derived-schema-names`' second spelling reads; reporting it is
-            what forces that resolution instead of letting the pairing quietly
-            run one row short."
-    (let [ambiguous (tags-column-ambiguities (parse-catalogue-tag-rows)
-                                             (parse-tags-schemas))]
-      (is (empty? ambiguous)
-          (str "canonical `*Tags` schemas claimed by more than one catalogue "
-               "row. Rename the schema for its owning operation "
-               "(`StaleSuppressedTags` → `RouteNavTokenStaleSuppressedTags` is "
-               "the worked example) so the whole-`:operation` spelling pairs "
-               "it, and leave the other row unpaired: "
-               (pr-str ambiguous))))))
+  (let [ambiguous (tags-column-ambiguities (parse-catalogue-tag-rows)
+                                           (parse-tags-schemas))]
+    (is (empty? ambiguous)
+        (str "schemas claimed by more than one catalogue row, so diffed against "
+             "neither. Name the schema for its owning operation (as "
+             "`RouteNavTokenStaleSuppressedTags` is) so the whole-operation "
+             "spelling pairs it: " (pr-str ambiguous)))))
 
 (deftest tags-column-keys-are-documented
-  (testing "Every key a canonical `*Tags` schema declares must
-            be named in its catalogue row's `:tags` cell, minus
-            `envelope-only-tag-keys` (`:category`). This is the column the
-            channel and emit-site invariants do not reach."
-    (let [findings (tags-column-findings (parse-catalogue-tag-rows)
-                                         (parse-tags-schemas))
-          beyond   (remove (comp tags-column-shrink-only-baseline :category)
-                           findings)]
-      (is (empty? beyond)
-          (str "catalogue rows whose `:tags` cell omits keys their canonical "
-               "Spec-Schemas schema declares. Either add the keys "
-               "to the row, or correct the schema if the SCHEMA is the wrong "
-               "side: "
-               (pr-str (mapv (juxt :category :schema (comp sort :missing))
-                             beyond)))))))
+  (let [findings (tags-column-findings (parse-catalogue-tag-rows)
+                                       (parse-tags-schemas))]
+    (is (empty? findings)
+        (str "catalogue rows whose `:tags` cell omits keys their canonical "
+             "schema declares — add the keys to the row, or correct the schema: "
+             (pr-str (mapv (juxt :category :schema (comp sort :missing)) findings))))))
 
-(deftest tags-column-baseline-stays-honest
-  (testing "The shrink-only baseline may only shrink. An entry that no longer
-            reds must be DROPPED in the same PR that fixes it — otherwise the
-            set rots into a blanket suppression, exactly as
-            `allow-list-stays-honest` guards its sibling."
-    (let [redding (->> (tags-column-findings (parse-catalogue-tag-rows)
-                                             (parse-tags-schemas))
-                       (map :category)
-                       set)
-          stale   (set/difference tags-column-shrink-only-baseline redding)]
-      (is (empty? stale)
-          (str "tags-column-shrink-only-baseline entries that no longer red — "
-               "drop them from the set in this file: "
-               (pr-str (sort stale))))))
-  (testing "…and so does the paired-count ledger, in the other direction.
-            A floor left BELOW the coverage the corpus already
-            achieves is stale, and stale in the dangerous way: it silently
-            absorbs the next lost pairing. Recording the gain is the same
-            one-line edit that lowering it would be."
-    (let [paired (paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))]
-      (is (<= paired tags-column-paired-floor)
-          (str "the pairing now reaches " paired " canonical schemas but "
-               "`tags-column-paired-floor` still records "
-               tags-column-paired-floor ". Raise it to " paired " in this PR: "
-               "a floor below live coverage protects nothing above itself.")))))
+(deftest tags-column-never-lists-the-envelope-level-recovery-slot
+  (let [listed (tags-column-recovery-listings (parse-catalogue-tag-rows))]
+    (is (empty? listed)
+        (str "catalogue rows whose `:tags` cell LISTS `:recovery`, which "
+             "`build-event` hoists to the envelope on every branch — state it in "
+             "the `Default :recovery` column instead: " (pr-str listed)))))
 
 ;; --- the two-tier `:rf.ssr/hydration-mismatch` category -----------------------
 ;;
-;; THE ARM ABOVE RUNS IN ONE DIRECTION, OVER KEY SETS, AND OVER NO RUNTIME
-;; EVENT. It proves every key a SCHEMA declares is named in its row's cell.
-;; Two things follow that it cannot see, and a two-tier category like
-;; `:rf.ssr/hydration-mismatch` can carry both:
-;;
-;;   1. A SCHEMA THAT MODELS ONE OF A CATEGORY'S RUNTIME SHAPES. This category
-;;      is the one whose tier split runs INSIDE the category rather than
-;;      between rows (009 §Reading the two right-hand columns says so in as
-;;      many words). A `HydrationMismatchTags` requiring `:server-hash` and
-;;      `:client-hash` would reject every ADOPTION-tier event — those emitters
-;;      carry neither, by design, since a React-element root has no structural
-;;      render-tree to hash — while the keys-set diff stayed green, because the
-;;      cell names both hashes and the diff never looks at an event.
-;;
-;;   2. A CELL THAT NAMES A KEY NO PRODUCER SUPPLIES — e.g. a
-;;      `:head-id` (head) tag. `verify-hydration!` destructures exactly
-;;      `:first-diff-path` / `:failing-id` / `:server-hash` out of its opts and
-;;      merges nothing else, so no `:head-id` can reach this category's payload;
-;;      the head sub-arm is discriminated by `:failing-id` alone.
-;;
-;; WHY NOT SIMPLY RUN THE DIFF BACKWARDS. Because a `:tags` cell is prose, and
-;; the harvest that reads it is deliberately narrow for that reason (see
-;; `tags-cell-key-re`). This cell in particular states a NEGATIVE as part of its
-;; contract — "no `:root-id`, because a React-element root has none" — which a
-;; cell-key harvest reads as a listing. A cell → schema diff would red on that
-;; sentence and on every sibling like it. The direction that settles both
-;; questions without reading prose is EVENT → schema and EVENT → cell, so that
-;; is what this witness does: it drives the shipped emitters and asks whether
-;; the corpus describes what came out.
-;;
-;; WHAT IS DRIVEN FOR REAL. The hiccup tier is `re-frame.ssr.hydrate/verify-
-;; hydration!` — `.cljc`, and `day8/re-frame2-ssr` is a test-only dep of core
-;; (implementation/core/deps.edn) — so this JVM suite calls the SHIPPED emitter
-;; and reads the envelope `re-frame.trace/build-event` actually assembled. The
-;; two adoption emitters are `.cljs` and cannot be called from the JVM, so their
-;; payload MAPS are read out of the source files AS DATA and driven through the
-;; real `rf.trace/emit!`; `:where` is taken from the source form rather than
-;; retyped, and the key set is pinned, so neither transcription can drift.
+;; The keys-set arm never looks at an emitted event, so it cannot see a schema
+;; that models only one of a category's runtime shapes, or a cell naming a key
+;; no producer supplies. This witness drives the shipped emitters and checks
+;; the corpus against what comes out. The hiccup tier (`verify-hydration!`) is
+;; `.cljc` and is called for real; the two adoption emitters are `.cljs`, so
+;; their payload maps are read out of the source as data and driven through
+;; the real `rf.trace/emit!`.
 
 (def ^:private hydration-mismatch-adoption-sites
-  "The two ADOPTION-tier emit sites, relative to `implementation/`. Both are
-  `(rf.trace/emit! :warning :rf.ssr/hydration-mismatch {…})` with a `:warning`
-  envelope — which is why neither carries `[:tags :category]`."
+  "The two adoption-tier `(rf.trace/emit! :warning :rf.ssr/hydration-mismatch {…})`
+  sites, relative to `implementation/`."
   ["core/src/re_frame/substrate/spine.cljs"
    "fresco/src/re_frame/fresco/impl/mount.cljs"])
 
 (def ^:private adoption-emit-re
-  "The adoption emit's opening. The payload map begins at the match END, so
-  `read-form-at` reads it straight off the source."
   #"emit!\s+:warning\s+:rf\.ssr/hydration-mismatch\s*")
 
 (defn- adoption-payload-form
-  "The literal payload map the adoption emit at `rel-path` passes, read as DATA.
-  `(some-> error .-message)` and `'re-frame…/…` are ordinary EDN forms, so this
-  reaches the whole map without evaluating a thing."
+  "The literal payload map the adoption emit at `rel-path` passes, read as data."
   [rel-path]
   (let [src (slurp (io/file rf.impl-source-corpus/implementation-root rel-path))
         m   (re-matcher adoption-emit-re src)]
@@ -1513,11 +548,8 @@
       (read-form-at src (.end m)))))
 
 (defn- source-quoted-symbol
-  "The symbol a source form quotes, whichever way the reader hands it over.
-  `clojure.edn` has no quote macro, so `'re-frame.substrate.spine/make-render`
-  arrives as ONE symbol carrying the apostrophe in its namespace rather than as
-  a `(quote …)` list — strip it either way, so the value driven through the emit
-  below is the site's own `:where` and not a retyped copy of it."
+  "The symbol a source form quotes. `clojure.edn` has no quote macro, so
+  `'a/b` arrives as one symbol carrying the apostrophe."
   [v]
   (cond
     (and (seq? v) (= 'quote (first v))) (second v)
@@ -1525,26 +557,19 @@
     :else                               v))
 
 (def ^:private adoption-payload-keys
-  "The three slots BOTH adoption emitters pass. `:recovery` is among them and is
-  stripped by `build-event`, so it never reaches `:tags` — which the witness
-  asserts rather than assumes."
+  "The slots both adoption emitters pass, which the witness transcribes."
   #{:error :where :recovery})
 
 (defn- catalogue-tags-cell
-  "The `:tags` cell of the ACTIVE catalogue row for `category`."
+  "The `:tags` cell of the active catalogue row for `category`."
   [category]
   (->> (parse-catalogue-tag-rows)
        (some (fn [row] (when (= category (:category row)) (:tags-cell row))))))
 
 (def ^:private witness-frame-id
-  "The frame id the hiccup witness names. A BARE keyword, deliberately naming no
-  registered frame: `verify-hydration!` reads the frame only to resolve the
-  stashed server hash and the two `:ssr` knobs, and `frame-meta` /
-  `frame-runtime-db-value` both answer `nil` for an unknown id — so the `nil`
-  runtime-db takes the `:server-hash` OPT override below and the knobs take
-  their documented defaults (detect on, `:warn`). That keeps this corpus suite
-  from installing an adapter and resetting the global registrar, which is
-  ambient state every other namespace in the run shares."
+  "Names no registered frame, so `verify-hydration!` takes the `:server-hash`
+  opt and the default `:ssr` knobs without this suite installing an adapter or
+  resetting the shared registrar."
   :rf.frame/hydration-mismatch-witness)
 
 (defn- capture-trace-events
@@ -1556,47 +581,21 @@
     (try (f) (finally (rf.trace.tooling/unregister-listener! id)))
     @seen))
 
-(def ^:private pre-fix-hydration-mismatch-schema
-  "THE CONTROL — `HydrationMismatchTags` as a single map with both hashes
-  REQUIRED, the shape a one-arm schema takes. It is what makes the witness below
-  discriminating rather than decorative. Every assertion this control fails and
-  the shipped schema passes is a defect the two-arm shape avoids; if the
-  control ever starts passing them too, the control is wrong, not the schema."
-  [:map
-   [:category        :keyword]
-   [:server-hash     :any]
-   [:client-hash     :any]
-   [:first-diff-path {:optional true} [:vector :any]]])
+(defn- emitted-hydration-mismatch
+  "The hydration-mismatch trace event `f` emits."
+  [f]
+  (->> (capture-trace-events f)
+       (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
+       first))
 
 (deftest hydration-mismatch-schema-models-both-emitted-tiers
-  (testing "SHAPE. The canonical schema is a two-arm `:or`, one arm per tier —
-            not one map with the tier-specific keys made optional, which would
-            admit a payload neither tier emits."
-    (let [form (tags-schema-form "HydrationMismatchTags")]
-      (is (some? form) "HydrationMismatchTags parsed out of Spec-Schemas.md")
-      (is (= :or (first form))
-          (str "`HydrationMismatchTags` must be a two-arm variant — the "
-               "category's two emit tiers share no payload key but `:where`. "
-               "Found head: " (pr-str (first form))))
-      (is (= 2 (count (rest form)))
-          (str "exactly two arms, one per tier. Found " (count (rest form))))
-      (is (every? #(and (vector? %) (= :map (first %))) (rest form))
-          "both arms are `[:map …]`")))
-
-  (testing "the keys-set reader sees BOTH arms. A first-arm-only reading would
-            drop the adoption keys from the arm above with nothing saying so —
-            that is coverage lost silently, which is the failure mode this whole
-            section exists to close."
+  (testing "the keys-set reader takes the union of both `:or` arms"
     (let [ks (get (parse-tags-schemas) "HydrationMismatchTags")]
       (is (contains? ks :server-hash) "hiccup-arm key reached the reader")
       (is (contains? ks :error)       "adoption-arm key reached the reader")))
 
-  (testing "THE ARMS ARE DISJOINT. A representative payload from either tier
-            validates against the whole schema and against its OWN arm, and is
-            REJECTED by the other — so the `:or` is genuinely two shapes rather
-            than one arm loose enough to swallow both."
+  (testing "the arms are disjoint: each tier's payload matches its own arm only"
     (let [[hiccup-arm adoption-arm] (rest (tags-schema-form "HydrationMismatchTags"))
-          whole    (tags-schema-form "HydrationMismatchTags")
           hiccup   {:category    :rf.ssr/hydration-mismatch
                     :rf.error/id :rf.ssr/hydration-mismatch
                     :where       'rf/verify-hydration!
@@ -1606,373 +605,98 @@
                     :reason      "Hydration mismatch: server hash 'A' != client hash 'B'."}
           adoption {:error "Hydration failed because the initial UI does not match."
                     :where 're-frame.substrate.spine/make-render}]
-      (is (malli/validate whole hiccup)        "hiccup payload validates")
-      (is (malli/validate whole adoption)      "adoption payload validates")
-      (is (malli/validate hiccup-arm hiccup)   "hiccup payload matches the hiccup arm")
-      (is (malli/validate adoption-arm adoption) "adoption payload matches the adoption arm")
-      (is (not (malli/validate adoption-arm hiccup))
-          "the hiccup payload must NOT satisfy the adoption arm")
-      (is (not (malli/validate hiccup-arm adoption))
-          "the adoption payload must NOT satisfy the hiccup arm")
-      (is (not (malli/validate pre-fix-hydration-mismatch-schema adoption))
-          (str "THE CONTROL. The single-map control schema rejects the "
-               "adoption payload — that rejection IS the defect a one-arm "
-               "schema carries. If this assertion fails the control is wrong, not "
-               "the schema."))
-      (is (malli/validate pre-fix-hydration-mismatch-schema hiccup)
-          "…and accepted the hiccup one, so the control differs on the tier
-           that matters and not on both")))
+      (is (malli/validate hiccup-arm hiccup))
+      (is (malli/validate adoption-arm adoption))
+      (is (not (malli/validate adoption-arm hiccup)))
+      (is (not (malli/validate hiccup-arm adoption)))))
 
-  ;; The emit-driven half. `rf.interop/debug-enabled?` is false in the `:prod-gate`
-  ;; lane, where every trace emit is a deliberate no-op — guarding here keeps
-  ;; that lane running the corpus assertions above rather than reporting a
-  ;; failure about instrumentation it switched off on purpose.
+  ;; Trace emits are no-ops in the `:prod-gate` lane, so only the corpus half
+  ;; above runs there.
   (when rf.interop/debug-enabled?
-    (testing "HICCUP TIER, driven through the SHIPPED emitter. The envelope is
-              the one `re-frame.trace/build-event` really assembled, so the
-              `:category` merge and the `:recovery` hoist are observed rather
-              than asserted."
-      (let [events   (capture-trace-events
-                       #(rf.ssr.hydrate/verify-hydration!
-                          witness-frame-id
-                          "client-hash-B"
-                          {:server-hash     "server-hash-A"
-                           :first-diff-path [:main 0 :h1]}))
-            ev       (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                    events))
-            tags     (:tags ev)
-            schema   (tags-schema-form "HydrationMismatchTags")]
-        (is (some? ev)
-            (str "verify-hydration! emitted the category. Saw: "
-                 (pr-str (mapv :operation events))))
-        (is (= :error (:op-type ev))
-            "the hiccup emit routes through `emit-error!`, so `:op-type` is `:error`")
-        (is (= :warned-and-replaced (:recovery ev))
-            "`:recovery` is hoisted to the envelope top level")
-        (is (not (contains? tags :recovery))
-            "…and therefore absent from `:tags`, which is why no arm declares it")
-        (is (= :rf.ssr/hydration-mismatch (:category tags))
-            "`build-event` merged `{:category <operation>}` on the `:error` branch")
-        (is (malli/validate schema tags)
-            (str "the emitted hiccup `:tags` must validate against the shipped "
-                 "schema. Got: " (pr-str tags)))
-        (is (not (malli/validate pre-fix-hydration-mismatch-schema
-                                 (dissoc tags :server-hash)))
-            "the control still bites on a hash-less map, so it is not vacuous")))
+    (let [schema     (tags-schema-form "HydrationMismatchTags")
+          declared   (get (parse-tags-schemas) "HydrationMismatchTags")
+          documented (set/union (cell-tag-keys (catalogue-tags-cell :rf.ssr/hydration-mismatch))
+                                envelope-only-tag-keys)
+          described  (fn [label tags]
+                       (is (malli/validate schema tags)
+                           (str label ": emitted `:tags` must validate against the "
+                                "shipped schema. Got: " (pr-str tags)))
+                       (is (empty? (set/difference (set (keys tags)) declared))
+                           (str label ": emitted keys no arm declares: "
+                                (pr-str (sort (set/difference (set (keys tags)) declared)))))
+                       (is (empty? (set/difference (set (keys tags)) documented))
+                           (str label ": emitted keys the catalogue cell does not list: "
+                                (pr-str (sort (set/difference (set (keys tags)) documented))))))]
+      (testing "hiccup tier, driven through the shipped emitter"
+        (described "hiccup"
+                   (:tags (emitted-hydration-mismatch
+                            #(rf.ssr.hydrate/verify-hydration!
+                               witness-frame-id
+                               "client-hash-B"
+                               {:server-hash     "server-hash-A"
+                                :first-diff-path [:main 0 :h1]})))))
 
-    (testing "ADOPTION TIER. The payload maps are read out of the two `.cljs`
-              emit sites as data — this JVM suite cannot call them — and driven
-              through the real `rf.trace/emit!`, with each site's own `:where`
-              symbol taken from the source rather than retyped."
-      (let [schema (tags-schema-form "HydrationMismatchTags")]
+      (testing "adoption tier: each site's own payload, driven through `rf.trace/emit!`"
         (doseq [rel-path hydration-mismatch-adoption-sites]
-          (let [form (adoption-payload-form rel-path)]
-            (is (some? form)
-                (str rel-path " still carries a `(rf.trace/emit! :warning "
-                     ":rf.ssr/hydration-mismatch {…})` site"))
+          (let [form  (adoption-payload-form rel-path)
+                where (source-quoted-symbol (:where form))
+                ev    (emitted-hydration-mismatch
+                        #(rf.trace/emit! :warning :rf.ssr/hydration-mismatch
+                                         {:error    "Hydration failed because the initial UI does not match."
+                                          :where    where
+                                          :recovery (:recovery form)}))
+                tags  (:tags ev)]
             (is (= adoption-payload-keys (set (keys form)))
-                (str rel-path "'s adoption payload keys moved — this witness "
-                     "transcribes representative values for exactly these "
-                     "slots, so a key added or removed there must be reflected "
-                     "here and in the row. Found: " (pr-str (sort (keys form)))))
-            (let [;; the site's OWN `:where`, unquoted — never a retyped copy.
-                  where    (source-quoted-symbol (:where form))
-                  events   (capture-trace-events
-                             #(rf.trace/emit! :warning :rf.ssr/hydration-mismatch
-                                           {:error    "Hydration failed because the initial UI does not match."
-                                            :where    where
-                                            :recovery (:recovery form)}))
-                  ev       (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                          events))
-                  tags     (:tags ev)]
-              (is (and (symbol? where) (namespace where))
-                  (str rel-path " stamps a quoted, namespace-qualified symbol "
-                       "`:where`. Found: " (pr-str (:where form))))
-              (is (some? ev) (str rel-path ": the emit produced an envelope"))
-              (is (= :warning (:op-type ev))
-                  "the adoption emits use a `:warning` envelope")
-              (is (not (contains? tags :category))
-                  (str "a `:warning` envelope gets NO `[:tags :category]` — "
-                       "which is exactly why the adoption arm must not declare "
-                       "it, and why one map could not model both tiers"))
-              (is (= :warned-and-replaced (:recovery ev))
-                  "`:recovery` is hoisted on the success branch too")
-              (is (malli/validate schema tags)
-                  (str rel-path ": the emitted adoption `:tags` must validate "
-                       "against the shipped schema. Got: " (pr-str tags)))
-              (is (not (malli/validate pre-fix-hydration-mismatch-schema tags))
-                  (str rel-path ": THE CONTROL — the single-map control "
-                       "schema rejects this real event. That rejection is the "
-                       "defect; if this passes, the control is wrong."))
-              ;; The `.message`-less error: `(some-> error .-message)` is nil
-              ;; when the recoverable error carries no message, which is why
-              ;; the arm declares `[:maybe :string]` rather than `:string`.
-              (is (malli/validate schema (assoc tags :error nil))
-                  "a nil `:error` (an error with no `.message`) validates"))))))
+                (str rel-path "'s payload keys moved; the witness transcribes exactly "
+                     adoption-payload-keys ". Found: " (pr-str (sort (keys form)))))
+            (is (qualified-symbol? where)
+                (str rel-path " stamps a quoted, namespace-qualified `:where`. Found: "
+                     (pr-str (:where form))))
+            (is (not (contains? tags :category))
+                "a `:warning` envelope carries no `[:tags :category]`, as the cell says")
+            (is (= :warned-and-replaced (:recovery ev))
+                "`:recovery` is hoisted to the envelope on the `:warning` branch too")
+            (described rel-path tags)
+            (is (malli/validate schema (assoc tags :error nil))
+                "an error with no `.message` emits a nil `:error`, which validates"))))
 
-    (testing "EVENT → CORPUS, both directions closed for this category. Every
-              key the SHIPPED emitters actually put on the wire is declared by
-              the schema AND named in the catalogue row's `:tags` cell. This is
-              the reverse of the keys-set arm, taken over emitted events instead
-              of over cell prose — which is what makes it mechanisable at all."
-      (let [cell       (catalogue-tags-cell :rf.ssr/hydration-mismatch)
-            declared   (get (parse-tags-schemas) "HydrationMismatchTags")
-            documented (cell-tag-keys cell)
-            hiccup     (->> (capture-trace-events
-                              #(rf.ssr.hydrate/verify-hydration!
-                                 witness-frame-id
-                                 "client-hash-B"
-                                 {:server-hash     "server-hash-A"
-                                  :first-diff-path [:main 0 :h1]}))
-                            (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
-                            first :tags keys set)
-            adoption   (->> (capture-trace-events
-                              #(rf.trace/emit! :warning :rf.ssr/hydration-mismatch
-                                            {:error    "Hydration failed."
-                                             :where    're-frame.substrate.spine/make-render
-                                             :recovery :warned-and-replaced}))
-                            (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
-                            first :tags keys set)
-            emitted    (set/union hiccup adoption)]
-        (is (some? cell) "the catalogue carries an active hydration-mismatch row")
-        (is (seq emitted) "both tiers emitted something to check")
-        (is (empty? (set/difference emitted declared))
-            (str "keys the emitters put under `:tags` that NO arm of "
-                 "`HydrationMismatchTags` declares: "
-                 (pr-str (sort (set/difference emitted declared)))))
-        (is (empty? (set/difference emitted documented envelope-only-tag-keys))
-            (str "keys the emitters put under `:tags` that the catalogue row's "
-                 "cell does not name: "
-                 (pr-str (sort (set/difference emitted documented
-                                               envelope-only-tag-keys)))))
-        (is (not (contains? declared :head-id))
-            "no arm declares `:head-id` — no producer supplies one")
+      (testing "no `:head-id`: `verify-hydration!` merges no such opt into the payload"
+        (is (not (contains? declared :head-id)))
         (is (not (contains? documented :head-id))
-            (str "the cell must not LIST `:head-id`: `verify-hydration!` "
-                 "destructures only `:first-diff-path` / `:failing-id` / "
-                 "`:server-hash` out of its opts and merges nothing else, so "
-                 "no `:head-id` can reach this category's payload — the head "
-                 "sub-arm is discriminated by `:failing-id` alone. The cell may "
-                 "still SAY so: `cell-tag-keys` reads a lone back-ticked "
-                 "keyword and nothing else, so state the negative in a "
-                 "multi-token span (`no :head-id`) the way the closed-record-"
-                 "slot cells state theirs."))))))
+            "the cell may state the negative in a multi-token span, never list the key")))))
 
-;; --- the :where slot's TYPE ---------------------------------------------------
+;; --- the `:where` slots' declared type ----------------------------------------
 ;;
-;; THE ARM ABOVE DIFFS KEY SETS AND IS BLIND TO TYPES BY CONSTRUCTION.
-;; `schema-map-keys` keeps entry KEYS and discards every declared type, so a
-;; slot declared `:any` validates a string, a number, a map or an arbitrary
-;; host object with no gate anywhere disagreeing. For `:where` that is not a
-;; harmless looseness: the declared type is the ONLY thing standing between
-;; `NoFrameContextTags` and an arbitrary object, so `:any` there would enforce
-;; nothing while reading as though it did — a producer/schema agreement nobody
-;; checks.
-;;
-;; The contract is a SYMBOL, and that is a reading of the producers rather than
-;; of the prose: every call site that supplies `:where` into a
-;; no-frame-context payload emits a QUOTED SYMBOL naming the resolving fn —
-;; `re-frame.subs/subscribe`, `re-frame.router/build-envelope`,
-;; `re-frame.core/capture-frame`, `rf.ssr/hydrate!`, `rf.http/managed`,
-;; `rf.machine/spawn`, `rf.route/navigate-handler`, … across core, http,
-;; machines, routing, flows, resources and ssr — as does the `where` argument
-;; threaded through `require-frame-provider-target!`. There is no keyword
-;; producer in src or in test. Spec 009's row and the schema's own comment both
-;; say "a SYMBOL … not a keyword", and the slot agrees.
+;; The keys-set arm discards declared types, so it cannot see a `:where` slot
+;; loosened to `:any`. Every producer of these slots stamps a quoted symbol,
+;; while other categories carry a keyword `:where`, so `:any` would admit a
+;; spelling that is right elsewhere in the corpus.
 
-(def ^:private no-frame-context-where-mutants
-  "The type mutants an `:any` declaration silently accepts. A STRING is the
-  realistic drift (a call site interpolating a name), the NUMBER and the MAP
-  stand for `anything at all`."
-  {"a string"        "re-frame.subs/subscribe"
-   "a number"        42
-   "a map"           {:ns 're-frame.subs :name 'subscribe}
-   "a bare keyword"  :re-frame.subs/subscribe})
+(defn- where-entry
+  "The `:where` entry of a named schema's top-level `[:map …]`."
+  [schema-name]
+  (->> (rest (tags-schema-form schema-name))
+       (filter #(and (vector? %) (= :where (first %))))
+       first))
 
 (deftest no-frame-context-where-is-typed-not-any
-  (testing "`NoFrameContextTags` declares `:where` as `:symbol`, and the
-            declaration is load-bearing: the keys-set arm above cannot see a
-            type, so this is the only assertion that reads one."
-    (let [schema (tags-schema-form "NoFrameContextTags")
-          entry  (->> (rest schema)
-                      (filter #(and (vector? %) (= :where (first %))))
-                      first)]
-      (is (some? schema) "NoFrameContextTags parsed out of Spec-Schemas.md")
-      (is (some? entry) "NoFrameContextTags declares a `:where` entry")
-      (is (= :symbol (last entry))
-          (str "`:where` must be declared `:symbol` — every producer emits a "
-               "quoted symbol, and `:any` here enforces nothing because the "
-               "Tags-column arm diffs keys only. Found: " (pr-str entry)))
-      (is (= {:optional true} (second entry))
-          (str "`:where` stays OPTIONAL — the 1-arity requiring forms omit it. "
-               "Found: " (pr-str entry)))))
-
-  (testing "A legitimate symbol validates, and the slot may be omitted."
-    (let [schema (tags-schema-form "NoFrameContextTags")
-          base   {:category  :rf.error/no-frame-context
-                  :operation :subscribe
-                  :reason    "a frame-scoped subscribe ran with no frame context"}]
-      (is (malli/validate schema (assoc base :where 're-frame.subs/subscribe))
-          "a quoted symbol — what every producer actually emits — validates")
-      (is (malli/validate schema (assoc base :where 'rf.ssr/hydrate!))
-          "a namespaced symbol from the carried-stamp seam validates")
-      (is (malli/validate schema base)
-          "`:where` omitted validates — the 1-arity requiring forms omit it")))
-
-  (testing "THE MUTATION WITNESS. Each mutant is REJECTED by the shipped
-            `:symbol` slot and ACCEPTED by an `:any` slot — so the
-            `:symbol` type, and not some unrelated guard, is what rejects them.
-            Without the second half this test could pass against a schema that
-            rejected everything."
-    (let [shipped (tags-schema-form "NoFrameContextTags")
-          ;; The `:any` control, rebuilt from the shipped schema so the
-          ;; two differ in exactly one token.
-          as-any  (mapv (fn [e]
-                          (if (and (vector? e) (= :where (first e)))
-                            [:where {:optional true} :any]
-                            e))
-                        shipped)
-          base    {:category  :rf.error/no-frame-context
-                   :operation :subscribe
-                   :reason    "a frame-scoped subscribe ran with no frame context"}]
-      (is (not= shipped as-any)
-          "the `:any` control really differs from the shipped schema")
-      (doseq [[label v] no-frame-context-where-mutants]
-        (is (not (malli/validate shipped (assoc base :where v)))
-            (str "`:where` = " label " (" (pr-str v) ") must be REJECTED by the "
-                 "shipped `:symbol` slot"))
-        (is (malli/validate as-any (assoc base :where v))
-            (str "`:where` = " label " (" (pr-str v) ") is ACCEPTED by an "
-                 "`:any` slot — the blindness the `:symbol` type removes. If "
-                 "this assertion fails the control is wrong, not the schema."))))))
-
-;; --- the remaining `:where` slots --------------------------------------------
-;;
-;; The blindness argued above is a property of the DECLARATION, not of the
-;; category, so every `:where` slot declared `:any` has the same nothing
-;; standing between its payload and an arbitrary object. Each type below is a
-;; reading of that slot's own producers, taken separately (the answer does not
-;; transfer just because `NoFrameContextTags`' producers emit symbols):
-;;
-;;   FrameDestroyedTags declares NO `:where`: its emitters (router, subs) never
-;;     stamp one, and a schema slot is a claim about what an emitter produces.
-;;
-;;   BadFrameProviderArgTags — the SHARP one. `frame/require-frame-provider-
-;;     target!` threads ONE `where` argument into BOTH payloads: the nil branch
-;;     builds `no-frame-context` (typed `:symbol` above) and the else branch
-;;     builds this one, so the two slots must agree or a single argument from a
-;;     single call site carries two different declared types. Every src call
-;;     site passes a quoted fn symbol
-;;     (`'re-frame.views.provider/frame-provider`,
-;;     `'re-frame.adapter.uix/frame-provider`,
-;;     `'re-frame.substrate.spine/build-frame-provider-element`, and the two
-;;     Fresco providers), plus `'test/where` in test.
-;;
-;;   ResourceSsrBlockingTimeoutTags — ONE producer, one emit:
-;;     `re-frame.resources.ssr/settle-blocking-timeout` stamps its own quoted
-;;     name, which is also the literal the 009 catalogue row prints.
-;;
-;; No producer of either typed slot emits a keyword, and the keyword mutant is
-;; the one that matters: OTHER categories genuinely carry a keyword `:where`
-;; (`:where :event`, `:where :flow-eval`, `:where :reactive`), so `:any` here
-;; would admit a spelling that is right elsewhere in the same corpus.
-
-(def ^:private where-type-mutants
-  "The type mutants an `:any` `:where` declaration silently accepts. Shared
-  with `no-frame-context-where-mutants` in intent; kept separate so tightening
-  one slot's mutant set cannot quietly weaken another's."
-  {"a string"       "re-frame.subs/subscribe"
-   "a number"       42
-   "a map"          {:ns 're-frame.subs :name 'subscribe}
-   "a bare keyword" :subscribe})
-
-(def ^:private typed-where-slots
-  "The typed `:where` slots, each with a MINIMAL payload that
-  satisfies the schema's required slots — so the only thing an assertion below
-  can be reading is the `:where` type."
-  [{:schema   "BadFrameProviderArgTags"
-    :producer 're-frame.views.provider/frame-provider
-    :base     {:category :rf.error/bad-frame-provider-arg
-               :received "app"}}
-   {:schema   "ResourceSsrBlockingTimeoutTags"
-    :producer 're-frame.resources.ssr/settle-blocking-timeout
-    :base     {:category  :rf.error/resource-ssr-blocking-timeout
-               :timed-out [[:rf/scoped-resource-key :user]]
-               :limit-ms  250
-               :reason    "1 blocking SSR resource(s) did not settle"}}])
+  (is (= [:where {:optional true} :symbol] (where-entry "NoFrameContextTags"))))
 
 (deftest remaining-tag-where-slots-are-typed-not-any
-  (testing "each slot declares `:where` as `:symbol`, and the declaration is
-            load-bearing: the keys-set arm cannot see a type, so these are the
-            only assertions that read one."
-    (doseq [{:keys [schema]} typed-where-slots]
-      (let [form  (tags-schema-form schema)
-            entry (->> (rest form)
-                       (filter #(and (vector? %) (= :where (first %))))
-                       first)]
-        (is (some? form) (str schema " parsed out of Spec-Schemas.md"))
-        (is (some? entry) (str schema " declares a `:where` entry"))
-        (is (= :symbol (last entry))
-            (str "`" schema "` must declare `:where` as `:symbol` — every "
-                 "producer emits a quoted symbol, and `:any` here enforces "
-                 "nothing because the Tags-column arm diffs keys only. Found: "
-                 (pr-str entry)))
-        (is (= {:optional true} (second entry))
-            (str "`" schema "`'s `:where` stays OPTIONAL — only the type is pinned, "
-                 "not the arity. Found: " (pr-str entry))))))
+  ;; BadFrameProviderArgTags shares one `where` argument with NoFrameContextTags
+  ;; through `require-frame-provider-target!`, so the two must agree.
+  (doseq [schema-name ["BadFrameProviderArgTags" "ResourceSsrBlockingTimeoutTags"]]
+    (is (= [:where {:optional true} :symbol] (where-entry schema-name)) schema-name)))
 
-  (testing "each slot's REAL producer value validates, and the slot may be
-            omitted — so the `:symbol` type does not outrun the corpus."
-    (doseq [{:keys [schema producer base]} typed-where-slots]
-      (let [form (tags-schema-form schema)]
-        (is (malli/validate form (assoc base :where producer))
-            (str schema ": the symbol its producer actually emits ("
-                 (pr-str producer) ") validates"))
-        (is (malli/validate form base)
-            (str schema ": `:where` omitted validates — the slot is optional")))))
+;; --- self-tests: each arm can red on the defect it exists to catch -----------
 
-  (testing "THE MUTATION WITNESS, one control per slot. Each mutant is REJECTED
-            by the shipped `:symbol` slot and ACCEPTED by an `:any` slot,
-            so the `:symbol` type — not some unrelated required-slot
-            guard — is what rejects it. Without the second half a slot that
-            rejected EVERYTHING would pass."
-    (doseq [{:keys [schema base]} typed-where-slots]
-      (let [shipped (tags-schema-form schema)
-            ;; This slot's OWN `:any` control, rebuilt from its OWN shipped
-            ;; schema so the two differ in exactly one token.
-            as-any  (mapv (fn [e]
-                            (if (and (vector? e) (= :where (first e)))
-                              [:where {:optional true} :any]
-                              e))
-                          shipped)]
-        (is (not= shipped as-any)
-            (str schema ": the `:any` control really differs from the shipped "
-                 "schema"))
-        (doseq [[label v] where-type-mutants]
-          (is (not (malli/validate shipped (assoc base :where v)))
-              (str schema ": `:where` = " label " (" (pr-str v) ") must be "
-                   "REJECTED by the shipped `:symbol` slot"))
-          (is (malli/validate as-any (assoc base :where v))
-              (str schema ": `:where` = " label " (" (pr-str v) ") is ACCEPTED "
-                   "by an `:any` slot — the blindness the `:symbol` "
-                   "type removes. If this assertion fails the control is "
-                   "wrong, not the schema.")))))))
-
-;; --- non-vacuity ------------------------------------------------------------
-;;
-;; An arm that cannot red on the defect it exists to catch has not been tested.
-;; The fixtures below inline a `:rf.error/resource-route-plan` row that omits
-;; `:plan-cause` and `:contributor` beside the schema that declares them, so
-;; the proof is self-contained and never depends on the live corpus carrying
-;; the defect.
-
-(def ^:private pre-wsopx-schemas
+(def ^:private route-plan-schemas
   {"ResourceRoutePlanTags"
    #{:category :reason :route-id :frame :contributor :plan-cause}})
 
 (defn- catalogue-fixture
-  "A minimal catalogue section carrying `rows` verbatim, so the real parser
-  (section scoping, column split, cell extraction) is what is exercised."
+  "A minimal catalogue section carrying `rows` verbatim, so the real parser is
+  what is exercised."
   [& rows]
   (str/join "\n"
             (concat ["### Error event catalogue"
@@ -1982,419 +706,91 @@
                     rows
                     ["" "### Schemas" ""])))
 
+(defn- route-plan-row
+  "The parsed tag rows of a `:rf.error/resource-route-plan` fixture row whose
+  `:tags` cell is `tags`."
+  [tags]
+  (parse-catalogue-tag-rows
+    (catalogue-fixture
+      (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+           "| A route resource plan failed. | `:no-recovery` | " tags " |"))))
+
 (deftest tags-column-key-in-link-text-is-not-a-documented-key
-  (testing "A key named only inside a markdown cross-reference link is PROSE
-            ABOUT the key, not the row listing it — so it must not satisfy the
-            diff. Without this rule the arm greens on a cell that MISSPELLS the
-            key it lists, as long as some adjacent link happens to spell it
-            correctly, which is the exact drift class the arm exists to catch.
-            The two rows below are the same defect with and without the link;
-            both must report the same finding."
-    (let [row (fn [tags]
-                (parse-catalogue-tag-rows
-                  (catalogue-fixture
-                    (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
-                         "| A route resource plan failed. | `:no-recovery` | "
-                         tags " |"))))
-          expected [{:category :rf.error/resource-route-plan
-                     :schema   "ResourceRoutePlanTags"
-                     :missing  #{:plan-cause}}]]
-      (is (= expected
-             (tags-column-findings
-               (row "`:route-id`, `:reason`, `:frame`, `:contributor`, `:plan-cauze`")
-               pre-wsopx-schemas))
-          "the misspelling alone reds")
-      (is (= expected
-             (tags-column-findings
-               (row (str "`:route-id`, `:reason`, `:frame`, `:contributor`, "
-                         "`:plan-cauze` (see [`:plan-cause`](#error-event-catalogue))"))
-               pre-wsopx-schemas))
-          "…and STILL reds when a link in the same cell spells the key correctly
-           — the link text is not the row's key list")
-      (is (empty?
-            (tags-column-findings
-              (row (str "`:route-id`, `:reason`, `:frame`, `:contributor`, "
-                        "`:plan-cause` (see [011 §The tag](011-SSR.md#the-tag))"))
-              pre-wsopx-schemas))
-          "…while an ordinary cross-reference beside a correctly-listed key is
-           untouched, so the rule costs the corpus nothing"))))
+  (testing "a misspelt listed key still reds beside a link that spells it
+            correctly: link text is prose about a key, not the row's list"
+    (is (= [{:category :rf.error/resource-route-plan
+             :schema   "ResourceRoutePlanTags"
+             :missing  #{:plan-cause}}]
+           (tags-column-findings
+             (route-plan-row (str "`:route-id`, `:reason`, `:frame`, `:contributor`, "
+                                  "`:plan-cauze` (see [`:plan-cause`](#error-event-catalogue))"))
+             route-plan-schemas)))))
 
-(deftest tags-column-arm-excludes-only-the-two-envelope-slots
-  (testing "`:category` is envelope-level by the catalogue's own rule, so a
-            schema declaring it is not a row defect (`:recovery` is NOT exempt
-            — see `envelope-only-tag-keys`). Nothing else is exempt: an
-            ordinary key the cell omits still reds."
-    (let [rows (parse-catalogue-tag-rows
-                 (catalogue-fixture
-                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
-                        "| … | `:no-recovery` | `:route-id` |")))]
-      (is (= [{:category :rf.error/resource-route-plan
-               :schema   "ResourceRoutePlanTags"
-               :missing  #{:reason :frame :contributor :plan-cause}}]
-             (tags-column-findings rows pre-wsopx-schemas))
-          "`:category` is absent from the missing set; every
-           other undocumented key is present"))))
-
-(deftest tags-column-never-lists-the-envelope-level-recovery-slot
-  (testing "No catalogue row's `:tags` cell may LIST `:recovery`.
-            `build-event` strips the slot and hoists it to the envelope top
-            level on every branch, so the cell would name a key no consumer can
-            read there — and the row's disposition already has a column of its
-            own. This is the CELL side; the keys diff above is the SCHEMA
-            side."
-    (let [listed (tags-column-recovery-listings (parse-catalogue-tag-rows))]
-      (is (empty? listed)
-          (str "catalogue rows whose `:tags` cell LISTS `:recovery` "
-               "— `re-frame.trace/build-event` hoists the slot to "
-               "the envelope top level on every branch, so no consumer reads "
-               "it under `:tags`; state the disposition in the "
-               "`Default :recovery` column instead and strike it from the "
-               "cell. Offending rows: " (pr-str listed))))))
+(deftest tags-column-arm-exempts-only-the-category-slot
+  (testing "`:category` is exempt; every other undocumented schema key reds"
+    (is (= [{:category :rf.error/resource-route-plan
+             :schema   "ResourceRoutePlanTags"
+             :missing  #{:reason :frame :contributor :plan-cause}}]
+           (tags-column-findings (route-plan-row "`:route-id`") route-plan-schemas)))))
 
 (deftest tags-column-recovery-arm-reds-by-name-and-greens-on-the-strike
-  (testing "The non-vacuity proof for the arm above, and the reason it is worth
-            having: a gate wired but never made to fire is not a gate. The
-            fixture is a `:rf.error/frame-context-corrupted` cell that LISTS
-            `:recovery` — the cleanest case, a trace-ONLY row (its site emits
-            and returns nil, never throwing) naming in a parenthetical the
-            disposition its `Default :recovery` column already carries."
-    (let [row (fn [tags]
-                (parse-catalogue-tag-rows
-                  (catalogue-fixture
-                    (str "| `:rf.error/frame-context-corrupted` | `:error` "
-                         "| diagnostic | The ambient frame context was a "
-                         "non-frame value. | `:no-frame-context` | "
-                         tags " |"))))]
-      (is (= [:rf.error/frame-context-corrupted]
-             (tags-column-recovery-listings
-               (row "`:received`, `:recovery` (`:no-frame-context`), `:reason`")))
-          "the arm reds on the listing cell, and NAMES the offending row")
-      (is (empty? (tags-column-recovery-listings
-                    (row "`:received`, `:reason`")))
-          "…and greens on the struck cell, so the red is the defect not the arm")
-      (is (empty? (tags-column-recovery-listings
-                    (row (str "`:received`, `:reason` — the always-on record is "
-                              "the closed set `#{:frame :recovery :reason}`"))))
-          "…while a multi-token span naming the slot inside a record's closed
-           set is prose ABOUT it, not the row listing it (009's
-           listed-not-merely-mentioned rule). Five live cells depend on this,
-           three of them the safe-redirect security surface's own allow-list")
-      (is (empty? (tags-column-recovery-listings
-                    (row (str "`:received`, `:reason` (see "
-                              "[`:recovery`](#error-event-catalogue))"))))
-          "…and a key named inside a cross-reference link's TEXT is prose about
-           it too — the same `markdown-link-re` strip the documented-keys arm
-           relies on, so the two readings of a cell cannot disagree"))))
+  (let [row (fn [tags]
+              (parse-catalogue-tag-rows
+                (catalogue-fixture
+                  (str "| `:rf.error/frame-context-corrupted` | `:error` | diagnostic "
+                       "| The ambient frame context was a non-frame value. "
+                       "| `:no-frame-context` | " tags " |"))))]
+    (is (= [:rf.error/frame-context-corrupted]
+           (tags-column-recovery-listings
+             (row "`:received`, `:recovery` (`:no-frame-context`), `:reason`")))
+        "a cell LISTING `:recovery` reds, naming its row")
+    (is (empty? (tags-column-recovery-listings (row "`:received`, `:reason`")))
+        "the struck cell is clean")))
 
 (deftest tags-column-pairing-keys-off-the-whole-operation
-  (testing "Two operations sharing a name half derive one schema name and so
-            identify no operation. Pairing `StaleSuppressedTags` to
-            `:rf.http/stale-suppressed` — an `:info` reply-family trace with a
-            different payload entirely — would manufacture a finding that is a
-            false pair, not debt. So the ambiguous name pairs with neither; but
-            it must SAY SO, because dropping it silently is a
-            pair of rows' worth of coverage vanishing behind a count floor."
-    (let [schemas {"StaleSuppressedTags" #{:category :carried-token
-                                           :current-token :rf.trace/event-id}}
-          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
-                        "| A stale HTTP reply was suppressed. | `:dropped` "
-                        "| `:rf.reply/status` |")
-          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
-                        "| diagnostic | A stale navigation result was suppressed. "
-                        "| `:dropped` | `:carried-token`, `:current-token` |")
-          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
-      (is (empty? (tags-column-findings both schemas))
-          "an ambiguous derived name is diffed against neither operation")
-      (is (= [{:schema     "StaleSuppressedTags"
-               :categories [:rf.http/stale-suppressed
-                            :rf.route.nav-token/stale-suppressed]}]
-             (tags-column-ambiguities both schemas))
-          "…and the collision is REPORTED rather than silently costing the pair")
-      (is (= [{:category :rf.route.nav-token/stale-suppressed
-               :schema   "StaleSuppressedTags"
-               :missing  #{:rf.trace/event-id}}]
-             (tags-column-findings
-               (parse-catalogue-tag-rows (catalogue-fixture nav-row))
-               schemas))
-          "…and the owning row alone still pairs, so ambiguity costs coverage
-           only where the corpus is genuinely ambiguous"))))
-
-(deftest tags-column-collision-resolves-by-naming-the-owning-operation
-  (testing "The corpus fix for a collision, exercised end to end — the way
-            `spec/Spec-Schemas.md` names `RouteNavTokenStaleSuppressedTags`.
-            Naming the schema for its owning operation makes the WHOLE-
-            `:operation` spelling pair it, leaves the unrelated row unpaired,
-            and needs no alias table: the derivation reads the name the author
-            wrote."
-    (let [schemas  {"RouteNavTokenStaleSuppressedTags"
-                    #{:category :carried-token :current-token :rf.trace/event-id}}
-          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
-                        "| A stale HTTP reply was suppressed. | `:dropped` "
-                        "| `:rf.reply/status` |")
-          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
-                        "| diagnostic | A stale navigation result was suppressed. "
-                        "| `:dropped` | `:carried-token`, `:current-token` |")
-          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
-      (is (empty? (tags-column-ambiguities both schemas))
-          "the renamed schema is claimed by one operation only")
-      (is (= [{:category :rf.route.nav-token/stale-suppressed
-               :schema   "RouteNavTokenStaleSuppressedTags"
-               :missing  #{:rf.trace/event-id}}]
-             (tags-column-findings both schemas))
-          "the owning row is paired and diffed; the HTTP row stays unpaired")
-      (is (= 1 (paired-count both schemas) (claimed-count both schemas))
-          "claimed == paired: nothing is held and left unexercised"))))
-
-(deftest tags-column-claimed-equals-paired-catches-the-silent-drop
-  (testing "The identity `tags-column-pairing-is-live` asserts, driven at the
-            mutation it exists for. A collision holds a schema (claimed) that
-            no diff reaches (unpaired), and BOTH counts stay above the broad
-            floors — which is how such a loss would hide."
-    (let [schemas  {"StaleSuppressedTags" #{:category :carried-token}}
-          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
-                        "| … | `:dropped` | `:rf.reply/status` |")
-          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
-                        "| diagnostic | … | `:dropped` | `:carried-token` |")
-          one      (parse-catalogue-tag-rows (catalogue-fixture nav-row))
-          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
-      (is (= 1 (claimed-count one schemas) (paired-count one schemas))
-          "unambiguous: claimed == paired")
-      (is (= [1 0] [(claimed-count both schemas) (paired-count both schemas)])
-          "ambiguous: the schema is claimed but never diffed — the identity
-           reds where a `>= 80` floor would not have moved"))))
-
-(deftest tags-column-paired-floor-reds-on-a-lost-pairing
-  (testing "Non-vacuity for the coverage ledger, on its two
-            mutations — driven against the REAL corpora, with
-            the mutation applied to the parsed schema map so the proof stays
-            runnable without editing `spec/Spec-Schemas.md`. Both are invisible
-            to every other assertion in this arm: the schema count survives the
-            rename, the finding set is unchanged, and CLAIMED == PAIRED holds
-            throughout because both numbers move together. Only the floor moves."
-    (let [rows    (parse-catalogue-tag-rows)
-          schemas (parse-tags-schemas)
-          victim  "ResourceRoutePlanTags"
-          ;; MUTATION 1 — delete the schema outright.
-          deleted (dissoc schemas victim)
-          ;; MUTATION 2 — rename it to a name no catalogue row derives. The
-          ;; schema COUNT is unchanged, which is what defeats a count-shaped
-          ;; guard placed on the schemas rather than on the pairing.
-          renamed (-> schemas
-                      (dissoc victim)
-                      (assoc "SomeUnrelatedThingTags" (get schemas victim)))]
-      (is (contains? schemas victim)
-          (str "the witness schema " victim " is still in spec/Spec-Schemas.md; "
-               "if it was legitimately renamed, name the new one here"))
-      (is (= tags-column-paired-floor (paired-count rows schemas))
-          "the floor is the live paired count, so the drops below are one apiece")
-      (is (< (paired-count rows deleted) tags-column-paired-floor)
-          "MUTATION 1: deleting a paired schema drops the count under the floor")
-      (is (= (claimed-count rows deleted) (paired-count rows deleted))
-          "…while CLAIMED == PAIRED still holds — the identity cannot see it")
-      (is (= (count schemas) (count renamed))
-          "MUTATION 2 is equal-count by construction")
-      (is (< (paired-count rows renamed) tags-column-paired-floor)
-          "MUTATION 2: an equal-count rename drops the count under the floor too")
-      (is (= (claimed-count rows renamed) (paired-count rows renamed))
-          "…and here too the identity holds, in the mutated world"))))
-
-(deftest tags-column-schema-validation-failure-row-is-paired-and-mutation-proven
-  (testing "`:rf.error/schema-validation-failure` — the always-on
-            structural-only production egress record — pairs only because its
-            schema carries the name-half derivation
-            `SchemaValidationFailureTags`. Under any other name invariant 6
-            would hold the schema (CLAIMED) without ever diffing it (PAIRED) —
-            the same loss `tags-column-pairing-is-unambiguous` catches for a
-            collision, only silent because there is no second claimant to trip
-            `tags-column-ambiguities`. This proves the pairing live, end to
-            end, rather than trusting the name alone."
-    (let [rows    (parse-catalogue-tag-rows)
-          schemas (parse-tags-schemas)
-          claims  (schema-claims rows schemas)]
-      (is (contains? schemas "SchemaValidationFailureTags")
-          "Spec-Schemas.md defines the schema under its derived name")
-      (is (= [:rf.error/schema-validation-failure]
-             (mapv :category (get claims "SchemaValidationFailureTags")))
-          "the schema is claimed by exactly the one row it names, and by no
-           other — a real pairing, not a collision")
-      (is (empty? (filter #(= :rf.error/schema-validation-failure (:category %))
-                           (tags-column-findings rows schemas)))
-          "the live row's `:tags` cell documents every key the schema declares
-           (minus `:category`) — the pairing does not red")))
-  (testing "MUTATION, catalogue side. Driven against the schema's REAL parsed
-            key set (not a hand-copied literal) so the proof tracks the corpus
-            rather than a snapshot of it: dropping one of the per-arm keys the
-            row's cell documents reds the diff naming exactly it; restoring it
-            clears the finding."
-    (let [schema  (get (parse-tags-schemas) "SchemaValidationFailureTags")
-          without (str "`:where`, `:failing-id`, `:reason`, `:path`, `:value`, "
-                       "`:explain`, `:received`, `:rf.sub/query-v`, "
-                       "`:rollback?`, `:registered-path`, `:machine-id`, "
-                       "`:phase`")
-          with    (str without ", `:schema`")
-          row-of  (fn [tags]
-                    (parse-catalogue-tag-rows
-                      (catalogue-fixture
-                        (str "| `:rf.error/schema-validation-failure` | `:error` "
-                             "| always-on | … | Per-`:where` | " tags " |"))))
-          schemas {"SchemaValidationFailureTags" schema}]
-      (is (= [{:category :rf.error/schema-validation-failure
-               :schema   "SchemaValidationFailureTags"
-               :missing  #{:schema}}]
-             (tags-column-findings (row-of without) schemas))
-          "dropping `:schema` from the cell reds, naming exactly it")
-      (is (empty? (tags-column-findings (row-of with) schemas))
-          "restoring it clears the finding")))
-  (testing "MUTATION, schema side. Adding a key to the parsed schema that the
-            live row's cell does not document reds the diff naming it;
-            removing the mutation is clean again — the live row itself,
-            unmutated, stays clean throughout."
-    (let [rows    (parse-catalogue-tag-rows)
-          schemas (parse-tags-schemas)
-          mutated (update schemas "SchemaValidationFailureTags"
-                           conj :rf2-6tags/probe-key)]
-      (is (= [{:category :rf.error/schema-validation-failure
-               :schema   "SchemaValidationFailureTags"
-               :missing  #{:rf2-6tags/probe-key}}]
-             (tags-column-findings rows mutated))
-          "an undocumented added schema key reds, naming exactly it")
-      (is (empty? (filter #(= :rf.error/schema-validation-failure (:category %))
-                           (tags-column-findings rows schemas)))
-          "…while the unmutated schema stays clean, so the red above is the
-           mutation and not the arm"))))
-
-(deftest tags-column-arm-ignores-retired-rows
-  (testing "A struck-through row names no live category and carries no
-            `:tags` payload to reconcile, so it must not pair."
-    (let [rows (parse-catalogue-tag-rows
-                 (catalogue-fixture
-                   (str "| ~~`:rf.error/resource-route-plan`~~ | — | n/a (retired) "
-                        "| **RETIRED.** … | — | — |")))]
-      (is (empty? rows) "a struck row does not parse as a tags row")
-      (is (empty? (tags-column-findings rows pre-wsopx-schemas))))))
+  (testing "two operations sharing a name half derive one schema name, which
+            identifies neither; the collision is reported rather than silently
+            costing the pair"
+    (is (= [{:schema     "StaleSuppressedTags"
+             :categories [:rf.http/stale-suppressed
+                          :rf.route.nav-token/stale-suppressed]}]
+           (tags-column-ambiguities
+             (parse-catalogue-tag-rows
+               (catalogue-fixture
+                 (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
+                      "| … | `:dropped` | `:rf.reply/status` |")
+                 (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
+                      "| diagnostic | … | `:dropped` | `:carried-token` |")))
+             {"StaleSuppressedTags" #{:category :carried-token}})))))
 
 (deftest tags-column-reader-honours-the-escaped-pipe
-  (testing "THE LIVE ROW, PINNED. A reader property pinned in PROSE ONLY is
-            one a revert can undo with the whole namespace still GREEN. That
-            is the same shape of blind spot this arm exists to close, one level
-            down: a gate that does not OBSERVE the cell it adjudicates cannot
-            tell which column it adjudicated.
-
-            `:rf.error/infinite-missing-next-page-param` is the corpus's one
-            escaped-pipe row — it spells its `:next-page-param` contract
-            `(last-page → next-param \\| nil)` — so it is the positive fixture.
-            A reader that split on the escaped pipe would give the row NINE
-            fields, slide every column one place left, and read this cell from
-            the `Default :recovery` column, harvesting `:fix-registration` and
-            `:next-page-param` as though the row had documented them."
-    (let [cell (catalogue-tags-cell :rf.error/infinite-missing-next-page-param)]
-      (is (some? cell)
-          "the escaped-pipe row still parses as an active catalogue row — if it
-           was renamed or retired, move this pin to whichever row now carries a
-           `\\|`, since the reader property is what is under test")
-      (is (= #{:resource-id :infinite} (cell-tag-keys cell))
-          (str "the escaped-pipe row's `:tags` cell reads as the TAGS column. "
-               "Harvested " (pr-str (sort (cell-tag-keys cell))) " from "
-               (pr-str cell) ". `:fix-registration` / `:next-page-param` here "
-               "means the split stopped honouring the escape and the cell came "
-               "from `Default :recovery`; anything else means the row's tags "
-               "changed legitimately — update this pin in that commit."))))
-
-  (testing "THE COLUMN-ALIGNMENT INVARIANT, which is what generalises the pin
-            past one row. Every active row of a markdown table has the same
-            number of columns, so every row must split to the same field count;
-            a row that does not has slid, and EVERY cell the arm reads from it
-            is off by one. Derived from the corpus's own rows — there is no
-            column literal here to go stale, and no second parser: the count
-            rides out of `parse-catalogue-tag-rows` on `:field-count`."
+  (testing "every active row splits to the same field count, so no row's
+            `:tags` cell is read from a slid column — the corpus's escaped-pipe
+            row, `:rf.error/infinite-missing-next-page-param`, included"
     (let [rows  (parse-catalogue-tag-rows)
           modal (->> rows (map :field-count) frequencies (apply max-key val) key)
           slid  (->> rows
                      (remove #(= modal (:field-count %)))
                      (mapv (juxt :category :field-count)))]
-      (is (seq rows)
-          "the catalogue parsed to a non-empty row set — otherwise the
-           invariant below holds vacuously")
       (is (empty? slid)
-          (str "active catalogue rows that split to a different field count "
-               "than their " modal "-field siblings, so their `:tags` cell is "
-               "read from the wrong column: " (pr-str slid) ". Escape a literal "
-               "pipe inside a cell as `\\|` — and if the escape is already "
-               "there, the READER is at fault, not the row.")))))
+          (str "rows that split to a different field count than their " modal
+               "-field siblings: " (pr-str slid) ". Escape a literal pipe inside "
+               "a cell as `\\|`; if it is already escaped, the reader is at fault.")))))
 
 (deftest table-delimiter-honours-backslash-run-parity
-  (testing "A PURE PARSER FIXTURE for `table-delimiter-re`, fed
-            constructed rows rather than the live corpus, because the corpus
-            cannot reach half the rule. Spec 009 carries eleven escaped pipes
-            across nine lines and EVERY ONE is a run of exactly one — only the
-            catalogue row for
-            `:rf.error/infinite-missing-next-page-param` is in this reader's
-            section at all — and the file holds no even-length run anywhere. So
-            the even half of the rule is unreachable from the corpus and would
-            be pinned by nothing.
-
-            Markdown decides by the PARITY of the backslash run immediately
-            before the pipe, because a backslash escapes the character after it
-            including another backslash. An ODD run spends its last backslash on
-            the pipe, which is then content; an EVEN run pairs off entirely and
-            the pipe is a bare delimiter. The four cases below are the two rules
-            and their first repeat, checked against Python-Markdown 3.10's
-            `tables` extension.
-
-            A one-character lookbehind `#\"(?<!\\\\)\\|\"` would call
-            every backslash-prefixed pipe escaped: right on the odd runs by
-            luck, wrong on the even ones. That error runs in the direction that
-            HIDES a defect rather than manufacturing one, which is why it is
-            worth pinning in a test file — a row whose cell ends in `\\\\` before
-            a pipe really has broken itself into an extra column, and a reader
-            that swallows the delimiter hands the column-alignment invariant in
-            `tags-column-reader-honours-the-escaped-pipe` a field count matching
-            the row's siblings. The guard then passes a row whose every cell has
-            slid one place left, which is the exact failure it exists to catch."
-    (let [row          (fn [pipe-run]
+  (testing "an odd backslash run escapes the pipe, so the row keeps its columns;
+            an even run leaves the pipe a delimiter, so the row gains one and
+            the sixth field is `Default :recovery`. The corpus carries only odd
+            runs, so only this fixture reaches the even half (checked against
+            Python-Markdown's `tables` extension)."
+    (doseq [[pipe-run expected] [["\\|"   [8 "`:route-id`, `:reason`"]]
+                                 ["\\\\|" [9 "`:no-recovery`"]]]]
+      (is (= expected
+             ((juxt :field-count :tags-cell)
+              (first (parse-catalogue-tag-rows
+                       (catalogue-fixture
                          (str "| `:rf.error/resource-route-plan` | `:error` "
                               "| diagnostic | A plan step returns `next "
                               pipe-run " nil`. | `:no-recovery` "
-                              "| `:route-id`, `:reason` |"))
-          parse        (fn [pipe-run]
-                         (first (parse-catalogue-tag-rows
-                                  (catalogue-fixture (row pipe-run)))))
-          fields       #(:field-count (parse %))
-          tags         #(:tags-cell (parse %))
-          tags-col     "`:route-id`, `:reason`"
-          recovery-col "`:no-recovery`"]
-
-      (testing "the CONTROL: no pipe inside a cell at all"
-        (is (= 8 (fields ""))
-            "a six-column row splits to eight fields — the columns plus the
-             empties either side of the leading and trailing pipes")
-        (is (= tags-col (tags ""))
-            "…and the sixth column is where the `:tags` cell is read from"))
-
-      (testing "an ODD run ESCAPES the pipe, so the row keeps its columns"
-        (doseq [[n pipe-run] [[1 "\\|"] [3 "\\\\\\|"]]]
-          (is (= 8 (fields pipe-run))
-              (str n " backslashes before the pipe is an ODD run, so the pipe "
-                   "is CONTENT and the row still has six columns. Splitting on "
-                   "it anyway yields nine fields and slides every cell one "
-                   "place left — the live defect, on "
-                   "`:rf.error/infinite-missing-next-page-param`."))
-          (is (= tags-col (tags pipe-run))
-              (str "…so with " n " backslashes the `:tags` cell is still the "
-                   "TAGS column and not `Default :recovery`."))))
-
-      (testing "an EVEN run leaves the pipe a DELIMITER, so the row gains one"
-        (doseq [[n pipe-run] [[2 "\\\\|"] [4 "\\\\\\\\|"]]]
-          (is (= 9 (fields pipe-run))
-              (str n " backslashes before the pipe is an EVEN run: they escape "
-                   "each other, the pipe is BARE, and markdown gives this row "
-                   "seven columns. Reading eight here is the one-character-lookbehind "
-                   "reader — it re-joins a row that has genuinely split, and "
-                   "the column-alignment invariant sees a field count matching "
-                   "the row's siblings on a row whose cells have all slid."))
-          (is (= recovery-col (tags pipe-run))
-              (str "…and the slide is REAL rather than notional: with " n
-                   " backslashes the sixth field is the `Default :recovery` "
-                   "column, so an arm reading `:tags` positionally would diff a "
-                   "recovery value against a tag key set. Reporting nine fields "
-                   "is what lets the alignment invariant convict the row.")))))))
+                              "| `:route-id`, `:reason` |"))))))
+          (pr-str pipe-run)))))
