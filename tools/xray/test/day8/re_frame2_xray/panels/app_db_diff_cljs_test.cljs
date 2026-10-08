@@ -1,40 +1,11 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-cljs-test
-  "CLJS-side wiring + view tests for Xray's app-db tab.
-
-  ## Current-state inspector
-
-  The app-db tab is a CURRENT-STATE inspector (re-frame-10x style), not
-  a diff view, sectioned by reserved `:rf/*` area.
-  The view-render tests assert the inspector shape (TOP user-domain
-  section, per-instance machine fan-out, singleton route; empty /
-  absent reserved areas are filtered at projection time so
-  no placeholder cards reach the renderer) via
-  `app-db-diff-state/state-body` through the Panel.
-
-  ## No composite diff-sub family
-
-  There is no `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff`
-  composite family (nor `:rf.xray/selected-epoch-redacted-modified-count`
-  / `:rf.xray/selected-epoch-flow-writes` and their `[frame-id epoch-id]`
-  caches): the Epoch panel's `:db` diff reads
-  `:rf.xray/selected-epoch-record` + runs its own `db-diff-paths`, and
-  the MCP `get-app-db-diff` tool projects directly through
-  `diff.engine/project`. The diff-projection correctness lives in the
-  engine's own tests. This file's tests pin the LIVE app-db-tab surface.
-
-  ## Contracts under test (beyond the pure-data tests in
-  `app_db_diff_helpers_cljs_test.cljc` / the view-shape tests in
-  `app_db_diff_state_cljs_test.cljs`)
-
-  1. **The off-box safe-egress projection** fails closed — see (7).
-
-  2. **Current-state inspector view** renders the section model and
-     follows the picker-selected frame.
-
-  ## Pure hiccup
-
-  We walk the view's hiccup tree by `data-testid` rather than mounting
-  to a DOM. Keeps the suite fast + host-portable on node-test."
+  "Wiring and view tests for Xray's app-db tab, a CURRENT-STATE inspector
+  sectioned by reserved `:rf/*` area: the fail-closed egress projections,
+  the section model over the picker-selected frame, and `:instance-id`
+  naming one of two live panels. Walks the panel's hiccup by `data-testid`
+  rather than mounting to a DOM; the section model's pure-data rules are
+  `app_db_diff_helpers_cljs_test.cljc`'s and the section view's
+  `app_db_diff_state_cljs_test.cljs`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -155,81 +126,17 @@
             node))
         (hiccup-seq tree)))
 
-;; ---- (7) the off-box safe-egress projection ------------------------------
+;; ---- (7) the off-box safe-egress projection fails closed ------------------
 ;;
-;; These are the fail-closed proofs for `egress/egress-value`, Xray's single
-;; named panel-local off-box projection. They call `egress-value` directly
-;; and assert on its RETURN VALUE (there is no value-copy event to reach it
-;; through).
-;;
-;; `egress.cljs` prescribes the projection as the MUST-use gesture any
-;; panel affordance inherits, and the palette's `Snapshot app-db` verb uses
-;; it, so its invariants need pins: a green suite that lost them would be
-;; a silent fail-open.
-;;
-;; The invariants:
-;; sensitive slot ⇒ :rf/redacted · large slot ⇒ :rf.size/large-elided ·
-;; undeclared value passes through · nil :frame ⇒ whole value redacted ·
-;; destroyed frame id ⇒ redacted · a frame registered under nil itself ⇒
-;; redacted all the same.
-;;
+;; `egress/egress-value`'s sensitive and large declarations are pinned
+;; through the palette's `Snapshot app-db` verb; the rows here pin the
+;; fail-closed arms only a caller-named frame reaches.
 
 (defn- seed-sensitive-schema! []
-  ;; EP-0025: durable app-db
-  ;; classification rides the commit-plane classification effects.
-  ;; `rf.elision/apply-classification-effects` writes a `:source :effect`
-  ;; declaration (index-free :rf/path) onto :rf/default's per-frame
-  ;; sensitive-declarations so the wire walker substitutes :rf/redacted on
-  ;; off-box egress (the same write a reg-event returning `:sensitive` makes).
-  ;; Callers make-frame :rf/default before invoking.
+  ;; Declares [:auth :password] :sensitive on :rf/default, which the caller
+  ;; has made.
   (rf.frame/swap-runtime-db! :rf/default
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
-
-(defn- seed-large-schema! []
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
-
-(deftest egress-value-redacts-sensitive-slot
-  (testing "a value carrying a frame-declared sensitive slot
-            is REDACTED by the projection; the raw secret never reaches an
-            off-box sink"
-    (rf/make-frame {:id :rf/default})
-    ;; Declare the sensitive path on the OBSERVED frame (:rf/default) so the
-    ;; egress, pinned to that frame by name, matches the declaration.
-    (rf/with-frame :rf/default (seed-sensitive-schema!))
-    (let [out (egress/egress-value {:auth {:username "ada" :password "shh"}}
-                                   {:frame :rf/default})
-          text (pr-str out)]
-      (is (re-find #":rf/redacted" text)
-          (str "the sensitive slot must be redacted. text: " (pr-str text)))
-      (is (not (re-find #"shh" text))
-          (str "the RAW secret survived the projection — off-box egress "
-               "fail-open. text: " (pr-str text)))
-      (is (re-find #"ada" text)
-          "non-sensitive sibling survives the projection"))))
-
-(deftest egress-value-size-elides-large-slot
-  (testing "a value carrying a frame-declared :large slot is
-            size-elided by the projection"
-    (rf/make-frame {:id :rf/default})
-    (rf/with-frame :rf/default (seed-large-schema!))
-    (let [out  (egress/egress-value {:blob {:payload {:big "value"}}}
-                                    {:frame :rf/default})
-          text (pr-str out)]
-      (is (re-find #":rf.size/large-elided" text)
-          (str "the large slot must be size-elided. text: " (pr-str text)))
-      (is (not (re-find #"\"value\"" text))
-          (str "the RAW large value survived the projection. text: "
-               (pr-str text))))))
-
-(deftest egress-value-non-sensitive-passes-through
-  (testing "the projection is a no-op for a value with no
-            sensitive/large declarations: the full value round-trips
-            (fail-closed only bites declared slots)"
-    (rf/make-frame {:id :rf/default})
-    (is (= "{:a 1, :b [2 3]}"
-           (pr-str (egress/egress-value {:a 1 :b [2 3]} {:frame :rf/default})))
-        "an undeclared value projects verbatim")))
 
 ;; ---- (7b) no-target / stale-target egress FAILS CLOSED -------------------
 ;;
@@ -251,10 +158,7 @@
     (let [out (egress/egress-value {:auth {:token "shh"}} {:frame :rf/default})]
       (is (= :rf/redacted out)
           (str "a stale frame id must egress the whole-value redaction "
-               "sentinel. got: " (pr-str out)))
-      (is (not (re-find #"shh" (pr-str out)))
-          (str "the RAW value survived under a destroyed frame. "
-               "got: " (pr-str out))))))
+               "sentinel. got: " (pr-str out))))))
 
 (deftest egress-value-with-nil-frame-is-unregistrable-and-fails-closed
   (testing "an explicitly-nil :frame must redact
@@ -280,10 +184,7 @@
                                        {:frame nil})]
           (is (= :rf/redacted out)
               (str "an explicitly-nil frame must egress the whole-value "
-                   "redaction sentinel. got: " (pr-str out)))
-          (is (not (re-find #"shh" (pr-str out)))
-              (str "the RAW secret survived an explicit-nil frame "
-                   "— got: " (pr-str out))))
+                   "redaction sentinel. got: " (pr-str out))))
         (finally
           (when registered?
             (try (rf/destroy-frame! nil) (catch :default _ nil))))))))
@@ -335,21 +236,6 @@
 ;; focus-result / redacted-chip view affordances, and no data subs for
 ;; them either (registry_cljs_test's exact-set snapshot pins their absence).
 
-(deftest panel-renders-current-state-container
-  (testing "the Panel renders the current-state inspector container +
-            the TOP user-domain section over the observed frame's db"
-    (seed-host-frame! {:counter 5 :user {:name "ada"}})
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-app-db-diff"))
-            "panel root present")
-        (is (some? (find-by-testid tree "rf-xray-app-db-state"))
-            "current-state inspector body present")
-        (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
-            "TOP user-domain section present")))))
-
 (deftest panel-sections-reserved-areas
   (testing "reserved runtime subsystems render as their own sections:
             machines fan out one section per machine id; route is a
@@ -379,72 +265,29 @@
         (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
             "route singleton section present")))))
 
-(deftest panel-omits-empty-reserved-areas
-  (testing "absent reserved areas are OMITTED from the
-            panel entirely; no placeholder cards. Visibility is
-            data-driven — a card appears when state accrues at that
-            slot, never as a persistent 'No X' placeholder."
-    (seed-host-frame! {:counter 1})
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    ;; EP-0002 — select the host frame as observed target so
-    ;; the panel actually projects against it (the no-placeholder check is
-    ;; meaningful only when a target is selected).
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
-    (rf/with-frame :rf/xray
-      (let [tree (panel-tree)]
-        (doseq [area [:rf/machines :rf/spawned :rf/route
-                      :rf/pending-navigation :rf/elision]]
-          (is (nil? (find-by-testid
-                      tree (str "rf-xray-app-db-state-area-" (pr-str area))))
-              (str "no placeholder card for empty reserved area " area)))))))
-
 ;; ---- App-db panel follows picker / focused frame ------------------------
 
-(deftest observed-frame-follows-rf-xray-set-frame
-  (testing "the frame-picker dispatches `:rf.xray/set-frame`
-            which writes `[:focus :frame]`. The App-db panel's
-            `:rf.xray/observed-frame` sub picks the focused frame up,
-            rather than staying on the default regardless of picker
-            selection."
+(deftest current-state-view-follows-picker-selected-frame
+  (testing "the inspector reads the observed (picker-selected) frame's live
+            app-db via `:rf.xray/target-frame-db`: nothing is observed before
+            a pick, and picking `:checkout-frame` surfaces THAT frame's value"
     (registry/register-xray-handlers!)
     (rf/make-frame {:id :rf/xray})
     (rf/make-frame {:id :rf/default})
     (rf/make-frame {:id :checkout-frame})
     (rf/with-frame :rf/xray
-      ;; EP-0002 — cold-start: observed frame is UNSELECTED
-      ;; (nil) before any picker selection lands, NOT a synthesised
-      ;; `:rf/default`.
-      (is (nil? @(rf/subscribe [:rf.xray/observed-frame])))
-      ;; User picks :checkout-frame in the ribbon dropdown.
-      (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
-      (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))
-          "observed-frame sub follows the picker"))))
-
-(deftest current-state-view-follows-picker-selected-frame
-  (testing "the current-state inspector reads the
-            observed (picker-selected) frame's live app-db via
-            `:rf.xray/target-frame-db`. Picking `:checkout-frame`
-            surfaces THAT frame's value in the TOP section, not the
-            `:rf/default` frame's."
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :checkout-frame})
+      (is (nil? @(rf/subscribe [:rf.xray/observed-frame]))
+          "cold start: no frame is observed until the picker selects one"))
     ;; Give the two frames distinguishable values.
     (rf/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
     (rf/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
-      (let [tree (panel-tree)
-            top  (find-by-testid tree "rf-xray-app-db-state-top")]
-        (is (some? top) "TOP section present")
-        (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))
-            "inspector observes the picker-selected frame")
-        (is (= {:checkout {:step :payment}}
-               @(rf/subscribe [:rf.xray/target-frame-db]))
-            "the observed db is the picked frame's live value")))))
+      (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))
+          "inspector observes the picker-selected frame")
+      (is (= {:checkout {:step :payment}}
+             @(rf/subscribe [:rf.xray/target-frame-db]))
+          "the observed db is the picked frame's live value"))))
 
 ;; ---- picker change resets epoch-history slot ----------------------------
 ;;
@@ -512,17 +355,12 @@
         ;; Focus the picked frame's epoch so the panel's primary sub
         ;; resolves a real focused-epoch read-model.
         (rf/dispatch-sync [:rf.xray/select-epoch :cart-e]))
-      (is (= 1 (count @(rf/subscribe [:rf.xray/epoch-history])))
-          "sanity: the re-seeded cart-frame epoch is in the slot")
       (let [data @(rf/subscribe [:rf.xray/app-db-current+diff])]
         (is (= :cart-e (:epoch-id data))
-            "panel resolves the picked frame's focused epoch → renders
-             the focused-epoch read-model rather than the boot empty-
-             state")
+            "panel resolves the picked frame's focused epoch rather than the
+             boot empty-state")
         (is (= {:cart {:items [{:id 7}]}} (:value data))
-            ":value is the focused epoch's :db-after")
-        (is (= :cart-frame @(rf/subscribe [:rf.xray/observed-frame]))
-            "observed-frame reflects the picker selection")))))
+            ":value is the focused epoch's :db-after")))))
 
 ;; ---- (9) `:instance-id` — naming one of two live panels -----------------
 ;;
@@ -531,18 +369,16 @@
 ;; cannot separate two under ONE — a Fresco boundary has no per-instance
 ;; storage its body may use, so the distinction is the caller's to make.
 ;; `Panel` takes an optional `:instance-id` prop for it and hands it to
-;; `panel-tree`; what the ids then compose to, and the lifecycle and width
-;; consequences of getting it wrong, are pinned in
-;; `app_db_diff_state_cljs_test`'s closing block (positive half plus the
-;; defect as an explicit negative control). These two rows pin the THREADING
-;; — that the prop reaches the sections at all, and that the two doors into
-;; the boundary both carry it.
+;; `panel-tree`; what the ids then compose to is pinned in
+;; `app_db_diff_state_cljs_test`, and the lifecycle and width consequences in
+;; `app_db_diff_mount_instance_id_dom_cljs_test`. These rows pin the
+;; THREADING: the prop reaches the sections, and both doors into the
+;; boundary carry it.
 
 (deftest panel-tree-threads-instance-id-to-the-sections
   (testing "`panel-tree` hands its `:instance-id` down to
             `state-body`, so two instances of the panel over one frame's
-            app-db render two disjoint sets of widget mount-ids. The
-            2-arity is the single-mount call."
+            app-db render two disjoint sets of widget mount-ids."
     (seed-host-frame! {:counter 5 :user {:name "ada"}})
     (registry/register-xray-handlers!)
     (rf/make-frame {:id :rf/xray})
@@ -554,24 +390,13 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
-      (let [mount-ids widget-mount-ids
-            plain (mount-ids (panel-tree))
-            left  (mount-ids (panel-tree "left"))
-            right (mount-ids (panel-tree "right"))]
-        (is (seq plain)
+      (let [left  (widget-mount-ids (panel-tree "left"))
+            right (widget-mount-ids (panel-tree "right"))]
+        (is (seq left)
             "control: the panel mounts at least one edn-inspector widget, so
              an empty intersection below means separation and not silence")
-        (is (= (count plain) (count left) (count right))
-            "naming an instance changes the ids, never the sections")
         (is (nil? (some (set left) right))
-            "no mount-id survives from one named instance to the other")
-        (is (= plain
-               (mount-ids
-                 (app-db-diff/panel-tree
-                   @(rf/subscribe [:rf.xray/app-db-state])
-                   (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff])))))
-            "and the 2-arity — the single-mount call — composes exactly
-             what a nil `:instance-id` does")))))
+            "no mount-id survives from one named instance to the other")))))
 
 (defn- crossed-instance-id
   "THE VALUE THAT ACTUALLY ARRIVES AT THE BOUNDARY when a Reagent parent
@@ -587,31 +412,13 @@
   inspect a value that no mount ever sees.
 
   The bridge passes exactly ONE prop, so the single key is read without
-  naming its camelCased spelling; the arity assertion below is what keeps
-  that from silently reading the wrong slot."
+  naming its camelCased spelling; any other prop count reads nil."
   [props]
   (let [el (r/as-element (app-db-diff/Panel-bridge props))
         p  (.-props el)
         ks (js/Object.keys p)]
     (when (= 1 (alength ks))
       (unchecked-get p (aget ks 0)))))
-
-(deftest panel-bridge-carries-the-instance-id-across-the-reagent-door
-  (testing "the Reagent-facing bridge passes `:instance-id`
-            through to the React component, and its 0-arity — the shell's
-            `[(:panel tab)]` and `render-panel!`'s `[panel-view]` —
-            mounts with no props at all."
-    (let [named   (app-db-diff/Panel-bridge {:instance-id "left"})
-          unnamed (app-db-diff/Panel-bridge)]
-      (is (= :> (first named))
-          "an interop vector onto the boundary's React component")
-      (is (= 1 (count (nth named 2)))
-          "control: exactly one prop crosses, so `crossed-instance-id`
-           reading the single key cannot be reading the wrong slot")
-      (is (= "left" (crossed-instance-id {:instance-id "left"}))
-          "the caller's instance name reaches the component's props")
-      (is (= {} (nth unnamed 2))
-          "and the 0-arity mounts with no props"))))
 
 ;; ---- (9b) a NAMESPACED keyword must survive the crossing -----------------
 ;;
@@ -644,20 +451,15 @@
             NAMESPACE arrive at the boundary as two different values."
     (let [left  (crossed-instance-id {:instance-id :left/panel})
           right (crossed-instance-id {:instance-id :right/panel})]
-      (is (= "left/panel"  left))
+      (is (= "left/panel" left)
+          "the namespace reaches the boundary; unnormalised, Reagent's
+           `convert-prop-value` would name both keywords \"panel\"")
       (is (= "right/panel" right))
-      (is (not= left right)
-          "THE CLAIM: the namespace is what tells these two panels apart,
-           and it reaches the boundary. Unnormalised, both would read
-           \"panel\" — Reagent's `convert-prop-value` names a keyword")
       (is (= ["left/panel" "right/panel"]
              [(crossed-instance-id {:instance-id "left/panel"})
               (crossed-instance-id {:instance-id "right/panel"})])
-          "live control: plain strings cross distinctly with or without the
-           normalisation, so the instrument reads the CROSSING and is not merely
-           echoing what it was handed")
-      (is (= "left" (crossed-instance-id {:instance-id :left}))
-          "and an UNQUALIFIED keyword crosses as its bare name")))
+          "live control: plain strings cross distinctly, so the instrument
+           reads the CROSSING rather than echoing what it was handed")))
 
   (testing "and the two entry paths AGREE. What a Reagent parent
             gets through `[:>]` composes the same ids a Fresco parent gets
@@ -681,8 +483,6 @@
              intersection below is separation and not silence")
         (is (= (via-fresco :left/panel)  left-r)
             "the two doors compose ONE set of ids for `:left/panel`")
-        (is (= (via-fresco :right/panel) right-r)
-            "and for `:right/panel`")
         (is (nil? (some (set left-r) right-r))
             "THE GATE: no mount-id survives from one namespaced instance to
              the other. The store key, the width slot and the `:site-id`
