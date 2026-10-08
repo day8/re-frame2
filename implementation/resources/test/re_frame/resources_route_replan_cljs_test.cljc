@@ -14,8 +14,8 @@
   The routing-side contract is `re-frame.routing-replan-test`; the corpus rows
   are the `ep-0037-replan-*` fixtures."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the resources + routing
