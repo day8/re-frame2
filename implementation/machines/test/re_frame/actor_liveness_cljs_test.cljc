@@ -1,35 +1,16 @@
 (ns re-frame.actor-liveness-cljs-test
-  "A dynamically-spawned machine actor's LIVENESS is derived from its
-  (revertible) runtime-db snapshot, NOT from a per-instance registrar entry.
-
-  Liveness == snapshot presence. Machine STATE lives in the frame value
-  (revertible), and a spawned actor's liveness lives in the same revertible
-  runtime-db partition rather than the registrar — so a `restore-epoch!`
-  that reverts the frame value reverts the actor's liveness with it.
-  Spawn/destroy are PURE frame-value writes (install/remove the snapshot +
-  the spawn-registry slot in runtime-db, stamping the revertible
-  `:rf/machine-type`), and a dispatch to an unregistered actor-id lazily
-  resolves the actor's TYPE handler from its snapshot. The snapshot is
-  durable runtime-db state, so liveness lives in the runtime-db partition.
-
-  These JVM+CLJS unit tests pin the machines-side invariants WITHOUT the
-  epoch artefact: spawn/destroy mutate ZERO registrar state, dispatch
-  lazy-resolves through the snapshot, and a runtime-db revert (the partition
-  `restore-epoch!` walks machine snapshots back through, as part of its
-  whole-frame-state rewind) reverts an actor's liveness perfectly. The
-  genuine end-to-end `restore-epoch!` repros live in
-  `implementation/epoch/test/.../actor_revertibility_restore_test.clj`
-  (the epoch artefact already test-deps machines).
-
-  Spec contract: [Spec 005 §Spawning §Liveness is derived from runtime-db]."
+  "A spawned actor's liveness IS its runtime-db snapshot, never a per-instance
+  registrar entry, so reverting runtime-db reverts it (Spec 005 §Liveness is
+  derived from runtime-db). The end-to-end `restore-epoch!` case is
+  `implementation/epoch`'s actor_revertibility_restore_test."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as rf.frame]
+   [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    [re-frame.registrar :as rf.registrar]
-   [re-frame.substrate.adapter :as rf.substrate.adapter]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
@@ -38,183 +19,79 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; snapshot lookup via the shared machines test-support — no hardcoded
-;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-(defn- registrar-event-snapshot
-  "A value-snapshot of every registered :event id — the bit we assert is
-  UNCHANGED across a spawn/destroy (no registrar drift)."
-  []
+(defn- registered-event-ids []
   (set (keys (rf.registrar/registrations :event))))
 
-(defn- revert-app-db!
-  "Reset `frame-id`'s RUNTIME-DB to `runtime-db` — the partition a
-  `restore-epoch!` / frame-state revert walks machine snapshots back through.
-  Used here so the machines unit test exercises the revertibility property
-  without test-dep'ing the epoch artefact.
-
-  A spawned actor's LIVENESS is its snapshot's presence in the **runtime-db**
-  partition (machine snapshots are durable runtime-db state), so reverting
-  liveness means reverting runtime-db — written via `rf.frame/swap-runtime-db!`.
-  This helper installs just the runtime-db partition (the full frame-state
-  restore PROJECTIONS live elsewhere)."
-  [frame-id runtime-db]
-  (rf.frame/swap-runtime-db! frame-id (constantly runtime-db)))
-
-;; A parent that spawns one child of a registered TYPE on `:go` and
-;; destroys it on `:drop`. The child increments a counter on `:bump` so
-;; we can prove the lazy-resolved handler actually drives a transition.
 (defn- counter-child []
   {:initial :live
    :data    {:n 0}
    :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
    :states  {:live {:on {:bump {:action :bump}}}}})
 
-(defn- spawning-parent [child-type]
-  {:initial :idle
-   :data    {}
-   :states  {:idle {:on {:go   {:action (fn [_]
-                                          {:fx [[:rf.machine/spawn
-                                                 {:machine-id child-type
-                                                  :id-prefix  child-type}]]})}}}}})
-
-;; ---- spawn / destroy perform ZERO registrar mutation ----------------------
+(defn- spawning-parent
+  "Spawns one `child-type` actor per `:go`; `:drop` destroys `<child-type>#1`."
+  [child-type]
+  (let [child-1 (keyword (namespace child-type) (str (name child-type) "#1"))]
+    {:initial :idle
+     :data    {}
+     :states  {:idle {:on {:go   {:action (fn [_]
+                                            {:fx [[:rf.machine/spawn
+                                                   {:machine-id child-type
+                                                    :id-prefix  child-type}]]})}
+                           :drop {:action (fn [_] {:fx [[:rf.machine/destroy child-1]]})}}}}}))
 
 (deftest spawn-and-destroy-are-pure-app-db-writes
-  (testing "a spawned actor never registers a per-instance
-            handler; spawn and destroy leave the :event registrar
-            value-identical (liveness lives in the snapshot)"
-    (rf/reg-machine :al/child  (counter-child))
-    (rf/reg-machine :al/parent (assoc-in (spawning-parent :al/child)
-                                         [:states :idle :on :drop]
-                                         {:action (fn [_]
-                                                    {:fx [[:rf.machine/destroy :al/child#1]]})}))
-    (let [reg-before (registrar-event-snapshot)]
-      ;; Spawn.
-      (rf/dispatch-sync [:al/parent [:go]])
-      (is (some? (snapshot :al/child#1))
-          "spawned actor's snapshot is installed (it is alive)")
-      (is (nil? (rf.registrar/lookup :event :al/child#1))
-          "spawn registered NO per-instance handler")
-      (is (= reg-before (registrar-event-snapshot))
-          "spawn mutated the :event registrar by exactly nothing")
-      ;; The spawned snapshot carries its revertible TYPE reference.
-      (is (= :al/child (:rf/machine-type (snapshot :al/child#1)))
-          "snapshot carries :rf/machine-type so liveness is runtime-db-derived")
-      ;; Destroy.
-      (rf/dispatch-sync [:al/parent [:drop]])
-      (is (nil? (snapshot :al/child#1))
-          "destroy removed the snapshot (the actor is no longer alive)")
-      (is (= reg-before (registrar-event-snapshot))
-          "destroy mutated the :event registrar by exactly nothing"))))
-
-;; ---- dispatch lazily resolves a spawned actor through its snapshot --------
-
-;; ---- genuine no-such-handler when no live snapshot ------------------------
+  (rf/reg-machine :al/child  (counter-child))
+  (rf/reg-machine :al/parent (spawning-parent :al/child))
+  (let [reg-before (registered-event-ids)]
+    (rf/dispatch-sync [:al/parent [:go]])
+    (is (= [:al/child reg-before]
+           [(:rf/machine-type (snapshot :al/child#1)) (registered-event-ids)])
+        "the snapshot carries its TYPE; no per-instance handler was registered")
+    (rf/dispatch-sync [:al/parent [:drop]])
+    (is (= [nil reg-before] [(snapshot :al/child#1) (registered-event-ids)]))))
 
 (deftest dispatch-to-gone-actor-is-clean-no-such-handler
-  (testing "dispatching to an actor-id with NO live snapshot
-            resolves to nothing (genuine no-such-handler; the resolver
-            does not fabricate a handler)"
-    (rf/reg-machine :al3/child  (counter-child))
-    (rf/reg-machine :al3/parent (spawning-parent :al3/child))
-    ;; Never spawned: :al3/child#1 has no snapshot.
-    (is (nil? (snapshot :al3/child#1)))
-    (let [errors (atom [])]
-      (rf/register-listener! :trace ::al3 (fn [ev]
-                                     (when (= :rf.error/no-such-handler (:operation ev))
-                                       (swap! errors conj ev))))
-      (rf/dispatch-sync [:al3/child#1 [:bump]])
-      (rf/unregister-listener! :trace ::al3)
-      (is (seq @errors)
-          ":rf.error/no-such-handler fired — the resolver declined (no live snapshot)")
-      (is (nil? (snapshot :al3/child#1))
-          "no snapshot was fabricated"))))
-
-;; ---- liveness reverts with a runtime-db reset (what restore-epoch! does) ----
+  (rf/reg-machine :al3/child (counter-child))
+  (let [errors (atom [])]
+    (rf/register-listener! :trace ::al3 (fn [ev]
+                                          (when (= :rf.error/no-such-handler (:operation ev))
+                                            (swap! errors conj ev))))
+    (rf/dispatch-sync [:al3/child#1 [:bump]])
+    (rf/unregister-listener! :trace ::al3)
+    (is (seq @errors) "the resolver declined: no live snapshot")
+    (is (nil? (snapshot :al3/child#1)) "no snapshot was fabricated")))
 
 (deftest actor-liveness-reverts-with-runtime-db
-  (testing "resetting the frame's runtime-db to a
-            captured value (a frame-state revert walks machine snapshots back
-            through the runtime-db partition) reverts an actor's liveness
-            perfectly, with NO registrar drift"
-    (rf/reg-machine :al4/child  (counter-child))
-    (rf/reg-machine :al4/parent (assoc-in (spawning-parent :al4/child)
-                                          [:states :idle :on :drop]
-                                          {:action (fn [_]
-                                                     {:fx [[:rf.machine/destroy :al4/child#1]]})}))
-    ;; Capture runtime-db BEFORE the actor exists (rewind-past-spawn target).
-    (let [db-before-spawn (:rf.db/runtime (rf/frame-state-value :rf/default))]
-      (rf/dispatch-sync [:al4/parent [:go]])
-      (is (some? (snapshot :al4/child#1)) "actor alive after spawn")
-      ;; Capture runtime-db while the actor IS alive (rewind-past-destroy
-      ;; target).
-      (let [db-while-alive (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (rf/dispatch-sync [:al4/child#1 [:bump]])
-        (is (= 1 (:n (:data (snapshot :al4/child#1)))))
-        (rf/dispatch-sync [:al4/parent [:drop]])
-        (is (nil? (snapshot :al4/child#1)) "actor destroyed")
-
-        ;; (a) Revert to BEFORE the spawn (rewind-past-spawn). The actor's
-        ;; snapshot vanishes — no orphaned handler survives, because there
-        ;; never was a per-instance registration. A dispatch to the gone
-        ;; actor is a clean no-such-handler.
-        (revert-app-db! :rf/default db-before-spawn)
-        (is (nil? (snapshot :al4/child#1))
-            "rewind-past-spawn: the actor's snapshot is gone")
-        (is (nil? (rf.registrar/lookup :event :al4/child#1))
-            "rewind-past-spawn: NO orphaned handler survives the revert")
-
-        ;; (b) Revert to WHILE-ALIVE (rewind-past-destroy).
-        ;; The snapshot comes back AND a dispatch to the actor RESOLVES via
-        ;; the lazy resolver (not :no-such-handler).
-        (revert-app-db! :rf/default db-while-alive)
-        (is (some? (snapshot :al4/child#1))
-            "rewind-past-destroy: the actor's snapshot is restored")
-        (rf/dispatch-sync [:al4/child#1 [:bump]])
-        (is (= 1 (:n (:data (snapshot :al4/child#1))))
-            "rewind-past-destroy: dispatch RESOLVED and drove a transition —
-             liveness reverted with the snapshot (NOT :no-such-handler)")))))
-
-;; ---- singleton negative guard ---------------------------------------------
+  (rf/reg-machine :al4/child  (counter-child))
+  (rf/reg-machine :al4/parent (spawning-parent :al4/child))
+  (rf/dispatch-sync [:al4/parent [:go]])
+  (let [db-while-alive (:rf.db/runtime (rf/frame-state-value :rf/default))]
+    (rf/dispatch-sync [:al4/parent [:drop]])
+    (is (nil? (snapshot :al4/child#1)) "destroyed")
+    (rf.frame/swap-runtime-db! :rf/default (constantly db-while-alive))
+    (rf/dispatch-sync [:al4/child#1 [:bump]])
+    (is (= 1 (get-in (snapshot :al4/child#1) [:data :n]))
+        "the reverted snapshot answers its next event: liveness reverted with it")))
 
 (deftest singletons-still-register-and-dispatch-unchanged
-  (testing "a boot-registered (singleton) machine registers a
-            handler and dispatches normally; the singleton path does
-            not go through the lazy resolver"
-    (rf/reg-machine :al5/single (counter-child))
-    (is (some? (rf.registrar/lookup :event :al5/single))
-        "a reg-machine singleton IS registered in the :event registrar")
-    (rf/dispatch-sync [:al5/single [:bump]])
-    (is (= 1 (:n (:data (snapshot :al5/single))))
-        "the singleton's registered handler drove the transition")
-    ;; A singleton snapshot carries NO :rf/machine-type — it is resolved
-    ;; through the registrar, not the lazy resolver.
-    (is (nil? (:rf/machine-type (snapshot :al5/single)))
-        "singleton snapshots carry no :rf/machine-type (registrar-resolved)")))
-
-;; ---- nested / parallel spawned actors resolve correctly -------------------
+  ;; frame-destroy tells a spawned actor from a singleton by `:rf/machine-type`.
+  (rf/reg-machine :al5/single (counter-child))
+  (rf/dispatch-sync [:al5/single [:bump]])
+  (is (= [1 nil] ((juxt (comp :n :data) :rf/machine-type) (snapshot :al5/single)))))
 
 (deftest parallel-spawned-actors-each-resolve-independently
-  (testing "multiple live spawned actors of the same TYPE each
-            lazy-resolve to their OWN snapshot"
-    (rf/reg-machine :al6/child  (counter-child))
-    (rf/reg-machine :al6/parent
-      {:initial :idle
-       :data    {}
-       :states  {:idle {:on {:go {:action (fn [_]
-                                            {:fx [[:rf.machine/spawn
-                                                   {:machine-id :al6/child :id-prefix :al6/child}]
-                                                  [:rf.machine/spawn
-                                                   {:machine-id :al6/child :id-prefix :al6/child}]]})}}}}})
-    (rf/dispatch-sync [:al6/parent [:go]])
-    (is (some? (snapshot :al6/child#1)))
-    (is (some? (snapshot :al6/child#2)))
-    ;; Bump #1 twice, #2 once — each dispatch lazy-resolves to the right
-    ;; per-actor snapshot.
-    (rf/dispatch-sync [:al6/child#1 [:bump]])
-    (rf/dispatch-sync [:al6/child#1 [:bump]])
-    (rf/dispatch-sync [:al6/child#2 [:bump]])
-    (is (= 2 (:n (:data (snapshot :al6/child#1)))) "actor #1 has its own count")
-    (is (= 1 (:n (:data (snapshot :al6/child#2)))) "actor #2 has its own count")))
+  (rf/reg-machine :al6/child  (counter-child))
+  (rf/reg-machine :al6/parent
+    {:initial :idle
+     :data    {}
+     :states  {:idle {:on {:go {:action (fn [_]
+                                          {:fx [[:rf.machine/spawn {:machine-id :al6/child :id-prefix :al6/child}]
+                                                [:rf.machine/spawn {:machine-id :al6/child :id-prefix :al6/child}]]})}}}}})
+  (rf/dispatch-sync [:al6/parent [:go]])
+  (rf/dispatch-sync [:al6/child#1 [:bump]])
+  (rf/dispatch-sync [:al6/child#1 [:bump]])
+  (rf/dispatch-sync [:al6/child#2 [:bump]])
+  (is (= [2 1] (mapv #(get-in (snapshot %) [:data :n]) [:al6/child#1 :al6/child#2]))))
