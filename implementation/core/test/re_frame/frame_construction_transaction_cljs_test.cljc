@@ -1,19 +1,12 @@
 (ns re-frame.frame-construction-transaction-cljs-test
-  "A frame id has one construction transaction from adapter
-  allocation through setup and final publication.
-
-  The custom-adapter fixtures synchronously re-enter construction for the SAME
-  id from each opaque allocation callback. The nested public call must lose
-  promptly with `:rf.error/frame-construction-in-progress`; it may not install a
-  frame that the outer callback later overwrites. The setup fixture exercises
-  the same admission rule after the provisional row exists: an initial event's
-  same-id make loses, then the outer setup failure removes only its own
-  provisional construction. All barriers are synchronous; there are no sleeps.
-
-  `.cljc` plus the `-cljs-test` suffix runs these ownership proofs on both JVM
-  and CLJS."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  "A frame id has one construction transaction from adapter allocation
+  through setup to publication. A same-id `make-frame` re-entered synchronously
+  from an adapter callback or an initial event loses promptly with
+  `:rf.error/frame-construction-in-progress` and cannot install a frame the
+  outer construction later overwrites; a failed outer construction removes only
+  its own provisional row. All barriers are synchronous."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -61,23 +54,19 @@
                                   (and (= :make-runtime-derived callback) (= 2 n)))
                           (reenter!))))
                     (original-derived sources compute-fn))]
-      (is (some? (rf/make-frame {:id id :tags #{:outer}}))
-          (str callback " outer construction commits"))
-      (is (= :rf.error/frame-construction-in-progress @nested-outcome)
-          (str callback " same-id nested construction loses with the stable type"))
-      (is (= 1 @state-calls)
-          (str callback " allocates only the committed frame's state container"))
-      (is (= #{:outer} (get-in (rf.frame/frame id) [:config :tags]))
-          (str callback " cannot overwrite the committed outer config"))
-      (is (some? (rf/make-frame {:id id :tags #{:sequential-refresh}}))
-          (str callback " releases its reservation for a later sequential refresh")))))
+      ;; the outer commits, the nested loses, only one state container is
+      ;; allocated, the outer config stands, and the reservation is released
+      (is (= [true :rf.error/frame-construction-in-progress 1 #{:outer} true]
+             [(some? (rf/make-frame {:id id :tags #{:outer}}))
+              @nested-outcome
+              @state-calls
+              (get-in (rf.frame/frame id) [:config :tags])
+              (some? (rf/make-frame {:id id :tags #{:sequential-refresh}}))])
+          (str callback)))))
 
 (deftest same-id-reentry-from-every-adapter-constructor-loses
-  (doseq [callback [:make-state-container
-                    :make-app-derived
-                    :make-runtime-derived]]
-    (testing (name callback)
-      (assert-adapter-reentry-loses! callback))))
+  (run! assert-adapter-reentry-loses!
+        [:make-state-container :make-app-derived :make-runtime-derived]))
 
 (deftest same-id-make-from-initial-event-cannot-commit-a-later-revision
   (let [id             :construction-setup/same-id
@@ -87,18 +76,19 @@
         (reset! nested-outcome
                 (err-id #(rf/make-frame {:id id :tags #{:nested-success}})))
         (throw (ex-info "fail the provisional constructor" {:fixture true}))))
-    (is (= :rf.error/initial-events-step-failed
-           (err-id #(rf/make-frame
-                      {:id id
-                       :tags #{:outer}
-                       :initial-events [[:construction-setup/reenter-and-fail]]})))
-        "the outer setup failure remains the constructor's terminal outcome")
-    (is (= :rf.error/frame-construction-in-progress @nested-outcome)
-        "the synchronous same-id make cannot report success against a provisional row")
-    (is (nil? (rf.frame/frame id))
-        "the failed outer transaction leaves no frame or nested revision")
-    (is (some? (rf/make-frame {:id id :tags #{:clean-retry}}))
-        "failure released the exact reservation for a clean retry")))
+    ;; the outer setup failure is the terminal outcome, the nested make lost,
+    ;; nothing was left behind, and the reservation is free for a retry
+    (is (= [:rf.error/initial-events-step-failed
+            :rf.error/frame-construction-in-progress
+            nil
+            true]
+           [(err-id #(rf/make-frame
+                       {:id id
+                        :tags #{:outer}
+                        :initial-events [[:construction-setup/reenter-and-fail]]}))
+            @nested-outcome
+            (rf.frame/frame id)
+            (some? (rf/make-frame {:id id :tags #{:clean-retry}}))]))))
 
 (deftest set-claim-is-atomic-and-its-engine-handoff-is-one-shot
   (let [a     :construction-handoff/a
@@ -106,22 +96,19 @@
         free  :construction-handoff/free
         owner (rf.frame/claim-frame-construction! #{a b} :plan-preflight)]
     (try
-      (is (= :rf.error/frame-construction-in-progress
-             (err-id #(rf.frame/claim-frame-construction! #{b free}
-                                                        :competing-plan)))
-          "a set claim that overlaps one owned id loses as a unit")
-      (is (some? (rf/make-frame {:id free :tags #{:disjoint}}))
-          "the losing set claim did not partially reserve its free id")
-      (is (= [true :rf.error/frame-construction-in-progress]
-             (rf.frame/call-with-frame-construction-handoff!
-               owner a
-               (fn []
-                 [(some? (rf/make-frame {:id a :tags #{:handed-off}}))
-                  (err-id #(rf/make-frame {:id a :tags #{:second-entry}}))])))
-          "one handoff permits exactly one engine entry; a second public entry collides")
-      (is (= #{:handed-off} (get-in (rf.frame/frame a) [:config :tags]))
-          "only the handed-off engine entry published")
+      (is (= [:rf.error/frame-construction-in-progress true]
+             [(err-id #(rf.frame/claim-frame-construction! #{b free} :competing-plan))
+              (some? (rf/make-frame {:id free :tags #{:disjoint}}))])
+          "an overlapping set claim loses as a unit, reserving none of its free ids")
+      (is (= [[true :rf.error/frame-construction-in-progress] #{:handed-off}]
+             [(rf.frame/call-with-frame-construction-handoff!
+                owner a
+                (fn []
+                  [(some? (rf/make-frame {:id a :tags #{:handed-off}}))
+                   (err-id #(rf/make-frame {:id a :tags #{:second-entry}}))]))
+              (get-in (rf.frame/frame a) [:config :tags])])
+          "one handoff permits exactly one engine entry")
       (finally
         (rf.frame/release-frame-construction! owner)))
     (is (some? (rf/make-frame {:id a :tags #{:after-release}}))
-        "the external set owner compare-releases for later ordinary construction")))
+        "the set owner's release frees the id for ordinary construction")))
