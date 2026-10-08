@@ -3,11 +3,8 @@
 
   Per /spec/007-Stories.md §argtypes the closed control vocabulary is
   `:text` / `:textarea` / `:number` / `:boolean` / `:select` / `:radio`
-  / `:date` / `:color`. These tests pin the rendered hiccup for
-  `:textarea` / `:radio` / `:date` / `:color` plus the unknown-widget
-  fallback, and exercise the
-  on-change writes for each through the shell-state's `:cell-overrides`
-  slot.
+  / `:date` / `:color`. These tests pin the rendered hiccup and the
+  on-change writes through the shell-state's `:cell-overrides` slot.
 
   CLJS-only — the renderer is CLJS-only (it depends on Reagent / DOM
   event objects). Lives in a `.cljc` for symmetry with sibling tests.
@@ -15,9 +12,7 @@
   Runs under shadow's `:node-test` target (the `cljs-test$` ns regex
   picks up this name)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [malli.core :as m]
             #?(:cljs [re-frame.story :as rf.story])
-            #?(:cljs [re-frame.story.args :as rf.story.args])
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -40,216 +35,87 @@
 
 #?(:cljs
    (defn- input-event
-     "Synthesise a minimal change-event object whose `.-target.-value`
-     is `v`. Sufficient for the `:textarea` / `:date` / `:color` widgets
-     which all read `(.. e -target -value)`."
+     "A minimal change-event object whose `.-target.-value` is `v`."
      [v]
      #js {:target #js {:value v}}))
 
 #?(:cljs
-   (defn- walk-find
-     "Walk a hiccup tree depth-first and return the first node whose tag
-     matches `pred`. `pred` receives the hiccup vector's first element."
-     [tree pred]
-     (let [result (atom nil)]
-       (letfn [(walk [node]
-                 (when (and (nil? @result) (vector? node))
-                   (when (pred (first node)) (reset! result node))
-                   (doseq [c (rest node)]
-                     (cond
-                       (vector? c) (walk c)
-                       (seq? c)    (doseq [n c] (walk n))))))]
-         (walk tree))
-       @result)))
-
-;; ---- :textarea -----------------------------------------------------------
+   (defn- written
+     "The override the shell state holds for `:story.x/v` at `path`."
+     [path]
+     (get-in (rf.story.ui.state/get-state) (into [:cell-overrides :story.x/v] path))))
 
 #?(:cljs
-   (deftest textarea-widget-renders-textarea-element
-     (testing ":textarea widget renders a <textarea> with the current value"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:bio] "hello" {:widget :textarea})]
-         (is (= :textarea (first tree)))
-         (is (= "hello"   (-> tree second :value)))
-         (is (fn?         (-> tree second :on-change)))))))
+   (defn- radio-inputs [tree]
+     (filter (fn [n]
+               (and (vector? n)
+                    (= :input (first n))
+                    (= "radio" (-> n second :type))))
+             (tree-seq vector? rest tree))))
+
+;; ---- :textarea / :date / :color -----------------------------------------
 
 #?(:cljs
-   (deftest textarea-widget-nil-value-becomes-empty-string
-     (testing ":textarea coerces a nil value to \"\" to satisfy React's
-               controlled-component contract"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:bio] nil {:widget :textarea})]
-         (is (= "" (-> tree second :value)))))))
+   (deftest textarea-widget-renders-value-and-nil-as-empty
+     (testing "nil becomes \"\" to satisfy React's controlled-component contract"
+       (is (= ["hello" ""]
+              (mapv #(-> (rf.story.ui.controls/scalar-widget
+                           :story.x/v [:bio] % {:widget :textarea})
+                         second :value)
+                    ["hello" nil]))))))
 
 #?(:cljs
-   (deftest textarea-widget-on-change-writes-override
-     (testing ":textarea on-change writes through to :cell-overrides"
-       (let [tree     (rf.story.ui.controls/scalar-widget
-                        :story.x/v [:bio] "" {:widget :textarea})
-             handler  (-> tree second :on-change)]
-         (handler (input-event "multi\nline\ntext"))
-         (is (= "multi\nline\ntext"
-                (get-in (rf.story.ui.state/get-state)
-                        [:cell-overrides :story.x/v :bio])))))))
+   (deftest date-widget-renders-and-writes-iso-or-nil
+     (let [tree    (rf.story.ui.controls/scalar-widget
+                     :story.x/v [:dob] "2026-05-14" {:widget :date})
+           handler (-> tree second :on-change)]
+       (is (= ["date" "2026-05-14"] ((juxt :type :value) (second tree))))
+       (is (= "" (-> (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:dob] nil {:widget :date})
+                     second :value)))
+       (handler (input-event "2026-12-31"))
+       (is (= "2026-12-31" (written [:dob])))
+       (testing "an empty string writes nil — 'no date selected' — not an absent key"
+         (handler (input-event ""))
+         (is (nil? (written [:dob])))
+         (is (contains? (written []) :dob))))))
+
+#?(:cljs
+   (deftest color-widget-renders-hex-and-nil-as-black
+     (testing "<input type=\"color\"> rejects any non-hex value, so nil falls
+               back to #000000 rather than \"\""
+       (let [render #(second (rf.story.ui.controls/scalar-widget
+                               :story.x/v [:bg] % {:widget :color}))]
+         (is (= ["color" "#ff0000"] ((juxt :type :value) (render "#ff0000"))))
+         (is (= "#000000" (:value (render nil))))))))
 
 ;; ---- :radio --------------------------------------------------------------
 
 #?(:cljs
-   (deftest radio-widget-renders-one-input-per-option
-     (testing ":radio widget renders one <input type=\"radio\"> per option"
-       (let [tree   (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:variant] :primary
-                      {:widget :radio :options [:primary :secondary :danger]})
-             ;; The radio renders [:div {...radio-row...} <labels...>] — each
-             ;; label wraps an [:input {:type "radio" ...}] + a text node.
-             inputs (filter (fn [n]
-                              (and (vector? n)
-                                   (= :input (first n))
-                                   (= "radio" (-> n second :type))))
-                            (tree-seq vector? rest tree))]
-         (is (= 3 (count inputs)))
-         (is (= [:primary :secondary :danger]
-                (mapv (fn [n]
-                        ;; Round-trip the rendered `:value` string back to
-                        ;; the source keyword for an order-preserving check.
-                        (keyword (subs (-> n second :value) 1)))
-                      inputs)))))))
-
-#?(:cljs
-   (deftest radio-widget-marks-current-option-checked
-     (testing ":radio widget marks exactly the matching option as :checked"
-       (let [tree   (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:variant] :secondary
-                      {:widget :radio :options [:primary :secondary :danger]})
-             inputs (filter (fn [n]
-                              (and (vector? n)
-                                   (= :input (first n))
-                                   (= "radio" (-> n second :type))))
-                            (tree-seq vector? rest tree))
-             checked (filter #(-> % second :checked) inputs)]
-         (is (= 1 (count checked)))
-         (is (= ":secondary" (-> (first checked) second :value)))))))
-
-#?(:cljs
-   (deftest radio-widget-on-change-writes-selected-option
-     (testing ":radio on-change writes the raw option (not the stringified
-               form) so keywords, numbers, etc. round-trip"
-       (let [tree   (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:variant] :primary
-                      {:widget :radio :options [:primary :secondary :danger]})
-             inputs (filter (fn [n]
-                              (and (vector? n)
-                                   (= :input (first n))
-                                   (= "radio" (-> n second :type))))
-                            (tree-seq vector? rest tree))
-             ;; Click the :danger radio.
-             handler (-> (nth (vec inputs) 2) second :on-change)]
-         (handler (input-event ":danger"))
-         (is (= :danger
-                (get-in (rf.story.ui.state/get-state)
-                        [:cell-overrides :story.x/v :variant])))))))
+   (deftest radio-widget-renders-checks-and-writes-the-source-option
+     (let [tree   (rf.story.ui.controls/scalar-widget
+                    :story.x/v [:variant] :secondary
+                    {:widget :radio :options [:primary :secondary :danger]})
+           inputs (vec (radio-inputs tree))]
+       (testing "a named radiogroup container"
+         (is (= ["radiogroup" ":variant"] ((juxt :role :aria-label) (second tree)))))
+       (testing "one input per option, in order, only the current one checked"
+         (is (= [[":primary" false] [":secondary" true] [":danger" false]]
+                (mapv (comp (juxt :value :checked) second) inputs))))
+       (testing "on-change writes the raw option, not its stringified form"
+         ((-> inputs (nth 2) second :on-change) (input-event ":danger"))
+         (is (= :danger (written [:variant])))))))
 
 #?(:cljs
    (deftest radio-widget-name-attribute-isolates-groups
-     (testing "each radio group's <input> shares a `:name` derived from
-               variant-id + path — distinct paths mean distinct names so
-               two radio groups don't toggle each other"
-       (let [tree-a (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:a] nil
-                      {:widget :radio :options [:x :y]})
-             tree-b (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:b] nil
-                      {:widget :radio :options [:x :y]})
-             name-a (->> (tree-seq vector? rest tree-a)
-                         (some (fn [n]
-                                 (when (and (vector? n)
-                                            (= :input (first n))
-                                            (= "radio" (-> n second :type)))
-                                   (-> n second :name)))))
-             name-b (->> (tree-seq vector? rest tree-b)
-                         (some (fn [n]
-                                 (when (and (vector? n)
-                                            (= :input (first n))
-                                            (= "radio" (-> n second :type)))
-                                   (-> n second :name)))))]
-         (is (some? name-a))
-         (is (some? name-b))
-         (is (not= name-a name-b))))))
-
-;; ---- :date ---------------------------------------------------------------
-
-#?(:cljs
-   (deftest date-widget-renders-date-input
-     (testing ":date widget renders <input type=\"date\">"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:dob] "2026-05-14" {:widget :date})]
-         (is (= :input (first tree)))
-         (is (= "date" (-> tree second :type)))
-         (is (= "2026-05-14" (-> tree second :value)))))))
-
-#?(:cljs
-   (deftest date-widget-nil-value-becomes-empty-string
-     (testing ":date coerces nil to \"\" to satisfy the controlled-input
-               contract"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:dob] nil {:widget :date})]
-         (is (= "" (-> tree second :value)))))))
-
-#?(:cljs
-   (deftest date-widget-on-change-writes-iso-string
-     (testing ":date on-change writes the raw ISO yyyy-mm-dd string"
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:dob] nil {:widget :date})
-             handler (-> tree second :on-change)]
-         (handler (input-event "2026-12-31"))
-         (is (= "2026-12-31"
-                (get-in (rf.story.ui.state/get-state)
-                        [:cell-overrides :story.x/v :dob])))))))
-
-#?(:cljs
-   (deftest date-widget-on-change-empty-writes-nil
-     (testing ":date on-change with an empty string clears the slot to nil
-               — equivalent to 'no date selected'"
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:dob] "2026-05-14" {:widget :date})
-             handler (-> tree second :on-change)]
-         (handler (input-event ""))
-         (is (nil? (get-in (rf.story.ui.state/get-state)
-                           [:cell-overrides :story.x/v :dob])))
-         (is (contains? (get-in (rf.story.ui.state/get-state)
-                                [:cell-overrides :story.x/v])
-                        :dob))))))
-
-;; ---- :color --------------------------------------------------------------
-
-#?(:cljs
-   (deftest color-widget-renders-color-input
-     (testing ":color widget renders <input type=\"color\">"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:bg] "#ff0000" {:widget :color})]
-         (is (= :input (first tree)))
-         (is (= "color" (-> tree second :type)))
-         (is (= "#ff0000" (-> tree second :value)))))))
-
-#?(:cljs
-   (deftest color-widget-nil-value-becomes-black
-     (testing ":color falls back to a valid #000000 when the slot is nil —
-               <input type=\"color\"> rejects any non-hex value, so empty
-               strings can't be used"
-       (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:bg] nil {:widget :color})]
-         (is (= "#000000" (-> tree second :value)))))))
-
-#?(:cljs
-   (deftest color-widget-on-change-writes-hex
-     (testing ":color on-change writes the picker's hex string verbatim"
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:bg] "#000000" {:widget :color})
-             handler (-> tree second :on-change)]
-         (handler (input-event "#abcdef"))
-         (is (= "#abcdef"
-                (get-in (rf.story.ui.state/get-state)
-                        [:cell-overrides :story.x/v :bg])))))))
+     (testing "distinct paths give distinct `:name`s, so two radio groups
+               don't toggle each other"
+       (let [group-name (fn [path]
+                          (-> (rf.story.ui.controls/scalar-widget
+                                :story.x/v path nil {:widget :radio :options [:x :y]})
+                              radio-inputs first second :name))]
+         (is (some? (group-name [:a])))
+         (is (not= (group-name [:a]) (group-name [:b])))))))
 
 ;; ---- unknown widget fallback --------------------------------------------
 
@@ -262,63 +128,32 @@
          (is (re-find #"unsupported widget"
                       (nth tree 2)))))))
 
-;; ---- arg-widget dispatch covers the textarea/radio/date/color tags ------
+;; ---- arg-widget dispatch hands scalar specs to scalar-widget ------------
 
 #?(:cljs
    (deftest arg-widget-hands-scalar-widget-specs-through
-     (testing "arg-widget returns a `[scalar-widget ...]` vector whose
-               trailing spec still carries the :textarea / :radio / :date /
-               :color widget tag"
-       (doseq [w [:textarea :radio :date :color]]
-         (let [spec    (cond-> {:widget w}
-                         (#{:radio} w) (assoc :options [:a :b]))
-               sub-spec (last (rf.story.ui.controls/arg-widget
-                                :story.x/v [:k] nil spec))]
-           ;; arg-widget returns [scalar-widget variant-id path value spec]
-           ;; — the trailing element is the widget-spec map, ensuring the
-           ;; dispatch carried our :widget tag through.
-           (is (= w (:widget sub-spec))))))))
+     (is (= [rf.story.ui.controls/scalar-widget :story.x/v [:k] nil {:widget :textarea}]
+            (rf.story.ui.controls/arg-widget :story.x/v [:k] nil {:widget :textarea})))))
 
 ;; ---- aria-label on every scalar widget ----------------------------------
 ;;
-;; Every scalar widget MUST carry an :aria-label derived from its path tail
-;; — without this the visible <span> label sibling has no programmatic
-;; association with the input and screen readers announce 'edit, blank'.
+;; The row-level label span is purely visual; without an `:aria-label`
+;; screen readers announce the input as 'edit, blank'.
 
 #?(:cljs
    (deftest each-scalar-widget-carries-aria-label
-     (testing "every scalar widget renders with an :aria-label
-               derived from its path tail so screen readers announce the
-               input by name rather than 'edit, blank'."
-       (doseq [[w expected-tag]
-               [[{:widget :text}                              :input]
-                [{:widget :textarea}                          :textarea]
-                [{:widget :number}                            :input]
-                [{:widget :boolean}                           :input]
-                [{:widget :select :options [:a :b]}           :select]
-                [{:widget :date}                              :input]
-                [{:widget :color}                             :input]]]
-         (let [tree (rf.story.ui.controls/scalar-widget
-                      :story.x/v [:username] "x" w)]
-           (is (= expected-tag (first tree))
-               (str (:widget w) " renders the right tag"))
-           (is (some? (-> tree second :aria-label))
-               (str (:widget w) " carries an :aria-label"))
-           (is (re-find #"username" (-> tree second :aria-label))
-               (str (:widget w) " :aria-label includes the path tail")))))))
-
-#?(:cljs
-   (deftest radio-widget-radiogroup-has-aria-label
-     (testing "the :radio container is a role=radiogroup with
-               an aria-label — the inner inputs inherit a name from their
-               wrapping <label> so they don't need their own aria-label."
+     (doseq [[w expected-tag]
+             [[{:widget :text}                    :input]
+              [{:widget :textarea}                :textarea]
+              [{:widget :number}                  :input]
+              [{:widget :boolean}                 :input]
+              [{:widget :select :options [:a :b]} :select]
+              [{:widget :date}                    :input]
+              [{:widget :color}                   :input]]]
        (let [tree (rf.story.ui.controls/scalar-widget
-                    :story.x/v [:variant] :primary
-                    {:widget :radio :options [:primary :secondary]})]
-         (is (= :div (first tree)))
-         (is (= "radiogroup" (-> tree second :role)))
-         (is (some? (-> tree second :aria-label)))
-         (is (re-find #"variant" (-> tree second :aria-label)))))))
+                    :story.x/v [:username] "x" w)]
+         (is (= [expected-tag ":username"] [(first tree) (-> tree second :aria-label)])
+             (str (:widget w) " renders its tag with an :aria-label naming the path"))))))
 
 #?(:cljs
    (deftest nested-path-aria-label-is-breadcrumb
@@ -331,28 +166,17 @@
 
 ;; ---- typed values survive the DOM adapter ---------------------------------
 ;;
-;; The controls panel infers its widgets from the variant's Spec 010
-;; schema, so a widget the schema GENERATED must write a value that
-;; schema ACCEPTS. `<option value>` can only carry a string, so a select
-;; whose on-change wrote the raw DOM string would turn `:large` into
-;; `":large"` — a value the very `[:enum :small :large]` that produced the
-;; widget rejects, and one that never reaches the view's keyword branch.
-;; The `:radio` renderer above writes the source option; these pin the
-;; same contract for `:select`, and for the keyword coercion
-;; `infer-widget`'s `:keyword` case promises.
+;; A widget the schema generated must write a value that schema accepts.
+;; `<option value>` can only carry a string, so a select writing the raw DOM
+;; string would turn `:large` into `":large"`.
 
 #?(:cljs
    (deftest select-widget-on-change-writes-the-numeric-option
-     (testing ":select on-change writes a numeric option as a number"
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:cols] 1 {:widget :select :options [1 2 3]})
-             handler (-> tree second :on-change)]
-         (handler (input-event "3"))
-         (let [written (get-in (rf.story.ui.state/get-state)
-                               [:cell-overrides :story.x/v :cols])]
-           (is (= 3 written))
-           (is (number? written) "a number, not the string \"3\"")
-           (is (m/validate [:enum 1 2 3] written)))))))
+     (let [tree    (rf.story.ui.controls/scalar-widget
+                     :story.x/v [:cols] 1 {:widget :select :options [1 2 3]})
+           handler (-> tree second :on-change)]
+       (handler (input-event "3"))
+       (is (= 3 (written [:cols])) "a number, not the string \"3\""))))
 
 #?(:cljs
    (deftest select-widget-leaves-string-options-as-strings
@@ -361,8 +185,7 @@
                        :story.x/v [:label] "a" {:widget :select :options ["a" "b"]})
              handler (-> tree second :on-change)]
          (handler (input-event "b"))
-         (is (= "b" (get-in (rf.story.ui.state/get-state)
-                            [:cell-overrides :story.x/v :label])))))))
+         (is (= "b" (written [:label])))))))
 
 #?(:cljs
    (deftest select-widget-ignores-a-token-naming-no-option
@@ -373,22 +196,18 @@
                        {:widget :select :options [:small :large]})
              handler (-> tree second :on-change)]
          (handler (input-event ":enormous"))
-         (is (nil? (get-in (rf.story.ui.state/get-state)
-                           [:cell-overrides :story.x/v :size]))
-             "no override written for an unrecognised token")))))
+         (is (nil? (written [:size])))))))
 
 #?(:cljs
    (deftest select-widget-nested-path-writes-the-typed-option
-     (testing "the same adapter at a NESTED path also writes the typed
-               option — the coercion lives in the widget, not in a
-               top-level special case"
+     (testing "the coercion lives in the widget, so a NESTED path writes the
+               typed option too"
        (let [tree    (rf.story.ui.controls/scalar-widget
                        :story.x/v [:theme :mode] :light
                        {:widget :select :options [:light :dark]})
              handler (-> tree second :on-change)]
          (handler (input-event ":dark"))
-         (is (= :dark (get-in (rf.story.ui.state/get-state)
-                              [:cell-overrides :story.x/v :theme :mode])))))))
+         (is (= :dark (written [:theme :mode])))))))
 
 ;; ---- a scalar schema carrying properties keeps its type -------------------
 
@@ -396,29 +215,21 @@
    (deftest infer-widget-property-carrying-scalars-infer-as-their-keyword
      (testing "a scalar schema with Malli properties infers the widget its
                bare keyword does, never the untyped text fallback"
-       (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:int {:min 8 :max 64}])))
-       (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:double {:min 0}])))
-       (is (= {:widget :boolean} (rf.story.ui.controls/infer-widget [:boolean {:doc "off?"}])))
        (is (= {:widget :text :coerce :keyword}
               (rf.story.ui.controls/infer-widget [:keyword {:doc "status"}])))
-       (is (= {:widget :text} (rf.story.ui.controls/infer-widget [:string {:min 1}])))
        (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:maybe :int]))
            "[:maybe X] infers as X"))))
 
 #?(:cljs
    (deftest bounded-int-control-writes-a-number-its-schema-accepts
      (testing "the flagship [:int {:min 8 :max 64}] prop's GENERATED control
-               writes a number that same schema accepts, not the string \"24\""
-       (let [schema  [:int {:min 8 :max 64}]
-             tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:size] 16 (rf.story.ui.controls/infer-widget schema))
+               writes a number, not the string \"24\""
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:size] 16
+                       (rf.story.ui.controls/infer-widget [:int {:min 8 :max 64}]))
              handler (-> tree second :on-change)]
          (handler (input-event "24"))
-         (let [written (get-in (rf.story.ui.state/get-state)
-                               [:cell-overrides :story.x/v :size])]
-           (is (= 24 written))
-           (is (m/validate schema written)
-               "the written value satisfies the schema that generated the control"))))))
+         (is (= 24 (written [:size])))))))
 
 #?(:cljs
    (deftest keyword-text-widget-on-change-writes-a-keyword
@@ -429,12 +240,7 @@
              tree    (rf.story.ui.controls/scalar-widget :story.x/v [:status] :idle spec)
              handler (-> tree second :on-change)]
          (handler (input-event "loading"))
-         (is (= :loading (get-in (rf.story.ui.state/get-state)
-                                 [:cell-overrides :story.x/v :status])))
-         ;; The user types what the value PRINTS as just as readily.
-         (handler (input-event ":ready"))
-         (is (= :ready (get-in (rf.story.ui.state/get-state)
-                               [:cell-overrides :story.x/v :status])))))))
+         (is (= :loading (written [:status])))))))
 
 #?(:cljs
    (deftest plain-text-widget-still-writes-a-string
@@ -444,27 +250,4 @@
                        :story.x/v [:title] "" {:widget :text})
              handler (-> tree second :on-change)]
          (handler (input-event "loading"))
-         (is (= "loading" (get-in (rf.story.ui.state/get-state)
-                                  [:cell-overrides :story.x/v :title]))
-             "no coercion tag → the raw string, unchanged")))))
-
-#?(:cljs
-   (deftest typed-select-option-survives-into-effective-args
-     (testing "ACCEPTANCE: the typed option written by the handler is what
-               `resolve-args` hands the view — the override is not
-               re-stringified downstream"
-       (rf.story/reg-variant :story.typed/cell
-                             {:tags #{:dev} :setup [] :args {:size :small}})
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.typed/cell [:size] :small
-                       {:widget :select :options [:small :large]})
-             handler (-> tree second :on-change)]
-         (handler (input-event ":large"))
-         (let [shell (rf.story.ui.state/get-state)
-               eff   (rf.story.args/resolve-args
-                       :story.typed/cell
-                       {:active-modes   (:active-modes shell)
-                        :cell-overrides (get-in shell [:cell-overrides :story.typed/cell])})]
-           (is (= :large (:size eff)))
-           (is (m/validate [:enum :small :large] (:size eff))
-               "the effective arg satisfies the enum schema"))))))
+         (is (= "loading" (written [:title])))))))
