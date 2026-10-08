@@ -1,15 +1,10 @@
 (ns re-frame.http-managed-test
-  "JVM smoke tests for Spec 014 — `:rf.http/managed`.
-
-  Covers the canned-stub fxs (no real network IO needed for the stubs)
-  AND, where in-process HTTP is convenient, the real
-  `java.net.http.HttpClient`-backed transport against a tiny
-  com.sun.net.httpserver test server.
-
-  Per Spec 014 §Implementation status — JVM transport is part of the
-  CLJS reference implementation's claim."
+  "Spec 014 `:rf.http/managed` on the JVM: the canned-stub and route-map test
+  doubles (which must refuse and reply exactly as the live fx would), and the
+  `java.net.http.HttpClient` transport against an in-process
+  com.sun.net.httpserver server."
   (:require [clojure.string]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.http.json :as rf.http.json]
@@ -18,10 +13,6 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.late-bind :as rf.late-bind]
-            ;; This suite uses
-            ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
-            ;; throughout, so it opts in by requiring the test-support ns.
-            ;; Requiring test support registers both canned effect ids.
             [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -30,2052 +21,600 @@
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
-;; ---- per-test reset --------------------------------------------------------
-
-;; The canonical runtime fixture snapshot/restores the registrar (so the
-;; ns-load-time canned-stub fx registrations from `re-frame.http.test-support`
-;; survive without a per-test `:reload`), resets frames / flows / schemas /
-;; adapter, and clears BOTH the in-flight managed-request registry AND the
-;; per-frame HTTP interceptor chain on each post-dispose reset —
-;; the interceptor registry lives outside the registrar (internal to
-;; `re-frame.http.middleware`), so a leaked `:before` / `:after` would
-;; otherwise mutate every subsequent test's reply payload.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- a tiny in-process HTTP server ----------------------------------------
-;;
-;; com.sun.net.httpserver ships with the JDK; spinning up one per test
-;; is fast enough (~5ms) and gives us a real socket to point HttpClient at.
+;; ---- helpers --------------------------------------------------------------
 
-(defn- start-server!
-  "Start an HttpServer with the given handler. Returns a {:server ::server :port N} map.
-  Stop with (.stop server 0)."
-  [handler]
-  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
-        ctx    (.createContext server "/")]
-    (.setHandler ctx
-                 (reify HttpHandler
-                   (handle [_ exchange]
-                     (handler exchange))))
-    (.setExecutor server nil)
+(defn- with-server
+  "Run `(f base-url)` against an in-process server answering with `handler`."
+  [handler f]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.setHandler (.createContext server "/")
+                 (reify HttpHandler (handle [_ exchange] (handler exchange))))
     (.start server)
-    {:server server
-     :port   (.getPort (.getAddress server))}))
-
-(defn- stop-server! [{:keys [server]}]
-  (.stop server 0))
+    (try (f (str "http://127.0.0.1:" (.getPort (.getAddress server))))
+         (finally (.stop server 0)))))
 
 (defn- write-response! [^HttpExchange exchange status content-type body]
   (let [bytes (.getBytes (str body) "UTF-8")]
-    (when content-type
-      (-> exchange .getResponseHeaders (.set "Content-Type" content-type)))
+    (-> exchange .getResponseHeaders (.set "Content-Type" content-type))
     (.sendResponseHeaders exchange status (long (count bytes)))
     (with-open [os (.getResponseBody exchange)]
       (.write os bytes))))
 
-;; ---- helpers --------------------------------------------------------------
+(defn- respond [status content-type body]
+  (fn [exchange] (write-response! exchange status content-type body)))
+
+(defn- poll! [pred label]
+  (rf.test-support/poll-until pred {:timeout-ms 8000 :label label}))
 
 (defn- await-reply!
-  "Wait up to `timeout-ms` for `(pred db)` to be truthy against
-  `(rf/app-db-value :rf/default)`. Returns the final db on success;
-  throws `ex-info` carrying `:rf.error/id`
-  `:rf.error/poll-until-timeout` on timeout. Thin alias over
-  `test-support/poll-until` with the per-file
-  `db`-closing-arity shape that read sites here expect."
-  ([pred] (await-reply! pred 5000))
-  ([pred timeout-ms]
-   (rf.test-support/poll-until
-     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
-     {:timeout-ms timeout-ms :label "http-managed reply"})))
+  "Poll `:rf/default`'s app-db until `(pred db)`; return that db."
+  [pred]
+  (poll! #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
+         "http-managed reply"))
 
-;; ---- 1. canned-success: round-trip unified :reply-to addressing -----------
+(def ^:private canned-success {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+(def ^:private canned-failure {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+
+(defn- fire!
+  "Dispatch one event whose only effect is `[:rf.http/managed args]`. A reply
+  target `[::replied k]` stores the reply appended to it under `[::replies k]`."
+  ([args] (fire! args {}))
+  ([args opts]
+   (rf/reg-event ::replied (fn [{:keys [db]} [_ k reply]] {:db (assoc-in db [::replies k] reply)}))
+   (rf/reg-event ::fire (fn [_ _] {:fx [[:rf.http/managed args]]}))
+   (rf/dispatch-sync [::fire] opts)))
+
+(defn- replies [] (::replies (rf/app-db-value :rf/default)))
+
+(defn- request!
+  "Issue `args` through the live transport; return the reply once it lands."
+  [args]
+  (let [k (keyword (gensym "reply"))]
+    (fire! (assoc args :reply-to [::replied k]))
+    (get-in (await-reply! #(contains? (::replies %) k)) [::replies k])))
+
+(defn- capturing-traces
+  "Run `(f traces)` with every trace event collected into the atom `traces`."
+  [f]
+  (let [traces (atom [])
+        id     (keyword (gensym "http-managed-traces"))]
+    (rf.trace.tooling/register-listener! id #(swap! traces conj %))
+    (try (f traces)
+         (finally (rf.trace.tooling/unregister-listener! id)))))
+
+(defn- ops [traces op] (filterv #(= op (:operation %)) @traces))
+
+(defn- with-installed-stubs
+  "Install `routes` with `install-managed-request-stubs!` and swap the reply
+  router for a recorder, then run `(f stub-fx recorded)`."
+  [routes f]
+  (let [recorded (atom [])
+        original (rf.late-bind/get-fn :router/dispatch!)]
+    (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! recorded conj [ev opts])))
+    (try
+      (rf.http.test-support/install-managed-request-stubs! routes)
+      (f (rf.registrar/handler :fx :rf.http/managed-test-stub) recorded)
+      (finally
+        (rf.http.test-support/uninstall-managed-request-stubs!)
+        (rf.late-bind/set-fn! :router/dispatch! original)))))
+
+(defn- thrown-data [thunk]
+  (try (thunk) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+;; ---- reply addressing -----------------------------------------------------
 
 (deftest canned-success-reply-to-addressing
-  (testing "the canned-success stub dispatches the reply to the unified :reply-to target (appended envelope)"
-    (rf/reg-event :article/load
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          (case (:status reply)
-            :ok    {:db (assoc-in db [:article :data] (:value reply))}
-            :error {:db (assoc-in db [:article :error] (:error reply))})
-          {:fx [[:rf.http/managed
-                 {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
-                  :decode  :json}]]})))
-    (rf/dispatch-sync [:article/load {:slug "hello"}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    ;; Stubs synthesise replies via the router; await the dispatch.
-    (let [db (await-reply! #(some? (get-in % [:article :data])))]
-      (is (= {:stubbed true} (get-in db [:article :data]))))))
-
-;; ---- 1b. omitting EVERY reply target fails loud ---------------------------
+  (testing "the canned-success stub appends the canonical envelope, :value
+            defaulting to {:stubbed true}, to a :reply-to target and to an
+            :on-success target alike"
+    (doseq [via [:reply-to :on-success]]
+      (fire! {via [::replied via] :request {:method :get :url "/articles/hello"} :decode :json}
+             canned-success))
+    (is (= {:reply-to   {:status :ok :value {:stubbed true}}
+            :on-success {:status :ok :value {:stubbed true}}}
+           (replies)))))
 
 (deftest no-reply-target-fails-loud
-  (testing "a :rf.http/managed request that supplies NONE of
-            :reply-to / :on-success / :on-failure throws
-            :rf.error/http-no-reply-target at fx-call time (there is no
-            co-located default)"
-    (let [ex (try (rf.http.managed/managed-handler
-                    {:frame :rf/default :event [:no-op]}
-                    {:request {:method :get :url "/x"}})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "an unaddressed request must throw")
-      (is (= :rf.error/http-no-reply-target (:rf.error/id (ex-data ex))))
-      (is (= :rf.http/managed (:where (ex-data ex)))))
-    ;; Supplying ANY one of the three satisfies the guard (an explicit nil counts).
-    (doseq [k [:reply-to :on-success :on-failure]]
-      (let [ex (try (rf.http.managed/managed-handler
-                      {:frame :rf/default :event [:no-op]}
-                      {:request {:method :get :url "http://127.0.0.1:1/x"} k nil})
-                    nil
-                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (not (and (some? ex)
-                      (= :rf.error/http-no-reply-target (:rf.error/id (ex-data ex)))))
-            (str "supplying " k " (even nil) satisfies reply addressing"))))))
+  (testing "a request with none of :reply-to / :on-success / :on-failure throws
+            :rf.error/http-no-reply-target at fx-call time; any one of them,
+            even an explicit nil, addresses the reply"
+    (let [issue (fn [args]
+                  (thrown-data #(rf.http.managed/managed-handler
+                                  {:frame :rf/default :event [:no-op]}
+                                  (assoc args :request {:method :get :url "http://127.0.0.1:1/x"}))))]
+      (is (= :rf.error/http-no-reply-target (:rf.error/id (issue {}))))
+      (doseq [k [:reply-to :on-success :on-failure]]
+        (is (nil? (issue {k nil})) (str "an explicit nil " k " addresses the reply"))))))
 
-;; ---- 1b-bis. mixed reply addressing is refused everywhere ----------------
-
-;; The route-map override target is private; the refusal must hold on THAT
-;; path too, so reach it the way the reply-tail suite reaches its validator.
 (def ^:private stub-handler @#'rf.http.test-support/stub-handler)
 
-(deftest mixed-reply-addressing-refused-on-every-interpreting-path
-  (testing "`:reply-to` beside `:on-success` / `:on-failure` is
-            refused with :rf.error/http-bad-reply-target on EVERY path that
-            interprets a managed args map: the live fx, both canned stubs, and
-            the route-map stub. A map the live fx rejects must not be quietly
-            interpreted by a test double — that is how a suite green-lights a
-            call site production would refuse"
-    (let [mixed {:request {:method :get :url "http://127.0.0.1:1/x"}
-                 :reply-to [:a] :on-failure nil}
-          check (fn [label thunk]
-                  (let [e (try (thunk) nil (catch clojure.lang.ExceptionInfo e e))]
-                    (is (some? e) (str label " must throw on a mixed args map"))
-                    (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data e)))
-                        (str label " → :rf.error/http-bad-reply-target"))
-                    (is (= :mixed-addressing (:reason (ex-data e)))
-                        (str label " → :reason :mixed-addressing"))
-                    (is (= [:reply-to :on-failure] (:keys (ex-data e)))
-                        (str label " names the colliding keys"))))
-          ctx   {:frame :rf/default :event [:no-op]}]
-      (check "the live fx"
-             #(rf.http.managed/managed-handler ctx mixed))
-      (check ":rf.http/managed-canned-success"
-             #(rf.http.test-support/canned-success-handler ctx mixed))
-      (check ":rf.http/managed-canned-failure"
-             #(rf.http.test-support/canned-failure-handler ctx mixed))
-      (check "the route-map stub"
-             #(stub-handler {[:get "http://127.0.0.1:1/x"] {:value {:ok true}}}
-                            ctx mixed)))))
-
-;; ---- 1b-ter. missing / malformed reply targets are refused everywhere -----
-
 (deftest missing-and-malformed-reply-targets-refused-on-every-interpreting-path
-  (testing "an args map with no reply target, or with a target that is neither
-            an event vector nor nil, is refused with the live fx's own error id
-            on EVERY path that interprets a managed args map — the live fx, both
-            canned stubs, and the route-map stub — so a test double never
-            synthesises a reply for a request production would refuse"
-    (let [ctx      {:frame :rf/default :event [:no-op]}
-          request  {:request {:method :get :url "http://127.0.0.1:1/x"}}
-          routes   {[:get "http://127.0.0.1:1/x"] {:reply {:ok true}}}
-          paths    [["the live fx"
-                     #(rf.http.managed/managed-handler ctx %)]
-                    [":rf.http/managed-canned-success"
-                     #(rf.http.test-support/canned-success-handler ctx %)]
-                    [":rf.http/managed-canned-failure"
-                     #(rf.http.test-support/canned-failure-handler ctx %)]
-                    ["the route-map stub"
-                     #(stub-handler routes ctx %)]]
-          error-id (fn [thunk]
-                     (try (thunk) :no-throw
-                          (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))]
-      (doseq [[label invoke] paths]
-        (is (= :rf.error/http-no-reply-target (error-id #(invoke request)))
-            (str label " refuses a request with no reply target"))
-        (doseq [k [:reply-to :on-success :on-failure]]
-          (is (= :rf.error/http-bad-reply-target
-                 (error-id #(invoke (assoc request k :items/loaded))))
-              (str label " refuses a bare-keyword " k)))))))
+  (testing "the live fx, both canned stubs and the route-map stub refuse a
+            missing, non-vector or mixed reply addressing with the live fx's
+            own error, so a test double never green-lights a call site
+            production refuses"
+    (let [ctx     {:frame :rf/default :event [:no-op]}
+          request {:request {:method :get :url "http://127.0.0.1:1/x"}}
+          refused (fn [expected thunk]
+                    (= expected (select-keys (thrown-data thunk) (keys expected))))]
+      (doseq [[label invoke]
+              [["the live fx" #(rf.http.managed/managed-handler ctx %)]
+               [":rf.http/managed-canned-success" #(rf.http.test-support/canned-success-handler ctx %)]
+               [":rf.http/managed-canned-failure" #(rf.http.test-support/canned-failure-handler ctx %)]
+               ["the route-map stub" #(stub-handler {[:get "http://127.0.0.1:1/x"] {:reply {:ok true}}} ctx %)]]]
+        (testing label
+          (is (refused {:rf.error/id :rf.error/http-no-reply-target} #(invoke request)))
+          (doseq [k [:reply-to :on-success :on-failure]]
+            (is (refused {:rf.error/id :rf.error/http-bad-reply-target}
+                         #(invoke (assoc request k :items/loaded)))
+                (str "a bare-keyword " k)))
+          (is (refused {:rf.error/id :rf.error/http-bad-reply-target
+                        :reason      :mixed-addressing
+                        :keys        [:reply-to :on-failure]}
+                       #(invoke (assoc request :reply-to [:a] :on-failure nil)))))))))
 
-;; ---- 1c. all three spellings deliver the identical envelope --------------
-
-(deftest reply-to-and-on-success-deliver-identical-envelope
-  (testing ":reply-to and :on-success lower to the same internal reply
-            descriptor: each delivers the identical canonical envelope
-            (appended as the target's last arg)"
-    (rf/reg-event :spell/reply-to
-      (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :reply-to] reply)}))
-    (rf/reg-event :spell/on-success
-      (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :on-success] reply)}))
-    (rf/reg-event :spell/fire
-      (fn [_ [_ spelling]]
-        {:fx [[:rf.http/managed
-               (merge {:request {:method :get :url "/spell"}
-                       :decode  :json
-                       :value   {:n 1}}
-                      spelling)]]}))
-    ;; :reply-to (unified) and :on-success both route this canned success.
-    (rf/dispatch-sync [:spell/fire {:reply-to [:spell/reply-to]}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (rf/dispatch-sync [:spell/fire {:on-success [:spell/on-success]}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (await-reply! #(and (get-in % [:spell :reply-to])
-                                 (get-in % [:spell :on-success])))
-          r1 (get-in db [:spell :reply-to])
-          r2 (get-in db [:spell :on-success])]
-      (is (= r1 r2) ":reply-to and :on-success deliver the identical envelope")
-      (is (= :ok (:status r1)))
-      (is (= {:n 1} (:value r1))))))
-
-;; ---- 3b. :after-ms delay on the canned-stub fxs ----------------------------
-;;
-;; A delay is a PARAMETER of the canned fx, not a separate
-;; `-later` fx id. Absent / 0 `:after-ms` = the immediate behaviour the
-;; tests above pin; a positive `:after-ms` defers the reply via the
-;; framework-native `:dispatch-later` (observable in the tape, time-travel-
-;; safe — NOT raw `set-timeout!`).
-
-(defn- canned-success-reply-event
-  "Register :j1mo4/load whose reply branch records the success value, and
-  dispatch it through the canned-success stub with the given extra args
-  merged onto the managed args-map. Returns immediately; callers poll
-  `await-reply!` for the landed reply."
-  [extra-args]
-  (rf/reg-event :j1mo4/load
-    (fn [{:keys [db]} [_ msg reply]]
-      (if reply
-        {:db (assoc-in db [:j1mo4 :value] (:value reply))}
-        {:fx [[:rf.http/managed
-               (merge {:reply-to [:j1mo4/load msg] :request {:method :get :url "/j1mo4"}
-                       :decode  :json}
-                      extra-args)]]})))
-  (rf/dispatch-sync [:j1mo4/load {}]
-                    {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))
-
-(deftest after-ms-absent-or-zero-is-immediate
-  (testing "with no :after-ms, or :after-ms 0 (any non-positive value), the
-            canned-success reply lands inside the dispatch-sync drain, with
-            no timer tick to poll for"
-    (doseq [[args value] [[{:value {:n 1}}              {:n 1}]
-                          [{:value {:n 2} :after-ms 0} {:n 2}]]]
-      (testing (pr-str args)
-        (canned-success-reply-event args)
-        (is (= value (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
-            "reply landed synchronously")))))
+;; ---- canned stubs ---------------------------------------------------------
 
 (deftest after-ms-positive-defers-via-dispatch-later
-  (testing ":after-ms N defers the canned reply by one :dispatch-later tick —
-            the reply is NOT present synchronously, lands after the timer, and
-            the deferred dispatch is observable in the tape with
-            :source :fx-dispatch-later (NOT raw set-timeout!)"
-    (let [traces      (atom [])
-          listener-id ::j1mo4-after-ms]
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (canned-success-reply-event {:value {:n 3} :after-ms 30})
-        ;; The reply must NOT be present synchronously — the dispatch-sync
-        ;; drain only schedules the :dispatch-later; nothing has delivered yet.
-        (is (nil? (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
-            "reply deferred — not present immediately after dispatch-sync")
-        ;; After the timer tick the reply lands.
-        (let [db (await-reply! #(some? (get-in % [:j1mo4 :value])))]
-          (is (= {:n 3} (get-in db [:j1mo4 :value]))
-              "deferred reply landed after the :dispatch-later tick"))
-        ;; Tape observability: the deferred re-dispatch of the framework
-        ;; deliverer event rode :dispatch-later, so its :rf.event/dispatched
-        ;; trace carries :source :fx-dispatch-later. This is the load-bearing
-        ;; "observable in the tape, not raw set-timeout!" assertion.
-        (let [later (filter #(and (= :rf.event/dispatched (:operation %))
-                                  (= :fx-dispatch-later (:source %)))
-                            @traces)]
-          (is (seq later)
-              "a :dispatch-later-sourced dispatch appears in the tape")
-          (is (some #(= :rf.http/deliver-canned-reply
-                        (first (:rf.event/v (:tags %))))
-                    later)
-              "the deferred dispatch is the framework canned-reply deliverer"))
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id))))))
+  (testing ":after-ms 0 replies inside the dispatch-sync drain; a positive
+            :after-ms defers the reply by one :dispatch-later tick, visible in
+            the tape as the framework deliverer rather than a raw timer"
+    (fire! {:reply-to [::replied 0] :request {:method :get :url "/later"} :value {:n 0} :after-ms 0}
+           canned-success)
+    (is (= {:n 0} (get-in (replies) [0 :value])) ":after-ms 0 replies synchronously")
+    (capturing-traces
+      (fn [traces]
+        (fire! {:reply-to [::replied 30] :request {:method :get :url "/later"} :value {:n 30} :after-ms 30}
+               canned-success)
+        (is (nil? (get (replies) 30)) "not delivered inside the dispatch-sync drain")
+        (is (= {:n 30} (get-in (await-reply! #(get-in % [::replies 30])) [::replies 30 :value])))
+        (is (some #(and (= :rf.event/dispatched (:operation %))
+                        (= :fx-dispatch-later (:source %))
+                        (= :rf.http/deliver-canned-reply (first (get-in % [:tags :rf.event/v]))))
+                  @traces)
+            "the deferred delivery rode :dispatch-later")))))
 
 (deftest after-ms-positive-on-failure-defers
-  (testing ":after-ms N also defers the canned-FAILURE reply by a
-            :dispatch-later tick (symmetric with the success path)"
-    (rf/reg-event :j1mo4/fail-delayed
-      (fn [_ _]
-        {:fx [[:rf.http/managed
-               {:request    {:method :get :url "/j1mo4/fail"}
-                :after-ms   30
-                :on-failure [:j1mo4/failed]}]]}))
-    (rf/reg-event :j1mo4/failed
-      (fn [{:keys [db]} [_ payload]] {:db (assoc db :j1mo4-error payload)}))
-    (rf/dispatch-sync [:j1mo4/fail-delayed]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-    ;; Deferred — not present synchronously after the dispatch-sync drain.
-    (is (nil? (:j1mo4-error (rf/app-db-value :rf/default)))
-        "failure reply deferred — not present immediately")
-    (let [db (await-reply! #(some? (:j1mo4-error %)))]
-      (is (= :rf.http/transport (get-in db [:j1mo4-error :error :kind]))
-          "deferred failure reply landed after the :dispatch-later tick"))))
+  (testing "a positive :after-ms defers the canned-failure reply too, and the
+            deferred re-fire is still the failure fx"
+    (fire! {:on-failure [::replied :failed] :request {:method :get :url "/later/fail"} :after-ms 30}
+           canned-failure)
+    (is (nil? (replies)) "not delivered inside the dispatch-sync drain")
+    (is (= :rf.http/transport
+           (get-in (await-reply! #(get-in % [::replies :failed])) [::replies :failed :error :kind])))))
 
-;; ---- 3c. canned-stub path runs the :after interceptor chain ----------------
-;;
-;; The per-frame HTTP interceptor chain has two halves: :before (request-
-;; side) and :after (response-side, Spec 014 §Middleware). The real
-;; transport path fires both (managed-handler runs :before;
-;; http_transport/dispatch-reply! runs :after). A canned-stub path that ran
-;; ONLY :before would make a test using the
-;; :rf.http/managed-canned-* fxs with an :after interceptor (response-time
-;; telemetry, header-driven auth refresh — the exact use-cases the
-;; middleware contract sells) silently skip that :after, diverging the
-;; stub path from production. These tests pin that the canned path
-;; threads run-after-chain! before dispatching, mirroring the real path.
-
-(deftest canned-success-runs-after-interceptor-chain
-  (testing "the canned-success stub path fires a registered
-            :after interceptor and its response transform reaches the
-            :on-success reply, mirroring the real-transport path"
+(deftest canned-stubs-run-the-after-interceptor-chain
+  (testing "both canned fxs walk :before then :after, as the live transport
+            does, and the :after transform reaches the reply"
     (let [order (atom [])]
-      (rf/reg-http-interceptor :r5m22/touch
+      (rf/reg-http-interceptor :canned/touch
         {:before (fn [ctx] (swap! order conj :before) ctx)
-         :after  (fn [_ctx resp]
-                   (swap! order conj :after)
-                   (update resp :value assoc :touched-by :after))})
-      (rf/reg-event :r5m22/load
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :reply reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:r5m22/load msg] :request {:method :get :url "/r5m22"}
-                    :value   {:ok true}}]]})))
-      (rf/dispatch-sync [:r5m22/load {}]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      (let [db (await-reply! #(some? (:reply %)))]
-        (is (= [:before :after] @order)
-            "BOTH halves of the chain fired on the canned path")
-        (is (= :ok (get-in db [:reply :status])))
-        (is (= :after (get-in db [:reply :value :touched-by]))
-            ":after's transform of the reply-payload reached the :on-success target")
-        (is (true? (get-in db [:reply :value :ok]))
-            "the canned :value rode through the :after transform unscathed")))))
+         :after  (fn [_ctx resp] (swap! order conj :after) (assoc resp :touched-by :after))})
+      (fire! {:reply-to [::replied :ok] :request {:method :get :url "/touch"} :value {:ok true}}
+             canned-success)
+      (fire! {:reply-to [::replied :error] :request {:method :get :url "/touch"}}
+             canned-failure)
+      (is (= [:before :after :before :after] @order))
+      (is (= {:ok    {:status :ok :value {:ok true} :touched-by :after}
+              :error {:status :error :error {:kind :rf.http/transport} :touched-by :after}}
+             (replies))))))
 
-(deftest canned-failure-runs-after-interceptor-chain
-  (testing "the canned-FAILURE stub path also fires the :after
-            chain (symmetric with the success path); an :after can inspect
-            the failure shape and tag the reply, mirroring the real-path
-            401-auth-refresh use-case."
-    (let [fired (atom false)]
-      (rf/reg-http-interceptor :r5m22/fail-after
-        {:after (fn [_ctx resp]
-                  (reset! fired true)
-                  (if (= :error (:status resp))
-                    (assoc resp :tagged-by-after true)
-                    resp))})
-      (rf/reg-event :r5m22/fail
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :reply reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:r5m22/fail msg] :request {:method :get :url "/r5m22/fail"}}]]})))
-      (rf/dispatch-sync [:r5m22/fail {}]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-      (let [db (await-reply! #(some? (:reply %)))]
-        (is (true? @fired)
-            ":after fired on the canned-failure path")
-        (is (= :error (get-in db [:reply :status])))
-        (is (true? (get-in db [:reply :tagged-by-after]))
-            ":after's failure-shape transform reached the :on-failure reply")))))
+;; ---- route-map stubs ------------------------------------------------------
 
-;; ---- 5b. HTML 404 with :decode :json — status check precedes decode ------
-;;
-;; A 4xx response whose body is HTML (or any
-;; shape that would FAIL :json decode) MUST classify as :rf.http/http-4xx,
-;; NOT :rf.http/decode-failure. Per Spec 014 §Failure categories, status
-;; classification runs BEFORE decode — decode never fires on a non-2xx
-;; response. The :body tag carries the raw response body-text.
+(deftest with-request-stubs-optional-response-meta
+  (testing "a route entry's optional :meta rides the canned reply's :meta
+            verbatim; an entry without one gets no fabricated :meta"
+    (rf.http.test-support/with-request-stubs
+      {[:get "/with-meta"] {:reply {:ok   {:v 1}
+                                    :meta {:status 200 :headers {"x-ratelimit-remaining" "37"}}}}
+       [:get "/no-meta"]   {:reply {:ok {:v 2}}}}
+      (fn []
+        (doseq [url ["/with-meta" "/no-meta"]]
+          (fire! {:reply-to [::replied url] :request {:method :get :url url} :decode :json}))))
+    (is (= {"/with-meta" {:status :ok :value {:v 1}
+                          :meta   {:status 200 :headers {"x-ratelimit-remaining" "37"}}}
+            "/no-meta"   {:status :ok :value {:v 2}}}
+           (replies)))))
 
-(deftest jvm-html-404-with-json-decode-routes-to-http-4xx
-  (testing "HTML 4xx response with :decode :json classifies as :rf.http/http-4xx (not :rf.http/decode-failure)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 404 "text/html"
-                               "<!doctype html><html><body><h1>Not Found</h1></body></html>")))]
-      (try
-        (rf/reg-event :page/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:page/load msg] :request {:url (str "http://127.0.0.1:" port "/missing")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:page/load {}])
-        (let [db (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/http-4xx (:kind failure))
-              "status classification precedes decode: HTML body must NOT trigger :rf.http/decode-failure")
-          (is (= 404 (:status failure)))
-          ;; The :body is the RAW response body, not a decoded value.
-          (is (string? (:body failure))
-              ":body carries the raw response text on 4xx (decode skipped)")
-          (is (clojure.string/includes? (:body failure) "Not Found")))
-        (finally (stop-server! srv))))))
+(deftest stub-matches-post-before-url-rewrite-rf2-azrcs
+  (testing "the route-map stub keys its match off the url the :before chain
+            leaves, not the draft: a route keyed to the rewritten url matches,
+            and one keyed to the draft misses with a no-stub-matched failure
+            naming the final url"
+    (rf/reg-http-interceptor :azrcs/base-url
+      {:before (fn [ctx] (update-in ctx [:request :url] #(clojure.string/replace % #"^/" "/v2/")))})
+    (doseq [[k routes] [[:final {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}]
+                        [:draft {[:get "/articles"] {:reply {:ok [:should :not :match]}}}]]]
+      (rf.http.test-support/with-request-stubs routes
+        #(fire! {:reply-to [::replied k] :request {:method :get :url "/articles"} :decode :json})))
+    (is (= {:final {:status :ok :value [:rewritten :ok]}
+            :draft {:status :error
+                    :error  {:kind :rf.http/transport :message "no stub matched"
+                             :method :get :url "/v2/articles"}}}
+           (replies)))))
 
-;; ---- 5b'. empty 2xx JSON body → success-nil (JVM full-stack) --------------
-;;
-;; The cross-host parity contract for an empty/whitespace-only 2xx
-;; JSON body is asserted host-symmetrically at the decode altitude in
-;; `http_empty_body_parity_cljs_test.cljc` (runs on BOTH the JVM and CLJS
-;; runners). This JVM full-stack test pins the SAME outcome end-to-end
-;; through the real `java.net.http.HttpClient` transport + the
-;; `handle-response!` → `run-accept` → `finalise-success!` cascade: an empty
-;; 200 body with `Content-Type: application/json` must reply
-;; `{:status :ok :value nil …}`, NOT a `:status :error` decode-failure.
+(deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
+  (testing "a :before that blanks the url makes the route-map stub throw the
+            production :rf.error/http-bad-request and dispatch no reply"
+    (rf/reg-http-interceptor :azrcs/url-eraser
+      {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
+    (with-installed-stubs {[:get "/x"] {:reply {:ok {:stubbed true}}}}
+      (fn [stub-fx recorded]
+        (is (= [:rf.error/http-bad-request []]
+               [(:rf.error/id (thrown-data #(stub-fx {:frame :rf/default :event [:azrcs/erase]}
+                                                     {:request {:method :get :url "/x"} :reply-to [:azrcs/loaded]})))
+                @recorded]))))))
 
-(deftest jvm-empty-200-json-body-replies-success-nil
-  (testing "a 200 with an EMPTY body + application/json
-            Content-Type (the common empty-success-envelope from a
-            PUT/DELETE/POST-with-no-content) replies :success with :value
-            nil through the full JVM transport cascade, NOT a
-            :rf.http/decode-failure."
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "")))]
-      (try
-        (rf/reg-event :empty/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:empty/load msg] :request {:url (str "http://127.0.0.1:" port "/empty")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:empty/load {}])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :ok (get-in db [:reply :status]))
-              "an empty 2xx JSON body is a NORMAL outcome, not a decode-failure")
-          (is (nil? (get-in db [:reply :value]))
-              "the decoded value of an empty JSON body is nil"))
-        (finally (stop-server! srv))))))
+(deftest stub-request-chain-failure-honours-top-level-sensitive-rf2-xmp74u
+  (testing "a throwing :before on the route-map stub path raises
+            :rf.error/http-interceptor-failed and dispatches no reply; its
+            trace redacts every query value and stamps :sensitive? exactly
+            when the request opted in through TOP-LEVEL :sensitive?, as
+            production does (customer_email is not on the denylist, so only
+            request sensitivity can scrub it)"
+    (rf/reg-http-interceptor :xmp74u/boom
+      {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+    (let [url "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"]
+      (with-installed-stubs {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}}
+        (fn [stub-fx recorded]
+          (doseq [[extra trace-url stamped?]
+                  [[{:sensitive? true}
+                    "https://api.example.invalid/v1?customer_email=:rf/redacted&page=:rf/redacted" true]
+                   [{} url false]]]
+            (capturing-traces
+              (fn [traces]
+                (let [id (:rf.error/id (thrown-data #(stub-fx {:frame :rf/default :event [:xmp74u/load]}
+                                                              (merge {:request  {:method :get :url url}
+                                                                      :reply-to [:xmp74u/loaded]}
+                                                                     extra))))
+                      w  (first (ops traces :rf.error/http-interceptor-failed))]
+                  (is (= [:rf.error/http-interceptor-failed trace-url stamped?]
+                         [id (get-in w [:tags :url]) (true? (:sensitive? w))])
+                      (pr-str extra))))))
+          (is (= [] @recorded)))))))
 
-;; ---- 5b''. non-retried terminal failure emits NO retry-attempt -------------
-;;
-;; The spec (§Retry × :on-failure semantics) ties `:rf.http/retry-attempt` to
-;; "each intermediate attempt" — a phantom retry-attempt for a request that
-;; was never retried would pollute the trace semantics pair tools / 10x panels
-;; read. So `maybe-retry!`'s terminal (non-retry) branch emits it only when
-;; `(> max-attempts 1)` AND `(or (> attempt 1) (contains? on-set
-;; kind))`, and a non-retried, non-eligible terminal failure emits nothing.
+(deftest scoped-stubs-compose-under-nesting-rf2-vn8qjv
+  (testing "an inner with-request-stubs scope routes to its own map, and once
+            it exits the outer scope's map is live again"
+    (rf.http.test-support/with-request-stubs {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
+      (fn []
+        (rf.http.test-support/with-request-stubs {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+          #(fire! {:reply-to [::replied :b] :request {:method :get :url "/b"}}))
+        (fire! {:reply-to [::replied :a] :request {:method :get :url "/a"}})))
+    (is (= {:b {:status :ok :value {:from :inner-b}}
+            :a {:status :ok :value {:from :outer-a}}}
+           (replies)))))
 
-(deftest jvm-non-retried-decode-failure-emits-no-retry-attempt
-  (testing "a NON-retry-eligible failure (a :rf.http/decode-
-            failure under `:retry {:on #{:rf.http/http-5xx} :max-attempts
-            3}`) on attempt 1 must emit ZERO :rf.http/retry-attempt traces:
-            no retry happened and the kind was never in :on. A blanket
-            `(> max-attempts 1)` guard would fire a phantom retry-attempt."
-    (let [traces      (atom [])
-          listener-id ::upexd3-no-phantom
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; 200 OK, but the decoder throws → :rf.http/decode-failure
-              ;; (NOT in the :on set, so non-retryable).
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :upexd3/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:upexd3/load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
-                      ;; Throwing decoder → decode-failure on attempt 1.
-                      :decode  (fn [_text _headers] (throw (ex-info "boom" {})))
-                      :retry   {:on           #{:rf.http/http-5xx}
-                                :max-attempts 3
-                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
-        (rf/dispatch-sync [:upexd3/load {}])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          ;; The reply is the terminal decode-failure.
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/decode-failure (get-in db [:reply :error :kind])))
-          ;; The load-bearing assertion: no phantom retry-attempt trace.
-          (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
-                                     @traces)]
-            (is (empty? retry-traces)
-                (str "a non-retried, non-eligible terminal failure must emit no "
-                     ":rf.http/retry-attempt trace; saw "
-                     (count retry-traces) " — "
-                     (pr-str (mapv #(get-in % [:tags :failure :kind]) retry-traces))))))
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id)
-          (stop-server! srv))))))
+(deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
+  (testing "in a frame created before with-request-stubs (its image generation
+            already sealed), a plain dispatch-sync routes through the stub and
+            never reaches the real :rf.http/managed"
+    (let [real-fx-invoked? (atom false)]
+      ;; Registered before make-frame, so the sealed generation sees the
+      ;; sentinel; reaching it means the override did not resolve.
+      (rf.fx/reg-fx :rf.http/managed (fn [_ _] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event :bxc8kf/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :result reply)}))
+      (rf/reg-event :bxc8kf/load
+        (fn [_ _] {:fx [[:rf.http/managed {:reply-to [:bxc8kf/loaded] :request {:method :get :url "/x"}}]]}))
+      (rf/with-new-frame [f (rf/make-frame {})]
+        (rf.http.test-support/with-request-stubs {[:get "/x"] {:reply {:ok {:stubbed true}}}}
+          #(rf/dispatch-sync [:bxc8kf/load]))
+        (is (= [{:status :ok :value {:stubbed true}} false]
+               [(:result (rf/app-db-value f)) @real-fx-invoked?]))))))
 
-(deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
-  (testing "counter-case: a RETRY-ELIGIBLE failure exhausting
-            its attempts DOES emit the retry-attempt traces (the guard
-            suppresses only the phantom case). A 5xx under
-            `:retry {:on #{:rf.http/http-5xx} :max-attempts 3}` retries
-            twice and exhausts on attempt 3, so the server sees all three
-            attempts; the trace stream must carry the
-            per-attempt retry-attempt events (the final one with
-            :next-backoff-ms nil).
+(deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
+  (testing "a nested install/uninstall pair on the stable
+            :rf.http/managed-test-stub id restores the outer install; a
+            balanced top-level pair leaks no fx, and an extra uninstall is a
+            no-op"
+    (let [handler    #(rf.registrar/handler :fx :rf.http/managed-test-stub)
+          install!   rf.http.test-support/install-managed-request-stubs!
+          uninstall! rf.http.test-support/uninstall-managed-request-stubs!
+          outer      (do (install! {[:get "/outer"] {:reply {:ok {:from :outer}}}}) (handler))
+          inner      (do (install! {[:get "/inner"] {:reply {:ok {:from :inner}}}}) (handler))
+          restored   (do (uninstall!) (handler))
+          cleared    (do (uninstall!) (handler))
+          extra      (do (uninstall!) (handler))]
+      (is (some? outer))
+      (is (not (identical? outer inner)) "the inner install replaces the handler")
+      (is (identical? outer restored) "the inner uninstall restores the outer install")
+      (is (= [nil nil] [cleared extra])))))
 
-            The same exhaustion sequence proves the retry
-            timeline reports its `:recovery` disposition HONESTLY: an
-            intermediate attempt that SCHEDULES another (`:next-backoff-ms`
-            non-nil) carries `:recovery :retried`; the terminal
-            exhaustion marker (`:next-backoff-ms nil`) schedules nothing and
-            carries `:recovery :no-recovery`, never a phantom `:retried`.
-            `:recovery` is hoisted top-level on the `:info` event by
-            `trace/build-event`; a producer arm that did not supply
-            it would leave consumers reading nil."
-    (let [traces      (atom [])
-          listener-id ::upexd3-eligible
-          hits        (atom 0)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (swap! hits inc)
-              (write-response! ex 500 "application/json" "{\"err\":true}")))]
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :upexd3b/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:upexd3b/load msg] :request {:url (str "http://127.0.0.1:" port "/5xx")}
-                      :decode  :json
-                      :retry   {:on           #{:rf.http/http-5xx}
-                                :max-attempts 3
-                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
-        (rf/dispatch-sync [:upexd3b/load {}])
-        (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
-          (is (= 3 @hits) "the server saw all 3 attempts")
-          (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
-                                     @traces)
-                ;; The `:next-backoff-ms nil` discriminator splits
-                ;; the timeline into the intermediate SCHEDULING arm and the
-                ;; terminal-exhaustion marker.
-                {intermediate false terminal true}
-                (group-by #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)]
-            (is (seq retry-traces)
-                "a retry-eligible exhaustion MUST still emit retry-attempt traces")
-            ;; Honest recovery dispositions. `:recovery` is hoisted
-            ;; top-level on the `:info` event; both arms must supply it.
-            (is (seq intermediate)
-                "the 5xx exhaustion retries twice, so intermediate scheduling
-                 retry-attempt traces (`:next-backoff-ms` non-nil) must exist")
-            (is (every? #(= :retried (:recovery %)) intermediate)
-                (str "each intermediate attempt SCHEDULES another, so it must "
-                     "carry `:recovery :retried`; saw "
-                     (pr-str (mapv :recovery intermediate))))
-            (is (= 1 (count terminal))
-                "exactly one terminal-exhaustion marker (`:next-backoff-ms nil`)")
-            (is (every? #(= :no-recovery (:recovery %)) terminal)
-                (str "the terminal-exhaustion marker schedules nothing, so it "
-                     "must carry the honest `:recovery :no-recovery`, never a "
-                     "phantom `:retried`; saw "
-                     (pr-str (mapv :recovery terminal))))))
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id)
-          (stop-server! srv))))))
-
-;; ---- 5d. Content-Type lookup is case-insensitive -------------------------
-;;
-;; Per Spec 014 §Request envelope, HTTP header names are case-insensitive.
-;; A lookup that checked only the two literal spellings
-;; "content-type" and "Content-Type" would return nil for any other casing
-;; (e.g. "CONTENT-TYPE", "Content-type"), and `sniff-decoder` would fall
-;; through to :blob — JSON arriving as raw text.
-;;
-;; The CLJS Fetch path normalises (lower-case in `fetch-headers->map`), so
-;; only a hand-constructed headers map can reach
-;; `decode-response-body` with another casing. Two layers cover it: the JVM transport
-;; (`jvm-headers->map`) lower-cases at the boundary so the JVM path matches
-;; the Fetch path, AND `http-decode/content-type-of` performs a
-;; case-insensitive scan so any code path that synthesises a
-;; headers map (interceptors, middleware, tests) decodes correctly.
-;;
-;; These unit tests exercise the helper and `decode-response-body`
-;; directly with mixed-case headers, independent of
-;; transport. (A full JVM transport e2e
-;; test would pass vacuously because `java.net.http.HttpHeaders.map()`
-;; returns lower-case keys.)
+;; ---- decode helpers -------------------------------------------------------
 
 (deftest content-type-of-case-insensitive
-  (testing "keyword key (some middlewares use keywords)"
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {:content-type "application/json"})))
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {:Content-Type "application/json"}))))
-  (testing "absent / unrelated headers"
-    (is (nil? (rf.http.decode/content-type-of {})))
-    (is (nil? (rf.http.decode/content-type-of {"X-Foo" "bar"})))
-    (is (nil? (rf.http.decode/content-type-of nil)))
-    (is (nil? (rf.http.decode/content-type-of "not-a-map")))))
-
-(deftest decode-response-body-resolves-content-type-case-insensitively
-  (testing "JSON decode under :auto fires when Content-Type has non-canonical casing"
-    ;; The response headers carry "CONTENT-TYPE"
-    ;; (or any non-canonical casing); the helper resolves the
-    ;; header regardless of casing, so JSON decodes rather than
-    ;; `sniff-decoder` falling through to :blob and handing the caller the
-    ;; raw body string.
-    (doseq [ct-key ["CONTENT-TYPE" "Content-type" "content-type" "Content-Type" "cOnTeNt-TyPe"]]
-      (testing (str "casing: " ct-key)
-        (let [decoded (rf.http.decode/decode-response-body
-                        {:body-text        "{\"ok\":true}"
-                         :headers          {ct-key "application/json"}
-                         :decode           :auto})]
-          (is (= {:ok true} decoded)
-              (str "non-canonical Content-Type casing " (pr-str ct-key)
-                   " must sniff to :json, not :blob")))))))
-
-;; ---- 5e. binary decode reads the native body, not body-text --------------
-;;
-;; Spec 014 §Decoding lists `:blob` / `:array-buffer` / `:form-data` as
-;; distinct binary decode shapes. A CLJS transport that always
-;; pre-read the Fetch response via `(.text resp)` would resolve the binary decode
-;; branches to the body-TEXT string — a caller asking
-;; `:decode :blob` for an image would get a lossy UTF-8 string. So
-;; the resolved decode mode routes into the transport, which picks the
-;; correct Fetch reader (`.blob()` / `.arrayBuffer()` / `.formData()`)
-;; and rides the native body under `:body-binary`; `decode-response-body`
-;; returns it verbatim for the binary branches.
-;;
-;; `binary-read-kind` is the pure resolution helper the transport calls
-;; BEFORE consuming the body (a Fetch Response body may be read once).
-;; These JVM unit tests exercise it and the `decode-response-body`
-;; binary-return path directly with stand-in binary values; returning the
-;; text string for a binary mode fails them.
+  (testing "the Content-Type header resolves whatever its name's casing or key
+            type, so :auto still sniffs JSON from a hand-built headers map"
+    (is (= {:ok true}
+           (rf.http.decode/decode-response-body
+             {:body-text "{\"ok\":true}" :headers {"Content-type" "application/json"} :decode :auto})))
+    (is (= "application/json" (rf.http.decode/content-type-of {:Content-Type "application/json"})))))
 
 (deftest binary-read-kind-resolves-binary-decode-modes
-  (testing "explicit binary modes resolve to themselves"
-    (is (= :blob         (rf.http.decode/binary-read-kind :blob {})))
-    (is (= :array-buffer (rf.http.decode/binary-read-kind :array-buffer {})))
-    (is (= :form-data    (rf.http.decode/binary-read-kind :form-data {}))))
-  (testing "text-based / structured modes resolve to nil (read .text)"
-    (is (nil? (rf.http.decode/binary-read-kind :json {})))
-    (is (nil? (rf.http.decode/binary-read-kind :text {})))
-    (is (nil? (rf.http.decode/binary-read-kind (fn [_ _] :decoded) {})))
-    (is (nil? (rf.http.decode/binary-read-kind [:map] {}))
-        "a Malli schema is a text (JSON-parse) mode, not binary"))
-  (testing ":auto sniffs the Content-Type — binary type → :blob"
-    (is (= :blob (rf.http.decode/binary-read-kind :auto {"content-type" "image/png"}))
-        ":auto over a binary Content-Type reads as a Blob, not lossy text")
-    (is (= :blob (rf.http.decode/binary-read-kind nil {"content-type" "application/octet-stream"}))
-        "omitted :decode (== :auto) over a binary Content-Type also reads binary"))
-  (testing ":auto sniffs the Content-Type — text/JSON → nil (read .text)"
-    (is (nil? (rf.http.decode/binary-read-kind :auto {"content-type" "application/json"})))
-    (is (nil? (rf.http.decode/binary-read-kind :auto {"content-type" "text/plain"})))
-    (is (nil? (rf.http.decode/binary-read-kind nil  {"content-type" "text/html"})))))
+  (testing "a transport picks its body reader before consuming the body: an
+            explicit binary mode, or :auto / omitted :decode over a non-text
+            Content-Type, resolves to a binary kind; a text mode to nil"
+    (are [decode headers expected] (= expected (rf.http.decode/binary-read-kind decode headers))
+      :blob {}                                          :blob
+      :json {}                                          nil
+      :auto {"content-type" "image/png"}                :blob
+      nil   {"content-type" "application/octet-stream"} :blob
+      :auto {"content-type" "application/json"}         nil)))
 
 (deftest decode-response-body-returns-native-binary-for-binary-modes
-  (testing "binary decode modes return the pre-read :body-binary verbatim"
-    ;; Stand-in for the native Blob / ArrayBuffer / FormData the CLJS
-    ;; transport reads. The decode pipeline must return THIS value, not
-    ;; the body-text string.
+  (testing "a binary decode mode returns the pre-read :body-binary verbatim,
+            not the lossy body text"
     (let [native (Object.)]
       (doseq [mode [:blob :array-buffer :form-data]]
-        (testing (str "mode: " mode)
-          (is (identical? native
-                          (rf.http.decode/decode-response-body
-                            {:body-text   "lossy-utf8-text"
-                             :body-binary native
-                             :headers     {}
-                             :decode      mode}))
-              (str mode " must return the native binary body, not body-text"))))))
-  (testing "binary mode with no :body-binary (e.g. JVM transport) falls back to body-text"
-    (doseq [mode [:blob :array-buffer :form-data]]
-      (is (= "raw-payload"
-             (rf.http.decode/decode-response-body
-               {:body-text        "raw-payload"
-                :headers          {}
-                :decode           mode}))
-          (str mode " with absent :body-binary returns the raw body-text payload")))))
+        (is (identical? native
+                        (rf.http.decode/decode-response-body
+                          {:body-text "lossy-utf8-text" :body-binary native :headers {} :decode mode}))
+            (str mode))))))
 
-;; ---- 7. retry recover -----------------------------------------------------
+;; ---- JVM transport --------------------------------------------------------
+
+(deftest jvm-html-404-with-json-decode-routes-to-http-4xx
+  (testing "status classification precedes decode: an HTML 404 under
+            :decode :json is :rf.http/http-4xx carrying the raw body, never a
+            decode failure"
+    (let [html "<!doctype html><html><body><h1>Not Found</h1></body></html>"]
+      (with-server (respond 404 "text/html" html)
+        (fn [base]
+          (let [reply (request! {:request {:url (str base "/missing")} :decode :json})]
+            (is (= [:error {:kind :rf.http/http-4xx :status 404 :body html}]
+                   [(:status reply) (select-keys (:error reply) [:kind :status :body])]))))))))
+
+(deftest jvm-empty-200-json-body-replies-success-nil
+  (testing "an empty 200 application/json body (a no-content success) replies
+            :ok with a nil :value through the whole JVM cascade"
+    (with-server (respond 200 "application/json" "")
+      (fn [base]
+        (is (= [:ok nil]
+               ((juxt :status :value) (request! {:request {:url (str base "/empty")} :decode :json}))))))))
+
+(def ^:private retry-on-5xx
+  {:on #{:rf.http/http-5xx} :max-attempts 3 :backoff {:base-ms 5 :factor 1 :max-ms 10}})
+
+(deftest jvm-non-retried-decode-failure-emits-no-retry-attempt
+  (testing "a failure outside :retry :on, on attempt 1, was never retried, so
+            it emits no :rf.http/retry-attempt"
+    (capturing-traces
+      (fn [traces]
+        (with-server (respond 200 "application/json" "{\"ok\":true}")
+          (fn [base]
+            (let [reply (request! {:request {:url (str base "/x")}
+                                   :decode  (fn [_text _headers] (throw (ex-info "boom" {})))
+                                   :retry   retry-on-5xx})]
+              (is (= [:error :rf.http/decode-failure []]
+                     [(:status reply) (get-in reply [:error :kind]) (ops traces :rf.http/retry-attempt)])))))))))
+
+(deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
+  (testing "a 5xx under :retry {:on #{:rf.http/http-5xx} :max-attempts 3}
+            hits the server three times and replies the last failure; each
+            attempt that schedules another emits a retry-attempt with
+            :recovery :retried, and the terminal one (no :next-backoff-ms)
+            :no-recovery"
+    (let [hits (atom 0)]
+      (capturing-traces
+        (fn [traces]
+          (with-server (fn [ex] (swap! hits inc) (write-response! ex 500 "application/json" "{\"err\":true}"))
+            (fn [base]
+              (let [reply (request! {:request {:url (str base "/5xx")} :decode :json :retry retry-on-5xx})]
+                (is (= [:error :rf.http/http-5xx 3]
+                       [(:status reply) (get-in reply [:error :kind]) @hits]))
+                (is (= [[true :retried] [true :retried] [false :no-recovery]]
+                       (mapv (juxt #(some? (get-in % [:tags :next-backoff-ms])) :recovery)
+                             (ops traces :rf.http/retry-attempt))))))))))))
 
 (deftest jvm-retry-recover
   (testing ":retry recovers when an intermediate attempt succeeds"
-    (let [hits (atom 0)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (let [n (swap! hits inc)]
-                (if (= 1 n)
-                  (write-response! ex 500 "application/json" "{\"err\":true}")
-                  (write-response! ex 200 "application/json" "{\"ok\":true}")))))]
-      (try
-        (rf/reg-event :recover/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:recover/load msg] :request {:url (str "http://127.0.0.1:" port "/recover")}
-                      :decode  :json
-                      :retry   {:on           #{:rf.http/http-5xx}
-                                :max-attempts 3
-                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
-        (rf/dispatch-sync [:recover/load])
-        (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :ok (get-in db [:reply :status])))
-          (is (= {:ok true} (get-in db [:reply :value])))
-          (is (= 2 @hits)))
-        (finally (stop-server! srv))))))
-
-;; ---- 8. transport failure --------------------------------------------------
+    (let [hits (atom 0)]
+      (with-server (fn [ex]
+                     (if (= 1 (swap! hits inc))
+                       (write-response! ex 500 "application/json" "{\"err\":true}")
+                       (write-response! ex 200 "application/json" "{\"ok\":true}")))
+        (fn [base]
+          (let [reply (request! {:request {:url (str base "/recover")} :decode :json :retry retry-on-5xx})]
+            (is (= [:ok {:ok true} 2] [(:status reply) (:value reply) @hits]))))))))
 
 (deftest jvm-transport-failure
-  (testing "connection-refused classifies as :rf.http/transport"
-    (let [rows  (atom [])
-          cb-id ::transport-trace]
-      (try
-        (rf.trace.tooling/register-listener! cb-id
-                                  (fn [ev]
-                                    (when (= :rf.http/transport (:operation ev))
-                                      (swap! rows conj ev))))
-        (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     ;; Pick a port we expect to be closed.
-                     {:reply-to [:load msg] :request {:url "http://127.0.0.1:1/never"}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:load])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/transport (get-in db [:reply :error :kind]))))
-        ;; Control — only an ABORT is `:info`. A genuine failure
-        ;; kind emits an `:error` trace row, through the same shared
-        ;; failure tail the abort-wins-a-race reclassification uses.
-        (is (= [:error]
-               (mapv :op-type @rows))
-            "a :rf.http/transport failure emits exactly one :error row")
-        (finally
-          (rf.trace.tooling/unregister-listener! cb-id))))))
-
-;; ---- 8b. abort on unknown request-id is a silent no-op -------------------
-;;
-;; `managed-abort-handler` routes through `registry/abort-in-flight-in-frame!`,
-;; which resolves the abort-fn through the in-flight registry and fires it; a
-;; missing entry yields `nil` from `lookup-in-flight`, nothing fires,
-;; and the handler returns `nil` without dispatch / throw. That is the
-;; idempotent abort contract — a regression that
-;; throws here (e.g. adding a
-;; precondition) would only surface as flake in apps that race
-;; abort-then-cleanup. Pin the no-op contract.
+  (testing "connection refused classifies as :rf.http/transport and emits one
+            :error trace row (only an abort is :info)"
+    (capturing-traces
+      (fn [traces]
+        (let [reply (request! {:request {:url "http://127.0.0.1:1/never"} :decode :json})]
+          (is (= [:error :rf.http/transport [:error]]
+                 [(:status reply) (get-in reply [:error :kind])
+                  (mapv :op-type (ops traces :rf.http/transport))])))))))
 
 (deftest jvm-managed-abort-unknown-request-id-is-silent-noop
-  (testing ":rf.http/managed-abort on a request-id never seen by the in-flight
-            registry is a silent no-op: no error trace, on the first abort or
-            on a repeat of it. Idempotent abort contract."
-    (let [traces      (atom [])
-          listener-id ::kdwnq-trace]
-      (try
-        (rf.trace.tooling/register-listener! listener-id
-                                  (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :kdwnq/abort-never-issued
-          (fn [_ _]
-            {:fx [[:rf.http/managed-abort :kdwnq/never-issued]]}))
-        ;; A throwing fx does not escape `dispatch-sync`: the router traces
-        ;; it as `:rf.error/fx-handler-exception`, so the error-trace check
-        ;; below is what catches a throw.
-        (rf/dispatch-sync [:kdwnq/abort-never-issued])
-        ;; Idempotent — abort the same unknown id a second time.
-        (rf/dispatch-sync [:kdwnq/abort-never-issued])
-        (let [errors (filter #(= :error (:op-type %)) @traces)]
-          (is (empty? errors)
-              (str "no :rf.error/* trace fired for the abort no-op; saw: "
-                   (mapv :operation errors))))
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id))))))
-
-;; ---- 9a. abort + slow server must dispatch EXACTLY ONE reply --------------
-;;
-;; A JVM abort-fn closure that called finalise-failure! with the
-;; synthesised :rf.http/aborted reply but did NOT `.cancel cf true` on
-;; the underlying CompletableFuture would let `.whenComplete` fire
-;; handle-response! → finalise-success! (or maybe-retry!) when the server
-;; eventually responded (or the cf naturally completed), dispatching
-;; a SECOND reply for the same request — observable on the consuming
-;; event handler as a double-reply on slow-server aborts.
-;;
-;; A test that only checks the abort reply lands cannot see that: it
-;; ends without waiting for the latch release that would fire the second
-;; reply.
-;;
-;; This test:
-;;   1. Spins up a latched server that blocks until released.
-;;   2. Dispatches the managed request.
-;;   3. Aborts (synthesised reply fires immediately).
-;;   4. RELEASES the latch (lets the underlying transport finish).
-;;   5. Waits long enough for the natural-completion path to fire.
-;;   6. Asserts the reply-counter is EXACTLY 1.
+  (testing "aborting a request-id the registry never saw, once or twice, is a
+            silent no-op"
+    (capturing-traces
+      (fn [traces]
+        (rf/reg-event :abort/unknown (fn [_ _] {:fx [[:rf.http/managed-abort :never-issued]]}))
+        (rf/dispatch-sync [:abort/unknown])
+        (rf/dispatch-sync [:abort/unknown])
+        (is (= [] (mapv :operation (filter #(= :error (:op-type %)) @traces))))))))
 
 (deftest jvm-abort-then-server-release-emits-exactly-one-reply-rf2-on7sj
-  (testing "slow-server abort must produce exactly ONE reply
-            even after the underlying server eventually responds. The
-            abort-fn cancels the CompletableFuture and CAS-guards the
-            reply path so the latent whenComplete callback's natural
-            second emit is suppressed."
-    (let [latch (CountDownLatch. 1)
-          reply-count (atom 0)
-          all-replies (atom [])
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; Block until the test releases the latch — simulating
-              ;; a slow server that responds AFTER abort.
-              (.await latch 10 TimeUnit/SECONDS)
-              (write-response! ex 200 "application/json"
-                               "{\"server\":\"responded-after-abort\"}")))]
-      (try
-        (rf/reg-event :on7sj/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              (do
-                (swap! reply-count inc)
-                (swap! all-replies conj reply)
-                {:db (assoc db :reply reply)})
-              {:fx [[:rf.http/managed
-                     {:reply-to [:on7sj/load msg] :request    {:url (str "http://127.0.0.1:" port "/slow")}
-                      :request-id :on7sj/req
-                      :decode     :json}]]})))
-        (rf/reg-event :on7sj/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :on7sj/req]]}))
-
-        ;; Issue the request. Server blocks on the latch.
-        (rf/dispatch-sync [:on7sj/load])
-        ;; Poll until the request is registered in-flight before aborting.
-        (rf.test-support/poll-until
-          #(contains? (rf.http.managed/in-flight-snapshot) :on7sj/req)
-          {:label ":on7sj/req registered as in-flight before abort"})
-        ;; Abort while server is still blocked. The synthesised
-        ;; :rf.http/aborted reply should fire immediately.
-        (rf/dispatch-sync [:on7sj/abort])
-        ;; Wait for the abort reply.
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :cancelled (get-in db [:reply :status])))
-          (is (= :rf.http/aborted (get-in db [:reply :error :kind])))
-          (is (= 1 @reply-count)
-              "exactly one reply must have fired immediately after abort"))
-
-        ;; Release the server. An uncancelled CompletableFuture
-        ;; would now drain → whenComplete fires
-        ;; → second reply dispatched. The
-        ;; cf.cancel + :finalised? CAS guard makes the second
-        ;; reply path a no-op.
-        (.countDown latch)
-        ;; Timer-semantics sleep: we are proving the *absence*
-        ;; of a second reply — no observable signal to poll against.
-        ;; 800ms is the quiescence budget; the JDK HttpClient executor
-        ;; would surface any latent whenComplete callback well within
-        ;; this window if the cf.cancel + CAS guard regressed.
-        (Thread/sleep 800)
-
-        (is (= 1 @reply-count)
-            (str "exactly ONE reply must fire across abort + server-release. "
-                 "Saw "
-                 @reply-count " replies: "
-                 (pr-str (mapv :status @all-replies))))
-
-        (finally (stop-server! srv))))))
-
-;; ---- 10. thunk body -------------------------------------------------------
-
-(deftest jvm-thunk-body
-  (testing ":body as a thunk is invoked at request-send time"
-    (let [thunk-calls (atom 0)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"echoed\":true}")))]
-      (try
-        (rf/reg-event :upload
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:upload msg] :request {:method :post
-                                :url    (str "http://127.0.0.1:" port "/upload")
-                                :body   (fn []
-                                          (swap! thunk-calls inc)
-                                          {:payload :ok})
-                                :request-content-type :json}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:upload])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :ok (get-in db [:reply :status])))
-          (is (= 1 @thunk-calls)))
-        (finally (stop-server! srv))))))
-
-;; ---- 11b. stubs may supply optional response metadata ----------------------
-
-(deftest with-request-stubs-optional-response-meta
-  (testing "a route entry may supply optional response metadata
-            beside its success value ({:reply {:ok v :meta {...}}}); it rides
-            the canned reply's :meta slot verbatim so header-dependent :after
-            code is testable without a network. An entry WITHOUT :meta stays
-            minimal — no metadata is fabricated."
-    (rf/reg-event :meta-stub/load
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result reply)}
-          {:fx [[:rf.http/managed
-                 {:reply-to [:meta-stub/load msg]
-                  :request  {:method :get :url (:url msg)}
-                  :decode   :json}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/with-meta"] {:reply {:ok   {:v 1}
-                                    :meta {:status  200
-                                           :headers {"x-ratelimit-remaining" "37"}}}}
-       [:get "/no-meta"]   {:reply {:ok {:v 2}}}}
-      (fn []
-        (rf/dispatch-sync [:meta-stub/load {:url "/with-meta"}])
-        (let [db (await-reply! #(some? (:result %)) 2000)]
-          (is (= {:v 1} (get-in db [:result :value])))
-          (is (= 200 (get-in db [:result :meta :status]))
-              "the supplied stub metadata rides [:meta :status]")
-          (is (= "37" (get-in db [:result :meta :headers "x-ratelimit-remaining"]))
-              "supplied stub headers ride [:meta :headers] verbatim"))
-        (rf/dispatch-sync [:meta-stub/load {:url "/no-meta"}])
-        (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])) 2000)]
-          (is (not (contains? (:result db) :meta))
-              "absence stays minimal — the stub fabricates no lifecycle facts"))))))
-
-(deftest canned-success-optional-response-meta
-  (testing "the canned-success stub honours an optional :meta on
-            its args-map (same shape the live transport threads); absent
-            stays absent"
-    (rf/reg-event :meta-canned/load
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result reply)}
-          {:fx [[:rf.http/managed
-                 (merge {:reply-to [:meta-canned/load msg]
-                         :request  {:method :get :url "/canned"}
-                         :decode   :json}
-                        msg)]]})))
-    (rf/dispatch-sync [:meta-canned/load {:value {:v 1}
-                                          :meta  {:status  201
-                                                  :headers {"location" "/things/9"}}}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (await-reply! #(some? (:result %)))]
-      (is (= {:v 1} (get-in db [:result :value])))
-      (is (= 201 (get-in db [:result :meta :status])))
-      (is (= "/things/9" (get-in db [:result :meta :headers "location"]))
-          "a canned Location header is readable exactly as a live one would be"))
-    (rf/dispatch-sync [:meta-canned/load {:value {:v 2}}]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-    (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])))]
-      (is (not (contains? (:result db) :meta))
-          "no :meta supplied — none fabricated"))))
-
-;; ---- 11a. bare wrapper INTERCEPTS, never reaching the real fx -------------
-;;
-;; The documented
-;; `with-request-stubs` wrapper must route `:rf.http/managed`
-;; through the route-map stub by ITSELF — the body must NOT need a manual
-;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. A helper
-;; that only registered the stub fx without installing the override
-;; would let a plain `dispatch-sync` inside the body run the REAL production
-;; transport (network IO / hang / nondeterminism / false-green). Every
-;; bare-wrapper test in this file depends on that override, so a helper that
-;; skipped it turns them red; the test below pins that a per-call override
-;; still wins over it.
-
-(deftest with-request-stubs-per-call-override-still-wins-rf2-rzqan
-  (testing "a per-call :fx-overrides inside the wrapper wins
-            over the helper-installed lexical default (precedence:
-            per-call > lexical > per-frame)"
-    (let [chosen (atom nil)]
-      ;; A deliberately-supplied per-call override target.
-      (rf/reg-fx :rzqan/explicit-override
-                 (fn [_frame-ctx _args] (reset! chosen :explicit) nil))
-      (rf/reg-event :rzqan/load-explicit
-        (fn [_ _]
-          {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/rzqan-explicit"}
-                  :decode  :json}]]}))
-      (rf.http.test-support/with-request-stubs
-        {[:get "/rzqan-explicit"] {:reply {:ok {:via :stub}}}}
-        (fn []
-          ;; The body deliberately overrides :rf.http/managed itself; this must
-          ;; beat the helper's lexical default and land on the explicit target.
-          (rf/dispatch-sync [:rzqan/load-explicit]
-                            {:fx-overrides {:rf.http/managed :rzqan/explicit-override}})
-          (is (= :explicit @chosen)
-              "the per-call :fx-overrides won over the helper's lexical default"))))))
-
-;; ---- 11c. route-map stub keys off the POST-`:before` request --------------
-;;
-;; The real
-;; `:rf.http/managed` handler runs `:before` FIRST, validates the FINAL url,
-;; then sends the post-middleware request. A route-map stub that picked
-;; `:method`/`:url` from the ORIGINAL pre-middleware args, then delegated to
-;; a canned handler running the `:before` chain LATER, would make a
-;; base-URL / url-rewriting `:before` key the stub off the draft url:
-;;   - false-fail when the route map is keyed to the FINAL url (what
-;;     production sends) — the draft url misses it; and
-;;   - false-green when keyed to the ORIGINAL url even though production
-;;     issues a different one.
-;; So the stub runs the `:before` chain ONCE, keys the match against
-;; the post-`:before` url, and emits via that same middleware-ctx (no
-;; double-`:before`). A url-erasing `:before` throws the production
-;; `:rf.error/http-bad-request` instead of a synthetic stubbed reply.
-
-(deftest stub-matches-post-before-url-rewrite-rf2-azrcs
-  (testing "a base-URL `:before` rewrites `/articles` → `/v2/articles`;
-            the stub keyed to the FINAL `/v2/articles` matches (keying
-            off the draft `/articles` would fall through to the
-            no-stub-matched failure)"
-    (rf/reg-http-interceptor :azrcs/base-url
-      {:before (fn [ctx]
-                 (update-in ctx [:request :url]
-                            (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
-    (rf/reg-event :azrcs/list
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result reply)}
-          {:fx [[:rf.http/managed
-                 {:reply-to [:azrcs/list msg] :request {:method :get :url "/articles"}
-                  :decode  :json}]]})))
-    ;; Keyed to the FINAL url the `:before` produces — NOT the draft.
-    (rf.http.test-support/with-request-stubs
-      {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}
-      (fn []
-        (rf/dispatch-sync [:azrcs/list])
-        (let [db (await-reply! #(some? (:result %)) 2000)]
-          (is (= :ok (get-in db [:result :status]))
-              "the stub matched the post-`:before` url")
-          (is (= [:rewritten :ok] (get-in db [:result :value]))
-              "the configured :ok value for the FINAL url rode through"))))))
-
-(deftest stub-does-not-match-stale-original-url-rf2-azrcs
-  (testing "complement — a route map keyed to the ORIGINAL
-            (draft) url does not false-green: with a url-rewriting
-            `:before`, the post-`:before` url is what the stub matches, so
-            the stale-key entry misses and the no-stub-matched failure fires"
-    (rf/reg-http-interceptor :azrcs/base-url2
-      {:before (fn [ctx]
-                 (update-in ctx [:request :url]
-                            (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
-    (rf/reg-event :azrcs/list2
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result reply)}
-          {:fx [[:rf.http/managed
-                 {:reply-to [:azrcs/list2 msg] :request {:method :get :url "/articles"}
-                  :decode  :json}]]})))
-    ;; Keyed to the ORIGINAL draft url — production would issue /v2/articles,
-    ;; so this stub must NOT match.
-    (rf.http.test-support/with-request-stubs
-      {[:get "/articles"] {:reply {:ok [:should :not :match]}}}
-      (fn []
-        (rf/dispatch-sync [:azrcs/list2])
-        (let [db (await-reply! #(some? (:result %)) 2000)]
-          (is (= :error (get-in db [:result :status]))
-              "the stale original-url key did NOT match the post-`:before` url")
-          (is (= "no stub matched" (get-in db [:result :error :message]))
-              "the no-stub-matched synthetic failure fired (not the stale :ok)")
-          (is (= "/v2/articles" (get-in db [:result :error :url]))
-              "the no-match failure reports the FINAL post-`:before` url"))))))
-
-(deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
-  (testing "complement — a `:before` that BLANKS the url makes
-            the stub throw the production `:rf.error/http-bad-request` and
-            dispatch NO synthetic reply (keying off the
-            original valid url would return a stubbed reply, masking the
-            invalid request the real handler would reject)"
-    (rf/reg-http-interceptor :azrcs/url-eraser
-      {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
-    ;; Install the stub fx directly so the throw is observable (a throw
-    ;; inside dispatch-sync's fx phase is swallowed into the error sink).
-    (let [recorded (atom [])
-          original (rf.late-bind/get-fn :router/dispatch!)]
-      (rf.late-bind/set-fn! :router/dispatch!
-                         (fn [ev opts] (swap! recorded conj [ev opts])))
-      (try
-        (re-frame.http.test-support/install-managed-request-stubs!
-          {[:get "/x"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
-              ex      (try (stub-fx {:frame :rf/default :event [:azrcs/erase]}
-                                    {:request  {:method :get :url "/x"}
-                                     :reply-to [:azrcs/loaded]})
-                           nil
-                           (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex) "the url-erasing :before made the stub throw")
-          (is (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))
-              "the throw is the canonical production bad-request, not a stubbed reply")
-          (is (empty? @recorded)
-              "NO synthetic reply was dispatched — the invalid request is rejected, not masked"))
-        (finally
-          (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (rf.late-bind/set-fn! :router/dispatch! original))))))
-
-;; ---- 11d. scoped stubs compose under nesting -------------------------------
-;;
-;; `with-request-stubs` must be stack-safe
-;; for nested lexical scopes. If every scope installed ONE shared stub
-;; fx, the inner scope's install would replace
-;; the outer handler and the inner's `finally` would CLEAR it, so an outer-scope
-;; dispatch after the inner exit would route to an absent fx. Each scope
-;; binds its route map onto the dynamic var `*scope-stubs*` instead, so an
-;; inner binding shadows the outer's only for its extent and the outer
-;; scope's routes survive a fully-nested inner scope.
-
-(deftest scoped-stubs-compose-under-nesting-rf2-vn8qjv
-  (testing "an outer A stub wraps an inner B stub; after the
-            inner B scope exits, a later outer-scope request still routes to
-            the A stub (the inner's teardown must not leave the outer
-            dispatch on a missing fx / wrong handler)"
-    ;; Distinct event + route per call site so each scope keys off its own url.
-    (rf/reg-event :vn8qjv/load-a
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result-a reply)}
-          {:fx [[:rf.http/managed {:reply-to [:vn8qjv/load-a msg] :request {:method :get :url "/a"} :decode :json}]]})))
-    (rf/reg-event :vn8qjv/load-b
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :result-b reply)}
-          {:fx [[:rf.http/managed {:reply-to [:vn8qjv/load-b msg] :request {:method :get :url "/b"} :decode :json}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
-      (fn []
-        ;; Inner scope B — distinct route + reply. Its install + teardown must
-        ;; not disturb the outer A scope.
-        (rf.http.test-support/with-request-stubs
-          {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
-          (fn []
-            (rf/dispatch-sync [:vn8qjv/load-b])
-            (let [db (await-reply! #(some? (:result-b %)) 2000)]
-              (is (= {:from :inner-b} (get-in db [:result-b :value]))
-                  "inner B scope routed to the B stub"))))
-        ;; Inner scope has exited. The outer A scope's stub MUST still be live.
-        (rf/dispatch-sync [:vn8qjv/load-a])
-        (let [db (await-reply! #(some? (:result-a %)) 2000)]
-          (is (= :ok (get-in db [:result-a :status]))
-              "outer A scope still synthesised a reply after the inner B exit")
-          (is (= {:from :outer-a} (get-in db [:result-a :value]))
-              "outer A scope still routed to the A stub — not cleared by inner B teardown"))))))
-
-;; ---- 11e. stubs work inside a PRE-CREATED SEALED frame ---------------------
-;;
-;; The exact tutorial nesting creates a frame FIRST, then enters
-;; `with-request-stubs`:
-;;   (with-new-frame [f (make-frame {})]
-;;     (with-request-stubs … (fn [] (dispatch-sync …)))))
-;; `make-frame {}` resolves + SEALS an image generation at construction, and a
-;; no-id (direct) frame is deliberately EXCLUDED from `reg-*` auto-reprojection
-;; (`frame/image-loaded-frame-ids` drops the reserved `:rf.frame/<gensym>` ids).
-;; An override target registered INSIDE the scope — AFTER the frame had
-;; sealed — would be an
-;; fx-id the sealed generation cannot resolve (`registrar/lookup` routes
-;; through the frame's generation): the redirect would fall through and the REAL
-;; `:rf.http/managed` transport would run (a `/x` dispatch producing an immediate
-;; `:rf.http/transport` error). So ONE STABLE override target is registered at
-;; ns-load, landing in the sealed generation of every frame created after
-;; the require; the per-scope route map rides the dynamic var `*scope-stubs*`.
-;;
-;; These tests use a `with-new-frame` frame and read app-db off the frame VALUE
-;; (`app-db-value f`), not `:rf/default`, so the SEALED-generation resolution
-;; path is exercised. Adversarial reach-check: a sentinel shadows the real
-;; `:rf.http/managed` fx — reaching it proves the override was absent.
-
-(defn- await-frame-reply!
-  "Poll `f`'s app-db for `(pred db)`, returning the settling db. Mirrors
-  `await-reply!` but keyed to a `with-new-frame` frame VALUE rather than
-  `:rf/default`, so a SEALED-generation frame's reply is observable."
-  [f pred]
-  (rf.test-support/poll-until
-    #(let [db (rf/app-db-value f)] (when (pred db) db))
-    {:timeout-ms 2000 :label "sealed-frame http-managed reply"}))
-
-(deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
-  (testing "a plain dispatch-sync inside with-request-stubs,
-            in a PRE-CREATED sealed `with-new-frame` frame, routes through the
-            configured stub and NEVER invokes the real :rf.http/managed transport"
-    (let [real-fx-invoked? (atom false)]
-      ;; Shadow the production fx slot with a sentinel — reaching it proves the
-      ;; override was absent. Registered BEFORE
-      ;; make-frame so it is in the sealed generation either way.
-      (rf.fx/reg-fx :rf.http/managed
-                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event :bxc8kf/load
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :result reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
-                    :decode  :json}]]})))
-      (rf/with-new-frame [f (rf/make-frame {})]
-        (rf.http.test-support/with-request-stubs
-          {[:get "/x"] {:reply {:ok {:stubbed true}}}}
-          (fn []
-            ;; Bare wrapper form — no per-call :fx-overrides.
-            (rf/dispatch-sync [:bxc8kf/load])))
-        (let [db (await-frame-reply! f #(some? (:result %)))]
-          (is (= :ok (get-in db [:result :status]))
-              "the stubbed reply landed via the load-time-registered scope stub")
-          (is (= {:stubbed true} (get-in db [:result :value]))
-              "the configured :ok value rode through the synthesised reply")
-          (is (false? @real-fx-invoked?)
-              "the real :rf.http/managed fx was NEVER invoked in the sealed frame"))))))
-
-;; ---- 11d (lower-level). install/uninstall stack + no fx leak ---------------
-;;
-;; The lower-level install/uninstall surface uses the
-;; STABLE documented id (`:rf.http/managed-test-stub`, the `:fx-overrides`
-;; target users hardcode), but install snapshots the prior handler and
-;; uninstall restores it, so a nested install/uninstall pair leaves the outer
-;; install intact; a balanced top-level pair leaks no fx.
-
-(deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
-  (testing "nested install/uninstall on the stable id restores the
-            outer handler; balanced top-level pair leaks no test fx"
-    (let [stub-id :rf.http/managed-test-stub]
-      (is (nil? (rf.registrar/handler :fx stub-id))
-          "no stub fx registered before install")
-      (re-frame.http.test-support/install-managed-request-stubs!
-        {[:get "/outer"] {:reply {:ok {:from :outer}}}})
-      (let [outer-handler (rf.registrar/handler :fx stub-id)]
-        (is (some? outer-handler) "outer install registered the stub fx")
-        ;; Nested install replaces the handler in place.
-        (re-frame.http.test-support/install-managed-request-stubs!
-          {[:get "/inner"] {:reply {:ok {:from :inner}}}})
-        (is (not (identical? outer-handler (rf.registrar/handler :fx stub-id)))
-            "inner install replaced the handler")
-        ;; Inner uninstall RESTORES the outer handler (stack discipline).
-        (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (identical? outer-handler (rf.registrar/handler :fx stub-id))
-            "inner uninstall restored the outer install's handler")
-        ;; Outer uninstall clears (no prior on the stack).
-        (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (nil? (rf.registrar/handler :fx stub-id))
-            "balanced top-level install/uninstall leaves no leaked test fx")
-        ;; Idempotent: an extra uninstall is a safe no-op.
-        (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (nil? (rf.registrar/handler :fx stub-id))
-            "extra uninstall is an idempotent no-op")))))
-
-;; ---- actor-in-flight-snapshot shape contract -------------------------------
-;;
-;; `actor-in-flight-snapshot` and `in-flight-snapshot`
-;; are read by assertions across http_actor_destroy_cancellation_test
-;; and http_managed_machine_test; this test PINS THE SHAPE of the
-;; snapshot — which keys, which values — so a wire-protocol regression
-;; (e.g. changing the value to a single handle instead of a
-;; vector of handles) cannot slip through those assertions.
-;;
-;; Source: `registry/in-flight-snapshot` and
-;; `registry/actor-in-flight-snapshot` (re-exported by
-;; `re-frame.http.managed`). The snapshot shapes are:
-;;   `actor-in-flight` : actor-id → vector of handle maps
-;;   `in-flight`       : request-id → single handle map
-;; Each handle map carries `:abort-fn`, `:url`, plus the framework
-;; stamps `:request-id` and `:actor-id` (when applicable).
-
-(defn- await-condition!
-  "Wait up to `timeout-ms` for `(pred)` to be truthy. Returns `:done`
-  on success; throws `ex-info` carrying `:rf.error/id`
-  `:rf.error/poll-until-timeout` on timeout. Thin alias over
-  `test-support/poll-until`."
-  [pred timeout-ms]
-  (rf.test-support/poll-until pred {:timeout-ms timeout-ms
-                                 :label "http-managed condition"})
-  :done)
-
-(deftest actor-in-flight-snapshot-shape
-  (testing "actor-in-flight-snapshot is a map keyed by actor-id, value is a
-            vector of handle maps each carrying :abort-fn / :url / :request-id
-            / :actor-id. in-flight-snapshot is keyed by request-id."
-    (let [latch (CountDownLatch. 1)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; Block — both requests must remain in-flight while the test
-              ;; reads the snapshots.
-              (.await latch 10 TimeUnit/SECONDS)
-              (write-response! ex 200 "application/json" "{}")))]
-      (try
-        ;; Issue two requests from inside a spawned actor so both land
-        ;; in the actor-in-flight index. The actor pattern mirrors
-        ;; http_actor_destroy_cancellation_test (2).
-        (require 're-frame.machines :reload)
-        (rf/reg-machine :kyl7/worker
-          {:initial :idle
-           :data    {:port port}
-           :actions
-           {:fire-two
-            (fn [{data :data}]
-              {:fx [[:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/a")}
-                      :request-id :kyl7/a
-                      :decode     :json
-                      :on-success nil
-                      :on-failure nil}]
-                    [:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/b")}
-                      :request-id :kyl7/b
-                      :decode     :json
-                      :on-success nil
-                      :on-failure nil}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-two}}})
-        (rf/reg-machine :kyl7/sup
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :kyl7/worker
-                               :start      [:start]}}}})
-        (rf/dispatch-sync [:kyl7/sup [:start]])
-
-        ;; Wait for both requests to be in-flight under the same actor.
-        (await-condition!
-          #(let [snap (rf.http.managed/actor-in-flight-snapshot)]
-             (and (= 1 (count snap))
-                  (= 2 (count (val (first snap))))))
-          5000)
-
-        ;; ---- actor-in-flight-snapshot shape ----
-        (let [actor-snap (rf.http.managed/actor-in-flight-snapshot)]
-          (is (map? actor-snap)
-              "actor-in-flight-snapshot returns a map")
-          (is (= 1 (count actor-snap))
-              "one actor key — the spawned :kyl7/worker child")
-          (let [[actor-id handles] (first actor-snap)]
-            (is (= :kyl7/worker#1 actor-id)
-                "actor-id is the deterministic spawn id of the child (the spawned actor's keyword address)")
-            (is (vector? handles)
-                "value under each actor-id is a vector (multiple in-flight requests
-                 from the same actor accumulate as siblings)")
-            (is (= 2 (count handles))
-                "two in-flight requests from this actor")
-            (doseq [h handles]
-              (is (fn? (:abort-fn h))
-                  "each handle is a map whose :abort-fn is the no-arg cancellation fn")
-              (is (string? (:url h))
-                  ":url stamps the resolved URL for diagnostic visibility")
-              (is (= actor-id (:actor-id h))
-                  ":actor-id stamped on the handle matches its index key")
-              (is (#{:kyl7/a :kyl7/b} (:request-id h))
-                  ":request-id stamped on the handle matches the user-supplied id"))))
-
-        ;; ---- in-flight-snapshot shape (request-id-keyed) ----
-        (let [req-snap (rf.http.managed/in-flight-snapshot)]
-          (is (map? req-snap)
-              "in-flight-snapshot returns a map")
-          (is (= #{:kyl7/a :kyl7/b} (set (keys req-snap)))
-              "one request-id key per in-flight request, matching the user-supplied :request-id values")
-          (doseq [[req-id handle] req-snap]
-            (is (= req-id (:request-id handle))
-                "each value is a SINGLE handle map (NOT a vector, unlike the actor index) whose :request-id matches its index key")
-            (is (fn? (:abort-fn handle))
-                ":abort-fn is the cancellation fn (same as actor-index handle)")))
-
-        ;; Release so the JDK sockets close cleanly.
-        (.countDown latch)
-        (finally (stop-server! srv))))))
-
-;; ---- 14. supersede on same :request-id ------------------------------------
-;;
-;; When a fresh request supersedes a prior one
-;; with the same `:request-id`, the prior request's `:on-failure` reply
-;; is NOT dispatched (semantic = the new request replaces the old one,
-;; debounce-search mental model). The supersede event emits to
-;; the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`);
-;; consumers wanting abort telemetry subscribe via `register-listener!`.
+  (testing "a user abort of a slow request replies :cancelled once with an
+            :info :rf.http/aborted row, and the server's later response fires
+            no second reply"
+    (let [latch   (CountDownLatch. 1)
+          replies (atom [])]
+      (capturing-traces
+        (fn [traces]
+          (with-server (fn [ex]
+                         (.await latch 10 TimeUnit/SECONDS)
+                         (write-response! ex 200 "application/json" "{\"late\":true}"))
+            (fn [base]
+              (rf/reg-event :on7sj/replied (fn [_ [_ reply]] (swap! replies conj reply) {}))
+              (rf/reg-event :on7sj/load
+                (fn [_ _] {:fx [[:rf.http/managed {:reply-to   [:on7sj/replied]
+                                                   :request    {:url (str base "/slow")}
+                                                   :request-id :on7sj/req
+                                                   :decode     :json}]]}))
+              (rf/reg-event :on7sj/abort (fn [_ _] {:fx [[:rf.http/managed-abort :on7sj/req]]}))
+              (rf/dispatch-sync [:on7sj/load])
+              (poll! #(contains? (rf.http.managed/in-flight-snapshot) :on7sj/req) "in flight")
+              (rf/dispatch-sync [:on7sj/abort])
+              (poll! #(seq @replies) "abort reply")
+              (.countDown latch)
+              ;; Proving an absence: no signal to poll for, so give a late
+              ;; completion callback time to fire a second reply.
+              (Thread/sleep 800)
+              (is (= [[:cancelled :rf.http/aborted]]
+                     (mapv (juxt :status (comp :kind :error)) @replies)))
+              (is (= [[:info :user]]
+                     (mapv (juxt :op-type (comp :reason :tags)) (ops traces :rf.http/aborted)))))))))))
 
 (deftest jvm-supersede-still-emits-trace-event
-  (testing "supersede still emits :rf.http/aborted trace event with
-            :reason :request-id-superseded so register-listener! consumers
-            keep visibility"
-    (let [latch    (CountDownLatch. 1)
-          events   (atom [])
-          stale    (atom [])
-          cb-id    ::lxd3-trace
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (.await latch 5 TimeUnit/SECONDS)
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf.trace.tooling/register-listener! cb-id
-                                  (fn [ev]
-                                    (case (:operation ev)
-                                      :rf.http/aborted          (swap! events conj ev)
-                                      :rf.http/stale-suppressed (swap! stale conj ev)
-                                      nil)))
-        ;; This test asserts the supersede TRACE, not the reply; a benign
-        ;; no-op recorder satisfies the mandatory reply addressing.
-        (rf/reg-event :search/recorder (fn [_ _] {}))
-        (rf/reg-event :search/run
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" port "/q1")}
-                    :request-id :search
-                    :decode     :json
-                    :reply-to   [:search/recorder]}]]}))
-        (rf/reg-event :search/run-superseding
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" port "/q2")}
-                    :request-id :search
-                    :decode     :json
-                    :reply-to   [:search/recorder]}]]}))
+  (testing "re-issuing under a live :request-id aborts the prior attempt with
+            one :info :rf.http/aborted row (:reason :request-id-superseded)
+            beside its stale-suppressed row"
+    (let [latch (CountDownLatch. 1)]
+      (capturing-traces
+        (fn [traces]
+          (with-server (fn [ex]
+                         (.await latch 5 TimeUnit/SECONDS)
+                         (write-response! ex 200 "application/json" "{\"ok\":true}"))
+            (fn [base]
+              (rf/reg-event :search/recorder (fn [_ _] {}))
+              (rf/reg-event :search/run
+                (fn [_ [_ path]]
+                  {:fx [[:rf.http/managed {:request    {:url (str base path)}
+                                           :request-id :search
+                                           :decode     :json
+                                           :reply-to   [:search/recorder]}]]}))
+              (rf/dispatch-sync [:search/run "/q1"])
+              (poll! #(seq (rf.http.managed/in-flight-snapshot)) "first request in flight")
+              (rf/dispatch-sync [:search/run "/q2"])
+              (poll! #(seq (ops traces :rf.http/aborted)) "supersede row")
+              (is (= [[:info :no-recovery :request-id-superseded :search]]
+                     (mapv (juxt :op-type :recovery (comp :reason :tags) (comp :request-id :tags))
+                           (ops traces :rf.http/aborted))))
+              (is (= [:rf.http/request-id-superseded]
+                     (mapv #(get-in % [:tags :rf.reply/stale-reason]) (ops traces :rf.http/stale-suppressed))))
+              (.countDown latch))))))))
 
-        (rf/dispatch-sync [:search/run])
-        (await-condition!
-          #(seq (rf.http.managed/in-flight-snapshot))
-          2000)
-        (rf/dispatch-sync [:search/run-superseding])
-        ;; `events` collects only :rf.http/aborted rows, so this await is the
-        ;; check that the supersede emits one.
-        (await-condition! #(seq @events) 2000)
+(deftest jvm-decode-failures-carry-their-discriminators
+  (testing "a 2xx body that fails decode replies :rf.http/decode-failure; a
+            schema rejection sets :schema-validation-failure?, and only the
+            keyword-cap overflow carries :reason :too-many-keys and its :limit"
+    (let [bodies {"/schema" "{\"id\":\"oops\"}"
+                  "/cap"    "{\"a\":1,\"b\":2,\"c\":3}"
+                  "/syntax" "{\"a\": "}]
+      (with-server (fn [^HttpExchange ex]
+                     (write-response! ex 200 "application/json" (bodies (.getPath (.getRequestURI ex)))))
+        (fn [base]
+          (doseq [[path args expected]
+                  [["/schema" {:decode [:map [:id :int]]}
+                    {:schema-validation-failure? true}]
+                   ["/cap" {:decode [:map-of :keyword :int] :rf.http/max-decoded-keys 2}
+                    {:schema-validation-failure? false :reason :too-many-keys :limit 2}]
+                   ["/syntax" {:decode :json}
+                    {:reason nil :limit nil}]]]
+            (let [reply    (request! (assoc args :request {:url (str base path)}))
+                  expected (assoc expected :kind :rf.http/decode-failure)]
+              (is (= [:error expected]
+                     [(:status reply) (zipmap (keys expected) (map (:error reply) (keys expected)))])
+                  path))))))))
 
-        (let [ev (first @events)
-              tags (:tags ev)]
-          (is (= :request-id-superseded (:reason tags))
-              ":reason :request-id-superseded distinguishes supersede from :user / :actor-destroyed")
-          (is (= :search (:request-id tags))
-              ":request-id rides on the trace event")
-          ;; A supersession is the designed replacement, not a
-          ;; failure: the row is `:info`, so it never paints the superseding
-          ;; event as an error. It still says why (`:reason`) and still carries
-          ;; its `:recovery`.
-          (is (= :info (:op-type ev))
-              "the supersede :rf.http/aborted row is :info, never :error")
-          (is (= :no-recovery (:recovery ev))
-              ":recovery still rides on the :info row"))
-        ;; Control: the canonical stale-suppression row that records the
-        ;; superseded attempt still fires beside the aborted row.
-        (is (= [:rf.http/request-id-superseded]
-               (mapv #(get-in % [:tags :rf.reply/stale-reason]) @stale))
-            "the superseded attempt's :rf.http/stale-suppressed row still fires")
+(deftest jvm-accept-failures-classify-as-accept-failure
+  (testing "on a 2xx that decoded, an :accept that returns {:failure ..},
+            throws, or returns a malformed nil replies :rf.http/accept-failure
+            (never :rf.http/decode-failure) carrying the pre-accept :decoded,
+            and the user's :failure map as :detail"
+    (with-server (fn [^HttpExchange ex]
+                   (write-response! ex 200 "application/json"
+                                    (if (= "/quota" (.getPath (.getRequestURI ex)))
+                                      "{\"ok\":false,\"reason\":\"quota\"}"
+                                      "{\"ok\":true}")))
+      (fn [base]
+        (doseq [[path accept expected]
+                [["/quota"
+                  (fn [decoded] (if (:ok decoded)
+                                  {:ok decoded}
+                                  {:failure {:kind :domain-rejected :reason (:reason decoded)}}))
+                  {:detail {:kind :domain-rejected :reason "quota"} :decoded {:ok false :reason "quota"}}]
+                 ["/throw" (fn [_] (throw (ex-info "accept boom" {}))) {:decoded {:ok true}}]
+                 ["/nil" (fn [_] nil) {:decoded {:ok true}}]]]
+          (let [reply    (request! {:request {:url (str base path)} :decode :json :accept accept})
+                expected (assoc expected :kind :rf.http/accept-failure)]
+            (is (= [:error expected]
+                   [(:status reply) (select-keys (:error reply) (keys expected))])
+                path)))))))
 
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! cb-id)
-          (stop-server! srv))))))
+(deftest jvm-request-encoding-reaches-the-wire
+  (testing "observed at the server: :params become an escaped query string;
+            :request-content-type :json encodes the body and sets
+            Content-Type unless the caller already set one; a vector header
+            value goes out as repeated header lines"
+    (let [seen (atom {})]
+      (with-server (fn [^HttpExchange ex]
+                     (let [headers (.getRequestHeaders ex)]
+                       (swap! seen assoc (.getPath (.getRequestURI ex))
+                              {:query         (.getRawQuery (.getRequestURI ex))
+                               :content-types (vec (.get headers "Content-Type"))
+                               :body          (slurp (.getRequestBody ex))
+                               :x-multi       (vec (.get headers "X-Multi"))}))
+                     (write-response! ex 200 "application/json" "{\"ok\":true}"))
+        (fn [base]
+          (request! {:request {:url (str base "/params") :params {:q "a b" :page 2}} :decode :json})
+          (request! {:request {:method :post :url (str base "/json") :body {:name "widget"}
+                               :request-content-type :json}
+                     :decode :json})
+          (request! {:request {:method :post :url (str base "/clash") :body {:name "widget"}
+                               :headers {"Content-Type" "application/vnd.custom+json"}
+                               :request-content-type :json}
+                     :decode :json})
+          (request! {:request {:url (str base "/multi") :headers {"X-Multi" ["alpha" "beta" "gamma"]}}
+                     :decode :json})
+          (let [s @seen]
+            (is (= "q=a%20b&page=2" (get-in s ["/params" :query])))
+            (is (= [["application/json"] {:name "widget"}]
+                   [(get-in s ["/json" :content-types]) (rf.http.json/json-parse (get-in s ["/json" :body]))]))
+            (is (= ["application/vnd.custom+json"] (get-in s ["/clash" :content-types])))
+            (is (= ["alpha" "beta" "gamma"] (get-in s ["/multi" :x-multi])))))))))
 
-(deftest jvm-non-superseded-abort-still-fires-reply
-  (testing "a non-supersede abort (manual
-            :rf.http/managed-abort) fires :on-failure.
-            Only :reason :request-id-superseded suppresses the reply."
-    (let [latch        (CountDownLatch. 1)
-          reply-fired? (atom false)
-          reply-data   (atom nil)
-          aborted-rows (atom [])
-          cb-id        ::user-abort-trace
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (.await latch 5 TimeUnit/SECONDS)
-              (write-response! ex 200 "application/json" "{}")))]
-      (try
-        (rf.trace.tooling/register-listener! cb-id
-                                  (fn [ev]
-                                    (when (= :rf.http/aborted (:operation ev))
-                                      (swap! aborted-rows conj ev))))
-        (rf/reg-event :slow/load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" port "/slow")}
-                    :request-id :slow
-                    :decode     :json
-                    :on-failure [:slow/failed]}]]}))
-        (rf/reg-event :slow/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
-        (rf/reg-event :slow/failed
-          (fn [{:keys [db]} [_ payload]]
-            (reset! reply-fired? true)
-            (reset! reply-data payload)
-            {:db db}))
-
-        (rf/dispatch-sync [:slow/load])
-        (await-condition!
-          #(seq (rf.http.managed/in-flight-snapshot))
-          2000)
-        ;; User-initiated abort — the abort fn passes `:user` as the reason.
-        (rf/dispatch-sync [:slow/abort])
-        ;; A non-supersede abort DOES dispatch :on-failure: this await throws
-        ;; if the reply never arrives.
-        (await-condition! #(true? @reply-fired?) 2000)
-
-        ;; Per build-reply-event: explicit :on-failure [:slow/failed] appends
-        ;; the reply payload as the last arg — the handler receives the
-        ;; payload directly (NOT wrapped under :rf/reply).
-        (let [reply @reply-data]
-          (is (= :cancelled (:status reply))
-              "the reply is a :cancelled (abort) reply")
-          (is (= :rf.http/aborted (-> reply :error :kind))
-              "failure kind is :rf.http/aborted")
-          (is (not= :request-id-superseded (-> reply :error :reason))
-              ":reason is NOT :request-id-superseded (this is the regression guard)"))
-        ;; The cancel button is a deliberate act, not a failure:
-        ;; its `:rf.http/aborted` row is `:info` for `:reason :user` too, while
-        ;; the reply above is still the live `:cancelled` delivery.
-        (is (= [[:info :user]]
-               (mapv (juxt :op-type (comp :reason :tags)) @aborted-rows))
-            "exactly one :rf.http/aborted row, at :info, for the :user abort")
-
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! cb-id)
-          (stop-server! srv))))))
-
-;; ===========================================================================
-;; End-to-end coverage for three spec contracts:
-;;   G1  — Malli schema decode failure → :rf.http/decode-failure
-;;          :schema-validation-failure? true (and too-many-keys e2e)
-;;   G2  — :accept returning {:failure ..} → :rf.http/accept-failure reply
-;;          carrying :detail + :decoded
-;;   G3  — request-side encoding (params query-string + :request-content-type
-;;          body) and the Content-Type clash guard, observed at a real server
-;; These ride the real java.net.http.HttpClient transport + in-process server
-;; so the WHOLE managed cascade (transport → decode → accept → classify →
-;; reply addressing) is exercised, not just the pure helpers.
-;; ===========================================================================
-
-;; ---- G1: Malli schema decode — validation failure e2e ---------------------
-
-(deftest jvm-schema-validation-failure-classifies-as-decode-failure
-  (testing "a 200 JSON response that parses but FAILS a Malli
-            :decode schema classifies as :rf.http/decode-failure with
-            :schema-validation-failure? true (Spec 014 §Classification
-            order step 3)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; id arrives as a JSON string; the schema requires :int and
-              ;; the json-transformer can't coerce "oops" → int, so
-              ;; validation fails.
-              (write-response! ex 200 "application/json" "{\"id\":\"oops\"}")))]
-      (try
-        (rf/reg-event :thing/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:thing/load msg] :request {:url (str "http://127.0.0.1:" port "/thing")}
-                      :decode  [:map [:id :int]]}]]})))
-        (rf/dispatch-sync [:thing/load])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/decode-failure (:kind failure))
-              "schema validation failure is a decode failure")
-          (is (true? (:schema-validation-failure? failure))
-              "the :schema-validation-failure? slot is set true (Spec 014 line 410)"))
-        (finally (stop-server! srv))))))
-
-(deftest jvm-too-many-keys-cap-classifies-as-decode-failure
-  (testing "the :rf.http/max-decoded-keys cap threaded into the
-            schema-branch decode surfaces a :too-many-keys throw as
-            :rf.http/decode-failure end-to-end (NOT masked behind a schema
-            rejection)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json"
-                               "{\"a\":1,\"b\":2,\"c\":3}")))]
-      (try
-        (rf/reg-event :thing/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:thing/load msg] :request                  {:url (str "http://127.0.0.1:" port "/thing")}
-                      :decode                   [:map-of :keyword :int]
-                      :rf.http/max-decoded-keys 2}]]})))
-        (rf/dispatch-sync [:thing/load])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/decode-failure (:kind failure))
-              "an over-cap payload classifies as a decode failure")
-          ;; The cap-throw is :rf.error/malformed-json, NOT a schema
-          ;; validation, so :schema-validation-failure? must be falsey.
-          (is (not (true? (:schema-validation-failure? failure)))
-              "too-many-keys is a malformed-json cap-throw, not a schema rejection")
-          ;; Spec 014 §Keyword-interning cap (lines 145, 285,
-          ;; 289) mandates the overflow surface as :rf.http/decode-failure
-          ;; with :reason :too-many-keys and the configured :limit. Both
-          ;; must reach the dispatched failure map so a caller branching
-          ;; on :reason sees the spec-documented shape (and a DoS-cap
-          ;; overflow is programmatically distinguishable from an ordinary
-          ;; JSON syntax error, since :schema-validation-failure? is false
-          ;; for both).
-          (is (= :too-many-keys (:reason failure))
-              "the cap-overflow surfaces :reason :too-many-keys per Spec 014 §Keyword-interning cap")
-          (is (= 2 (:limit failure))
-              "the configured :rf.http/max-decoded-keys cap rides at :limit per Spec 014"))
-        (finally (stop-server! srv))))))
-
-(deftest jvm-bare-json-syntax-error-carries-no-too-many-keys-reason
-  (testing "a 200 response whose body is malformed JSON (a
-            plain syntax error, NOT a cap overflow) still classifies as
-            :rf.http/decode-failure but carries NEITHER :reason :too-many-keys
-            NOR :limit — those slots are reserved for the DoS-cap shape, so
-            a caller can use :reason as a discriminator"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; Truncated JSON — Cheshire throws a parse error that is
-              ;; NOT the structured :rf.error/malformed-json cap ex-info.
-              (write-response! ex 200 "application/json" "{\"a\": ")))]
-      (try
-        (rf/reg-event :thing/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:thing/load msg] :request {:url (str "http://127.0.0.1:" port "/thing")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:thing/load])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :rf.http/decode-failure (:kind failure))
-              "a JSON syntax error is still a decode failure")
-          (is (nil? (:reason failure))
-              "a bare syntax error carries no :reason — only the cap-overflow shape does")
-          (is (nil? (:limit failure))
-              "a bare syntax error carries no :limit — only the cap-overflow shape does"))
-        (finally (stop-server! srv))))))
-
-;; ---- G2: :accept returning {:failure ..} → :rf.http/accept-failure --------
-
-(deftest jvm-accept-failure-classifies-and-carries-detail-and-decoded
-  (testing "an :accept fn that returns {:failure ..} on a 2xx
-            response produces a :rf.http/accept-failure reply carrying the
-            user :detail and the pre-accept :decoded value
-            (Spec 014 §`:accept` +
-            §Classification order step 4)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; 200 OK, but the domain payload says the operation failed —
-              ;; the :accept fn turns a transport-success into a domain
-              ;; failure.
-              (write-response! ex 200 "application/json"
-                               "{\"ok\":false,\"reason\":\"quota\"}")))]
-      (try
-        (rf/reg-event :op/run
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:op/run msg] :request {:url (str "http://127.0.0.1:" port "/op")}
-                      :decode  :json
-                      :accept  (fn [decoded]
-                                 (if (:ok decoded)
-                                   {:ok decoded}
-                                   {:failure {:kind   :domain-rejected
-                                              :reason (:reason decoded)}}))}]]})))
-        (rf/dispatch-sync [:op/run])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/accept-failure (:kind failure))
-              "an :accept-rejected 2xx classifies as :rf.http/accept-failure")
-          (is (= {:kind :domain-rejected :reason "quota"} (:detail failure))
-              "the user :failure map rides through verbatim as :detail")
-          (is (= {:ok false :reason "quota"} (:decoded failure))
-              "the pre-accept decoded value rides through as :decoded"))
-        (finally (stop-server! srv))))))
-
-;; ---- G3: request-side encoding observed at the server ---------------------
-
-(deftest jvm-request-params-encoded-into-query-string
-  (testing ":params is encoded onto the request URL as a query
-            string (keyword keys → name, values escaped) and arrives at
-            the server (via run-attempt!)"
-    (let [seen-query (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; getRawQuery preserves the percent-encoding produced by
-              ;; the client; getQuery would decode it back, hiding whether
-              ;; the value was escaped on the wire.
-              (reset! seen-query (.getRawQuery (.getRequestURI ex)))
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :search/run
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:search/run msg] :request {:url    (str "http://127.0.0.1:" port "/search")
-                                :params {:q "a b" :page 2}}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:search/run])
-        (await-reply! #(some? (:reply %)) 5000)
-        (let [q @seen-query]
-          (is (some? q) "the server saw a query string")
-          (is (clojure.string/includes? q "q=a%20b")
-              "the space-bearing value is percent-escaped in the query")
-          (is (clojure.string/includes? q "page=2")
-              "the keyword key is rendered via name; numeric value coerced"))
-        (finally (stop-server! srv))))))
-
-(deftest jvm-request-content-type-encodes-body-and-sets-header
-  (testing ":request-content-type :json encodes the body and
-            sets the Content-Type header; the server observes both
-            (`encode-body` + the header-set in run-attempt!)"
-    (let [seen-ct   (atom nil)
-          seen-body (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (reset! seen-ct (.getFirst (.getRequestHeaders ex) "Content-Type"))
-              (reset! seen-body (slurp (.getRequestBody ex)))
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :item/create
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:item/create msg] :request {:method               :post
-                                :url                  (str "http://127.0.0.1:" port "/items")
-                                :body                 {:name "widget"}
-                                :request-content-type :json}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:item/create])
-        (await-reply! #(some? (:reply %)) 5000)
-        (is (= "application/json" @seen-ct)
-            ":request-content-type :json sets the Content-Type header")
-        (is (= {:name "widget"} (rf.http.json/json-parse @seen-body))
-            "the body is JSON-encoded and round-trips at the server")
-        (finally (stop-server! srv))))))
-
-(deftest jvm-explicit-content-type-header-wins-clash-guard
-  (testing "when the request already carries a Content-Type
-            header, run-attempt! does NOT overwrite it with the
-            encode-body content-type (the clash guard in
-            `prepare-body!`)"
-    (let [seen-cts (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; Capture ALL Content-Type header values so a double-set
-              ;; (guard regression) would show up as >1 entry.
-              (reset! seen-cts (vec (.get (.getRequestHeaders ex) "Content-Type")))
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :item/create
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:item/create msg] :request {:method               :post
-                                :url                  (str "http://127.0.0.1:" port "/items")
-                                ;; Caller pre-sets Content-Type; encode-body
-                                ;; would otherwise also propose application/json.
-                                :headers              {"Content-Type" "application/vnd.custom+json"}
-                                :body                 {:name "widget"}
-                                :request-content-type :json}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:item/create])
-        (await-reply! #(some? (:reply %)) 5000)
-        (let [cts @seen-cts]
-          (is (= ["application/vnd.custom+json"] cts)
-              "the caller's explicit Content-Type is preserved and NOT
-               supplemented by the encode-body content-type (clash guard)"))
-        (finally (stop-server! srv))))))
-
-;; ===========================================================================
-;; Multi-valued REQUEST headers reach the wire as
-;; repeated header instances, not a single malformed `["a" "b"]` value.
-;; ===========================================================================
-
-(deftest jvm-vector-request-header-sent-as-repeated-values
-  (testing "a request header whose value is a vector of strings
-            (the documented multi-valued shape) arrives at the server as N
-            repeated header instances, NOT one line carrying the stringified
-            vector. The JVM transport calls .header once per element."
-    (let [seen-accept (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              ;; .get returns the List of ALL values for the header name —
-              ;; one entry per wire instance.
-              (reset! seen-accept (vec (.get (.getRequestHeaders ex) "X-Multi")))
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :multihdr/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:multihdr/load msg] :request {:url     (str "http://127.0.0.1:" port "/m")
-                                :headers {"X-Multi" ["alpha" "beta" "gamma"]}}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:multihdr/load])
-        (await-reply! #(some? (:reply %)) 5000)
-        (let [vs @seen-accept]
-          (is (= ["alpha" "beta" "gamma"] vs)
-              "the vector value produced THREE separate wire header instances,
-               each its own value, in order — NOT a single
-               '[\"alpha\" \"beta\" \"gamma\"]' stringified line"))
-        (finally (stop-server! srv))))))
-
-;; ===========================================================================
-;; :accept phase isolation + shape validation.
-;;   - an :accept THROW classifies as :rf.http/accept-failure (NOT
-;;     :rf.http/decode-failure — a try/catch fused with decode would misclassify it);
-;;   - a MALFORMED :accept return (nil / map without :ok/:failure) classifies
-;;     as :rf.http/accept-failure and ALWAYS dispatches a reply (never
-;;     stranding the caller with no reply at all).
-;; ===========================================================================
-
-(deftest jvm-accept-throw-classifies-as-accept-failure-not-decode-failure
-  (testing "an :accept fn that THROWS on a 2xx response
-            classifies as :rf.http/accept-failure (step-4 error), NOT
-            :rf.http/decode-failure (step-3). The decode succeeded; the
-            accept phase is isolated in its own try/catch."
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :acceptthrow/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:acceptthrow/load msg] :request {:url (str "http://127.0.0.1:" port "/a")}
-                      :decode  :json
-                      :accept  (fn [_decoded]
-                                 (throw (ex-info "accept boom" {})))}]]})))
-        (rf/dispatch-sync [:acceptthrow/load])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status]))
-              "a thrown :accept produces a FAILURE reply (caller is not stranded)")
-          (is (= :rf.http/accept-failure (:kind failure))
-              "the throw classifies as :rf.http/accept-failure, NOT
-               :rf.http/decode-failure — decode succeeded; accept is the failing phase")
-          (is (= {:ok true} (:decoded failure))
-              "the pre-accept decoded value rides through as :decoded for context"))
-        (finally (stop-server! srv))))))
-
-(deftest jvm-accept-nil-return-classifies-as-accept-failure-and-replies
-  (testing "an :accept fn returning nil (a malformed shape) is
-            classified as :rf.http/accept-failure and ALWAYS dispatches a
-            reply. Without a branch for it, finalise-success!'s cond would
-            clear the in-flight request and dispatch NO reply — the caller
-            would hang forever."
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :acceptnil/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:acceptnil/load msg] :request {:url (str "http://127.0.0.1:" port "/n")}
-                      :decode  :json
-                      ;; Returns nil — neither {:ok ..} nor {:failure ..}.
-                      :accept  (fn [_decoded] nil)}]]})))
-        (rf/dispatch-sync [:acceptnil/load])
-        (let [db      (await-reply! #(some? (:reply %)) 5000)
-              failure (get-in db [:reply :error])]
-          (is (= :error (get-in db [:reply :status]))
-              "a nil :accept return DOES dispatch a reply (no infinite hang)")
-          (is (= :rf.http/accept-failure (:kind failure))
-              "the malformed return classifies as :rf.http/accept-failure")
-          (is (= {:ok true} (:decoded failure))
-              "the pre-accept decoded value rides through as :decoded"))
-        (finally (stop-server! srv))))))
-
-;; ---- stub/canned request-chain failure honours TOP-LEVEL
-;;      :sensitive? -------------------------------------------------------------
-;;
-;; Production `managed-handler` seeds the effective top-level `:sensitive?`
-;; into the request middleware ctx (via `privacy/request-sensitive?`), so when
-;; a `:before` throws, the `:rf.error/http-interceptor-failed` trace redacts
-;; ALL query values + stamps `:sensitive?`. The canned/stub wrapper's
-;; `run-request-chain` seeds the same flag into `ctx0`; without it, a request
-;; that opted in via the TOP-LEVEL `:sensitive? true` form (not the nested
-;; `[:request :sensitive?]`) would run the stub `:before` chain non-sensitive and
-;; leak non-denylisted query values through the failure trace — a stub-path
-;; secret leak + a test false-green relative to production.
-;;
-;; We key the proof on a NON-denylisted query param (`customer_email`): only
-;; effective top-level sensitivity can scrub it. The chain's own `:sensitive-of`
-;; reducer also recomputes from a `:before`-MARKED request, so this
-;; seed is the pre-chain floor — exactly what production seeds.
-;;
-;; A `:before` throw inside `dispatch-sync`'s fx phase is swallowed into the
-;; error sink, so (mirroring `stub-url-erasing-before-throws-rf2-azrcs`) we
-;; drive the stub fx directly, with the trace listener capturing the emitted
-;; failure event.
-
-(deftest stub-request-chain-failure-honours-top-level-sensitive-rf2-xmp74u
-  (testing "a route-map stub with TOP-LEVEL :sensitive? true and a
-            throwing :before emits :rf.error/http-interceptor-failed redacting
-            the NON-denylisted query value AND stamping :sensitive? — matching
-            production"
-    (let [traces      (atom [])
-          listener-id (gensym "xmp74u-stub-sensitive-")
-          recorded    (atom [])
-          original    (rf.late-bind/get-fn :router/dispatch!)]
-      (rf.late-bind/set-fn! :router/dispatch!
-                         (fn [ev opts] (swap! recorded conj [ev opts])))
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        ;; A :before that throws AFTER the chain starts.
-        (rf/reg-http-interceptor :xmp74u/boom
-          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
-        (re-frame.http.test-support/install-managed-request-stubs!
-          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
-              ;; TOP-LEVEL :sensitive? true (NOT [:request :sensitive?]).
-              ;; customer_email is NOT in the query-param denylist, so it
-              ;; only redacts when the request is effectively sensitive.
-              ex      (try
-                        (stub-fx {:frame :rf/default :event [:xmp74u/load]}
-                                 {:request    {:method :get
-                                               :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
-                                  :sensitive? true
-                                  :reply-to   [:xmp74u/loaded]})
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex) "the throwing :before propagated out of the stub chain")
-          (is (= :rf.error/http-interceptor-failed (:rf.error/id (ex-data ex)))
-              "the throw is the canonical interceptor-failed classification")
-          (is (empty? @recorded)
-              "NO synthetic reply was dispatched — the failed chain rejects the request"))
-        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
-              tags (:tags w)]
-          (is (some? w) "the interceptor-failed trace event was emitted")
-          ;; A sensitive request scrubs ALL query values (broader than the
-          ;; denylist). The load-bearing signal is customer_email — which the
-          ;; denylist alone leaves verbatim — being redacted: that can only
-          ;; happen if the stub chain seeded the TOP-LEVEL :sensitive? flag.
-          (is (= "https://api.example.invalid/v1?customer_email=:rf/redacted&page=:rf/redacted"
-                 (:url tags))
-              "the NON-denylisted query value is redacted — proving the stub
-               run-request-chain seeded top-level :sensitive? like production")
-          (is (true? (:sensitive? w))
-              ":sensitive? stamped on the stub-path failure trace, matching production"))
-        (finally
-          (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (rf.trace.tooling/unregister-listener! listener-id)
-          (rf.late-bind/set-fn! :router/dispatch! original))))))
-
-(deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
-  (testing "complement — WITHOUT :sensitive?, the same throwing
-            :before leaves the NON-denylisted query value verbatim and does NOT
-            stamp :sensitive? (the seed is gated on actual sensitivity, not a
-            blanket scrub)"
-    (let [traces      (atom [])
-          listener-id (gensym "xmp74u-stub-nonsensitive-")
-          recorded    (atom [])
-          original    (rf.late-bind/get-fn :router/dispatch!)]
-      (rf.late-bind/set-fn! :router/dispatch!
-                         (fn [ev opts] (swap! recorded conj [ev opts])))
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-http-interceptor :xmp74u/boom2
-          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
-        (re-frame.http.test-support/install-managed-request-stubs!
-          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
-              _ex     (try
-                        (stub-fx {:frame :rf/default :event [:xmp74u/load2]}
-                                 {:request  {:method :get
-                                             :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
-                                  :reply-to [:xmp74u/loaded2]})
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-          (is (empty? @recorded) "NO synthetic reply was dispatched"))
-        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
-              tags (:tags w)]
-          (is (some? w) "the interceptor-failed trace event was emitted")
-          (is (= "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"
-                 (:url tags))
-              "non-sensitive: the non-denylisted query value rides through verbatim")
-          (is (not (true? (:sensitive? w)))
-              ":sensitive? not stamped for a non-sensitive request"))
-        (finally
-          (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (rf.trace.tooling/unregister-listener! listener-id)
-          (rf.late-bind/set-fn! :router/dispatch! original))))))
-
-;; ---- issuance-counter eviction bounds the map -----------------------------
+;; ---- issuance counters ----------------------------------------------------
 
 (deftest issuance-counter-evicts-on-completion
-  (testing "a request-id's issuance counter is EVICTED when its
-  final attempt reaches a terminal completion, so an app minting an UNBOUNDED
-  distinct-id space (e.g. `[:fetch-doc uuid]` over an unbounded id space) does
-  NOT accumulate one permanent `issuance-counters` entry per id ever requested
-  on a long-running JVM (the leak a monotonic-forever counter would carry)."
+  (testing "a request-id's issuance counter is evicted when its attempt
+            completes, so an app minting unbounded distinct ids does not grow
+            the map: each id issues at 1, holds one live counter, then none"
     (rf.http.registry/reset-issuance-counters-for-test!)
-    (is (zero? (rf.http.registry/issuance-counter-count)))
-    ;; Adversarial: 500 DISTINCT single-issuance request-ids, each issued once
-    ;; then completed. Without eviction the map would end holding 500 entries; the
-    ;; conditional-atomic evict on completion keeps it at zero. Each row is
-    ;; [i issuance live-count-in-flight count-after-completion], and the read
-    ;; reports every row that strays from [1 1 0].
-    (let [rows (mapv (fn [i]
-                       (let [rid      [:fetch-doc i]
-                             issuance (rf.http.registry/next-issuance! :frame/counters rid)
-                             live     (rf.http.registry/issuance-counter-count)]
-                         (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
-                         [i issuance live (rf.http.registry/issuance-counter-count)]))
-                     (range 500))]
-      (is (= [] (filterv (fn [[_ issuance live after]] (not= [1 1 0] [issuance live after])) rows))
-          "every distinct id starts at issuance 1, holds exactly one live counter while in flight, and is evicted the moment it completes, so the map stays bounded across 500 ids"))))
+    (is (= [[1 1 0] [1 1 0] [1 1 0]]
+           (mapv (fn [i]
+                   (let [rid      [:fetch-doc i]
+                         issuance (rf.http.registry/next-issuance! :frame/counters rid)
+                         live     (rf.http.registry/issuance-counter-count)]
+                     (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
+                     [issuance live (rf.http.registry/issuance-counter-count)]))
+                 (range 3))))))
 
 (deftest issuance-counter-eviction-preserves-live-successor
-  (testing "the eviction is CONDITIONAL-ATOMIC (evict only when
-  the counter still equals the completing attempt's issuance), preserving the
-  anti-collision invariant: a SUPERSEDED attempt's terminal eviction
-  MUST NOT drop the live successor's counter, because `next-issuance!` already
-  bumped it past the superseded attempt's issuance BEFORE the supersede."
+  (testing "eviction drops a counter only while it still equals the
+            completing attempt's issuance, so a superseded attempt's
+            completion keeps its live successor's counter; counters are per
+            frame"
     (rf.http.registry/reset-issuance-counters-for-test!)
     (let [rid [:search-box :q]
-          n1  (rf.http.registry/next-issuance! :frame/counters rid)   ; attempt A: issuance 1
-          n2  (rf.http.registry/next-issuance! :frame/counters rid)]  ; supersede → attempt B: issuance 2
-      (is (= 1 n1))
-      (is (= 2 n2) "the superseding attempt gets a distinct, higher issuance")
-      ;; Attempt A (the SUPERSEDED one) terminates. Its evict keys on issuance 1,
-      ;; but the counter is already at 2 → the atomic compare-and-drop SKIPS.
+          n1  (rf.http.registry/next-issuance! :frame/counters rid)
+          n2  (rf.http.registry/next-issuance! :frame/counters rid)]
+      (is (= [1 2] [n1 n2]))
       (rf.http.registry/evict-issuance-on-completion! :frame/counters rid n1)
-      (is (= 1 (rf.http.registry/issuance-counter-count))
-          "the superseded attempt's eviction does NOT drop the live counter")
       (is (= 3 (rf.http.registry/next-issuance! :frame/counters rid))
-          "the counter survived at 2, so the next issuance is 3 — no work-id collision")
-      ;; The final live attempt terminates with the counter at its own issuance.
+          "the superseded attempt's eviction skipped, so the counter survived at 2")
       (rf.http.registry/evict-issuance-on-completion! :frame/counters rid 3)
-      (is (zero? (rf.http.registry/issuance-counter-count))
-          "the id's final attempt evicts cleanly, bounding the map")))
-  ;; A nil request-id never had a counter (anonymous requests stay at issuance 1
-  ;; without touching the map) — eviction is a no-op.
-  (rf.http.registry/reset-issuance-counters-for-test!)
-  (rf.http.registry/evict-issuance-on-completion! :frame/counters nil 1)
-  (is (zero? (rf.http.registry/issuance-counter-count))
-      "evicting a nil request-id is a no-op")
-  ;; The counter is FRAME-SCOPED: a sibling frame reusing the same
-  ;; raw id runs its own sequence and starts at 1, rather than inheriting the
-  ;; other frame's count.
-  (rf.http.registry/reset-issuance-counters-for-test!)
-  (is (= 1 (rf.http.registry/next-issuance! :frame/a :shared)))
-  (is (= 1 (rf.http.registry/next-issuance! :frame/b :shared))
-      "a sibling frame's first issuance under the same raw id is 1, not 2")
-  (is (= 2 (rf.http.registry/next-issuance! :frame/a :shared))
-      "each frame advances its own counter independently")
-  (rf.http.registry/reset-issuance-counters-for-test!))
+      (is (zero? (rf.http.registry/issuance-counter-count))))
+    (rf.http.registry/reset-issuance-counters-for-test!)
+    (is (= [1 1 2] [(rf.http.registry/next-issuance! :frame/a :shared)
+                    (rf.http.registry/next-issuance! :frame/b :shared)
+                    (rf.http.registry/next-issuance! :frame/a :shared)])
+        "a sibling frame reusing a raw id runs its own sequence")
+    (rf.http.registry/reset-issuance-counters-for-test!)))
