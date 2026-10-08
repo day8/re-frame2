@@ -224,25 +224,20 @@
     ;; the view dispatches load-more — runtime derives the next cursor from the tail.
     (load-more!)
     (let [vm (feed-state)]
-      (is (true? (:fetching-next? vm)) ":fetching-next? true (the spinner shows)")
-      (is (false? (:fetching? vm)) "a load-more is NOT a whole-feed refresh")
-      (is (= [{:id 0 :title "A"}] (:items vm)) "the accumulated page stays visible (no skeleton)"))
-    (let [req-params (get-in @last-managed-args [:request :params])]
-      (is (= 1 (:page-index req-params)) "next page index 1")
-      (is (= 1 (:cursor req-params)) "the cursor is the page-0-derived next param"))
+      (is (= [true false [{:id 0 :title "A"}]] ((juxt :fetching-next? :fetching? :items) vm))
+          ":fetching-next? true (the spinner shows) but NOT a whole-feed refresh, and the accumulated page stays visible (no skeleton)"))
+    (is (= [1 1] ((juxt :page-index :cursor) (get-in @last-managed-args [:request :params])))
+        "next page index 1, with the page-0-derived next param as the cursor")
     ;; settle the next page — it appends in order, cursor advances.
     (reply-success! (page [{:id 1 :title "B"}] 2))
     (let [vm        (feed-state)
           nav-token (get-in (runtime-db) [:rf.runtime/routing :current :nav-token])]
-      (is (false? (:fetching-next? vm)) ":fetching-next? clears after the page lands")
-      (is (= [{:id 0 :title "A"} {:id 1 :title "B"}] (:items vm))
-          "the next page appended to the merged list in load order")
-      (is (= 2 (:page-count vm)) "two pages accumulated as ONE entry")
       ;; load-more carried a :cause, NO :owner — the route nav-token owner is
       ;; still the SOLE liveness owner (load-more extends an already-owned feed).
-      (is (= #{[:route :infinite-feed.app/timeline nav-token]}
-             (:active-owners (entry)))
-          "load-more added no owner; the route remains the sole liveness owner"))))
+      (is (= [false [{:id 0 :title "A"} {:id 1 :title "B"}] 2
+              #{[:route :infinite-feed.app/timeline nav-token]}]
+             [(:fetching-next? vm) (:items vm) (:page-count vm) (:active-owners (entry))])
+          ":fetching-next? clears as the next page appends in load order, two pages accumulated as ONE entry, and the route remains the sole liveness owner"))))
 
 ;; ============================================================================
 ;; 2. THE TERMINAL is nil — a nil next-cursor flips has-next? false (end-of-feed)
@@ -257,13 +252,13 @@
     ;; settle page 0 as a TERMINAL page (nil next-cursor).
     (reply-success! (page [{:id 0 :title "A"}] nil))
     (let [vm (feed-state)]
-      (is (false? (:has-next-page? vm)) "nil next-cursor ⇒ has-next? false (end-of-feed)")
-      (is (= [{:id 0 :title "A"}] (:items vm)) "the single page is shown"))
+      (is (= [false [{:id 0 :title "A"}]] ((juxt :has-next-page? :items) vm))
+          "nil next-cursor ⇒ has-next? false (end-of-feed), with the single page shown"))
     (reset! last-managed-args nil)
     ;; the view would not render the button, but a stray load-more is a safe no-op.
     (load-more!)
-    (is (nil? @last-managed-args) "a terminal load-more fires NO request")
-    (is (= 1 (:page-count (feed-state))) "no page appended on a terminal load-more")))
+    (is (= [nil 1] [@last-managed-args (:page-count (feed-state))])
+        "a terminal load-more fires NO request and appends no page")))
 
 ;; ============================================================================
 ;; 3. THE THIRD ERROR CHANNEL — a load-more failure keeps the feed, sets :page-error
@@ -279,18 +274,15 @@
     (load-more!)
     (reply-failure! {:kind :rf.http/server :status 503})
     (let [vm (feed-state)]
-      (is (= {:kind :rf.http/server :status 503} (:page-error vm))
-          ":page-error recorded (the third channel)")
-      (is (nil? (:error vm)) "NOT the first-load :error channel")
-      (is (nil? (:refresh-error vm)) "NOT the whole-feed :refresh-error channel")
-      (is (= [{:id 0 :title "A"}] (:items vm)) "the accumulated page is KEPT (feed not lost)")
-      (is (= :loaded (:status (entry))) "the feed returns to :loaded (couldn't-load-more, retry)"))
+      (is (= [{:kind :rf.http/server :status 503} nil nil [{:id 0 :title "A"}] :loaded]
+             [(:page-error vm) (:error vm) (:refresh-error vm) (:items vm) (:status (entry))])
+          ":page-error recorded (the third channel), NOT the first-load :error or whole-feed :refresh-error; the accumulated page is KEPT and the feed returns to :loaded (couldn't-load-more, retry)"))
     ;; retry the load-more — it succeeds, clearing the page-error and appending.
     (load-more!)
     (reply-success! (page [{:id 1 :title "B"}] 2))
     (let [vm (feed-state)]
-      (is (nil? (:page-error vm)) "the next successful load-more cleared :page-error")
-      (is (= [{:id 0 :title "A"} {:id 1 :title "B"}] (:items vm)) "the retried page appended"))))
+      (is (= [nil [{:id 0 :title "A"} {:id 1 :title "B"}]] ((juxt :page-error :items) vm))
+          "the next successful load-more cleared :page-error and appended the retried page"))))
 
 ;; ============================================================================
 ;; 4. A PAGE 0 first-load failure with no data surfaces via the FIRST-LOAD
@@ -306,9 +298,6 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
     (reply-failure! {:kind :rf.http/server :status 500})
     (let [vm (feed-state)]
-      (is (false? (:has-data? vm)) "no data loaded")
-      (is (= {:kind :rf.http/server :status 500} (:error vm))
-          "the page-0 first-load failure surfaces via the first-load :error channel")
-      (is (nil? (:page-error vm)) "NOT the load-more :page-error channel (page 0 is not a load-more)")
-      (is (nil? (:refresh-error vm)) "NOT the whole-feed :refresh-error channel either")
-      (is (= :error (:status (entry))) "the feed entry settles :status :error (first-load failure)"))))
+      (is (= [false {:kind :rf.http/server :status 500} nil nil :error]
+             [(:has-data? vm) (:error vm) (:page-error vm) (:refresh-error vm) (:status (entry))])
+          "with no data loaded, the page-0 failure surfaces via the first-load :error channel (NOT :page-error, page 0 is not a load-more, nor :refresh-error) and the entry settles :status :error"))))
