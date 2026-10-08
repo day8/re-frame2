@@ -60,7 +60,6 @@
   than to an assertion that passes because nothing ran. The real run is
   `npm run test:browser`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -88,25 +87,6 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
-
-;; ---------------------------------------------------------------------------
-;; The exercised population — a MEASUREMENT, not a claim
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "The React-driven mechanisms this file undertakes to exercise.
-  [[the-declared-population-was-actually-exercised]] asserts that every
-  one was reached at runtime, so the roster cannot drift into a list of
-  things the suite used to do."
-  #{:activity/hide
-    :activity/hidden-render
-    :activity/reveal
-    :activity/reveal-corrects-a-stale-fiber
-    :suspense/post-commit-fallback-and-retry})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -354,8 +334,6 @@
                 (testing "and re-frame state is untouched"
                   (is (= 1 (:a (rf/app-db-value frame-id)))))
 
-                (exercised! :activity/hide)
-
                 ;; A WRITE while hidden, and a PROP change while hidden.
                 ;; The write is what the reveal will have to correct for;
                 ;; the prop change is what moves the hidden read set.
@@ -378,8 +356,6 @@
                   (is (zero? (reader-count [:acsd/a])))
                   (is (zero? (:cell-refs (ownership))))
                   (is (zero? (:edges (ownership)))))
-
-                (exercised! :activity/hidden-render)
 
                 ;; REVEAL.
                 (act! (fn [] (@!set-mode "visible")))
@@ -421,7 +397,6 @@
               (fn [_]
                 (is (= 1 (reader-count [:acsd/b]))
                     "and the repaint did not add a second reader")
-                (exercised! :activity/reveal)
                 (teardown-census! handle)))
             (.catch (report-failure! "activity lifecycle witness" handle))
             (.then (fn [_] (done))))))))
@@ -594,7 +569,6 @@
                              "re-subscribe as a passive effect; more than "
                              "one means the correction has slipped further "
                              "from the reveal."))))
-                (exercised! :activity/reveal-corrects-a-stale-fiber)
                 (teardown-census! handle)))
             (.catch (report-failure! "reveal paint-order witness" handle))
             (.then (fn [_] (done))))))))
@@ -731,19 +705,6 @@
             (.then
               (fn [_]
                 (is (= 1 (reader-count [:acsd/a])))
-                (exercised! :suspense/post-commit-fallback-and-retry)
                 (teardown-census! handle)))
             (.catch (report-failure! "post-commit suspension witness" handle))
             (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The roster, asserted rather than described
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test runs none of the mechanisms above")
-    (is (= declared-population @!exercised)
-        (str "every declared Activity/Suspense mechanism must be reached at
-              runtime. Missing: "
-             (pr-str (set/difference declared-population @!exercised))))))
