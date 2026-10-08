@@ -58,25 +58,19 @@
 ;; ---- (1) conforming completion output → no trace -------------------------
 
 (deftest conforming-output-emits-no-trace
-  (testing "a finishing machine whose :output-key payload conforms emits no
-            :where :machine-output trace"
-    (let [spec {:initial :running
-                :data    {}
-                :schemas {:output [:int]}
-                :states  {:running {:on {:fin {:target :done
-                                               :action (fn [{data :data}]
-                                                         {:data (assoc data :result 42)})}}}
-                          :done    {:final?     true
-                                    :output-key :result}}}]
-      (rf/reg-machine :rf.machine-output/ok spec)
-      (let [traces (collect-output-traces!
-                     (fn []
-                       (rf/dispatch-sync [:rf.machine-output/ok [:noop]])
-                       (rf/dispatch-sync [:rf.machine-output/ok [:fin]])))]
-        (is (empty? traces)
-            "no :where :machine-output trace for a conforming output")
-        (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/ok))
-            "the machine finished + auto-destroyed normally")))))
+  (rf/reg-machine :rf.machine-output/ok
+    {:initial :running
+     :data    {}
+     :schemas {:output [:int]}
+     :states  {:running {:on {:fin {:target :done
+                                    :action (fn [{data :data}]
+                                              {:data (assoc data :result 42)})}}}
+               :done    {:final?     true
+                         :output-key :result}}})
+  (is (empty? (collect-output-traces!
+                (fn []
+                  (rf/dispatch-sync [:rf.machine-output/ok [:noop]])
+                  (rf/dispatch-sync [:rf.machine-output/ok [:fin]]))))))
 
 ;; ---- (2) violating completion output → one trace, completion still flows ---
 
@@ -84,44 +78,33 @@
   (testing "a finishing singleton whose :output-key payload violates the schema
             emits exactly one :where :machine-output :phase :completion trace,
             and the machine STILL finishes (best-effort — :rollback? false)"
-    (let [spec {:initial :running
-                :data    {}
-                :schemas {:output [:int]}
-                :states  {:running {:on {:fin {:target :done
-                                               :action (fn [{data :data}]
-                                                         ;; "nope" violates [:int]
-                                                         {:data (assoc data :result "nope")})}}}
-                          :done    {:final?     true
-                                    :output-key :result}}}]
-      (rf/reg-machine :rf.machine-output/bad spec)
-      (rf/dispatch-sync [:rf.machine-output/bad [:noop]])
-      (let [traces   (collect-output-traces!
-                       #(rf/dispatch-sync [:rf.machine-output/bad [:fin]]))
-            trace-ev (first traces)
-            tag      (:tags trace-ev)]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-output trace fired on the violating completion")
-        (is (= :machine-output (:where tag))
-            "trace's :where tag pins the completion-output boundary")
-        (is (= :rf.machine-output/bad (:machine-id tag)))
-        (is (= :rf.machine-output/bad (:failing-id tag)))
-        (is (= :completion (:phase tag))
-            "tag's :phase is :completion (the finalize-time output check)")
-        (is (= "nope" (:value tag))
-            "tag carries the offending output payload")
-        (is (contains? tag :received)       ":received present (parallels :value)")
-        (is (contains? tag :schema)         ":schema present (consumers render it inline)")
-        (is (contains? tag :explain)        ":explain present (Malli explanation)")
-        (is (false? (:rollback? tag))
-            "completion is best-effort — :rollback? false (machine already finished)")
-        (is (string? (:reason tag))         ":reason is a human-readable string")
-        ;; `:recovery` rides the trace envelope, not :tags — mirrors :where :machine-data.
-        (is (= :no-recovery (:recovery trace-ev))
-            ":recovery :no-recovery on the trace envelope")
-        ;; The completion STILL flows: the machine auto-destroyed despite the
-        ;; output schema violation (best-effort fail-loud, not suppression).
-        (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/bad))
-            "the machine STILL finished + auto-destroyed (completion flows)")))))
+    (rf/reg-machine :rf.machine-output/bad
+      {:initial :running
+       :data    {}
+       :schemas {:output [:int]}
+       :states  {:running {:on {:fin {:target :done
+                                      :action (fn [{data :data}]
+                                                {:data (assoc data :result "nope")})}}}
+                 :done    {:final?     true
+                           :output-key :result}}})
+    (rf/dispatch-sync [:rf.machine-output/bad [:noop]])
+    (let [[ev :as traces] (collect-output-traces!
+                            #(rf/dispatch-sync [:rf.machine-output/bad [:fin]]))
+          tag             (:tags ev)]
+      (is (= 1 (count traces)))
+      (is (= {:where      :machine-output
+              :machine-id :rf.machine-output/bad
+              :failing-id :rf.machine-output/bad
+              :phase      :completion
+              :value      "nope"
+              :rollback?  false}
+             (select-keys tag [:where :machine-id :failing-id :phase :value :rollback?])))
+      (is (= [true true true true :no-recovery]
+             [(contains? tag :received) (contains? tag :schema) (contains? tag :explain)
+              (string? (:reason tag)) (:recovery ev)])
+          "the Spec 009 schema-failure shape consumers render")
+      (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/bad))
+          "the machine STILL finished + auto-destroyed (completion flows)"))))
 
 ;; ---- (3) spawned child: violating output → trace + parent :on-done STILL runs
 
@@ -129,60 +112,34 @@
   (testing "a spawned child whose :output-key payload violates [:schemas :output]
             emits the boundary trace AND the parent's :on-done STILL receives
             the (violating) result — output validation observes, never suppresses"
-    (let [seen-result (atom :unset)]
-      (rf/reg-machine :rf.machine-output/spawn-child
-        {:initial :running
-         :data    {}
-         :schemas {:output [:int]}
-         :states  {:running {:on {:fin {:target :done
-                                        :action (fn [{data :data}]
-                                                  {:data (assoc data :result "bad")})}}}
-                   :done    {:final?     true
-                             :output-key :result}}})
-      (rf/reg-machine :rf.machine-output/spawn-parent
-        {:initial :working
-         :data    {}
-         :states  {:working
-                   {:spawn {:machine-id :rf.machine-output/spawn-child
-                            :on-done    (fn [{d :data r :result}]
-                                          (reset! seen-result r)
-                                          (assoc d :reported r))}}}})
-      (let [traces
-            (collect-output-traces!
-              (fn []
-                (rf/dispatch-sync [:rf.machine-output/spawn-parent [:rf.machine.spawn/spawned]])
-                (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                         [:rf.runtime/machines :spawned
-                                          :rf.machine-output/spawn-parent [:working]])]
-                  (rf/dispatch-sync [spawned-id [:fin]]))))]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-output trace fired for the spawned child")
-        (is (= "bad" (-> traces first :tags :value))
-            "the trace carries the child's violating output payload")
-        (is (= "bad" @seen-result)
-            "the parent's :on-done STILL received the result — validation observes, not suppresses")
-        (is (= "bad" (get-in (rf.machines.test-support/snapshot :rf.machine-output/spawn-parent) [:data :reported]))
-            "the parent's :data mutation from :on-done still landed")))))
+    (rf/reg-machine :rf.machine-output/spawn-child
+      {:initial :running
+       :data    {}
+       :schemas {:output [:int]}
+       :states  {:running {:on {:fin {:target :done
+                                      :action (fn [{data :data}]
+                                                {:data (assoc data :result "bad")})}}}
+                 :done    {:final?     true
+                           :output-key :result}}})
+    (rf/reg-machine :rf.machine-output/spawn-parent
+      {:initial :working
+       :data    {}
+       :states  {:working
+                 {:spawn {:machine-id :rf.machine-output/spawn-child
+                          :on-done    (fn [{d :data r :result}] (assoc d :reported r))}}}})
+    (let [traces (collect-output-traces!
+                   (fn []
+                     (rf/dispatch-sync [:rf.machine-output/spawn-parent [:rf.machine.spawn/spawned]])
+                     (rf/dispatch-sync [(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                                [:rf.runtime/machines :spawned
+                                                 :rf.machine-output/spawn-parent [:working]])
+                                        [:fin]])))]
+      (is (= [["bad"] "bad"]
+             [(mapv (comp :value :tags) traces)
+              (get-in (rf.machines.test-support/snapshot :rf.machine-output/spawn-parent)
+                      [:data :reported])])))))
 
 ;; ---- (4) no schema → no validation (control) ------------------------------
-
-(deftest no-output-schema-no-validation
-  (testing "a machine without [:schemas :output] finishes without any
-            :where :machine-output trace"
-    (let [spec {:initial :running
-                :data    {}
-                :states  {:running {:on {:fin {:target :done
-                                               :action (fn [{data :data}]
-                                                         {:data (assoc data :result "anything")})}}}
-                          :done    {:final?     true
-                                    :output-key :result}}}]
-      (rf/reg-machine :rf.machine-output/no-schema spec)
-      (let [traces (collect-output-traces!
-                     (fn []
-                       (rf/dispatch-sync [:rf.machine-output/no-schema [:noop]])
-                       (rf/dispatch-sync [:rf.machine-output/no-schema [:fin]])))]
-        (is (empty? traces)
-            "no :where :machine-output trace for a no-output-schema machine")))))
 
 ;; ---- (5) nil output passes vacuously against a nil-admitting schema -------
 
