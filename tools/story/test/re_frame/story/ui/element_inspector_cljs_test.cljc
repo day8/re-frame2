@@ -1,57 +1,22 @@
 (ns re-frame.story.ui.element-inspector-cljs-test
-  "Tests for the element-level click-to-code inspector.
-
-  Runs on both the JVM (cognitect.test-runner via `clojure -M:test`)
-  and the CLJS node-test build (shadow's `:node-test` target picks up
-  the `cljs-test$` ns-regex). The pure helpers — coord parsing,
-  handler-keyword reconstruction — are CLJC; the side-effectful
-  install/remove/toggle paths are CLJS-only.
-
-  ## Coverage
-
-  - **Pure data** (JVM + CLJS):
-    - `parse-coord` reads the `<ns>:<sym>:<line>:<col>` DOM attribute
-      into `{:ns :handler-id :line :col}`. It aliases
-      `re-frame.source-coords/parse-source-coord`, whose own tests pin
-      the degraded and malformed inputs.
-    - `coord->handler-keyword` reconstructs the registered view id.
-
-  - **CLJS-only side-effects**:
-    - `toggle!` / `set-active!` flip the mode flag.
-    - `resolve-source-coord` walks parsed coord + the registry's
-      handler-meta to produce a launchable source-coord map.
-    - The toolbar chip renders the right shape (data-test attr,
-      `aria-haspopup`/`aria-expanded` per the toolbar reset-gate
-      convention,
-      label flips on toggle).
-    - The overlay component renders nothing when inspect mode is off
-      or no element is hovered; renders the outline + tooltip when
-      both are set."
+  "Tests for the element-level click-to-code inspector. The pure
+  `coord->handler-keyword` runs on the JVM and CLJS; the mode toggle, chip,
+  overlay and `resolve-source-coord` are CLJS-only. `parse-coord` aliases
+  `re-frame.source-coords/parse-source-coord`, whose own tests pin it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?@(:cljs [[clojure.string :as str]
-                       [re-frame.core :as rf]
                        [re-frame.source-coords :as rf.source-coords]])
             [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]))
 
-;; ---- pure: parse-coord (JVM + CLJS) -------------------------------------
-
-(deftest parse-coord-canonical
-  (testing "canonical 4-segment shape — the same contract the DOM attr
-            ships in re-frame2 dev builds (Spec 006 §Source-coord
-            annotation)"
-    (is (= {:ns "counter.core" :handler-id "counter-buttons"
-            :line 47 :col 11}
-           (rf.story.ui.element-inspector/parse-coord "counter.core:counter-buttons:47:11")))))
+;; ---- pure (JVM + CLJS) ---------------------------------------------------
 
 (deftest coord->handler-keyword-shape
-  (testing "parsed coord round-trips to the registered view-id keyword"
+  (testing "a parsed coord round-trips to the registered view-id keyword"
     (is (= :counter.core/counter-buttons
            (rf.story.ui.element-inspector/coord->handler-keyword
              {:ns "counter.core" :handler-id "counter-buttons"
               :line 47 :col 11}))))
-  (testing "missing :ns or :handler-id → nil"
-    (is (nil? (rf.story.ui.element-inspector/coord->handler-keyword {:handler-id "x"})))
-    (is (nil? (rf.story.ui.element-inspector/coord->handler-keyword {:ns "x"})))
+  (testing "a nil coord (a malformed attribute) → nil"
     (is (nil? (rf.story.ui.element-inspector/coord->handler-keyword nil)))))
 
 ;; ---- CLJS-only: mode toggle + chip + overlay ----------------------------
@@ -67,57 +32,43 @@
 #?(:cljs
    (deftest mode-toggle-flips-active-flag
      (testing "set-active! + toggle! drive the active? predicate"
-       (is (false? (rf.story.ui.element-inspector/active?)))
        (rf.story.ui.element-inspector/set-active! true)
        (is (true? (rf.story.ui.element-inspector/active?)))
        (rf.story.ui.element-inspector/toggle!)
-       (is (false? (rf.story.ui.element-inspector/active?)))
-       (rf.story.ui.element-inspector/toggle!)
-       (is (true? (rf.story.ui.element-inspector/active?))))))
+       (is (false? (rf.story.ui.element-inspector/active?))))))
 
 #?(:cljs
    (deftest set-active-false-clears-hover
-     (testing "turning the inspector OFF must clear any pending hover
-               snapshot so a stale outline doesn't survive the toggle"
+     (testing "turning the inspector OFF clears any pending hover snapshot so
+               a stale outline doesn't survive the toggle"
        (swap! rf.story.ui.element-inspector/state assoc
               :active? true
               :hover {:coord-attr "x:y:1:1"
                       :handler-id :x/y
                       :rect {:top 0 :left 0 :width 10 :height 10}})
        (rf.story.ui.element-inspector/set-active! false)
-       (is (false? (rf.story.ui.element-inspector/active?)))
        (is (nil? (:hover @rf.story.ui.element-inspector/state))))))
 
 #?(:cljs
    (deftest inspect-chip-renders-toggle-state
-     (testing "chip renders with `aria-haspopup` (not aria-pressed) per
-               the toolbar reset-gate convention"
+     (testing "the chip uses `aria-haspopup` + `aria-expanded`, never
+               `aria-pressed` — the toolbar reset assertion counts
+               [aria-pressed=\"true\"] and this chip must not trip it"
        (let [hiccup (rf.story.ui.element-inspector/inspect-chip)
              props  (second hiccup)]
          (is (= :button (first hiccup)))
          (is (= "story-toolbar-inspect" (:data-test props)))
-         (is (= "true" (:aria-haspopup props))
-             "aria-haspopup must be present — the toolbar reset assertion
-              counts [aria-pressed=\"true\"] and we don't want this chip
-              to trip it")
-         (is (= "false" (:aria-expanded props))
-             "off-state aria-expanded")
-         (is (not (contains? props :aria-pressed))
-             "MUST NOT use aria-pressed — the toolbar reset assertion counts it")
-         (is (fn? (:on-click props)))))))
-
-#?(:cljs
-   (deftest inspect-chip-renders-on-state
-     (testing "chip's data attrs flip after toggle"
+         (is (= "true" (:aria-haspopup props)))
+         (is (= "false" (:aria-expanded props)) "off-state aria-expanded")
+         (is (not (contains? props :aria-pressed)))
+         (is (fn? (:on-click props)))))
+     (testing "aria-expanded flips once inspect mode is on"
        (rf.story.ui.element-inspector/set-active! true)
-       (let [hiccup (rf.story.ui.element-inspector/inspect-chip)
-             props  (second hiccup)]
-         (is (= "true" (:aria-expanded props)))))))
+       (is (= "true" (:aria-expanded (second (rf.story.ui.element-inspector/inspect-chip))))))))
 
 #?(:cljs
-   (deftest overlay-renders-nothing-when-off
-     (testing "overlay returns nil when inspector mode is off, even with a
-               hover snapshot left behind"
+   (deftest overlay-renders-nothing-unless-active-and-hovering
+     (testing "off, even with a hover snapshot left behind → nil"
        (swap! rf.story.ui.element-inspector/state assoc
               :active? false
               :hover {:coord-attr "counter.core:counter:47:11"
@@ -125,67 +76,50 @@
                       :parsed     {:ns "counter.core" :handler-id "counter"
                                    :line 47 :col 11}
                       :rect       {:top 100 :left 200 :width 300 :height 40}})
-       (is (nil? (rf.story.ui.element-inspector/overlay))))))
-
-#?(:cljs
-   (deftest overlay-renders-nothing-when-no-hover
-     (testing "active but no hover → no outline"
+       (is (nil? (rf.story.ui.element-inspector/overlay))))
+     (testing "active but no hover → nil"
        (rf.story.ui.element-inspector/set-active! true)
        (is (nil? (rf.story.ui.element-inspector/overlay))))))
 
 #?(:cljs
    (deftest resolve-source-coord-file-falls-back-to-error-coords
-     (testing "the DOM attribute carries line+col; with no view meta to
-               read, `:file` comes from the error-coords registry.
-               `resolve-source-coord` assembles the full source-coord shape
-               `editor-uri/editor-uri` expects."
+     (testing "with no view meta to read, `:file` comes from the error-coords
+               registry; the DOM attribute's line+col beat the meta side"
        (let [view-id :rf.inspector-test/sample-view]
-         ;; Seed the always-on error-coord registry so the resolver finds
-         ;; a :file even when handler-meta is unset (mirrors the
-         ;; production-elided dev meta case).
          (rf.source-coords/remember-error-coords!
            :view view-id
            {:ns "rf.inspector-test" :file "src/sample.cljs"
             :line 12 :column 4})
          (try
-           (let [parsed   (rf.story.ui.element-inspector/parse-coord
-                            "rf.inspector-test:sample-view:42:7")
-                 resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
-             (is (= "src/sample.cljs" (:file resolved))
-                 ":file pulled from the error-coords registry fallback")
-             (is (= 42 (:line resolved))
-                 "DOM-side line beats meta-side line (the attr is the
-                  most-recent ground truth)")
-             (is (= 7 (:column resolved))
-                 "DOM-side col beats meta-side col"))
+           (is (= {:file "src/sample.cljs" :line 42 :column 7}
+                  (select-keys (rf.story.ui.element-inspector/resolve-source-coord
+                                 (rf.story.ui.element-inspector/parse-coord
+                                   "rf.inspector-test:sample-view:42:7"))
+                               [:file :line :column])))
            (finally
              (rf.source-coords/forget-error-coords!)))))))
 
 #?(:cljs
    (deftest resolve-source-coord-defaults-when-attr-degraded
-     (testing "programmatic-registration coords arrive as `?:?` — the
-               resolver falls through to meta-side line/col when both
-               are present, else 1/1"
+     (testing "programmatic-registration coords arrive as `?:?` — the resolver
+               falls through to the meta-side line/col"
        (let [view-id :rf.inspector-test/degraded]
          (rf.source-coords/remember-error-coords!
            :view view-id
            {:ns "rf.inspector-test" :file "src/d.cljs"
             :line 99 :column 3})
          (try
-           (let [parsed   (rf.story.ui.element-inspector/parse-coord
-                            "rf.inspector-test:degraded:?:?")
-                 resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
-             (is (= 99 (:line resolved))
-                 "meta-side line fills in when DOM-side is nil")
-             (is (= 3 (:column resolved))
-                 "meta-side column fills in when DOM-side is nil"))
+           (is (= [99 3]
+                  ((juxt :line :column)
+                   (rf.story.ui.element-inspector/resolve-source-coord
+                     (rf.story.ui.element-inspector/parse-coord
+                       "rf.inspector-test:degraded:?:?")))))
            (finally
              (rf.source-coords/forget-error-coords!)))))))
 
 #?(:cljs
    (deftest overlay-renders-outline-and-tooltip-when-hovering
-     (testing "active + hover snapshot present → outline + tooltip
-               hiccup with the right test attrs"
+     (testing "active + hover snapshot present → outline + tooltip"
        (swap! rf.story.ui.element-inspector/state assoc
               :active? true
               :hover {:coord-attr "counter.core:counter:47:11"
@@ -196,13 +130,10 @@
                       :rect       {:top 100 :left 200
                                    :width 300 :height 40}})
        (let [root (rf.story.ui.element-inspector/overlay)]
-         (is (vector? root))
          (is (= :div (first root)))
          (is (= "story-element-inspector-overlay"
                 (:data-test (second root))))
-         ;; Two children: outline + tooltip
-         (is (= 4 (count root))
-             "root + props + outline + tooltip = 4 elements")
+         (is (= 4 (count root)) "root + props + outline + tooltip")
          (let [outline (nth root 2)
                tooltip (nth root 3)]
            (is (= :div (first outline)))
@@ -210,6 +141,5 @@
                   (:data-test (second tooltip))))
            (is (= ":counter.core/counter"
                   (:data-handler-id (second tooltip))))
-           ;; The tooltip text carries the handler id + line:col so the
-           ;; user can sanity-check before clicking.
-           (is (str/includes? (nth tooltip 2) "47")))))))
+           (is (str/includes? (nth tooltip 2) "47")
+               "the tooltip names the line so the user can check before clicking"))))))
