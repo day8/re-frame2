@@ -81,9 +81,9 @@
 ;; ---- bounds --------------------------------------------------------------
 
 (def ^:const sub-cap
-  "Maximum number of subs (recomputed + skipped together) captured per
-  epoch. The Xray Reactive panel renders a 'rest elided' affordance
-  when exceeded."
+  "Maximum number of entries captured per epoch in EACH of
+  `:subs-recomputed` and `:subs-skipped`. The two vectors are capped
+  separately; either one exceeding the cap stamps `:sub-cap-truncated?`."
   50)
 
 (def ^:const view-cap
