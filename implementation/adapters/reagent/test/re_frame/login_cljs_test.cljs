@@ -97,9 +97,8 @@
 (deftest data-schema-attached
   (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
     (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))]
-      (is (some? meta) "the :rf/machine projection resolves the registered login machine")
       (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
-          "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))
+          "the :rf/machine projection resolves the login machine, whose [:schemas :data] schema round-trips as login.model/AuthLoginData")))
   (testing "AuthLoginData rejects a non-int :attempts (the live rows below reach
             only the :error key)"
     (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
@@ -121,16 +120,11 @@
                          (fail! f {:not "a string"})))
             trace-ev (first traces)
             tag      (:tags trace-ev)]
-        (is (= 1 (count traces))
-            "exactly one :where :machine-data trace fired on the violating macrostep")
-        (is (= :auth.login/flow (:machine-id tag))
-            "the trace names the login machine")
         ;; `:recovery` rides the trace ENVELOPE, not :tags.
-        (is (= :no-recovery (:recovery trace-ev)))
-        ;; Rollback: the bad :data never sticks. The snapshot's :error must
-        ;; NOT be the rejected map.
-        (is (not= {:not "a string"} (:error (machine-data f)))
-            "the violating :data was rolled back (the bad :error did not commit)")))))
+        (is (= [1 :auth.login/flow :no-recovery false]
+               [(count traces) (:machine-id tag) (:recovery trace-ev)
+                (= {:not "a string"} (:error (machine-data f)))])
+            "exactly one :where :machine-data trace, naming the login machine, fired on the violating macrostep, and the violating :data was rolled back (the bad :error did not commit)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) well-formed :data passes the boundary cleanly
@@ -143,12 +137,9 @@
                      (fn []
                        (submit! f)
                        (fail! f "Invalid credentials.")))]
-        (is (zero? (count traces))
-            "no :where :machine-data trace for a well-formed (string) :error")
-        (is (= "Invalid credentials." (:error (machine-data f)))
-            "the string failure message committed into the machine's :data")
-        (is (= 1 (:attempts (machine-data f)))
-            "the attempt counter advanced (the transition committed)")))))
+        (is (= [0 "Invalid credentials." 1]
+               [(count traces) (:error (machine-data f)) (:attempts (machine-data f))])
+            "no :where :machine-data trace for a well-formed (string) :error: the message committed into the machine's :data and the attempt counter advanced")))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) direct retry from :error-shown clears the prior :error
@@ -160,14 +151,10 @@
       ;; Drive idle → submitting → (string failure) → error-shown.
       (submit! f)
       (fail! f "Invalid credentials.")
-      (is (= :error-shown (machine-state f))
-          "the failed login settled in :error-shown")
-      (is (= "Invalid credentials." (:error (machine-data f)))
-          "the prior failure message is visible in :error-shown")
+      (is (= [:error-shown "Invalid credentials."] [(machine-state f) (:error (machine-data f))])
+          "the failed login settled in :error-shown, its failure message visible")
       ;; Resubmit directly from :error-shown; with no reply issued the machine
       ;; parks in :submitting and the :error slot is observable mid-flight.
       (submit! f)
-      (is (= :submitting (machine-state f))
-          "the retry re-entered :submitting (no reply issued)")
-      (is (nil? (:error (machine-data f)))
-          "the :clear-error action cleared the stale error on the retry transition"))))
+      (is (= [:submitting nil] [(machine-state f) (:error (machine-data f))])
+          "the retry re-entered :submitting (no reply issued), its :clear-error action clearing the stale error"))))

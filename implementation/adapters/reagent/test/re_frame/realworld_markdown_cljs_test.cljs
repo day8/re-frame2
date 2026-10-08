@@ -88,22 +88,12 @@
   ;; The defensive sanitization primitive, tested in isolation (markdown-it
   ;; also rejects these schemes upstream, so this pins OUR layer directly).
   (testing "allowlisted absolute schemes + relative navigation are safe"
-    (is (md/safe-url? "https://example.com"))
-    (is (md/safe-url? "http://example.com"))
-    (is (md/safe-url? "mailto:a@b.c"))
-    (is (md/safe-url? "/relative/path"))
-    (is (md/safe-url? "#fragment"))
-    (is (md/safe-url? "./sibling"))
-    (is (md/safe-url? "../parent")))
+    (is (= [] (remove md/safe-url? ["https://example.com" "http://example.com" "mailto:a@b.c"
+                                    "/relative/path" "#fragment" "./sibling" "../parent"]))))
   (testing "script-bearing schemes are rejected (incl. casing / whitespace tricks)"
-    (is (not (md/safe-url? "javascript:alert(1)")))
-    (is (not (md/safe-url? "JavaScript:alert(1)")))
-    (is (not (md/safe-url? "  javascript:alert(1)")))
-    (is (not (md/safe-url? "vbscript:msgbox(1)")))
-    (is (not (md/safe-url? "data:text/html,<script>alert(1)</script>")))
-    (is (not (md/safe-url? "file:///etc/passwd")))
-    (is (not (md/safe-url? "")))
-    (is (not (md/safe-url? nil)))))
+    (is (= [] (filter md/safe-url? ["javascript:alert(1)" "JavaScript:alert(1)" "  javascript:alert(1)"
+                                    "vbscript:msgbox(1)" "data:text/html,<script>alert(1)</script>"
+                                    "file:///etc/passwd" "" nil])))))
 
 (deftest no-dangerously-set-inner-html
   (testing "no emitted attribute map carries :dangerouslySetInnerHTML for ANY input"

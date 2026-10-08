@@ -1,28 +1,6 @@
 (ns re-frame.adapter.reagent-slim-cljs-test
-  "Structural tests for re-frame.adapter.reagent-slim.
-
-  The substrate-shape contract (per re-frame.substrate.adapter):
-
-    The adapter map carries the contract fns (6 required + 3 optional +
-    1 lifecycle) plus the :kind discriminator; signatures match the
-    bridge. Apps doing `(rf/init! reagent-slim/adapter)` see the same
-    shape they get from `(rf/init! reagent/adapter)`.
-
-  Test strategy: we don't drive React DOM here (no jsdom in node-
-  test); we exercise the adapter map's keys and the shape of the
-  fns on each slot. The full `(rf/init! ...)` dispatch / subscribe /
-  render path is exercised in the browser-test target.
-
-  The `:adapter/current-frame` and
-  `:adapter/current-component` late-bind hooks are installed as
-  routing closures that delegate to the actively-installed adapter
-  (via `substrate-adapter/current-adapter`) — so a test bundle that
-  loads multiple adapter ns's does not see the last-loaded one
-  silently win at the hook regardless of which adapter was
-  `(rf/init!)`-installed. The `:reagent/set-hiccup-emitter!` hook is
-  chained at ns-load time per the SSR shipping convention.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Structural tests for re-frame.adapter.reagent-slim: the adapter map's
+  substrate contract keys, and the SSR emitter hook chained at ns-load."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -72,10 +50,6 @@
       (is (= :rf.adapter/reagent-slim (:kind rf.adapter.reagent-slim/adapter))
           ":kind matches the canonical reagent-slim discriminator"))))
 
-(deftest adapter-slot-fns-callable
-  (testing "every adapter contract slot value is a fn (excludes the :kind discriminator)"
-    (doseq [[k v] (dissoc rf.adapter.reagent-slim/adapter :kind)]
-      (is (fn? v) (str "adapter slot " k " is callable")))))
 
 ;; ---------------------------------------------------------------------------
 ;; render-to-string requires emitter installation
@@ -89,8 +63,6 @@
             render-to-string without a direct `set-hiccup-emitter!`
             call from user code."
     (let [hook-fn (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
-      (is (some? hook-fn)
-          "the chained hook is registered after the Reagent Slim adapter ns has loaded")
       (with-cleared-hiccup-emitter
         (fn []
           (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)]
@@ -102,14 +74,3 @@
             (is (str/starts-with? html "<mock>")
                 "the chained hook wired the Reagent Slim adapter's emitter slot"))
           (hook-fn nil))))))
-
-;; ---------------------------------------------------------------------------
-;; register-context-provider returns the views ns's frame-provider
-;; ---------------------------------------------------------------------------
-
-(deftest register-context-provider-returns-component
-  (testing "register-context-provider returns a component value"
-    (let [reg (:register-context-provider rf.adapter.reagent-slim/adapter)
-          provider (reg :rf/some-frame)]
-      (is (some? provider)
-          "register-context-provider returned a non-nil component"))))

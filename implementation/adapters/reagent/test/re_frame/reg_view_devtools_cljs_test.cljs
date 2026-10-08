@@ -5,24 +5,12 @@
   Context backing the frame-provider carries a recognisable
   `displayName` for the Context inspector.
 
-  Coverage:
-
-    - THE EQUALITY ROW: `(performance/build-name :render id)` equals
-      `\"rf:render:\" + displayName`. Spec 009 §Naming convention makes
-      the two ONE identifier, and asserting each half is separately
-      well-formed would let them drift (DevTools showing
-      `:cart/total-line` while the bracket writes
-      `rf:render:cart/total-line`). Only an equality can catch that.
-    - The frame-context's React `displayName` is set to `\"rf2-frame\"`.
-    - NO `:_jsxFileName` / `:_jsxLineNumber`
-      / `:_jsxColumnNumber` JSX-shaped source-coord props are injected
-      into rendered hiccup. Such props would not work (Reagent passes
-      them through as DOM attributes; DevTools reads `__source` from
-      React.createElement, not element props).
-
-  Production-elision is verified separately by the elision-probe
-  build (sentinel `rf2-frame` in `scripts/check-elision.cjs`) and by
-  `reg_view_devtools_elision_prod_test.cljs`."
+  Spec 009 §Naming convention makes the `rf:render:<id>` measure name and
+  the displayName ONE identifier, so they are asserted equal rather than
+  each well-formed. No JSX-shaped `_jsx*` props reach rendered hiccup:
+  Reagent would pass them through as DOM attributes, and DevTools reads
+  `__source` off `React.createElement` anyway. Production elision is the
+  elision-probe build's and `reg_view_devtools_elision_prod_test.cljs`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -56,26 +44,14 @@
                  [] [:p "x"])
     (let [id      :rf.devtools-test/one-identifier
           wrapped (rf/view id)]
-      (is (= (rf.performance/build-name :render id)
-             (str "rf:render:" (.-displayName ^js wrapped)))
-          "the render measure name is exactly \"rf:render:\" + displayName")
-      ;; Non-vacuous on both sides: a namespaced keyword, and a measure
-      ;; name that really does carry the namespace (so the equality is not
-      ;; satisfied by two empty strings).
-      (is (= "rf:render:rf.devtools-test/one-identifier"
-             (rf.performance/build-name :render id))
-          "the measure name is the documented shape for a namespaced id"))))
+      ;; Against the literal too, so two empty strings cannot satisfy it.
+      (is (= ["rf:render:rf.devtools-test/one-identifier"
+              "rf:render:rf.devtools-test/one-identifier"]
+             [(rf.performance/build-name :render id)
+              (str "rf:render:" (.-displayName ^js wrapped))])
+          "the render measure name is exactly \"rf:render:\" + displayName, in the documented shape"))))
 
 ;; ---- JSX source-coord props (must NOT be injected) -----------------------
-;;
-;; There is no JSX-prop injection: the props would leak
-;; to the DOM as attributes, triggering React's "unrecognised prop on a
-;; DOM element" console warnings, AND would not deliver their
-;; intended benefit (React DevTools' "View source" reads `__source`
-;; off `React.createElement`'s third arg — set by
-;; `@babel/plugin-transform-react-jsx-source` at JSX-compile time, NOT
-;; from element props). These tests pin the absence so a
-;; well-intentioned introduction doesn't bring the noise.
 
 (deftest jsx-source-props-not-injected-by-macro-path
   (testing "a macro-registered view's rendered hiccup carries NO
@@ -86,14 +62,10 @@
     (let [render (rf/view :rf.devtools-test/no-jsx-macro)
           out    (render)
           attrs  (root-attrs out)]
-      (is (map? attrs) "attrs map still spliced in for data-* attributes")
-      (is (string? (:data-rf2-source-coord attrs))
-          "data-rf2-source-coord still present (rides the same wrapper)")
-      (is (string? (:data-rf-view attrs))
-          "data-rf-view still present (rides the same wrapper)")
-      (is (nil? (:_jsxFileName attrs))     "_jsxFileName not injected")
-      (is (nil? (:_jsxLineNumber attrs))   "_jsxLineNumber not injected")
-      (is (nil? (:_jsxColumnNumber attrs)) "_jsxColumnNumber not injected"))))
+      (is (= [true true nil nil nil]
+             [(string? (:data-rf2-source-coord attrs)) (string? (:data-rf-view attrs))
+              (:_jsxFileName attrs) (:_jsxLineNumber attrs) (:_jsxColumnNumber attrs)])
+          "the data-* attributes still ride the wrapper's attrs map, with no _jsx* props"))))
 
 ;; ---- React Context displayName --------------------------------------------
 

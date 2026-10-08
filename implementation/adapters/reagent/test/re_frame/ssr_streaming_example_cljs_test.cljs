@@ -115,12 +115,10 @@
             (Conventions — keyword heads are HTML elements, never views)"
     (seed-cards!)
     (let [html (render-client-tree)]
-      (is (not (str/includes? html "<suspense-boundary"))
-          (str ":rf/suspense-boundary is a server-only marker; it must not "
-               "reach a client render tree. Got: " html))
-      (is (not (str/includes? html "<card"))
-          (str "A keyword view-ref head (`<card`, `<card-skeleton`) renders as "
-               "a literal DOM tag on the client. Got: " html)))))
+      (is (= [] (filter #(str/includes? html %) ["<suspense-boundary" "<card"]))
+          (str ":rf/suspense-boundary is a server-only marker that must not reach a "
+               "client render tree, and a keyword view-ref head (`<card`, "
+               "`<card-skeleton`) would render as a literal DOM tag. Got: " html)))))
 
 ;; ---- (2) the client paints the same structure the server streamed ----------
 
@@ -132,11 +130,10 @@
     (let [html (render-client-tree)]
       ;; `<main …>` also carries the adapter's dev-only source-coord /
       ;; view-id attributes, so match the class rather than the whole tag.
-      (is (str/includes? html "class=\"dashboard\"") html)
-      (is (str/includes? html "42375") html)
-      (is (str/includes? html "Revenue (last 7 days)") html)
-      (is (str/includes? html "New signups (last 7 days)") html)
-      (is (str/includes? html "P50 latency (ms)") html)
+      (is (= [] (remove #(str/includes? html %)
+                        ["class=\"dashboard\"" "42375" "Revenue (last 7 days)"
+                         "New signups (last 7 days)" "P50 latency (ms)"]))
+          html)
       (is (= 4 (count (re-seq #"class=\"card[\" ]" html)))
           (str "expected four rendered cards (three resolved + the flaky "
                "one's skeleton). Got: " html)))))
@@ -151,8 +148,8 @@
             carrying a nil branch that duplicates it"
     (seed-cards!)
     (let [html (render-client-tree)]
-      (is (str/includes? html "class=\"card skeleton\"") html)
-      (is (str/includes? html "Loading flaky") html)))
+      (is (= [] (remove #(str/includes? html %) ["class=\"card skeleton\"" "Loading flaky"]))
+          html)))
 
   (testing "the fallback is a consequence of the RECORDED OUTCOME, not of
             the card's data being absent. Clear the record and the same

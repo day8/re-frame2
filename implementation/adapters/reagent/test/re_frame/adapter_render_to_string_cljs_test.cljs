@@ -1,29 +1,9 @@
 (ns re-frame.adapter-render-to-string-cljs-test
-  "Pin the `:rf.error/no-hiccup-emitter-bound` ex-info
-  shape and the post-(require re-frame.ssr) wiring.
-
-  The Reagent adapter's `:render-to-string` slot throws when no hiccup
-  emitter has been installed via `set-hiccup-emitter!`. The SSR
-  artefact (`re-frame.ssr`) registers itself through the
-  `:reagent/set-hiccup-emitter!` late-bind hook at ns-load, so the
-  common case — `(require '[re-frame.ssr])` then call
-  `(render-to-string ...)` — Just Works. This test pins two contracts:
-
-    1. The pre-wire failure: when the emitter is absent, calling
-       `render-to-string` throws an `ExceptionInfo` whose
-       `ex-message` is `:rf.error/no-hiccup-emitter-bound` and whose
-       `ex-data` carries `:reason` (string) and an EP-0015-safe
-       `:render-tree/summary` (the SHAPE of the tree, never the raw
-       tree).
-
-    2. The post-wire success: after `re-frame.ssr` has resolved the
-       late-bind hook and installed the emitter, `render-to-string`
-       returns an HTML string.
-
-  Sibling: re-frame.adapter.uix-render-to-string-cljs-test on the UIx
-  adapter — same contract, different adapter.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "The Reagent adapter's `:render-to-string` slot throws
+  `:rf.error/no-hiccup-emitter-bound` while no hiccup emitter is installed,
+  carrying a `:reason` and an EP-0015-safe `:render-tree/summary` rather than
+  the tree; once `re-frame.ssr` has installed its emitter through the
+  `:reagent/set-hiccup-emitter!` late-bind hook at ns-load, it returns HTML."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Loading `re-frame.ssr` here is the canonical wiring path
@@ -39,13 +19,8 @@
   `set-hiccup-emitter!` (public per the adapter ns docstring); we use
   it both to clear the slot and to restore it."
   [f]
-  (let [;; Capture the currently-installed emitter by exercising
-        ;; render-to-string indirectly: the only public read is to call
-        ;; it. We can't peek; what we CAN do is snapshot the SSR-side
-        ;; render-to-string fn (which is what was installed) and put it
-        ;; back via set-hiccup-emitter! after the test. The fn lives in
-        ;; re-frame.ssr/render-to-string (re-exported from
-        ;; re-frame.ssr.emit/render-to-string).
+  (let [;; The installed emitter cannot be read back, so restore the one
+        ;; re-frame.ssr installs.
         ssr-emitter (resolve 're-frame.ssr/render-to-string)]
     (rf.adapter.reagent/set-hiccup-emitter! nil)
     (try
@@ -71,25 +46,18 @@
               thrown    (try
                           (render-fn tree {})
                           nil
-                          (catch :default e e))]
-          (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
-              "ex-data :rf.error/id carries the canonical discriminator")
-          (let [data (ex-data thrown)]
-            (is (string? (:reason data))
-                ":reason key is a string explaining the misconfiguration")
-            ;; EP-0015: the raw render-tree is NOT carried —
-            ;; only an EP-0015-safe shape summary.
-            (is (nil? (:render-tree data))
-                "there is no raw :render-tree slot (EP-0015)")
-            (let [summary (:render-tree/summary data)]
-              (is (= :vector (:type summary))
-                  ":render-tree/summary describes the tree's SHAPE")
-              (is (= 2 (:count summary))
-                  "the summary carries the element count, not the children"))
-            (is (not (re-find #"xyzzy" (pr-str data)))
-                "no hiccup child content leaked into the thrown ex-data")
-            (is (not (re-find #"xyzzy" (.-message thrown)))
-                "no hiccup child content leaked into the message")))))))
+                          (catch :default e e))
+              data      (ex-data thrown)]
+          (is (= {:id :rf.error/no-hiccup-emitter-bound :reason-string? true
+                  :raw-tree nil :summary {:type :vector :count 2}
+                  :leaked-into-data? false :leaked-into-message? false}
+                 {:id                   (:rf.error/id data)
+                  :reason-string?       (string? (:reason data))
+                  :raw-tree             (:render-tree data)
+                  :summary              (select-keys (:render-tree/summary data) [:type :count])
+                  :leaked-into-data?    (boolean (re-find #"xyzzy" (pr-str data)))
+                  :leaked-into-message? (boolean (re-find #"xyzzy" (.-message thrown)))})
+              "the canonical id and a :reason, with only the tree's SHAPE (EP-0015) — no raw tree, and no child content in the data or the message"))))))
 
 ;; ---- test (2) — post-wire success ------------------------------------------
 
@@ -99,9 +67,7 @@
             render-to-string returns a non-throwing HTML string"
     (let [render-fn (:render-to-string rf.adapter.reagent/adapter)
           html      (render-fn [:div "ok"] {})]
-      (is (string? html)
-          "render-to-string returns a string")
-      (is (clojure.string/includes? html "ok")
-          "the hiccup body reaches the rendered HTML")
-      (is (clojure.string/starts-with? html "<div")
-          "rendered HTML starts with the expected root tag"))))
+      (is (and (string? html)
+               (clojure.string/starts-with? html "<div")
+               (clojure.string/includes? html "ok"))
+          (str "render-to-string returns HTML with the root tag and the body; got " (pr-str html))))))

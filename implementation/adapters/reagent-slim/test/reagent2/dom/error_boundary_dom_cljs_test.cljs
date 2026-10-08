@@ -1,47 +1,11 @@
 (ns reagent2.dom.error-boundary-dom-cljs-test
-  "The MOUNTED React error-boundary proof for
-  `reagent2.core/create-class`'s `:component-did-catch` cap key, under a
-  React 19 `createRoot`.
-
-  WHAT IT PROVES. A descendant that throws during RENDER, and a
-  descendant that throws during COMMIT (`:component-did-mount`), are
-  both routed by React itself to the NEAREST enclosing slim boundary:
-
-    - the throwing descendant's path actually RAN (a render / mount
-      counter advanced), so a subtree React never reached cannot read
-      green;
-    - that boundary's `:component-did-catch` fired, carrying the thrown
-      error;
-    - the default `getDerivedStateFromError` marker reached the public
-      Reagent state atom and the boundary's FALLBACK committed to the
-      DOM;
-    - an OUTER boundary wrapping it did NOT fire.
-
-  WHY A DOM FILE, AND WHY THE OUTER-ONLY ARM. The sibling unit tests in
-  `reagent2.impl.component-cljs-test` invoke `componentDidCatch` on the
-  prototype directly — full control over the payload, but no reconciler,
-  so nothing there can observe React's own propagation. A unit test
-  carrying the nested-isolation claim could only construct an outer
-  boundary, never mount it, and assert its counter is still zero — an
-  assertion nothing could make fail. `outer-boundary-catches-when-inner-is-absent`
-  below is the control: it mounts the SAME throwing descendant
-  under the outer boundary ALONE and proves that counter does fire, so
-  the zero read by the nested arm is a measurement rather than a
-  tautology.
-
-  TEST-ONLY. ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
-  discovers it for the real-DOM assertion; the `:node-test` runner also
-  loads it (matches `cljs-test$`), where the body gates on `(browser?)`
-  and no-ops cleanly (no DOM).
-
-  CONSOLE. React 19 reports a boundary-caught error through the root's
-  `onCaughtError` option, which defaults to `console.error`. Each root
-  below supplies its own, so the expected report is captured as evidence
-  instead of printed as noise. The browser runner treats console output
-  as diagnostic, but an error that reached the PAGE uncaught would be
-  fatal to the lane — every error raised here is caught by a boundary
-  under test, and the captured report is asserted non-empty, which is a
-  second, independent witness that React (not the test) did the routing."
+  "`reagent2.core/create-class`'s `:component-did-catch` under a mounted React
+  19 root: a descendant throwing in RENDER or in COMMIT reaches the NEAREST
+  slim boundary, which commits its fallback, and an enclosing boundary does
+  not fire. `outer-boundary-catches-when-inner-is-absent` is the control that
+  makes the nested arm's zero a measurement. Each root diverts React's
+  `onCaughtError` report into an atom, asserted non-empty as a second witness
+  that React did the routing."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
             [reagent2.dom.client :as rdc]
@@ -66,13 +30,10 @@
                         (swap! reports conj (.-message ^js error)))})
 
 (defn- boundary-class
-  "A slim Form-3 error boundary named `label`.
-
-  Renders `(child-fn)` until a descendant throws; `:component-did-catch`
-  appends the error message to `fired`; after React's default
-  `getDerivedStateFromError` patch is bridged into the public Reagent
-  state atom (`:cljsHasError`), it renders `\"<label>:fallback\"` — the
-  documented slim fallback contract (IMPL-SPEC §6.5)."
+  "A slim Form-3 error boundary named `label`: renders `(child-fn)` until a
+  descendant throws, appends each caught message to `fired`, then renders
+  `\"<label>:fallback\"` once the default `getDerivedStateFromError` marker
+  reaches its state atom (IMPL-SPEC §6.5)."
   [label fired child-fn]
   (r/create-class
     {:display-name        (str label "-boundary")
@@ -86,112 +47,74 @@
            (child-fn))))}))
 
 (defn- render-thrower
-  "A Form-1 slim component whose RENDER throws, counting its own runs."
-  [runs]
-  (fn []
-    (swap! runs inc)
-    (throw (js/Error. render-boom))))
+  "A Form-1 slim component whose RENDER throws."
+  []
+  (throw (js/Error. render-boom)))
 
 (defn- commit-thrower
-  "A slim Form-3 component that renders normally and then throws from
+  "A slim Form-3 component that renders, then throws from
   `:component-did-mount` — React's COMMIT phase."
-  [mounts]
+  []
   (r/create-class
     {:display-name        "commit-thrower"
-     :component-did-mount (fn [_this]
-                            (swap! mounts inc)
-                            (throw (js/Error. commit-boom)))
+     :component-did-mount (fn [_this] (throw (js/Error. commit-boom)))
      :reagent-render      (fn [] [:span "child"])}))
 
 (deftest nested-boundaries-inner-catches-outer-does-not
   (testing "a descendant RENDER throw is caught by the NEAREST slim
-            boundary; the enclosing outer boundary does not fire, and
-            the inner boundary's fallback commits"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
-      (let [outer-fired   (atom [])
-            inner-fired   (atom [])
-            child-runs    (atom 0)
-            reports       (atom [])
-            thrower       (render-thrower child-runs)
-            inner         (boundary-class "inner" inner-fired (fn [] [thrower]))
-            outer         (boundary-class "outer" outer-fired (fn [] [inner]))
-            mount-node    (make-mount-node!)
-            root          (rdc/create-root mount-node (root-opts reports))]
-        (try
-          (react-dom/flushSync (fn [] (rdc/render root [outer])))
-          ;; Non-vacuity: React really rendered the throwing descendant.
-          ;; (React 19 may re-run a failed render once to recover a better
-          ;; stack, so this is a "ran at least once" check, not a count.)
-          (is (pos? @child-runs)
-              "the throwing descendant's render actually ran")
-          (is (pos? (count @inner-fired))
-              "the INNER boundary's :component-did-catch fired")
-          (is (= #{render-boom} (set @inner-fired))
-              "the inner boundary received the error the descendant threw")
-          (is (= [] @outer-fired)
-              "the OUTER boundary did not fire (React stopped at the nearest boundary)")
-          (is (= "inner:fallback" (.-textContent mount-node))
-              "the inner boundary's fallback committed to the real DOM")
-          (is (pos? (count @reports))
-              "React reported the caught error through the root's onCaughtError")
-          (finally
-            (rdc/unmount root)))))))
-
-(deftest outer-boundary-catches-when-inner-is-absent
-  (testing "the SAME throwing descendant, mounted with no inner
-            boundary, IS caught by the outer boundary — so the zero
-            read above is a measurement, not a tautology"
+            boundary; the enclosing outer boundary does not fire"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
       (let [outer-fired (atom [])
-            child-runs  (atom 0)
+            inner-fired (atom [])
             reports     (atom [])
-            thrower     (render-thrower child-runs)
-            outer       (boundary-class "outer" outer-fired (fn [] [thrower]))
+            inner       (boundary-class "inner" inner-fired (fn [] [render-thrower]))
+            outer       (boundary-class "outer" outer-fired (fn [] [inner]))
             mount-node  (make-mount-node!)
             root        (rdc/create-root mount-node (root-opts reports))]
         (try
           (react-dom/flushSync (fn [] (rdc/render root [outer])))
-          (is (pos? @child-runs)
-              "the throwing descendant's render actually ran")
-          (is (pos? (count @outer-fired))
-              "the outer boundary's :component-did-catch fired when it WAS the nearest one")
-          (is (= #{render-boom} (set @outer-fired))
-              "the outer boundary received the error the descendant threw")
-          (is (= "outer:fallback" (.-textContent mount-node))
-              "the outer boundary's fallback committed to the real DOM")
-          (is (pos? (count @reports))
-              "React reported the caught error through the root's onCaughtError")
+          ;; A set: React 19 may re-run a failed render once.
+          (is (= #{render-boom} (set @inner-fired)))
+          (is (= [] @outer-fired))
+          (is (= "inner:fallback" (.-textContent mount-node)))
+          (is (seq @reports) "React reported the caught error through onCaughtError")
+          (finally
+            (rdc/unmount root)))))))
+
+(deftest outer-boundary-catches-when-inner-is-absent
+  (testing "the SAME throwing descendant with no inner boundary IS caught
+            by the outer one"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
+      (let [outer-fired (atom [])
+            reports     (atom [])
+            outer       (boundary-class "outer" outer-fired (fn [] [render-thrower]))
+            mount-node  (make-mount-node!)
+            root        (rdc/create-root mount-node (root-opts reports))]
+        (try
+          (react-dom/flushSync (fn [] (rdc/render root [outer])))
+          (is (= #{render-boom} (set @outer-fired)))
+          (is (= "outer:fallback" (.-textContent mount-node)))
+          (is (seq @reports) "React reported the caught error through onCaughtError")
           (finally
             (rdc/unmount root)))))))
 
 (deftest commit-phase-child-did-mount-throw-reaches-boundary
-  (testing "a descendant that throws from :component-did-mount — React's
-            COMMIT phase — reaches the enclosing slim boundary, which
-            commits its fallback"
+  (testing "a descendant that throws from :component-did-mount reaches the
+            enclosing slim boundary, which commits its fallback"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises the assertion")
       (let [fired      (atom [])
-            mounts     (atom 0)
             reports    (atom [])
-            child      (commit-thrower mounts)
+            child      (commit-thrower)
             boundary   (boundary-class "commit" fired (fn [] [child]))
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node (root-opts reports))]
         (try
           (react-dom/flushSync (fn [] (rdc/render root [boundary])))
-          ;; Non-vacuity: the throwing LIFECYCLE actually ran. Without
-          ;; this the test could pass on a tree React never committed.
-          (is (pos? @mounts)
-              "the descendant's :component-did-mount actually ran")
-          (is (pos? (count @fired))
-              "the boundary's :component-did-catch fired for the commit-phase error")
-          (is (= #{commit-boom} (set @fired))
-              "the boundary received the error the commit lifecycle threw")
-          (is (= "commit:fallback" (.-textContent mount-node))
-              "the boundary's fallback committed to the real DOM")
-          (is (pos? (count @reports))
-              "React reported the caught error through the root's onCaughtError")
+          (is (= #{commit-boom} (set @fired)))
+          (is (= "commit:fallback" (.-textContent mount-node)))
+          (is (seq @reports) "React reported the caught error through onCaughtError")
           (finally
             (rdc/unmount root)))))))

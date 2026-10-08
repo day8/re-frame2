@@ -1,41 +1,18 @@
 (ns reagent2.impl.template-keyword-prop-warn-once-clear-cljs-test
-  "Re-arm coverage for the slim hiccup interpreter's keyword-prop warn-once
-  cache.
-
-  `reagent2.impl.template` carries a process-wide `defonce` warn-once cache
-  (`warned-keyword-prop`) backing the §7.2 D2 informational notice: a
-  keyword value on a non-HTML-attribute prop passes through unchanged AND
-  fires a one-shot console.warn keyed on `[k name-of-v]`. The user-facing
-  contract is `warn once per pair for the process lifetime`; tests, though,
-  must RE-ARM the cache between cases or a sibling test that already warned
-  for a pair silently swallows a later test's same-pair warning.
-
-  This is the same test-isolation hazard the spine's source-coord /
-  non-DOM-root warn-cache has, and it has the same answer: the
-  keyword-prop cache's clear-step is chained into the SAME
-  `:adapter/clear-warn-once-caches!` late-bind hook — via
-  `spine/install-clear-warn-once-step!`, registered at slim-adapter
-  ns-load. Requiring `re-frame.adapter.reagent-slim` here runs that
-  registration.
-
-  This file proves the re-arm end-to-end: a keyword-prop warning fires,
-  the chained clear hook runs, and the SAME pair warns AGAIN (not
-  swallowed). Mirrors the chained-clear assertion in
-  `re-frame.adapter.react-shared-suite/assert-chained-clear-warn-once-empties-cache`.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "The slim template's keyword-prop warn-once cache (`warned-keyword-prop`)
+  is cleared by the chained `:adapter/clear-warn-once-caches!` hook, which
+  the slim adapter registers at ns-load through
+  `spine/install-clear-warn-once-step!` — so a test that already warned for
+  a pair cannot swallow a later test's same-pair warning. Mirrors
+  `re-frame.adapter.react-shared-suite/assert-chained-clear-warn-once-empties-cache`."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            ;; load-bearing: requiring the slim adapter runs the
-            ;; `spine/install-clear-warn-once-step!` registration that wires
-            ;; template/clear-warned-keyword-prop! into the chained hook.
+            ;; Loaded for its clear-step registration.
             [re-frame.adapter.reagent-slim]
             [re-frame.late-bind :as rf.late-bind]
             [reagent2.impl.template :as template]))
 
 (defn- with-warn-spy
-  "Run `f` with js/console.warn redirected to record invocations onto an
-  internal vector; return that vector of joined arg-strings. Restores the
-  original on exit, even if `f` throws."
+  "Run `f` with js/console.warn recording its joined args; return them."
   [f]
   (let [calls (atom [])
         orig  (.-warn js/console)]
@@ -47,34 +24,19 @@
       (finally
         (set! (.-warn js/console) orig)))))
 
-;; ---------------------------------------------------------------------------
-;; Chained hook re-arms the keyword-prop cache
-;; ---------------------------------------------------------------------------
-
 (deftest chained-clear-warn-once-re-arms-keyword-prop-cache
-  (testing "After a keyword-prop warning fires for a pair, the chained
-            :adapter/clear-warn-once-caches! hook re-arms the cache so the
-            SAME pair warns AGAIN — it is not silently swallowed
-            (the spine warn-cache hazard, applied to the slim template's
-            keyword-prop cache)."
+  (testing "the chained clear hook re-arms the cache, so the SAME pair warns
+            again"
     (let [k :rf2-rearm-test-k
           v :rf2-rearm-test-v
           phase-1 (with-warn-spy
                     (fn []
-                      ;; warn-once: three calls, one warning within the phase
                       (template/convert-prop-value k v)
                       (template/convert-prop-value k v)
                       (template/convert-prop-value k v)))]
       (is (= 1 (count phase-1))
-          (str "phase-1 sanity: warn fires exactly once within a phase; got "
-               (count phase-1) ": " (pr-str phase-1)))
-      (let [chained-hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
-        (is (some? chained-hook)
-            "precondition: the chained :adapter/clear-warn-once-caches! hook is registered")
-        (chained-hook)
-        (let [phase-2 (with-warn-spy (fn [] (template/convert-prop-value k v)))]
-          (is (= 1 (count phase-2))
-              (str "phase-2 MUST re-emit the warning for the SAME pair AFTER "
-                   "the chained :adapter/clear-warn-once-caches! hook fires "
-                   "(without the chained clear-step the warning is "
-                   "swallowed). Got " (count phase-2) ": " (pr-str phase-2))))))))
+          (str "warn fires once within a phase; got " (pr-str phase-1)))
+      ((rf.late-bind/get-fn :adapter/clear-warn-once-caches!))
+      (let [phase-2 (with-warn-spy (fn [] (template/convert-prop-value k v)))]
+        (is (= 1 (count phase-2))
+            (str "the same pair warns again after the clear; got " (pr-str phase-2)))))))

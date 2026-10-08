@@ -1,61 +1,15 @@
 (ns re-frame.adapter.uix-effect-frame-deps-dom-cljs-test
   "An imperative `use-effect` listener follows the frame its component is
-  rendered under, across a PROVIDER SWAP.
-
-  ## The defect
-
-  The canonical outer/inner recipe in `implementation/adapters/uix/README.md`
-  installs a DOM listener from `use-effect` and dispatches from it through the
-  ops map `use-frame` returns. The effect closes over TWO reactive values —
-  the domain prop and `dispatch` — and the defect is a deps vector naming
-  only the prop.
-
-  `use-frame`'s bundle is reference-stable for one resolved frame INCARNATION
-  and a NEW map once the surrounding `frame-provider` retargets
-  (`re-frame.adapter.use-frame/use-frame`'s render-phase memo is keyed on the
-  frame AND its incarnation token). So, with only the prop named, a provider
-  swap re-renders the mounted component with a B-locked `dispatch` in hand —
-  and React, told only that the prop is unchanged, does NOT re-run the
-  effect. The listener installed under A stays installed, and the next DOM
-  event dispatches into A.
-
-  That is an isolation break, not staleness: frames are isolated contexts, so
-  a write into still-live A raises nothing at all. It just lands in the frame
-  the UI has navigated away from. (Had A been destroyed instead, the capture
-  fence would have dropped it and emitted the destroyed-frame error — the
-  louder half, and the less serious one.)
-
-  ## What is pinned, and why in this shape
-
-  The deftest drives the REAL swap path: one mount, one component instance,
-  the provider's `:frame` prop changed and the tree re-rendered in place. That
-  is the trap this suite exists to avoid — a test that remounts, or that
-  renders a second instance, exercises nothing, because a fresh mount runs its
-  effect afresh and passes with or without the dependency. It therefore
-  asserts the DOM element is `identical?` across the swap before drawing any
-  conclusion from what the listener did, and B hearing the post-swap event is
-  what shows the swap reached the component.
-
-  The recipe component is compiled here with its real spelling
-  (`uix/use-effect` + `rf.adapter.uix/use-frame` + a UIx `use-ref` on a DOM
-  node), so UIx's own `::missing-deps` analysis guards the dependency list at
-  compile time as well.
-
-  WHY `dispatch-sync` AND NOT `dispatch`. The two come off the same ops map
-  and are re-created together, so the closure capture and the deps obligation
-  are identical; `dispatch-sync` lets the assertion read the frame's app-db
-  immediately after the event instead of waiting out a router macrotask
-  (`re-frame.interop/next-tick` is deliberately NOT a microtask, so `act()`
-  does not drain it). The README teaches `dispatch`; nothing about the
-  dependency differs.
-
-  TOOTH: cut the recipe component's deps to `[tile-id]` and
-  `imperative-effect-follows-the-frame-across-a-provider-swap` fails the way
-  described above — the second event lands in A again, and B never hears it.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
-  `-dom-cljs-test$`) discovers it; `:node-test`'s `cljs-test$` regex also
-  matches, where the deftest self-gates on `(browser?)` and no-ops cleanly."
+  rendered under across a PROVIDER SWAP. The README's outer/inner recipe
+  dispatches from the listener through `use-frame`'s ops, which are a NEW map
+  once the provider retargets; a deps vector naming only the domain prop
+  leaves the listener installed under A, and the next event lands in the
+  frame the UI has left — an isolation break that raises nothing. The test
+  swaps the provider on ONE mounted instance (a remount would re-run the
+  effect and pass regardless), so the element is asserted `identical?`
+  across the swap. Cutting the recipe's deps to `[tile-id]` fails it.
+  `dispatch-sync` stands in for the README's `dispatch` so app-db can be read
+  straight after the event; the deps obligation is the same."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -69,9 +23,6 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- lane gate -------------------------------------------------------------
-;;
-;; Local rather than borrowed: the shared React suite's equivalents are
-;; private, and this file forwards nothing to it.
 
 (defn- browser? []
   (and (exists? js/document)
@@ -128,19 +79,8 @@
   "Mount `component` (one instance, prop `{:tile-id 7}`) under a provider
   targeting `frame-a`, fire the event, retarget the SAME tree at `frame-b`,
   fire it again. Returns the observations; asserts the in-place update itself,
-  because every later conclusion depends on it.
-
-  The two frames and the `::finished` handler are created here so each run
-  gets them fresh from the reset fixture.
-
-  The ambient `:rf/default` dynamic scope the fixture installs is cleared for
-  the duration. That is belt-and-braces rather than load-bearing —
-  `use-frame` reads React context ONLY, so a bound `*current-frame*` cannot
-  mask the provider — but it keeps this row honest: were `use-frame` to
-  resolve the dynamic-var tier FIRST, leaving the fixture's binding in place
-  would make both renders resolve the SAME frame, and the suite would pass
-  while proving nothing. Same `binding` the shared React suite's provider
-  rows take."
+  because every later conclusion depends on it. The fixture's ambient
+  `:rf/default` is cleared so it cannot stand in for the provider."
   [act-fn component]
   (reset! effect-log [])
   (rf/reg-event ::finished
@@ -161,9 +101,8 @@
      (try
        (render! frame-a)
        (let [el-under-a (element)]
-         ;; Control: the listener is installed and routes to the mounting
-         ;; frame. Without this row a suite where the listener never attached
-         ;; would pass the isolation assertions vacuously.
+         ;; Control: without it a listener that never attached would pass
+         ;; the isolation assertions vacuously.
          (fire! el-under-a)
          (let [after-mount {:log @effect-log :a (hits frame-a) :b (hits frame-b)}]
 
@@ -192,18 +131,8 @@
     (with-browser-act
       (fn [act-fn]
         (let [{:keys [after-mount log a b]} (run-provider-swap! act-fn tile-inner)]
-          (is (= [7] (:a after-mount))
-              "control: before the swap the listener routes to the mounting frame")
-          (is (nil? (:b after-mount))
-              "control: and B has heard nothing yet")
-
-          (is (= [7] b)
-              "after the swap the event reaches B")
-          (is (= [7] a)
-              (str "and A is untouched by it — still holding only the control "
-                   "hit. A second entry here is the isolation break: a write "
-                   "into the frame the UI has navigated away from"))
-          (is (= [:setup :cleanup :setup] log)
-              (str "the effect re-ran ONCE and its cleanup was balanced — the "
-                   "old listener was removed, so one event produces one "
-                   "dispatch rather than two")))))))
+          (is (= {:control-a [7] :control-b nil :a [7] :b [7] :log [:setup :cleanup :setup]}
+                 {:control-a (:a after-mount) :control-b (:b after-mount) :a a :b b :log log})
+              (str "before the swap the listener routes to A alone; after it the event reaches B,"
+                   " A keeps only the control hit (a second entry is the isolation break), and"
+                   " the effect re-ran once with its cleanup balanced")))))))

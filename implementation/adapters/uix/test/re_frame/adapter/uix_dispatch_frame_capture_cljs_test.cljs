@@ -3,26 +3,13 @@
   forwarded from the parameterised React-adapter suite
   (`re-frame.adapter.react-shared-suite`).
 
-  This is a SEPARATE entry pair from `uix_react_shared_cljs_test.cljs`
-  because the async cases need a map-form `{:before :after}` fixture:
-  cljs.test fn-form fixtures run `(test-fn)` synchronously and tear down
-  before an `(async done)` body completes, which would restore the
-  registrar mid-flight. The shared-suite assertion bodies are the single
-  source of truth; this file binds the UIx adapter + the special fixture.
-
-  ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
+  Separate from `uix_react_shared_cljs_test.cljs` because the async cases
+  need a map-form fixture, whose teardown lands after `done`."
   (:require [cljs.test :refer-macros [deftest async use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
             [re-frame.test-support :as rf.test-support]))
 
-;; Async map-form fixture (a fn-form fixture's teardown would restore the
-;; registrar before an `(async done)` body completes). `make-reset-runtime-
-;; fixture` (`:async? true`) performs the snapshot/restore + frames-reset +
-;; adapter dispose/install, and its pre-dispose reset clears the per-frame
-;; schema registry (so ns-load `reg-app-schema` calls from sibling test
-;; namespaces don't fire post-commit validation rollbacks against this test's
-;; frames). `:ambient-frame nil` gives the suite no ambient scope.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter :async? true :ambient-frame nil}))

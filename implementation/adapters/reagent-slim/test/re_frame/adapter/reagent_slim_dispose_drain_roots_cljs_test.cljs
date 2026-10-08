@@ -1,38 +1,16 @@
 (ns re-frame.adapter.reagent-slim-dispose-drain-roots-cljs-test
-  "Pins the reagent-slim adapter's `dispose-adapter!` four-MUST list
-  items 2 (release host-specific resources: drain active React roots)
-  and 3 (discard internal caches: clear the hiccup-emitter) — Spec 006
-  §Adapter disposal lifecycle.
-
-  A `dispose-adapter!` that ran only the per-frame sub-cache walk
-  (MUST 1), never tracking active React roots and never clearing the SSR
-  hiccup-emitter, would let an
-  `init! → render → dispose-adapter!` cycle (test fixtures, hot-reload,
-  SSR string-serialise without mount) leave React roots mounted and the
-  installed emitter alive across teardown. The Reagent adapter honours
-  both MUSTs too; this file pins them for slim.
-
-  Strategy mirrors `re-frame.adapter-render-cljs-test`: spy on
-  `reagent2.dom.client`'s create-root / render / unmount via
-  `with-redefs` so the test runs under :node-test with no real DOM.
-  We drive the adapter's private `:render` slot to register stranded
-  roots, install a hiccup-emitter, then call `dispose-adapter!` and
-  assert every stranded root was unmounted and the emitter is nil.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "The reagent-slim `dispose-adapter!` drains every still-mounted React root
+  and clears the SSR hiccup-emitter (Spec 006 §Adapter disposal lifecycle,
+  MUSTs 2 and 3), so an `init! → render → dispose-adapter!` cycle leaves
+  nothing alive. `reagent2.dom.client` is spied with `with-redefs`, so this
+  runs headless."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.dom.client :as rdc]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
-;; ---- fixture --------------------------------------------------------------
-;;
-;; Cold-start. The unit under test IS `dispose-adapter!`, so we install
-;; the slim adapter ourselves and let the test body drive render +
-;; dispose. Each test cleans up after itself so a re-run is idempotent.
-;; Frames are wiped so the MUST-1 sub-cache walk inside dispose sees an
-;; empty registry (this file pins MUST 2 + 3, not MUST 1).
+;; Cold-start with no frames, so dispose's sub-cache walk has nothing to do.
 
 (defn with-fresh-slim-adapter [test-fn]
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
@@ -47,10 +25,7 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- make-fake-root
-  "A fake Root identity — an object carrying an `.unmount` method so
-  `reagent2.dom.client/unmount`'s `(some? (.-unmount root))` guard
-  passes. The spy on `rdc/unmount` records calls; the method body is
-  never reached because we redef the var."
+  "A fake Root carrying the `.unmount` method `rdc/unmount`'s guard checks."
   [tag]
   #js {:rf-test-root-tag tag
        :unmount          (fn [] nil)})
@@ -81,15 +56,9 @@
           (render-fn [:div "c"] #js {} nil)
           (is (empty? @unmount-calls)
               "precondition: no roots unmounted before dispose")
-
-          ;; Drive the drain.
           (rf.substrate.adapter/dispose-adapter!)
-
-          (is (= 3 (count @unmount-calls))
-              "dispose-adapter! unmounted all three stranded roots")
-          (doseq [r [root-a root-b root-c]]
-            (is (some #(identical? r %) @unmount-calls)
-                (str "stranded root " (pr-str r) " was drained by dispose-adapter!"))))))))
+          (is (= [3 #{root-a root-b root-c}] [(count @unmount-calls) (set @unmount-calls)])
+              "dispose-adapter! unmounted each of the three stranded roots once"))))))
 
 (deftest dispose-adapter-tolerates-throwing-root
   (testing "one root whose unmount throws does not strand the rest of
@@ -112,17 +81,11 @@
         (let [render-fn (:render rf.adapter.reagent-slim/adapter)]
           (render-fn [:div "bad"] #js {} nil)
           (render-fn [:div "good"] #js {} nil)
-          ;; The bad root's throw must not ABORT the drain — but it must
-          ;; still reach the caller once the drain is done. Both adapters
-          ;; share one spine drain, so this is the slim-side witness of the
-          ;; same Spec 006 rule.
           (let [thrown (try (rf.substrate.adapter/dispose-adapter!)
                             ::returned-normally
                             (catch :default e e))]
-            (is (some #(identical? bad-root %) @unmount-calls)
-                "the throwing root's unmount was attempted")
-            (is (some #(identical? good-root %) @unmount-calls)
-                "the good root was still drained despite the earlier throw")
+            (is (= #{bad-root good-root} (set @unmount-calls))
+                "the throwing root's unmount was attempted and the good root still drained")
             (is (identical? sentinel thrown)
                 "dispose-adapter! rethrew the per-root failure unchanged after
                 the drain, instead of reporting a clean nil")))))))
@@ -133,18 +96,13 @@
   (testing "dispose-adapter! resets the SSR hiccup-emitter to nil so the
             installed fn (which captures re-frame.ssr state) does not
             survive teardown — MUST 3"
-    ;; Install an emitter and prove render-to-string resolves it.
     (rf.adapter.reagent-slim/set-hiccup-emitter!
       (fn [tree _opts] (str "EMITTED:" (pr-str tree))))
     (is (= "EMITTED:[:p \"hi\"]"
            ((:render-to-string rf.adapter.reagent-slim/adapter) [:p "hi"] nil))
         "precondition: the installed emitter is live before dispose")
 
-    ;; Dispose drains the emitter.
     (rf.substrate.adapter/dispose-adapter!)
-
-    ;; Post-dispose: render-to-string raises the no-emitter-bound error
-    ;; (the only black-box proof the emitter atom was reset to nil).
     (is (thrown-with-msg?
           cljs.core.ExceptionInfo
           #":rf.error/no-hiccup-emitter-bound"

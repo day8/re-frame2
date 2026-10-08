@@ -171,11 +171,10 @@
     (rf/dispatch-sync [:auth/check [:go]])
     ;; post-drain external read of the machine's externally-observable snapshot.
     (let [snap (rf/subscribe-once [:rf/machine :auth/check])]
-      (is (= :done (:state snap))
-          "the machine settled on the post-cascade state")
-      (is (= :settled (:step (:data snap)))
-          "the external sub sees ONLY the committed post-cascade :data — never
-           the intermediate :seeded microstep value"))))
+      (is (= [:done :settled] [(:state snap) (:step (:data snap))])
+          "the machine settled on the post-cascade state, and the external sub
+           sees ONLY the committed post-cascade :data — never the intermediate
+           :seeded microstep value"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 3 — Machine spawn at boot before substrate adapter ready
@@ -233,12 +232,10 @@
                                                                          :data  {:token "abc"}}}}}]
     (rf/dispatch-sync [:hydrate-payload {:app-db server-app-db :runtime-db server-rt}])
     (let [client-rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
-      (is (= :authenticated
-             (get-in client-rt [:rf.runtime/machines :snapshots :auth/session :state]))
-          "machine state survives hydration in the runtime-db partition")
-      (is (= "abc"
-             (get-in client-rt [:rf.runtime/machines :snapshots :auth/session :data :token]))
-          "machine :data survives hydration with the rest of the frame-state"))))
+      (is (= {:state :authenticated :token "abc"}
+             (let [snap (get-in client-rt [:rf.runtime/machines :snapshots :auth/session])]
+               {:state (:state snap) :token (get-in snap [:data :token])}))
+          "machine state and :data survive hydration in the runtime-db partition"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 6 — Routing in SSR
@@ -363,16 +360,15 @@
               ;; the assertion below.
               (reset! render-error (ex-message e))))
           (try
-            (is (nil? @render-error)
-                (str "render did not throw mid-destroy; got: " (pr-str @render-error)))
-            (is (>= @render-count 1)
-                "render fn ran at least once — mid-render destroy did not abort the render pass")
-            (is (some #(and (= :rf.frame/destroyed (:operation %))
-                            (= target-frame (get-in % [:tags :frame])))
-                      @traces)
-                ":rf.frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
-            (is (nil? (rf.frame/frame target-frame))
-                "the frame is gone from the registry after destroy")
+            (is (= [nil true true nil]
+                   [@render-error (>= @render-count 1)
+                    (boolean (some #(and (= :rf.frame/destroyed (:operation %))
+                                         (= target-frame (get-in % [:tags :frame])))
+                                   @traces))
+                    (rf.frame/frame target-frame)])
+                (str "the render ran without throwing mid-destroy, :rf.frame/destroyed fired "
+                     "(destroy-frame! ran the disposal pipeline), and the frame is gone from "
+                     "the registry; render error: " (pr-str @render-error)))
             ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
             ;; Spec 002 §Destroy). The trace channel is the public surface.
             ;; A nested recorder isolates the post-destroy emit from the
@@ -464,11 +460,9 @@
                 (rdc/render root
                             [rf/frame-provider {:frame target-frame}
                              [plain-fn]]))))
-          (is (some? @render-error)
-              "a plain fn's subscribe (no :contextType) raised rather than falling through to :rf/default")
           (is (= :rf.error/no-frame-context
                  (:rf.error/id (ex-data @render-error)))
-              "the raised error is :rf.error/no-frame-context (EP-0002 — no silent :rf/default)")
+              "a plain fn's subscribe (no :contextType) raised :rf.error/no-frame-context rather than falling through to :rf/default")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -503,11 +497,9 @@
                 ;; No frame-provider — the React-context tier resolves to
                 ;; the no-provider sentinel → nil → no-frame-context.
                 (rdc/render root [plain-default]))))
-          (is (some? @render-error)
-              "a plain fn with no enclosing provider raised rather than reading :rf/default")
           (is (= :rf.error/no-frame-context
                  (:rf.error/id (ex-data @render-error)))
-              "the raised error is :rf.error/no-frame-context (EP-0002 — no silent :rf/default)")
+              "a plain fn with no enclosing provider raised :rf.error/no-frame-context rather than reading :rf/default")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -586,11 +578,9 @@
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
                                   [outer-wrap]]))))
-          (is (some? @child-error)
-              "the plain child raised — with-frame around the returned subtree did not leak scope into React's later invocation")
           (is (= :rf.error/no-frame-context
                  (:rf.error/id (ex-data @child-error)))
-              "the raised error is :rf.error/no-frame-context — the same typed boundary as the bare case")
+              "the plain child raised :rf.error/no-frame-context, the same typed boundary as the bare case — with-frame around the returned subtree did not leak scope into React's later invocation")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -627,11 +617,9 @@
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
                                   [plain-fn]]))))
-          (is (some? @capture-error)
-              "no-arg capture-frame under a provider-only scope raised rather than capturing :rf/default")
           (is (= :rf.error/no-frame-context
                  (:rf.error/id (ex-data @capture-error)))
-              "the raised error is :rf.error/no-frame-context — the same absent-target boundary")
+              "no-arg capture-frame under a provider-only scope raised :rf.error/no-frame-context rather than capturing :rf/default")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -674,13 +662,10 @@
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
                                   [plain-fn]]))))
-          (is (nil? @capture-error)
-              (str "no-arg capture inside a live with-frame did NOT raise; got: "
+          (is (= [nil target-frame 8] [@capture-error @captured-frame @captured-value])
+              (str "no-arg capture inside a live with-frame did NOT raise, targeted the bound "
+                   "frame, and its subscribe read that frame's app-db (:n 8); got: "
                    (pr-str (some-> @capture-error ex-data))))
-          (is (= target-frame @captured-frame)
-              "the ambient capture inside with-frame targeted the bound frame")
-          (is (= 8 @captured-value)
-              "the captured bundle's subscribe read the target frame's app-db (:n 8)")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -731,15 +716,11 @@
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
                                   [plain-fn]]))))
-          (is (nil? @render-error)
-              (str "explicit-target reads did NOT raise; got: "
+          (is (= [nil target-frame 21 21] [@render-error @captured-frame @captured-value @opt-value])
+              (str "explicit-target reads did NOT raise: (capture-frame frame-id) locked the bundle "
+                   "to the named frame, whose subscribe and the explicit {:frame …} opt both read "
+                   "the target (:n 21), not the distractor (:n 99); got: "
                    (pr-str (some-> @render-error ex-data))))
-          (is (= target-frame @captured-frame)
-              "(capture-frame frame-id) locked the bundle to the named frame")
-          (is (= 21 @captured-value)
-              "the locked bundle's subscribe read the target frame (:n 21), not the distractor (:n 99)")
-          (is (= 21 @opt-value)
-              "the explicit {:frame …} subscribe opt routed to the target frame (:n 21)")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
@@ -823,10 +804,8 @@
                   (fn []
                     (rdc/render root [rf/frame-provider {:frame target-frame}
                                       [render-fn]]))))
-              (is (= target-frame @resolved-frame)
-                  "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
-              (is (= 42 @resolved-value)
-                  "subscribe routes the query against the provider's frame — :v 42 (target) not :v 7 (:rf/default)")
+              (is (= [target-frame 42] [@resolved-frame @resolved-value])
+                  "current-frame inside the reg-view reads the surrounding provider's frame, and subscribe routes against it — :v 42 (target) not :v 7 (:rf/default)")
               (finish)
               (catch :default e
                 (is false (str "subscribe-routes-via-react-context-under-non-default-frame threw: " (pr-str e)))
@@ -872,10 +851,8 @@
             (react-dom/flushSync
               (fn []
                 (rdc/render root [render-fn])))
-            (is (= :rf/default @resolved-frame)
-                "no provider in the tree → resolution falls through to :rf/default")
-            (is (= 99 @resolved-value)
-                "subscribe routes against :rf/default's app-db")
+            (is (= [:rf/default 99] [@resolved-frame @resolved-value])
+                "no provider in the tree → resolution falls through to :rf/default, and subscribe routes against its app-db")
             (finish)
             (catch :default e
               (is false (str "subscribe-routes-default-without-frame-provider threw: " (pr-str e)))
@@ -965,10 +942,9 @@
                 (fn []
                   (rdc/render root [rf/frame-provider {:frame target-frame}
                                     [render-fn]]))))
-            (is (= :here (:stamped (rf/app-db-value target-frame)))
-                "dispatch routed to the provider's frame — its app-db carries the stamp")
-            (is (not= :here (:stamped (rf/app-db-value :rf/default)))
-                ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
+            (is (= [:here false]
+                   [(:stamped (rf/app-db-value target-frame)) (= :here (:stamped (rf/app-db-value :rf/default)))])
+                "dispatch routed to the provider's frame, whose app-db carries the stamp, and did not fall through to :rf/default")
             (finish)
             (catch :default e
               (is false (str "dispatch-default-frame-routes-via-react-context threw: " (pr-str e)))
@@ -998,14 +974,13 @@
       (rf/dispatch-sync [:test/m [:bang]])
       (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
                          @traces)]
-        (is (seq errs)
-            "an action throw surfaces as :rf.error/machine-action-exception")
-        (is (some #(= :test/m (get-in % [:tags :actor-id])) errs)
-            "the trace identifies the live actor that threw (:actor-id)")
-        (is (some #(= :boom (get-in % [:tags :action-id])) errs)
-            "the trace identifies the action that threw")
-        (is (some #(= "kaboom" (get-in % [:tags :exception-message])) errs)
-            "the trace carries the original exception message"))
+        (is (= [true true true]
+               [(boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))
+                (boolean (some #(= :boom (get-in % [:tags :action-id])) errs))
+                (boolean (some #(= "kaboom" (get-in % [:tags :exception-message])) errs))])
+            (str "an action throw surfaces as :rf.error/machine-action-exception naming the "
+                 "live actor (:actor-id), the action, and the original exception message; got "
+                 (pr-str (map :tags errs)))))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire — the machine layer catches the action throw and emits the machine-scoped category")
       (is (= :before (:val (rf/app-db-value :rf/default)))
@@ -1078,12 +1053,12 @@
       (rf/dispatch-sync [:test/m [:bang]] {:frame :req})
       (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
                          @traces)]
-        (is (seq errs)
-            "machine action throw surfaces as :rf.error/machine-action-exception on a :platform :server frame")
-        (is (some #(= :req (get-in % [:tags :frame])) errs)
-            "the trace records the request frame's id")
-        (is (some #(= :test/m (get-in % [:tags :actor-id])) errs)
-            "the trace identifies the live actor (:actor-id)"))
+        (is (= [true true]
+               [(boolean (some #(= :req (get-in % [:tags :frame])) errs))
+                (boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))])
+            (str "a machine action throw surfaces as :rf.error/machine-action-exception on a "
+                 ":platform :server frame, recording the request frame's id and the live actor; got "
+                 (pr-str (map :tags errs)))))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire on a :platform :server frame")
       (let [snap (get-in (:rf.db/runtime (rf/frame-state-value :req)) [:rf.runtime/machines :snapshots :test/m])]

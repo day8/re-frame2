@@ -1,31 +1,11 @@
 (ns re-frame.adapter.reagent-slim-source-coord-form3-cljs-test
-  "reagent-slim Form-3 coverage for the shared source-coordinate wrapper.
-  The sibling slim suites cover Form-1, Form-2, fragments, and
-  elision; this one covers a real reagent-slim `create-class` (Form-3) flowing
-  through `re-frame.views.source-coord-annotation/inject-source-coord-attr`.
-
-  THE HAZARD. `inject-source-coord-attr` recognises a Reagent-family
-  Form-3 class structurally so it can pass it through UNCHANGED (a class root has
-  no concrete DOM node to annotate — it must reach React as a class so its
-  lifecycle methods install). A real
-  slim class carries the constructor tag `cljsReagentClass = true` plus
-  `prototype.render` + `cljsReagentRender` — NEVER `prototype.reagentRender` — so
-  a `reagent-class?` predicate keyed ONLY on the stock-Reagent marker
-  (`prototype.reagentRender`) would send it down the plain `fn?` Form-2 branch:
-  it would be returned as an
-  `inject-source-coord-attr$form-2-wrapper` and later invoked as an ordinary
-  function rather than mounted as a class, LOSING its React lifecycle. slim is a
-  first-class supported adapter, so the wrapper must
-  recognise its Form-3 shape.
-
-  The wrapper is shared by BOTH debug annotations (`data-rf2-source-coord` and
-  `data-rf-view` ride the same Hiccup walk); a Form-3 class root is exempt from
-  both, so preserving the class identity is the whole contract for this branch —
-  no attribute of either kind is injected.
-
-  These are pure structural / lifecycle assertions (no real DOM); ns ends in
-  -cljs-test so shadow-cljs's :node-test build picks it up under `npm run
-  test:cljs`."
+  "A real reagent-slim `create-class` (Form-3) through
+  `re-frame.views.source-coord-annotation/inject-source-coord-attr`. A class
+  root has no DOM node to annotate, so the wrapper must pass it through
+  UNCHANGED. A slim class carries `cljsReagentClass` and `cljsReagentRender`,
+  never stock Reagent's `prototype.reagentRender`, so a predicate keyed only
+  on the stock marker would wrap it as a Form-2 fn and lose its React
+  lifecycle."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -75,11 +55,8 @@
                              :rf.slim-src-coord/warn-once-f3
                              "rf.slim-src-coord:warn-once-f3:1:1"
                              slim-class))))]
-      (is (= 1 (count warnings))
-          (str "expected EXACTLY ONE warning across 5 passes over the same "
-               "Form-3 id; got " (count warnings) ": " (pr-str warnings)))
-      (is (str/includes? (first warnings) "rf.slim-src-coord/warn-once-f3")
-          "the single warning names the offending view-id"))))
+      (is (= [1 true] [(count warnings) (str/includes? (str (first warnings)) "rf.slim-src-coord/warn-once-f3")])
+          (str "exactly one warning across 5 passes, naming the view-id; got " (pr-str warnings))))))
 
 ;; ---- render + lifecycle intact on the survived class ----------------------
 
@@ -100,10 +77,9 @@
           ;; React.Component's constructor sets `this.props`, so the synthesised
           ;; instance reads its argv the same way a mounted instance would.
           inst       (new out #js {:__rfArgv [:form-3]})]
-      (is (identical? slim-class out) "sanity: identity preserved before mount")
-      (let [el (.call (.. out -prototype -render) inst)]
-        (is (some? el) "render produced a React element")
-        (is (= "p" (.-type el)) "element type is the hiccup head tag"))
+      (is (= [true "p"]
+             [(identical? slim-class out) (.-type (.call (.. out -prototype -render) inst))])
+          "the class passes through unchanged and still renders its hiccup head")
       (.call (.. out -prototype -componentDidMount) inst)
       (is (true? @mounted?)
           "componentDidMount fired the user :component-did-mount fn (lifecycle intact)")

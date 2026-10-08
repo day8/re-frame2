@@ -129,10 +129,10 @@
           [log feed!] (recorder)
           mounted (add-watch-mount! handle feed!)]
       (try
-        (is (= [10] @log) "the plain deref seeded the widget once")
-        (is (not (capturing? (node-reaction)))
-            "and left the reaction watching nothing — `add-watch` was registered
-             on a node that is in no watcher set and cannot be notified")
+        (is (= [[10] false] [@log (capturing? (node-reaction))])
+            "the plain deref seeded the widget once, and left the reaction watching
+             nothing — `add-watch` was registered on a node that is in no watcher
+             set and cannot be notified")
 
         (write! 20)
         (r/flush)
@@ -164,12 +164,10 @@
           [log feed!] (recorder)
           mounted (recipe-mount! handle feed!)]
       (try
-        (is (= [10] @log)
-            "track!'s EAGER first run is the seed — there is no separate plain
-             deref to forget to activate")
-        (is (capturing? (node-reaction))
-            "…and that same first run supplied the deref-capture: the reaction
-             is now subscribed to its sources")
+        (is (= [[10] true] [@log (capturing? (node-reaction))])
+            "track!'s EAGER first run is the seed (there is no separate plain
+             deref to forget to activate), and that same run supplied the
+             deref-capture: the reaction is now subscribed to its sources")
 
         (write! 20)
         (is (= [10 20] @log)
@@ -197,8 +195,8 @@
                 and the cache slot returns to its pre-mount baseline"
         (write! 40)
         (r/flush)
-        (is (= [10 20 30] @log) "no feed after the owner was disposed")
-        (is (zero? (ref-count)) "the acquire was released frame-first")))))
+        (is (= [[10 20 30] 0] [@log (ref-count)])
+            "no feed after the owner was disposed, and the acquire was released frame-first")))))
 
 (deftest two-mounts-of-one-query-need-no-watch-keys
   (testing "equal (frame, query-v) subscriptions share ONE cached reaction, but
@@ -213,32 +211,27 @@
           [log-b feed-b!] (recorder)
           mount-a (recipe-mount! handle feed-a!)
           mount-b (recipe-mount! handle feed-b!)]
-      (is (= (:reaction mount-a) (:reaction mount-b))
-          "precondition — one shared cached reaction, so the arm is not vacuous")
-      (is (= 2 (ref-count)) "two mounts, two holders of the shared slot")
-      (is (= [10] @log-a))
-      (is (= [10] @log-b) "both mounts seeded from the shared reaction")
+      (is (= [true 2 [10] [10]]
+             [(= (:reaction mount-a) (:reaction mount-b)) (ref-count) @log-a @log-b])
+          "one shared cached reaction (so the arm is not vacuous) with two holders, and both mounts seeded from it")
 
       (write! 20)
       (r/flush)
-      (is (= [10 20] @log-a))
-      (is (= [10 20] @log-b) "one change feeds BOTH mounts")
+      (is (= [[10 20] [10 20]] [@log-a @log-b]) "one change feeds BOTH mounts")
 
       (recipe-unmount! mount-a)
       (is (= 1 (ref-count)) "unmounting one releases exactly one holder")
 
       (write! 30)
       (r/flush)
-      (is (= [10 20] @log-a) "the unmounted mount's owner is gone — it sees nothing")
-      (is (= [10 20 30] @log-b)
-          "and the survivor keeps updating: disposing a sibling's tracker cannot
-           strip this mount's observation, because there is no shared callback
-           registry to strip from")
+      (is (= [[10 20] [10 20 30]] [@log-a @log-b])
+          "the unmounted mount's owner is gone, while the survivor keeps updating:
+           disposing a sibling's tracker cannot strip this mount's observation,
+           because there is no shared callback registry to strip from")
 
       (recipe-unmount! mount-b)
       (is (zero? (ref-count)) "both releases land — the slot is back to baseline")
 
       (write! 40)
       (r/flush)
-      (is (= [10 20] @log-a))
-      (is (= [10 20 30] @log-b) "neither widget is fed after its unmount"))))
+      (is (= [[10 20] [10 20 30]] [@log-a @log-b]) "neither widget is fed after its unmount"))))

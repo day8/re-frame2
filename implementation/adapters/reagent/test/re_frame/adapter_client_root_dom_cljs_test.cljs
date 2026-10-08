@@ -15,11 +15,7 @@
 
   The `reagent.dom.client` constructors are wrapped (call-through spies), so
   each proof also counts them: one `create-root` or one `hydrate-root` per
-  handle, and never a second.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers it;
-  the `:node-test` runner also loads it, where each body gates on
-  `(browser?)` and records a documented skip."
+  handle, and never a second."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -91,17 +87,13 @@
             h  (rf.adapter.reagent/client-root)]
         (with-counting-rdc!
           (fn [counts]
-            ;; Wrap in flushSync so the React 19 render commits before we read
-            ;; the DOM (mirrors the adapter flush-render DOM proof's mount).
             (react-dom/flushSync (fn [] (rf.adapter.reagent/render! h (tree "v1") el)))
             (is (= "v1" (some-> (probe el) .-textContent)) "first render committed v1")
             (react-dom/flushSync (fn [] (rf.adapter.reagent/render! h (tree "v2") el)))
-            (is (= "v2" (some-> (probe el) .-textContent)) "second render committed v2")
-            (is (= 1 (.-length (.-children el)))
-                "one tree owns the container — the second render replaced, not appended")
-            (is (= 1 (:create-root @counts))
-                "create-root was called exactly once across the two renders")
-            (is (= 0 (:hydrate-root @counts)) "a cold mount never hydrates")
+            (is (= ["v2" 1 1 0]
+                   [(some-> (probe el) .-textContent) (.-length (.-children el))
+                    (:create-root @counts) (:hydrate-root @counts)])
+                "[text children create-root hydrate-root]: the second render replaced the one tree through the one Root, and a cold mount never hydrates")
             (react-dom/flushSync (fn [] (rf.adapter.reagent/unmount! h)))
             (is (nil? (probe el)) "unmount! removed the tree")
             (react-dom/flushSync (fn [] (rf.adapter.reagent/unmount! h)))
@@ -133,19 +125,17 @@
           (js/setTimeout
             (fn []
               (try
-              (is (identical? server-p (probe el))
-                  "hydrate-root ADOPTED the server node (create-root would mint a new one)")
-              (is (= 1 (:hydrate-root @counts)) "hydrate-root was called exactly once")
-              (is (= 0 (:create-root @counts)) "a hydrating mount never calls create-root")
+              (is (= [true 1 0] [(identical? server-p (probe el))
+                                 (:hydrate-root @counts) (:create-root @counts)])
+                  "hydrate-root, called once, ADOPTED the server node; a hydrating mount never calls create-root")
               (reset! counts
                       (with-counting-rdc!
                         (fn [_]
                           (react-dom/flushSync
                             (fn [] (rf.adapter.reagent/render! h (tree "v2") el {:hydrate? true}))))))
-              (is (= "v2" (some-> (probe el) .-textContent))
-                  "the later render committed the new tree through the hydrated Root")
-              (is (= 0 (:hydrate-root @counts)) "no second hydration")
-              (is (= 0 (:create-root @counts)) "no create-root either")
+              (is (= ["v2" 0 0] [(some-> (probe el) .-textContent)
+                                 (:hydrate-root @counts) (:create-root @counts)])
+                  "the later render committed through the hydrated Root, with no second hydration and no create-root")
               (catch :default e
                 (is false (str "hydrating render threw: " (pr-str e))))
               (finally
@@ -179,9 +169,8 @@
             (react-dom/flushSync (fn [] (rf.adapter.reagent/unmount! gone)))
             (is (= 1 (:unmount @counts)) "explicit unmount! released the second handle once")
             (react-dom/flushSync (fn [] (rf.substrate.adapter/dispose-adapter!)))
-            (is (= 2 (:unmount @counts))
-                "the drain released the still-live handle once and the unmounted one not again")
-            (is (nil? (probe el-live)) "the still-live tree is gone from the DOM")
+            (is (= [2 nil] [(:unmount @counts) (probe el-live)])
+                "the drain released the still-live handle once, and the unmounted one not again")
             (react-dom/flushSync (fn [] (rf.adapter.reagent/unmount! live)))
             (react-dom/flushSync (fn [] (rf.adapter.reagent/unmount! gone)))
             (is (= 2 (:unmount @counts)) "later unmount! calls reach React no further time")))

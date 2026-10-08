@@ -1,32 +1,11 @@
 (ns re-frame.adapter-subscribe-container-activation-cljs-test
-  "Reagent adapter — `subscribe-container` on a DERIVED container activates it.
-
-  Spec 006 §`make-derived-value` requires PUSH: the derived container updates
-  automatically when a source changes, and `subscribe-container` \"works as on
-  a base container\". §*Watchable is necessary, not sufficient* then makes the
-  placement normative — a substrate on a demand-driven host activates the node
-  when an observer ATTACHES, immediately before installing that observer's
-  watch and taking its baseline read.
-
-  The ratom family is demand-driven. A stock `Reaction` learns its sources only
-  through `deref-capture`; a `read-container` taken outside a reactive context
-  runs the compute-fn RAW and leaves `watching` nil, so a bare `add-watch` on it
-  is registered and can never fire. Component-owned subscriptions never meet
-  this because a render IS the capture context — which is why the mounted-view
-  and diamond suites cannot pin this contract. These tests therefore use the
-  adapter's container slots DIRECTLY: no component, no `r/track!`, no ratom
-  context, and no manual `activate-derived-value!` in any test body.
-
-  Pins:
-
-    * direct listener on a fresh derived container fires (no baseline read)
-    * direct listener fires when a baseline read preceded the attach
-    * a second observer over an already-active node forces no extra recompute,
-      and removing one observer leaves the other live
-    * final detach releases the source watch (the node stops recomputing)
-    * base-container listeners keep working; cancellation is idempotent
-    * a multi-input derived keeps native Reagent batching (one notification per
-      flush, not one per source write)"
+  "`subscribe-container` on a DERIVED container activates it on the Reagent
+  adapter (Spec 006 §`make-derived-value`, §*Watchable is necessary, not
+  sufficient*). A stock `Reaction` learns its sources only through
+  deref-capture, so a bare `add-watch` on one read outside a reactive context
+  can never fire. A render is itself a capture context, so mounted-view
+  suites cannot pin this; these tests drive the adapter's container slots
+  directly, with no component, `r/track!` or manual activation."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.core :as r]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
@@ -64,10 +43,10 @@
           _              (is (= 10 (read* d)) "baseline read")
           [events notify] (recorder)
           unsub          (observe d notify)]
-      (is (= [] @events) "attaching alone notifies nobody")
       (write! s 2)
       (r/flush)
-      (is (= [[10 20]] @events) "the baseline-read node still hears the change")
+      (is (= [[10 20]] @events)
+          "the baseline-read node hears the change, once, and attaching alone notified nobody")
       (unsub))))
 
 (deftest direct-derived-two-observers-share-one-activation-cljs-test
@@ -80,18 +59,17 @@
           unsub-a        (observe d notify-a)
           after-first    @computes
           unsub-b        (observe d notify-b)]
-      (is (= 1 after-first) "attaching the first observer activates once")
-      (is (= 1 @computes) "attaching a second observer over a live node recomputes nothing")
+      (is (= [1 1] [after-first @computes])
+          "the first observer activates once; a second over the live node recomputes nothing")
       (write! s 2)
       (r/flush)
-      (is (= 2 @computes) "one source write, one recompute")
-      (is (= [[10 20]] @ev-a))
-      (is (= [[10 20]] @ev-b) "both observers hear the same change")
+      (is (= [2 [[10 20]] [[10 20]]] [@computes @ev-a @ev-b])
+          "one source write, one recompute, heard by both observers")
       (unsub-a)
       (write! s 3)
       (r/flush)
-      (is (= [[10 20]] @ev-a) "the cancelled observer hears nothing further")
-      (is (= [[10 20] [20 30]] @ev-b) "the surviving observer is still live")
+      (is (= [[[10 20]] [[10 20] [20 30]]] [@ev-a @ev-b])
+          "the cancelled observer hears nothing further; the survivor is still live")
       (unsub-b))))
 
 (deftest direct-derived-final-detach-releases-source-watch-cljs-test
@@ -109,9 +87,8 @@
         (unsub)                                        ; idempotent
         (write! s 3)
         (r/flush)
-        (is (= before @computes)
-            "the detached node is off the push path — no recompute on a source write")
-        (is (= [[10 20]] @events) "and no notification")))))
+        (is (= [before [[10 20]]] [@computes @events])
+            "the detached node is off the push path — no recompute and no notification")))))
 
 (deftest direct-base-container-listener-unaffected-cljs-test
   (testing "base containers keep their plain watch semantics (the control)"
@@ -137,8 +114,6 @@
       (write! a 10)
       (write! b 20)
       (r/flush)
-      (is (= [[3 30]] @events)
-          "one coalesced notification carrying the settled value, not one per write")
-      (is (= (inc after-attach) @computes)
-          "one recompute for the pair — native Reagent batching is preserved")
+      (is (= [[[3 30]] (inc after-attach)] [@events @computes])
+          "one coalesced notification and one recompute for the pair — native Reagent batching")
       (unsub))))

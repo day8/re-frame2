@@ -5,22 +5,7 @@
   / `unmount`, the way `re-frame.adapter-render-cljs-test` pins the one-shot
   `:render` slot (no DOM; :node-test). The real-DOM half of the contract —
   the same node surviving a re-render, server markup adopted — is
-  `re-frame.adapter-client-root-dom-cljs-test`.
-
-  The behaviours pinned here:
-
-    1. a cold first render calls create-root once; later renders reuse the
-       IDENTICAL Root through the plain render op and call neither
-       constructor again — and allocating the handle calls nothing;
-    2. a hydrating first render calls hydrate-root once; a hydrated root is
-       updated with the plain render op, never hydrated again;
-    3. explicit unmount is idempotent — the underlying unmount is reached
-       once — and a render after it mounts afresh;
-    4. `dispose-adapter!` releases every still-live handle exactly once,
-       an already-unmounted handle is not released again, and neither is
-       released a second time by a later `unmount!`.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  `re-frame.adapter-client-root-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             [re-frame.frame :as rf.frame]
@@ -76,6 +61,11 @@
 
 (defn- of-kind [calls k] (filter #(= k (first %)) calls))
 
+(defn- by-kind
+  "The recorded calls grouped as [create-root hydrate-root render]."
+  [calls]
+  (mapv #(vec (of-kind calls %)) [:create-root :hydrate-root :render]))
+
 ;; ---- 1. cold first render, later renders update the same Root -------------
 
 (deftest cold-first-render-creates-once-later-renders-update-the-same-root
@@ -89,15 +79,11 @@
                       (rf.adapter.reagent/render! h [:div "v1"] mount)
                       (rf.adapter.reagent/render! h [:div "v2"] mount)
                       (rf.adapter.reagent/render! h [:div "v3"] mount))))]
-      (is (= [[:create-root mount]] (of-kind calls :create-root))
-          "create-root called exactly once, with the mount point")
-      (is (empty? (of-kind calls :hydrate-root))
-          "a cold mount never hydrates")
-      (is (= [[:render root [:div "v1"]]
-              [:render root [:div "v2"]]
-              [:render root [:div "v3"]]]
-             (of-kind calls :render))
-          "every render goes through rdc/render against the SAME Root, in order"))))
+      (is (= [[[:create-root mount]]
+              []
+              [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]]
+             (by-kind calls))
+          "create-root once with the mount point, no hydration, and every render through rdc/render against the SAME Root, in order"))))
 
 ;; ---- 2. hydrating first render, later renders update (never re-hydrate) --
 
@@ -112,14 +98,11 @@
                       (rf.adapter.reagent/render! h [:div "ssr"] mount {:hydrate? true})
                       (rf.adapter.reagent/render! h [:div "v2"] mount {:hydrate? true})
                       (rf.adapter.reagent/render! h [:div "v3"] mount))))]
-      (is (= [[:hydrate-root mount [:div "ssr"]]] (of-kind calls :hydrate-root))
-          "hydrate-root called exactly once, with the mount point and the first tree")
-      (is (empty? (of-kind calls :create-root))
-          "a hydrating mount never calls create-root")
-      (is (= [[:render root [:div "v2"]] [:render root [:div "v3"]]]
-             (of-kind calls :render))
-          "the two later renders update the hydrated Root with the plain render op —
-           even when the caller keeps passing {:hydrate? true}"))))
+      (is (= [[]
+              [[:hydrate-root mount [:div "ssr"]]]
+              [[:render root [:div "v2"]] [:render root [:div "v3"]]]]
+             (by-kind calls))
+          "hydrate-root once with the first tree, never create-root, and the later renders update the hydrated Root with the plain render op — even when the caller keeps passing {:hydrate? true}"))))
 
 ;; ---- 3. explicit unmount is idempotent; a later render mounts afresh -------
 
@@ -138,11 +121,11 @@
                        (rf.adapter.reagent/render! h [:div "v2"] mount))))]
       (is (= [[:unmount root-1]] (of-kind calls :unmount))
           "the underlying unmount is reached exactly once for the first Root")
-      (is (= [[:create-root mount] [:create-root mount]] (of-kind calls :create-root))
-          "the render after unmount creates a fresh Root")
-      (is (= [[:render root-1 [:div "v1"]] [:render root-2 [:div "v2"]]]
-             (of-kind calls :render))
-          "the post-unmount render goes into the NEW Root, not the released one"))))
+      (is (= [[[:create-root mount] [:create-root mount]]
+              []
+              [[:render root-1 [:div "v1"]] [:render root-2 [:div "v2"]]]]
+             (by-kind calls))
+          "the render after unmount creates a fresh Root and renders into it, not the released one"))))
 
 ;; ---- 4. dispose-adapter! releases every still-live handle once -----------
 
@@ -163,9 +146,5 @@
                           ;; Post-drain: both handles are already released.
                           (rf.adapter.reagent/unmount! live)
                           (rf.adapter.reagent/unmount! gone))))]
-      (is (= 1 (count (filter #(identical? root-live (second %)) (of-kind calls :unmount))))
-          "the still-live handle's Root was released exactly once (by the drain)")
-      (is (= 1 (count (filter #(identical? root-gone (second %)) (of-kind calls :unmount))))
-          "the explicitly-unmounted handle's Root was released exactly once (by unmount!)")
-      (is (= 2 (count (of-kind calls :unmount)))
-          "no Root was released a second time by the later unmount! calls"))))
+      (is (= [[:unmount root-gone] [:unmount root-live]] (of-kind calls :unmount))
+          "unmount! released the gone Root, the drain the live one, and the later unmount! calls released nothing again"))))

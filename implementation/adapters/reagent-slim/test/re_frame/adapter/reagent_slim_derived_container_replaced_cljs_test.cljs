@@ -28,27 +28,13 @@
             ;; hooks resolve (mirrors the plain-atom suite + trace-listener-test).
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; ---- fixture --------------------------------------------------------------
-;; Cold-start each test with the reagent-slim adapter installed so the
-;; choke point's `:else` happy-path branch resolves and the routed
-;; `:adapter/derived-container?` hook answers for this adapter.
-;;
-;; Uses `make-reset-runtime-fixture` (NOT a hand-rolled `registrar/clear-all!`)
-;; — it snapshots and RESTORES the registrar around the test so ns-load-time
-;; global registrations other test files depend on (the machines spawn
-;; wrapper, routing handlers, …) survive. A `clear-all!` would wipe them and
-;; strand every subsequent machine / routing test in the shared node process.
-;; The reagent2 process-global Reaction flush queue is drained in :after so a
-;; source-write that enqueued a watching Reaction doesn't leak a stale
-;; recompute into a later React-adapter test.
-
 (def ^:private reset-runtime
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.reagent-slim/adapter}))
 
 (defn with-reagent-slim [test-fn]
-  ;; Drain reagent2's process-global Reaction flush queue around the reset
-  ;; fixture so a source-write that enqueued a watching Reaction doesn't leak
-  ;; a stale recompute into a later React-adapter test.
+  ;; Drain reagent2's process-global Reaction flush queue so a source-write
+  ;; that enqueued a watching Reaction cannot leak a stale recompute into a
+  ;; later test.
   (try
     (reset-runtime test-fn)
     (finally (ratom/flush!))))
@@ -83,19 +69,16 @@
 (deftest replace-on-base-ratom-succeeds
   (testing "the happy path: writing to a base r/atom works under reagent-slim"
     (let [c (rf.substrate.adapter/make-state-container {:n 0})]
-      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition")
-      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
-          "replace-container! on a base container returns nil")
-      (is (= {:n 1} (rf.substrate.adapter/read-container c))
-          "the base container holds the new value"))))
+      (is (= [nil {:n 1}]
+             [(rf.substrate.adapter/replace-container! c {:n 1})
+              (rf.substrate.adapter/read-container c)])
+          "replace-container! returns nil and the base container holds the new value"))))
 
 (deftest replace-on-reaction-throws
   (testing "replace-container! on a reagent-slim Reaction throws the canonical ex-info"
     (let [src (rf.substrate.adapter/make-state-container {:n 7})]
       (with-derived src
         (fn [derived]
-          (is (= 7 (rf.substrate.adapter/read-container derived))
-              "precondition: the derived container reads its computed value")
           (let [thrown (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
                            "writing to a Reaction throws")]
             (is (= :rf.error/derived-container-replaced
@@ -107,27 +90,18 @@
     (let [src (rf.substrate.adapter/make-state-container {:n 5})]
       (with-derived src
         (fn [derived]
-          (is (= 5 (rf.substrate.adapter/read-container derived)) "seed the reaction baseline")
-          (try (rf.substrate.adapter/replace-container! derived 1000)
-               (catch :default _ nil))
-          (is (= 5 (rf.substrate.adapter/read-container derived))
-              "the derived value still reflects its source — the write was rejected")
-          ;; Writing to the SOURCE flows through to the derived value, proving the
-          ;; source remains a normal writable container and the guard fires only
-          ;; on the Reaction shape.
-          (rf.substrate.adapter/replace-container! src {:n 6})
-          (is (= 6 (rf.substrate.adapter/read-container derived))
-              "writing to the source recomputes the derived value normally"))))))
+          (let [seeded   (rf.substrate.adapter/read-container derived)
+                rejected (do (try (rf.substrate.adapter/replace-container! derived 1000)
+                                  (catch :default _ nil))
+                             (rf.substrate.adapter/read-container derived))]
+            (rf.substrate.adapter/replace-container! src {:n 6})
+            (is (= [5 5 6] [seeded rejected (rf.substrate.adapter/read-container derived)])
+                "[seeded after-rejected-write after-source-write]: the rejected write left the value alone, and the source stays writable")))))))
 
-;; ---- copied / wrapped adapter map routes to the live hook -----------------
-;;
-;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
-;; not object identity — so a copied / wrapped reagent-slim adapter map still
-;; drives its live `:adapter/derived-container?` hook. Routing by identity
-;; would make an `assoc`'d copy fail the routed closure's guard: the hook
-;; would fall through to the `(constantly false)` chain bottom, and a Reaction
-;; would not be flagged as derived (so the choke point's atom-marker fall-back
-;; — which a Reaction's IAtom defeats — would WRONGLY allow a write to it).
+;; `route-hook!` routes by the adapter's `:kind` token, not object identity,
+;; so a copied or wrapped adapter map still drives the live
+;; `:adapter/derived-container?` hook; routing by identity would leave a
+;; Reaction writable under the copy.
 
 (deftest copied-adapter-map-routes-to-live-derived-container-hook
   (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook"
@@ -136,23 +110,16 @@
       (try
         (rf.substrate.adapter/dispose-adapter!)
         (rf.substrate.adapter/install-adapter! copied)
-        (is (false? (identical? rf.adapter.reagent-slim/adapter (rf.substrate.adapter/current-adapter)))
-            "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent-slim (:kind (rf.substrate.adapter/current-adapter)))
-            "precondition: the copy preserves the canonical :kind token")
+        (is (= [false :rf.adapter/reagent-slim]
+               [(identical? rf.adapter.reagent-slim/adapter (rf.substrate.adapter/current-adapter))
+                (:kind (rf.substrate.adapter/current-adapter))])
+            "precondition: the installed copy is a distinct map with the canonical :kind")
         (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
               src  (rf.substrate.adapter/make-state-container {:n 1})]
-          (is (some? hook) "the :adapter/derived-container? hook is published")
           (with-derived src
             (fn [derived]
-              (is (= 1 (rf.substrate.adapter/read-container derived)) "precondition: derived reads its computed value")
-              (is (false? (boolean (hook src)))
-                  "under the copied map, a base r/atom is STILL not a derived container")
-              (is (true? (boolean (hook derived)))
-                  (str "under the COPIED reagent-slim map, a Reaction is STILL flagged"
-                       " as a derived container — the routed hook fired its live impl"
-                       " despite the copy's distinct identity"))
-              ;; End-to-end: the choke point STILL rejects a write to the Reaction.
+              (is (= [false true] [(boolean (hook src)) (boolean (hook derived))])
+                  "under the copied map the live hook still tells a base r/atom from a Reaction")
               (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
                   "replace-container! on the Reaction STILL throws under the copied map"))))
         (finally

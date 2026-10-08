@@ -76,10 +76,8 @@
             carries correct subtotal and total (they materialise in the seed's
             own write, not one event later)"
     (boot-example!)
-    (is (= 9700 (:subtotal (cart)))
-        ":cart/subtotal materialised in the seed's own committed write")
-    (is (= 9700 (:total (cart)))
-        ":cart/total cascaded off the subtotal in the same walk")))
+    (is (= [9700 9700] [(:subtotal (cart)) (:total (cart))])
+        ":cart/subtotal materialised in the seed's own committed write, and :cart/total cascaded off it in the same walk")))
 
 (deftest watch-reload-swaps-the-current-derives-into-the-live-frame
   (testing "examples/core/flows — the ^:dev/after-load seam (reload!)
@@ -91,9 +89,8 @@
     ;; Take the cart away from its seed state so state preservation is
     ;; observable (the reproduction's step 2).
     (rf/dispatch-sync [:cart/inc-qty "RF2-MUG"] {:frame :rf/default})
-    (is (= 2 (qty "RF2-MUG")) "the user's pre-reload change is in")
-    (is (= 11500 (:subtotal (cart))) "subtotal follows the change (old build)")
-    (is (= 11500 (:total (cart))) "total follows the change (old build)")
+    (is (= [2 11500 11500] [(qty "RF2-MUG") (:subtotal (cart)) (:total (cart))])
+        "the user's pre-reload change is in, and subtotal and total follow it (old build)")
     (let [new-total-runs (atom 0)
           ;; The `install-flows!` a watch rebuild would produce: same two
           ;; flows, same shapes, with a DISTINGUISHABLE edited :cart/total
@@ -124,10 +121,10 @@
         ;; enough — this is the hazard. Nothing has called the new function,
         ;; so a walk still computes with the previous build's derive.
         (rf/dispatch-sync [::walk] {:frame :rf/default})
-        (is (= 11500 (:total (cart)))
+        (is (= [11500 0] [(:total (cart)) @new-total-runs])
             "before the seam runs, the live frame still computes with the
-             PREVIOUS build's derive — replacing the function registers nothing")
-        (is (zero? @new-total-runs) "the updated derive has never run")
+             PREVIOUS build's derive and the updated one has never run —
+             replacing the function registers nothing")
         ;; THE SEAM. This is what Shadow invokes after a successful rebuild.
         ;; Under a mount-only after-load, install-flows! would never be
         ;; called here and every assertion below would go red.
@@ -136,19 +133,12 @@
       ;; step 4) — no manual reg-flow, no refresh.
       (rf/dispatch-sync [:cart/inc-qty "RF2-TEE"] {:frame :rf/default})
       ;; MUG 1800×2 + TEE 3200×3 + STKR 500×3 = 14700; edited total adds 41.
-      (is (= 14700 (:subtotal (cart)))
-          "the re-registered :cart/subtotal still computes correctly")
-      (is (= 14741 (:total (cart)))
-          "the next ordinary cart event computes with the UPDATED derive —
-           the reload swapped it into the live frame")
-      (is (= 1 @new-total-runs)
-          "one current frame-scoped :cart/total definition — the walk ran the
-           updated derive exactly once (surgical replace, no duplicate)")
+      (is (= [14700 14741 1] [(:subtotal (cart)) (:total (cart)) @new-total-runs])
+          "the re-registered :cart/subtotal still computes, and the next ordinary
+           cart event ran the UPDATED :cart/total derive exactly once — the
+           reload swapped it into the live frame (surgical replace, no duplicate)")
       ;; Controls: reload preserved the live frame and its state.
-      (is (= 2 (qty "RF2-MUG"))
+      (is (= [2 3 3 3] [(qty "RF2-MUG") (qty "RF2-TEE") (qty "RF2-STKR") (count (:items (cart)))])
           "the pre-reload user change SURVIVED the reload (no :cart/initialise
-           replay, no frame teardown)")
-      (is (= 3 (qty "RF2-TEE")) "the post-reload event landed on the same cart")
-      (is (= 3 (qty "RF2-STKR")) "untouched line items are untouched")
-      (is (= 3 (count (:items (cart))))
-          "still the same three line items — reload did not re-seed"))))
+           replay, no frame teardown), the post-reload event landed on the same
+           cart, and its three line items are otherwise untouched"))))

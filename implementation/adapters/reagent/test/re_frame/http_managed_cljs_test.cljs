@@ -90,8 +90,8 @@
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :error (get-in db [:auth-error :status])))
-      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))
+      (is (= [:error :rf.http/transport]
+             [(get-in db [:auth-error :status]) (get-in db [:auth-error :error :kind])])
           "default canned-failure classifies as :rf.http/transport under :error"))))
 
 ;; ---- 3. canned-success: explicit on-success -------------------------------
@@ -109,8 +109,7 @@
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :ok (get-in db [:article :status])))
-      (is (= {:stubbed true} (get-in db [:article :value]))))))
+      (is (= {:status :ok :value {:stubbed true}} (select-keys (:article db) [:status :value]))))))
 
 ;; ---- 4. silenced reply ----------------------------------------------------
 
@@ -157,13 +156,11 @@
         (fn []
           (rf/dispatch-sync [:rzqan/load])
           (let [db (rf/app-db-value :rf/default)]
-            (is (= :ok (get-in db [:result :status]))
-                "the stubbed reply landed via the route-map stub")
-            (is (= {:stubbed true} (get-in db [:result :value])))
-            (is (false? @real-fx-invoked?)
-                "the real :rf.http/managed fx was NEVER invoked — the helper
-                 intercepted (otherwise this would fire the real Fetch
-                 transport)")))))))
+            (is (= [:ok {:stubbed true} false]
+                   [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?])
+                "the stubbed reply landed via the route-map stub, and the real
+                 :rf.http/managed fx was NEVER invoked — the helper intercepted
+                 (otherwise this would fire the real Fetch transport)")))))))
 
 ;; ---- 5b. stubs work inside a PRE-CREATED SEALED frame ---------------------
 ;;
@@ -202,12 +199,11 @@
           (fn []
             (rf/dispatch-sync [:bxc8kf/load] {:frame f})
             (let [db (rf/app-db-value f)]
-              (is (= :ok (get-in db [:result :status]))
-                  "the stubbed reply landed via the load-time-registered scope stub")
-              (is (= {:stubbed true} (get-in db [:result :value]))
-                  "the configured :ok value rode through the synthesised reply")
-              (is (false? @real-fx-invoked?)
-                  "the real :rf.http/managed fx was NEVER invoked in the sealed
+              (is (= [:ok {:stubbed true} false]
+                     [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?])
+                  "the configured :ok value rode the synthesised reply of the
+                   load-time-registered scope stub, and the real
+                   :rf.http/managed fx was NEVER invoked in the sealed
                    frame (a per-scope stub minted inside the scope would be
                    unresolvable in the sealed generation, and this would fire
                    the real Fetch transport)"))))))))
@@ -230,9 +226,9 @@
         ;; Auto-routing — no manual :fx-overrides.
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :error (get-in db [:result :status])))
-          (is (= :rf.http/http-4xx (get-in db [:result :error :kind])))
-          (is (= 404 (get-in db [:result :error :status]))))))))
+          (is (= [:error :rf.http/http-4xx 404]
+                 [(get-in db [:result :status]) (get-in db [:result :error :kind])
+                  (get-in db [:result :error :status])])))))))
 
 ;; ---- 7. unmatched-stub falls through to a transport failure --------------
 
@@ -254,8 +250,8 @@
         ;; no-match transport failure), never reaching the real client.
         (rf/dispatch-sync [:unmatched/load])
         (let [db (rf/app-db-value :rf/default)]
-          (is (= :error (get-in db [:result :status])))
-          (is (= :rf.http/transport (get-in db [:result :error :kind]))))))))
+          (is (= [:error :rf.http/transport]
+                 [(get-in db [:result :status]) (get-in db [:result :error :kind])])))))))
 
 ;; ---- 8. canned-failure: explicit :kind / :tags shape ---------------------
 
@@ -275,6 +271,6 @@
         {:db (assoc db :error payload)}))
     (rf/dispatch-sync [:flaky/load])
     (let [db (rf/app-db-value :rf/default)]
-      (is (= :error (get-in db [:error :status])))
-      (is (= :rf.http/http-5xx (get-in db [:error :error :kind])))
-      (is (= 503 (get-in db [:error :error :status]))))))
+      (is (= [:error :rf.http/http-5xx 503]
+             [(get-in db [:error :status]) (get-in db [:error :error :kind])
+              (get-in db [:error :error :status])])))))

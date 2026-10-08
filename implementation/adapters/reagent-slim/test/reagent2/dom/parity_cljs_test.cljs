@@ -1,24 +1,9 @@
 (ns reagent2.dom.parity-cljs-test
-  "Parity tests for `reagent2.dom.server/render-to-static-markup`
-  against `react-dom/server.renderToStaticMarkup`.
-
-  Per IMPL-SPEC §8.7 + §12.5 R-004. Mitigation for the risk that the
-  pure-CLJS rewrite diverges from React's reference output.
-
-  Strategy: build a representative corpus of hiccup forms, render
-  each through both serialisers, assert byte-for-byte equality. Known
-  differences (per §8.7 — attribute ordering, idiomatic camelCasing
-  on a small set of attrs) are explicitly allow-listed inside the
-  corresponding test cases via canonicalisation rather than a global
-  diff filter, so the cause of any future drift is easy to trace.
-
-  React-side path: hiccup → reagent2.impl.template/as-element →
-  React element → react-dom/server.renderToStaticMarkup → string.
-  CLJS-side path: hiccup → reagent2.dom.server/render-to-static-markup
-  → string.
-
-  This test runs only under :node-test (so the host has Node's
-  module resolution available for `react-dom/server`)."
+  "Byte parity of `reagent2.dom.server/render-to-static-markup` with
+  react-dom/server's `renderToStaticMarkup` over the same hiccup (rendered via
+  `reagent2.impl.template/as-element`). Known, equivalent differences are
+  canonicalised by `normalise-attr-order` rather than filtered globally.
+  Node-only: it needs Node's module resolution for `react-dom/server`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.dom.server :as server]
             [reagent2.impl.template :as template]
@@ -30,44 +15,16 @@
 (defn- via-rewrite [hiccup]
   (server/render-to-static-markup hiccup))
 
-;; ---------------------------------------------------------------------------
-;; There is deliberately NO roster of boolean attribute names here.
-;;
-;; A roster here would be a second copy of `reagent2.dom.server`'s
-;; presence roster, kept so that the diff could recognise `disabled=""`
-;; (React's spelling) as equivalent to the bare `disabled` this serializer
-;; emits — and it would drift invisibly, because the corpus below
-;; exercises exactly one boolean name (`:disabled`).
-;;
-;; The roster was answering a question the canonicalisation never needed
-;; to ask. `name` and `name=""` are the SAME markup: an HTML attribute
-;; written without a value has the empty string as its value, so both
-;; spellings parse to an identical DOM node and hydrate identically.
-;; Collapsing them is therefore a lossless canonicalisation of equivalent
-;; bytes rather than an allow-list of names, and it needs no roster, so
-;; there is no copy to drift.
-;;
-;; What it does NOT do is hide a missing or wrong roster entry, because
-;; those change whether the attribute is PRESENT, not how it is spelled:
-;; a name the serializer fails to classify emits no attribute at all
-;; (`<input>` vs React's `<input disabled="">`) and still reds. The
-;; roster itself is anchored externally, against react-dom's own
-;; `possibleStandardNames` at run time, by
-;; `reagent2.dom.boolean-attr-react-parity-cljs-test`; that is the gate
-;; for WHICH names are boolean, and this file is the gate for the
-;; corpus's byte-level shape.
-;; ---------------------------------------------------------------------------
+;; No roster of boolean attribute names lives here: `name` and `name=""` are
+;; the same markup, so the canonicalisation collapses both spellings without
+;; consulting names. A missing roster entry still reds, because it changes
+;; whether the attribute is PRESENT. The roster itself is anchored against
+;; react-dom by `reagent2.dom.boolean-attr-react-parity-cljs-test`.
 
 (defn- strip-react-19-resource-hints
-  "React 19's `renderToStaticMarkup` auto-emits `<link rel=\"preload\">`
-  resource hints in front of certain media tags (`<img>`, `<script>`,
-  certain `<link>` and `<style>` cases) — see React 19's
-  Float / resource-loading docs. The pure-CLJS rewrite does not emit
-  these hints; they are React's runtime concern, not part of the
-  hiccup-to-HTML contract this parity suite asserts. Strip the
-  auto-emitted hints from React's output before the diff so the
-  comparison remains a static-markup parity check rather than a
-  resource-loading-strategy check."
+  "React 19 prefixes `<link rel=\"preload\">` hints to some media tags. They are
+  React's resource-loading concern, not hiccup-to-HTML output, so they go
+  before the diff."
   [s]
   (clojure.string/replace
    s
@@ -75,27 +32,10 @@
    ""))
 
 (defn- normalise-attr-order
-  "Canonicalise both serialisers' output for the parity diff. Per
-  §8.7's known-difference allow-list:
-
-    1. React 18's renderToStaticMarkup emits XHTML-style self-closing
-       `<input/>` (closing slash); HTML5/React-19/the rewrite emits
-       `<input>`. Strip the closing slash on void tags.
-    2. React emits a present-but-empty attribute as `disabled=\"\"`;
-       HTML5/the rewrite emits the short form `disabled`. Both
-       spellings parse to the same DOM node, so BOTH sides collapse
-       to the short form — no roster of names is consulted, and none
-       is maintained here (see the no-roster note above).
-    3. React's attribute insertion order may differ from hiccup map
-       order. Sort attributes within each tag.
-    4. React 19 auto-emits `<link rel=\"preload\">` resource hints in
-       front of `<img>` (and other media tags); these are React's
-       resource-loading concern and are stripped before the diff —
-       see `strip-react-19-resource-hints`.
-
-  This canonicalisation operates ONLY on the open-tag region; nested
-  HTML structure / element order / text content / escape sequences
-  remain part of the diff."
+  "Canonicalise both outputs inside open tags only: drop React 18's void-tag
+  slash, collapse an empty attribute value to the bare name (same DOM node),
+  sort attributes, and strip React 19's resource hints. Structure, order, text
+  and escapes stay part of the diff."
   [s]
   (-> s
       strip-react-19-resource-hints
@@ -283,50 +223,26 @@
                          (pr-str hiccup)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Inline-style serialisation
-;;
-;; `react-dom/server.renderToStaticMarkup` appends `px` to numeric values
-;; of non-unitless CSS properties, keeps unitless properties bare, and
-;; omits entries whose value is nil/boolean/empty. The pure-CLJS rewrite
-;; must match. The =parity assertions below pin against react-dom/server;
-;; the explicit-string assertions document the target output independently
-;; of the React reference so a future React change is easy to spot.
+;; Inline styles. Each row asserts parity with react-dom AND the bytes, so the
+;; intended output survives a react-dom bump.
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-style-numeric-px
-  (testing "numeric px-property values render with px"
-    (let [[a b] (=parity [:div {:style {:width 10 :height 20}}])]
-      (is (= a b)))
-    (is (= "<div style=\"width:10px;height:20px\"></div>"
-           (via-rewrite [:div {:style {:width 10 :height 20}}])))))
-
-(deftest parity-style-unitless-bare
-  (testing "unitless properties render bare (no px)"
-    (let [[a b] (=parity [:div {:style {:flex-grow 1 :z-index 5 :opacity 0.5}}])]
-      (is (= a b)))
-    (is (= "<div style=\"flex-grow:1;z-index:5;opacity:0.5\"></div>"
-           (via-rewrite [:div {:style {:flex-grow 1 :z-index 5 :opacity 0.5}}])))))
-
-(deftest parity-style-zero-no-px
-  (testing "numeric zero never gets px (matches React)"
-    (let [[a b] (=parity [:div {:style {:width 0}}])]
-      (is (= a b)))
-    (is (= "<div style=\"width:0\"></div>"
-           (via-rewrite [:div {:style {:width 0}}])))))
-
-(deftest parity-style-nil-omitted
-  (testing "nil-valued style entry is omitted entirely"
-    (let [[a b] (=parity [:div {:style {:color nil :width 10}}])]
-      (is (= a b)))
-    (is (= "<div style=\"width:10px\"></div>"
-           (via-rewrite [:div {:style {:color nil :width 10}}])))))
-
-(deftest parity-style-string-value-untouched
-  (testing "string values pass through (px in the string is preserved)"
-    (let [[a b] (=parity [:div {:style {:width "10em" :color "red"}}])]
-      (is (= a b)))
-    (is (= "<div style=\"width:10em;color:red\"></div>"
-           (via-rewrite [:div {:style {:width "10em" :color "red"}}])))))
+(deftest parity-style-serialisation
+  (testing "px on numeric non-unitless values, bare unitless values, no px on
+            zero, nil entries omitted, strings untouched, keyword values
+            stringified on the live React path too"
+    (doseq [[style expected]
+            [[{:width 10 :height 20} "width:10px;height:20px"]
+             [{:flex-grow 1 :z-index 5 :opacity 0.5} "flex-grow:1;z-index:5;opacity:0.5"]
+             [{:width 0} "width:0"]
+             [{:color nil :width 10} "width:10px"]
+             [{:width "10em" :color "red"} "width:10em;color:red"]
+             [{:cursor :pointer} "cursor:pointer"]
+             [{:display :flex :text-align :center} "display:flex;text-align:center"]]]
+      (let [[a b] (=parity [:div {:style style}])]
+        (is (= a b) (pr-str style)))
+      (is (= (str "<div style=\"" expected "\"></div>")
+             (via-rewrite [:div {:style style}]))))))
 
 (deftest parity-style-webkit-box-flex-group
   (testing "`WebkitBoxFlexGroup` gets px (NOT unitless) —
@@ -356,57 +272,21 @@
     (is (= "<div style=\"--gap:8\"></div>"
            (via-rewrite [:div {:style {:--gap 8}}])))))
 
-(deftest parity-style-keyword-value-rf2-fdm4rm
-  (testing "keyword-valued style properties stringify on the
-            LIVE React path so react-dom/server and the pure serializer
-            AGREE — {:cursor :pointer} → cursor:pointer on both. This pin
-            FAILS if the live template path passes a raw keyword into React
-            (React would string-coerce the CLJS keyword :pointer
-            to \":pointer\", emitting invalid `cursor::pointer`)."
-    (let [[a b] (=parity [:div {:style {:cursor :pointer}}])]
-      (is (= a b)
-          "live React path and pure serializer agree on :cursor :pointer"))
-    (is (= "<div style=\"cursor:pointer\"></div>"
-           (via-rewrite [:div {:style {:cursor :pointer}}])))
-    ;; Mixed keyword values across several properties, one style map.
-    (let [[a b] (=parity [:div {:style {:display :flex :text-align :center}}])]
-      (is (= a b)))
-    (is (= "<div style=\"display:flex;text-align:center\"></div>"
-           (via-rewrite [:div {:style {:display :flex :text-align :center}}])))))
-
 ;; ---------------------------------------------------------------------------
-;; SVG attribute-name casing parity
-;;
-;; `react-dom/server` is case-sensitive about SVG attribute names: it
-;; preserves `viewBox`/`preserveAspectRatio`/`gradientUnits`/`stdDeviation`,
-;; dasherizes `clipPath`→`clip-path` / `strokeWidth`→`stroke-width` /
-;; `fillOpacity`→`fill-opacity` / `stopColor`→`stop-color`, and lowercases
-;; plain HTML camelCase (`tabIndex`→`tabindex`). A blanket-lowercasing
-;; serializer would turn `viewBox` into the broken `viewbox`. The
-;; =parity assertions pin the serializer against the live React reference;
-;; the explicit-string assertions document the target independently.
+;; Attribute-name casing. react-dom keeps SVG's viewBox / preserveAspectRatio,
+;; dasherizes clipPath / strokeWidth, and lowercases plain HTML camelCase. A
+;; blanket-lowercasing serializer would write the broken `viewbox`.
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-svg-preserve-aspect-ratio
-  (testing ":preserveAspectRatio preserved verbatim"
-    (let [[a b] (=parity [:svg {:preserveAspectRatio "xMidYMid"}])]
-      (is (= a b)))
-    (is (= "<svg preserveAspectRatio=\"xMidYMid\"></svg>"
-           (via-rewrite [:svg {:preserveAspectRatio "xMidYMid"}])))))
-
-(deftest parity-svg-clip-path-dasherized
-  (testing ":clipPath dasherizes to clip-path (React's output)"
-    (let [[a b] (=parity [:rect {:clipPath "url(#c)"}])]
-      (is (= a b)))
-    (is (= "<rect clip-path=\"url(#c)\"></rect>"
-           (via-rewrite [:rect {:clipPath "url(#c)"}])))))
-
-(deftest parity-svg-stroke-width-dasherized
-  (testing ":strokeWidth dasherizes to stroke-width"
-    (let [[a b] (=parity [:path {:strokeWidth 2 :d "M0 0"}])]
-      (is (= a b)))
-    (is (= "<path stroke-width=\"2\" d=\"M0 0\"></path>"
-           (via-rewrite [:path {:strokeWidth 2 :d "M0 0"}])))))
+(deftest parity-attribute-name-casing
+  (doseq [[hiccup expected]
+          [[[:svg {:preserveAspectRatio "xMidYMid"}] "<svg preserveAspectRatio=\"xMidYMid\"></svg>"]
+           [[:rect {:clipPath "url(#c)"}] "<rect clip-path=\"url(#c)\"></rect>"]
+           [[:path {:strokeWidth 2 :d "M0 0"}] "<path stroke-width=\"2\" d=\"M0 0\"></path>"]
+           [[:div {:tab-index 3}] "<div tabindex=\"3\"></div>"]]]
+    (let [[a b] (=parity hiccup)]
+      (is (= a b) (pr-str hiccup)))
+    (is (= expected (via-rewrite hiccup)))))
 
 (deftest parity-svg-tree-with-children
   (testing "realistic SVG tree: viewBox root + clipPath/strokeWidth children"
@@ -481,13 +361,6 @@
            (via-rewrite [:svg [:text {:xml-lang "en"} "x"]])))
     (is (= "<svg><g transform-origin=\"center\"></g></svg>"
            (via-rewrite [:svg [:g {:transform-origin "center"}]])))))
-
-(deftest parity-html-tab-index-lowercased
-  (testing ":tab-index lowercases to tabindex (HTML camelCase)"
-    (let [[a b] (=parity [:div {:tab-index 3}])]
-      (is (= a b)))
-    (is (= "<div tabindex=\"3\"></div>"
-           (via-rewrite [:div {:tab-index 3}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; javascript: URLs

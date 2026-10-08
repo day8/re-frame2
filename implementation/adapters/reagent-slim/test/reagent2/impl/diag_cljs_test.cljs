@@ -1,47 +1,14 @@
 (ns reagent2.impl.diag-cljs-test
-  "Coverage + mirror-parity pin for `reagent2.impl.diag/value-summary`,
-  the day8/reagent-slim EP-0015 diagnostic REDACTION primitive (Spec 015
-  §Data-Classification).
-
-  `value-summary` exists so a hiccup head / child vector / Form-3 spec baked
-  into a framework error message or ex-data slot carries only a SHAPE summary
-  (type, and the size of a counted collection) — never the app-owned value —
-  before off-box capture (console, error boundary, host log, SSR error
-  handler) can grab the raw value the record projector never got to classify.
-
-  The summary is content-free BY CONSTRUCTION — every value it carries is
-  a closed-vocabulary `:type` keyword or an integer count. There is no
-  `:head` (a printed prefix of the value carries content, and has no safe
-  bound for keywords/symbols) and no map `:keys` (every top-level key is
-  app-controlled and unbounded in number). So this suite asserts that
-  grammar rather than a truncation quality.
-
-  Two properties are pinned here:
-
-    1. HOSTILE INPUT — a value whose `toString` throws still summarises.
-       The parity corpus below cannot carry one, so it is pinned on its own.
-
-    2. MIRROR PARITY — `value-summary` is a hand-copied 'content-byte-for-byte
-       mirror' of `re-frame.error/diag-value-summary` (replicated INLINE
-       because the slim bundle-isolation gate forbids the production build
-       `:require`-ing re-frame.*). A hand-replicated mirror with no parity
-       test silently drifts, so this asserts the two agree over a value
-       corpus that reaches every `cond` arm, and
-       `re-frame.diag-value-summary-cljs-test` pins each arm's redaction on
-       the original. Bundle-isolation binds only PRODUCTION builds; this test-only
-       ns may require both — the slim bundle-isolation gate
-       (check-reagent-slim-bundle-isolation.cjs) inspects shipped bundles,
-       not the test classpath.
-
-  Pure data — no runtime state; rides `npm run test:cljs` via the `cljs-test$`
-  ns-regexp."
+  "`reagent2.impl.diag/value-summary` is the slim build's diagnostic redaction
+  primitive: an error carries a content-free shape summary, never the
+  app-owned value. It is a hand-copied mirror of
+  `re-frame.error/diag-value-summary` (the slim production build may not
+  require re-frame.*), so this pins the two equal over a corpus reaching
+  every arm, plus the hostile-toString case the corpus cannot carry.
+  `re-frame.diag-value-summary-cljs-test` pins each arm on the original."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.diag :as diag]
             [re-frame.error :as rf.error]))
-
-;; ---- REDACTION: a string discloses its SIZE and nothing else --------------
-
-;; ---- REDACTION: a map discloses its CARDINALITY and nothing else ----------
 
 ;; ---- a hostile toString cannot throw OUT of the diagnostic ---------------
 

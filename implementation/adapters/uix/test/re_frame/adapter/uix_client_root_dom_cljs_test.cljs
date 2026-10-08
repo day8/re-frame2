@@ -5,27 +5,12 @@
   allocation and the element-slot guard; this one lets the shared React
   spine mount real Roots and reads the outcome off the DOM.
 
-  WHAT THE DOM PROVES THAT A SPY CANNOT HERE. The spine mounts through the
-  `react-dom/client` MODULE, so there are no Vars to `with-redefs` (the
-  Reagent twin's technique). Instead each proof is read off the committed
-  tree:
-
-    1. NODE IDENTITY across a re-render is the create-once proof AND the
-       Fragment-wrapper proof at once. The spine wraps every tree in a
-       Fragment beside the after-render sentinel; a second `createRoot` on
-       the same container, or an update rendered through a DIFFERENT
-       wrapper shape, both remount the subtree and mint a new node. The
-       node surviving with new text is only possible if one Root
-       reconciled the same top element — which is exactly the risk on the
-       `:update!` path.
-    2. A hydrating first render ADOPTING the server node (same node
-       object) is the hydrate-once proof — `createRoot` would replace it.
-    3. Unmount idempotence and mount-afresh-after-release are read off the
-       container's emptiness and the node minted by the next render.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers
-  it; the `:node-test` runner also loads it, where each body gates on
-  `(browser?)` and records a documented skip."
+  The spine mounts through the `react-dom/client` MODULE, which has no Vars
+  to `with-redefs`, so each proof is read off the committed tree: NODE
+  IDENTITY across a re-render proves one Root and one Fragment wrapper (a
+  second `createRoot`, or a different wrapper shape, remounts and mints a new
+  node), and a hydrating first render ADOPTING the server node proves
+  `hydrateRoot` ran once."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react-dom" :as react-dom]
             [uix.core :as uix :refer-macros [defui $]]
@@ -78,16 +63,13 @@
         (let [node-1 (probe el)]
           (is (= "v1" (some-> node-1 .-textContent)) "first render committed v1")
           (react-dom/flushSync (fn [] (rf.adapter.uix/render! h (tree "v2") el)))
-          (is (= "v2" (some-> (probe el) .-textContent)) "second render committed v2")
-          (is (identical? node-1 (probe el))
-              "the SAME node was updated — one Root, and the update rendered
-               through the same Fragment wrapper (a second createRoot or a
-               shifted child position would have remounted the subtree)")
+          (is (= ["v2" true] [(some-> (probe el) .-textContent) (identical? node-1 (probe el))])
+              "the update committed into the SAME node — one Root, one Fragment wrapper")
           (react-dom/flushSync (fn [] (rf.adapter.uix/render! h (tree "v3") el)))
-          (is (= "v3" (some-> (probe el) .-textContent)) "third render committed v3")
-          (is (identical? node-1 (probe el)) "and still the same node")
-          (is (= 1 (.-length (.-children el)))
-              "one tree owns the container — updates replaced, never appended"))
+          (is (= ["v3" true 1]
+                 [(some-> (probe el) .-textContent) (identical? node-1 (probe el))
+                  (.-length (.-children el))])
+              "still the same node, and one tree owns the container — updates replaced, never appended"))
         (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! h)))
         (is (nil? (probe el)) "unmount! removed the tree")
         (drop-host! el)))))
@@ -109,10 +91,8 @@
               "the second unmount! is a no-op returning nil — it does not throw
                and does not reach React a second time")
           (react-dom/flushSync (fn [] (rf.adapter.uix/render! h (tree "v2") el)))
-          (is (= "v2" (some-> (probe el) .-textContent))
-              "a render! after release mounts afresh")
-          (is (not (identical? node-1 (probe el)))
-              "into a NEW Root — the released one is not reused"))
+          (is (= ["v2" false] [(some-> (probe el) .-textContent) (identical? node-1 (probe el))])
+              "a render! after release mounts afresh, into a NEW Root"))
         (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! h)))
         (drop-host! el)))))
 
@@ -135,11 +115,10 @@
         (react-dom/flushSync (fn [] (rf.substrate.adapter/dispose-adapter!)))
         (is (nil? (probe el-live))
             "the drain released the still-live handle's Root")
-        (is (nil? (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! live))))
-            "a later unmount! on the drained handle is a no-op, not a double
-             release — liveness is read off the active set, not the handle")
-        (is (nil? (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! gone))))
-            "and likewise for the already-unmounted one")
+        (is (= [nil nil]
+               [(react-dom/flushSync (fn [] (rf.adapter.uix/unmount! live)))
+                (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! gone)))])
+            "a later unmount! on the drained or the already-unmounted handle is a no-op — liveness is read off the active set, not the handle")
         ;; A render! after the drain mounts afresh (the fixture reinstalls the
         ;; adapter per test, so re-install here for the post-drain render).
         (rf.substrate.adapter/install-adapter! rf.adapter.uix/adapter)
@@ -189,12 +168,10 @@
              cached reaction the drain is about to dispose")
         (let [outcome (try (react-dom/flushSync (fn [] (rf/destroy-adapter!)))
                            (catch :default e e))]
-          (is (nil? outcome)
-              (str "rf/destroy-adapter! returned nil rather than throwing — got "
-                   (pr-str (or (ex-data outcome) outcome)))))
-        (is (nil? (probe el)) "the drain unmounted the still-mounted root")
-        (is (= {} @(:sub-cache (rf.frame/frame sub-frame)))
-            "the disposed reaction was let go, not rebuilt into the cache")
+          (is (= [nil nil {}]
+                 [outcome (probe el) @(:sub-cache (rf.frame/frame sub-frame))])
+              (str "[destroy-adapter!-result probe sub-cache]: the drain returned without"
+                   " throwing, unmounted the root and rebuilt nothing — got " (pr-str outcome))))
         (drop-host! el)))))
 
 ;; ---- hydrating mount: adopt the server node, then update it --------------
@@ -222,13 +199,8 @@
                      minted a new one)")
                 (react-dom/flushSync
                   (fn [] (rf.adapter.uix/render! h (tree "v2") el {:hydrate? true})))
-                (is (= "v2" (some-> (probe el) .-textContent))
-                    "the later render committed the new tree through the
-                     hydrated Root")
-                (is (identical? server-p (probe el))
-                    "and updated the ADOPTED node — never hydrated again, and
-                     never re-created, even though the caller kept passing
-                     {:hydrate? true}")
+                (is (= ["v2" true] [(some-> (probe el) .-textContent) (identical? server-p (probe el))])
+                    "the later render updated the ADOPTED node — never hydrated again or re-created, though the caller kept passing {:hydrate? true}")
                 (catch :default e
                   (is false (str "hydrating render threw: " (pr-str e))))
                 (finally
@@ -252,10 +224,8 @@
         (is (= "v1" (some-> (probe el) .-textContent)) "the live tree is committed")
         (let [thrown (try (rf.adapter.uix/render! h [:div "hiccup"] el) nil
                           (catch :default e e))]
-          (is (= :rf.error/hiccup-on-element-render-slot
-                 (:rf.error/id (ex-data thrown)))
-              "a LATER render! refuses CLJS data exactly as the first one does"))
-        (is (= "v1" (some-> (probe el) .-textContent))
-            "and the refused update left the committed tree alone")
+          (is (= [:rf.error/hiccup-on-element-render-slot "v1"]
+                 [(:rf.error/id (ex-data thrown)) (some-> (probe el) .-textContent)])
+              "a LATER render! refuses CLJS data as the first one does, leaving the committed tree alone"))
         (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! h)))
         (drop-host! el)))))

@@ -90,6 +90,9 @@
 (defn- ref-count [cache query-v]
   (or (get-in cache [query-v :ref-count]) 0))
 
+(defn- of-phase [events phase]
+  (filter #(= phase (:phase %)) events))
+
 (defn- setup-frames-and-subs! []
   (rf/make-frame {:id frame-a :doc "Form-3 lifecycle fixture frame A"})
   (rf/make-frame {:id frame-b :doc "Form-3 lifecycle fixture frame B"})
@@ -254,35 +257,26 @@
                 (act-fn #(rdc/render root-b
                                      (sibling-tree frame-b view [:b-one])))
 
-                (let [outer-events (filter #(= :outer (:phase %)) @events)
+                (let [outer-events (of-phase @events :outer)
                       a-outers (filter #(= frame-a (:frame %)) outer-events)
-                      mount-events (filter #(= :did-mount (:phase %)) @events)]
-                  (is (= 2 (count a-outers)) "both A instances ran the outer callable")
-                  (is (= 3 (count outer-events)) "one fresh outer capture per mount")
-                  (is (not (identical? (:handle (first a-outers))
-                                       (:handle (second a-outers))))
-                      "A instances do not share a captured frame bundle")
-                  (is (not (identical? (:state (first a-outers))
-                                       (:state (second a-outers))))
-                      "A instances do not share lifecycle state")
-                  (is (every? #(= 1 (:mount-count @(:state %))) outer-events)
-                      "each per-instance state saw exactly its own mount")
-                  (is (every? #(no-frame-context? (:bare-once-error %)) mount-events)
-                      "bare subscribe-once in did-mount raises no-frame-context")
-                  (is (every? #(no-frame-context? (:hook-capture-error %)) mount-events)
-                      "capture-frame attempted in did-mount raises no-frame-context")
-                  (is (= {frame-a #{20} frame-b #{200}}
-                         (into {}
-                               (map (fn [[fid xs]]
-                                      [fid (set (map :one-shot-value xs))]))
-                               (group-by :frame mount-events)))
-                      "explicit subscribe-once reads the captured A/B frame")
-                  (is (= {frame-a #{20} frame-b #{200}}
-                         (into {}
-                               (map (fn [[fid xs]]
-                                      [fid (set (map :live-value xs))]))
-                               (group-by :frame mount-events)))
-                      "imperative captured subscribe reads the locked frame"))
+                      mount-events (of-phase @events :did-mount)
+                      by-frame (fn [k]
+                                 (into {}
+                                       (map (fn [[fid xs]] [fid (set (map k xs))]))
+                                       (group-by :frame mount-events)))]
+                  (is (= [2 3 false false]
+                         [(count a-outers) (count outer-events)
+                          (identical? (:handle (first a-outers)) (:handle (second a-outers)))
+                          (identical? (:state (first a-outers)) (:state (second a-outers)))])
+                      "both A instances ran the outer callable, one fresh capture per mount, sharing neither the captured frame bundle nor lifecycle state")
+                  (is (= [true true true]
+                         [(every? #(= 1 (:mount-count @(:state %))) outer-events)
+                          (every? #(no-frame-context? (:bare-once-error %)) mount-events)
+                          (every? #(no-frame-context? (:hook-capture-error %)) mount-events)])
+                      "each per-instance state saw exactly its own mount, and a bare subscribe-once or capture-frame in did-mount raises no-frame-context")
+                  (is (= [{frame-a #{20} frame-b #{200}} {frame-a #{20} frame-b #{200}}]
+                         [(by-frame :one-shot-value) (by-frame :live-value)])
+                      "explicit subscribe-once and the imperative captured subscribe both read the locked A/B frame"))
 
                 (is (= (expected-cache 2) (cache-state frame-a))
                     "A cache records two render owners and two imperative owners")
@@ -293,38 +287,30 @@
                   ;; User lifecycle teardown is synchronous; Reagent-owned
                   ;; render cleanup is deliberately deferred one microtask.
                   (act-fn #(rdc/unmount root-a))
-                  (is (= 0 (ref-count (cache-state frame-a) lifecycle-query))
-                      "A's hook-owned subscriptions release synchronously")
-                  (is (= 2 (ref-count (cache-state frame-a) render-query))
-                      "A's render owners survive until Reagent's real-unmount cleanup")
-                  (is (= b-mounted-cache (cache-state frame-b))
-                      "A teardown leaves B's same-query cache byte-for-byte alone"))
+                  (is (= [0 2 b-mounted-cache]
+                         [(ref-count (cache-state frame-a) lifecycle-query)
+                          (ref-count (cache-state frame-a) render-query)
+                          (cache-state frame-b)])
+                      "A's hook-owned subscriptions release synchronously, its render owners survive until Reagent's real-unmount cleanup, and B's same-query cache is untouched"))
 
-                (let [a-unmounts (filter #(and (= :will-unmount (:phase %))
-                                               (= frame-a (:frame %)))
-                                         @events)]
-                  (is (= 2 (count a-unmounts)) "each A instance cleaned up once")
-                  (doseq [{:keys [bare-unsubscribe-error before-bare after-bare
-                                  after-explicit]} a-unmounts]
-                    (is (no-frame-context? bare-unsubscribe-error)
-                        "bare will-unmount unsubscribe raises no-frame-context")
-                    (is (= before-bare after-bare)
-                        "the failed bare teardown does not alter cache state")
-                    (is (= (dec (ref-count before-bare lifecycle-query))
-                           (ref-count after-explicit lifecycle-query))
-                        "explicit frame-first teardown releases exactly one owner")))
+                (let [a-unmounts (filter #(= frame-a (:frame %)) (of-phase @events :will-unmount))]
+                  (is (= [[true true true] [true true true]]
+                         (map (fn [{:keys [bare-unsubscribe-error before-bare after-bare after-explicit]}]
+                                [(no-frame-context? bare-unsubscribe-error)
+                                 (= before-bare after-bare)
+                                 (= (dec (ref-count before-bare lifecycle-query))
+                                    (ref-count after-explicit lifecycle-query))])
+                              a-unmounts))
+                      "each A instance cleaned up once: the bare unsubscribe raised no-frame-context without altering the cache, and the explicit frame-first teardown released exactly one owner"))
 
                 (act-fn #(rdc/unmount root-b))
                 (-> (next-microtask)
                     (.then
                       (fn [_]
-                        (is (= {} (cache-state frame-a))
-                            "A reaches exact baseline after Reagent's deferred cleanup")
-                        (is (= {} (cache-state frame-b))
-                            "B reaches exact baseline after its deferred cleanup")
-                        (is (= 3 (count (filter #(= :render-release (:phase %))
-                                                @events)))
-                            "each Reagent-owned render reaction releases exactly once")
+                        (is (= [{} {} 3]
+                               [(cache-state frame-a) (cache-state frame-b)
+                                (count (of-phase @events :render-release))])
+                            "both frames reach their exact baseline after Reagent's deferred cleanup, each render reaction released exactly once")
                         nil))
                     (.catch report!)
                     ;; Both arms cleaned up identically, so it rides the single
@@ -366,12 +352,11 @@
                     "initial keyed mount owns A")
 
                 (act-fn #(rdc/render root (retarget-tree frame-b view)))
-                (is (= 0 (ref-count (cache-state frame-a) lifecycle-query))
-                    "outgoing A hook-owned subscription releases at will-unmount")
-                (is (= 1 (ref-count (cache-state frame-a) render-query))
-                    "outgoing A render owner awaits Reagent's cleanup microtask")
-                (is (= (expected-cache 1) (cache-state frame-b))
-                    "incoming keyed mount owns B")
+                (is (= [0 1 (expected-cache 1)]
+                       [(ref-count (cache-state frame-a) lifecycle-query)
+                        (ref-count (cache-state frame-a) render-query)
+                        (cache-state frame-b)])
+                    "outgoing A's hook-owned subscription released at will-unmount, its render owner awaits Reagent's cleanup microtask, and the incoming keyed mount owns B")
 
                 (let [indexed (map-indexed vector @events)
                       a-unmount (first (filter (fn [[_ e]]
@@ -382,36 +367,28 @@
                                                (and (= :did-mount (:phase e))
                                                     (= frame-b (:frame e))))
                                              indexed))
-                      outers (filter #(= :outer (:phase %)) @events)
+                      outers (of-phase @events :outer)
                       b-phases (set (map :phase (filter #(= frame-b (:frame %))
                                                         @events)))]
-                  (is (some? a-unmount) "changing the key causes outgoing A unmount")
-                  (is (some? b-mount) "the replacement class mounts under B")
-                  (is (< (first a-unmount) (first b-mount))
-                      "A will-unmount commits before B did-mount")
-                  (is (every? #(= frame-b (:frame %))
-                              (map second
-                                   (remove #(= :render-release (:phase (second %)))
-                                           (drop (inc (first a-unmount)) indexed))))
-                      "no later user lifecycle/render action uses stale A")
-                  (is (every? b-phases [:outer :render :did-mount])
-                      "incoming outer factory, reagent-render and lifecycle all own B")
-                  (is (= 2 (count outers))
-                      "the keyed retarget creates a second per-mount outer capture")
-                  (is (not (identical? (:handle (first outers))
-                                       (:handle (second outers))))
-                      "B does not mutate or reuse A's locked handle")
-                  (is (not (identical? (:state (first outers))
-                                       (:state (second outers))))
-                      "the singleton-to-outer migration creates fresh mount state"))
+                  (is (= [true true true true]
+                         [(some? a-unmount) (some? b-mount)
+                          (< (first a-unmount) (first b-mount))
+                          (every? #(= frame-b (:frame %))
+                                  (map second
+                                       (remove #(= :render-release (:phase (second %)))
+                                               (drop (inc (first a-unmount)) indexed))))])
+                      "changing the key unmounts A, whose will-unmount commits before B's did-mount, and no later user lifecycle/render action uses stale A")
+                  (is (= [true 2 false false]
+                         [(every? b-phases [:outer :render :did-mount]) (count outers)
+                          (identical? (:handle (first outers)) (:handle (second outers)))
+                          (identical? (:state (first outers)) (:state (second outers)))])
+                      "the incoming outer factory, reagent-render and lifecycle all own B, through a second per-mount outer capture with neither A's locked handle nor its mount state"))
 
                 (-> (next-microtask)
                     (.then
                       (fn [_]
-                        (is (= {} (cache-state frame-a))
-                            "outgoing A reaches baseline after deferred render cleanup")
-                        (is (= (expected-cache 1) (cache-state frame-b))
-                            "A's deferred cleanup leaves B byte-for-byte intact")
+                        (is (= [{} (expected-cache 1)] [(cache-state frame-a) (cache-state frame-b)])
+                            "outgoing A reaches baseline after deferred render cleanup, leaving B byte-for-byte intact")
                         (act-fn #(rdc/unmount root))
                         (next-microtask)))
                     (.then
@@ -466,21 +443,15 @@
                   (.then (fn [_] (settle-macrotasks 3)))
                   (.then
                     (fn [_]
-                      (let [mounts (filter #(and (= :did-mount (:phase %))
-                                                 (= frame-a (:frame %))) @events)
+                      (let [mounts (filter #(= frame-a (:frame %)) (of-phase @events :did-mount))
                             transient-unmounts
-                            (filter #(and (= :will-unmount (:phase %))
-                                          (= frame-a (:frame %))) @events)]
-                        (is (>= (count mounts) 2)
-                            "StrictMode replayed component-did-mount")
-                        (is (>= (count transient-unmounts) 1)
-                            "StrictMode replayed component-will-unmount")
-                        (is (= (inc (count transient-unmounts)) (count mounts))
-                            "the mounted state has one live acquisition after replay")
-                        (is (= (expected-cache 1) (cache-state frame-a))
-                            "StrictMode leaves one render owner and one hook owner")
-                        (is (empty? (filter #(= :render-release (:phase %)) @events))
-                            "transient will-unmount did not release render ownership"))
+                            (filter #(= frame-a (:frame %)) (of-phase @events :will-unmount))]
+                        (is (= [true true true (expected-cache 1) []]
+                               [(>= (count mounts) 2) (>= (count transient-unmounts) 1)
+                                (= (inc (count transient-unmounts)) (count mounts))
+                                (cache-state frame-a)
+                                (of-phase @events :render-release)])
+                            "StrictMode replayed did-mount and will-unmount, leaving one live acquisition: one render owner and one hook owner, with no render ownership released"))
                       (js/Promise.resolve
                         (act-fn
                           (fn []
@@ -488,25 +459,18 @@
                             (r/flush))))))
                   (.then
                     (fn [_]
-                      (let [renders (filter #(and (= :render (:phase %))
-                                                  (= frame-a (:frame %))) @events)]
-                        (is (= 11 (:value (last renders)))
-                            "post-replay app-db update re-rendered the Form-3 body")
-                        (is (= (expected-cache 1) (cache-state frame-a))
-                            "post-replay render did not duplicate either owner"))
+                      (let [renders (filter #(= frame-a (:frame %)) (of-phase @events :render))]
+                        (is (= [11 (expected-cache 1)] [(:value (last renders)) (cache-state frame-a)])
+                            "the post-replay app-db update re-rendered the Form-3 body without duplicating either owner"))
                       (js/Promise.resolve (act-fn #(rdc/unmount root)))))
                   (.then (fn [_] (next-microtask)))
                   (.then
                     (fn [_]
-                      (let [mounts (filter #(= :did-mount (:phase %)) @events)
-                            unmounts (filter #(= :will-unmount (:phase %)) @events)]
-                        (is (= (count mounts) (count unmounts))
-                            "real unmount balances every StrictMode hook acquisition")
-                        (is (= 1 (count (filter #(= :render-release (:phase %))
-                                                @events)))
-                            "Reagent destroys the retained render owner exactly once")
-                        (is (= {} (cache-state frame-a))
-                            "real unmount restores the exact cache baseline"))
+                      (is (= [true 1 {}]
+                             [(= (count (of-phase @events :did-mount)) (count (of-phase @events :will-unmount)))
+                              (count (of-phase @events :render-release))
+                              (cache-state frame-a)])
+                          "the real unmount balances every StrictMode hook acquisition, destroys the retained render owner exactly once, and restores the exact cache baseline")
                       nil))
                   (.catch report!)
                   ;; Both arms cleaned up identically, so it rides the single
@@ -619,10 +583,8 @@
                      warmth scaffolding standing behind this fixture")
                 (act-fn #(rdc/render root (gauge-tree view [:g-one :g-two])))
                 (ratom/flush!)
-                (is (= {:g-one [10] :g-two [10]} @feeds)
-                    "each mount's tracker ran eagerly and seeded its widget")
-                (is (= 2 (rc))
-                    "the two mounts share one reaction — each adds one holder")
+                (is (= [{:g-one [10] :g-two [10]} 2] [@feeds (rc)])
+                    "each mount's tracker ran eagerly and seeded its widget, and the two mounts share one reaction — each adds one holder")
 
                 (act-fn #(do (rf/dispatch-sync [::seed 20] {:frame frame-a})
                              (ratom/flush!)))
@@ -645,13 +607,8 @@
                 ;; duplicate, so this is the commit cycle, not the recipe.) What
                 ;; must hold is the ownership claim: the survivor SEES 30 and the
                 ;; released mount NEVER does.
-                (is (= 30 (last (:g-one @feeds)))
-                    "the survivor's own tracker keeps feeding it after its
-                     sibling unmounts — disposing a sibling's owner cannot
-                     touch this mount's observation")
-                (is (= [10 20] (:g-two @feeds))
-                    "the unmounted mount is frozen at its pre-unmount feed —
-                     its tracker was disposed")
+                (is (= [30 [10 20]] [(last (:g-one @feeds)) (:g-two @feeds)])
+                    "the survivor's own tracker keeps feeding it after its sibling unmounts, while the unmounted mount is frozen at its pre-unmount feed — its tracker was disposed")
 
                 (act-fn #(rdc/unmount root))
                 (ratom/flush!)
@@ -711,11 +668,8 @@
                                   (ratom/flush!))))))
                   (.then
                     (fn [_]
-                      (is (= 15 (last (get @feeds :strict-gauge)))
-                          "the surviving tracker feeds the post-replay update —
-                           the replay left a live owner, not a disposed one")
-                      (is (= 1 (rc))
-                          "the post-replay update did not duplicate the acquire")
+                      (is (= [15 1] [(last (get @feeds :strict-gauge)) (rc)])
+                          "the surviving tracker feeds the post-replay update (the replay left a live owner, not a disposed one) without duplicating the acquire")
                       (js/Promise.resolve (act-fn #(rdc/unmount root)))))
                   (.then (fn [_] (next-microtask)))
                   (.then
@@ -731,20 +685,12 @@
 ;; The interval between two owners of one shared slot
 ;; ===========================================================================
 ;;
-;; WHY A SEPARATE DEFTEST. `outer-capture-is-instance-and-frame-exact` above
-;; already mounts TWO A instances over ONE shared `render-query` — but it
-;; unmounts them together and samples the cache only after both are gone, so
-;; the interval in which one owner has departed and the other is still reading
-;; is never observed. That interval is the whole of where a double release is
-;; visible: a hand release paired with the render owner's own release walks the
-;; shared slot 2 -> 1 -> 0 and disposes it underneath the surviving sibling,
-;; while a test that samples only after both owners die reads `{}` either way
-;; and passes. That test names the property; this one guards it.
-;;
-;; It is not folded into that scenario because dropping and restoring a sibling
-;; mints extra lifecycle events, and that scenario counts `:will-unmount`
-;; events exactly (`(= 2 (count a-unmounts))`). Keeping the sample separate
-;; leaves its bookkeeping untouched.
+;; `outer-capture-is-instance-and-frame-exact` unmounts its two A owners
+;; together, so it never samples the interval where one has gone and the other
+;; still reads — the only place a double release shows: a hand release paired
+;; with the render owner's own walks the shared slot 2 -> 1 -> 0 underneath the
+;; survivor. It stays a separate deftest because dropping a sibling mints extra
+;; lifecycle events, and that scenario counts `:will-unmount` events exactly.
 
 (deftest surviving-sibling-keeps-the-shared-slot-when-the-other-owner-goes
   (testing "with two render owners over one shared query, the
@@ -777,14 +723,12 @@
                   (.then (fn [_] (settle-macrotasks 3)))
                   (.then
                     (fn [_]
+                      ;; `ref-count` reads a missing slot as 0, so these counts
+                      ;; also prove the slot exists.
                       (let [both (cache-state frame-a)]
-                        (is (some? (get both render-query))
-                            (str "precondition: the shared slot exists with both owners "
-                                 "mounted — without it every assertion below would read "
-                                 "nil and pass vacuously; cache: " (pr-str (keys both))))
                         (is (= 2 (ref-count both render-query))
-                            (str "precondition: two render owners hold two references; got "
-                                 (ref-count both render-query))))
+                            (str "precondition: two render owners hold two references; cache: "
+                                 (pr-str both))))
                       ;; Drop ONE owner: React destroys the :a-one child by key
                       ;; and leaves :a-two mounted and still reading.
                       (act-fn #(rdc/render root (sibling-tree frame-a view [:a-two])))
@@ -792,14 +736,11 @@
                   (.then
                     (fn [_]
                       (let [survivor (cache-state frame-a)]
-                        (is (some? (get survivor render-query))
-                            (str "the shared slot SURVIVES one owner's departure — a nil "
-                                 "here is the departing owner having disposed a slot the "
-                                 "sibling is still reading; cache: "
-                                 (pr-str (keys survivor))))
                         (is (= 1 (ref-count survivor render-query))
-                            (str "exactly one reference remains, the surviving sibling's; "
-                                 "got " (ref-count survivor render-query))))
+                            (str "the shared slot SURVIVES one owner's departure with exactly one "
+                                 "reference, the surviving sibling's; a 0 is the departing owner "
+                                 "having disposed a slot the sibling still reads; cache: "
+                                 (pr-str survivor))))
                       (act-fn #(rdc/unmount root))
                       (settle-macrotasks 3)))
                   (.then

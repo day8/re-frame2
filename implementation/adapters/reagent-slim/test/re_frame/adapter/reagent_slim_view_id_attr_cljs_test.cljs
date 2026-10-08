@@ -1,30 +1,11 @@
 (ns re-frame.adapter.reagent-slim-view-id-attr-cljs-test
-  "reagent-slim parity for the view-id tagging contract (mirrors
-  `re-frame.view-id-attr-cljs-test` for the Reagent bridge).
-
-  Per Spec 006 §View tagging contract: when `interop/debug-enabled?` is
-  true, a registered view's rendered root DOM element MUST carry
-  `data-rf-view=\"<id>\"` ALONGSIDE `data-rf2-source-coord`. The view-id
-  attribute is the runtime view-id capture surface, read forward (id →
-  rendered root) and in reverse (node → producing view). The tagging
-  is driven through `re-frame.views` under the *installed* adapter — so
-  this file installs the slim adapter via the reset-runtime fixture and
-  proves slim participates in the same tagging contract the bridge does.
-
-  Coverage mirrors the bridge's shape where it applies to slim:
-
-    - DOM-keyword root with no attrs map: BOTH data-rf2-source-coord
-      AND data-rf-view spliced in, the view attribute's value being
-      `(str id)` — i.e. `\":ns/sym\"`.
-    - DOM-keyword root WITH an existing attrs map: both merged in
-      alongside the user's attrs.
-    - User-supplied data-rf-view wins (don't overwrite).
-    - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs.
-
-  A React Fragment root is exempt from both attributes by the same branch;
-  `re-frame.adapter.reagent-slim-source-coord-dom-cljs-test` pins it.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Under the slim adapter, a registered view's DOM root carries
+  `data-rf-view=\"<id>\"` beside `data-rf2-source-coord` in debug builds (Spec
+  006 §View tagging contract): spliced into a bare root, merged into an
+  existing attrs map, never over a user-supplied value, and onto a Form-2
+  view's inner output. The Reagent twin is `re-frame.view-id-attr-cljs-test`;
+  the Fragment exemption is pinned in
+  `re-frame.adapter.reagent-slim-source-coord-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -60,16 +41,10 @@
             :data-rf2-source-coord AND :data-rf-view spliced in under slim"
     (rf/reg-view ^{:rf/id :rf.slim-view-id/no-attrs} no-attrs-view []
       [:span "hi"])
-    (let [render (rf/view :rf.slim-view-id/no-attrs)
-          out    (render)
-          view   (root-view-attr out)
-          coord  (root-coord-attr out)]
-      (is (vector? out))
-      (is (= :span (first out)) "root tag preserved")
-      (is (string? view) ":data-rf-view present alongside :data-rf2-source-coord")
-      (is (string? coord) ":data-rf2-source-coord present (parity)")
-      (is (= ":rf.slim-view-id/no-attrs" view)
-          "view attribute value is (str id) — leading-colon preserved"))))
+    (let [out ((rf/view :rf.slim-view-id/no-attrs))]
+      (is (= [:span ":rf.slim-view-id/no-attrs" true]
+             [(first out) (root-view-attr out) (string? (root-coord-attr out))])
+          "the root tag is kept, the view attribute is (str id), and the source coord rides beside it"))))
 
 ;; ---- DOM-keyword root with attrs map --------------------------------------
 
@@ -79,18 +54,12 @@
             user attrs (without disturbing them)"
     (rf/reg-view ^{:rf/id :rf.slim-view-id/with-attrs} with-attrs-view []
       [:div {:class "card" :id "x"} "body"])
-    (let [render (rf/view :rf.slim-view-id/with-attrs)
-          out    (render)
-          attrs  (second out)]
-      (is (vector? out))
-      (is (= :div (first out)))
-      (is (map? attrs))
-      (is (= "card" (:class attrs)) "user :class preserved")
-      (is (= "x"    (:id    attrs)) "user :id preserved")
-      (is (= ":rf.slim-view-id/with-attrs" (:data-rf-view attrs))
-          ":data-rf-view merged in alongside user attrs")
-      (is (string? (:data-rf2-source-coord attrs))
-          ":data-rf2-source-coord still merged in (parity)"))))
+    (let [out   ((rf/view :rf.slim-view-id/with-attrs))
+          attrs (second out)]
+      (is (= [:div {:class "card" :id "x" :data-rf-view ":rf.slim-view-id/with-attrs"} true]
+             [(first out) (select-keys attrs [:class :id :data-rf-view])
+              (string? (:data-rf2-source-coord attrs))])
+          "both attributes merged in beside the user's, which are untouched"))))
 
 ;; ---- user-supplied data-rf-view wins --------------------------------------
 
@@ -114,13 +83,7 @@
       (fn []
         (fn inner-render []
           [:section.f2 "form-2 body"])))
-    (let [wrapper (rf/view :rf.slim-view-id/form-2)
-          out     (wrapper)]
-      (is (fn? out) "outer wrapper returns a fn (Form-2 shape preserved)")
-      (let [inner-out (out)]
-        (is (vector? inner-out) "inner fn returns hiccup")
-        (is (= :section.f2 (first inner-out)))
-        (is (= ":rf.slim-view-id/form-2" (root-view-attr inner-out))
-            ":data-rf-view landed on the inner output's root")
-        (is (string? (root-coord-attr inner-out))
-            ":data-rf2-source-coord landed on the inner output's root too")))))
+    (let [inner-out (((rf/view :rf.slim-view-id/form-2)))]
+      (is (= [:section.f2 ":rf.slim-view-id/form-2" true]
+             [(first inner-out) (root-view-attr inner-out) (string? (root-coord-attr inner-out))])
+          "both attributes landed on the inner output's root"))))

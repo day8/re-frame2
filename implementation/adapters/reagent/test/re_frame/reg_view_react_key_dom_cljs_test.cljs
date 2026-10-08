@@ -12,12 +12,9 @@
   collision warning on mount, with every list child falling back to the
   same munged component name as its key.
 
-  Browser-only — a real `react-dom` commit is required to drive
-  reconciliation and the key-collision dev warning. The `-dom-cljs-test`
-  suffix opts this file into the `:browser-test` build; `:node-test`
-  loads it too (matches `cljs-test$`) and the mount branch gates on
-  `(browser?)`, returning a trivially-true assertion under :node-test
-  where `js/document` is absent."
+  Reconciliation and its key-collision dev warning need a real `react-dom`
+  commit, so `:node-test` loads this and exits early; `:browser-test`
+  asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -72,13 +69,11 @@
               root      (rdc/create-root node)]
           (try
             (react-dom/flushSync (fn [] (rdc/render root [render-fn])))
-            ;; All five keyed rows committed (no child dropped by a
-            ;; key collision).
-            (is (= 5 (.-length (.querySelectorAll node "[data-testid^='keydom-row-']")))
-                "every keyed reg-view child is present in the DOM")
-            (is (not-any? #(re-find #"same key" %) @errs)
-                (str "no React key-collision warning; console.error saw: "
-                     (pr-str @errs)))
+            (is (= [5 []]
+                   [(.-length (.querySelectorAll node "[data-testid^='keydom-row-']"))
+                    (filterv #(re-find #"same key" %) @errs)])
+                (str "all five keyed rows committed, with no React key-collision warning; "
+                     "console.error saw: " (pr-str @errs)))
             (finally
               (set! (.-error js/console) orig)
               (try (rdc/unmount root) (catch :default _ nil)))))))))

@@ -1,31 +1,9 @@
 (ns re-frame.adapter.reagent-slim-late-bind-publication-cljs-test
-  "Pin the late-bind hook list the Reagent Slim adapter
-  publishes at ns-load time. A refactor that adds, removes, or
-  renames a hook trips this test.
-
-  The Reagent Slim adapter publishes via two mechanisms:
-
-    (1) `substrate-adapter/route-hook!` - routed `:adapter/*` hooks
-        that run THIS adapter's impl iff this adapter is the
-        currently-installed one; otherwise chain to the previous
-        handler. Used for Reagent-shaped adapter hooks:
-        `:adapter/current-frame`, `:adapter/current-component`,
-        `:adapter/ratom`, `:adapter/ratom?`,
-        `:adapter/make-reaction`, `:adapter/add-on-dispose!`,
-        `:adapter/dispose!`, `:adapter/reactive?`,
-        `:adapter/after-render`, `:adapter/derived-container?`, and
-        `:adapter/arm-hiccup-emitter-if-unarmed!` (the
-        routed, precedence-safe install-replay arm for the SSR emitter).
-
-    (2) `late-bind/chain-fn!` - chained hooks where every contributor
-        runs (independent of installed-adapter identity). Used for
-        `:reagent/set-hiccup-emitter!` so one SSR ns-load installs the
-        emitter into every loaded React-shaped adapter.
-
-  This file pins the SET of hook keys published and cross-checks it
-  against the authoritative late-bind directory.
-
-  ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
+  "Pin the late-bind hook list the Reagent Slim adapter publishes at ns-load
+  — routed `:adapter/*` hooks (`route-hook!`, which run this adapter's impl
+  only while it is installed) and the chained `:reagent/set-hiccup-emitter!`
+  (`chain-fn!`, where every loaded React-shaped adapter contributes) — and
+  cross-check the set against the late-bind directory."
   (:require [cljs.test :refer-macros [deftest is testing]]
             ;; Loading the Reagent Slim adapter triggers its ns-load
             ;; publication side effects - that's the point of this test.

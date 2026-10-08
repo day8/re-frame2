@@ -1,49 +1,13 @@
 (ns re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test
-  "The ADVERTISED registry-keyed UIx mount, exercised as a consumer writes
-  it.
-
-  `docs/api/re-frame.adapter.uix.md` tells UIx users to reach for
-  `rf/reg-view*` for registry-keyed view addressing, and Spec 001
-  §`(re-frame.core/view id)` makes `(rf/view id)` the runtime handle for
-  what was registered. Composing those two gives
-  `($ (rf/view ::row) {…})`, and that form has to mount with its props
-  intact. The bare frame-aware wrapper `reg-view*` composes would not: it
-  carries no UIx component marker, so `$` would route its props through
-  `interpret-attrs`, which stringifies keyword values and drops their
-  namespaces.
-
-  A mount that goes through a hand-written host component INVOKING the
-  registered value cannot see that — it proves teardown and annotation
-  BELOW the host, never the advertised head itself. This file mounts the
-  head directly and contains no such host by construction: the registered
-  value is only ever handed to `$` as a component type.
-
-  What each row is for:
-
-    - `direct-mount-*` — `($ (rf/view id) props child)` under the normal
-      `frame-provider` boundary, with a nested namespaced-keyword
-      prop asserted for EXACT equality inside the registered component (the
-      losslessness half: a marked UIx head carries the original CLJS props
-      on `argv`, an unmarked one would be converted through
-      `interpret-attrs` and lose the namespace), a `use-sub` +
-      `use-frame` hook boundary that must survive a dispatch and re-render,
-      and a console/page-error capture that must stay free of both the
-      invalid-element-type and the hook-boundary diagnostics.
-
-    - `boot-order-*` — the same direct mount, but the view is registered
-      at NS-LOAD, before any adapter is installed, which is the order
-      `docs/core/how-to/boot-and-mount-an-app.md` prescribes:
-      `:adapter/componentize-view` is routed, so at registration it
-      declines, and `rf/init!` seats the adapter without revisiting
-      existing `:view` slots. The row asserts its own premise (no adapter at
-      registration; the reg-time head really is the unmarked wrapper) before
-      mounting, so it cannot silently decay into a copy of the row above.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
-  (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
-  regex matches too, where every row self-gates on `(browser?)` and no-ops
-  cleanly — a real `createRoot` commit is required for any of this to mean
-  anything."
+  "The advertised registry-keyed UIx mount, `($ (rf/view ::row) props
+  child)`, handed straight to `$` as a component type. The head must carry
+  UIx's component marker, or `$` routes its props through `interpret-attrs`
+  and strips keyword namespaces; a nested namespaced prop is asserted EXACTLY,
+  and a `use-sub` + `use-frame` boundary must survive a dispatch with no
+  invalid-element or hook diagnostic. The `boot-order-*` row registers at
+  ns-load, before any adapter is installed — the order
+  `docs/core/how-to/boot-and-mount-an-app.md` prescribes — and asserts that
+  premise before mounting."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -128,14 +92,9 @@
 
 ;; ---- the probe body --------------------------------------------------------
 ;;
-;; ONE body, mounted through the registry head by both rows.
-;;
-;; It is a native `defui`, which is the documented UIx idiom. `defui` reads
-;; its props off UIx's `argv` channel, so a mount that reached it through
-;; JS-prop conversion would arrive with the namespace stripped from
-;; `:tenant/id` and the equality assertion below would fail — the
-;; losslessness half of the invariant, checked by construction rather than by
-;; inspecting the props object.
+;; One native `defui`, mounted through the registry head by both rows. It
+;; reads its props off UIx's `argv` channel, so a mount that reached it
+;; through JS-prop conversion would arrive with `:tenant/id`'s namespace gone.
 
 (def ^:private probe-frame :rf.uix-direct-mount/frame)
 (def ^:private probe-query [:rf.uix-direct-mount/n])
@@ -149,16 +108,9 @@
 (def ^:private observed-ops      (atom nil))
 
 (defui probe-body
-  "Receives a nested CLJS prop and a trailing child, and calls BOTH hooks —
-  `use-sub` for the read and `use-frame` for the frame-locked ops —
-  so the mount is proved to own a real React hook boundary rather than
-  merely to render.
-
-  The ops map is stashed on a side-channel atom so the driver can dispatch
-  through the SAME map the hook handed the component. That is what makes
-  the re-render assertion a statement about this mount's frame: an ops map
-  captured under a broken boundary would be locked to the wrong frame, and
-  the dispatch would move a `:n` nothing on screen is reading."
+  "Calls both hooks, so the mount must own a real React hook boundary, and
+  stashes the `use-frame` ops so the driver dispatches through the SAME map —
+  one locked to the wrong frame would move a `:n` nothing on screen reads."
   [{:keys [payload children]}]
   (let [n   (rf.adapter.uix/use-sub probe-query)
         ops (rf.adapter.uix/use-frame)]
@@ -168,29 +120,13 @@
        ($ :span {:data-testid "n"} (str n))
        children)))
 
-;; ---- the CANONICAL BOOT ORDER, captured at ns-load -------------------------
+;; ---- the canonical boot order, captured at ns-load -------------------------
 ;;
-;; `docs/core/how-to/boot-and-mount-an-app.md` has the registration namespaces
-;; load FIRST — every `reg-event` / `reg-sub` / view registration runs as a
-;; top-level form — and `run` calls `rf/init!` afterwards. The three forms
-;; below are exactly that order, and they run at NS-LOAD so no fixture can
-;; have installed an adapter first.
-;;
-;; `reg-view*` asks `:adapter/componentize-view` at registration; the hook is
-;; ROUTED, so with no adapter installed it declines, the slot keeps the bare
-;; frame-aware wrapper, and `init!` — which only seats the adapter — never
-;; revisits it.
-;; What has to mount is the head `(rf/view id)` hands back after init. A row
-;; that installs the adapter BEFORE registering (the two below, and the whole
-;; shared suite) cannot see this ordering.
-;;
-;; `adapter-at-registration` and `head-at-registration` make the premise
-;; CHECKABLE rather than assumed: the row asserts there really was no adapter
-;; at registration time, and that the reg-time answer really was the unmarked
-;; wrapper. Without those two, a bundle that happened to install
-;; an adapter earlier would turn this row into a second copy of
-;; `direct-mount-of-registered-view-head` while still reading as a boot-order
-;; witness.
+;; Registered at NS-LOAD, so no fixture can have installed an adapter first.
+;; `:adapter/componentize-view` is routed, so with no adapter it declines and
+;; the slot keeps the bare wrapper, which `init!` never revisits; what must
+;; mount is the head `(rf/view id)` hands back after init. The two captures
+;; below make that premise checkable rather than assumed.
 
 (def ^:private boot-row-id :rf.uix-direct-mount/boot-row)
 
@@ -269,31 +205,22 @@
             (try (.unmount react-root) (catch :default _ nil))))))))
 
 (defn- assert-mount-case
-  "The shared assertion block. `label` names which mount path produced
-  `facts` so a failure message says which of the two rows broke."
+  "The shared assertion block; `label` names which row's mount produced `facts`."
   [label facts]
   (let [{:keys [diagnostics initial-text updated-text child-text
                 observed-payload frame-ops]} facts]
-    (is (empty? (matching-messages invalid-element-type-re diagnostics))
-        (str label ": React accepted the value as a component type; got "
-             (pr-str (matching-messages invalid-element-type-re diagnostics))))
-    (is (empty? (matching-messages hook-boundary-re diagnostics))
-        (str label ": the mount owns a real React hook boundary; got "
-             (pr-str (matching-messages hook-boundary-re diagnostics))))
-    (is (= probe-payload observed-payload)
-        (str label ": the nested CLJS prop arrived intact — namespaced keyword"
-             " keys AND values, by value equality; got " (pr-str observed-payload)))
-    (is (= "kid" child-text)
-        (str label ": the trailing child rendered into the DOM; got " (pr-str child-text)))
-    (is (= probe-frame (:frame frame-ops))
-        (str label ": use-frame resolved the SURROUNDING provider's frame, so"
-             " the hook read the context this mount established; got "
-             (pr-str (:frame frame-ops))))
-    (is (= "1" initial-text)
-        (str label ": use-sub's initial value rendered; got " (pr-str initial-text)))
-    (is (= "2" updated-text)
-        (str label ": the DOM re-rendered after a dispatch off use-frame's ops"
-             " map; got " (pr-str updated-text)))))
+    (is (= {:invalid-element-type [] :hook-boundary [] :payload probe-payload
+            :child "kid" :frame probe-frame :initial "1" :updated "2"}
+           {:invalid-element-type (matching-messages invalid-element-type-re diagnostics)
+            :hook-boundary        (matching-messages hook-boundary-re diagnostics)
+            :payload              observed-payload
+            :child                child-text
+            :frame                (:frame frame-ops)
+            :initial              initial-text
+            :updated              updated-text})
+        (str label ": no invalid-element or hook diagnostic, the nested prop intact,"
+             " the trailing child rendered, use-frame on the provider's frame, and"
+             " a re-render after a dispatch off its ops"))))
 
 ;; ---- the registry path ----------------------------------------------------
 
@@ -307,13 +234,8 @@
         (let [head (rf/view :rf.uix-direct-mount/row)]
           ;; `instance? js/Function` rather than `fn?`, which is also true of
           ;; an IFn OBJECT React rejects as an element type.
-          (is (instance? js/Function head)
-              "the registered head is a real JS function React can use as an
-               element type")
-          (is (true? (.-uix-component? ^js head))
-              "and it carries UIx's own component marker, which is what makes
-               `$` route props through the lossless `argv` channel instead of
-               converting them and dropping keyword namespaces")
+          (is (= [true true] [(instance? js/Function head) (true? (.-uix-component? ^js head))])
+              "the registered head is a real JS function carrying UIx's component marker")
           (assert-mount-case "registry head" (run-mount-case act-fn head)))))))
 
 ;; ---- the canonical boot order: register at ns-load, THEN init! ------------
@@ -322,28 +244,16 @@
   (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
             adapter, is still directly mountable through ($ (rf/view id) …)
             once the adapter is in"
-    ;; Premise first. If either of these two fails the row below proves
-    ;; nothing — it would just be `direct-mount-of-registered-view-head` again
-    ;; under a different name.
-    (is (nil? adapter-at-registration)
-        (str "premise: no adapter was installed when this ns registered its"
-             " view at load time — the canonical boot order; got "
-             (pr-str adapter-at-registration)))
-    (is (not (true? (.-uix-component? ^js head-at-registration)))
-        "premise: the reg-time head really was the unmarked frame-aware
-         wrapper, so the marked head the row mounts below can only have come
-         from a re-derivation against the adapter `rf/init!` seated afterwards")
+    ;; Without this premise the row is `direct-mount-of-registered-view-head`
+    ;; again under another name.
+    (is (= [nil false] [adapter-at-registration (true? (.-uix-component? ^js head-at-registration))])
+        "premise: no adapter at registration, and the reg-time head was the unmarked wrapper")
     (with-browser-act
       (fn [act-fn]
         (seed-world!)
         ;; No registration here. The fixture has installed UIx; the only thing
         ;; that has happened since ns-load is `rf/init!`.
         (let [head (rf/view boot-row-id)]
-          (is (instance? js/Function head)
-              "the lookup hands back a real JS function React can use as an
-               element type, even though registration ran before the adapter
-               existed")
-          (is (true? (.-uix-component? ^js head))
-              "and it carries UIx's component marker, so `$` still routes props
-               through the lossless `argv` channel")
+          (is (= [true true] [(instance? js/Function head) (true? (.-uix-component? ^js head))])
+              "the post-init head is a real JS function carrying UIx's component marker")
           (assert-mount-case "boot-order head" (run-mount-case act-fn head)))))))

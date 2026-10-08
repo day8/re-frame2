@@ -1,149 +1,44 @@
 (ns reagent2.dom.server-cljs-test
-  "Unit tests for reagent2.dom.server.
-
-  Per IMPL-SPEC §8 + §12.1 + §12.5 R-004. Covers:
-
-    - Plain text content escaping (`&`, `<`, `>`).
-    - Attribute serialisation (HTML attrs; keyword values stringified).
-    - Boolean attrs are pinned in
-      `reagent2.dom.boolean-attr-react-parity-cljs-test`.
-    - Void tags (no closing tag, no children emitted).
-    - Fragments (`:<>`) — children only, no surrounding markup.
-    - Nested hiccup.
-    - Sequences as children.
-    - `:dangerouslySetInnerHTML` raw-emission.
-    - Tag shorthand (`:div.foo#bar`) merged into class/id attrs.
-    - User-fn heads invoked + recurse.
-    - React-component heads (`:>`, `:r>`, `:f>`) emit comment placeholder.
-    - React context PROVIDER heads walk their children.
-
-  Parity tests against `react-dom/server.renderToStaticMarkup` live
-  in `reagent2.dom.parity-cljs-test` per IMPL-SPEC §8.7 + §12.5 R-004.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Unit tests for `reagent2.dom.server/render-to-static-markup`. Byte parity
+  with react-dom/server is pinned in `reagent2.dom.parity-cljs-test`, and the
+  boolean-attribute roster in `reagent2.dom.boolean-attr-react-parity-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
             [reagent2.dom.server :as server]
             ["react" :as react]))
 
-;; ---------------------------------------------------------------------------
-;; Text content escaping
-;; ---------------------------------------------------------------------------
-
-(deftest text-content-nil-and-boolean-dropped
-  (testing "nil and booleans render as empty (matches React)"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div nil])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div true])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div false])))
-    (is (= "<div>a</div>"
-           (server/render-to-static-markup [:div nil "a" nil])))))
-
-;; ---------------------------------------------------------------------------
-;; Attribute serialisation
-;; ---------------------------------------------------------------------------
-
-(deftest attr-string-value
-  (testing "string attribute value is escaped"
-    (is (= "<div id=\"main\"></div>"
-           (server/render-to-static-markup [:div {:id "main"}])))
-    (is (= "<div title=\"a &quot;quote&quot;\"></div>"
-           (server/render-to-static-markup [:div {:title "a \"quote\""}])))
-    (is (= "<div title=\"&amp;\"></div>"
-           (server/render-to-static-markup [:div {:title "&"}])))))
-
-(deftest attr-keyword-value-stringified
-  (testing "keyword value stringifies (per S3-005: every prop name here is an HTML attr)"
-    (is (= "<div role=\"button\"></div>"
-           (server/render-to-static-markup [:div {:role :button}])))))
-
-(deftest attr-class-aliases
-  (testing ":class and :className both emit `class`"
-    (is (= "<div class=\"foo\"></div>"
-           (server/render-to-static-markup [:div {:class "foo"}])))
-    (is (= "<div class=\"foo\"></div>"
-           (server/render-to-static-markup [:div {:className "foo"}])))))
-
-(deftest attr-for-aliases
-  (testing ":for and :htmlFor both emit `for`"
-    (is (= "<label for=\"x\"></label>"
-           (server/render-to-static-markup [:label {:for "x"}])))
-    (is (= "<label for=\"x\"></label>"
-           (server/render-to-static-markup [:label {:htmlFor "x"}])))))
-
-(deftest attr-class-collection-joins
-  (testing "class as a collection joins with spaces"
-    (is (= "<div class=\"a b c\"></div>"
-           (server/render-to-static-markup [:div {:class ["a" "b" "c"]}])))
-    (is (= "<div class=\"a b\"></div>"
-           (server/render-to-static-markup [:div {:class [:a :b]}])))))
-
-(deftest attr-nil-and-false-omitted
-  (testing "nil and false attribute values are omitted"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:title nil}])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:disabled false}])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:hidden nil :title nil}])))))
-
-(deftest attr-camelcase-react-canonical-name
-  (testing "camelCased prop names emit React 19's canonical output name"
-    ;; `attribute-name` is not a blanket lowercase: React's attribute-name
-    ;; table governs the output:
-    ;;   :tab-index → "tabindex"  (plain HTML camelCase → lowercased)
-    ;;   :col-span  → "colSpan"   (React PRESERVES this camelCase token)
-    ;; A "<td colspan>" expectation would pin a divergence from
-    ;; react-dom/server; this one matches React exactly.
-    (is (= "<div tabindex=\"0\"></div>"
-           (server/render-to-static-markup [:div {:tab-index "0"}])))
-    (is (= "<td colSpan=\"2\"></td>"
-           (server/render-to-static-markup [:td {:col-span "2"}])))))
-
-;; ---------------------------------------------------------------------------
-;; Void tags
-;; ---------------------------------------------------------------------------
-
-(deftest void-tag-no-closing
-  (testing "HTML5 void elements emit no closing tag"
-    (is (= "<br>"     (server/render-to-static-markup [:br])))
-    (is (= "<hr>"     (server/render-to-static-markup [:hr])))
-    (is (= "<input>"  (server/render-to-static-markup [:input])))
-    (is (= "<img src=\"x\">"
-           (server/render-to-static-markup [:img {:src "x"}])))
-    (is (= "<meta charset=\"utf-8\">"
-           (server/render-to-static-markup [:meta {:charset "utf-8"}])))))
-
-(deftest void-tag-children-dropped
-  (testing "children passed to void elements are dropped"
-    ;; React would warn here at runtime; we just emit the void tag.
-    (is (= "<br>"
-           (server/render-to-static-markup [:br "ignored"])))))
-
-;; ---------------------------------------------------------------------------
-;; Fragments
-;; ---------------------------------------------------------------------------
-
-(deftest fragment-with-key-prop
-  (testing ":<> with key map ignores props (key is React-internal)"
-    (is (= "<a></a>"
-           (server/render-to-static-markup [:<> {:key "k"} [:a]])))))
-
-;; ---------------------------------------------------------------------------
-;; Tag shorthand
-;; ---------------------------------------------------------------------------
-
-(deftest tag-shorthand-merge-with-user-class
-  (testing "shorthand class is prepended to user class"
-    (is (= "<div class=\"foo bar\"></div>"
-           (server/render-to-static-markup [:div.foo {:class "bar"}])))))
-
-(deftest tag-shorthand-user-id-wins
-  (testing "user :id wins over shorthand id"
-    (is (= "<div id=\"user\"></div>"
-           (server/render-to-static-markup [:div#shorthand {:id "user"}])))))
+(deftest static-markup-of-each-hiccup-shape
+  (let [item  (fn [x] [:li x])
+        greet (fn [n p] [:span n p])]
+    (doseq [[hiccup expected why]
+            [[[:div nil] "<div></div>" "a nil child renders nothing"]
+             [[:div false] "<div></div>" "a boolean child renders nothing"]
+             [[:div nil "a" nil] "<div>a</div>" nil]
+             [nil "" "top-level nil"]
+             ["<b>" "&lt;b&gt;" "a top-level string is escaped"]
+             [[:div {:id "main"}] "<div id=\"main\"></div>" nil]
+             [[:div {:title "a \"quote\""}] "<div title=\"a &quot;quote&quot;\"></div>" "attribute values escape"]
+             [[:div {:title "&"}] "<div title=\"&amp;\"></div>" nil]
+             [[:div {:role :button}] "<div role=\"button\"></div>" "keyword values stringify"]
+             [[:div {:class "foo"}] "<div class=\"foo\"></div>" nil]
+             [[:div {:className "foo"}] "<div class=\"foo\"></div>" nil]
+             [[:label {:for "x"}] "<label for=\"x\"></label>" nil]
+             [[:label {:htmlFor "x"}] "<label for=\"x\"></label>" nil]
+             [[:div {:class ["a" "b" "c"]}] "<div class=\"a b c\"></div>" nil]
+             [[:div {:class [:a :b]}] "<div class=\"a b\"></div>" nil]
+             [[:div {:title nil}] "<div></div>" nil]
+             [[:div {:disabled false}] "<div></div>" nil]
+             [[:div {:tab-index "0"}] "<div tabindex=\"0\"></div>" "plain camelCase lowercases"]
+             [[:td {:col-span "2"}] "<td colSpan=\"2\"></td>" "React keeps colSpan's camelCase"]
+             [[:br] "<br>" "a void element has no closing tag"]
+             [[:img {:src "x"}] "<img src=\"x\">" nil]
+             [[:br "ignored"] "<br>" "a void element drops its children"]
+             [[:<> {:key "k"} [:a]] "<a></a>" "a fragment's props are React-internal"]
+             [[:div.foo {:class "bar"}] "<div class=\"foo bar\"></div>" nil]
+             [[:div#shorthand {:id "user"}] "<div id=\"user\"></div>" "the user's :id beats the shorthand"]
+             [[:ul [item "a"] [item "b"]] "<ul><li>a</li><li>b</li></ul>" "a user-fn head is called"]
+             [[greet "Mike" "!"] "<span>Mike!</span>" "a user fn receives every arg"]]]
+      (is (= expected (server/render-to-static-markup hiccup)) (or why (pr-str hiccup))))))
 
 ;; ---------------------------------------------------------------------------
 ;; React-component heads (opaque under static markup)
@@ -160,26 +55,11 @@
              (server/render-to-static-markup [:r> Foo #js {}]))))))
 
 ;; ---------------------------------------------------------------------------
-;; React context Providers
-;;
-;; A context Provider is NOT opaque foreign content: it renders nothing of
-;; its own and its output IS its children. A walker that lumped it in with
-;; the foreign-component placeholder above would render the canonical slim
-;; mount `[rf/frame-provider {:frame f} [app]]` — which expands to
-;; `[:r> (.-Provider frame-context) #js {:value f} …]` — as
-;; `<!--reagent-react-component-->` and NOTHING ELSE: an empty document, no
-;; error.
-;;
-;; These pin the walker itself. `server-subscribe-ssr-cljs-test` pins the
-;; end-to-end canonical mount through `re-frame.core/frame-provider`.
-;;
-;; The contexts below are built with the REAL `react/createContext` rather
-;; than a hand-rolled `$$typeof` literal. That is deliberate: the detection
-;; is React-VERSION-dependent (on React 19 `ctx.Provider` IS `ctx`, tagged
-;; `Symbol.for("react.context")`; on React <=18 `ctx.Provider` is a distinct
-;; object tagged `Symbol.for("react.provider")`), so asking React for the
-;; object is what makes a future symbol change fail LOUDLY here instead of
-;; silently dropping the subtree.
+;; React context Providers render their children: the canonical slim mount
+;; `[rf/frame-provider {:frame f} [app]]` expands to an `:r>` Provider head, so
+;; treating it as opaque would render an empty document. The contexts come from
+;; the real `react/createContext`, because Provider detection depends on the
+;; React version's symbols.
 ;; ---------------------------------------------------------------------------
 
 (deftest context-provider-head-renders-children
@@ -239,23 +119,6 @@
              (server/render-to-static-markup [:> Foo {} [:div "dropped"]]))))))
 
 ;; ---------------------------------------------------------------------------
-;; User-fn heads (function-call path, matches stock Reagent)
-;; ---------------------------------------------------------------------------
-
-(deftest user-fn-head-invoked
-  (testing "plain user-fn head is called and result recurses"
-    (let [item (fn [x] [:li x])]
-      (is (= "<ul><li>a</li><li>b</li></ul>"
-             (server/render-to-static-markup
-              [:ul [item "a"] [item "b"]]))))))
-
-(deftest user-fn-head-passes-args
-  (testing "user-fn receives all args from the hiccup vector"
-    (let [greet (fn [name punct] [:span name punct])]
-      (is (= "<span>Mike!</span>"
-             (server/render-to-static-markup [greet "Mike" "!"]))))))
-
-;; ---------------------------------------------------------------------------
 ;; Form-2 user-fn heads
 ;;
 ;; A Form-2 component's outer fn is a one-shot setup that returns the
@@ -297,17 +160,8 @@
              (server/render-to-static-markup [box "x"]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Edge cases — empty / malformed
+;; Malformed hiccup
 ;; ---------------------------------------------------------------------------
-
-(deftest top-level-nil-is-empty
-  (testing "render-to-static-markup of nil → empty string"
-    (is (= "" (server/render-to-static-markup nil)))))
-
-(deftest top-level-string
-  (testing "render-to-static-markup of a bare string → escaped string"
-    (is (= "hello" (server/render-to-static-markup "hello")))
-    (is (= "&lt;b&gt;" (server/render-to-static-markup "<b>")))))
 
 (deftest empty-vector-throws
   (testing "empty hiccup vector throws ex-info"
@@ -335,85 +189,24 @@
           "the payload summarises the child, never carries its value"))))
 
 ;; ---------------------------------------------------------------------------
-;; XSS surface — event handlers + fn props stripped
-;;
-;; The static-markup serializer must NOT emit React event-handler props
-;; (`onClick`, `:on-click`, …) as HTML attributes. Doing so would (a)
-;; serve no purpose (HTML inline-event handlers aren't bound to the
-;; React handler), and (b) open an XSS vector: a string-valued
-;; `:on-click "alert(1)"` would render as `onclick="alert(1)"`. Same
-;; for function-valued props of any name — `(str f)` would leak the
-;; source text into the attribute.
-;;
-;; `react-dom/server.renderToStaticMarkup` elides these, and so does this
-;; serializer.
+;; Event-handler props never reach static markup: an inline handler would be
+;; dead in the browser, and a string-valued `:on-click "alert(1)"` would be an
+;; XSS vector. Fn-valued props of any name drop too, so source text never leaks.
 ;; ---------------------------------------------------------------------------
 
-(deftest event-handler-string-stripped-rf2-dwds9
-  (testing ":on-click with string value does NOT emit
-            onclick attribute (no XSS vector)"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:on-click "alert(1)"}])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:onClick "alert(1)"}])))
-    (is (= "<button>x</button>"
-           (server/render-to-static-markup
-            [:button {:on-click "javascript:evil()"} "x"]))
-        "no leaked onclick attribute on the rendered button")))
-
-(deftest fn-valued-non-event-prop-stripped-rf2-dwds9
-  (testing "any fn-valued prop (not just `on*`) is stripped
-            so source text never leaks into the attribute"
-    (let [callback (fn [])
-          out (server/render-to-static-markup
-               [:div {:custom-callback callback}])]
-      (is (= "<div></div>" out)))))
-
-(deftest on-not-event-prefix-passes-through
-  (testing "attribute names starting with `on` but NOT
-            event-handler shape (e.g. `:once`) are NOT stripped —
-            event-handler-prop? requires `on-x` (kebab) or `onX` (camel
-            with uppercase letter after `on`)"
-    (is (= "<div once=\"true\"></div>"
-           (server/render-to-static-markup [:div {:once "true"}]))
-        "`:once` (no `-` after `on`, no capital after `on`) is preserved")
-    (is (= "<div onyx=\"x\"></div>"
-           (server/render-to-static-markup [:div {:onyx "x"}]))
-        "`:onyx` (lowercase letter after `on`) is preserved")))
-
-;; ---------------------------------------------------------------------------
-;; Lowercase inline HTML event attributes must strip too
-;;
-;; `event-handler-prop?`'s structural check (`on-` kebab / `on[A-Z]`
-;; camel) misses lowercase inline HTML event attributes — `:onclick`,
-;; string `"onclick"`, `:onchange` — because there is no `-` and no
-;; upper-case letter after `on`. Those are exactly the canonical names a
-;; browser fires on, so without the lowercase allowlist a string-valued
-;; `:onclick "alert(1)"` would ride through to the wire as
-;; `onclick="alert(1)"`, an XSS vector of the same class the structural
-;; check closes for the kebab/camel forms.
-;; ---------------------------------------------------------------------------
-
-(deftest lowercase-onclick-keyword-stripped-rf2-ut3mod
-  (testing ":onclick (all-lowercase keyword) with string
-            value does NOT emit an onclick attribute (no XSS vector)"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:onclick "alert(1)"}])))
-    (is (= "<button>x</button>"
-           (server/render-to-static-markup
-            [:button {:onclick "javascript:evil()"} "x"]))
-        "no leaked onclick attribute on the rendered button")))
-
-(deftest lowercase-onchange-stripped-rf2-ut3mod
-  (testing ":onchange (all-lowercase keyword) is stripped —
-            another canonical lowercase event name, not just :onclick"
-    (is (= "<input>"
-           (server/render-to-static-markup [:input {:onchange "evil()"}])))))
-
-(deftest key-and-ref-stripped
-  (testing ":key and :ref drop alongside the event-prop filter"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {:key "k" :ref "r"}])))))
+(deftest event-handler-and-fn-props-are-stripped
+  (doseq [[hiccup expected]
+          [[[:div {:on-click "alert(1)"}] "<div></div>"]
+           [[:div {:onClick "alert(1)"}] "<div></div>"]
+           [[:div {:onclick "alert(1)"}] "<div></div>"]
+           [[:input {:onchange "evil()"}] "<input>"]
+           [[:button {:on-click "javascript:evil()"} "x"] "<button>x</button>"]
+           [[:div {:custom-callback (fn [])}] "<div></div>"]
+           [[:div {:key "k" :ref "r"}] "<div></div>"]
+           ;; `on` without the event-handler shape is an ordinary attribute
+           [[:div {:once "true"}] "<div once=\"true\"></div>"]
+           [[:div {:onyx "x"}] "<div onyx=\"x\"></div>"]]]
+    (is (= expected (server/render-to-static-markup hiccup)) (pr-str hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; Attacker-controlled attribute and tag NAMES

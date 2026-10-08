@@ -21,11 +21,11 @@
   the adapter's own contract: which of the two a consumer gets, and that
   the other one remains reachable on purpose.
 
-  No DOM needed — the selector is a var read. ns ends in -cljs-test so
-  shadow-cljs's :node-test build picks it up."
+  No DOM needed — the selector is a var read."
   (:require [cljs.test :refer-macros [deftest testing is]]
             [uix.compiler.input]
-            [re-frame.adapter.uix :as rf.adapter.uix]))
+            ;; Loaded for the load-time pin under test.
+            [re-frame.adapter.uix]))
 
 (def ^:private reagent-input-enabled-at-load?
   "The var as `re-frame.adapter.uix`'s load left it, snapshotted at THIS
@@ -42,15 +42,10 @@
 (deftest react-controlled-input-is-the-adapters-default
   (testing "requiring the adapter is enough: a UIx `:input` is a plain React
            controlled input"
-    (is (some? rf.adapter.uix/adapter)
-        "the adapter namespace is loaded — which is what runs the pin")
-    (is (false? reagent-input-enabled-at-load?)
-        "the adapter's load left the var at false — asserted from the
-         load-time snapshot, so no sibling suite's per-row pinning can
-         stand in for the pin and mask its absence")
-    (is (false? (reagent-input-selected?))
-        "`should-use-reagent-input?` answers false, so
-         `create-uix-input` builds a plain React element")))
+    (is (= [false false] [reagent-input-enabled-at-load? (reagent-input-selected?)])
+        "the adapter's load left the var at false (read from the load-time
+         snapshot, so no sibling suite's per-row pinning can mask its
+         absence), and `should-use-reagent-input?` answers false")))
 
 (deftest the-port-remains-reachable-explicitly
   (testing "the adapter makes React the DEFAULT, not the only option: the var

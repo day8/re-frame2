@@ -1,52 +1,15 @@
 (ns re-frame.adapter.reagent-slim-subscribe-container-activation-cljs-test
-  "reagent-slim adapter — `subscribe-container` on a DERIVED container
-  activates it (the slim twin of
-  `re-frame.adapter-subscribe-container-activation-cljs-test`).
-
-  THE MECHANISM IS SHARED; ONLY THE ASSERTION IS PER-ADAPTER. The activation
-  lives in one place, `re-frame.substrate.spine/activating-subscribe-
-  container`, wired in `make-ratom-adapter` rather than in
-  `make-ratom-spine` — that is where the substrate's `:activate-reaction!`
-  op arrives, so stock Reagent and reagent-slim share one subscription
-  algorithm with no activation code in either adapter namespace. reagent-slim
-  injects `:activate-reaction! reagent2.ratom/activate!` and needs no
-  slim-side code beyond that. This namespace pins it on the slim side, so a
-  change to the shared helper cannot regress reagent-slim silently while the
-  stock-Reagent suite stays green.
-
-  Spec 006 §`make-derived-value` requires PUSH: the derived container updates
-  automatically when a source changes, and `subscribe-container` \"works as on
-  a base container\". §*Watchable is necessary, not sufficient* then makes the
-  placement normative — a substrate on a demand-driven host activates the node
-  when an observer ATTACHES, immediately before installing that observer's
-  watch and taking its baseline read.
-
-  reagent2's `Reaction` is demand-driven exactly as stock's is: it learns its
-  sources only through `deref-capture`, and `-deref` outside `*ratom-context*`
-  with no `auto-run` runs the body RAW and leaves `watching` nil, so `_queued-
-  run`'s `(some? watching)` guard means `flush!` moves nothing and a bare
-  `add-watch` is registered and can never fire. `reagent2.ratom/activate!` is
-  the rewrite's name for the capture run (stock spells it `reagent.ratom/run`
-  behind `IRunnable`). Component-owned subscriptions never meet the hole
-  because a render IS the capture context — which is why the slim mounted-view
-  suites cannot pin this contract. These tests therefore use the adapter's
-  container slots DIRECTLY: no component, no ratom context, and no manual
-  `ratom/activate!` in any test body.
-
-  Divergence from the stock twin, and it is only this: the settle step is
-  `reagent2.ratom/flush!` — the rewrite's synchronous reaction-queue drain —
-  in place of `reagent.core/flush`. Same pins, same values.
-
-  Pins:
-
-    * direct listener fires when a baseline read preceded the attach
-    * a second observer over an already-active node forces no extra recompute,
-      and removing one observer leaves the other live
-    * a fresh derived container's listener fires with no baseline read, and
-      final detach releases the source watch (the node stops recomputing)
-    * base-container listeners keep working; cancellation is idempotent
-    * a multi-input derived keeps native batching (one notification per
-      flush, not one per source write)"
+  "`subscribe-container` on a DERIVED container activates it on reagent-slim
+  (Spec 006 §`make-derived-value`, §*Watchable is necessary, not
+  sufficient*). A reagent2 `Reaction` learns its sources only through
+  deref-capture, so a bare `add-watch` on one read outside a ratom context can
+  never fire; the shared `spine/activating-subscribe-container` runs the
+  injected `reagent2.ratom/activate!` as an observer attaches. A render is
+  itself a capture context, so mounted-view suites cannot pin this; these
+  tests drive the adapter's container slots directly, with no component and
+  no manual `activate!`. The stock twin is
+  `re-frame.adapter-subscribe-container-activation-cljs-test`, settling with
+  `reagent.core/flush` where this uses `reagent2.ratom/flush!`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
@@ -59,10 +22,8 @@
 (defn- read* [c] ((:read-container A) c))
 (defn- observe [c on-change] ((:subscribe-container A) c on-change))
 
-;; reagent2's Reaction flush queue is process-global. Drain it after each test
-;; so a source write that enqueued a watching Reaction cannot leak a stale
-;; recompute into a later suite sharing this node process — the same hygiene
-;; the sibling `reagent-slim-derived-container-replaced` suite keeps.
+;; reagent2's Reaction flush queue is process-global: drain it so a source
+;; write cannot leak a stale recompute into a later suite.
 (use-fixtures :each (fn [test-fn]
                       (try (test-fn)
                            (finally (ratom/flush!)))))
@@ -80,10 +41,10 @@
           _              (is (= 10 (read* d)) "baseline read")
           [events notify] (recorder)
           unsub          (observe d notify)]
-      (is (= [] @events) "attaching alone notifies nobody")
       (write! s 2)
       (ratom/flush!)
-      (is (= [[10 20]] @events) "the baseline-read node still hears the change")
+      (is (= [[10 20]] @events)
+          "the baseline-read node hears the change, once, and attaching alone notified nobody")
       (unsub))))
 
 (deftest slim-direct-derived-two-observers-share-one-activation-cljs-test
@@ -96,18 +57,17 @@
           unsub-a        (observe d notify-a)
           after-first    @computes
           unsub-b        (observe d notify-b)]
-      (is (= 1 after-first) "attaching the first observer activates once")
-      (is (= 1 @computes) "attaching a second observer over a live node recomputes nothing")
+      (is (= [1 1] [after-first @computes])
+          "the first observer activates once; a second over the live node recomputes nothing")
       (write! s 2)
       (ratom/flush!)
-      (is (= 2 @computes) "one source write, one recompute")
-      (is (= [[10 20]] @ev-a))
-      (is (= [[10 20]] @ev-b) "both observers hear the same change")
+      (is (= [2 [[10 20]] [[10 20]]] [@computes @ev-a @ev-b])
+          "one source write, one recompute, heard by both observers")
       (unsub-a)
       (write! s 3)
       (ratom/flush!)
-      (is (= [[10 20]] @ev-a) "the cancelled observer hears nothing further")
-      (is (= [[10 20] [20 30]] @ev-b) "the surviving observer is still live")
+      (is (= [[[10 20]] [[10 20] [20 30]]] [@ev-a @ev-b])
+          "the cancelled observer hears nothing further; the survivor is still live")
       (unsub-b))))
 
 (deftest slim-direct-derived-final-detach-releases-source-watch-cljs-test
@@ -125,9 +85,8 @@
         (unsub)                                        ; idempotent
         (write! s 3)
         (ratom/flush!)
-        (is (= before @computes)
-            "the detached node is off the push path — no recompute on a source write")
-        (is (= [[10 20]] @events) "and no notification")))))
+        (is (= [before [[10 20]]] [@computes @events])
+            "the detached node is off the push path — no recompute and no notification")))))
 
 (deftest slim-direct-base-container-listener-unaffected-cljs-test
   (testing "base containers keep their plain watch semantics (the control)"
@@ -153,8 +112,6 @@
       (write! a 10)
       (write! b 20)
       (ratom/flush!)
-      (is (= [[3 30]] @events)
-          "one coalesced notification carrying the settled value, not one per write")
-      (is (= (inc after-attach) @computes)
-          "one recompute for the pair — native batching is preserved")
+      (is (= [[[3 30]] (inc after-attach)] [@events @computes])
+          "one coalesced notification and one recompute for the pair, not one per write")
       (unsub))))

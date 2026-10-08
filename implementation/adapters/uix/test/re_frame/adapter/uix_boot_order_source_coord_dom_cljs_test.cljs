@@ -1,43 +1,15 @@
 (ns re-frame.adapter.uix-boot-order-source-coord-dom-cljs-test
-  "The substrate WRAP under the canonical boot order.
-
-  `:adapter/wrap-view` is routed (`substrate-adapter/route-hook!`), so it
-  answers only while ITS adapter is the `rf/init!`-installed one.
-  `views/reg-view*` asks it at REGISTRATION, and
-  `docs/core/how-to/boot-and-mount-an-app.md` has the registration
-  namespaces load FIRST, at ns-load, with `run` calling `rf/init!`
-  afterwards. A top-level `reg-view*` therefore gets nil back and stores an
-  unwrapped composition, and the head that `(rf/view id)` hands back after
-  init re-derives against the adapter `rf/init!` seated. Rendered from the
-  stored composition, `wrap-applied?` would be false and
-  `build-frame-aware-view` would fall through to the inline hiccup walk —
-  which classes a React element as a non-DOM root. The rendered root would
-  carry no `data-rf2-source-coord` and no `data-rf-view`, and the walk would
-  emit a one-shot warning saying so, about a view whose root is a perfectly
-  ordinary `span`.
-
-  A row that installs the adapter BEFORE it registers cannot see the
-  ordering that ships, so this file registers at ns-load.
-
-  What each row is for:
-
-    - `reg-time-composition-*` — the ABSENT half, on the same registration.
-      The value registration stored is deliberately left alone (re-writing the
-      registrar slot would emit a phantom `:rf.registry/handler-replaced` to
-      devtools on the first lookup after boot), so it is still readable, and
-      invoking it directly still yields the unannotated root. Beside it, the
-      head `(rf/view id)` hands back post-init yields an annotated one. Same
-      registration, two answers — which is the whole claim.
-
-    - `boot-order-*` — the PRESENT half as a real-DOM fact. The same view,
-      mounted through `$` under `frame-provider` and read back off the
-      committed DOM node rather than off a React element, because a
-      `data-*` attribute is a statement about the document.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
-  (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
-  regex matches too; the DOM rows self-gate on `(browser?)` and no-op there,
-  while `reg-time-composition-*` needs no DOM and runs in both."
+  "The substrate WRAP under the canonical boot order
+  (`docs/core/how-to/boot-and-mount-an-app.md`: register at ns-load, then
+  `rf/init!`). `:adapter/wrap-view` is routed, so a top-level `reg-view*`
+  gets nil and stores an unwrapped composition; the head `(rf/view id)` hands
+  back after init re-derives against the installed adapter. Rendered from the
+  stored composition, the root would carry neither annotation and the inline
+  walk would warn about a plain `span`. `reg-time-composition-*` shows both
+  answers off the one registration (the stored slot is left alone, since
+  rewriting it would publish a phantom handler-replaced); `boot-order-*`
+  reads the annotations off the committed DOM node. Only the DOM row needs a
+  browser."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as React]
@@ -170,28 +142,19 @@
             (try (.unmount react-root) (catch :default _ nil))))))))
 
 (defn- assert-annotated
-  "The shared assertion block for a mounted root. `label` names which mount
-  produced `facts` so a failure says which row broke."
+  "The shared assertion block for a mounted root; `label` names the row."
   [label view-id facts]
   (let [{:keys [diagnostics view-root-present? source-coordinate
                 view-id-attribute]} facts]
-    (is (true? view-root-present?)
-        (str label ": the view's own root element committed to the DOM"))
-    (is (string? source-coordinate)
-        (str label ": data-rf2-source-coord is stamped on the committed root"
-             " — the substrate wrap ran; got " (pr-str source-coordinate)))
-    (is (and (string? source-coordinate)
-             (str/starts-with? source-coordinate
-                               (str (namespace view-id) ":" (name view-id))))
-        (str label ": and its value is the view's own <ns>:<sym> coordinate;"
-             " got " (pr-str source-coordinate)))
-    (is (= (str view-id) view-id-attribute)
-        (str label ": data-rf-view carries the printed view id (Spec 006"
-             " §View tagging contract); got " (pr-str view-id-attribute)))
-    (is (empty? (filterv #(and (string? %) (re-find non-dom-root-re %)) diagnostics))
-        (str label ": and no non-DOM-root warning was emitted — the inline"
-             " hiccup walk did not run against a React element; got "
-             (pr-str diagnostics)))))
+    (is (= {:root? true :coord-is-the-views? true :view-attr (str view-id) :non-dom-warnings []}
+           {:root?               view-root-present?
+            :coord-is-the-views? (and (string? source-coordinate)
+                                      (str/starts-with? source-coordinate
+                                                        (str (namespace view-id) ":" (name view-id))))
+            :view-attr           view-id-attribute
+            :non-dom-warnings    (filterv #(and (string? %) (re-find non-dom-root-re %)) diagnostics)})
+        (str label ": the committed root carries the view's own <ns>:<sym> coordinate and"
+             " printed id, with no non-DOM-root warning; coord " (pr-str source-coordinate)))))
 
 ;; ---- the ABSENT half, on the registration itself ---------------------------
 
@@ -199,39 +162,25 @@
   (testing "UIx — the composition registration stored, invoked directly, still
             yields an UNANNOTATED root, while the head (rf/view id) hands back
             after init! yields an annotated one"
-    ;; Premise. Without this the row proves nothing about ordering.
+    ;; Premise: without it the row proves nothing about ordering.
     (is (nil? adapter-at-registration)
         (str "premise: no adapter was installed when this ns registered its"
-             " view at load time — the canonical boot order; got "
-             (pr-str adapter-at-registration)))
-    (is (some? head-at-registration)
-        "premise: the reg-time lookup returned the composition to compare against")
-
+             " view at load time; got " (pr-str adapter-at-registration)))
+    ;; Calling the stored composition throws if registration returned nothing.
     (let [registration-output (head-at-registration)]
-      (is (= "span" (.-type ^js registration-output))
-          "the reg-time composition renders the view's own DOM-tag root, so a
-           missing annotation below is about the wrap and not about the shape")
-      (is (nil? (element-attr registration-output "data-rf2-source-coord"))
-          "ABSENT: registration ran before rf/init!, so :adapter/wrap-view
-           declined and nothing stamped the root — the registrar slot
-           deliberately keeps this unwrapped composition (rewriting the slot
-           would publish a phantom hot-reload to devtools)")
-
+      (is (= ["span" nil]
+             [(.-type ^js registration-output)
+              (element-attr registration-output "data-rf2-source-coord")])
+          "ABSENT: the reg-time composition renders the view's own DOM-tag root, unstamped")
       (let [head (rf/view boot-row-id)]
-        (is (not (identical? head head-at-registration))
-            "the lookup re-derived against the adapter rf/init! seated, so it
-             is not the object registration stored")
-        (is (identical? head (rf/view boot-row-id))
-            "and the re-derivation is memoized — a second lookup returns the
-             SAME object, so React reconciles it as one component type rather
-             than remounting the subtree on every render")
+        (is (= [false true] [(identical? head head-at-registration)
+                             (identical? head (rf/view boot-row-id))])
+            "the lookup re-derived against the installed adapter, and memoizes it so React sees one component type")
         (let [lookup-output (head)]
-          (is (= "span" (.-type ^js lookup-output))
-              "the re-derived head renders the same root element type")
-          (is (string? (element-attr lookup-output "data-rf2-source-coord"))
-              "PRESENT: the re-derivation re-asked :adapter/wrap-view with the
-               adapter installed, so the substrate's cloneElement pass stamped
-               the root"))))))
+          (is (= ["span" true]
+                 [(.-type ^js lookup-output)
+                  (string? (element-attr lookup-output "data-rf2-source-coord"))])
+              "PRESENT: the re-derived head renders the same root, stamped"))))))
 
 ;; ---- the PRESENT half as a real-DOM fact -----------------------------------
 

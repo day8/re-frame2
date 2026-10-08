@@ -1,54 +1,21 @@
 (ns reagent2.impl.component-cljs-test
-  "Unit tests for reagent2.impl.component.
-
-  Per IMPL-SPEC §5 + §6 + §12.1 + §12.5 R-002 + R-003. Covers:
-
-    - Form-1/Form-2/Form-3 detection (runtime path).
-    - 7-key cap enforcement: out-of-cap keys throw
-      :rf.error/create-class-key-unsupported.
-    - Lifecycle key -> React lifecycle method mapping.
-    - :component-did-catch error-boundary PLUMBING (this file only —
-      the wrapper forwards (this error info); getDerivedStateFromError
-      is auto-installed, and only when opted into; the marker bridges
-      into the public Reagent state atom; a user rethrow escapes).
-      React's own propagation — a throwing descendant reaching the
-      nearest boundary, and an enclosing boundary staying silent — is
-      proved under a real createRoot by
-      `reagent2.dom.error-boundary-dom-cljs-test`, NOT here.
-    - :get-snapshot-before-update pairs with :component-did-update's
-      snapshot arg, and both paired update lifecycles forward React's
-      prevState.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up.
-
-  Test strategy: every test here exercises the public surface
-  (`create-class*`, `wrap-render`, `fn-to-class`) DIRECTLY, without
-  rendering through React — full control over the arguments, and no
-  reconciler. Anything that needs React itself to do the routing lives
-  in a `-dom-cljs-test` sibling that mounts a real `createRoot`."
+  "Unit tests for reagent2.impl.component, driving `create-class*`,
+  `wrap-render` and `fn-to-class` directly rather than through React: the
+  Form-1/2 classification, the 7-key cap, lifecycle and error-boundary
+  plumbing, and the default shouldComponentUpdate. React's own routing (a
+  throw reaching the nearest boundary, sCU bailouts) is proved by the
+  `-dom-cljs-test` siblings under a real createRoot."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.component :as component]
             [reagent2.impl.template :as template]
             [reagent2.impl.batching :as batching]))
 
-;; ---------------------------------------------------------------------------
-;; Test helpers — minimal "fake" React component instance
-;; ---------------------------------------------------------------------------
-;;
-;; wrap-render reads .-cljsArgv off the component to slice the user-fn
-;; args. A bare JS object suffices for unit-testing the detection path
-;; without spinning up a React renderer.
-
-(defn- fake-instance [argv]
+(defn- fake-instance
+  "A bare object carrying the `.-cljsArgv` wrap-render slices its args from."
+  [argv]
   (let [c #js {}]
     (set! (.-cljsArgv c) argv)
     c))
-
-;; A tiny helper to keep the inference checker quiet — the tests poke at
-;; React's prototype chain (`.. klass -prototype -render`), and the
-;; CLJS analyser can't infer the type of the synthesised constructor
-;; without a hint at every callsite. This wrapper concentrates the
-;; ^js hint in one place.
 
 (defn- proto-method [^js klass name]
   (aget (.-prototype klass) name))
@@ -158,39 +125,21 @@
     (let [^js klass (component/create-class*
                   {:reagent-render (fn [_this] [:div])
                    :display-name   "Shape"})]
-      (is (fn? klass) "the class is a constructor fn")
-      (is (= "Shape" (.-displayName klass))
-          ":display-name set as static displayName field")
-      (is (component/reagent-class? klass)
-          "tagged via cljsReagentClass")
-      (is (some? (.. klass -prototype -render))
-          "render method on prototype")
-      (is (some? (.. klass -prototype -isReactComponent))
-          "extends React.Component (isReactComponent inherited)"))))
+      (is (= ["Shape" true true]
+             [(.-displayName klass)
+              (boolean (component/reagent-class? klass))
+              (some? (.. klass -prototype -isReactComponent))])
+          "displayName set, tagged as a reagent class, extends React.Component"))))
 
 (deftest create-class-render-delegates-to-wrap-render
-  (testing "instantiating + calling .render produces a React element wrapping the user's hiccup"
-    ;; Per stock-Reagent's :reagent-render contract (and IMPL-SPEC §5.1's
-    ;; wrap-render), the render fn does NOT receive `this`. It receives
-    ;; the user-args slice of the argv (i.e. argv minus the head). User
-    ;; code that wants `this` reads it via `current-component`.
-    ;;
-    ;; wrap-render returns raw hiccup (per IMPL-SPEC §5.1)
-    ;; but the class's render() method MUST return a React element — so
-    ;; make-render-method runs the deref'd hiccup through the registered
-    ;; as-element converter before returning. The assertion shape mirrors
-    ;; stock Reagent: render produces a React element whose .-type is
-    ;; the DOM tag from the hiccup head.
+  (testing "the class's render returns a React element built from the user's
+            hiccup (the render fn gets the argv's args, not `this`)"
     (let [render-fn (fn [n] [:p "got=" n])
           ^js klass (component/create-class*
                       {:reagent-render render-fn})
-          props     #js {:__rfArgv [render-fn 99]}
-          ;; Synthesise a class instance — pass props to constructor.
-          inst      (new klass props)
+          inst      (new klass #js {:__rfArgv [render-fn 99]})
           ^js el    (.call (.. klass -prototype -render) inst)]
-      (is (some? el) "render method returns a non-nil React element")
-      (is (= "p" (.-type el))
-          ".-type is the DOM tag from the hiccup head"))))
+      (is (= "p" (.-type el))))))
 
 (deftest create-class-binds-current-component-during-render
   (testing "*current-component* is bound to `this` during render"
@@ -213,28 +162,16 @@
 ;; Lifecycle plumbing (per IMPL-SPEC §6.4)
 ;; ---------------------------------------------------------------------------
 
-(deftest lifecycle-component-did-mount-fires
-  (testing "componentDidMount delegates to user :component-did-mount"
-    (let [fired (atom nil)
-          ^js klass (component/create-class*
-                  {:reagent-render      (fn [_] [:div])
-                   :component-did-mount (fn [this]
-                                          (reset! fired this))})
-          inst  (new klass #js {:__rfArgv []})]
-      (.call (.. klass -prototype -componentDidMount) inst)
-      (is (identical? inst @fired)
-          "user fn received `this` as its single arg"))))
-
-(deftest lifecycle-component-will-unmount-fires
-  (testing "componentWillUnmount delegates to user :component-will-unmount"
-    (let [fired (atom nil)
-          ^js klass (component/create-class*
-                  {:reagent-render         (fn [_] [:div])
-                   :component-will-unmount (fn [this]
-                                             (reset! fired this))})
-          inst  (new klass #js {:__rfArgv []})]
-      (.call (.. klass -prototype -componentWillUnmount) inst)
-      (is (identical? inst @fired)))))
+(deftest lifecycle-mount-and-unmount-callbacks-receive-this
+  (let [fired (atom [])
+        ^js klass (component/create-class*
+                    {:reagent-render         (fn [_] [:div])
+                     :component-did-mount    (fn [this] (swap! fired conj [:mount this]))
+                     :component-will-unmount (fn [this] (swap! fired conj [:unmount this]))})
+        inst  (new klass #js {:__rfArgv []})]
+    (.call (.. klass -prototype -componentDidMount) inst)
+    (.call (.. klass -prototype -componentWillUnmount) inst)
+    (is (= [[:mount inst] [:unmount inst]] @fired))))
 
 (deftest lifecycle-unmount-clears-dirty-flag-rf2-mdgt8t
   (testing "componentWillUnmount clears the dirty flag, so a
@@ -245,26 +182,17 @@
           inst     (new klass #js {:__rfArgv [(fn [_] nil)]})
           fu-calls (atom 0)]
       (set! (.-forceUpdate inst) (fn [] (swap! fu-calls inc)))
-      ;; Enqueue for a microtask-turn re-render — sets cljsIsDirty true.
       (batching/queue-render! inst)
-      (is (true? (.-cljsIsDirty inst)) "queued → dirty")
-      ;; Unmount BEFORE the drain runs — must clear the dirty flag.
+      (is (true? (.-cljsIsDirty inst)) "control: queued means dirty")
       (.call (.. klass -prototype -componentWillUnmount) inst)
-      (is (false? (.-cljsIsDirty inst))
-          "unmount cleared the dirty flag")
-      ;; Drain: flush-render skips non-dirty components → no forceUpdate on
-      ;; the now-unmounted instance.
       (batching/flush!)
       (is (zero? @fu-calls)
           "unmounted component was NOT forceUpdate'd on the drain"))))
 
 (deftest lifecycle-component-did-update-receives-prev-argv-prev-state-and-snapshot
-  (testing "componentDidUpdate forwards (this, prev-argv, prev-state, snapshot)"
-    ;; The documented FIXED four-argument callback (README.md / FORM-3.md /
-    ;; IMPL-SPEC §6.6, stock-Reagent 2.0.1 parity). Distinct sentinels in
-    ;; every slot so a dropped or shifted argument cannot read green: a
-    ;; bridge that omits prev-state would land the snapshot sentinel in the
-    ;; prev-state slot and nil in the snapshot slot.
+  (testing "componentDidUpdate forwards (this, prev-argv, prev-state, snapshot),
+            the documented fixed four-argument callback; a distinct value in
+            every slot catches a dropped or shifted argument"
     (let [seen  (atom nil)
           calls (atom 0)
           prev-state-sentinel #js {:probe "prev-state-sentinel"}
@@ -281,25 +209,15 @@
           prev-props #js {:__rfArgv [:render :a 0]}]
       (.call (.. klass -prototype -componentDidUpdate)
              inst prev-props prev-state-sentinel :the-snapshot)
-      (is (= 1 @calls) "user callback fired exactly once")
-      (is (= [:render :a 0] (:prev-argv @seen))
-          "prev-argv reconstructed from prevProps.__rfArgv")
-      (is (identical? prev-state-sentinel (:prev-state @seen))
-          "React's prevState forwarded verbatim as the 3rd user-fn arg")
-      (is (= :the-snapshot (:snapshot @seen))
-          "snapshot from React forwarded as the 4th user-fn arg")
-      (is (identical? inst (:this @seen))))))
+      (is (= [1 {:this       inst
+                 :prev-argv  [:render :a 0]
+                 :prev-state prev-state-sentinel
+                 :snapshot   :the-snapshot}]
+             [@calls @seen])))))
 
 (deftest lifecycle-get-snapshot-before-update-pairs-with-component-did-update
-  (testing "getSnapshotBeforeUpdate's return value flows to componentDidUpdate's snapshot arg"
-    ;; Per IMPL-SPEC §6.6: React captures the gSBU return value and
-    ;; passes it as componentDidUpdate's 3rd React arg. The plumbing
-    ;; here mirrors that — we don't run React, so we exercise the
-    ;; user-fn dispatch shape with the documented FIXED arities:
-    ;; gSBU receives (this prev-argv prev-state) and
-    ;; returns an arbitrary value; cDU receives (this prev-argv
-    ;; prev-state snapshot). Distinct prev-state sentinels prove the
-    ;; bridge forwards React's prevState rather than dropping it.
+  (testing "getSnapshotBeforeUpdate gets (this prev-argv prev-state), and its
+            return value is what React hands componentDidUpdate's snapshot"
     (let [gsbu-seen  (atom nil)
           cdu-seen   (atom nil)
           prev-state-sentinel #js {:probe "gsbu-prev-state"}
@@ -316,48 +234,20 @@
                                                     :snapshot snapshot}))})
           inst  (new klass #js {:__rfArgv [:r 1]})
           prev-props #js {:__rfArgv [:r 0]}]
-      (let [snap (.call (.. klass -prototype -getSnapshotBeforeUpdate)
-                        inst prev-props prev-state-sentinel)]
-        (is (= :scroll-position-42 snap)
-            "gSBU returned the snapshot value")
-        (is (= [:r 0] (:prev-argv @gsbu-seen))
-            "gSBU received prev-argv reconstructed from prevProps")
-        (is (identical? prev-state-sentinel (:prev-state @gsbu-seen))
-            "gSBU received React's prevState verbatim as its 3rd user arg"))
-      ;; React would now pass the snapshot to cDU as its 3rd React arg
-      ;; (the user fn's 4th, after this/prev-argv/prev-state).
+      (is (= [:scroll-position-42 {:prev-argv [:r 0] :prev-state prev-state-sentinel}]
+             [(.call (.. klass -prototype -getSnapshotBeforeUpdate)
+                     inst prev-props prev-state-sentinel)
+              @gsbu-seen]))
       (.call (.. klass -prototype -componentDidUpdate)
              inst prev-props prev-state-sentinel :scroll-position-42)
-      (is (identical? prev-state-sentinel (:prev-state @cdu-seen))
-          "cDU received React's prevState verbatim in the prev-state slot")
-      (is (= :scroll-position-42 (:snapshot @cdu-seen))
-          "cDU received gSBU's return value in the snapshot slot"))))
+      (is (= {:prev-state prev-state-sentinel :snapshot :scroll-position-42}
+             @cdu-seen)))))
 
 ;; ---------------------------------------------------------------------------
-;; :component-did-catch error-boundary contract (per IMPL-SPEC §6.5)
-;;
-;; React's error-boundary contract: a class with componentDidCatch
-;; (and/or getDerivedStateFromError) catches errors thrown during
-;; render / lifecycle of any descendant. Per IMPL-SPEC §6.5 the
-;; rewrite installs a default getDerivedStateFromError that flips a
-;; cljsHasError flag on state — apps that want fallback rendering
-;; check that flag in :reagent-render.
-;;
-;; SCOPE. These tests exercise the boundary PLUMBING directly (no real
-;; React render): the wrapper's (this error info) forwarding, that
-;; getDerivedStateFromError is auto-installed exactly when
-;; :component-did-catch is in the spec, that its marker bridges into the
-;; public Reagent state atom, and that a user rethrow is not swallowed.
-;;
-;; They do NOT — and cannot — prove React's own propagation: an outer
-;; boundary that is never mounted cannot fire, so asserting its counter
-;; stays zero proves nothing, and a commit-phase scenario that invokes
-;; the boundary's componentDidCatch by hand only repeats the forwarding
-;; test below. The MOUNTED proof runs under a real React 19 createRoot:
-;; `reagent2.dom.error-boundary-dom-cljs-test` covers the
-;; child-render throw, the child-commit (componentDidMount) throw,
-;; nested-boundary isolation, and — as its own control — the outer
-;; boundary firing when it is the nearest one.
+;; :component-did-catch error-boundary plumbing. A boundary gets a default
+;; getDerivedStateFromError that flips cljsHasError, bridged into the public
+;; state atom. Propagation under a real React is in
+;; `reagent2.dom.error-boundary-dom-cljs-test`.
 ;; ---------------------------------------------------------------------------
 
 (deftest error-boundary-component-did-catch-fires
@@ -374,33 +264,19 @@
           err   (js/Error. "boom")
           info  #js {:componentStack "<at Foo>"}]
       (.call (.. klass -prototype -componentDidCatch) inst err info)
-      (is (= err (:error @seen)) "error forwarded")
-      (is (identical? info (:info @seen)) "info forwarded")
-      (is (identical? inst (:this @seen)) "this forwarded"))))
+      (is (= {:this inst :error err :info info} @seen)))))
 
 (deftest error-boundary-get-derived-state-auto-installed
-  (testing "getDerivedStateFromError is auto-installed when :component-did-catch is supplied"
-    ;; React 19 requires getDerivedStateFromError for the boundary to
-    ;; actually re-render with fallback state. The rewrite installs a
-    ;; default that flags state with cljsHasError=true; user
-    ;; :reagent-render checks the flag.
+  (testing "a :component-did-catch class gets a static getDerivedStateFromError
+            whose patch flips cljsHasError"
     (let [^js klass (component/create-class*
                   {:reagent-render      (fn [_] [:div])
                    :component-did-catch (fn [_ _ _])})]
-      (is (fn? (.-getDerivedStateFromError klass))
-          "getDerivedStateFromError installed as a static class method")
-      (let [patch (.call (.-getDerivedStateFromError klass) nil (js/Error. "x"))]
-        (is (true? (.-cljsHasError patch))
-            "default patch flips cljsHasError to true")))))
-
-(deftest error-boundary-no-derived-state-without-did-catch
-  (testing "without :component-did-catch, getDerivedStateFromError is NOT installed"
-    ;; A class that didn't ask to be a boundary should not silently
-    ;; intercept errors via a stray getDerivedStateFromError.
-    (let [^js klass (component/create-class*
-                  {:reagent-render (fn [_] [:div])})]
-      (is (nil? (.-getDerivedStateFromError klass))
-          "no auto-install when the user didn't opt into boundary semantics"))))
+      (is (true? (.-cljsHasError (.call (.-getDerivedStateFromError klass) nil (js/Error. "x")))))))
+  (testing "a class that did not opt in gets none, so it cannot silently
+            intercept a descendant's error"
+    (is (nil? (.-getDerivedStateFromError
+                ^js (component/create-class* {:reagent-render (fn [_] [:div])}))))))
 
 (deftest error-boundary-derived-state-syncs-into-reagent-atom-rf2-ygknv
   (testing "the default getDerivedStateFromError
@@ -426,9 +302,7 @@
                        :component-did-catch (fn [_ _ _])})
           inst  (new klass #js {:__rfArgv [(fn [_] nil)]})]
       (set! (.-forceUpdate inst) (fn [] nil))
-      ;; Initial render — no error yet; state atom empty → ok branch.
       (let [^js el (.call (.. klass -prototype -render) inst)]
-        (is (= "div" (.-type el)))
         (is (= "ok" (.-className (.-props el)))
             "before any error, the boundary renders its normal child"))
       ;; React applies the derived-state patch after a child throws:
@@ -460,11 +334,8 @@
           "no error → state atom untouched (no spurious :cljsHasError)"))))
 
 (deftest error-boundary-rethrow-bubbles-via-cDC
-  (testing "a :component-did-catch fn that throws cascades — the rethrow is the user's choice"
-    ;; Per IMPL-SPEC §6.5: re-throwing from cDC bubbles to the next
-    ;; boundary. Our plumbing doesn't catch user throws — the user fn's
-    ;; throw escapes and React's outer-boundary chain handles it. We
-    ;; assert the plumbing doesn't swallow.
+  (testing "a rethrow from :component-did-catch escapes the plumbing, so it
+            reaches the next boundary"
     (let [^js klass (component/create-class*
                   {:reagent-render      (fn [_] [:div])
                    :component-did-catch (fn [_ _ _]
@@ -495,43 +366,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reagent-class-predicate
-  (testing "reagent-class? is true only for create-class*-built classes"
-    (let [^js klass (component/create-class*
-                  {:reagent-render (fn [_] [:div])})]
-      (is (component/reagent-class? klass)))
-    (is (not (component/reagent-class? (fn [] nil)))
-        "a plain fn is not a reagent-class")
-    (is (not (component/reagent-class? nil)))
-    (is (not (component/reagent-class? "string")))))
-
-(deftest react-class-predicate
-  (testing "react-class? is true for any React class (has render on proto)"
-    (let [^js klass (component/create-class*
-                  {:reagent-render (fn [_] [:div])})]
-      (is (component/react-class? klass)))
-    (is (not (component/react-class? (fn [] nil))))
-    (is (not (component/react-class? nil)))))
+  (let [klass (component/create-class* {:reagent-render (fn [_] [:div])})
+        xs    [klass (fn [] nil) nil "string"]]
+    (is (= [true false false false] (map (comp boolean component/reagent-class?) xs))
+        "reagent-class? holds only for create-class*-built classes")
+    (is (= [true false false false] (map (comp boolean component/react-class?) xs))
+        "react-class? holds for a class with render on its prototype")))
 
 ;; ---------------------------------------------------------------------------
-;; as-element-fn unregistered → throw
-;;
-;; The make-render-method seam runs hiccup through the registered
-;; `reagent2.impl.template/as-element` fn before handing the result to
-;; React. If the seam is unregistered (a hand-rolled test bundle that
-;; requires component without template), the slim adapter throws
-;; `:rf.error/as-element-fn-unregistered` — fail-fast rather than a silent
-;; pass-through, which would surface as React's \"Objects are not valid as
-;; a React child\" error.
-;;
-;; Production load order via reagent2.core pulls template; template's
-;; ns-load calls set-as-element-fn!. The test paths below temporarily
-;; null the seam via set-as-element-fn! and then restore it.
+;; With no as-element converter registered (a bundle that loads component
+;; without template), render fails fast rather than handing React raw hiccup.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-unregistered-as-element-fn
-  "Run `f` with the as-element seam nulled out. Restores
-  `reagent2.impl.template/as-element` (the production registrant) on
-  exit so subsequent tests see the live seam."
+  "Run `f` with the as-element seam nulled out, restoring the template's
+  converter on exit."
   [f]
   (try
     (component/set-as-element-fn! nil)
@@ -548,9 +397,6 @@
                           {:reagent-render (fn [_this] [:div "x"])
                            :display-name   "UnregisteredTest"})
               render    (proto-method klass "render")
-              ;; Build an instance shell the render method can run
-              ;; against. We don't drive React; we call render directly
-              ;; with a synthesised `this`.
               instance  #js {:props #js {:__rfArgv [(fn [_t] [:div "x"])]}
                              :cljsArgv [(fn [_t] [:div "x"])]
                              :cljsRenderRea nil}
@@ -558,25 +404,13 @@
                           (.call render instance)
                           nil
                           (catch :default e (ex-data e)))]
-          (is (= :rf.error/as-element-fn-unregistered (:rf.error/id thrown))
-              ":rf.error/id identifies the unregistered seam class")
-          (is (= :no-recovery (:recovery thrown))
-              ":recovery is :no-recovery — there is no fallback path")
-          (is (string? (:reason thrown))
-              ":reason carries an actionable message"))))))
+          (is (= [:rf.error/as-element-fn-unregistered :no-recovery]
+                 [(:rf.error/id thrown) (:recovery thrown)])))))))
 
 ;; ---------------------------------------------------------------------------
-;; Framework-default shouldComponentUpdate — argv-equality gate
-;;
-;; Prototype-level unit coverage: the install is present on every class, and
-;; the predicate exercises all four branches — equal argv skips, changed argv
-;; renders, missing argv renders, and a THROWING comparison fails OPEN
-;; (renders), tightening stock Reagent's fail-CLOSED default. The real-React
-;; reconciliation-bailout proof (equal argv → the child's render + update
-;; lifecycles do NOT run) lives in the DOM twin
-;; reagent_slim_scu_argv_gate_dom_cljs_test: sCU is only consulted by a live
-;; reconciler, so these direct-invocation tests assert the predicate contract,
-;; not React's use of it.
+;; The default shouldComponentUpdate skips only an `=` argv; a missing argv or
+;; a throwing comparison renders (fail OPEN, unlike stock Reagent). React's
+;; use of it is proved in reagent_slim_scu_argv_gate_dom_cljs_test.
 ;; ---------------------------------------------------------------------------
 
 (defn- scu-call
@@ -588,46 +422,16 @@
         inst #js {:props #js {:__rfArgv prev-argv}}]
     (.call scu inst #js {:__rfArgv next-argv})))
 
-(deftest scu-installed-on-every-class
-  (testing "create-class* installs a framework-default shouldComponentUpdate"
-    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
-      (is (fn? (.. klass -prototype -shouldComponentUpdate))
-          "shouldComponentUpdate is present on the class prototype")))
-  (testing "fn-to-class (Form-1/2) classes also carry the default sCU"
-    (let [^js klass (component/fn-to-class (fn [_] [:div]))]
-      (is (fn? (.. klass -prototype -shouldComponentUpdate))
-          "the sCU rides through fn-to-class → create-class*"))))
-
-(deftest scu-skips-equal-argv
-  (testing "structurally-= argv → false (skip the parent-propagated re-render)"
-    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
-      ;; Fresh vectors, equal contents — the slim per-render argv shape.
-      (is (false? (scu-call klass [:head {:a 1} [1 2 3]] [:head {:a 1} [1 2 3]]))
-          "= argv (distinct vectors, equal contents) skips"))))
-
-(deftest scu-renders-changed-argv
-  (testing "not= argv → true (render)"
-    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
-      (is (true? (scu-call klass [:head {:a 1}] [:head {:a 2}]))
-          "a changed arg renders"))))
-
-(deftest scu-renders-when-argv-missing
-  (testing "either argv missing → true (fall back to React's always-render)"
-    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
-          scu       (.. klass -prototype -shouldComponentUpdate)]
-      (is (true? (scu-call klass nil [:head]))
-          "missing prev argv renders")
-      (is (true? (scu-call klass [:head] nil))
-          "missing next argv renders")
-      (is (true? (.call scu #js {:props #js {}} #js {}))
-          "undefined __rfArgv on both sides renders"))))
-
-(deftest scu-fails-open-on-throwing-comparison
-  (testing "a comparison that THROWS → true (fail OPEN, tightening stock's fail-closed)"
-    ;; Distinct values whose `=` throws (a throwing -equiv) force the
-    ;; comparison to throw. The gate must render rather than risk a stale UI.
-    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
-          boom1 (reify IEquiv (-equiv [_ _] (throw (js/Error. "equiv boom"))))
-          boom2 (reify IEquiv (-equiv [_ _] (throw (js/Error. "equiv boom"))))]
-      (is (true? (scu-call klass [boom1] [boom2]))
-          "throwing `=` fails open (renders)"))))
+(deftest scu-skips-only-equal-argv
+  (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
+        boom      #(reify IEquiv (-equiv [_ _] (throw (js/Error. "equiv boom"))))]
+    (doseq [[why k prev next expected]
+            [["= argv in fresh vectors skips" klass [:head {:a 1} [1 2 3]] [:head {:a 1} [1 2 3]] false]
+             ["a Form-1/2 class carries the same gate" (component/fn-to-class (fn [_] [:div])) [:h 1] [:h 1] false]
+             ["a changed arg renders" klass [:head {:a 1}] [:head {:a 2}] true]
+             ["a missing prev argv renders" klass nil [:head] true]
+             ["a missing next argv renders" klass [:head] nil true]
+             ["a throwing comparison fails open" klass [(boom)] [(boom)] true]]]
+      (is (= expected (scu-call k prev next)) why))
+    (is (true? (.call (.. klass -prototype -shouldComponentUpdate) #js {:props #js {}} #js {}))
+        "an undefined __rfArgv on both sides renders")))

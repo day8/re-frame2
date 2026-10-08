@@ -1,52 +1,13 @@
 (ns re-frame.adapter.reagent-slim-after-render-dom-cljs-test
-  "The reagent-slim ORDINARY-PATH proof that an `after-render`
-  callback observes the COMMITTED DOM.
-
-  WHAT IT PROVES. `reagent2.core/after-render` promises to run `f` \"after the
-  next React commit\", and the slim adapter publishes it at
-  `:adapter/after-render`, so `rf.interop/after-render` reaches this exact
-  queue. This file pins that promise on the path production actually takes:
-  the microtask the render scheduler queues by itself, with no test primitive
-  driving it.
-
-  WHY A DOM READ AND NOT A COUNTER. The other slim coverage
-  (`reagent2.impl.batching`'s focused tests, and the shared React suite's
-  `assert-after-render-runs-after-commit`) asserts that the callback FIRED —
-  a counter, or a `[:render :after]` call-order vector over fake components
-  whose `forceUpdate` body runs synchronously. A callback invoked while
-  React has only SCHEDULED the class update passes every one of those and
-  still reads stale DOM. So the witness here reads
-  `(.-textContent mount-node)` INSIDE the callback and asserts the new value
-  is already there.
-
-  THE FORBIDDEN SHORTCUTS, and why each would make this vacuous:
-
-    - `reagent2.dom.client/flush-views!` and the adapter's `flush-render!`
-      both impose a commit boundary of their own (`react/act` /
-      `react-dom/flushSync`), which is the very thing under test;
-    - a manual `react-dom/flushSync` around the state change or the drain
-      does the same by hand;
-    - an extra `requestAnimationFrame` (or any await) BEFORE the DOM read
-      lets React's scheduler commit first, so the callback would observe
-      the new DOM no matter when it ran.
-
-  None of those appears between the state change and the callback's read.
-  The `flushSync` that DOES appear wraps only the INITIAL MOUNT — React 19's
-  `root.render` first pass is otherwise asynchronous, and without it there
-  is no committed baseline to have been stale about. The `js/setTimeout`
-  that follows is likewise not a shortcut: the callback has ALREADY recorded
-  what it saw by then, so deferring the ASSERTION cannot change the
-  OBSERVATION. It only gives the test a point at which the scheduler turn is
-  certainly over.
-
-  THE PRE-CHANGE ASSERTION IS LOAD-BEARING. Between `dispatch-sync` and the
-  callback the test asserts the DOM still reads the OLD value. Without it a
-  substrate that committed synchronously on dispatch would satisfy the
-  post-condition trivially, and the test would pin nothing.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
-  discovers it for the real-DOM assertion; the `:node-test` runner also
-  loads it, where the body gates on `(browser?)` and no-ops cleanly."
+  "An ordinary-path `rf.interop/after-render` callback on reagent-slim reads
+  the COMMITTED DOM. The batching tests and the shared React suite only show
+  the callback FIRED; one run while React had merely SCHEDULED the class
+  update would pass them and still read stale DOM, so the callback here reads
+  `textContent` itself. Nothing between the state change and that read —
+  `flush-views!`, `flush-render!`, `flushSync`, an await — may impose a
+  commit; the `flushSync` wraps only the initial mount, and the `setTimeout`
+  only defers the assertion. The DOM is asserted still OLD after the
+  dispatch, so a substrate that committed synchronously could not pass."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -56,13 +17,8 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
-;; Map-form (`:async? true`) fixture: a fn-form fixture tears down
-;; synchronously and would restore the registrar while an `(async done)` body
-;; is still in flight. `:ambient-frame nil` (EP-0002) opts out of
-;; the default ambient `*current-frame*` :rf/default scope — the mount runs
-;; inside the test body's dynamic extent, where an ambient :rf/default scope
-;; would shadow the React-context tier and the probe's `subscribe` would read
-;; :rf/default's empty app-db instead of the provider's seeded frame.
+;; `:ambient-frame nil`: an ambient :rf/default would shadow the
+;; frame-provider the probe's `subscribe` must resolve.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent-slim/adapter
@@ -94,54 +50,24 @@
                           [:div "n=" @(rf/subscribe [::n])]))
           (let [mount-node (make-mount-node!)
                 root       (rdc/create-root mount-node)
-                ;; What the callback saw, recorded from INSIDE it. An `is`
-                ;; here would be swallowed by the queue's per-callback throw
-                ;; isolation, so the callback records and the
-                ;; assertions run outside it.
+                ;; Recorded from inside the callback: an `is` there would be
+                ;; swallowed by the queue's per-callback throw isolation.
                 seen       (atom [])]
-            ;; Initial mount inside flushSync so React 19's otherwise-async
-            ;; first pass is committed before we go on — this is the baseline
-            ;; the callback could be stale about, not a drain of the queue
-            ;; under test.
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider {:frame frame-kw}
                                   [(rf/view :rf.reagent-slim-after-render/probe)]])))
-            (is (= "n=1" (.-textContent mount-node))
-                "baseline: the committed DOM shows the seeded value n=1")
-
-            ;; The state change. Under the rewrite this only ENQUEUES the
-            ;; dependent component for the next microtask turn, so nothing has
-            ;; committed yet...
             (rf/dispatch-sync [::inc] {:frame frame-kw})
-            ;; ...which this asserts, so a substrate that committed
-            ;; synchronously here could not satisfy the post-condition below
-            ;; vacuously.
             (is (= "n=1" (.-textContent mount-node))
-                "precondition: dispatch alone has NOT committed — the DOM still
-                 reads n=1, so the callback below has something to be stale about")
-
-            ;; THE PROOF. Queue an ordinary after-render callback into the same
-            ;; scheduler turn and let the turn run on its own. No flush-views!,
-            ;; no flush-render!, no act, no flushSync, no rAF between here and
-            ;; the callback's read.
+                "precondition: the mount committed n=1, and dispatch alone has NOT committed the change")
             (rf.interop/after-render
               (fn after-render-probe []
                 (swap! seen conj (.-textContent mount-node))))
 
             (js/setTimeout
               (fn []
-                (is (= 1 (count @seen))
-                    (str "the after-render callback fired exactly once — saw "
-                         (pr-str @seen)))
-                (is (= "n=2" (first @seen))
-                    (str "the after-render callback observed the COMMITTED new
-                          DOM; it read " (pr-str (first @seen))
-                         " — reading \"n=1\" means the callback ran while React
-                          had only SCHEDULED the class update"))
-                (is (= "n=2" (.-textContent mount-node))
-                    "the update did commit — the callback's read is the only
-                     thing in question, not whether the render happened")
+                (is (= [["n=2"] "n=2"] [@seen (.-textContent mount-node)])
+                    "[callback-reads final-dom]: the callback fired once and read the COMMITTED n=2; a read of n=1 means it ran while React had only scheduled the update")
                 (try (.unmount root) (catch :default _ nil))
                 (done))
               50)))))))

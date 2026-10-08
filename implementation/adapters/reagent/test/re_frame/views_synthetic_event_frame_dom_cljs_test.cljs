@@ -16,31 +16,15 @@
 
   So a bare, fully-qualified `rf/dispatch` from an `:on-*` handler resolves
   NO frame and — EP-0002, no `:rf/default` floor — raises
-  `:rf.error/no-frame-context` (see `re-frame.core/current-frame-id`,
-  implementation/core/src/re_frame/core.cljc:1118-1132, and
-  `frame/require-current-frame!`).
+  `:rf.error/no-frame-context` (`re-frame.core/current-frame-id`,
+  `frame/require-current-frame!`). What carries the frame into a deferred
+  callback is capturing it at RENDER time: the `reg-view` macro's injected
+  `dispatch` / `subscribe` are a `(rf/capture-frame)` op bundle, so the
+  unqualified `dispatch` closes over the render frame.
 
-  What actually carries the frame into a deferred callback is capturing it
-  at RENDER time. The `reg-view` macro injects `dispatch` / `subscribe`
-  locals that are exactly a `(rf/capture-frame)` op bundle
-  (core_reg_view_macro.cljc:185-192), so the UNqualified injected `dispatch`
-  closes over the render frame and dispatches correctly after the render
-  boundary. The same is true of an explicit `(:dispatch (rf/capture-frame))`
-  or an explicit `{:frame …}` on the dispatch.
-
-  This suite fires a REAL synthetic click on a mounted `reg-view` and pins
-  both halves of the advice:
-
-    1. bare `#(rf/dispatch [:evt])`     → raises :rf.error/no-frame-context
-                                          and nothing lands.
-    2. injected `#(dispatch [:evt])`    → dispatches successfully; the
-                                          frame's app-db advances.
-
-  Browser-only — a genuine synthetic event needs a real React root + real
-  DOM the Node runner can't fake. The `-dom-cljs-test$` suffix
-  opts this file into the `:browser-test` build; `:node-test` still loads it
-  (matches `cljs-test$`) and the DOM branch self-gates on `(browser?)`,
-  exiting early under :node-test where `js/document` is absent."
+  A REAL synthetic click on a mounted `reg-view` pins both halves. It needs
+  a real React root and DOM, so `:node-test` loads this and exits early;
+  `:browser-test` asserts."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -70,15 +54,10 @@
 
 ;; ---- deferred-teardown await ----------------------------------
 ;;
-;; `proof-view` is a Reagent
-;; `reg-view`, so its `:rf.view/unmounted` teardown marker rides the per-
-;; component render-reaction DISPOSAL, which Reagent defers to a macrotask PAST
-;; the synchronous unmount commit. A bare `(rdc/unmount root)` in the finalizer
-;; would therefore let the marker fire AFTER `done`, leaking into the
-;; process-global trace listener the one `:browser-test` page shares across
-;; every `-dom-cljs-test` namespace. The finalizer awaits that disposal so the
-;; marker fires WITHIN the test's window — a local settle idiom, NOT a new
-;; runtime and NOT a shared framework.
+;; `proof-view`'s `:rf.view/unmounted` marker rides its render-reaction
+;; disposal, which Reagent defers PAST the synchronous unmount commit. Without
+;; an await it would fire after `done`, into the trace listener the one
+;; `:browser-test` page shares across every `-dom-cljs-test` namespace.
 
 (defn- settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
@@ -201,36 +180,27 @@
                 (fn []
                   (rdc/render root [rf/frame-provider {:frame target}
                                     [proof-view]])))
+              ;; A button that failed to mount makes `.click` throw.
               (let [bare     (query mount-node "syn-bare")
                     captured (query mount-node "syn-captured")]
-                (is (some? bare) "the bare-dispatch button mounted")
-                (is (some? captured) "the injected-dispatch button mounted")
                 (is (= 0 (:n (rf/app-db-value target)))
                     "sanity: app-db seeded to {:n 0} before any click")
 
                 ;; ---- (1) bare rf/dispatch: fires later, no frame → raises ----
                 (.click bare)
-                (is (= :rf.error/no-frame-context @raised)
+                (is (= [:rf.error/no-frame-context 0] [@raised (:n (rf/app-db-value target))])
                     (str "a real synthetic click on the bare `#(rf/dispatch …)` button "
                          "raised :rf.error/no-frame-context (the render frame is gone "
-                         "by the time the event fires); got " (pr-str @raised)))
-                (is (= 0 (:n (rf/app-db-value target)))
-                    "the bare dispatch landed NOTHING — app-db is still {:n 0}")
+                         "by the time the event fires) and landed NOTHING; got " (pr-str @raised)))
 
                 ;; ---- (2) injected dispatch: captured at render → dispatches ----
-                ;; Causal settle: poll the frame's app-db until the async
-                ;; router drain lands the increment — no fixed sleep.
+                ;; poll-until resolving IS the assertion: the click advanced the
+                ;; render frame to {:n 1} after the render boundary.
                 (.click captured)
                 (-> (rf.test-support/poll-until
                       #(= 1 (:n (rf/app-db-value target)))
                       {:label      "injected dispatch advances the render frame to {:n 1}"
                        :timeout-ms 1000})
-                    (.then (fn [_]
-                             (is (= 1 (:n (rf/app-db-value target)))
-                                 (str "a real synthetic click on the injected `#(dispatch …)` "
-                                      "button dispatched successfully AFTER the render boundary "
-                                      "— app-db advanced to {:n 1}"))
-                             nil))
                     ;; Reports; it does NOT finalize. `done` hands
                     ;; `cljs.test/run-block` a continuation that runs the WHOLE
                     ;; remainder of the run synchronously, so a rejection

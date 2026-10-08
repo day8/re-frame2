@@ -1,12 +1,6 @@
 (ns re-frame.init-resolver-cljs-test
-  "CLJS coverage for `(rf/init! ...)`'s explicit-adapter contract.
-
-  The JVM half (re-frame.boot-test) covers the boot semantics
-  end-to-end. This namespace runs the explicit install and the refused
-  arguments on the CLJS host: there is no default-adapter registry, so the
-  consumer must always pass `reagent-adapter/adapter` explicitly.
-
-  ns ends in -cljs-test so shadow-cljs `:node-test` picks it up."
+  "`(rf/init! ...)`'s explicit-adapter contract on the CLJS host, where
+  there is no default-adapter registry; the JVM half is `re-frame.boot-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -14,10 +8,8 @@
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
-;; Cold-start: dispose any installed adapter before each test so the
-;; init! call we exercise installs fresh. We do NOT use the
-;; make-reset-runtime-fixture here — it pre-installs an adapter for us, and
-;; the unit under test IS init!.
+;; Cold-start, not make-reset-runtime-fixture: that pre-installs an adapter,
+;; and the unit under test IS init!.
 
 (defn- cold-start-fixture [test-fn]
   (rf.substrate.adapter/dispose-adapter!)
@@ -33,27 +25,21 @@
     (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: no adapter installed")
     (rf/init! rf.adapter.reagent/adapter)
-    (is (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter))
-        "explicit init! installed the Reagent adapter (map identity)")
-    (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
-        "(:kind (current-adapter)) is the discriminator per Spec 006")))
+    (let [installed (rf.substrate.adapter/current-adapter)]
+      (is (= [true :rf.adapter/reagent] [(identical? rf.adapter.reagent/adapter installed) (:kind installed)])
+          "explicit init! installed the Reagent adapter map, whose :kind is the Spec 006 discriminator"))))
 
 (deftest init-no-arg-raises-arity-error
   (testing "(rf/init!) with no args raises a language-level arity error (there is no no-arg arity)"
-    ;; The fn defn has no no-arg arity at all,
-    ;; so `(rf/init!)` raises before reaching the runtime ex-info path.
-    ;; CLJS surfaces this as an ordinary Error / TypeError depending on
-    ;; compilation mode; we assert only that *something* throws and no
-    ;; adapter is installed. Use `apply` to keep the intentional bad
-    ;; arity a runtime assertion without a static compiler warning.
+    ;; The throw's type depends on compilation mode, so only that one is
+    ;; thrown is asserted. `apply` keeps the bad arity out of the compiler's
+    ;; static warning.
     (let [thrown (try
                    (apply rf/init! [])
                    nil
                    (catch :default e e))]
-      (is (some? thrown)
-          "rf/init! with no args raises (no such arity)"))
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the failed init! did NOT install any adapter")))
+      (is (= [true nil] [(some? thrown) (rf.substrate.adapter/current-adapter)])
+          "rf/init! with no args raises (no such arity) and installs no adapter"))))
 
 (deftest init-keyword-raises
   (testing "(rf/init! :reagent) raises — the keyword form is not supported"
@@ -61,13 +47,7 @@
                    (rf/init! :reagent)
                    nil
                    (catch :default e e))]
-      (is (some? thrown)
-          "rf/init! with a keyword raises")
-      (is (= :rf.error/no-adapter-specified
-             (some-> thrown ex-data :rf.error/id))
-          "ex-data :rf.error/id carries the :rf.error/no-adapter-specified discriminator")
-      (let [data (ex-data thrown)]
-        (is (= :reagent (:received data))
-            "ex-data echoes the offending keyword")))
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the failed init! did NOT install any adapter")))
+      (is (= [:rf.error/no-adapter-specified :reagent nil]
+             [(some-> thrown ex-data :rf.error/id) (some-> thrown ex-data :received)
+              (rf.substrate.adapter/current-adapter)])
+          "rf/init! with a keyword raises :rf.error/no-adapter-specified echoing the keyword, and installs no adapter"))))

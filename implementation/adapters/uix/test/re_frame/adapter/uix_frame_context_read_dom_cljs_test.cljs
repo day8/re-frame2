@@ -1,33 +1,10 @@
 (ns re-frame.adapter.uix-frame-context-read-dom-cljs-test
-  "UIx DOM/browser coverage for a descendant hook reading the ONE shared
-  frame-context that BOTH boundaries install — `frame-provider` (SCOPE) and
-  `frame-root` (ENSURE).
-
-  Both native boundary components write that SAME context: `frame-provider`
-  scopes an already-live frame's id into it, `frame-root` ENSUREs a frame at
-  commit and provides its id. So a descendant hook reads the wrapping frame's
-  keyword under EITHER boundary. The context is not populated only under a
-  `frame-provider`: beneath a `frame-root` with no `frame-provider` the result
-  is the frame id, and this test pins it.
-
-  THE PROBE READS THROUGH `use-frame`, the hook-shaped `which frame am I in`,
-  resolving from the React context the boundary above installed and nothing
-  else; it is what the two boundary cases below assert. The narrow raw
-  `useContext` read stays internal to the adapter, because it hands back the
-  no-provider sentinel (`:rf.frame/no-provider`) as if it were an answer.
-  There is no no-boundary case here: under `use-frame` absence is a LOUD
-  `:rf.error/no-frame-context`, pinned by
-  `assert-use-sub-no-provider-no-dynamic-raises-no-frame-context` in the shared
-  suite, so it is not duplicated here.
-
-  The frame-root case needs a real client commit — its ENSURE runs in
-  `useLayoutEffect` — so this is a react-dom/client + act DOM test, not an
-  SSR/renderToString one (effects do not fire under renderToString).
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
-  `-dom-cljs-test$`) discovers it for the real DOM assertions; `:node-test`'s
-  `cljs-test$` regex also matches, where each test self-gates on `(browser?)`
-  and no-ops cleanly."
+  "UIx: a descendant reads the ONE frame-context that both boundaries write —
+  `frame-provider` (SCOPE) and `frame-root` (ENSURE, at commit) — through
+  `use-frame`, and through a bare `(rf/capture-frame)`. The no-boundary case
+  is the shared suite's
+  `assert-use-sub-no-provider-no-dynamic-raises-no-frame-context`. The ENSURE
+  runs in `useLayoutEffect`, so this needs a real client commit."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -43,9 +20,6 @@
     {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- side-channel atom + probe --------------------------------------------
-;; The probe records every resolved frame into a side-channel atom the
-;; assertions read. A top-level `defui` (uix `defui` defines a Var; it
-;; cannot sit inside a `let`).
 
 (def ^:private observed (atom []))
 
@@ -54,18 +28,10 @@
     (swap! observed conj f)
     ($ :div (str "f=" f))))
 
-;; The IMPERATIVE resolver's SECOND tier, in a UIx render. `use-frame` reads
-;; React context and nothing else, but bare zero-arity `(rf/capture-frame)`
-;; funnels through
-;; `rf.frame/require-current-frame!` → `resolve-current-frame`, whose order is
-;; dynamic-var FIRST, React context SECOND, error last — and the UIx adapter
-;; routes that reader's context tier to
-;; `rf.adapter.context/function-component-current-frame` at install time. So a
-;; bare capture inside a UIx render beneath a boundary resolves the BOUNDARY's
-;; frame, rather than reading only the dynamic tier and raising
-;; `:rf.error/no-frame-context` under a context-provided frame. The adapter
-;; README says so and its shipped testbed relies on it; this probe is what
-;; keeps that prose true.
+;; A bare `(rf/capture-frame)` resolves dynamic var first, React context
+;; second, then errors; the UIx adapter routes the context tier at install, so
+;; inside a render beneath a boundary it answers with the boundary's frame. The
+;; adapter README and its testbed rely on that.
 (def ^:private captured (atom []))
 
 (defui ProbeBareCaptureFrame []
@@ -97,10 +63,6 @@
       (let [act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
-          ;; `use-frame` reads React context ONLY, so the fixture's ambient
-          ;; `:rf/default` dynamic scope cannot mask the boundary above the
-          ;; probe. Clearing it anyway keeps the rows
-          ;; honest about what they measure and costs nothing.
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
 
@@ -112,10 +74,10 @@
                 (mount-and-render! act-fn
                   ($ rf.adapter.uix/frame-provider {:frame frame-kw}
                      ($ ProbeCurrentFrame)))
-                (is (some #{frame-kw} @observed)
-                    "the hook resolved to the SCOPE-provided frame id from the shared context")
-                (is (not-any? #{rf.adapter.context/no-provider-sentinel} @observed)
-                    "no sentinel leaked while a frame-provider sat above")))
+                (is (= [true false]
+                       [(boolean (some #{frame-kw} @observed))
+                        (boolean (some #{rf.adapter.context/no-provider-sentinel :rf/default} @observed))])
+                    "the hook resolved the SCOPE-provided frame, never the sentinel or the :rf/default floor")))
 
             (testing "under frame-root (ENSURE) → the ENSUREd frame id"
               (reset! observed [])
@@ -123,21 +85,11 @@
                 (mount-and-render! act-fn
                   ($ rf.adapter.uix/frame-root {:id frame-kw}
                      ($ ProbeCurrentFrame)))
-                (is (some? (rf.frame/frame frame-kw))
-                    "frame-root ENSUREd a live frame at commit")
-                (is (some #{frame-kw} @observed)
-                    "the hook resolved to the ENSUREd frame id from the SAME shared context — proves frame-root installs it, not only frame-provider")
-                (is (not-any? #{rf.adapter.context/no-provider-sentinel} @observed)
-                    "no sentinel leaked while a frame-root sat above")))
-
-            ;; The no-boundary case is the shared suite's
-            ;; `assert-use-sub-no-provider-no-dynamic-raises-no-frame-context`.
-            ;; Under `use-frame` absence is a THROW rather than a sentinel, so
-            ;; there is nothing to observe from here: what both cases above
-            ;; pin is that no boundary ever resolves to the `:rf/default`
-            ;; floor.
-            (is (not-any? #{:rf/default} @observed)
-                "neither boundary resolved to the :rf/default floor")))))))
+                (is (= [true true false]
+                       [(some? (rf.frame/frame frame-kw))
+                        (boolean (some #{frame-kw} @observed))
+                        (boolean (some #{rf.adapter.context/no-provider-sentinel :rf/default} @observed))])
+                    "frame-root ENSUREd a live frame and installed its id in the SAME context, never the sentinel or the floor")))))))))
 
 (deftest bare-capture-frame-resolves-the-provider-frame-rf2-fzbj28
   (testing "UIx — zero-arity (rf/capture-frame) inside a render resolves the
@@ -153,19 +105,13 @@
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
 
-            ;; NEGATIVE CONTROL FIRST, and it runs OUTSIDE any render: with no
-            ;; boundary the context slot holds the no-provider sentinel, so the
-            ;; capture has nothing to resolve and fails CLOSED. This is what
-            ;; makes the positive row below discriminating — it rules out a
-            ;; capture that would have answered anyway.
+            ;; Negative control, outside any render: it rules out a capture
+            ;; that would have answered anyway.
             (is (thrown-with-msg? :default #":rf.error/no-frame-context"
                   (rf/capture-frame))
                 "outside any boundary, with the dynamic tier cleared, a bare
                  capture raises :rf.error/no-frame-context — no :rf/default floor")
 
-            ;; A deliberately NON-default frame id: were the capture answering
-            ;; from a synthesised floor rather than from the provider, this row
-            ;; would read :rf/default and fail.
             (testing "under frame-provider (SCOPE) → the scoped frame id"
               (reset! captured [])
               (let [frame-kw :rf.uix-fcr/bare-capture-provider-frame]
@@ -174,11 +120,10 @@
                 (mount-and-render! act-fn
                   ($ rf.adapter.uix/frame-provider {:frame frame-kw}
                      ($ ProbeBareCaptureFrame)))
-                (is (some #{frame-kw} @captured)
-                    "bare (rf/capture-frame) resolved the SCOPE-provided frame —
-                     it does not read the dynamic tier only")
-                (is (not-any? #{:rf/default} @captured)
-                    "and it was the provider's frame, not a synthesised floor")))
+                (is (= [true false]
+                       [(boolean (some #{frame-kw} @captured))
+                        (boolean (some #{rf.adapter.context/no-provider-sentinel :rf/default} @captured))])
+                    "bare (rf/capture-frame) resolved the SCOPE-provided frame, never the sentinel or a synthesised floor")))
 
             (testing "under frame-root (ENSURE) → the ENSUREd frame id"
               (reset! captured [])
@@ -186,9 +131,7 @@
                 (mount-and-render! act-fn
                   ($ rf.adapter.uix/frame-root {:id frame-kw}
                      ($ ProbeBareCaptureFrame)))
-                (is (some #{frame-kw} @captured)
-                    "bare (rf/capture-frame) resolves beneath the ENSURE boundary
-                     too — the shape the shipped UIx testbed uses")))
-
-            (is (not-any? #{rf.adapter.context/no-provider-sentinel} @captured)
-                "the no-provider sentinel never reached the capture as a frame id")))))))
+                (is (= [true false]
+                       [(boolean (some #{frame-kw} @captured))
+                        (boolean (some #{rf.adapter.context/no-provider-sentinel} @captured))])
+                    "bare (rf/capture-frame) resolves beneath the ENSURE boundary too — the shape the shipped UIx testbed uses — and the sentinel never reached it")))))))))

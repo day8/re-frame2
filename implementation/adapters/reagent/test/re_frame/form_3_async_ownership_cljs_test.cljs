@@ -15,17 +15,9 @@
   below from `implementation/adapters/reagent/README.md` §Form-3 with
   `r/create-class`, `r/argv` and `js/vegaEmbed` replaced by plain calls and a
   caller-controlled embed fn, so the test drives the Promise sequencing. No
-  React, DOM or Vega is needed: the leaks live in the algorithm, and a
-  Markdown link gate cannot see them. Keep the mirror and the README in step — the
-  lifecycle bodies below are meant to read line-for-line against the recipe.
-
-  Pins:
-
-    * a completion that lands after unmount finalizes its own result
-    * overlapping requests settling in reverse order keep only the newest;
-      the superseded result is finalized once
-    * ordinary mount → update → unmount retires each accepted instance once
-    * unmount while an update is in flight leaks neither"
+  React, DOM or Vega is needed: the leaks live in the algorithm. Keep the
+  mirror and the README in step — the lifecycle bodies below are meant to
+  read line-for-line against the recipe."
   (:require [cljs.test :refer-macros [async deftest is testing]]))
 
 ;; ---- the recipe's ownership algorithm, mirrored ----------------------------
@@ -104,10 +96,8 @@
         ((:resolve! d) (result (view "pending-at-unmount" finalized)))
         (-> (settled 4)
             (.then (fn [_]
-                     (is (= ["pending-at-unmount"] @finalized)
-                         "the late completion finalized the widget it created")
-                     (is (nil? ((:held w)))
-                         "and nothing was written back into the torn-down closure")
+                     (is (= [["pending-at-unmount"] nil] [@finalized ((:held w))])
+                         "the late completion finalized the widget it created, and wrote nothing back into the torn-down closure")
                      (done)))
             (.catch (fail-on-throw done)))))))
 
@@ -127,14 +117,11 @@
         ((:resolve! d-older) (result (view "older" finalized)))
         (-> (settled 4)
             (.then (fn [_]
-                     (is (= ["older"] @finalized)
-                         "the superseded completion finalized itself, exactly once")
-                     (is (identical? newer ((:held w)))
-                         "the newest result is the one still owned")
+                     (is (= [["older"] true] [@finalized (identical? newer ((:held w)))])
+                         "the superseded completion finalized itself, exactly once, and the newest result is the one still owned")
                      ((:will-unmount w))
-                     (is (= ["older" "newer"] @finalized)
+                     (is (= [["older" "newer"] nil] [@finalized ((:held w))])
                          "final unmount retires the owned result, exactly once")
-                     (is (nil? ((:held w))))
                      (done)))
             (.catch (fail-on-throw done)))))))
 
@@ -159,8 +146,7 @@
             (.then (fn [_]
                      (is (= ["one"] @finalized) "the accepted second instance is still live")
                      ((:will-unmount w))
-                     (is (= ["one" "two"] @finalized) "unmount retires it once")
-                     (is (nil? ((:held w))))
+                     (is (= [["one" "two"] nil] [@finalized ((:held w))]) "unmount retires it once")
                      (done)))
             (.catch (fail-on-throw done)))))))
 
@@ -182,8 +168,7 @@
                      ((:resolve! d-two) (result (view "two" finalized)))
                      (settled 4)))
             (.then (fn [_]
-                     (is (= ["one" "two"] @finalized)
+                     (is (= [["one" "two"] nil] [@finalized ((:held w))])
                          "both the retired and the post-unmount result were released")
-                     (is (nil? ((:held w))))
                      (done)))
             (.catch (fail-on-throw done)))))))

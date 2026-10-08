@@ -690,23 +690,10 @@
 
 ;; ---- frame-provider under the idiomatic `$` trailing-children shape --------
 ;;
-;; `frame-provider` is a NATIVE UIx `defui` component. `$` therefore routes
-;; its props through the LOSSLESS `uix-component-element` (`argv`) path by
-;; construction (a `defui` is stamped `.-uix-component?` automatically), so
-;; keyword frame-ids survive intact with no per-adapter patch. A plain CLJS fn
-;; in that position would go through
-;; `uix.compiler.alpha/react-component-element` → `interpret-attrs`, which
-;; stringifies keyword prop values and DROPS the namespace — `:frame` would
-;; silently resolve to `:rf/default` and the subtree would render nothing.
-;;
-;; Children ride the native `$` TRAILING-ARGS channel —
-;; `($ frame-provider {:frame :f} c1 c2)` — exactly as for every other UIx
-;; component and mirroring Reagent's trailing hiccup. There is no
-;; `:children`-in-props-map form. This test mounts the provider via the
-;; idiomatic trailing shape with TWO children and asserts BOTH descendant
-;; `use-sub`s read the WRAPPED frame's value — the structural guarantee that
-;; (a) the prop-mangling class cannot occur and (b) native trailing children
-;; propagate the frame and render.
+;; `frame-provider` is a native `defui`, so `$` passes its props losslessly; a
+;; plain fn there would go through `interpret-attrs`, which stringifies the
+;; keyword `:frame` and silently falls back to `:rf/default`. Children ride
+;; `$`'s trailing args, as for any UIx component.
 
 (defn- browser? []
   (and (exists? js/document)
@@ -748,10 +735,8 @@
                            {:frame frame-kw}
                            ($ ProbeFrameProvider)
                            ($ ProbeFrameProvider)))))
-                  (is (some #{:wrapped} @probe-frame-provider-observed)
-                      "trailing children's use-sub read the wrapped frame's value, not :rf/default")
                   (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
-                      "both trailing children rendered (not dropped)")
+                      "both trailing children rendered and read the wrapped frame's value, not :rf/default")
                   (finally
                     (try (.unmount root) (catch :default _ nil))))))))))))
 

@@ -1,39 +1,11 @@
 (ns re-frame.boot-cljs-test
-  "Integration test: drives the boot example through a
-   canonical Pattern-Boot trajectory. Each test spins a fresh frame
-   via `make-frame`, fires the `:boot/initialise` event, and asserts
-   the :app/boot state machine and the four loaded slices end up in
-   the expected shape. Managed-HTTP is stubbed via `:fx-overrides`
-   routing every `:rf.http/managed` call to a per-URL
-   canned-success / canned-failure wrapper that delegates to the
-   framework-shipped stubs (Spec 014 §Testing).
-
-   The fixture fns + canned-stub helpers live HERE (the adapter test
-   tree), not under examples/patterns/boot/ — the example source stays
-   test-free per the test-free-examples policy. The
-   ns requires the example's production source (`boot.core`, which
-   chains in `boot.boot` / `boot.schema`) so the boot machine, loader,
-   subs and demo fxs are registered, then exercises them directly.
-
-   This ns uses snapshot/restore via re-frame.test-support
-   so the contract is uniform across CLJS fixtures: the snapshot
-   captures the boot example's ns-load registrations
-   (`:app/boot`, `:boot/loader`, `:app/initialise`, the subs and the
-   demo fxs), and the restore on the way out leaves them intact for
-   any subsequent test ns.
-
-   Coverage:
-     - boot-machine-progression   — the boot machine traverses
-       :configuring → :loading-deps → :hydrating → :ready, each
-       child's payload is folded into its own :data slot (no
-       cross-talk), and all four loaded slices land in app-db.
-     - boot-failure-path          — a failure during the parallel
-       phase routes the boot to :failed and records the error in
-       :data.
-     - boot-join-child-failure-path — /user.json alone fails inside the
-       :spawn-all, under the real BootData schema. The boot reaches
-       :failed through :on-any-failed, the failure never lands in the
-       :user slot, and both in-flight siblings are cancelled."
+  "Drives the boot example (`examples/patterns/boot/`, whose source stays
+   test-free) through its Pattern-Boot trajectory: each test makes a fresh
+   frame that fires `:boot/initialise`, with `:rf.http/managed` routed by
+   `:fx-overrides` to per-URL wrappers over the framework's canned stubs
+   (Spec 014 §Testing). The ns requires `boot.core` so the example's
+   machine, loader, subs and fxs are registered, and the snapshot/restore
+   fixture keeps those ns-load registrations intact for later namespaces."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -65,9 +37,7 @@
 ;; PER-URL CANNED STUBS
 ;; ============================================================================
 ;;
-;; The realworld test-helpers provide reg-canned-success-by-url! which
-;; we reproduce locally so the boot tests don't have to require the
-;; realworld ns just for one helper.
+;; A local copy of the realworld helper, so this ns need not load realworld.
 
 (defn- reg-canned-success-by-url!
   "Register an fx-id that delegates to :rf.http/managed-canned-success,
@@ -155,12 +125,11 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002: each test spins its OWN top-level frame via
-    ;; `make-frame` (inside `with-new-frame`); opt out of the ambient
-    ;; `:rf/default` scope so the new frame's `:initial-events` drain
-    ;; synchronously (top-level boot) rather than being treated as a
-    ;; mid-cascade child-frame creation. In-body dispatches run inside the
-    ;; `with-new-frame` scope, so they do not rely on the ambient frame.
+    ;; EP-0002: each test models a TOP-LEVEL boot in its own frame, so opt
+    ;; out of the ambient `:rf/default` scope: the new frame's
+    ;; `:initial-events` then drain synchronously instead of being treated
+    ;; as a mid-cascade child-frame creation, and the post-boot state is
+    ;; observable.
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
@@ -168,11 +137,6 @@
 ;; TESTS
 ;; ============================================================================
 
-;; EP-0002: these tests model a TOP-LEVEL boot. The fixture
-;; above opts out of the ambient `:rf/default` scope (`:ambient-frame nil`)
-;; so each `make-frame`'s `:initial-events` drain synchronously (rather than
-;; being treated as a mid-cascade child-frame creation) and the
-;; post-boot state is observable, as a real top-level `make-frame` boot is.
 
 (deftest boot-machine-progression
   (testing "happy path: boot machine traverses :configuring → :loading-deps → :hydrating → :ready and all slices land"
@@ -182,29 +146,19 @@
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
-      ;; The :initial-events dispatch :boot/initialise during make-frame,
-      ;; which dispatches [:app/boot [:rf.machine/start]]. The synchronous
-      ;; drain runs all four canned-success stubs to completion.
-      (let [db    (rf/frame-state-value f)
-            state (rf/compute-sub [:app.boot/state] db)]
-        (is (= :ready state)
-            (str "expected boot machine state :ready, got " state))
-
-        ;; Every payload folded into the boot machine's own :data. There is
-        ;; no `[:boot/staging …]` slot in app-db any more: a child completes
-        ;; by reaching a `:final?` state and the parent's `:on-done` fold is
-        ;; the only writer.
-        (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
-          (is (= test-config (:config boot-data)))
-          (is (= test-routes (:routes boot-data)))
-          (is (= test-flags  (:flags boot-data)))
-          (is (= test-user   (:user boot-data))))
-
-        ;; Top-level slices hydrated from the machine's :data.
-        (is (= test-config (rf/compute-sub [:app/config] db)))
-        (is (= test-flags  (rf/compute-sub [:app/flags]  db)))
-        (is (= test-user   (rf/compute-sub [:app/user]   db)))
-        (is (= test-routes (rf/compute-sub [:app/routes] db)))))))
+      ;; The synchronous drain runs all four canned-success stubs to completion.
+      (let [db       (rf/frame-state-value f)
+            payloads [test-config test-routes test-flags test-user]]
+        (is (= :ready (rf/compute-sub [:app.boot/state] db)))
+        ;; A child completes by reaching a `:final?` state, and the parent's
+        ;; `:on-done` fold is the only writer of the machine's own :data.
+        (is (= payloads
+               ((juxt :config :routes :flags :user)
+                (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])))
+            "each payload folded into its own slot of the boot machine's :data")
+        (is (= payloads
+               (mapv #(rf/compute-sub [%] db) [:app/config :app/routes :app/flags :app/user]))
+            "the top-level slices hydrated from the machine's :data")))))
 
 (deftest boot-failure-path
   (testing "a failure during the parallel phase routes the boot to :failed and records the error"
@@ -217,15 +171,12 @@
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-fail}})]
-      (let [db    (rf/frame-state-value f)
-            state (rf/compute-sub [:app.boot/state] db)]
-        ;; Every child fails (the canned-failure stub is blanket); the
-        ;; first failure routes the boot to :failed via :on-any-failed.
-        (is (= :failed state)
-            (str "expected boot machine state :failed, got " state))
-        (let [err (rf/compute-sub [:app.boot/error] db)]
-          (is (some? err)
-              "expected :app.boot/error to be populated on the failure path"))))))
+      ;; The blanket stub fails every child; the first failure routes the
+      ;; boot to :failed.
+      (let [db (rf/frame-state-value f)]
+        (is (= [:failed true]
+               [(rf/compute-sub [:app.boot/state] db) (some? (rf/compute-sub [:app.boot/error] db))])
+            "the boot reached :failed with :app.boot/error populated")))))
 
 (deftest boot-join-child-failure-path
   (testing "/user.json alone fails inside the :spawn-all: the boot reaches :failed, the failure never lands in :user, and the in-flight siblings are cancelled"
@@ -256,18 +207,16 @@
                 rejected  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                                          (= :machine-data (-> % :tags :where)))
                                    @traces)]
-            (is (= :failed (rf/compute-sub [:app.boot/state] db))
-                "the join's :on-any-failed took the boot to :failed")
-            (is (= 503 (:status (rf/compute-sub [:app.boot/error] db)))
-                "the /user.json failure is the recorded error")
-            (is (nil? (:user boot-data))
-                "the failure never reached the :user child's :on-done fold")
-            (is (= [] rejected)
-                "no :machine-data schema rejection on the way")
-            (is (= #{:routes :flags} cancelled)
-                ":on-any-failed cancelled both siblings, which were still in flight")
-            (is (not-any? live? (map #(-> % :tags :spawned-id) cancels))
-                "the cancelled siblings were actually torn down")))
+            (is (= [:failed 503 nil [] #{:routes :flags} true]
+                   [(rf/compute-sub [:app.boot/state] db)
+                    (:status (rf/compute-sub [:app.boot/error] db))
+                    (:user boot-data)
+                    rejected
+                    cancelled
+                    (not-any? live? (map #(-> % :tags :spawned-id) cancels))])
+                (str ":on-any-failed took the boot to :failed recording the /user.json 503, which "
+                     "never reached the :user fold or a :machine-data rejection, and cancelled and "
+                     "tore down both in-flight siblings"))))
         (finally (rf/unregister-listener! :trace ::join-failure))))))
 
 ;; ============================================================================
@@ -313,14 +262,12 @@
                          :fx-overrides {:rf.http/managed
                                         :boot.test/canned-bad-config}})))]
       (try
-        (is (<= 1 (count traces))
-            "at least one :where :machine-data trace fires when the boot machine's :data goes malformed")
-        (is (some #(= :app/boot (-> % :tags :machine-id)) traces)
-            "a trace names the :app/boot machine")
-        ;; `:recovery` rides the trace ENVELOPE, not :tags —
-        ;; mirrors the :where :app-db projection.
+        ;; `:recovery` rides the trace ENVELOPE, not :tags, as on the
+        ;; :where :app-db projection.
         (let [boot-trace (some #(when (= :app/boot (-> % :tags :machine-id)) %) traces)]
-          (is (= :no-recovery (:recovery boot-trace))))
+          (is (= :no-recovery (:recovery boot-trace))
+              (str "a :where :machine-data trace naming :app/boot fires, :no-recovery; got "
+                   (pr-str traces))))
         (finally (when @frame (rf/destroy-frame! @frame))))))
 
   (testing "the app-db slice schema validates the app-db partition independently of the machine :data boundary"

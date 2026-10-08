@@ -1,47 +1,11 @@
 (ns re-frame.adapter.uix-react-shared-cljs-test
   "UIx entry-point for the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`).
-
-  UIx wires its entire public surface out of the
-  `spine/make-react-spine` factory, so every spine-shared behaviour is
-  asserted once in the shared suite and forwarded here with the UIx
-  config. The suite is parameterised: any other React-hook adapter picks
-  up the whole surface by adding one entry file like this one.
-
-  The deftest forwarders are generated from a single `test-specs`
-  literal in `re-frame.adapter.react-shared-suite-tests` (a `.clj`
-  compile-time macro ns, mirroring the conformance-fixtures pattern).
-  The entry file reduces to: an adapter `:require`, a fixture, a `cfg`
-  map, and one macro call. Adding a new shared assertion is one edit —
-  append `[name assert-name]` to `test-specs` and every entry file picks
-  it up on next compile.
-
-  Coverage forwarded (see `test-specs` in the macro ns for the
-  canonical, in-source list — grep-discoverable from there):
-  dispose MUSTs 1–4 + best-effort poison tolerance (G3), source-coord
-  DOM stamping incl. the format-shape split (G2), view-id tagging,
-  frame-context-corrupted (G4), warn-once fire-once + per-id (G5), the
-  write-after-destroy guard; plus render-time parity (hot-reload
-  re-register, anonymous render-key, wrap-view callable), reg-event
-  metadata-interceptor warnings, render-to-string + late-bind chain
-  wiring, the late-bind hook publication set + directory cross-check,
-  chained clear-warn-once-caches!, the routing pipeline, the headless
-  runtime slice, :rf.view/rendered, make-derived-value per-arity +
-  watch-baseline, managed-HTTP, the cross-Spec headless subset, and
-  the public-surface guard: presence/kind/cross-wiring distinctness of
-  the nine re-exported Vars + the adapter-map :kind + contract-fn shape.
-
-  The async *current-frame*-across-dispatch contract is
-  forwarded from a dedicated entry pair carrying a map-form fixture —
-  `uix_dispatch_frame_capture_cljs_test.cljs` — because async tests
-  require a {:before :after} fixture so :after lands after `done`.
-
-  The DOM/browser entry files `after_render_dom` and `use_sub_dom` are
-  separate because they define substrate-specific component vars via
-  `defui`/`$`; they forward to the same suite, handing those components
-  in as elements.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  (`re-frame.adapter.react-shared-suite`). UIx builds its whole public
+  surface from `spine/make-react-spine`, so each spine-shared behaviour is
+  asserted once in the suite; the forwarders are generated from `test-specs`
+  in `re-frame.adapter.react-shared-suite-tests`, which is the coverage list.
+  The async and DOM entries live in `uix_dispatch_frame_capture_cljs_test`,
+  `uix_after_render_dom_cljs_test` and `uix_use_sub_dom_cljs_test`."
   (:require [cljs.test :refer-macros [use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite]

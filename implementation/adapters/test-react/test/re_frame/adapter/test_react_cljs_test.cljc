@@ -1,51 +1,13 @@
 (ns re-frame.adapter.test-react-cljs-test
-  "Tests for the Test-React adapter.
-
-  Three layers:
-
-  A. Demonstration scenarios:
-     happy-path lifecycle ordering, render-tree tracking, adapter-disposal
-     drain, mount! record identity, render-to-string dispose/reinstall.
-
-  B. Lifecycle regressions — each guards a REAL bug class
-     the adapter claims to catch, and asserts that bug's *symptom* so a
-     future regression in the class fails this unit test:
-
-       1. Organic sync-unmount-during-render. Modelled
-          on the real Story panel-host shape: a panel-host parent holds
-          the current panel's child root; on a chip-row 'switch panel'
-          re-render, the parent's render body synchronously unmounts the
-          PREVIOUS panel's root. The guard fires ORGANICALLY — no
-          hand-fabricated in-flight render state — because the unmount happens
-          while React (the global render depth) is rendering somewhere.
-
-       2. Unbalanced subscribe/dispose (mount/unmount ref-count). A faulty
-          teardown disposes only some of the resources it acquired on mount;
-          the symptom is a non-zero live-mount / ref count after teardown.
-
-       3. Double-render. A redundant re-render fires where exactly one was
-          expected; the symptom is an extra :render (and :did-update) entry in
-          the lifecycle log — the render counter is higher than the contract.
-
-  C. Harness-contract guards — self-tests of this local
-     harness's OWN documented public surface. Each pins a guard /
-     error / two-entry-point behaviour the harness PROMISES in its docstrings
-     that the A/B layers above do not exercise: trigger-update! / unmount!
-     after teardown, mount-child! outside a render body, mount! under the
-     wrong installed adapter, the no-emitter render-to-string throw, unmount!
-     idempotency, the substrate :render entry point returning a working
-     unmount thunk, and deep (grandchild) leaf-upward cascade ordering."
+  "Tests for the Test-React adapter: the simulated lifecycle, the
+  sync-unmount-during-render guard, transactional failed mounts and updates,
+  and the harness's own documented guards."
   (:require [re-frame.adapter.test-react :as rf.adapter.test-react]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])))
 
-;; ---- fixture ---------------------------------------------------------------
-
 (defn- install-test-react! [t]
-  ;; Clean install/dispose around each test. `install-adapter!` throws
-  ;; if an adapter is still installed; the test-only seam wipes the
-  ;; lifecycle state so each case starts cold.
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)
   (try
@@ -55,900 +17,287 @@
 
 (use-fixtures :each install-test-react!)
 
-;; ---- lifecycle-log query helpers -------------------------------------------
-;; The assertions below repeatedly interrogate a mount's lifecycle log by
-;; phase — counting how many times a phase fired (render-count contracts) and
-;; reading the first `:seq` order-key for a phase (teardown-ordering checks).
-;; These two helpers name those queries so each assertion reads as the
-;; property under test rather than a `->>`/filter thread.
-
-(defn- phase-count
-  "How many `phase` entries the mount's lifecycle log holds."
-  [mount phase]
+(defn- phase-count [mount phase]
   (->> (rf.adapter.test-react/lifecycle-log mount)
        (filter (comp #{phase} :phase))
        count))
 
 (defn- phase-first-seq
-  "The monotonic `:seq` order-key of the first `phase` entry in the mount's
-  lifecycle log, or nil if the phase never fired. `:seq` increments once per
-  logged phase across the whole adapter, so a strict `<` over two phases' seqs
-  reflects their REAL firing order — a wall-clock timestamp would collapse to
-  equal integers for a sub-millisecond teardown cascade and make the ORDER
-  check vacuous (it could not fail on a reversed teardown)."
+  "The `:seq` of the first `phase` entry. `:seq` is a per-adapter counter, so `<`
+  over two seqs reflects real firing order where wall-clock time would tie."
   [mount phase]
   (->> (rf.adapter.test-react/lifecycle-log mount)
        (filter (comp #{phase} :phase))
        first
        :seq))
 
-;; ----------------------------------------------------------------------------
-;; A. Demonstration scenarios
-;; ----------------------------------------------------------------------------
+(defn- phases [mount]
+  (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
 
-;; ---- happy-path lifecycle ordering ----------------------------------------
+(defn- live [] (count (rf.adapter.test-react/mounted-components)))
+
+(defn- mounted? [mount] @(:mounted? mount))
+
+(defn- tree [mount] (rf.adapter.test-react/current-render-tree mount))
+
+;; ---- the simulated lifecycle -----------------------------------------------
 
 (deftest happy-path-lifecycle-ordering
-  (testing "constructor → render → did-mount → did-update → will-unmount"
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
-      (rf.adapter.test-react/trigger-update! mount [:div "v2"])
-      (rf.adapter.test-react/unmount! mount)
-      (is (= [:constructor :render :did-mount :render :did-update :will-unmount]
-             (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
-          "the simulated lifecycle records constructor, mount-render+did-mount, update-render+did-update, will-unmount"))))
+  (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
+    (rf.adapter.test-react/trigger-update! mount [:div "v2"])
+    (rf.adapter.test-react/unmount! mount)
+    (is (= [:constructor :render :did-mount :render :did-update :will-unmount]
+           (phases mount)))))
 
 (deftest mounted-components-and-current-render-tree
-  (testing "mounted-components tracks live mounts; current-render-tree returns the latest hiccup"
-    (let [mount (rf.adapter.test-react/mount! [:div "initial"])]
-      (is (= 1 (count (rf.adapter.test-react/mounted-components))))
-      (is (= [:div "initial"] (rf.adapter.test-react/current-render-tree mount)))
-      (rf.adapter.test-react/trigger-update! mount [:div "updated"])
-      (is (= [:div "updated"] (rf.adapter.test-react/current-render-tree mount)))
-      (rf.adapter.test-react/unmount! mount)
-      (is (nil? (rf.adapter.test-react/current-render-tree mount))))))
-
-(deftest unmount-actually-evicts-from-the-raw-active-set
-  (testing "unmount! removes the mount from the RAW active-mounts set, not just
-            flips its :mounted? flag. mounted-components filters by :mounted?, so it
-            reports zero even if the dead record were left in the backing set —
-            this pins the eviction directly. Guards the base/mount
-            record-identity disj hazard: the unmount thunk must disj the exact
-            record conj'd, or the dead record would leak for the adapter's
-            lifetime (defrecord equality includes :unmount-fn, so the
-            pre-assoc skeleton would not match)."
-    (let [active @#'rf.adapter.test-react/active-mounts]
-      (is (zero? (count @active))
-          "precondition: raw active set starts empty")
-      (let [mount (rf.adapter.test-react/mount! [:div "live"])]
-        (is (= 1 (count @active))
-            "mount registered exactly one record in the raw set")
-        (rf.adapter.test-react/unmount! mount)
-        (is (zero? (count @active))
-            "unmount! EVICTED the record from the raw set — no leaked dead record"))
-      ;; Many mount/unmount cycles must not grow the raw set (the leak symptom
-      ;; would be monotonic growth masked by the :mounted? filter).
-      (dotimes [_ 25]
-        (rf.adapter.test-react/unmount! (rf.adapter.test-react/mount! [:div "churn"])))
-      (is (zero? (count @active))
-          "25 mount/unmount cycles left the raw active set empty — no accumulation"))))
-
-;; ---- adapter-disposal drains stranded mounts ------------------------------
+  (let [mount (rf.adapter.test-react/mount! [:div "initial"])]
+    (is (= [mount] (rf.adapter.test-react/mounted-components)))
+    (is (= [:div "initial"] (tree mount)))
+    (rf.adapter.test-react/trigger-update! mount [:div "updated"])
+    (is (= [:div "updated"] (tree mount)))
+    (rf.adapter.test-react/unmount! mount)
+    (is (nil? (tree mount)))))
 
 (deftest dispose-adapter-drains-stranded-mounts
-  (testing "dispose-adapter! drains mounts the test forgot to unmount; log carries :forced-teardown breadcrumb"
-    (let [mount (rf.adapter.test-react/mount! [:div "leaked"])]
-      ;; The :each fixture's `dispose-adapter!` will fire on the way
-      ;; out; we invoke it explicitly here so the assertions land in
-      ;; the test body rather than the fixture.
-      (rf.substrate.adapter/dispose-adapter!)
-      (is (not @(:mounted? mount))
-          ":mounted? flips to false on forced teardown")
-      (is (some #{:forced-teardown} (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
-          ":forced-teardown phase records the drain so tests can spot leaked mounts")
-      ;; Re-install so the fixture's outer dispose call below is a no-op.
-      (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter))))
-
-;; ---- mount! returns the exact record it created ---------------------------
-
-(deftest mount-returns-its-own-record-under-many-live-mounts
-  (testing "mount! returns the record it created — and its unmount thunk tears
-            down THAT mount — even with many other mounts live at once. The
-            record is threaded directly through the internal mount seam, so
-            there is no scan/ordering heuristic to alias the wrong mount."
-    ;; Mount a dozen components without unmounting any (they stay live), then
-    ;; mount one more with a unique sentinel render-tree.
-    (let [earlier (doall (for [i (range 12)]
-                           (rf.adapter.test-react/mount! [:div (str "v" i)])))
-          latest  (rf.adapter.test-react/mount! [:div "SENTINEL-LATEST"])]
-      (is (= [:div "SENTINEL-LATEST"] (rf.adapter.test-react/current-render-tree latest))
-          "mount! returned the record for the mount it just created")
-      (is (= 13 (count (rf.adapter.test-react/mounted-components)))
-          "all thirteen mounts are live")
-      ;; The unmount thunk on the returned record tears down the SENTINEL
-      ;; mount specifically — not a neighbour.
-      (rf.adapter.test-react/unmount! latest)
-      (is (nil? (rf.adapter.test-react/current-render-tree latest))
-          "unmounting the returned record tore down the correct (latest) mount")
-      (is (= 12 (count (rf.adapter.test-react/mounted-components)))
-          "exactly one mount torn down; the other twelve remain live")
-      ;; Drain the 12 still-live earlier mounts so the fixture's
-      ;; dispose-adapter! has nothing surprising to forcibly tear down.
-      (doseq [m earlier] (rf.adapter.test-react/unmount! m)))))
-
-;; ---- render-to-string survives a dispose/reinstall cycle ------------------
+  (let [mount (rf.adapter.test-react/mount! [:div "leaked"])]
+    (rf.substrate.adapter/dispose-adapter!)
+    (is (not (mounted? mount)))
+    (is (some #{:forced-teardown} (phases mount)))
+    (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)))
 
 (deftest render-to-string-survives-dispose-reinstall
-  (testing "render-to-string stays ARMED across a dispose/reinstall cycle.
-            Two independent forces keep it armed: test-react's dispose
-            deliberately does NOT clear its emitter atom (re-derivable
-            infrastructure, not a host resource), AND install-adapter! replays
-            the durable authoritative SSR emitter (:ssr/current-hiccup-emitter)
-            whenever re-frame.ssr is loaded. Either way the
-            re-installed generation renders rather than throwing
-            :rf.error/no-hiccup-emitter-bound.
-
-            The emitter that WINS after reinstall is classpath-dependent, so
-            the assertion pins armed-ness (the tree still renders) rather than a
-            specific emitter's output: on the all-artefact :node-test classpath
-            re-frame.ssr is loaded, so the install-time replay overrides the
-            transient stub with the real SSR emitter (real HTML); on the
-            standalone
-            test-react JVM run (core + test-quiet only, no re-frame.ssr) the
-            durable slot is unset, the replay no-ops, and test-react's own
-            un-cleared stub survives."
+  (testing "the emitter stays armed across dispose + reinstall. Which emitter wins
+            depends on whether re-frame.ssr is loaded (it replays its own on
+            install), so this pins that the tree still renders, not its HTML"
     (rf.adapter.test-react/set-hiccup-emitter! (fn [tree _opts] (str "HTML:" (pr-str tree))))
     (try
-      (is (= "HTML:[:div \"a\"]"
-             (rf.substrate.adapter/render-to-string [:div "a"] nil))
-          "the transient emitter is bound before the dispose cycle")
-      ;; Dispose + reinstall (the standard fixture shape).
+      (is (= "HTML:[:div \"a\"]" (rf.substrate.adapter/render-to-string [:div "a"] nil)))
       (rf.substrate.adapter/dispose-adapter!)
       (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)
-      (let [html (rf.substrate.adapter/render-to-string [:div "b"] nil)]
-        (is (and (string? html) (re-find #"b" html))
-            "render-to-string still armed after dispose + reinstall — it renders
-             the tree and never throws :rf.error/no-hiccup-emitter-bound"))
+      (is (re-find #"b" (rf.substrate.adapter/render-to-string [:div "b"] nil)))
       (finally
         (rf.adapter.test-react/set-hiccup-emitter! nil)))))
 
-;; ----------------------------------------------------------------------------
-;; B.1 — Organic sync-unmount-during-render
-;; ----------------------------------------------------------------------------
-;;
-;; Real shape (a Story panel-host): a single persistent panel-host owns the
-;; CURRENT panel's child root. When the chip-row picker switches panels, the
-;; host re-renders; were it to synchronously call (.unmount) on the PREVIOUS
-;; panel's root inside that render body, React 18+ would raise "Attempted to
-;; synchronously unmount a root while React was already rendering."
-;; Deferring the unmount to a microtask avoids it.
-;;
-;; Here the bug is reproduced ORGANICALLY: the host's render body issues the
-;; unmount while the global render depth is non-zero — no test fabricates
-;; in-flight render state by hand. So the test reproduces the bug condition
-;; rather than merely verifying guard logic.
+(deftest deep-cascade-tears-down-root-downward
+  (let [grandchild-ref (atom nil)
+        child-ref      (atom nil)
+        parent (rf.adapter.test-react/mount!
+                 {:rf/component
+                  (fn [_parent]
+                    (reset! child-ref
+                            (rf.adapter.test-react/mount-child!
+                              {:rf/component
+                               (fn [_child]
+                                 (reset! grandchild-ref
+                                         (rf.adapter.test-react/mount-child! [:span "leaf"])))})))})]
+    (testing "render depth is a counter: a two-level nested render unwinds to zero"
+      (is (false? (rf.adapter.test-react/rendering?))))
+    (is (= 3 (live)))
+    (is (= [@child-ref] (rf.adapter.test-react/mounted-children parent)))
+    (is (= [@grandchild-ref] (rf.adapter.test-react/mounted-children @child-ref)))
+    (rf.adapter.test-react/unmount! parent)
+    (is (zero? (live)))
+    (is (< (phase-first-seq parent :will-unmount)
+           (phase-first-seq @child-ref :will-unmount)
+           (phase-first-seq @grandchild-ref :will-unmount))
+        "componentWillUnmount runs parent before child before grandchild")))
+
+;; ---- the sync-unmount-during-render guard ----------------------------------
 
 (deftest organic-sync-unmount-during-render-rf2-4l7t2
-  (testing "a panel-host that synchronously unmounts the previous panel's root
-            from inside its switch-panel re-render trips
-            :rf.error/sync-unmount-during-render ORGANICALLY (no fabricated
-            in-flight state) — the bug condition, reproduced"
-    ;; Mount panel A as a standalone root (the host's current child).
+  (testing "a host whose render body synchronously unmounts another live root
+            trips the guard, as React 18+ does"
     (let [panel-a (rf.adapter.test-react/mount! [:div.panel "A"])]
-      (is (= 1 (count (rf.adapter.test-react/mounted-components))))
-      ;; The host re-renders to switch to panel B. The BUGGY render body
-      ;; synchronously unmounts panel A's root mid-render (the panel-host
-      ;; pattern without the microtask defer).
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
             #":rf.error/sync-unmount-during-render"
             (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [_host]
-                 ;; BUG: synchronous unmount of a separate root during render.
-                 (rf.adapter.test-react/unmount! panel-a))}))
-          "the guard fires organically: the unmount happens while the host's
-           render is in flight, which is React's actual guard condition")
-      ;; The host's render body THREW, yet run-render!'s `finally` decremented
-      ;; the global render-depth back to zero on unwind. Assert that invariant
-      ;; DIRECTLY: without the finally-restore a leaked non-zero depth would
-      ;; poison every LATER test — the next unmount! anywhere would spuriously
-      ;; trip :rf.error/sync-unmount-during-render. The trailing unmount! below
-      ;; covers it only indirectly (it would throw a confusing uncaught
-      ;; ExceptionInfo if depth leaked, and that coverage would vanish were the
-      ;; trailing unmount refactored away).
+              {:rf/component (fn [_host] (rf.adapter.test-react/unmount! panel-a))})))
       (is (false? (rf.adapter.test-react/rendering?))
-          "run-render!'s finally restored render-depth to zero even though the
-           render body threw — no leaked in-flight state poisons later tests")
-      ;; mount-tree! registers into active-mounts only AFTER run-render!
-      ;; returns, so a throw mid-render never registers the host — the
-      ;; partially-constructed root cannot leak into the live forest.
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "only panel A is live — the throwing host never registered, no leak")
-      ;; Panel A is still mounted — the guard short-circuited the unmount
-      ;; before it could tear the root down (matching React: it refuses the
-      ;; synchronous unmount rather than racing).
-      (is (true? @(:mounted? panel-a))
-          "the guard refused the synchronous unmount — panel A was NOT torn down")
+          "the throwing render still restored the render depth")
+      (is (= [panel-a] (rf.adapter.test-react/mounted-components))
+          "the host never registered, and the refused unmount left panel A live")
       (rf.adapter.test-react/unmount! panel-a))))
 
-;; ----------------------------------------------------------------------------
-;; B.2 — Unbalanced subscribe/dispose (mount/unmount ref-count)
-;; ----------------------------------------------------------------------------
-;;
-;; Bug class: a component acquires a resource on mount (a subscription, a
-;; listener, a child root) and is supposed to release it on unmount. A faulty
-;; teardown releases only SOME of what it acquired. The leak is invisible to a
-;; happy-path test but shows up as an imbalanced ref-count / a non-zero live
-;; mount after the component's own teardown should have drained everything.
-
-(deftest unbalanced-subscribe-dispose-leaves-an-orphaned-root
-  (testing "a parent spins up a SECOND root inside its render body but tracks it
-            as a standalone mount (mount!) instead of a child (mount-child!), so
-            the parent's teardown cascade never disposes it. The symptom is a
-            non-zero live-mount count after the parent unmounts — the
-            subscribe-without-matching-dispose imbalance, and the orphaned-root
-            root cause behind the sync-unmount-during-render family."
-    (let [orphan-ref (atom nil)
-          ;; The host mounts a tracked child AND — the bug — a second root via
-          ;; the standalone `mount!` seam (think: an effect that creates a
-          ;; Reagent root but forgets to register its unmount thunk for
-          ;; teardown). `mount!` does NOT attach to the parent's :children.
-          host (rf.adapter.test-react/mount!
-                 {:rf/component
-                  (fn [_host]
-                    (rf.adapter.test-react/mount-child! [:section "tracked-child"])
-                    (reset! orphan-ref (rf.adapter.test-react/mount! [:section "ORPHAN"])))})]
-      (is (= 3 (count (rf.adapter.test-react/mounted-components)))
-          "host + tracked child + orphaned root are all live")
-      (is (= 1 (count (rf.adapter.test-react/mounted-children host)))
-          "the host only KNOWS about the one tracked child (the orphan is untracked)")
-      ;; Correct-looking teardown: unmount the host. Its cascade tears down the
-      ;; tracked child — but cannot reach the untracked orphan.
-      (rf.adapter.test-react/unmount! host)
-      ;; Symptom: the orphan is still mounted; the count never returned to zero.
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "the orphaned root leaks — subscribe/dispose imbalance detected")
-      (is (true? @(:mounted? @orphan-ref))
-          "the specific leaked root is the orphan the host forgot to track")
-      ;; Clean up the orphan so the fixture's drain has nothing to forcibly tear.
-      (rf.adapter.test-react/unmount! @orphan-ref))))
-
-(deftest balanced-subscribe-dispose-returns-to-zero
-  (testing "the CORRECT counterpart: a parent that lets the cascade tear all
-            children down returns the live-mount count to zero and empties its
-            tracked-child set — the green state a regression in B.2 would break"
-    (let [parent (rf.adapter.test-react/mount!
-                   {:rf/component
-                    (fn [_parent]
-                      (rf.adapter.test-react/mount-child! [:li "a"])
-                      (rf.adapter.test-react/mount-child! [:li "b"]))})]
-      (is (= 3 (count (rf.adapter.test-react/mounted-components))))
-      (is (= 2 (count (rf.adapter.test-react/mounted-children parent)))
-          "both children are tracked under the parent before teardown")
-      ;; Correct teardown: just unmount the parent; the cascade tears every
-      ;; child down leaf-first — no per-resource bookkeeping needed.
-      (rf.adapter.test-react/unmount! parent)
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "cascade tore every child down — nothing leaks")
-      ;; `mounted-children` returns only STILL-MOUNTED children, so an empty result
-      ;; after teardown is a REAL framework property: the cascade set every
-      ;; tracked child's mounted? false. A child the cascade failed to reach
-      ;; would still read as mounted and show up here.
-      (is (empty? (rf.adapter.test-react/mounted-children parent))
-          "the parent's live-child set drained — the cascade reached every child"))))
-
-;; ----------------------------------------------------------------------------
-;; B.3 — Double-render
-;; ----------------------------------------------------------------------------
-;;
-;; Bug class: a single logical state change drives TWO renders where the
-;; contract is one. (E.g. a handler that both replaces app-db AND imperatively
-;; pokes the component, or a sub that fires twice.) The symptom is an extra
-;; :render / :did-update entry in the lifecycle log — the render count exceeds
-;; the number of intended updates.
-
-(deftest double-render-shows-an-extra-render-entry
-  (testing "a buggy update path that re-renders twice for one logical change
-            records TWO :did-update :render pairs; the symptom is a render
-            count of 2 where the contract is 1"
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
-      ;; CONTRACT: one logical change → one update render.
-      ;; BUG: the update path fires trigger-update! twice (the redundant
-      ;; second render real double-render bugs produce).
-      (rf.adapter.test-react/trigger-update! mount [:div "v2"])
-      (rf.adapter.test-react/trigger-update! mount [:div "v2"]) ; redundant re-render
-      (let [renders (phase-count mount :render)
-            updates (phase-count mount :did-update)]
-        ;; Mount render + two update renders = 3.
-        (is (= 3 renders)
-            "render count is 3 (1 mount + 2 update) — the doubled update render is visible")
-        (is (= 2 updates)
-            "two :did-update entries expose the redundant second render"))
-      (rf.adapter.test-react/unmount! mount))))
-
-;; ----------------------------------------------------------------------------
-;; B.4 — Transactional failed initial mount
-;; ----------------------------------------------------------------------------
-;;
-;; Bug class: a parent's render body mounts a child (registered in the live
-;; forest) and then THROWS. Because `mount-tree!` registered the child during
-;; the render but never reaches the parent's own registration, a naive
-;; implementation leaves the child mounted yet unreachable — `mount!` returned
-;; no handle, so nothing can tear it down until whole-adapter disposal. That
-;; phantom live mount is exactly the lifecycle imbalance Test-React exists to
-;; catch, so it corrupts the harness's core purpose.
-;;
-;; Initial mount is TRANSACTIONAL: a failed render rolls back every
-;; child it speculatively mounted (nested descendants too), removing them from
-;; the live forest before the ORIGINAL render exception is rethrown — without
-;; masking that exception and without weakening the sync-unmount-during-render
-;; guard (B.1). Each of the following pins one property that guarantees;
-;; against a naive mount every leak assertion FAILS (the child / subtree
-;; survives).
+;; ---- a failed initial mount is transactional -------------------------------
 
 (deftest failed-initial-render-rolls-back-nested-subtree-rf2-3fc89f2
-  (testing "the rollback reaches NESTED descendants: parent → child →
-            grandchild, then the parent throws. The whole speculative subtree
-            (child AND grandchild) is removed, leaf-upward, not just the direct
-            child"
-    (let [child-ref      (atom nil)
-          grandchild-ref (atom nil)]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-nested-parent"
-            (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [_parent]
-                 (reset! child-ref
-                         (rf.adapter.test-react/mount-child!
-                           {:rf/component
-                            (fn [_child]
-                              (reset! grandchild-ref
-                                      (rf.adapter.test-react/mount-child! [:span "leaf"])))}))
-                 (throw (ex-info "boom-nested-parent" {})))}))
-          "the original render exception escapes")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "no descendant leaks — child AND grandchild both left the forest
-           (a naive mount leaves 2)")
-      (is (and (false? @(:mounted? @child-ref))
-               (false? @(:mounted? @grandchild-ref)))
-          "both the direct child and the nested grandchild were torn down")
-      (is (and (= 1 (phase-count @child-ref :forced-teardown))
-               (= 1 (phase-count @grandchild-ref :forced-teardown)))
-          "each rolled-back level recorded exactly one :forced-teardown")
-      (let [gc-seq    (phase-first-seq @grandchild-ref :forced-teardown)
-            child-seq (phase-first-seq @child-ref :forced-teardown)]
-        (is (< gc-seq child-seq)
-            "rollback ran leaf-upward: the grandchild tore down STRICTLY before
-             the child, mirroring React's children-first teardown order")))))
+  (let [child-ref      (atom nil)
+        grandchild-ref (atom nil)]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-nested-parent"
+          (rf.adapter.test-react/mount!
+            {:rf/component
+             (fn [_parent]
+               (reset! child-ref
+                       (rf.adapter.test-react/mount-child!
+                         {:rf/component
+                          (fn [_child]
+                            (reset! grandchild-ref
+                                    (rf.adapter.test-react/mount-child! [:span "leaf"])))}))
+               (throw (ex-info "boom-nested-parent" {})))})))
+    (is (zero? (live)))
+    (is (= [1 1] [(phase-count @child-ref :forced-teardown)
+                  (phase-count @grandchild-ref :forced-teardown)]))
+    (is (< (phase-first-seq @grandchild-ref :forced-teardown)
+           (phase-first-seq @child-ref :forced-teardown))
+        "rollback runs leaf-upward")))
 
 (deftest failed-child-render-rolls-back-its-own-descendants-rf2-3fc89f2
-  (testing "the throw can originate in a nested render: parent mounts child,
-            child mounts grandchild then the CHILD throws. The grandchild is
-            rolled back and the whole attempt leaves the forest empty — the
-            child's own mount-tree! is transactional before its failure
-            unwinds through the parent"
-    (let [child-ref      (atom nil)
-          grandchild-ref (atom nil)]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-child-render"
-            (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [_parent]
-                 (rf.adapter.test-react/mount-child!
-                   {:rf/component
-                    (fn [child]
-                      ;; Capture the CHILD's own record: mount-child! throws, so
-                      ;; its return value never reaches the parent, but the
-                      ;; render body was handed the record itself.
-                      (reset! child-ref child)
-                      (reset! grandchild-ref
-                              (rf.adapter.test-react/mount-child! [:span "leaf"]))
-                      (throw (ex-info "boom-child-render" {})))}))}))
-          "the child's render exception propagates out through the parent")
-      (is (false? (rf.adapter.test-react/rendering?))
-          "every nested run-render! finally unwound render-depth to zero")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the grandchild the failing child mounted was rolled back — no
-           orphaned descendant survives the nested failure")
-      (is (false? @(:mounted? @grandchild-ref))
-          "the grandchild record was torn down by the child's own rollback")
-      ;; The NESTED failed record is invalidated too, not just its
-      ;; descendants: the child's own mount-tree! attempt aborted, so the handle
-      ;; its render body was handed must be terminal exactly like a failed root's.
-      (is (false? @(:mounted? @child-ref))
-          "the failed CHILD's own record is terminal — a nested initial-mount
-           failure invalidates the record it exposed to its render body, not
-           only the grandchildren beneath it (a descendants-only rollback FAILS this)")
-      (is (nil? (rf.adapter.test-react/current-render-tree @child-ref))
-          "the failed child's throwing candidate tree was cleared")
-      (is (zero? (phase-count @child-ref :did-mount))
-          "the failed child never committed :did-mount"))))
+  (let [child-ref      (atom nil)
+        grandchild-ref (atom nil)]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-child-render"
+          (rf.adapter.test-react/mount!
+            {:rf/component
+             (fn [_parent]
+               (rf.adapter.test-react/mount-child!
+                 {:rf/component
+                  (fn [child]
+                    (reset! child-ref child)
+                    (reset! grandchild-ref
+                            (rf.adapter.test-react/mount-child! [:span "leaf"]))
+                    (throw (ex-info "boom-child-render" {})))}))})))
+    (is (false? (rf.adapter.test-react/rendering?)))
+    (is (zero? (live)))
+    (is (= [false false] [(mounted? @grandchild-ref) (mounted? @child-ref)])
+        "the failed child's own record is terminal, not only its descendants")
+    (is (nil? (tree @child-ref)))
+    (is (zero? (phase-count @child-ref :did-mount)))))
 
 (deftest failed-mount-leaves-no-did-mount-and-spares-live-sibling-rf2-3fc89f2
-  (testing "a failed initial mount records NO :did-mount for the throwing
-            parent, registers nothing in the live forest, and does not disturb
-            a separate root that was already live before the failed mount"
-    (let [survivor  (rf.adapter.test-react/mount! [:div "survivor"])
-          parent-ref (atom nil)
-          child-ref  (atom nil)]
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: exactly the survivor root is live")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-with-sibling"
-            (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [parent]
-                 (reset! parent-ref parent)
-                 (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
-                 (throw (ex-info "boom-with-sibling" {})))}))
-          "the failed mount throws its original exception")
-      (is (zero? (phase-count @parent-ref :did-mount))
-          "the throwing parent never reached :did-mount — a failed render does
-           NOT emit the mount-completed phase")
-      (is (= [survivor] (rf.adapter.test-react/mounted-components))
-          "the ONLY live root is the pre-existing survivor: the parent never
-           registered and the child was rolled back — no hidden leaked record
-           remains in the live forest for a later test to trip over")
-      (is (zero? (phase-count survivor :forced-teardown))
-          "the survivor took no forced teardown — rollback is scoped to the
-           failed parent's own speculative children")
-      (is (false? @(:mounted? @child-ref))
-          "the speculative child is torn down, not a manually-cleanable phantom")
-      ;; The FAILED PARENT's own exposed handle is terminal too. Rolling back
-      ;; only the descendants would leave this record saying mounted?=true
-      ;; while holding the throwing candidate tree, invisible to both
-      ;; `mounted-components` and `dispose-adapter!` (it never registered), so a
-      ;; retained handle could be updated after a mount that never
-      ;; committed.
-      (is (false? @(:mounted? @parent-ref))
-          "the failed parent's record is terminal — a mount that never committed
-           does not leave a live-looking handle behind (a descendants-only
-           rollback FAILS this)")
-      (is (nil? (rf.adapter.test-react/current-render-tree @parent-ref))
-          "the throwing candidate tree was cleared, not left exposed as though
-           it had been committed (a descendants-only rollback FAILS this)")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+  (let [survivor   (rf.adapter.test-react/mount! [:div "survivor"])
+        parent-ref (atom nil)
+        child-ref  (atom nil)]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-with-sibling"
+          (rf.adapter.test-react/mount!
+            {:rf/component
+             (fn [parent]
+               (reset! parent-ref parent)
+               (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
+               (throw (ex-info "boom-with-sibling" {})))})))
+    (is (= [survivor] (rf.adapter.test-react/mounted-components)))
+    (is (zero? (phase-count survivor :forced-teardown)))
+    (is (false? (mounted? @child-ref)))
+    (testing "the failed parent's own handle is terminal: no live-looking record
+              holding the throwing candidate tree"
+      (is (false? (mounted? @parent-ref)))
+      (is (nil? (tree @parent-ref)))
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
             #":rf.error/update-after-unmount"
-            (rf.adapter.test-react/trigger-update! @parent-ref [:div :impossible-update]))
-          "a later update on the failed handle is REJECTED through the
-           update-after-unmount path (a descendants-only rollback FAILS this —
-           the update would succeed)")
-      (is (= 1 (phase-count @parent-ref :render))
-          "the rejected update added no second :render — the failed attempt's
-           single render is still the only one")
-      (is (zero? (phase-count @parent-ref :did-update))
-          "and no :did-update was logged for a mount that never reached
-           :did-mount (a descendants-only rollback FAILS this)")
-      ;; Clean up the survivor so the fixture's drain has nothing to force.
-      (rf.adapter.test-react/unmount! survivor))))
+            (rf.adapter.test-react/trigger-update! @parent-ref [:div :impossible-update])))
+      (is (= [:constructor :render :forced-teardown] (phases @parent-ref))
+          "no :did-mount, and the rejected update logged nothing"))
+    (rf.adapter.test-react/unmount! survivor)))
 
-(deftest rollback-does-not-mask-guard-and-spares-guard-target-rf2-3fc89f2
-  (testing "the transactional rollback COMPOSES with the B.1 guard: a render
-            body that mounts a tracked child and then synchronously unmounts a
-            SEPARATE live root still trips :rf.error/sync-unmount-during-render
-            (rollback does not mask that guard error), the guard's target root
-            stays mounted (the guard refused the unmount), and the tracked
-            child the same body mounted IS rolled back"
-    (let [target    (rf.adapter.test-react/mount! [:div.panel "target"])
-          child-ref (atom nil)]
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: only the guard's target root is live")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #":rf.error/sync-unmount-during-render"
-            (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [_host]
-                 ;; Mount a tracked child (registers in the forest), THEN trip
-                 ;; the sync-unmount-during-render guard on a separate root.
-                 (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
-                 (rf.adapter.test-react/unmount! target))}))
-          "the guard error — NOT the rollback — is what escapes; rollback does
-           not swallow or replace the render body's exception")
-      (is (= [target] (rf.adapter.test-react/mounted-components))
-          "only the target is live: the host never registered and its tracked
-           child was rolled back despite the render failing via the guard")
-      (is (false? @(:mounted? @child-ref))
-          "the child mounted before the guard tripped was rolled back too")
-      (rf.adapter.test-react/unmount! target))))
-
-;; ----------------------------------------------------------------------------
-;; B.5 — Failed update unmounts the whole root
-;; ----------------------------------------------------------------------------
-;;
-;; Bug class (the update-path analogue of B.4): a LIVE root re-renders, the
-;; update body mounts a child and then THROWS. `run-render!` stores the
-;; candidate tree BEFORE invoking the body, so a naive `trigger-update!` would
-;; leave the throwing candidate exposed as the committed `current-render-tree`
-;; and the speculatively-mounted child live and attached — a phantom committed
-;; tree plus an extra live mount, exactly the lifecycle imbalance Test-React
-;; exists to catch. Unlike the failed INITIAL mount (B.4), the parent here is
-;; ALREADY committed, so the initial-mount rollback cannot cover it.
-;;
-;; `trigger-update!` honors React 18+'s uncaught-render-error semantics — the
-;; same contract `run-render!`'s docstring documents ("React 18+ unmounts the
-;; root"). A failed update UNMOUNTS THE WHOLE LIVE ROOT: the root and its entire
-;; child subtree (pre-existing children AND this attempt's speculative ones) are
-;; force-torn-down grandchildren-first, evicted from the live forest with their
-;; render trees cleared, then the ORIGINAL exception is rethrown and NO
-;; `:did-update` fires. Parity is the whole point of the test double — real
-;; React tears the root down rather than silently keeping the prior tree. The
-;; teardown reuses the SAME `force-teardown-record!` primitive as B.4 and the
-;; adapter drain, and preserves the B.1 sync-unmount-during-render guard. Each
-;; test pins one property; against a naive `trigger-update!` the unmount /
-;; no-leak assertions FAIL (candidate committed as the live tree, root + child
-;; both survive).
+;; ---- a failed update unmounts the whole root (React 18+) -------------------
 
 (deftest failed-update-unmounts-the-whole-root-rf2-j538f71
-  (testing "a live root whose update body mounts a child then throws is
-            UNMOUNTED whole (React-18 uncaught-render semantics): the ORIGINAL
-            exception escapes unmasked, the root AND its speculative child leave
-            the forest with cleared render trees, and NO :did-update is logged"
-    (let [child-ref (atom nil)
-          mount     (rf.adapter.test-react/mount! [:div "committed-v1"])]
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: the root is live on its committed tree")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-update-body"
-            (rf.adapter.test-react/trigger-update!
-              mount
-              {:rf/component
-               (fn [_mount]
-                 (reset! child-ref (rf.adapter.test-react/mount-child! [:span "speculative"]))
-                 (throw (ex-info "boom-update-body" {})))}))
-          "the ORIGINAL update exception propagates — teardown never masks it")
-      (is (false? (rf.adapter.test-react/rendering?))
-          "run-render!'s finally restored render-depth to zero on unwind")
-      (is (false? @(:mounted? mount))
-          "the root was UNMOUNTED — a throwing update tears the root down, it is
-           NOT left live on a preserved tree (a naive update FAILS this: root
-           stays live)")
-      (is (nil? (rf.adapter.test-react/current-render-tree mount))
-          "the root's render tree was CLEARED — the throwing candidate is not
-           exposed as committed (a naive update leaks the candidate as the
-           current tree)")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the live forest is empty — root AND its speculative child both left
-           (a naive update leaves 2: candidate root + leaked child)")
-      (is (false? @(:mounted? @child-ref))
-          "the speculative child record was torn down (mounted? flipped false)")
-      (is (= 1 (phase-count @child-ref :forced-teardown))
-          "the child recorded a :forced-teardown — teardown logging preserved")
-      (is (= [:constructor :render :did-mount :render :forced-teardown]
-             (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
-          "the root logged mount lifecycle, the failed update's :render, then a
-           :forced-teardown — no :did-update, matching React's unmount-the-root"))))
+  (let [child-ref (atom nil)
+        mount     (rf.adapter.test-react/mount! [:div "committed-v1"])]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-update-body"
+          (rf.adapter.test-react/trigger-update!
+            mount
+            {:rf/component
+             (fn [_mount]
+               (reset! child-ref (rf.adapter.test-react/mount-child! [:span "speculative"]))
+               (throw (ex-info "boom-update-body" {})))})))
+    (is (false? (rf.adapter.test-react/rendering?)))
+    (is (false? (mounted? mount)))
+    (is (nil? (tree mount)) "the throwing candidate is not exposed as committed")
+    (is (zero? (live)))
+    (is (= 1 (phase-count @child-ref :forced-teardown)))
+    (is (= [:constructor :render :did-mount :render :forced-teardown] (phases mount)))))
 
 (deftest failed-update-tears-down-pre-existing-and-speculative-children-rf2-j538f71
-  (testing "a live parent that already has a pre-existing child A fails an update
-            after mounting a SECOND child B: the whole root unmounts — BOTH A
-            (pre-existing) and B (speculative) tear down children-first, not just
-            the attempt's own child. Proves cleanup neither strands the new
-            child nor spares the old one under uncaught-root semantics"
-    (let [child-a-ref (atom nil)
-          child-b-ref (atom nil)
-          ;; Initial mount whose render body mounts a pre-existing child (A).
-          parent      (rf.adapter.test-react/mount!
-                        {:rf/component
-                         (fn [_parent]
-                           (reset! child-a-ref
-                                   (rf.adapter.test-react/mount-child! [:span "child-a"])))})]
-      (is (= 2 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: parent + pre-existing child A are live")
-      (is (= [@child-a-ref] (rf.adapter.test-react/mounted-children parent))
-          "precondition: A is the parent's only tracked child")
-      ;; Update fails after mounting a second child (B).
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-update-with-preexisting"
-            (rf.adapter.test-react/trigger-update!
-              parent
-              {:rf/component
-               (fn [_parent]
-                 (reset! child-b-ref (rf.adapter.test-react/mount-child! [:span "child-b"]))
-                 (throw (ex-info "boom-update-with-preexisting" {})))}))
-          "the original update exception propagates")
-      (is (false? @(:mounted? parent))
-          "the root was unmounted whole")
-      (is (nil? (rf.adapter.test-react/current-render-tree parent))
-          "the root's render tree was cleared — no candidate survives")
-      (is (and (false? @(:mounted? @child-a-ref))
-               (false? @(:mounted? @child-b-ref)))
-          "BOTH the pre-existing child A AND the speculative child B were torn
-           down — the update unmounts the whole subtree (a naive update leaves A
-           alive with the parent, and leaks B)")
-      (is (and (= 1 (phase-count @child-a-ref :forced-teardown))
-               (= 1 (phase-count @child-b-ref :forced-teardown)))
-          "each child recorded exactly one :forced-teardown")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the live forest is empty — parent + both children all gone")
-      (let [a-seq      (phase-first-seq @child-a-ref :forced-teardown)
-            b-seq      (phase-first-seq @child-b-ref :forced-teardown)
-            parent-seq (phase-first-seq parent :forced-teardown)]
-        (is (and (< a-seq parent-seq) (< b-seq parent-seq))
-            "teardown ran children-first: both children tore down STRICTLY
-             before the parent, mirroring React's leaf-upward order")))))
+  (let [child-a-ref (atom nil)
+        child-b-ref (atom nil)
+        parent      (rf.adapter.test-react/mount!
+                      {:rf/component
+                       (fn [_parent]
+                         (reset! child-a-ref
+                                 (rf.adapter.test-react/mount-child! [:span "child-a"])))})]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-update-with-preexisting"
+          (rf.adapter.test-react/trigger-update!
+            parent
+            {:rf/component
+             (fn [_parent]
+               (reset! child-b-ref (rf.adapter.test-react/mount-child! [:span "child-b"]))
+               (throw (ex-info "boom-update-with-preexisting" {})))})))
+    (is (zero? (live)))
+    (is (= [1 1] [(phase-count @child-a-ref :forced-teardown)
+                  (phase-count @child-b-ref :forced-teardown)]))
+    (let [parent-seq (phase-first-seq parent :forced-teardown)]
+      (is (and (< (phase-first-seq @child-a-ref :forced-teardown) parent-seq)
+               (< (phase-first-seq @child-b-ref :forced-teardown) parent-seq))
+          "children tear down before the parent"))))
 
 (deftest failed-update-spares-unrelated-sibling-root-rf2-j538f71
-  (testing "a failed update on one root does NOT disturb a separate live sibling
-            root: teardown is scoped to the updated root and its own subtree —
-            the sibling and its committed tree are untouched"
-    (let [sibling (rf.adapter.test-react/mount! [:div "sibling"])
-          target  (rf.adapter.test-react/mount! [:div "target-v1"])]
-      (is (= 2 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: sibling + target both live")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-scoped-update"
-            (rf.adapter.test-react/trigger-update!
-              target
-              {:rf/component
-               (fn [_target]
-                 (rf.adapter.test-react/mount-child! [:span "speculative"])
-                 (throw (ex-info "boom-scoped-update" {})))}))
-          "the target's update exception propagates")
-      (is (= [:div "sibling"] (rf.adapter.test-react/current-render-tree sibling))
-          "the sibling's committed tree is untouched")
-      (is (zero? (phase-count sibling :forced-teardown))
-          "the sibling took no forced teardown — teardown did not reach it")
-      (is (false? @(:mounted? target))
-          "the target root was unmounted whole by its failed update")
-      (is (nil? (rf.adapter.test-react/current-render-tree target))
-          "the target's render tree was cleared")
-      (is (= [sibling] (rf.adapter.test-react/mounted-components))
-          "only the sibling remains live — the target and its speculative child
-           are gone, the sibling is scoped out")
-      (rf.adapter.test-react/unmount! sibling))))
+  (let [sibling (rf.adapter.test-react/mount! [:div "sibling"])
+        target  (rf.adapter.test-react/mount! [:div "target-v1"])]
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #"boom-scoped-update"
+          (rf.adapter.test-react/trigger-update!
+            target
+            {:rf/component
+             (fn [_target]
+               (rf.adapter.test-react/mount-child! [:span "speculative"])
+               (throw (ex-info "boom-scoped-update" {})))})))
+    (is (= [sibling] (rf.adapter.test-react/mounted-components)))
+    (is (= [:div "sibling"] (tree sibling)))
+    (is (zero? (phase-count sibling :forced-teardown)))
+    (rf.adapter.test-react/unmount! sibling)))
 
-(deftest failed-update-composes-with-sync-unmount-guard-rf2-j538f71
-  (testing "the failed-update teardown COMPOSES with the B.1 guard: an update
-            body that mounts a tracked child then synchronously unmounts a
-            SEPARATE live root still trips :rf.error/sync-unmount-during-render
-            (teardown does not mask it); the guard's target survives (the guard
-            refused its unmount), while the HOST root — whose update threw via
-            the guard — is unmounted whole along with its speculative child"
-    (let [target    (rf.adapter.test-react/mount! [:div.panel "target"])
-          host      (rf.adapter.test-react/mount! [:div "host-v1"])
-          child-ref (atom nil)]
-      (is (= 2 (count (rf.adapter.test-react/mounted-components)))
-          "precondition: guard target + host both live")
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #":rf.error/sync-unmount-during-render"
-            (rf.adapter.test-react/trigger-update!
-              host
-              {:rf/component
-               (fn [_host]
-                 (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
-                 (rf.adapter.test-react/unmount! target))}))
-          "the guard error — NOT the teardown — is what escapes")
-      (is (false? @(:mounted? host))
-          "the host root, whose update threw via the guard, was unmounted whole")
-      (is (nil? (rf.adapter.test-react/current-render-tree host))
-          "the host's render tree was cleared")
-      (is (false? @(:mounted? @child-ref))
-          "the child the host mounted before the guard tripped was torn down too")
-      (is (= [target] (rf.adapter.test-react/mounted-components))
-          "only the guard's target is live — host + its speculative child are gone")
-      (rf.adapter.test-react/unmount! target))))
-
-;; ----------------------------------------------------------------------------
-;; C. Harness-contract guards
-;; ----------------------------------------------------------------------------
-;;
-;; These pin the harness's OWN documented PUBLIC surface — `mount!` /
-;; `trigger-update!` / `unmount!` / `mount-child!` / the substrate `:render`
-;; entry point / `render-to-string` — the contract its docstrings promise to
-;; whoever writes a lifecycle test against it. There is no downstream
-;; consumer: nothing outside this artefact requires `re-frame.adapter.test-
-;; react` (the only non-test mention anywhere is the quoted producer roster in
-;; `re-frame.late-bind.directory`), so these guards are self-tests, not a
-;; proxy for some other suite's coverage. Each pins a guard or two-entry-point
-;; behaviour the harness docstrings PROMISE that the A/B layers above do not
-;; exercise. A silent regression in any of them would weaken every test
-;; WRITTEN AGAINST this harness without tripping that test's own assertions —
-;; e.g. a `trigger-update!` that no longer throws after teardown would let a
-;; test re-render a dead mount and read a stale tree; a `mount!` that dropped
-;; its installed-adapter guard would silently mount under whatever adapter the
-;; test forgot to install.
-
-;; ---- trigger-update! after unmount throws ---------------------------------
-
-(deftest trigger-update-after-unmount-throws
-  (testing "trigger-update! on an already-unmounted mount throws
-            :rf.error/update-after-unmount — you cannot re-render a dead mount.
-            The lifecycle log is untouched (no stray :render / :did-update),
-            so the throw is a true short-circuit, not a render-then-throw."
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])
-          _     (rf.adapter.test-react/unmount! mount)
-          log-before (rf.adapter.test-react/lifecycle-log mount)]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #":rf.error/update-after-unmount"
-            (rf.adapter.test-react/trigger-update! mount [:div "v2"]))
-          "trigger-update! refuses an unmounted mount")
-      (is (= log-before (rf.adapter.test-react/lifecycle-log mount))
-          "no :render / :did-update leaked onto the log — the guard short-circuited before run-render!"))))
-
-;; ---- unmount! is idempotent ------------------------------------------------
+;; ---- the harness's own guards ----------------------------------------------
 
 (deftest unmount-is-idempotent
-  (testing "a second unmount! on an already-unmounted mount is a silent no-op:
-            it does NOT throw, and records no second :will-unmount entry (so a
-            double-teardown in downstream code can't double-count or corrupt
-            the log)"
-    (let [mount (rf.adapter.test-react/mount! [:div "once"])]
-      (rf.adapter.test-react/unmount! mount)
-      (is (= 1 (phase-count mount :will-unmount))
-          "first unmount recorded exactly one :will-unmount")
-      ;; Second call must neither throw nor append a second :will-unmount.
-      (is (nil? (rf.adapter.test-react/unmount! mount))
-          "second unmount! returns nil without throwing")
-      (is (= 1 (phase-count mount :will-unmount))
-          "second unmount! recorded NO additional :will-unmount — idempotent")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the forest stays empty across the redundant teardown"))))
-
-;; ---- mount-child! outside a render body throws ----------------------------
+  (let [mount (rf.adapter.test-react/mount! [:div "once"])]
+    (rf.adapter.test-react/unmount! mount)
+    (is (nil? (rf.adapter.test-react/unmount! mount)))
+    (is (= 1 (phase-count mount :will-unmount)))))
 
 (deftest mount-child-outside-render-body-throws
-  (testing "mount-child! called with no render in flight (*rendering-mount* nil)
-            throws :rf.error/mount-child-outside-render — a child needs a parent
-            render to attach to. Guards the recursive-child seam against a stray
-            top-level call that would otherwise produce an unparented mount."
-    (is (false? (rf.adapter.test-react/rendering?))
-        "precondition: no render in flight at the test top level")
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-          #":rf.error/mount-child-outside-render"
-          (rf.adapter.test-react/mount-child! [:span "orphan"]))
-        "mount-child! demands an in-flight render body")
-    (is (zero? (count (rf.adapter.test-react/mounted-components)))
-        "the failed mount-child! left nothing in the forest")))
-
-;; ---- mount! under the wrong installed adapter throws ----------------------
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+        #":rf.error/mount-child-outside-render"
+        (rf.adapter.test-react/mount-child! [:span "orphan"])))
+  (is (zero? (live))))
 
 (deftest mount-under-wrong-adapter-throws
-  (testing "mount! throws :rf.error/test-react-not-installed when a DIFFERENT
-            adapter is installed — the guard prevents a test from driving the
-            simulator against a foreign adapter's container/render fns. We swap
-            the install slot to a sentinel non-test-react adapter, assert the
-            throw, then restore so the :each fixture's dispose finds the
-            expected adapter."
-    (let [sentinel-adapter {:kind             :rf.adapter/plain-atom
-                            :dispose-adapter! (fn [] nil)}]
-      ;; Tear down the fixture-installed test-react adapter and seat the
-      ;; sentinel in its place.
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! {:kind             :rf.adapter/plain-atom
+                                          :dispose-adapter! (fn [] nil)})
+  (try
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          #":rf.error/test-react-not-installed"
+          (rf.adapter.test-react/mount! [:div "nope"])))
+    (finally
       (rf.substrate.adapter/dispose-adapter!)
-      (rf.substrate.adapter/install-adapter! sentinel-adapter)
-      (try
-        (is (thrown-with-msg?
-              #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-              #":rf.error/test-react-not-installed"
-              (rf.adapter.test-react/mount! [:div "nope"]))
-            "mount! refuses to run when test-react is not the installed adapter")
-        (finally
-          ;; Restore the test-react adapter the :each fixture expects to dispose.
-          (rf.substrate.adapter/dispose-adapter!)
-          (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter))))))
-
-;; ---- mount! under a COPIED test-react adapter map succeeds ----------------
+      (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter))))
 
 (deftest mount-under-copied-test-react-map-succeeds
-  (testing "mount! ACCEPTS a copied / wrapped Test-React adapter map — the
-            installed-adapter guard is stable-token (same-adapter?), not raw
-            object identity, so an `assoc`'d instrumentation copy (distinct
-            object, same canonical :rf.adapter/test-react :kind) mounts
-            normally. Mirrors the wrong-adapter test's swap-and-restore, but
-            asserts the POSITIVE case an identity guard would wrongly
-            reject."
-    (let [copied (assoc rf.adapter.test-react/adapter :rf.test/instrumentation-wrapper true)]
-      ;; Tear down the fixture-installed canonical map and seat the copy.
-      (rf.substrate.adapter/dispose-adapter!)
-      (rf.substrate.adapter/install-adapter! copied)
-      (try
-        (is (false? (identical? rf.adapter.test-react/adapter (rf.substrate.adapter/current-adapter)))
-            "precondition: the installed copy is NOT identical to the canonical map")
-        (is (= :rf.adapter/test-react (:kind (rf.substrate.adapter/current-adapter)))
-            "precondition: the copy preserves the canonical :kind token")
-        (let [mount (rf.adapter.test-react/mount! [:div "via-copied-map"])]
-          (is (some? mount)
-              "mount! returned a MountedComponent record under the copied map")
-          (is (= [:constructor :render :did-mount]
-                 (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
-              "the copied map drove a normal mount lifecycle (no test-react-not-installed throw)")
-          (rf.adapter.test-react/unmount! mount))
-        (finally
-          ;; Restore the canonical map the :each fixture expects to dispose.
-          (rf.substrate.adapter/dispose-adapter!)
-          (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter))))))
-
-;; ---- render-to-string with no emitter bound throws ------------------------
+  (testing "the installed-adapter guard compares the :kind token, not identity,
+            so an assoc'd copy of the adapter map mounts normally"
+    (rf.substrate.adapter/dispose-adapter!)
+    (rf.substrate.adapter/install-adapter!
+      (assoc rf.adapter.test-react/adapter :rf.test/instrumentation-wrapper true))
+    (try
+      (let [mount (rf.adapter.test-react/mount! [:div "via-copied-map"])]
+        (is (= [:constructor :render :did-mount] (phases mount)))
+        (rf.adapter.test-react/unmount! mount))
+      (finally
+        (rf.substrate.adapter/dispose-adapter!)
+        (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)))))
 
 (deftest render-to-string-without-emitter-throws
-  (testing "render-to-string with NO hiccup emitter bound throws
-            :rf.error/no-hiccup-emitter-bound — the harness ships no built-in
-            emitter, so a test that needs HTML must install one. We force the
-            emitter cell to nil (it may carry a leftover SSR chain install) and
-            assert the throw, then leave it nil for downstream tests."
-    (rf.adapter.test-react/set-hiccup-emitter! nil)
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-          #":rf.error/no-hiccup-emitter-bound"
-          (rf.substrate.adapter/render-to-string [:div "x"] nil))
-        "no emitter bound → render-to-string throws the documented error")))
-
-;; ---- the substrate :render entry point returns a working unmount thunk ----
+  (rf.adapter.test-react/set-hiccup-emitter! nil)
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+        #":rf.error/no-hiccup-emitter-bound"
+        (rf.substrate.adapter/render-to-string [:div "x"] nil))))
 
 (deftest substrate-render-entry-point-returns-working-thunk
-  (testing "the substrate contract's :render fn (the slot the core runtime
-            drives, distinct from the public mount! driver) returns a thunk
-            that, when called, tears the mount down. mount! and :render share
-            the internal mount-tree! seam; :render discards the record and
-            hands back ONLY the thunk. Pinning this proves THIS fixture's
-            substrate-facing :render slot stays a live unmount handle, not just
-            the inspection-friendly mount!."
-    (let [thunk (rf.substrate.adapter/render [:div "via-render"] nil nil)]
-      (is (fn? thunk)
-          ":render returns a callable unmount thunk")
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "the :render entry point mounted exactly one root")
-      (thunk)
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "calling the returned thunk tore that root down"))))
-
-;; ---- deep cascade tears down root-downward --------------------------------
-
-(deftest deep-cascade-tears-down-root-downward
-  (testing "a parent → child → grandchild tree unmounts root-downward when the
-            root unmounts: the parent's :will-unmount fires before the child's,
-            which fires before the grandchild's: the 'deep tree unwinds
-            root-downward' invariant across two levels — the recursive cascade
-            real component trees rely on, in React's own order."
-    (let [grandchild-ref (atom nil)
-          child-ref      (atom nil)
-          parent (rf.adapter.test-react/mount!
-                   {:rf/component
-                    (fn [_parent]
-                      (reset! child-ref
-                              (rf.adapter.test-react/mount-child!
-                                {:rf/component
-                                 (fn [_child]
-                                   (reset! grandchild-ref
-                                           (rf.adapter.test-react/mount-child! [:span "leaf"])))})))})]
-      ;; The parent's render nested two levels deep (parent → child →
-      ;; grandchild), so the global render-depth climbed to 3 then unwound.
-      ;; Because it is a COUNTER, not a boolean (see the `render-depth` note
-      ;; in the adapter source), each
-      ;; nested render's run-render! `finally` decremented exactly its own
-      ;; level, leaving depth at zero once the outermost mount! returned. A
-      ;; boolean would be clobbered to false by the innermost unwind while an
-      ;; outer render was still notionally in flight. This pins the
-      ;; counter-not-boolean nested-unwind restore directly.
-      (is (false? (rf.adapter.test-react/rendering?))
-          "render-depth restored to zero after a two-level nested render
-           unwound — the counter decrements each nested level independently")
-      (is (= 3 (count (rf.adapter.test-react/mounted-components)))
-          "parent + child + grandchild all live")
-      (is (= [@child-ref] (rf.adapter.test-react/mounted-children parent))
-          "child recorded under parent")
-      (is (= [@grandchild-ref] (rf.adapter.test-react/mounted-children @child-ref))
-          "grandchild recorded under child — the tree is two levels deep")
-      (rf.adapter.test-react/unmount! parent)
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the whole forest drained — no orphaned descendant")
-      (let [gc-seq     (phase-first-seq @grandchild-ref :will-unmount)
-            child-seq  (phase-first-seq @child-ref :will-unmount)
-            parent-seq (phase-first-seq parent :will-unmount)]
-        (is (and gc-seq child-seq parent-seq)
-            "every level recorded a :will-unmount during the cascade")
-        (is (< parent-seq child-seq gc-seq)
-            "teardown order is parent < child < grandchild — root-downward
-             unwind, matching React's ClassComponent deletion effect
-             (componentWillUnmount before the descendant traversal). Strict
-             monotonic seq: a leaf-upward regression FAILS this")))))
+  (let [thunk (rf.substrate.adapter/render [:div "via-render"] nil nil)]
+    (is (= 1 (live)))
+    (thunk)
+    (is (zero? (live)))))

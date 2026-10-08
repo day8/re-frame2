@@ -1,33 +1,11 @@
 (ns re-frame.dispatch-frame-capture-cljs-test
-  "Tests for *current-frame* propagation across direct
-  rf/dispatch calls.
-
-  A handler scoped to frame :A doing
-  `(js/setTimeout #(rf/dispatch [:foo]) 0)` escapes the handler's dynamic
-  frame binding; with no `:rf/default` floor the escape raises
-  `:rf.error/no-frame-context` (see §2 below). The workaround is
-  `:fx [[:dispatch ...]]` — the :dispatch fx in
-  re-frame.fx explicitly threads `{:frame frame-id}` so it survives
-  any async tier.
-
-  This ns nails down the runtime contract for the four patterns a
-  multi-frame app might reach for:
-
-    1. Synchronous direct `rf/dispatch` from inside the handler body.
-    2. `js/setTimeout` deferred direct `rf/dispatch` from inside the
-       handler body.
-    3. `:fx [[:dispatch ...]]` from a `reg-event` handler returning an
-       `:fx` effects map (the documented workaround).
-    4. `:fx [[:dispatch-later {:ms 0 :event ...}]]` and the
-       `(:dispatch (rf/capture-frame))` capture-at-creation affordance.
-
-  The drain loop's `process-event!` binds `frame/*current-frame*` to
-  the envelope's `:frame`
-  for the duration of the handler chain, so a synchronous
-  `rf/dispatch` from inside the handler body sees the in-flight
-  event's frame. Async escapes (setTimeout / Promise.then /
-  requestAnimationFrame) still need an explicit-capture affordance —
-  `:fx [[:dispatch ...]]` (canonical), `:dispatch-later`, or
+  "`*current-frame*` across direct `rf/dispatch` calls. The drain loop's
+  `process-event!` binds it to the envelope's `:frame` for the handler
+  chain, so a synchronous `rf/dispatch` from a handler body lands on the
+  in-flight frame. An async escape (setTimeout, Promise.then,
+  requestAnimationFrame) has no binding and, with no `:rf/default` floor,
+  raises `:rf.error/no-frame-context`; the explicit captures are
+  `:fx [[:dispatch ...]]`, `:dispatch-later` and
   `(:dispatch (rf/capture-frame))`. See spec/002-Frames.md §Dispatch and the
   dynamic-binding tier."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
@@ -36,13 +14,9 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
-;; Per cljs.test: async tests require fixtures supplied as a MAP — a
-;; fn-form fixture's teardown runs before an `(async done)` body
-;; completes, restoring the registrar mid-flight. `make-reset-runtime-
-;; fixture`'s `:async? true` map-form performs the snapshot/restore +
-;; frames-reset + adapter dispose/install this suite hand-rolled.
-;; `:ambient-frame nil` preserves the suite's no-ambient-scope
-;; behaviour — every dispatch here carries an explicit `{:frame …}`.
+;; Async tests need the map-form fixture (`:async? true`): a fn-form
+;; fixture's teardown runs before an `(async done)` body completes.
+;; `:ambient-frame nil` because every dispatch here names its frame.
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -71,16 +45,8 @@
 
 ;; ---- 1. Synchronous direct rf/dispatch ------------------------------------
 ;;
-;; A reg-event handler running on :tenant-a calls (rf/dispatch [:rf-l5q3/leaf …])
-;; in its body and returns no fx. The expectation: the queued event
-;; lands on :tenant-a (the in-flight handler's frame), not :rf/default.
-;;
-;; The drain loop's `process-event!` binds `frame/*current-frame*` to
-;; the envelope's :frame for the duration of the chain, so a synchronous
-;; rf/dispatch from inside the handler body picks up the right frame. The
-;; binding is established and torn down PER EVENT, so the same pattern
-;; fired next on :tenant-b stays on :tenant-b — sibling frames do not see
-;; each other's bindings.
+;; The binding is established and torn down PER EVENT, so the same pattern
+;; fired next on :tenant-b stays on :tenant-b.
 
 (deftest sync-dispatch-isolation-between-frames
   (testing "synchronous dispatch from :tenant-a handler stays in :tenant-a; :tenant-b is untouched"
@@ -94,38 +60,18 @@
                        {:db (update db :received (fnil conj []) payload)}))
     (rf/dispatch-sync [:rf-l5q3/fan :a-payload] {:frame :rf-l5q3/tenant-a})
     (rf/dispatch-sync [:rf-l5q3/fan :b-payload] {:frame :rf-l5q3/tenant-b})
-    (is (= [:a-payload] (received :rf-l5q3/tenant-a))
-        ":tenant-a only sees its own :a-payload")
-    (is (= [:b-payload] (received :rf-l5q3/tenant-b))
-        ":tenant-b only sees its own :b-payload")
-    (is (empty? (received :rf/default))
-        ":rf/default sees nothing — neither cascade leaked")))
+    (is (= [[:a-payload] [:b-payload] true]
+           [(received :rf-l5q3/tenant-a) (received :rf-l5q3/tenant-b) (empty? (received :rf/default))])
+        "each tenant sees only its own payload, and :rf/default sees nothing")))
 
 ;; ---- 2. setTimeout-deferred direct rf/dispatch ----------------------------
 ;;
-;; A handler defers a dispatch via
-;; setTimeout. The setTimeout callback runs on a fresh JS stack — the
-;; dynamic binding established by `process-event!` has long since
-;; been popped. Under EP-0002 there is no `:rf/default` floor beneath
-;; that dead binding, and this suite opts out of the fixture's ambient
-;; scope (`:ambient-frame nil`, above), so without an explicit capture
-;; the dispatch RAISES `:rf.error/no-frame-context` — which is exactly
-;; what the deftest immediately below is named for and asserts.
-;;
-;; This test documents the inherent dynamic-scope limit and points
-;; users at the three explicit-capture affordances (`:fx [[:dispatch
-;; ...]]` / `:dispatch-later` / `(:dispatch (rf/capture-frame))`) covered in the
-;; deftests below.
+;; The setTimeout callback runs on a fresh stack after `process-event!`'s
+;; binding has popped, and EP-0002 puts no `:rf/default` floor beneath it.
 
 (deftest direct-dispatch-from-set-timeout-raises-no-frame-context
   (testing "raw rf/dispatch from a setTimeout callback escapes *current-frame* — EP-0002 fails loudly"
-    ;; EP-0002: a raw `rf/dispatch` from a setTimeout callback does not
-    ;; fall through to `:rf/default` (there is no `:rf/default` floor).
-    ;; The dead dynamic binding means no carried frame stamp, so the
-    ;; dispatch FAILS LOUDLY with `:rf.error/no-frame-context`. The throw
-    ;; is caught here so the timer callback does not crash the host; the
-    ;; remedy is to capture a `capture-frame` / use `:dispatch-later` (the
-    ;; deftests below).
+    ;; The throw is caught so the timer callback does not crash the host.
     (async done
       (seed-frames!)
       (let [raised (atom nil)]
@@ -148,30 +94,16 @@
           (fn []
             (js/setTimeout
               (fn []
-                (is (= :rf.error/no-frame-context @raised)
-                    "raw async dispatch raised :rf.error/no-frame-context (no :rf/default floor)")
-                (is (empty? (received :rf-l5q3/tenant-a))
-                    ":tenant-a sees nothing — the dispatch never enqueued")
-                (is (empty? (received :rf/default))
-                    ":rf/default sees nothing — there is no fall-through target")
+                (is (= [:rf.error/no-frame-context true true]
+                       [@raised (empty? (received :rf-l5q3/tenant-a)) (empty? (received :rf/default))])
+                    "raw async dispatch raised :rf.error/no-frame-context, never enqueued, and fell through nowhere")
                 (done))
               10))
           10)))))
 
-;; ---- 3. :fx [[:dispatch ...]] from a setTimeout — workaround --------------
+;; ---- 3. :fx [[:dispatch ...]] — the canonical pattern ----------------------
 ;;
-;; The fx-walker in re-frame.fx threads `{:frame frame-id}` through to
-;; the :dispatch fx, so a setTimeout-scheduled `:fx` cannot deliver
-;; the dispatch to the wrong frame even if the dynamic var has
-;; escaped. This is the canonical workaround.
-;;
-;; Note: re-frame.fx walks :fx during `process-event!`, NOT inside the
-;; setTimeout. So the right pattern is `:fx [[:dispatch-later ...]]`
-;; or a handler that returns `:fx [[:dispatch ...]]` *immediately*.
-;; If the handler manually defers via setTimeout and returns `:fx`,
-;; the :fx walk happens before the timer fires — that's just a
-;; same-tick dispatch. The case we care about is `:dispatch-later`,
-;; tested next.
+;; The fx-walker threads `{:frame frame-id}` through to the :dispatch fx.
 
 (deftest fx-dispatch-from-handler-routes-to-handlers-frame
   (testing ":fx [[:dispatch ...]] routes to the handler's frame — canonical pattern"
@@ -183,18 +115,12 @@
                      (fn [{:keys [db]} _]
                        {:db (update db :received (fnil conj []) :landed-fx)}))
     (rf/dispatch-sync [:rf-l5q3/parent-fx] {:frame :rf-l5q3/tenant-a})
-    (is (= [:landed-fx] (received :rf-l5q3/tenant-a))
-        ":fx [[:dispatch ...]] threads the frame through fx/do-fx — lands on :tenant-a")
-    (is (empty? (received :rf/default))
-        ":rf/default sees nothing")))
+    (is (= [[:landed-fx] true] [(received :rf-l5q3/tenant-a) (empty? (received :rf/default))])
+        ":fx [[:dispatch ...]] threads the frame through fx/do-fx — lands on :tenant-a only")))
 
 ;; ---- 4a. :dispatch-later — async with frame capture -----------------------
 ;;
-;; `:dispatch-later` in re-frame.fx schedules the dispatch via
-;; interop/set-timeout! and captures `frame-id` in the closure (per
-;; fx.cljc), so the deferred dispatch carries the right frame
-;; regardless of when the timer fires. This is the canonical
-;; async-frame-safe pattern.
+;; `:dispatch-later` captures `frame-id` in the timer's closure.
 
 (deftest dispatch-later-survives-the-timer
   (testing ":dispatch-later threads :frame through the closure — survives the async escape"
@@ -209,31 +135,22 @@
                        (fn [{:keys [db]} _]
                          {:db (update db :received (fnil conj []) :landed-later)}))
       (rf/dispatch-sync [:rf-l5q3/parent-later] {:frame :rf-l5q3/tenant-a})
-      ;; Wait long enough for the setTimeout(0) and the resulting
-      ;; next-tick drain (goog.async.nextTick). Two 50ms macrotasks
-      ;; are belt-and-braces — node's setTimeout(0) has a ~1-4ms
-      ;; floor under default settings, the chained drain another
-      ;; macrotask tick. 100ms is well above both.
+      ;; Two 50ms macrotasks: well above the setTimeout(0) floor plus the
+      ;; next-tick drain it schedules.
       (js/setTimeout
         (fn []
           (js/setTimeout
             (fn []
-              (is (= [:landed-later] (received :rf-l5q3/tenant-a))
-                  ":dispatch-later landed on :tenant-a even though the timer fired after the binding popped")
-              (is (empty? (received :rf/default))
-                  ":rf/default sees nothing")
+              (is (= [[:landed-later] true] [(received :rf-l5q3/tenant-a) (empty? (received :rf/default))])
+                  ":dispatch-later landed on :tenant-a only, though the timer fired after the binding popped")
               (done))
             50))
         50))))
 
 ;; ---- 4b. capture-frame :dispatch — async with explicit capture -------------
 ;;
-;; `(:dispatch (rf/capture-frame))` captures the current frame at creation
-;; time and returns a dispatch op locked to that frame. This is the same
-;; shape `:fx [[:dispatch ...]]` uses internally — exposed for plain-fn
-;; callers (test setup, REPL, async libraries that don't speak re-frame
-;; fx). `capture-frame` is the keystone affordance; there are no
-;; `dispatcher` / `subscriber` nouns.
+;; `(:dispatch (rf/capture-frame))` returns a dispatch op locked to the frame
+;; current at creation, for plain-fn callers that don't speak re-frame fx.
 
 (deftest dispatcher-survives-set-timeout
   (testing "(:dispatch (rf/capture-frame)) captures the in-flight frame; the captured fn is safe to call from setTimeout"
@@ -254,10 +171,8 @@
         (fn []
           (js/setTimeout
             (fn []
-              (is (= [:landed-bound] (received :rf-l5q3/tenant-a))
-                  "(:dispatch (rf/capture-frame)) captured :tenant-a at call time; the setTimeout callback dispatches there")
-              (is (empty? (received :rf/default))
-                  ":rf/default sees nothing")
+              (is (= [[:landed-bound] true] [(received :rf-l5q3/tenant-a) (empty? (received :rf/default))])
+                  "(:dispatch (rf/capture-frame)) captured :tenant-a at call time; the setTimeout callback dispatches there only")
               (done))
             10))
         10))))

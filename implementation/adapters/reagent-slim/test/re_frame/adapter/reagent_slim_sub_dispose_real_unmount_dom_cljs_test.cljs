@@ -1,34 +1,11 @@
 (ns re-frame.adapter.reagent-slim-sub-dispose-real-unmount-dom-cljs-test
-  "Does a REAL React unmount of a subscribing `reg-view` emit
-  `:rf.sub/dispose` for the view's OWN query, on the reagent-slim (ratom)
-  adapter?
-
-  The stock-Reagent twin of this file is
-  `re-frame.sub-dispose-real-unmount-dom-cljs-test`; read its header for the
-  full statement of the contract and of why the assertions are paired the way
-  they are. This file exists separately because the two adapters are two
-  shipped substrates telling the same story, and this is the reagent-slim test
-  tree's `:rf.sub/dispose` coverage on a real unmount.
-
-  WHY IT IS A COPY RATHER THAN A REQUIRE. The slim tree cannot require the
-  stock-Reagent test namespace — that would drag `reagent.*` across the
-  `test:reagent-slim:bundle-isolation` boundary the slim adapter exists to
-  keep. So the teardown helper below is slim's own, deliberately identical in
-  shape (a real `flushSync` unmount, then a settled macrotask window) to the
-  one the stock tree publishes.
-
-  THE MECHANISM IS THE SAME ON BOTH. `reagent2.ratom`'s `Reaction`
-  `-remove-watch` disposes itself when its last watcher drops and it has no
-  `auto-run`, and its `dispose!` removes upstream watches BEFORE firing its
-  on-dispose callbacks — so a component unmount tears the sub Reaction down
-  through auto-dispose, and it is re-frame's on-dispose closure
-  (`build-and-cache!*` in `re-frame.subs`) that evicts the slot. That eviction
-  site is therefore where the `:rf.sub/dispose` must fire; a silent `dissoc`
-  there fails both tests below.
-
-  TEST-ONLY. The ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
-  build discovers it; the `:node-test` runner also loads it, where the body
-  gates on `(browser?)` and no-ops."
+  "A REAL React unmount of a subscribing `reg-view` emits `:rf.sub/dispose`
+  for the view's OWN query, on the reagent-slim (ratom) adapter. The unmount
+  auto-disposes the sub Reaction, and re-frame's on-dispose closure
+  (`build-and-cache!*` in `re-frame.subs`) evicts the slot, so a silent
+  `dissoc` there fails both tests. The stock-Reagent twin is
+  `re-frame.sub-dispose-real-unmount-dom-cljs-test`; this is a copy rather
+  than a require because the slim tree may not load `reagent.*`."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent2.dom.client :as rdc]
             ["react" :as React]
@@ -62,9 +39,7 @@
 
 (defn- settle-macrotasks
   "Resolve after `n` macrotask turns so the deferred render-reaction disposal
-  (which fires `:rf.view/unmounted` on a real unmount) has settled before the
-  assertions run. Settle-count 3 matches the proven stock-tree idiom; see the
-  ns docstring for why this is slim's own copy."
+  (which fires `:rf.view/unmounted` on a real unmount) has settled."
   [n]
   (js/Promise.
     (fn [resolve _]
@@ -98,9 +73,7 @@
   [recorded query-v]
   (filterv #(= query-v (-> % :tags :rf.sub/query-v)) recorded))
 
-;; ===========================================================================
-;; 1 — a real unmount, no StrictMode
-;; ===========================================================================
+;; ---- 1: a real unmount, no StrictMode ----------------------------------------
 
 (deftest slim-real-unmount-emits-sub-dispose-for-the-views-own-query
   "reagent-slim: mount a subscribing `reg-view` for real, unmount
@@ -151,53 +124,24 @@
                             [rf/frame-provider {:frame frame-kw}
                              [render-fn]])))
 
-            ;; ---- preconditions that must bite ------------------------------
-            (is (= "n=1" (.-textContent mount-node))
-                "precondition: the probe rendered and read its subscription")
-            (let [entry (slot frame-kw query-v)]
-              (is (some? entry)
-                  (str "precondition: the view's OWN slot is present in the sub-cache "
-                       "while mounted — without a live slot the dispose assertions "
-                       "below would be vacuous; cache keys: "
-                       (pr-str (keys (sub-cache frame-kw)))))
-              (is (pos? (or (:ref-count entry) 0))
-                  (str "precondition: that slot carries a positive :ref-count while "
-                       "mounted; got " (pr-str (:ref-count entry)))))
-            (is (zero? (count (dispose-events-for @disposes query-v)))
-                "precondition: nothing has disposed the view's slot while it is mounted")
-
-            ;; ---- :ref-count is a READER count, not a RENDER tally ----------
-            ;; See the stock-Reagent twin for the full statement. One mounted
-            ;; reader is one reference however many times it renders; a render
-            ;; tally would read 2 after the re-render.
-            (is (= 1 (:ref-count (slot frame-kw query-v)))
-                (str "one mounted reader is one reference; got "
-                     (pr-str (:ref-count (slot frame-kw query-v)))))
+            (is (= ["n=1" 1 0]
+                   [(.-textContent mount-node) (:ref-count (slot frame-kw query-v))
+                    (count (dispose-events-for @disposes query-v))])
+                "[text ref-count disposes]: the mounted view holds its own live slot, undisposed")
+            ;; :ref-count counts READERS, not renders: a render tally would read
+            ;; 2 after the re-render.
             ((:flush-render! rf.adapter.reagent-slim/adapter)
              (fn [] (rf/dispatch-sync [:rf.ty246.slim/bump] {:frame frame-kw})))
-            (is (= "n=2" (.-textContent mount-node))
-                "precondition for the re-render pin: the component really did render again")
-            (is (= 1 (:ref-count (slot frame-kw query-v)))
-                (str "STILL one reference after a re-render — :ref-count counts live "
-                     "readers, not renders; got "
-                     (pr-str (:ref-count (slot frame-kw query-v)))))
-
-            ;; ---- the real unmount ------------------------------------------
+            (is (= ["n=2" 1] [(.-textContent mount-node) (:ref-count (slot frame-kw query-v))])
+                "the view re-rendered and still holds one reference")
             (-> (await-teardown! root)
                 (.then
                   (fn [_]
-                    (is (nil? (slot frame-kw query-v))
-                        "the view's slot was evicted from the sub-cache by the real unmount")
-                    (let [ours (dispose-events-for @disposes query-v)]
-                      (is (= 1 (count ours))
-                          (str "exactly one :rf.sub/dispose fired for the view's own query "
-                               (pr-str query-v) " on a real unmount; got " (count ours)))
-                      (is (= #{:no-more-derefers} (set (map #(-> % :tags :rf.sub/reason) ours)))
-                          (str "that dispose carries :rf.sub/reason :no-more-derefers; got "
-                               (pr-str (mapv #(-> % :tags :rf.sub/reason) ours)))))
-                    (is (= 1 (count @unmounts))
-                        (str "exactly one :rf.view/unmounted fired for " (pr-str view-id)
-                             " within the awaited window; got " (count @unmounts)))
+                    (is (= [nil [:no-more-derefers] 1]
+                           [(slot frame-kw query-v)
+                            (mapv #(-> % :tags :rf.sub/reason) (dispose-events-for @disposes query-v))
+                            (count @unmounts)])
+                        "[slot dispose-reasons view-unmounts]: the real unmount evicted the slot with one :no-more-derefers dispose and one :rf.view/unmounted")
                     (finish)))
                 (.catch (fn [e]
                           (is false (str "slim real-unmount scenario rejected: " (pr-str e)))
@@ -206,9 +150,7 @@
               (is false (str "slim real-unmount scenario threw: " (pr-str e)))
               (finish))))))))
 
-;; ===========================================================================
-;; 2 — the same body under React.StrictMode
-;; ===========================================================================
+;; ---- 2: the same body under React.StrictMode ---------------------------------
 
 (deftest slim-strict-mode-real-unmount-emits-sub-dispose-and-view-unmounted
   "reagent-slim under `React.StrictMode`, driven by `act`.
@@ -270,39 +212,20 @@
                     (is (>= @render-count 2)
                         (str "StrictMode double-invoked the render body (got "
                              @render-count " renders) — the simulated unmount ran"))
-                    (is (= "n=1" (.-textContent mount-node))
-                        "committed DOM shows the seeded value after the strict double-mount")
-                    (is (some? (slot frame-kw query-v))
-                        (str "precondition: the view's OWN slot is present in the sub-cache "
-                             "after the strict double-mount — without it the delta "
-                             "assertions below would be vacuous; cache keys: "
-                             (pr-str (keys (sub-cache frame-kw)))))
+                    (is (= ["n=1" true] [(.-textContent mount-node) (some? (slot frame-kw query-v))])
+                        "after the strict double-mount the view shows the seed and its own slot is live")
                     (let [before-disposes (count (dispose-events-for @disposes query-v))
                           before-unmounts (count @unmounts)]
                       (-> (js/Promise.resolve (act-fn (fn [] (rdc/unmount root))))
                           (.then (fn [_] (settle-macrotasks 3)))
                           (.then
                             (fn [_]
-                              (is (nil? (slot frame-kw query-v))
-                                  "the view's slot was evicted from the sub-cache by the genuine unmount")
-                              (let [ours  (dispose-events-for @disposes query-v)
-                                    delta (drop before-disposes ours)]
-                                (is (>= (count delta) 1)
-                                    (str "the genuine unmount emitted at least one :rf.sub/dispose "
-                                         "for " (pr-str query-v) "; got " (count delta)
-                                         " in the unmount window (" before-disposes
-                                         " had fired across the strict double-mount)"))
-                                (is (= #{:no-more-derefers}
-                                       (set (map #(-> % :tags :rf.sub/reason) delta)))
-                                    (str "every dispose in the unmount window carries "
-                                         ":rf.sub/reason :no-more-derefers; got "
-                                         (pr-str (mapv #(-> % :tags :rf.sub/reason) delta)))))
-                              (is (>= (- (count @unmounts) before-unmounts) 1)
-                                  (str "the genuine unmount emitted at least one "
-                                       ":rf.view/unmounted for " (pr-str view-id)
-                                       "; got " (- (count @unmounts) before-unmounts)
-                                       " in the unmount window (before-unmount count was "
-                                       before-unmounts ")"))
+                              (let [delta (drop before-disposes (dispose-events-for @disposes query-v))]
+                                (is (= [nil #{:no-more-derefers} true]
+                                       [(slot frame-kw query-v)
+                                        (set (map #(-> % :tags :rf.sub/reason) delta))
+                                        (> (count @unmounts) before-unmounts)])
+                                    "[slot dispose-reasons view-unmounted?] across the genuine unmount: the slot was evicted, every dispose (at least one) is :no-more-derefers, and the view emitted :rf.view/unmounted"))
                               (finish)))
                           (.catch (fn [e]
                                     (is false (str "slim StrictMode unmount window rejected: " (pr-str e)))

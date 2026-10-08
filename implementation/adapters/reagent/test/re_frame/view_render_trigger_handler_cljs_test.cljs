@@ -1,26 +1,14 @@
 (ns re-frame.view-render-trigger-handler-cljs-test
-  "`:rf.trace/trigger-handler` rides the `:rf.view/render`
-  trace event with the view's own registration coord.
-
-  Spec 009 §:rf.trace/trigger-handler table — 'Inside a view render:
-  the view's coord'. `views.cljs`'s `reg-view*` wraps the user render-fn
-  in a frame-aware-view that rebinds `*current-trigger-handler*` to the
-  view's `trigger-handler-from-meta` value around the body, and
-  `emit-render-trace!` fires `:rf.view/render` from inside that binding.
-  The trace event therefore carries the view's registration coord on
-  the top-level `:rf.trace/trigger-handler` slot — Xray's event-detail
-  panel and re-frame2-pair's jump-to-source UX render click-to-jump links from
-  this field for every trace in a cascade, including view renders.
-
-  Locked shape:
+  "`:rf.view/render` carries the view's registration coord on the top-level
+  `:rf.trace/trigger-handler` slot (Spec 009 §:rf.trace/trigger-handler:
+  'Inside a view render: the view's coord'), as
 
     {:kind         :view
      :id           <registered-view-id>
      :source-coord {:ns <sym> :file <string> :line <int> :column <int>}}
 
-  CLJS-specific — the Reagent adapter / `views.cljs` wrapper is the
-  emit site; the JVM core has no view-render machinery. Mirror tests
-  for the other handler scopes (event, fx, sub, machine, cofx) live in
+  The `views.cljs` wrapper is the emit site, so this is CLJS-only; the other
+  handler scopes are pinned in
   `implementation/core/test/re_frame/success_path_trigger_handler_test.clj`
   and `implementation/machines/test/re_frame/machine_transition_trigger_handler_test.clj`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -39,21 +27,15 @@
 (def ^:private view-render-pred
   #(= :rf.view/render (:operation %)))
 
-(defn- assert-trigger-shape
-  "Assert the value at top-level `:rf.trace/trigger-handler` on `ev`
-  carries the locked shape — `:kind`, `:id`, and a `:source-coord` map
-  with at least `:ns` / `:file` / `:line`."
-  [ev expected-id]
-  (let [t (:rf.trace/trigger-handler ev)]
-    (is (some? t)
-        (str "expected :rf.trace/trigger-handler on " (:operation ev)))
-    (is (= :view (:kind t)) "kind matches :view")
-    (is (= expected-id (:id t)) "id matches the registered view-id")
-    (let [c (:source-coord t)]
-      (is (map? c) ":source-coord present")
-      (is (symbol? (:ns c))    ":ns is a symbol")
-      (is (string? (:file c))  ":file is a string")
-      (is (integer? (:line c)) ":line is an integer"))))
+(defn- trigger-shape
+  "`[kind id ns-symbol? file-string? line-integer?]` read off `ev`'s
+  top-level `:rf.trace/trigger-handler`."
+  [ev]
+  (let [t (:rf.trace/trigger-handler ev)
+        c (:source-coord t)]
+    [(:kind t) (:id t) (symbol? (:ns c)) (string? (:file c)) (integer? (:line c))]))
+
+(def ^:private coord (juxt :ns :file :line :column))
 
 ;; ---- :rf.view/render carries the view's registration coord -------------------
 
@@ -66,11 +48,9 @@
         [:span "hi"])
       ((rf/view :rf2-npm2p/top-level-view))
       (let [ev (first @traces)]
-        (is (some? ev))
-        (is (contains? ev :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives at top level")
-        (is (not (contains? (:tags ev) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
+        (is (= [true false]
+               [(contains? ev :rf.trace/trigger-handler) (contains? (:tags ev) :rf.trace/trigger-handler)])
+            ":rf.trace/trigger-handler lives at top level, NOT under :tags")))))
 
 (deftest view-render-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
@@ -81,13 +61,9 @@
         [:p "p"])
       ((rf/view :rf2-npm2p/coord-view))
       (let [reg-meta (rf/handler-meta {:source :store :kind :view :id :rf2-npm2p/coord-view})
-            ev       (first @traces)
-            coord    (-> ev :rf.trace/trigger-handler :source-coord)]
-        (is (some? ev))
-        (is (= (:ns     reg-meta) (:ns coord)))
-        (is (= (:file   reg-meta) (:file coord)))
-        (is (= (:line   reg-meta) (:line coord)))
-        (is (= (:column reg-meta) (:column coord)))))))
+            ev       (first @traces)]
+        (is (= [true (coord reg-meta)]
+               [(some? ev) (coord (-> ev :rf.trace/trigger-handler :source-coord))]))))))
 
 (deftest each-render-carries-trigger-handler
   (testing "every :rf.view/render invocation carries the trigger-handler
@@ -100,9 +76,9 @@
         (render 1)
         (render 2)
         (render 3))
-      (is (= 3 (count @traces)) "three :rf.view/render traces fired")
-      (doseq [ev @traces]
-        (assert-trigger-shape ev :rf2-npm2p/multi-render)))))
+      (is (= (repeat 3 [:view :rf2-npm2p/multi-render true true true])
+             (map trigger-shape @traces))
+          "each of the three :rf.view/render traces carries the locked trigger-handler shape"))))
 
 ;; ---- programmatic registration → no coord → no trigger-handler ------------
 
@@ -112,14 +88,9 @@
    better no-data than poison-data (mirrors the fx, sub, cofx
    programmatic paths)"
     (with-trace-recorder! [traces {:pred view-render-pred}]
-      ;; `reg-view*` (the plain-fn surface, not the macro) bypasses
-      ;; the source-coord capture path entirely. The trigger-handler
-      ;; builder gets an empty meta map and yields nil, so the slot
-      ;; is omitted from the emitted event.
       (rf/reg-view* :rf2-npm2p/programmatic
         (fn [] [:span "x"]))
       ((rf/view :rf2-npm2p/programmatic))
       (let [ev (first @traces)]
-        (is (some? ev) ":rf.view/render fired")
-        (is (not (contains? ev :rf.trace/trigger-handler))
-            "programmatic view-registration → no coord → field omitted")))))
+        (is (= [true false] [(some? ev) (contains? ev :rf.trace/trigger-handler)])
+            ":rf.view/render fired, and the programmatic registration's missing coord omits the field")))))

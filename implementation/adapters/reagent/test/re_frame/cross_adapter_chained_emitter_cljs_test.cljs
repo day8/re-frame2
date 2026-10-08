@@ -1,63 +1,14 @@
 (ns re-frame.cross-adapter-chained-emitter-cljs-test
-  "Cross-adapter chained-install fan-out test for the
-  `:reagent/set-hiccup-emitter!` late-bind hook.
-
-  ## Why this test exists
-
-  The hook `:reagent/set-hiccup-emitter!` is declared `:chained? true`
-  in `re-frame.late-bind.directory` and lists the three React-shaped
-  adapter producer namespaces:
-
-      re-frame.adapter.reagent
-      re-frame.adapter.reagent-slim
-      re-frame.adapter.uix
-
-  (The headless test-react adapter also chains onto this hook for its
-  SSR emitter slot — it is a legitimate additional producer, but not a
-  React-shaped one, so this test pins the three React adapters as a
-  REQUIRED SUBSET rather than the exact set.)
-
-  The contract for chained hooks: every producer publishes via
-  `late-bind/chain-fn!`, so a single consumer call (one
-  `(require '[re-frame.ssr])`) fans out and runs every producer's
-  install step. Any producer that mistakenly publishes via
-  `late-bind/set-fn!` clobbers the chain — every producer that
-  loaded before it is wiped from the chain, and a subsequent
-  consumer call only fans out to the producers that loaded AFTER
-  the offender (plus the offender itself).
-
-  Load order can hide that. Were `re-frame.adapter.reagent` to use
-  `set-fn!` for this hook, the shadow-cljs ns-load ordering that loads
-  reagent before uix would let uix's later `chain-fn!` rebuild a
-  chain on top of reagent, and the bug would be invisible — until an
-  ns-load reshuffle loaded reagent LAST and silently dropped uix's and
-  reagent-slim's emitter installs.
-
-  ## What this test pins
-
-  After loading every producer adapter ns:
-
-    1. The hook resolves to a non-nil fn.
-    2. Calling that fn with a sentinel emitter installs the sentinel
-       into EVERY adapter's emitter cell — proving every producer's
-       chain step ran. Swapping any producer to `set-fn!` causes at
-       least one of the three assertions to fail.
-
-  Verification is end-to-end: we don't peek at the chained-fn's
-  internal step list. We invoke the hook and observe each adapter's
-  `:render-to-string` slot routes through the sentinel. That's the
-  observable contract `re-frame.ssr.emit` actually depends on.
-
-  ## ns-load ordering
-
-  Shadow-cljs `:node-test` loads test nses lexically. This file's ns
-  name (`re-frame.cross-adapter-chained-emitter-cljs-test`) sits ahead
-  of `re-frame.late-bind-hooks-cljs-test` and the per-adapter
-  publication tests in collation order, so by the time this test
-  runs every adapter has already published to the hook table — the
-  state under test is the state every other test sees too.
-
-  ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
+  "`:reagent/set-hiccup-emitter!` is a `:chained? true` late-bind hook: each
+  React-shaped adapter (reagent, reagent-slim, uix) publishes an install
+  step with `late-bind/chain-fn!`, so one consumer call fans out to all of
+  them. A producer that used `set-fn!` would wipe every step loaded before
+  it, and ns-load order can hide that until a reshuffle loads the offender
+  last. So the fan-out is observed end-to-end: invoke the hook with a
+  sentinel emitter and read each adapter's `:render-to-string`, the
+  contract `re-frame.ssr.emit` depends on. The headless test-react adapter
+  chains onto the hook too, so the React adapters are a required SUBSET of
+  the producers rather than the exact set."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
             ;; Loading every adapter ns here forces all three to publish
@@ -72,26 +23,26 @@
 (def ^:private hook-key :reagent/set-hiccup-emitter!)
 
 (defn- adapter-render-to-string
-  "Pull the `:render-to-string` slot from an adapter map and call it
-  with a stable hiccup tree + empty opts. Returns the emitter's
-  return value so the test can assert it equals the sentinel marker."
+  "Call `adapter-map`'s `:render-to-string` on a fixed tree, returning what
+  its emitter returned."
   [adapter-map]
   (let [r2s (:render-to-string adapter-map)]
-    (r2s [:div "rf2-cl1qv"] {})))
+    (r2s [:div "probe"] {})))
 
 (defn- sentinel-emitter
-  "A hiccup-emitter that returns the unique marker passed in. Lets the
-  test prove a SPECIFIC install reached an adapter's slot — we don't
-  just check 'something is wired'; we check 'this exact something is
-  wired'."
+  "An emitter returning `marker`, so a read proves THIS install reached the slot."
   [marker]
   (fn [_render-tree _opts] marker))
+
+(def ^:private adapter-maps
+  [["reagent"      rf.adapter.reagent/adapter]
+   ["reagent-slim" rf.adapter.reagent-slim/adapter]
+   ["uix"          rf.adapter.uix/adapter]])
 
 (deftest directory-entry-pins-the-chained-contract
   (testing "the directory entry for :reagent/set-hiccup-emitter!
             stays `:chained? true` and lists every React-shaped adapter as
-            a producer. If a future change drops one or flips the flag,
-            this test trips before the silent-clobber bug ships."
+            a producer"
     (let [entry (some (fn [e] (when (= hook-key (:key e)) e))
                       rf.late-bind.directory/hooks)
           producers (set (let [p (:producer-ns entry)]
@@ -99,19 +50,10 @@
           react-adapters '#{re-frame.adapter.reagent
                             re-frame.adapter.reagent-slim
                             re-frame.adapter.uix}]
-      (is (some? entry)
-          "directory entry for :reagent/set-hiccup-emitter! must exist")
-      (is (true? (:chained? entry))
-          (str ":reagent/set-hiccup-emitter! must be `:chained? true` — "
-               "it is published by several producers and a `set-fn!` "
-               "regression in any of them silently clobbers the chain. "
-               "Directory entry: " (pr-str entry)))
-      ;; Subset, not exact: every React-shaped adapter MUST stay listed.
-      ;; Additional non-React producers (e.g. the headless test-react
-      ;; adapter) legitimately chain onto the same hook.
-      (is (set/subset? react-adapters producers)
-          (str "every React-shaped adapter must be listed as a "
-               ":reagent/set-hiccup-emitter! producer; got " (pr-str producers))))))
+      (is (= [true true] [(:chained? entry) (set/subset? react-adapters producers)])
+          (str ":reagent/set-hiccup-emitter! must be `:chained? true`, since a `set-fn!` "
+               "in any of its producers clobbers the chain, and must list every "
+               "React-shaped adapter as a producer. Directory entry: " (pr-str entry))))))
 
 (deftest chained-install-fans-out-to-every-adapter
   (testing "invoking the chained `:reagent/set-hiccup-emitter!`
@@ -119,17 +61,12 @@
             render-to-string slot. Regressing any producer to `set-fn!`
             clobbers the chain and at least one adapter will not see
             the install."
-    ;; Step 1: clear every adapter's emitter cell so we observe ONLY
-    ;; the install driven through the chained hook below.
+    ;; Clear every cell, and confirm it, so a stale install cannot mask a
+    ;; fan-out failure.
     (rf.adapter.reagent/set-hiccup-emitter! nil)
     (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
     (rf.adapter.uix/set-hiccup-emitter! nil)
-    ;; Step 2: confirm the cleared state — render-to-string must throw
-    ;; on every adapter. This sanity-check rules out a stale install
-    ;; from a prior test masking a fan-out failure below.
-    (doseq [[adapter-name adapter-map] [["reagent"      rf.adapter.reagent/adapter]
-                                        ["reagent-slim" rf.adapter.reagent-slim/adapter]
-                                        ["uix"          rf.adapter.uix/adapter]]]
+    (doseq [[adapter-name adapter-map] adapter-maps]
       (is (thrown-with-msg?
             js/Error
             #":rf\.error/no-hiccup-emitter-bound"
@@ -138,37 +75,17 @@
                " adapter's render-to-string must throw "
                ":rf.error/no-hiccup-emitter-bound — if it doesn't, a "
                "stale emitter is masking the fan-out test")))
-    ;; Step 3: resolve the chained hook and install the sentinel.
-    ;; Every producer's chain step should run and write the sentinel
-    ;; into its own adapter's cell.
-    (let [chained-install! (rf.late-bind/get-fn hook-key)
-          marker           ::fan-out-marker
-          sentinel         (sentinel-emitter marker)]
-      (is (some? chained-install!)
-          (str hook-key " is unbound — at least one adapter ns failed "
-               "to publish at load. Without this, render-to-string is "
-               "broken everywhere."))
-      (chained-install! sentinel)
-      ;; Step 4: each adapter's render-to-string must now route through
-      ;; the sentinel. If any one returns ≠ marker (or throws), that
-      ;; adapter's chain step did NOT run — the chain was clobbered.
-      (doseq [[adapter-name adapter-map] [["reagent"      rf.adapter.reagent/adapter]
-                                          ["reagent-slim" rf.adapter.reagent-slim/adapter]
-                                          ["uix"          rf.adapter.uix/adapter]]]
-        (is (= marker (adapter-render-to-string adapter-map))
-            (str "fan-out failure: " adapter-name
-                 " adapter's render-to-string did NOT route to the "
-                 "sentinel installed via the chained hook — its "
-                 "chain-fn! step was either never registered or was "
-                 "clobbered by a sibling producer that used set-fn! "
-                 "instead of chain-fn!. Verify all three adapter nses "
-                 "use `(late-bind/chain-fn! :reagent/set-hiccup-emitter! ...)` "
-                 "at the bottom of their src file."))))
-    ;; Step 5: leave the test bundle's emitter slots in a sane state
-    ;; for downstream tests — re-clear so anything that needed an
-    ;; explicit emitter install does so itself, and the SSR ns-load
-    ;; (if it loaded earlier in the bundle) is the only thing relied
-    ;; upon to wire it for ssr-routed tests.
+    ;; An unbound hook throws here.
+    (let [marker ::fan-out-marker]
+      ((rf.late-bind/get-fn hook-key) (sentinel-emitter marker))
+      (is (= {"reagent" marker "reagent-slim" marker "uix" marker}
+             (into {} (map (fn [[adapter-name adapter-map]]
+                             [adapter-name (adapter-render-to-string adapter-map)]))
+                   adapter-maps))
+          (str "every adapter's render-to-string routes to the sentinel installed via "
+               "the chained hook; one that does not had its chain-fn! step never "
+               "registered, or clobbered by a sibling producer's set-fn!")))
+    ;; Re-clear, so later tests install their own emitter.
     (rf.adapter.reagent/set-hiccup-emitter! nil)
     (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
     (rf.adapter.uix/set-hiccup-emitter! nil)))
