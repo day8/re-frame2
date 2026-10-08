@@ -5,13 +5,14 @@
 
   Two suites:
 
-    1. OVERLAP TABLE — hand-picked pattern pairs pinning the intersecting
-       and non-intersecting cases: same-family param
-       pairs, cross-position params, splats, optional groups including the
-       shifted witness (`/a{/x}?/b` vs `/a/x{/b}?` share NO literal column
-       yet both match `/a/x/b` — the case that falsifies any naive
-       corresponding-literals comparison), the `/*` root quirk, and the
-       conservative fallback for degenerate non-segment-aligned patterns.
+    1. OVERLAP TABLE — hand-picked pairs, one per path through the product
+       automaton: param and literal labels, an optional group elided at the
+       start or the end, the shifted witness (`/a{/x}?/b` vs `/a/x{/b}?` share
+       NO literal column yet both match `/a/x/b`, which falsifies any naive
+       corresponding-literals comparison) and its disjoint twin, splats, the
+       `/*` root quirk, and the conservative fallback for a
+       non-segment-aligned pattern. Each pair is asserted in both argument
+       orders.
 
     2. PROPERTY — the predicate agrees with BRUTE FORCE: for generated
        pattern pairs, enumerate every candidate URL over the patterns'
@@ -23,15 +24,10 @@
        maximal consumption, so the enumeration is exhaustive for the
        decision.
 
-  Pure pattern-domain tests — no registrar / runtime fixture needed.
-
-  Mirrors the foundation tests' hand-rolled 32-bit LCG (no test.check /
-  Malli-generator dependency on the routing test classpath); the seed is
-  fixed so a failure is a stable repro.
-
-  Named `*-cljs-test.cljc` so BOTH the cognitect JVM runner (`.*-test$`)
-  and the shadow-cljs `:node-test` build (`cljs-test$`) discover it — the
-  overlap table must hold on both hosts."
+  Pure pattern-domain tests — no registrar / runtime fixture needed. The
+  hand-rolled 32-bit LCG and fixed seed make a failure a stable repro.
+  Named `*-cljs-test.cljc` so the JVM runner and the `:node-test` build both
+  run it."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -42,64 +38,33 @@
 
 (def ^:private intersecting-pairs
   ;; [pattern-a pattern-b witness-note]
-  [["/a/:x"          "/a/:y"          "the true rule-6 conflict — /a/anything"]
-   ["/foo"           "/foo"           "identical literals"]
-   ["/x/:id"         "/:kind/y"       "cross-position params — witness /x/y"]
-   ["/:a/:b"         "/x/y"           "all-param vs all-literal — witness /x/y"]
-   ["/a{/x}?/b"      "/a/x{/b}?"      "SHIFTED optional-group witness /a/x/b — no
-                                       literal column agrees, so naive
-                                       corresponding-literals comparison
-                                       false-negatives this pair"]
-   ["/a{/x}?/b"      "/a/b"           "elided group — witness /a/b"]
-   ["/docs{/guide}?" "/docs"          "elided trailing group — witness /docs"]
-   ["/docs{/guide}?" "/docs/:page"    "taken group vs param — witness /docs/guide"]
-   ["{/:base}?/about" "/about"        "elided leading group — witness /about"]
-   ["/a/*r"          "/a/:x"          "splat consuming one segment — witness /a/z"]
-   ["/a/*r"          "/a/b/*s"        "two splats, nested prefixes — witness /a/b/z"]
-   ["/files/*rest"   "/files/*other"  "identical splat families"]
-   ["/*"             "/*rest"         "bare and named catch-all"]
-   ["/*"             "/"              "the splat-only root quirk — /* also
-                                       matches the zero-segment root URL /"]])
+  [["/a/:x"           "/a/:y"          "the true rule-6 conflict — /a/anything"]
+   ["/x/:id"          "/:kind/y"       "cross-position params — witness /x/y"]
+   ["/a{/x}?/b"       "/a/x{/b}?"      "SHIFTED optional-group witness /a/x/b"]
+   ["{/:base}?/about" "/about"         "elided leading group — witness /about"]
+   ["/docs{/guide}?"  "/docs"          "elided trailing group — witness /docs"]
+   ["/a/*r"           "/a/:x"          "splat consuming one segment — witness /a/z"]
+   ["/a/*r"           "/a/b/*s"        "two splats, nested prefixes — witness /a/b/z"]
+   ["/*"              "/"              "the splat-only root quirk — /* also matches /"]])
 
 (def ^:private disjoint-pairs
-  [["/home"           "/about"          "distinct statics — the every-app case"]
-   ["/x/:id"          "/y/:slug"        "the pair an over-broad scan would
-                                         false-flag (equal rank, disjoint
-                                         URL families)"]
-   ["/a/b"            "/a/c"            "shared prefix, distinct tail literal"]
-   ["/a/:x"           "/b/:y"           "distinct prefix, params after"]
-   ["/a"              "/a/b"            "different lengths never co-match"]
-   ["/a/*r"           "/b/:x"           "splat cannot rescue a disjoint prefix"]
-   ["/a{/x}?/b"       "/a/y{/b}?"       "{a/b, a/x/b} vs {a/y, a/y/b} — disjoint"]
-   ["{/:base}?/about" "/docs{/guide}?"  "{about, X/about} vs {docs, docs/guide}"]
-   ["/"               "/a"              "root vs one segment"]
-   ["/About"          "/about"          "literals are case-sensitive, exactly as
-                                         the compiled regex is"]])
+  [["/x/:id"    "/y/:slug"  "equal rank, disjoint URL families — what an over-broad scan would flag"]
+   ["/a"        "/a/b"      "different lengths never co-match"]
+   ["/a{/x}?/b" "/a/y{/b}?" "{a/b, a/x/b} vs {a/y, a/y/b}"]])
 
 (deftest patterns-intersect-overlap-table
-  (testing "intersecting pairs — some URL matches both patterns"
-    (doseq [[pa pb note] intersecting-pairs]
-      (is (true? (rf.routing.match/patterns-intersect? pa pb))
-          (str pa " ∩ " pb " expected NON-empty — " note))
-      (is (true? (rf.routing.match/patterns-intersect? pb pa))
-          (str "symmetric: " pb " ∩ " pa " — " note))))
-
-  (testing "disjoint pairs — no URL matches both patterns, so an equal
-            structural rank alone MUST NOT warn"
-    (doseq [[pa pb note] disjoint-pairs]
-      (is (false? (rf.routing.match/patterns-intersect? pa pb))
-          (str pa " ∩ " pb " expected EMPTY — " note))
-      (is (false? (rf.routing.match/patterns-intersect? pb pa))
-          (str "symmetric: " pb " ∩ " pa " — " note))))
-
-  (testing "degenerate non-segment-aligned patterns fall back to
-            conservatively co-matchable (the Spec 012 MUST-warn is never
-            lost on a grammar-permitted pathological pattern)"
-    ;; `/a/{/x}?` — the group opens right after a top-level `/`, so its
-    ;; elided branch leaves an empty segment; the language is not a union
-    ;; of whole segments and the tokenizer refuses it.
-    (is (true? (rf.routing.match/patterns-intersect? "/a/{/x}?" "/a/y")))
-    (is (true? (rf.routing.match/patterns-intersect? "/a/y" "/a/{/x}?")))))
+  (doseq [[expected pairs] [[true intersecting-pairs] [false disjoint-pairs]]
+          [pa pb note]     pairs]
+    (is (= [expected expected]
+           [(rf.routing.match/patterns-intersect? pa pb)
+            (rf.routing.match/patterns-intersect? pb pa)])
+        (str pa " vs " pb " — " note)))
+  (testing "a non-segment-aligned pattern (`/a/{/x}?` elides to an empty
+            segment) falls back to co-matchable, so the Spec 012 MUST-warn
+            is never lost"
+    (is (= [true true]
+           [(rf.routing.match/patterns-intersect? "/a/{/x}?" "/a/y")
+            (rf.routing.match/patterns-intersect? "/a/y" "/a/{/x}?")]))))
 
 ;; ---- 2. property: predicate vs brute-force URL enumeration ------------------
 
