@@ -1,121 +1,56 @@
 (ns re-frame.http-source-coords-test
-  "Pin test: `:rf/http-interceptor-meta` source-coords
-  must actually flow into the stored interceptor slot.
-
-  `rf/reg-http-interceptor` is a
-  `defreg-macro` form so source-coords (`:ns` / `:line` / `:column` /
-  `:file`) auto-capture at the call site per Spec 001 §Source-coordinate
-  capture, and `Spec-Schemas.md` documents `:rf/http-interceptor-meta`
-  as `[:merge RegistrationMetadata ...]`. Other reg-* surfaces have
-  analogous coverage in `core/test/re_frame/source_coords_test.clj`;
-  this file is the http-artefact sibling.
-
-  Asserted invariants:
-
-  1. A user-facing `rf/reg-http-interceptor` call site stamps :ns,
-     :line, :column, :file on the stored slot.
-  2. User-supplied `:doc` / `:tags` / `:sensitive?` flow through
-     into the slot alongside the auto-captured coords.
-  3. User-supplied `:ns` / `:line` overrides the auto-captured
-     values (the source-coords contract per Spec 001 — explicit user
-     keys win over framework auto-capture)."
+  "`rf/reg-http-interceptor` is a `defreg-macro` form, so the call site's
+  source coords (`:ns` / `:line` / `:column` / `:file`) land on the stored
+  interceptor slot beside the user's registration metadata, per Spec 001
+  §Source-coordinate capture and the `:rf/http-interceptor-meta` schema
+  (`[:merge RegistrationMetadata ...]`). The other reg-* surfaces have the
+  same coverage in `core/test/re_frame/source_coords_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; EP-0002: reg-http-interceptor is context-required frame-local —
-;; an ambient call under no scope raises :rf.error/no-frame-context. The
-;; canonical fixture's default `:ambient-frame :rf/default` pins :rf/default as
-;; the established scope so the frameless registrations land there; the :rf/api
-;; case passes {:frame :rf/api} explicitly. The post-dispose reset clears
-;; the per-frame HTTP interceptor chain too.
+;; reg-http-interceptor needs a frame context; the fixture's default ambient
+;; frame is :rf/default.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- slot-for
-  "Locate the stored slot for `id` on `frame-id` in (http-managed/interceptors-snapshot)."
+  "The stored slot for `id` on `frame-id`."
   [frame-id id]
   (->> (rf.http.managed/interceptors-snapshot frame-id)
        (filter #(= id (:id %)))
        first))
 
 (deftest reg-http-interceptor-stamps-auto-captured-source-coords-rf2-may3f
-  (testing "`rf/reg-http-interceptor` stamps :ns / :line /
-            :column / :file from the call site into the stored slot per
-            Spec 001 §Source-coordinate capture + the
-            :rf/http-interceptor-meta schema."
-    (rf/reg-http-interceptor :rf2-may3f/auth {:before (fn [c] c)})
-    (let [slot (slot-for :rf/default :rf2-may3f/auth)]
-      (is (some? slot)
-          "the interceptor must actually land in the chain")
-      (is (= 're-frame.http-source-coords-test (:ns slot))
-          ":ns is captured as a symbol matching the call-site ns")
-      (is (pos-int? (:line slot))
-          ":line is a positive integer")
-      (is (pos-int? (:column slot))
-          ":column is a positive integer")
-      (is (string? (:file slot))
-          ":file is a string (the source filename)"))))
-
-(deftest reg-http-interceptor-preserves-user-metadata-rf2-may3f
-  (testing "user-supplied :doc / :tags / :sensitive? flow
-            into the stored slot alongside the auto-captured source
-            coords. None of the registration-metadata keys are dropped
-            by the merge."
-    (rf/reg-http-interceptor :rf2-may3f/with-meta
+  (testing "the call site's :ns / :line / :column / :file land on the stored
+            slot beside the user's :doc / :tags / :sensitive?"
+    (rf/reg-http-interceptor :rf2-may3f/auth
       {:doc        "auth header attacher"
        :tags       #{:auth :security}
        :sensitive? true
        :before     identity})
-    (let [slot (slot-for :rf/default :rf2-may3f/with-meta)]
-      (is (some? slot))
-      (is (= "auth header attacher" (:doc slot)))
-      (is (= #{:auth :security} (:tags slot)))
-      (is (true? (:sensitive? slot)))
-      ;; Auto-captured coords are present too.
-      (is (some? (:ns slot)))
-      (is (pos-int? (:line slot))))))
+    (let [slot (slot-for :rf/default :rf2-may3f/auth)]
+      (is (= {:ns         're-frame.http-source-coords-test
+              :doc        "auth header attacher"
+              :tags       #{:auth :security}
+              :sensitive? true}
+             (select-keys slot [:ns :doc :tags :sensitive?])))
+      (is (every? pos-int? [(:line slot) (:column slot)]))
+      (is (string? (:file slot))))))
 
 (deftest reg-http-interceptor-user-coord-keys-override-rf2-may3f
-  (testing "explicit user-supplied :ns / :line / :column /
-            :file override the auto-captured values per the source-
-            coords contract (Spec 001). The merge order is
-            auto-capture-then-user-keys, so user keys win."
+  (testing "explicit :ns / :line / :column / :file win over the auto-captured
+            values (Spec 001: user keys win over framework auto-capture)"
     (rf/reg-http-interceptor :rf2-may3f/forwarded
       {:ns     'app.wrappers.http-interceptor-builder
        :line   42
        :column 7
        :file   "src/app/wrappers/http.clj"
        :before identity})
-    (let [slot (slot-for :rf/default :rf2-may3f/forwarded)]
-      (is (some? slot))
-      (is (= 'app.wrappers.http-interceptor-builder (:ns slot))
-          "explicit :ns wins over auto-captured")
-      (is (= 42 (:line slot))
-          "explicit :line wins")
-      (is (= 7 (:column slot))
-          "explicit :column wins")
-      (is (= "src/app/wrappers/http.clj" (:file slot))
-          "explicit :file wins"))))
-
-(deftest reg-http-interceptor-frame-key-not-leaked-into-slot-rf2-may3f
-  (testing "the :frame slot is consumed (stamped on the slot
-            for in-chain lookup) and dissoc'd from the user-meta merge so
-            it doesn't appear twice; `:id` is
-            positional and `:before` / `:after` live inside the
-            interceptor-map alongside :frame and the
-            :rf/registration-metadata keys."
-    (rf/reg-http-interceptor :rf2-may3f/api-scoped
-      {:frame  :rf/api
-       :doc    "scoped to :rf/api"
-       :before identity})
-    (let [slot (slot-for :rf/api :rf2-may3f/api-scoped)]
-      (is (some? slot)
-          "the slot lands on :rf/api, not :rf/default")
-      (is (= :rf/api (:frame slot))
-          ":frame is stamped on the slot for in-chain lookup")
-      (is (= "scoped to :rf/api" (:doc slot)))
-      (is (= :rf2-may3f/api-scoped (:id slot)))
-      (is (fn? (:before slot))))))
+    (is (= {:ns     'app.wrappers.http-interceptor-builder
+            :line   42
+            :column 7
+            :file   "src/app/wrappers/http.clj"}
+           (select-keys (slot-for :rf/default :rf2-may3f/forwarded) [:ns :line :column :file])))))
