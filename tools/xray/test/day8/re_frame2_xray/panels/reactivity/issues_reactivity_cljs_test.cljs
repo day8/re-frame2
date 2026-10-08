@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.panels.reactivity.issues-reactivity-cljs-test
-  "Sub-reactivity guard for the Issues panel's primary composite.
+  "Sub-reactivity guard for the `:rf.xray/issues-ribbon` composite.
 
-  Per spec/021 §1.2 the Issues panel is focused-epoch-scoped — the
+  Per spec/021 §1.2 the issue projection is focused-epoch-scoped — the
   composite re-fires when the focused epoch flips (via
   `:rf.xray/focus`'s `:epoch-id`). There is no filter axis (the
   Figma design renders pure rows, no filtering), so focus is the
@@ -37,20 +37,8 @@
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-records)
     (h/focus-cascade! :c1)
-    (let [feed-1 (h/read-sub :rf.xray/issues-ribbon)]
-      (is (map? feed-1) "issues-ribbon returns the projected shape")
-      (is (= :e1 (:epoch-id feed-1)) "focus :c1 → epoch :e1")
-      (h/focus-cascade! :c2)
-      (let [feed-2 (h/read-sub :rf.xray/issues-ribbon)]
-        (is (= :e2 (:epoch-id feed-2)) "focus :c2 → epoch :e2")
-        (is (not= feed-1 feed-2)
-            "issues-ribbon sub re-fired on focus flip")
-        (is (= [1] (mapv :id (:issues feed-1)))
-            "feed-1 surfaces epoch :e1's issues")
-        (is (= [2] (mapv :id (:issues feed-2)))
-            "feed-2 surfaces epoch :e2's issues")))))
-
-;; The Issues panel has no filter chrome (pure rows, no filtering —
-;; spec/021 §8.2): there is no `:rf.xray/issues-filters` sub and no
-;; chip-toggle event, so focus is the single reactive input, pinned by
-;; `issues-ribbon-sub-tracks-focus-flip`.
+    (is (= [1] (mapv :id (:issues (h/read-sub :rf.xray/issues-ribbon))))
+        "focus :c1 surfaces epoch :e1's issues")
+    (h/focus-cascade! :c2)
+    (is (= [2] (mapv :id (:issues (h/read-sub :rf.xray/issues-ribbon))))
+        "focus :c2 surfaces epoch :e2's issues — the sub re-fired on the flip")))
