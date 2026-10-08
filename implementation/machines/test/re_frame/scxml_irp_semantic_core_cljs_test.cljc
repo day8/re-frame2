@@ -15,13 +15,15 @@
   namespace), or OUT-OF-SCOPE with a reason.
 
   Initial / default-entry:
-    355  initial absent ⇒ first child in document order   COVERED
-                                  (scxml-initial-cascade-* — first-child default)
+    355  initial absent ⇒ first child in document order   OUT-OF-SCOPE (divergence) — a
+                                  compound must declare `:initial`; one without it
+                                  is refused at registration
+                                  (`:rf.error/machine-compound-state-missing-initial`).
     364  enter compound ⇒ enter its default initial child COVERED
                                   (scxml-initial-cascade-enters-every-level-*)
     412  default-entry runs the compound's initial child   COVERED (same)
     413  machine placed in the initial-specified config    COVERED
-                                  (scxml-initial-cascade-*, initial_entry_test)
+                                  (scxml-initial-cascade-*)
     576  initial attribute present ⇒ enter those states    COVERED (scxml-irp-test415-embedded-*, initial_*)
 
   History:
