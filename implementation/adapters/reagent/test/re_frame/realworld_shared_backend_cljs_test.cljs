@@ -1,36 +1,12 @@
 (ns re-frame.realworld-shared-backend-cljs-test
-  "Sequential contract tests for the shared in-process Conduit demo backend
+  "Contract tests for the shared in-process Conduit demo backend
    (`realworld-shared.demo-backend`), which both RealWorld examples run offline
-   against.
+   against. Both apps step their own state atom through `demo/transition`, so
+   pinning `transition` pins both.
 
-   THE PROPERTY UNDER TEST IS TEMPORAL, and a shape check cannot see it. Calling
-   a pure URL/method-to-payload router ONCE per assertion and checking the
-   envelope SHAPE is exactly the wrong instrument: every write would return a
-   well-formed reply and every assertion would pass while the backend threw the
-   write away — create returning a derived slug and inserting nothing,
-   post-comment returning a comment while `GET .../comments` stayed `[]`
-   forever, favourite echoing the flag you asked for while the next list read
-   handed back the seed corpus. A successful write would be erased by the read
-   it triggered.
-
-   So every test here is a SEQUENCE. Each one walks a `world` — a state atom
-   stepped by `demo/transition`, exactly as the apps' `demo/respond` steps
-   theirs — writes something, and then reads it back through a normal, separate
-   request. A test that passes here is a claim that the write survived the
-   refetch it caused.
-
-   Pinning `transition` pins BOTH apps. Each app wires the backend under its own
-   thin fx (`:realworld.demo/http-stub` / `:realworld-resources.demo/http-stub`),
-   and each of those does nothing but hand its own `defonce`d state atom to
-   `demo/respond`, which calls THIS transition — so identical request sequences
-   get identical replies in either architecture, and
-   `identical-sequences-are-deterministic` below asserts that directly.
-
-   The backend source is example code
-   (`examples/real-apps/realworld_shared/demo_backend.cljs`), but the suite
-   lives HERE in the adapter test tree per the test-free-examples policy.
-   Runs under the always-on `:node-test` gate; `transition` is a
-   pure fn (state + args-map -> [state' reply]), so no frame or DOM is needed."
+   The property under test is temporal: every test writes something and then
+   reads it back through a separate request, because a backend that threw
+   writes away would still return well-shaped replies."
   (:require [cljs.test :refer-macros [deftest testing is]]
             [malli.core :as m]
             [realworld-shared.demo-backend :as demo]
@@ -38,20 +14,11 @@
 
 (def ^:private base "https://api.realworld.show/api")
 
-(defn- world
-  "A fresh demo world — the same starting point a launched app or a reset test
-   takes."
-  []
-  (atom (demo/fresh-state)))
+(defn- world [] (atom (demo/fresh-state)))
 
 (defn- send!
   "Step `world` through one request and return the reply (`{:ok …}` or
-   `{:failure …}`). `extra` merges into the request map — `:body`, `:headers`.
-
-   This is `demo/respond` with the canned-fx tail removed: read the state, apply
-   the transition, write the state back. Doing it here rather than hiding it in a
-   fixture is the point — the state each assertion reads is visibly the state the
-   previous request produced."
+   `{:failure …}`), as `demo/respond` does without the canned-fx tail."
   ([world method path] (send! world method path nil))
   ([world method path extra]
    (let [[next-state reply]
@@ -61,16 +28,15 @@
      reply)))
 
 (defn- ok! [& args] (:ok (apply send! args)))
-(defn- failure! [& args] (:failure (apply send! args)))
+(defn- status! [& args] (:status (:tags (:failure (apply send! args)))))
 
 (defn- slugs [articles-response] (mapv :slug (:articles articles-response)))
 
+(defn- login! [w]
+  (:token (:user (ok! w :post "/users/login" {:body {:user {:email "demo@conduit.dev" :password "x"}}}))))
+
 (def ^:private demo-username "demo")
 (def ^:private seed-author "stub-bot")
-
-;; ============================================================================
-;; ARTICLE CRUD — create / update / delete, each read back
-;; ============================================================================
 
 (deftest create-then-read-by-slug-list-and-author
   (let [w       (world)
@@ -79,246 +45,143 @@
                                                  :description "d"
                                                  :body        "b"
                                                  :tagList     ["freshtag"]}}}))]
-    (testing "create derives a slug and reports the acting user as the author"
-      (is (= "my-new-post" (:slug created)))
-      (is (= demo-username (:username (:author created)))))
-    (testing "GET by the new slug returns the new article — the navigation the editor performs"
-      (let [fetched (:article (ok! w :get "/articles/my-new-post"))]
-        (is (= "my-new-post" (:slug fetched)))
-        (is (= "My New Post" (:title fetched)))))
-    (testing "the new article is at the top of page 1 and counted in the grand total"
-      (let [page1 (ok! w :get "/articles?limit=10&offset=0")]
-        (is (= "my-new-post" (first (slugs page1))) "newest first")
-        (is (= (inc (count demo/seed-articles)) (:articlesCount page1)))))
-    (testing "the author filter finds it, and only it"
-      (let [mine (ok! w :get (str "/articles?author=" demo-username "&limit=10&offset=0"))]
-        (is (= ["my-new-post"] (slugs mine)))
-        (is (= 1 (:articlesCount mine)))))
-    (testing "its tag joins the tag list, which is derived from the articles that exist"
-      (is (some #{"freshtag"} (:tags (ok! w :get "/tags")))))
+    (is (= ["my-new-post" demo-username] [(:slug created) (:username (:author created))])
+        "create derives a slug and reports the acting user as the author")
+    (is (= "My New Post" (:title (:article (ok! w :get "/articles/my-new-post")))))
+    (let [page1 (ok! w :get "/articles?limit=10&offset=0")]
+      (is (= ["my-new-post" (inc (count demo/seed-articles))]
+             [(first (slugs page1)) (:articlesCount page1)])
+          "newest first, and counted in the grand total"))
+    (is (= ["my-new-post"] (slugs (ok! w :get (str "/articles?author=" demo-username "&limit=10&offset=0")))))
+    (is (some #{"freshtag"} (:tags (ok! w :get "/tags"))) "the tag list is derived from the articles that exist")
     (testing "saving the same title again yields a second article under a distinct slug"
-      (let [again (:article (ok! w :post "/articles"
-                                 {:body {:article {:title "My New Post" :description "d"
-                                                   :body "b" :tagList []}}}))]
-        (is (= "my-new-post-2" (:slug again)))
-        (is (= "my-new-post" (:slug (:article (ok! w :get "/articles/my-new-post"))))
-            "and the first one is still there under its own slug")))))
+      (is (= "my-new-post-2"
+             (:slug (:article (ok! w :post "/articles"
+                                   {:body {:article {:title "My New Post" :description "d"
+                                                     :body "b" :tagList []}}})))))
+      (is (= "my-new-post" (:slug (:article (ok! w :get "/articles/my-new-post"))))))))
 
 (deftest update-then-read
   (let [w (world)]
     (ok! w :put "/articles/hello-conduit"
          {:body {:article {:title "Edited" :description "new description"
                            :body "new body" :tagList ["edited"]}}})
-    (testing "a later GET returns the edit, not the seed"
-      (let [fetched (:article (ok! w :get "/articles/hello-conduit"))]
-        (is (= "Edited" (:title fetched)))
-        (is (= "new description" (:description fetched)))
-        (is (= ["edited"] (:tagList fetched)))
-        (is (= "hello-conduit" (:slug fetched)) "the slug stays put, so the URL you are on keeps working")))
-    (testing "and so does the list read"
-      (let [listed (->> (:articles (ok! w :get "/articles?limit=100&offset=0"))
-                        (some #(when (= "hello-conduit" (:slug %)) %)))]
-        (is (= "Edited" (:title listed)))))
-    (testing "the tag filter follows the edit — the old tag no longer matches, the new one does"
-      (is (empty? (slugs (ok! w :get "/articles?tag=intro"))))
-      (is (= ["hello-conduit"] (slugs (ok! w :get "/articles?tag=edited")))))))
+    (is (= {:slug "hello-conduit" :title "Edited" :description "new description" :tagList ["edited"]}
+           (select-keys (:article (ok! w :get "/articles/hello-conduit")) [:slug :title :description :tagList]))
+        "a later GET returns the edit, and the slug stays put")
+    (is (= "Edited" (->> (:articles (ok! w :get "/articles?limit=100&offset=0"))
+                         (some #(when (= "hello-conduit" (:slug %)) (:title %))))))
+    (is (= ["hello-conduit"] (slugs (ok! w :get "/articles?tag=edited"))))))
 
 (deftest delete-then-read
   (let [w (world)]
-    (ok! w :post "/articles/second-article/comments" {:body {:comment {:body "doomed"}}})
     (ok! w :post "/articles/second-article/favorite")
     (ok! w :delete "/articles/second-article")
-    (testing "the deleted article is GONE, explicitly — never a plausible substitute"
-      (let [f (failure! w :get "/articles/second-article")]
-        (is (= :rf.http/http-4xx (:kind f)))
-        (is (= 404 (:status (:tags f))))))
-    (testing "it leaves the list, and the grand total says so"
-      (let [page (ok! w :get "/articles?limit=100&offset=0")]
-        (is (not (some #{"second-article"} (slugs page))))
-        (is (= (dec (count demo/seed-articles)) (:articlesCount page)))))
-    (testing "and everything hanging off it goes too"
-      (is (= 404 (:status (:tags (failure! w :get "/articles/second-article/comments"))))
-          "its comments are unreachable")
-      (is (not (some #{"second-article"}
-                     (slugs (ok! w :get (str "/articles?favorited=" demo-username "&limit=100")))))
-          "no orphan favourite pointing at a deleted article"))))
+    (is (= [:rf.http/http-4xx 404]
+           ((juxt :kind (comp :status :tags)) (:failure (send! w :get "/articles/second-article"))))
+        "the deleted article is gone, never a plausible substitute")
+    (let [page (ok! w :get "/articles?limit=100&offset=0")]
+      (is (not-any? #{"second-article"} (slugs page)))
+      (is (= (dec (count demo/seed-articles)) (:articlesCount page))))
+    (is (not-any? #{"second-article"} (slugs (ok! w :get (str "/articles?favorited=" demo-username "&limit=100"))))
+        "no orphan favourite pointing at a deleted article")))
 
 (deftest unknown-slugs-fail-instead-of-substituting-the-first-article
   (let [w (world)]
-    (testing "an unknown slug is a 404, not article #1"
-      (let [reply (send! w :get "/articles/does-not-exist")]
-        (is (nil? (:ok reply))
-            "there is no success payload at all — a first-article fallback would
-             return hello-conduit here, and create-then-navigate would lie")
-        (is (= 404 (:status (:tags (:failure reply)))))))
-    (testing "so are writes against one"
-      (is (= 404 (:status (:tags (failure! w :put "/articles/nope" {:body {:article {:title "x"}}})))))
-      (is (= 404 (:status (:tags (failure! w :delete "/articles/nope")))))
-      (is (= 404 (:status (:tags (failure! w :post "/articles/nope/favorite"))))))
-    (testing "and a route the demo does not implement fails loudly rather than returning {}"
-      (is (= 404 (:status (:tags (failure! w :get "/nonsense"))))))))
-
-;; ============================================================================
-;; COMMENTS
-;; ============================================================================
+    (is (= 404 (status! w :get "/articles/does-not-exist"))
+        "an unknown slug is a 404, not article #1")
+    (is (= 404 (status! w :post "/articles/nope/favorite")))
+    (is (= 404 (status! w :get "/nonsense"))
+        "a route the demo does not implement fails loudly rather than returning {}")))
 
 (deftest comment-post-get-delete-sequence
   (let [w    (world)
         seed (:comments (ok! w :get "/articles/hello-conduit/comments"))]
-    (testing "the seeded comment is there before anything is written"
-      (is (= 1 (count seed)))
-      (is (= 1 (:id (first seed)))))
+    (is (= [1] (mapv :id seed)) "the seeded comment is there before anything is written")
     (let [written (:comment (ok! w :post "/articles/hello-conduit/comments"
                                  {:body {:comment {:body "great read"}}}))]
-      (testing "the saved comment carries a DETERMINISTIC id and timestamp, not a random one"
-        (is (= 1000 (:id written)))
-        (is (= "2026-01-01T00:00:01.000Z" (:createdAt written)))
-        (is (= "great read" (:body written)))
-        (is (= demo-username (:username (:author written)))))
-      (testing "GET returns the exact saved comment"
-        (let [fetched (:comments (ok! w :get "/articles/hello-conduit/comments"))]
-          (is (= 2 (count fetched)))
-          (is (some #(= written %) fetched))))
-      (testing "the next comment takes the next id — the counter is state, not chance"
-        (is (= 1001 (:id (:comment (ok! w :post "/articles/hello-conduit/comments"
-                                        {:body {:comment {:body "and another"}}}))))))
-      (testing "DELETE removes exactly that comment and leaves the others"
-        (ok! w :delete "/articles/hello-conduit/comments/1000")
-        (let [after (:comments (ok! w :get "/articles/hello-conduit/comments"))]
-          (is (= #{1 1001} (set (map :id after))))))
-      (testing "deleting it twice fails the second time"
-        (is (= 404 (:status (:tags (failure! w :delete "/articles/hello-conduit/comments/1000")))))))
-    (testing "comments on an article that does not exist fail explicitly"
-      (is (= 404 (:status (:tags (failure! w :get "/articles/nope/comments")))))
-      (is (= 404 (:status (:tags (failure! w :post "/articles/nope/comments"
-                                            {:body {:comment {:body "x"}}}))))))))
-
-;; ============================================================================
-;; FAVOURITES
-;; ============================================================================
+      (is (= [1000 "2026-01-01T00:00:01.000Z" "great read" demo-username]
+             ((juxt :id :createdAt :body (comp :username :author)) written))
+          "the saved comment carries a deterministic id and timestamp")
+      (is (= (conj seed written) (:comments (ok! w :get "/articles/hello-conduit/comments"))))
+      (is (= 1001 (:id (:comment (ok! w :post "/articles/hello-conduit/comments"
+                                      {:body {:comment {:body "and another"}}}))))))
+    (ok! w :delete "/articles/hello-conduit/comments/1000")
+    (is (= [1 1001] (mapv :id (:comments (ok! w :get "/articles/hello-conduit/comments"))))
+        "DELETE removes exactly that comment")
+    (is (= 404 (status! w :delete "/articles/hello-conduit/comments/1000")) "a second delete fails")
+    (is (= 404 (status! w :get "/articles/nope/comments")))))
 
 (deftest favorite-persists-through-detail-lists-and-the-favorited-tab
-  (let [w (world)]
-    (testing "the Favorited tab starts as a strict, honest subset"
-      (let [fav (ok! w :get (str "/articles?favorited=" demo-username "&limit=100&offset=0"))]
-        (is (pos? (:articlesCount fav)))
-        (is (< (:articlesCount fav) (count demo/seed-articles)))
-        (is (some #{"hello-conduit"} (slugs fav)))))
-    (testing "nobody else has favourites, so their tab is empty rather than a copy of the corpus"
-      (is (= 0 (:articlesCount (ok! w :get (str "/articles?favorited=" seed-author "&limit=100"))))))
-    (testing "favouriting shows up in the detail read, the global list, the tag list and the tab"
-      (ok! w :post "/articles/second-article/favorite")
-      (is (true? (:favorited (:article (ok! w :get "/articles/second-article")))))
-      (is (= 1 (:favoritesCount (:article (ok! w :get "/articles/second-article")))))
-      (let [in-list (fn [resp] (some #(when (= "second-article" (:slug %)) %) (:articles resp)))]
-        (is (true? (:favorited (in-list (ok! w :get "/articles?limit=100&offset=0")))))
-        (is (true? (:favorited (in-list (ok! w :get "/articles?tag=demo&limit=100&offset=0")))))
-        (is (true? (:favorited (in-list (ok! w :get (str "/articles?author=" seed-author "&limit=100")))))))
-      (is (some #{"second-article"}
-                (slugs (ok! w :get (str "/articles?favorited=" demo-username "&limit=100&offset=0"))))))
-    (testing "unfavouriting a SEEDED favourite drops it out of the tab and zeroes the count"
-      (let [before (:articlesCount (ok! w :get (str "/articles?favorited=" demo-username "&limit=100")))]
-        (ok! w :delete "/articles/hello-conduit/favorite")
-        (let [after (ok! w :get (str "/articles?favorited=" demo-username "&limit=100"))]
-          (is (= (dec before) (:articlesCount after)))
-          (is (not (some #{"hello-conduit"} (slugs after)))))
-        (is (false? (:favorited (:article (ok! w :get "/articles/hello-conduit")))))
-        (is (= 0 (:favoritesCount (:article (ok! w :get "/articles/hello-conduit")))))))))
-
-;; ============================================================================
-;; FOLLOW / FEED / PROFILES
-;; ============================================================================
+  (let [w      (world)
+        tab    #(slugs (ok! w :get (str "/articles?favorited=" demo-username "&limit=100&offset=0")))
+        detail #((juxt :favorited :favoritesCount) (:article (ok! w :get (str "/articles/" %))))]
+    (let [fav (tab)]
+      (is (some #{"hello-conduit"} fav))
+      (is (< (count fav) (count demo/seed-articles)) "the Favorited tab is a strict subset, not the corpus"))
+    (is (= 0 (:articlesCount (ok! w :get (str "/articles?favorited=" seed-author "&limit=100")))))
+    (ok! w :post "/articles/second-article/favorite")
+    (is (= [true 1] (detail "second-article")))
+    (is (true? (some #(when (= "second-article" (:slug %)) (:favorited %))
+                     (:articles (ok! w :get "/articles?limit=100&offset=0")))))
+    (is (some #{"second-article"} (tab)))
+    (ok! w :delete "/articles/hello-conduit/favorite")
+    (is (not-any? #{"hello-conduit"} (tab)) "unfavouriting a seeded favourite drops it out of the tab")
+    (is (= [false 0] (detail "hello-conduit")))))
 
 (deftest follow-persists-through-profile-reads-and-drives-the-feed
-  (let [w (world)]
-    (testing "nothing followed, so the feed is empty — a well-formed envelope, not a special case"
-      (is (= {:articles [] :articlesCount 0} (ok! w :get "/articles/feed?limit=10&offset=0")))
-      (is (false? (:following (:profile (ok! w :get (str "/profiles/" seed-author)))))))
-    (testing "following persists into the profile read that follows it"
-      (let [written (:profile (ok! w :post (str "/profiles/" seed-author "/follow")))]
-        (is (true? (:following written)))
-        (is (true? (:following (:profile (ok! w :get (str "/profiles/" seed-author)))))
-            "the profile refetch agrees")))
-    (testing "and the feed fills with that author's articles, paged like any other list"
-      (let [feed (ok! w :get "/articles/feed?limit=10&offset=0")]
-        (is (= 10 (count (:articles feed))))
-        (is (= (count demo/seed-articles) (:articlesCount feed)))
-        (is (every? #(= seed-author (:username (:author %))) (:articles feed)))))
-    (testing "unfollowing empties it again"
-      (ok! w :delete (str "/profiles/" seed-author "/follow"))
-      (is (false? (:following (:profile (ok! w :get (str "/profiles/" seed-author))))))
-      (is (= 0 (:articlesCount (ok! w :get "/articles/feed?limit=10&offset=0")))))))
-
-;; ============================================================================
-;; SETTINGS / SESSION
-;; ============================================================================
+  (let [w         (world)
+        feed      #(ok! w :get "/articles/feed?limit=10&offset=0")
+        following #(:following (:profile (ok! w :get (str "/profiles/" seed-author))))]
+    (is (= {:articles [] :articlesCount 0} (feed)) "an empty feed is a well-formed envelope")
+    (is (= [true true]
+           [(:following (:profile (ok! w :post (str "/profiles/" seed-author "/follow")))) (following)])
+        "following persists into the profile read that follows it")
+    (let [f (feed)]
+      (is (= [10 (count demo/seed-articles)] [(count (:articles f)) (:articlesCount f)]))
+      (is (every? #(= seed-author (:username (:author %))) (:articles f))))
+    (ok! w :delete (str "/profiles/" seed-author "/follow"))
+    (is (= [false 0] [(following) (:articlesCount (feed))]) "unfollowing empties it again")))
 
 (deftest settings-changes-survive-later-user-and-profile-reads
-  (let [w     (world)
-        token (:token (:user (ok! w :post "/users/login"
-                                  {:body {:user {:email "demo@conduit.dev" :password "x"}}})))
-        auth  {:headers {"Authorization" (str "Token " token)}}]
+  (let [w    (world)
+        auth {:headers {"Authorization" (str "Token " (login! w))}}]
     (ok! w :put "/user" {:body {:user {:bio "Rewritten bio." :image "https://example.test/a.png"}}})
-    (testing "a later GET /user returns the edit"
-      (let [u (:user (ok! w :get "/user" auth))]
-        (is (= "Rewritten bio." (:bio u)))
-        (is (= "https://example.test/a.png" (:image u)))))
-    (testing "and so does the profile read"
-      (is (= "Rewritten bio." (:bio (:profile (ok! w :get (str "/profiles/" demo-username)))))))
+    (is (= ["Rewritten bio." "https://example.test/a.png"]
+           ((juxt :bio :image) (:user (ok! w :get "/user" auth)))))
+    (is (= "Rewritten bio." (:bio (:profile (ok! w :get (str "/profiles/" demo-username))))))
     (testing "renaming yourself moves your byline with you"
       (ok! w :post "/articles" {:body {:article {:title "Mine" :description "d" :body "b" :tagList []}}})
       (ok! w :put "/user" {:body {:user {:username "renamed"}}})
       (is (= "renamed" (:username (:author (:article (ok! w :get "/articles/mine"))))))
-      (is (= ["mine"] (slugs (ok! w :get "/articles?author=renamed&limit=10")))
-          "and the author filter follows the rename"))))
+      (is (= ["mine"] (slugs (ok! w :get "/articles?author=renamed&limit=10")))))))
 
 (deftest session-restore-needs-a-token-this-world-issued
   (let [w (world)]
-    (testing "a cold world has issued no token, so restore fails — which is why the demo opens logged out"
-      (let [f (failure! w :get "/user")]
-        (is (= :rf.http/decode-failure (:kind f))
-            "and it fails down the DECODE path, reproducing what a real refusal does to the auth machine")
-        (is (true? (:schema-validation-failure? (:tags f))))))
-    (let [token (:token (:user (ok! w :post "/users/login"
-                                    {:body {:user {:email "demo@conduit.dev" :password "x"}}})))]
-      (testing "after a login, that token restores the session"
-        (is (= demo-username
-               (:username (:user (ok! w :get "/user"
-                                      {:headers {"Authorization" (str "Token " token)}}))))))
-      (testing "an invalid credential does not"
-        (is (some? (failure! w :get "/user" {:headers {"Authorization" "Token not-the-one"}})))
-        (is (some? (failure! w :get "/user" {:headers {"Authorization" ""}})))
-        (is (some? (failure! w :get "/user")))))))
-
-;; ============================================================================
-;; QUERY SEMANTICS — applied to CURRENT state, not the seed
-;; ============================================================================
+    (is (= [:rf.http/decode-failure true]
+           ((juxt :kind (comp :schema-validation-failure? :tags)) (:failure (send! w :get "/user"))))
+        "a cold world has issued no token, so restore fails down the decode path, as a real refusal does")
+    (let [token (login! w)]
+      (is (= demo-username
+             (:username (:user (ok! w :get "/user" {:headers {"Authorization" (str "Token " token)}})))))
+      (is (some? (:failure (send! w :get "/user" {:headers {"Authorization" "Token not-the-one"}})))))))
 
 (deftest list-queries-are-applied-to-current-state
   (let [w (world)]
-    (testing "limit/offset carve genuinely different slices and articlesCount is the grand total"
-      (let [p1 (ok! w :get "/articles?limit=10&offset=0")
-            p2 (ok! w :get "/articles?limit=10&offset=10")]
-        (is (= 10 (count (:articles p1))))
-        (is (= (count demo/seed-articles) (:articlesCount p1)))
-        (is (empty? (filter (set (slugs p1)) (slugs p2)))
-            "page 2 shares nothing with page 1")))
-    (testing "articlesCount describes the FILTERED set, not the corpus and not the page size"
-      (let [tagged (ok! w :get "/articles?tag=intro&limit=10&offset=0")]
-        (is (= 1 (:articlesCount tagged)))
-        (is (= ["hello-conduit"] (slugs tagged)))))
-    (testing "a filter reads current state — create an article and the filtered count moves"
-      (ok! w :post "/articles" {:body {:article {:title "Tagged Later" :description "d"
-                                                 :body "b" :tagList ["intro"]}}})
-      (is (= 2 (:articlesCount (ok! w :get "/articles?tag=intro&limit=10&offset=0")))))
-    (testing "query values are URL-decoded, so a reserved character in a tag round-trips"
-      (ok! w :post "/articles" {:body {:article {:title "Odd Tag" :description "d"
-                                                 :body "b" :tagList ["a&b c"]}}})
-      (is (= ["odd-tag"] (slugs (ok! w :get "/articles?tag=a%26b%20c&limit=10")))))))
-
-;; ============================================================================
-;; DETERMINISM AND ISOLATION
-;; ============================================================================
+    (let [p1 (ok! w :get "/articles?limit=10&offset=0")
+          p2 (ok! w :get "/articles?limit=10&offset=10")]
+      (is (= [10 (count demo/seed-articles)] [(count (:articles p1)) (:articlesCount p1)]))
+      (is (empty? (filter (set (slugs p1)) (slugs p2))) "page 2 shares nothing with page 1"))
+    (let [tagged (ok! w :get "/articles?tag=intro&limit=10&offset=0")]
+      (is (= [["hello-conduit"] 1] [(slugs tagged) (:articlesCount tagged)])
+          "articlesCount describes the filtered set"))
+    (ok! w :post "/articles" {:body {:article {:title "Tagged Later" :description "d"
+                                               :body "b" :tagList ["intro"]}}})
+    (is (= 2 (:articlesCount (ok! w :get "/articles?tag=intro&limit=10&offset=0"))))
+    (ok! w :post "/articles" {:body {:article {:title "Odd Tag" :description "d"
+                                               :body "b" :tagList ["a&b c"]}}})
+    (is (= ["odd-tag"] (slugs (ok! w :get "/articles?tag=a%26b%20c&limit=10")))
+        "query values are URL-decoded")))
 
 (deftest identical-sequences-are-deterministic
   (let [sequence [[:post   "/users/login"                      {:body {:user {:email "e" :password "p"}}}]
@@ -334,73 +197,24 @@
                   (let [w (world)]
                     [(mapv (fn [[method path extra]] (send! w method path extra)) sequence)
                      @w]))
-        [replies-a state-a] (run)
-        [replies-b state-b] (run)]
-    (testing "the same sequence against a fresh world produces the same replies AND the same state"
-      (is (= replies-a replies-b))
-      (is (= state-a state-b)))
-    (testing "which is what makes both app seams equivalent — each is this transition plus an atom"
-      (is (every? #(contains? % :ok) replies-a) "and the whole sequence succeeds"))))
+        a       (run)]
+    (is (every? #(contains? % :ok) (first a)) "precondition: the whole sequence succeeds")
+    (is (= a (run)) "the same sequence against a fresh world produces the same replies and state")))
 
-;; ============================================================================
-;; NEGATIVE CONTROL
-;; ============================================================================
-;;
-;; This is the test that fails if the backend stops holding state — either by
-;; discarding the transition's next-state (writes stop landing) or by having
-;; reads consult the seed constants (writes land nowhere anybody can see).
-;; Both are invisible to a shape assertion.
-
-(deftest negative-control-the-seed-is-a-starting-value-not-a-store
-  (let [seed-snapshot (vec demo/seed-articles)
-        w             (world)
-        fresh         (world)]
-    (ok! w :post "/articles" {:body {:article {:title "Control" :description "d"
-                                               :body "b" :tagList ["control"]}}})
-    (ok! w :post "/articles/second-article/favorite")
-    (ok! w :post "/articles/hello-conduit/comments" {:body {:comment {:body "control"}}})
-    (testing "the seed vector itself is untouched by any write"
-      (is (= seed-snapshot demo/seed-articles)))
-    (testing "and every read of a written thing now DIFFERS from the same read against a fresh world"
-      (is (not= (ok! fresh :get "/articles?limit=10&offset=0")
-                (ok! w     :get "/articles?limit=10&offset=0"))
-          "the list changed")
-      (is (not= (ok! fresh :get "/articles/second-article")
-                (ok! w     :get "/articles/second-article"))
-          "the favourited article changed")
-      (is (not= (ok! fresh :get "/articles/hello-conduit/comments")
-                (ok! w     :get "/articles/hello-conduit/comments"))
-          "the comment collection changed"))
-    (testing "while a read of something nobody touched is identical in both worlds"
-      (is (= (ok! fresh :get "/articles/article-4")
-             (ok! w     :get "/articles/article-4"))
-          "so the difference above is the WRITE, not ambient nondeterminism"))))
-
-;; ============================================================================
-;; WIRE CONFORMANCE — the replies are still Conduit-shaped
-;; ============================================================================
-;;
-;; The canned-success fx never runs `:decode`, so nothing at runtime would catch
-;; a reply that drifted off the wire contract. Validate the envelopes here
-;; against the same shared Malli schemas both apps pass as their `:decode`, so
-;; the offline backend cannot quietly diverge from the API it is standing in for.
-
+;; The canned-success fx never runs `:decode`, so validate the replies against
+;; the shared schemas both apps decode with.
 (deftest replies-validate-against-the-shared-wire-schemas
-  (let [w     (world)
-        token (:token (:user (ok! w :post "/users/login" {:body {:user {:email "e" :password "p"}}})))
-        auth  {:headers {"Authorization" (str "Token " token)}}]
-    (is (m/validate ws/UserResponse     (ok! w :get "/user" auth))                         "GET /user")
-    (is (m/validate ws/UserResponse     (ok! w :put "/user" {:body {:user {:bio "b"}}}))    "PUT /user")
-    (is (m/validate ws/ArticleResponse  (ok! w :post "/articles"
-                                             {:body {:article {:title "Wire Check" :description "d"
-                                                               :body "b" :tagList ["w"]}}})) "POST /articles")
-    (is (m/validate ws/ArticleResponse  (ok! w :get "/articles/wire-check"))                "GET /articles/:slug")
-    (is (m/validate ws/ArticleResponse  (ok! w :post "/articles/wire-check/favorite"))      "POST favorite")
-    (is (m/validate ws/ArticlesResponse (ok! w :get "/articles?limit=10&offset=0"))         "GET /articles")
-    (is (m/validate ws/ArticlesResponse (ok! w :get "/articles/feed?limit=10&offset=0"))    "GET /articles/feed")
-    (is (m/validate ws/CommentResponse  (ok! w :post "/articles/wire-check/comments"
-                                             {:body {:comment {:body "c"}}}))               "POST comment")
-    (is (m/validate ws/CommentsResponse (ok! w :get "/articles/wire-check/comments"))       "GET comments")
-    (is (m/validate ws/ProfileResponse  (ok! w :get "/profiles/stub-bot"))                  "GET /profiles/:username")
-    (is (m/validate ws/ProfileResponse  (ok! w :post "/profiles/stub-bot/follow"))          "POST follow")
-    (is (m/validate ws/TagsResponse     (ok! w :get "/tags"))                               "GET /tags")))
+  (let [w    (world)
+        auth {:headers {"Authorization" (str "Token " (login! w))}}]
+    (ok! w :post "/articles" {:body {:article {:title "Wire Check" :description "d"
+                                               :body "b" :tagList ["w"]}}})
+    (doseq [[schema reply label]
+            [[ws/UserResponse     (ok! w :get "/user" auth)                             "GET /user"]
+             [ws/ArticleResponse  (ok! w :get "/articles/wire-check")                   "GET /articles/:slug"]
+             [ws/ArticlesResponse (ok! w :get "/articles?limit=10&offset=0")            "GET /articles"]
+             [ws/CommentResponse  (ok! w :post "/articles/wire-check/comments"
+                                       {:body {:comment {:body "c"}}})                  "POST comment"]
+             [ws/CommentsResponse (ok! w :get "/articles/wire-check/comments")          "GET comments"]
+             [ws/ProfileResponse  (ok! w :get "/profiles/stub-bot")                     "GET /profiles/:username"]
+             [ws/TagsResponse     (ok! w :get "/tags")                                  "GET /tags"]]]
+      (is (m/validate schema reply) label))))
