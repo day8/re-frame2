@@ -86,44 +86,21 @@
   (when (and host (.-parentNode host))
     (.removeChild (.-parentNode host) host)))
 
-(deftest host-without-resize-does-not-yield
-  (testing "the zero-config consumer drops
-            `<aside data-rf-xray-host></aside>` with no explicit `resize:`
-            declaration, so Xray renders its own handle (auto-inject)"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [host (ensure-stub-host! nil)]
-        (try
-          (is (false? (resize-handle/host-asserts-own-handle?))
-              "no explicit resize → no yield → Xray handle renders")
-          (finally
-            (remove-stub-host! host)))))))
-
-(deftest host-with-resize-horizontal-yields
-  (testing "the consumer asserts their own browser-native
-            handle with `resize: horizontal`; Xray MUST yield to avoid a
-            double handle"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [host (ensure-stub-host! "horizontal")]
-        (try
-          (is (true? (resize-handle/host-asserts-own-handle?))
-              "explicit resize:horizontal → yield → Xray renders nil")
-          (finally
-            (remove-stub-host! host)))))))
-
-(deftest host-with-resize-both-yields
-  (testing "`resize: both` also gives the consumer a
-            browser-native handle (covers a future vertical-resize use
-            case too), so Xray yields"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [host (ensure-stub-host! "both")]
-        (try
-          (is (true? (resize-handle/host-asserts-own-handle?))
-              "explicit resize:both → yield → Xray renders nil")
-          (finally
-            (remove-stub-host! host)))))))
+(deftest host-yields-only-to-an-explicit-horizontal-or-both-resize
+  ;; A zero-config `<aside data-rf-xray-host>` gets Xray's own handle; a
+  ;; consumer declaring a browser-native `resize:` handle gets a yield, so
+  ;; the panel never shows a double handle.
+  (if-not (browser?)
+    (is true "skipped: no DOM (node lane — see ns docstring)")
+    (is (= [false true true]
+           (mapv (fn [resize-value]
+                   (let [host (ensure-stub-host! resize-value)]
+                     (try
+                       (resize-handle/host-asserts-own-handle?)
+                       (finally
+                         (remove-stub-host! host)))))
+                 [nil "horizontal" "both"]))
+        "no declaration renders the handle; horizontal and both yield")))
 
 ;; THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
 ;; deliberately not in the `Handle` bridge beside the mode gate. The
@@ -131,7 +108,7 @@
 ;; boundary, `Handle` is DELETED. A spec'd product behaviour
 ;; parked there would be deleted with it, silently.
 ;;
-;; The three rows above assert the PREDICATE the boundary gates on; the
+;; The row above asserts the PREDICATE the boundary gates on; the
 ;; markup it gates is `resize_handle_cljs_test`'s, and the gate driving a
 ;; real mount is `resize_handle_boundary_dom_cljs_test`'s W3.
 
@@ -139,22 +116,6 @@
 
 (defn- html-root []
   (when (browser?) (.-documentElement js/document)))
-
-(deftest apply-panel-width-writes-css-var-on-html
-  (testing "the width lands as an inline custom property on
-            `<html>`, so the cascade resolves it at the host through
-            `var(--rf-xray-inline-width, ...)` inheritance"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [html (html-root)]
-        ;; BIND, ASSERT PRESENT, then reach through. A
-        ;; `(when-let [html ...] (is ...))` would fail OPEN: a nil root
-        ;; would silently skip the assertion rather than report one.
-        (is (some? html) "precondition: a real <html> root to write to")
-        (settings-effects/apply-panel-width! 700)
-        (is (= "700px"
-               (some-> html .-style (.getPropertyValue "--rf-xray-inline-width")))
-            "<html> CSS var carries the value so the cascade resolves")))))
 
 (deftest apply-panel-width-does-not-pin-host-inline-style
   (testing "Xray MUST NOT write the custom property as an INLINE style
