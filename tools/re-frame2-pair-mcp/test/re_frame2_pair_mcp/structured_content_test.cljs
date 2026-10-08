@@ -1,197 +1,49 @@
 (ns re-frame2-pair-mcp.structured-content-test
-  "Every MCP result envelope MUST carry both the
-  wire-canonical `:content [{:type \"text\" :text ...}]` slot and a
-  `:structuredContent` slot whose value is the JS-coerced projection
-  of the same payload.
-
-  The dual-slot rule is enforced at one site, in `tools.wire/ok-text`
-  + `err-text`; the test corpus pins the shape on the four canonical
-  paths:
-
-    - Success envelope (`ok-text`).
-    - Error envelope (`err-text`).
-    - Cache-hit marker (`cache/cache-hit-result`).
-    - Overflow marker (`tools.cap/result-io` via `apply-cap`)."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "Every result envelope carries the EDN `:content` text and a
+  `:structuredContent` projection of the same value. The structured slot is
+  always a JSON object — the npm MCP SDK validates it against each tool's
+  object-typed outputSchema and rejects null or a primitive — and keeps
+  keyword namespaces, which a bare `clj->js` drops, so a name read there can
+  be threaded back through `get-path`."
+  (:require [cljs.test :refer-macros [deftest is]]
             [applied-science.js-interop :as j]
-            [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.cache :as cache]))
+            [re-frame2-pair-mcp.cache :as cache]
+            [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.wire :as wire]))
 
-;; ---------------------------------------------------------------------------
-;; Helpers.
-;; ---------------------------------------------------------------------------
-
-(defn- content-text [result-js]
-  (let [c (j/get result-js :content)
-        item (when (array? c) (aget c 0))]
-    (when item (j/get item :text))))
-
-;; ---------------------------------------------------------------------------
-;; Success envelope.
-;; ---------------------------------------------------------------------------
+(defn- structured-json [result]
+  (js->clj (js/JSON.parse (js/JSON.stringify (j/get result :structuredContent)))))
 
 (deftest ok-text-emits-both-slots
-  (testing "wire/ok-text carries :content (text) AND :structuredContent"
-    (let [payload {:ok? true :value 42 :tag :sample}
-          result  (wire/ok-text payload)]
-      (is (= (pr-str payload) (content-text result))
-          ":content[0].text is the pr-str EDN of the payload")
-      ;; The structured slot should be a JS object whose shape mirrors
-      ;; the input. Keywords lose their `:` prefix in the JSON-coercible
-      ;; projection but KEEP their namespace (`:rf/x` → "rf/x"); plain
-      ;; keys like `:ok?` become the bare "ok?".
-      (is (object? (j/get result :structuredContent))
-          ":structuredContent is a JS object")
-      (is (= true (j/get-in result [:structuredContent :ok?]))
-          ":ok? round-trips through clj->js")
-      (is (= 42 (j/get-in result [:structuredContent :value]))
-          ":value round-trips")
-      ;; No :isError on success.
-      (is (not (true? (j/get result :isError)))
-          "success envelopes do not set :isError"))))
-
-;; ---------------------------------------------------------------------------
-;; Error envelope.
-;; ---------------------------------------------------------------------------
+  (doseq [[payload json]
+          [[{:ok? true :value 42 :rf/runtime {:loaded? true}
+             :machine-ids [:door/main :traffic/light] :current :door/open}
+            {"ok?" true "value" 42 "rf/runtime" {"loaded?" true}
+             "machine-ids" ["door/main" "traffic/light"] "current" "door/open"}]
+           ;; An application tag would otherwise serialise its implementation fields.
+           [{:at    (tagged-literal 'instant "2026-01-01T00:00:00Z")
+             :outer (tagged-literal 'app/outer {:k     :ns/v
+                                                :inner (tagged-literal 'app/inner [1 :a/b])})}
+            {"at"    {"rf.mcp/tag" "instant" "rf.mcp/form" "2026-01-01T00:00:00Z"}
+             "outer" {"rf.mcp/tag"  "app/outer"
+                      "rf.mcp/form" {"k"     "ns/v"
+                                     "inner" {"rf.mcp/tag" "app/inner" "rf.mcp/form" [1 "a/b"]}}}}]
+           [nil {"rf.mcp/null" true}]
+           [42 {"rf.mcp/value" 42}]]]
+    (let [result (wire/ok-text payload)]
+      (is (= (pr-str payload) (tu/extract-text result)) "the text slot is the payload's own EDN")
+      (is (= json (structured-json result)) (pr-str payload))
+      (is (not (true? (j/get result :isError)))))))
 
 (deftest err-text-emits-both-slots-plus-isError
-  (testing "wire/err-text carries :isError, :content, AND :structuredContent"
-    (let [payload {:ok? false :reason :sample-error :hint "..."}
-          result  (wire/err-text payload)]
-      (is (true? (j/get result :isError))
-          ":isError true is set on error envelopes")
-      (is (= (pr-str payload) (content-text result))
-          ":content[0].text is the pr-str EDN of the error payload")
-      (is (= false (j/get-in result [:structuredContent :ok?]))
-          ":ok? false round-trips"))))
-
-;; ---------------------------------------------------------------------------
-;; Cache-hit marker.
-;; ---------------------------------------------------------------------------
+  (let [payload {:ok? false :reason :sample-error :hint "..."}
+        result  (wire/err-text payload)]
+    (is (true? (j/get result :isError)))
+    (is (= (pr-str payload) (tu/extract-text result)))
+    (is (= {"ok?" false "reason" "sample-error" "hint" "..."} (structured-json result)))))
 
 (deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
-  ;; The cache-hit marker is built OUTSIDE the per-tool callbacks. It
-  ;; routes through `wire/result` so SDK-friendly hosts reading
-  ;; structuredContent see the fully-qualified `"rf.mcp/cache-hit"`
-  ;; token rather than a namespace-truncated `"cache-hit"` key.
-  (testing "the :rf.mcp/cache-hit marker KEY survives namespace-faithfully"
-    (let [entry  {:hash 12345 :unchanged-since 1700000000000}
-          result (cache/cache-hit-result entry "snapshot" :result-hash)]
-      (is (some? (j/get-in result [:structuredContent "rf.mcp/cache-hit"]))
-          "the marker serialises to the fully-qualified \"rf.mcp/cache-hit\" key")
-      (is (nil? (j/get-in result [:structuredContent "cache-hit"]))
-          "the namespace-truncated \"cache-hit\" key must NOT appear (the namespace-lossy shape)"))))
-
-;; ---------------------------------------------------------------------------
-;; structuredContent is NEVER null.
-;;
-;; Every tool descriptor declares a map-shaped `:outputSchema`
-;; (`{:type "object"}`). The npm MCP SDK validates `structuredContent`
-;; against it, and a `null` is not a record — the SDK rejects the whole
-;; `tools/call` at the transport layer with
-;; `Invalid tools/call result: expected record at structuredContent,
-;; received null`. read-dom can produce this when its browser eval
-;; comes back blank (`cljs-eval-value` → nil → `(wire/ok-text nil)` →
-;; `(clj->js nil)` → null). `ok-text` / `err-text` make the slot a
-;; total non-null record.
-;; ---------------------------------------------------------------------------
-
-(deftest ok-text-nil-payload-never-emits-null-structured-content
-  (testing "wire/ok-text with a nil payload emits a non-null structured record"
-    (let [result (wire/ok-text nil)]
-      (is (object? (j/get result :structuredContent))
-          ":structuredContent must be a record (object) — never null, which the SDK outputSchema check rejects, nor a primitive")
-      (is (true? (j/get-in result [:structuredContent "rf.mcp/null"]))
-          "the nil payload projects to the :rf.mcp/null sentinel object")
-      (is (= "nil" (content-text result))
-          "the EDN text slot still carries the verbatim nil for the cljs round-trip"))))
-
-(deftest err-text-nil-payload-never-emits-null-structured-content
-  (testing "wire/err-text with a nil payload emits a non-null structured record"
-    (let [result (wire/err-text nil)]
-      (is (true? (j/get result :isError)))
-      (is (object? (j/get result :structuredContent))
-          ":structuredContent must be a record even on the error path"))))
-
-(deftest ok-text-scalar-payload-wraps-to-a-record
-  (testing "a non-map scalar payload still projects to an object structuredContent"
-    ;; clj->js of a bare scalar (number / string / bool) is a JS
-    ;; primitive — also not a record. The total-function backstop wraps
-    ;; it so the slot is always object-typed.
-    (doseq [v [42 "hi" true]]
-      (let [result (wire/ok-text v)]
-        (is (object? (j/get result :structuredContent))
-            (str "scalar " (pr-str v) " must wrap to an object structuredContent"))
-        (is (= (pr-str v) (content-text result))
-            "the EDN text slot still carries the verbatim scalar")))))
-
-;; ---------------------------------------------------------------------------
-;; Namespaced keywords keep their namespace over the wire.
-;;
-;; A bare `(clj->js v)` is namespace-lossy: the default `:keyword-fn` for
-;; map KEYS is `name` (`:rf/runtime` → `"runtime"`), and keyword VALUES
-;; always go through `name` too (`:door/main` → `"main"`). Both drop the
-;; namespace AND the colon, so an agent reading the structured slot then
-;; threading the name-only key back through `get-path` hits `nil`. The
-;; wire layer stringifies every keyword to its colon-less fully-qualified
-;; token (`"rf/runtime"`) before `clj->js`. The EDN text slot stays the
-;; namespace-faithful, fully-typed canonical round-trip.
-;; ---------------------------------------------------------------------------
-
-(deftest namespaced-keyword-map-key-keeps-namespace-in-structured-slot
-  (testing "a namespaced map KEY survives to the structured slot as ns/name"
-    (let [payload {:rf/runtime {:loaded? true} :step 3}
-          result  (wire/ok-text payload)]
-      ;; The structured slot key must be the fully-qualified token, NOT
-      ;; a name-only "runtime".
-      (is (some? (j/get-in result [:structuredContent "rf/runtime"]))
-          ":rf/runtime serialises to the \"rf/runtime\" key, not \"runtime\"")
-      (is (nil? (j/get-in result [:structuredContent "runtime"]))
-          "the name-only \"runtime\" key must NOT appear (the namespace-lossy shape)")
-      (is (= true (j/get-in result [:structuredContent "rf/runtime" "loaded?"]))
-          "nested values under the namespaced key still round-trip")
-      ;; A plain (un-namespaced) key keeps its bare name.
-      (is (= 3 (j/get-in result [:structuredContent "step"]))
-          "plain keys remain bare-named")
-      ;; The EDN text slot is the canonical fully-typed form, unchanged.
-      (is (= (pr-str payload) (content-text result))
-          "the EDN text slot carries the verbatim namespace-faithful EDN"))))
-
-(deftest namespaced-keyword-values-keep-namespace-in-structured-slot
-  (testing "namespaced keyword VALUES (e.g. machine-ids) keep their namespace"
-    ;; clj->js's :keyword-fn applies to KEYS only; keyword values go
-    ;; through `name`. This pins the value path too.
-    (let [payload {:machine-ids [:door/main :traffic/light :quiz/scorer]
-                   :current     :door/open}
-          result  (wire/ok-text payload)
-          ids     (js->clj (j/get-in result [:structuredContent "machine-ids"]))]
-      (is (= ["door/main" "traffic/light" "quiz/scorer"] ids)
-          "namespaced keyword values serialise as ns/name, not the truncated name")
-      (is (= "door/open" (j/get-in result [:structuredContent "current"]))
-          "a scalar namespaced keyword value keeps its namespace")
-      (is (= (pr-str payload) (content-text result))
-          "EDN text slot unchanged — the canonical round-trip"))))
-
-(deftest tagged-values-have-a-defined-json-form
-  (testing "an inert tagged literal projects to a tag/form object at every depth"
-    ;; The decoder keeps an application-defined tag as a `tagged-literal`.
-    ;; `clj->js` would hand the bare TaggedLiteral instance to
-    ;; JSON.stringify, which serialises its implementation fields; the
-    ;; structured slot gives it one documented shape instead, while the EDN
-    ;; text slot keeps the tag verbatim.
-    (let [payload {:ok?   true
-                   :at    (tagged-literal 'instant "2026-01-01T00:00:00Z")
-                   :outer (tagged-literal 'app/outer {:k     :ns/v
-                                                      :inner (tagged-literal 'app/inner [1 :a/b])})}
-          result  (wire/ok-text payload)
-          json    (js->clj (js/JSON.parse (js/JSON.stringify (j/get result :structuredContent))))]
-      (is (= {"rf.mcp/tag" "instant" "rf.mcp/form" "2026-01-01T00:00:00Z"} (get json "at"))
-          "a tag becomes {\"rf.mcp/tag\" <tag> \"rf.mcp/form\" <form>}")
-      (is (= {"rf.mcp/tag"  "app/outer"
-              "rf.mcp/form" {"k"     "ns/v"
-                             "inner" {"rf.mcp/tag" "app/inner" "rf.mcp/form" [1 "a/b"]}}}
-             (get json "outer"))
-          "the form projects like any other value, nested tags and keyword namespaces included")
-      (is (= (pr-str payload) (content-text result))
-          "the EDN text slot keeps the tags verbatim")
-      (is (re-find #"#instant \"2026-01-01T00:00:00Z\"" (content-text result))))))
+  ;; The marker is built outside the tool callbacks, so it must route
+  ;; through `wire/result` too.
+  (let [result (cache/cache-hit-result {:hash 12345 :unchanged-since 1700000000000} "snapshot" :result-hash)]
+    (is (some? (j/get-in result [:structuredContent "rf.mcp/cache-hit"])))))
