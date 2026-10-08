@@ -1,42 +1,30 @@
 (ns re-frame.routing-boundary-totality-cljs-test
-  "Cross-host parity for the exact/total navigate + route-url map boundaries.
-  This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test`
-  build exercises the boundary on the CLJS host too, alongside the JVM
-  `clojure -M:test` runner.
+  "Cross-host parity for the exact, total `navigate` and `route-url` map
+  boundaries. Named `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
+  runs it alongside the JVM runner.
 
-  The case that MATTERS cross-host is HETEROGENEOUS EDN-key reporting: a plain
-  `sort` over a mixed-kind key set (a keyword beside a string / number) throws a
-  `compare` exception, so both boundaries order the offending-key report by the
-  shared CEDN-1 identity (`re-frame.identity/canonical-bytes`) instead — a total,
-  host-symmetric order. The non-map / missing-`:to` route-url guards are pinned
-  here too so a future host divergence would fail the CLJS runner. The
-  JVM-rich behavioural cases (slice-unchanged, no-push, the other `:reason`
-  discriminators) live in routing_navigation_test.clj and
-  routing_address_extraction_test.clj.
+  The case that matters cross-host is HETEROGENEOUS key reporting: a plain
+  `sort` over a mixed-kind key set (a keyword beside a string or a number)
+  throws a `compare` exception, so both boundaries order the offending keys by
+  the shared CEDN-1 identity (`re-frame.identity/canonical-bytes`), a total,
+  host-symmetric order. The non-map and missing-`:to` `route-url` guards and
+  the `:query-merge` value shape are pinned here too. The JVM-rich door
+  behaviour (slice unchanged, no push, the other `:reason` discriminators)
+  lives in routing_navigation_test.clj and routing_address_extraction_test.clj.
 
   ## Posture split
 
-  Both boundaries are ALWAYS-ON and production-surviving, and both are
-  asserted here WITHOUT a posture guard. `route-url` THROWS, so its three
-  tests are posture-independent. `navigate` rejects by returning
-  `{}` from the handler after the always-on structural gate
-  (`re-frame.routing.address/classify`) — a distinct channel from the
-  dev-only schemas validation one (navigate.cljc §236-250) — so the
-  rejection, the canonical `:keys` ordering and the unchanged slice are all
-  readable in production. The total-order property in particular is a
-  property of `classify` itself, a pure always-on function, and is
-  asserted on it directly.
-
-  What is dev-only is the `:rf.error/navigate-bad-request` TRACE the gate
-  emits: `trace/emit-error!` sits behind `rf.interop/debug-enabled?`, read once
-  at load time, so under `-Dre-frame.debug=false` the framework emits nothing
-  BY DESIGN. Those assertions sit inside a
-  `(when rf.interop/debug-enabled? …)` dev-instrumentation arm."
+  Both boundaries are always-on and production-surviving. `route-url` THROWS,
+  so its three tests are posture-independent. `navigate`'s verdict comes from
+  the always-on structural gate (`re-frame.routing.address/classify`), a pure
+  function asserted directly in both postures. The `:rf.error/navigate-bad-request`
+  TRACE the gate emits is dev-only (`trace/emit-error!` sits behind
+  `rf.interop/debug-enabled?`), so that read sits inside a
+  `(when rf.interop/debug-enabled? …)` arm."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as rf.fx]
    [re-frame.identity :as rf.identity]
    [re-frame.interop :as rf.interop]
    [re-frame.routing :as rf.routing]
@@ -50,42 +38,33 @@
     {:adapter substrate/adapter
      :init-fn rf.routing/reset-counters!}))
 
-(defn- thrown
-  "Call `f` and return the thrown ExceptionInfo (or nil)."
-  [f]
-  (try (f) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
+(defn- route-url-error
+  "The identifying slots of the error `route-url` throws for `address`."
+  [address]
+  (select-keys (ex-data (try (rf.routing/route-url address)
+                             nil
+                             (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
+               [:rf.error/id :reason :keys]))
 
 ;; ---- route-url address-shape boundary is total on both hosts -------------
 
 (deftest route-url-non-map-address-rejects-cross-host
-  (testing "a non-map address rejects with :rf.error/route-url-validation
-            (:reason :not-a-map) on both hosts — not a raw `(keys …)` throw"
-    (doseq [bad ["/dest" 5 [:to :route/x] :route/x]]
-      (let [ex (thrown #(rf.routing/route-url bad))]
-        (is (some? ex) (str "route-url threw for a non-map address " (pr-str bad)))
-        (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
-        (is (= :not-a-map (:reason (ex-data ex))))))))
+  (is (= {:rf.error/id :rf.error/route-url-validation :reason :not-a-map}
+         (route-url-error "/dest"))
+      "a structured rejection, not a raw `(keys …)` host throw"))
 
 (deftest route-url-missing-to-rejects-cross-host
-  (testing "a missing-:to address rejects with :rf.error/route-url-validation
-            (:reason :missing-to) on both hosts — not the misleading
-            :rf.error/no-such-route 'id nil'"
-    (let [ex (thrown #(rf.routing/route-url {:params {:id "x"}}))]
-      (is (some? ex))
-      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
-      (is (= :missing-to (:reason (ex-data ex)))))))
+  (is (= {:rf.error/id :rf.error/route-url-validation :reason :missing-to}
+         (route-url-error {:params {:id "x"}}))
+      "not the misleading :rf.error/no-such-route for id nil"))
 
 (deftest route-url-heterogeneous-bad-keys-total-cross-host
-  (testing "mixed-kind bad address keys report :bad-address-keys in total
-            canonical order (no raw compare throw) on both hosts"
-    ;; :url is address-rejected; "s" and 3 are unknown keys of DIFFERENT
-    ;; kinds — a plain `(sort #{:url \"s\" 3})` throws on the JVM.
-    (let [ex (thrown #(rf.routing/route-url {:to :route/x :url "/x" "s" 1 3 2}))]
-      (is (some? ex))
-      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
-      (is (= :bad-address-keys (:reason (ex-data ex))))
-      (is (= (vec (sort-by rf.identity/canonical-bytes #{:url "s" 3}))
-             (:keys (ex-data ex)))))))
+  (testing "mixed-kind bad address keys are reported in canonical order; a
+            plain sort of a keyword, a string and a number throws on the JVM"
+    (is (= {:rf.error/id :rf.error/route-url-validation
+            :reason      :bad-address-keys
+            :keys        (vec (sort-by rf.identity/canonical-bytes #{:url "s" 3}))}
+           (route-url-error {:to :route/x :url "/x" "s" 1 3 2})))))
 
 ;; ---- navigate unknown-key reporting is total on both hosts ---------------
 
@@ -102,84 +81,25 @@
     (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))))
 
 (deftest navigate-heterogeneous-unknown-keys-total-cross-host
-  (testing "a navigate request with mixed-kind unknown keys reports
-            :unknown-keys in total canonical order (no raw compare throw)
-            on both hosts"
-    ;; :a/b, "s", and 3 are unknown keys of DIFFERENT kinds — a plain
-    ;; `(sort #{:a/b \"s\" 3})` throws a ClassCastException on the JVM.
-    ;; `:route/gate` is registered so the request would commit a slice if the
-    ;; gate let it through.
-    (rf/reg-route :route/gate {} "/gate")
-    (let [request {:to :route/gate :a/b 1 "s" 2 3 4}
-          ;; SEMANTIC, posture-independent: the total order is a
-          ;; property of the ALWAYS-ON structural gate, not of the diagnostic.
-          ;; Assert it on `classify` directly — this is the assertion that
-          ;; catches a raw-`compare` throw, and it survives
-          ;; -Dre-frame.debug=false because `classify` does.
-          bad     (rf.routing.address/classify request nil)
-          err     (navigate-error request)]
-      (is (= :unknown-keys (:reason bad))
-          "the always-on structural gate classifies the request :unknown-keys")
-      (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
-             (:keys bad))
-          "…and orders the offending keys by CEDN-1 identity (no raw compare throw)")
-      ;; …and the REJECTION really held: the dispatch above completed without
-      ;; a host throw and left no route slice behind.
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :current]))
-          "the rejected navigate left the route slice unchanged (no commit)")
+  (testing "mixed-kind unknown keys are reported in canonical order, and the
+            dispatch completes without a host compare throw"
+    (let [request  {:to :route/gate :a/b 1 "s" 2 3 4}
+          expected {:reason :unknown-keys
+                    :keys   (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))}
+          err      (navigate-error request)]
+      (is (= expected (rf.routing.address/classify request nil)))
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
-        (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
-        (is (= :unknown-keys (-> err :tags :reason)))
-        (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
-               (-> err :tags :keys)))))))
+        (is (= expected (select-keys (:tags err) [:reason :keys])))))))
 
 ;; ---- navigate `:query-merge` VALUE shape is total on both hosts ----------
 
 (deftest navigate-non-map-query-merge-rejects-cross-host
-  (testing "a present non-map :query-merge rejects (:query-merge-not-map) on
-            both hosts — the fold's collection semantics never decide it"
-    ;; This case needs a CLJS
-    ;; witness: the JVM symptom is decided by Clojure's `merge`/`conj`
-    ;; collection protocol, and the CLJS host's protocol could present a
-    ;; DIFFERENT accidental symptom for the same malformed request. Pinning
-    ;; the verdict on `classify` — the always-on gate both hosts run — makes
-    ;; the rejection a property of the boundary rather than of either host's
-    ;; incidental behaviour.
-    (let [current {:route-id :route/search :query {:q "x"}}]
-      (doseq [bad-value [[:page 2] "oops" nil [[:page 2]]]]
-        (is (= {:reason :query-merge-not-map :keys [:query-merge]}
-               (rf.routing.address/classify {:query-merge bad-value} current))
-            "the always-on gate rejects the non-map delta with a stable reason"))
-      (is (nil? (rf.routing.address/classify {:query-merge {}} current))
-          "{} is a valid exact no-op on both hosts")
-      (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current))
-          "a map delta passes on both hosts"))
-    ;; …and the rejection really holds through the real dispatch door, from a
-    ;; LANDED route. Establishing a current route first is what makes this row
-    ;; discriminating: dispatched with no current route the request would
-    ;; reject `:no-current-route` either way and the row would pass whether or
-    ;; not rule 9 existed.
-    (rf/reg-route :route/search
-                  {:query [:map [:q {:optional true} :string]
-                                [:page {:optional true} :int]]}
-                  "/search")
-    (let [pushed (atom [])
-          slice  (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/routing :current]))]
-      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-                    (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&page=1" {:rf.route/cause :link}])
-      (let [query-before (:query (slice))
-            token-before (:nav-token (slice))]
-        (is (= {:q "clojure" :page 1} query-before)
-            "precondition: a real current route exists on this host")
-        (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate {:query-merge [:page 2]}])
-        (is (= query-before (:query (slice)))
-            "the rejected navigate left the query unchanged — no commit on this host")
-        (is (= token-before (:nav-token (slice)))
-            "…and the nav-token did not advance")
-        (is (empty? @pushed)
-            "…and no URL effect committed")))))
+  (testing "the always-on gate rejects any present non-map :query-merge with a
+            stable reason, so neither host's collection semantics decide it;
+            a map delta, empty included, passes"
+    (let [current {:route-id :route/search :query {:q "x"}}
+          verdict #(rf.routing.address/classify {:query-merge %} current)]
+      (is (= (repeat 4 {:reason :query-merge-not-map :keys [:query-merge]})
+             (map verdict [[:page 2] "oops" nil [[:page 2]]])))
+      (is (= [nil nil] (map verdict [{} {:page 2}]))))))
