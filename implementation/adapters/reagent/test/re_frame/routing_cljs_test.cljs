@@ -69,22 +69,18 @@
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf.route/handle-url-change "/cljs/articles/intro" {:rf.route/cause :link}] {:frame f})
-      (is (= :route.cljs/article
-             (rf/subscribe-once [:rf.cljs.route/id] {:frame f}))
-          ":rf.route/id sub resolves under the Reagent adapter")
-      (is (= {:id "intro"}
-             (rf/subscribe-once [:rf.cljs.route/params] {:frame f}))
-          ":rf.route/params sub resolves under the Reagent adapter")
-      (is (true? (:article-loaded? (rf/app-db-value f)))
-          ":on-match's [:cljs/article-load] dispatched and ran")
+      (is (= [:route.cljs/article {:id "intro"} true]
+             [(rf/subscribe-once [:rf.cljs.route/id] {:frame f})
+              (rf/subscribe-once [:rf.cljs.route/params] {:frame f})
+              (:article-loaded? (rf/app-db-value f))])
+          "the route id and params subs resolve under the Reagent adapter, and :on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
       (rf/dispatch-sync [:rf.route/handle-url-change "/cljs/articles/welcome" {:rf.route/cause :link}] {:frame f})
-      (is (= {:id "welcome"}
-             (rf/subscribe-once [:rf.cljs.route/params] {:frame f}))
-          "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/routing :current :nav-token]))
-          "fresh nav-token allocated on each full navigation"))))
+      (is (= [{:id "welcome"} true]
+             [(rf/subscribe-once [:rf.cljs.route/params] {:frame f})
+              (some? (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/routing :current :nav-token]))])
+          "new params land in the slice on subsequent navigation, with a nav-token allocated"))))
 
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------
 
@@ -111,20 +107,12 @@
 
       (let [left-route  (rf/subscribe-once [:rf.cljs2/route] {:frame left})
             right-route (rf/subscribe-once [:rf.cljs2/route] {:frame right})]
-        (is (= :route.cljs2/articles (:route-id left-route))
-            "left frame's current route is :route.cljs2/articles")
-        (is (= :route.cljs2/article  (:route-id right-route))
-            "right frame's current route is :route.cljs2/article")
-        (is (= {} (:params left-route))
-            "left frame has no :params (collection route)")
-        (is (= {:id "intro"} (:params right-route))
-            "right frame has the article id"))
+        (is (= [[:route.cljs2/articles {}] [:route.cljs2/article {:id "intro"}]]
+               (mapv (juxt :route-id :params) [left-route right-route]))
+            "each frame holds its own route: the collection route with no :params on the left, the article with its id on the right"))
 
       ;; Re-navigate on the left only — right is unaffected.
       (rf/dispatch-sync [:rf.route/handle-url-change "/cljs2/" {:rf.route/cause :link}] {:frame left})
-      (is (= :route.cljs2/home
-             (:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame left})))
-          "left re-navigated to :route.cljs2/home")
-      (is (= :route.cljs2/article
-             (:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame right})))
-          "right is unaffected by left's navigation"))))
+      (is (= [:route.cljs2/home :route.cljs2/article]
+             (mapv #(:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame %})) [left right]))
+          "left re-navigated to :route.cljs2/home, and right is unaffected"))))
