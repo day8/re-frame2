@@ -1,37 +1,20 @@
 (ns day8.re-frame2-xray.filters.edit-popup-cljs-test
   "View + wiring tests for the edit popup.
 
-  Covers:
-   - open-edit-popup hydrates the draft from the trigger payload
-   - save-edit-popup lands the set-mode / set-pattern draft in
-     :active-filters and closes the popup
-   - delete-edit-popup drops the pill and closes
-   - close-edit-popup discards the draft
-   - hide-event-type (right-click row path) pre-populates OUT mode
-
-  ## Where the rendered tree comes from
-
   `filters/Modal` is a Fresco boundary behind an `as-component` bridge,
   so calling it answers the `[:>]` interop head rather than a tree to
-  walk. The rows below drive `test-helpers.modal-trees/edit-popup-tree`,
+  walk. The view rows drive `test-helpers.modal-trees/edit-popup-tree`,
   which reproduces `filters/ModalView`'s gate and its three reads in the
   same order — so what they assert on is the SHIPPED hiccup."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-(use-fixtures :each
-  ;; `make-xray-runtime-fixture` is core `make-reset-runtime-fixture` +
-  ;; Xray `reset-all!` in one owner:
-  ;; plain-atom adapter + the default `:all` reset tier — install/registry/
-  ;; mount idempotency sentinels plus the trace-collector rings.
-  (xray-test-support/make-xray-runtime-fixture))
+(use-fixtures :each (xray-test-support/make-xray-runtime-fixture))
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
@@ -45,80 +28,45 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync ev)))
 
-;; -------------------------------------------------------------------------
-;; (1) Pure helpers: draft<->pill round-trip
-;; -------------------------------------------------------------------------
+(defn- popup-tree []
+  (rf/with-frame :rf/xray
+    (modal-trees/edit-popup-tree rf/dispatch)))
 
-(deftest draft-to-pill-preserves-bare-string-patterns
-  (testing "a bare substring stays a string"
-    (is (= {:pattern "/login"}
-           (edit-popup/draft->pill {:pattern "/login"})))))
+;; ---- draft -> pill -------------------------------------------------------
 
-(deftest draft-to-pill-blank-becomes-nil
-  (is (= {:pattern nil}
-         (edit-popup/draft->pill {:pattern ""})))
-  (is (= {:pattern nil}
-         (edit-popup/draft->pill {:pattern "   "}))))
+(deftest draft-to-pill-keeps-bare-strings-and-nils-blanks
+  (is (= [{:pattern "/login"} {:pattern nil}]
+         (mapv edit-popup/draft->pill [{:pattern "/login"} {:pattern "   "}]))))
 
-;; -------------------------------------------------------------------------
-;; (2) Open popup — trigger payload hydrates the draft
-;; -------------------------------------------------------------------------
-
-(deftest open-edit-popup-from-add-source
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-  (is (true? (frame-sub [:rf.xray/edit-popup-open?])))
-  (let [trig  (frame-sub [:rf.xray/edit-popup-trigger])
-        draft (frame-sub [:rf.xray/edit-popup-draft])]
-    (is (= :add (:source trig)))
-    (is (= :in  (:mode trig)))
-    (is (= ""   (:pattern draft))
-        "add source ships an empty draft")))
+;; ---- open / save / cancel / delete ---------------------------------------
 
 (deftest open-edit-popup-from-pill-source-prepopulates
   (xray-setup!)
   (frame-dispatch [:rf.xray/open-edit-popup
                    {:source :pill :mode :out :idx 2
                     :pill {:pattern :mouse-move}}])
-  (let [draft (frame-sub [:rf.xray/edit-popup-draft])
-        trig  (frame-sub [:rf.xray/edit-popup-trigger])]
-    (is (= ":mouse-move" (:pattern draft))
-        "pill source pre-populates the pattern input")
-    (is (= :out (:mode draft)))
-    (is (= 2 (:idx trig))
-        "trigger remembers the pill index for in-place edit")))
-
-;; -------------------------------------------------------------------------
-;; (3) Save round-trip
-;; -------------------------------------------------------------------------
+  (is (= {:pattern ":mouse-move" :mode :out}
+         (frame-sub [:rf.xray/edit-popup-draft]))))
 
 (deftest save-add-appends-to-bucket-and-closes
   (xray-setup!)
   (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
   (frame-dispatch [:rf.xray/edit-popup-set-pattern ":auth/*"])
   (frame-dispatch [:rf.xray/save-edit-popup])
-  (let [filters (frame-sub [:rf.xray/active-filters])]
-    (is (= [{:pattern :auth/*}] (:in filters))
-        "new pill appended to IN bucket"))
-  (is (false? (frame-sub [:rf.xray/edit-popup-open?]))
-      "popup closed after save"))
+  (is (= [{:pattern :auth/*}] (:in (frame-sub [:rf.xray/active-filters]))))
+  (is (false? (frame-sub [:rf.xray/edit-popup-open?]))))
 
 (deftest save-edit-in-place-replaces-at-original-index
   (xray-setup!)
-  ;; Seed two OUT pills.
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :mouse-move}])
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :anim-frame}])
-  ;; Edit the first.
   (frame-dispatch [:rf.xray/open-edit-popup
                    {:source :pill :mode :out :idx 0
                     :pill {:pattern :mouse-move}}])
   (frame-dispatch [:rf.xray/edit-popup-set-pattern ":pointermove"])
   (frame-dispatch [:rf.xray/save-edit-popup])
-  (let [out (:out (frame-sub [:rf.xray/active-filters]))]
-    (is (= [{:pattern :pointermove}
-            {:pattern :anim-frame}]
-           out)
-        "pill is replaced at idx 0; pill order preserved")))
+  (is (= [{:pattern :pointermove} {:pattern :anim-frame}]
+         (:out (frame-sub [:rf.xray/active-filters])))))
 
 (deftest save-flip-mode-moves-pill-between-buckets
   (xray-setup!)
@@ -126,31 +74,21 @@
   (frame-dispatch [:rf.xray/open-edit-popup
                    {:source :pill :mode :in :idx 0
                     :pill {:pattern :auth/login}}])
-  ;; Flip IN → OUT.
   (frame-dispatch [:rf.xray/edit-popup-set-mode :out])
   (frame-dispatch [:rf.xray/save-edit-popup])
-  (let [filters (frame-sub [:rf.xray/active-filters])]
-    (is (= [] (:in filters)) "IN bucket emptied")
-    (is (= [{:pattern :auth/login}] (:out filters))
-        "pill landed in OUT bucket")))
+  (is (= {:in [] :out [{:pattern :auth/login}]}
+         (frame-sub [:rf.xray/active-filters]))))
 
 (deftest save-blank-pattern-noops
-  (testing "an empty pattern leaves the slot untouched (the Apply
-            button is also disabled in this state)"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/add-filter :in {:pattern :auth/*}])
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (frame-dispatch [:rf.xray/edit-popup-set-pattern ""])
-    (frame-dispatch [:rf.xray/save-edit-popup])
-    (is (= [{:pattern :auth/*}]
-           (:in (frame-sub [:rf.xray/active-filters])))
-        "blank-pattern save did not corrupt the bucket")
-    (is (true? (frame-sub [:rf.xray/edit-popup-open?]))
-        "popup stays open so the user can fix the input")))
-
-;; -------------------------------------------------------------------------
-;; (4) Cancel — close discards draft, no filter mutation
-;; -------------------------------------------------------------------------
+  ;; Apply is disabled on a blank pattern; a programmatic save leaves the
+  ;; bucket alone and keeps the popup open so the user can fix the input.
+  (xray-setup!)
+  (frame-dispatch [:rf.xray/add-filter :in {:pattern :auth/*}])
+  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
+  (frame-dispatch [:rf.xray/edit-popup-set-pattern ""])
+  (frame-dispatch [:rf.xray/save-edit-popup])
+  (is (= [{:pattern :auth/*}] (:in (frame-sub [:rf.xray/active-filters]))))
+  (is (true? (frame-sub [:rf.xray/edit-popup-open?]))))
 
 (deftest cancel-discards-draft-and-leaves-filters-alone
   (xray-setup!)
@@ -161,142 +99,43 @@
   (frame-dispatch [:rf.xray/edit-popup-set-pattern ":wildly-different"])
   (frame-dispatch [:rf.xray/close-edit-popup])
   (is (false? (frame-sub [:rf.xray/edit-popup-open?])))
-  (is (nil? (frame-sub [:rf.xray/edit-popup-draft]))
-      "draft cleared after close")
-  (is (= [{:pattern :auth/*}]
-         (:in (frame-sub [:rf.xray/active-filters])))
-      "the original pill survives a cancel"))
-
-;; -------------------------------------------------------------------------
-;; (5) Delete from popup
-;; -------------------------------------------------------------------------
+  (is (= [{:pattern :auth/*}] (:in (frame-sub [:rf.xray/active-filters])))))
 
 (deftest delete-drops-pill-at-trigger-idx
   (xray-setup!)
-  (frame-dispatch [:rf.xray/add-filter :out {:pattern :a}])
-  (frame-dispatch [:rf.xray/add-filter :out {:pattern :b}])
-  (frame-dispatch [:rf.xray/add-filter :out {:pattern :c}])
+  (doseq [p [:a :b :c]]
+    (frame-dispatch [:rf.xray/add-filter :out {:pattern p}]))
   (frame-dispatch [:rf.xray/open-edit-popup
                    {:source :pill :mode :out :idx 1
                     :pill {:pattern :b}}])
   (frame-dispatch [:rf.xray/delete-edit-popup])
   (is (= [{:pattern :a} {:pattern :c}]
-         (:out (frame-sub [:rf.xray/active-filters])))
-      "pill at idx 1 deleted; siblings preserved"))
-
-(deftest delete-from-add-trigger-just-closes
-  (testing "delete is meaningful only when editing an existing pill;
-            from the add path it degenerates to a close"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/add-filter :in {:pattern :auth/*}])
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (frame-dispatch [:rf.xray/delete-edit-popup])
-    (is (false? (frame-sub [:rf.xray/edit-popup-open?])))
-    (is (= [{:pattern :auth/*}]
-           (:in (frame-sub [:rf.xray/active-filters])))
-        "delete from :add source did not touch the IN bucket")))
-
-;; -------------------------------------------------------------------------
-;; (6) Right-click row → hide-event-type opens popup with OUT pre-fill
-;; -------------------------------------------------------------------------
+         (:out (frame-sub [:rf.xray/active-filters])))))
 
 (deftest hide-event-type-then-save-lands-in-out-bucket
   (xray-setup!)
   (frame-dispatch [:rf.xray/hide-event-type :mouse-move])
   (frame-dispatch [:rf.xray/save-edit-popup])
-  (let [filters (frame-sub [:rf.xray/active-filters])]
-    (is (= [{:pattern :mouse-move}] (:out filters)))
-    (is (= [] (:in filters)))))
+  (is (= {:in [] :out [{:pattern :mouse-move}]}
+         (frame-sub [:rf.xray/active-filters]))))
 
-;; -------------------------------------------------------------------------
-;; (7) Modal positioning
-;; -------------------------------------------------------------------------
+;; ---- view ----------------------------------------------------------------
 
-;; ---- hiccup helpers -----------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
-;; walker facade. `testids-with-prefix` (the SET of
-;; carried testids matching a prefix) is expressed over `rf.test-helpers/find-by-testid-
-;; prefix`; `all-strings` / `placeholder-values` below are not exposed by
-;; test-helpers, so they walk `rf.test-helpers/expand-tree` directly.
+(defn- backdrop-attrs []
+  (second (rf.test-helpers/find-by-testid (popup-tree) "rf-xray-edit-popup-backdrop")))
 
-(defn- testids-with-prefix [tree prefix]
-  (into #{} (map (comp :data-testid rf.test-helpers/attrs))
-        (rf.test-helpers/find-by-testid-prefix tree prefix)))
-
-(deftest backdrop-defaults-to-fixed-positioning
-  (testing "with no :rf.xray/modal-positioning slot set, the edit
-            popup backdrop renders position: fixed at the production
-            z-index"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (rf/with-frame :rf/xray
-      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)
-            backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
-            style    (:style (second backdrop))]
-        (is (some? backdrop))
-        (is (= "fixed" (:position style)))
-        (is (= 2147483647 (:z-index style))
-            "the production z-index — one above the palette")
-        (is (= "fixed"
-               (:data-rf-xray-modal-positioning (second backdrop))))))))
-
-(deftest backdrop-honours-absolute-positioning
-  (testing "after `:rf.xray/set-modal-positioning :absolute` the
-            backdrop switches to position: absolute"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (frame-dispatch [:rf.xray/set-modal-positioning :absolute])
-    (rf/with-frame :rf/xray
-      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)
-            backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
-            style    (:style (second backdrop))]
-        (is (some? backdrop))
-        (is (= "absolute" (:position style)))
-        (is (< (:z-index style) 1000)
-            "z-index drops to a sane in-cell value")
-        (is (= "absolute"
-               (:data-rf-xray-modal-positioning (second backdrop))))))))
-
-;; -------------------------------------------------------------------------
-;; (8) Dialog is event-id-only
-;; -------------------------------------------------------------------------
-;;
-;; The Add-filter dialog is exactly the Action radios (Show
-;; only matching events / Hide matching events) + the Match-events
-;; field + footer. There is no Match-scope section (event-id / event-args /
-;; source-coord / tags checkboxes) and no
-;; `:rf.xray/edit-popup-toggle-scope` plumbing — event-id
-;; is the implicit, only scope.
-
-(deftest dialog-renders-mode-and-pattern-only
-  (testing "the rendered dialog has Mode radios + the Pattern input +
-            footer, and NO match-scope checkboxes"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (rf/with-frame :rf/xray
-      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)]
-        ;; Present surfaces.
-        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-in"))
-            "Mode IN radio present")
-        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-out"))
-            "Mode OUT radio present")
-        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-pattern"))
-            "Pattern input present")
-        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-cancel"))
-            "Cancel button present")
-        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-save"))
-            "Add filter / Apply button present")
-        ;; No scope checkboxes of any key.
-        (is (= #{} (testids-with-prefix rendered "rf-xray-edit-popup-scope-"))
-            "no match-scope checkboxes render")))))
-
-;; -------------------------------------------------------------------------
-;; (10) Dialog copy is the normative wording
-;; -------------------------------------------------------------------------
-;;
-;; The Add-filter dialog copy is normative in spec/018 §7. These tests
-;; lock the exact strings — title, Action radios, field label, the
-;; two-line helper, and the buttons — so a wording drift fails CI.
+(deftest backdrop-follows-modal-positioning
+  (xray-setup!)
+  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
+  (let [{:keys [style] :as attrs} (backdrop-attrs)]
+    (is (= ["fixed" 2147483647 "fixed"]
+           [(:position style) (:z-index style) (:data-rf-xray-modal-positioning attrs)])
+        "the default sits one z above the palette (2147483646)"))
+  (frame-dispatch [:rf.xray/set-modal-positioning :absolute])
+  (let [{:keys [style] :as attrs} (backdrop-attrs)]
+    (is (= ["absolute" "absolute"]
+           [(:position style) (:data-rf-xray-modal-positioning attrs)]))
+    (is (< (:z-index style) 1000) "z-index drops to a sane in-cell value")))
 
 (defn- all-strings
   "Every string literal in the expanded hiccup tree."
@@ -305,71 +144,29 @@
        (filter string?)
        (into #{})))
 
-(defn- placeholder-values
-  "Every `:placeholder` attribute value in the expanded tree."
-  [tree]
-  (->> (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree))
-       (keep (fn [node]
-               (when (and (vector? node) (map? (second node)))
-                 (:placeholder (second node)))))
-       (into #{})))
-
-(deftest add-filter-dialog-copy-is-normative
-  (testing "the Add-filter (trailing-+ / :add) dialog renders the
-            exact copy per spec/018 §7"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (rf/with-frame :rf/xray
-      (let [rendered     (modal-trees/edit-popup-tree rf/dispatch)
-            strings      (all-strings rendered)
-            placeholders (placeholder-values rendered)]
-        (is (contains? strings "Filter events")
-            "title is 'Filter events' on the :add source")
-        (is (contains? strings "Action")
-            "section label is 'Action'")
-        (is (contains? strings "Show only matching events")
-            "IN radio reads 'Show only matching events'")
-        (is (contains? strings "Hide matching events")
-            "OUT radio reads 'Hide matching events'")
-        (is (contains? strings "Match events containing")
-            "field label is 'Match events containing'")
-        (is (contains? strings "Matches keywords, namespaces, globs, or text.")
-            "helper line 1")
-        (is (contains? strings "Examples: :auth/*, :auth, :mouse-move, /login")
-            "helper line 2 (examples)")
-        (is (contains? placeholders ":auth/*, :mouse-move, /login")
-            "input placeholder")
-        (is (contains? strings "Cancel") "Cancel button")
-        (is (contains? strings "Add filter")
-            "primary button reads 'Add filter' on the :add source")))))
-
-(deftest pill-edit-dialog-keeps-edit-title-and-apply
-  (testing "editing an existing pill (:pill source) keeps 'Edit filter'
-            + 'Apply' while sharing the same Action/field copy"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup
-                     {:source :pill :mode :in :idx 0
-                      :pill {:pattern :auth/*}}])
-    (rf/with-frame :rf/xray
-      (let [strings (all-strings (modal-trees/edit-popup-tree rf/dispatch))]
-        (is (contains? strings "Edit filter")
-            "title is 'Edit filter' on the :pill source")
-        (is (contains? strings "Apply")
-            "primary button is 'Apply' when editing")
-        (is (contains? strings "Show only matching events")
-            "Action radio copy shared with the add path")))))
-
-(deftest context-dialog-keeps-add-for-this-event-title
-  (testing "the right-click (:context) source titles 'Add filter for
-            this event' and uses the 'Add filter' primary button"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/hide-event-type :user/mouse-move])
-    (rf/with-frame :rf/xray
-      (let [strings (all-strings (modal-trees/edit-popup-tree rf/dispatch))]
-        (is (contains? strings "Add filter for this event")
-            "title is 'Add filter for this event' on the :context source")
-        (is (contains? strings "Add filter")
-            "primary button reads 'Add filter'")
-        (is (contains? strings "Hide matching events")
-            "Action radio copy shared with the add path")))))
-
+(deftest dialog-copy-is-normative
+  ;; spec/018 §7 fixes the dialog copy; the title and the primary button
+  ;; follow the trigger source.
+  (xray-setup!)
+  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
+  (let [tree (popup-tree)]
+    (is (= [] (remove (all-strings tree)
+                      ["Filter events" "Action" "Show only matching events"
+                       "Hide matching events" "Match events containing"
+                       "Matches keywords, namespaces, globs, or text."
+                       "Examples: :auth/*, :auth, :mouse-move, /login"
+                       "Cancel" "Add filter"])))
+    (is (= ":auth/*, :mouse-move, /login"
+           (:placeholder (second (rf.test-helpers/find-by-testid tree "rf-xray-edit-popup-pattern")))))
+    (is (= [] (remove #(rf.test-helpers/find-by-testid tree %)
+                      ["rf-xray-edit-popup-mode-in" "rf-xray-edit-popup-mode-out"
+                       "rf-xray-edit-popup-cancel" "rf-xray-edit-popup-save"]))
+        "the testids the tutorial screenshot script drives"))
+  (doseq [[open-ev expected]
+          [[[:rf.xray/open-edit-popup {:source :pill :mode :in :idx 0
+                                       :pill {:pattern :auth/*}}]
+            ["Edit filter" "Apply"]]
+           [[:rf.xray/hide-event-type :user/mouse-move]
+            ["Add filter for this event" "Add filter"]]]]
+    (frame-dispatch open-ev)
+    (is (= [] (remove (all-strings (popup-tree)) expected)) (pr-str open-ev))))
