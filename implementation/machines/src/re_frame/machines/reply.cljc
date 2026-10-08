@@ -428,13 +428,14 @@
   "Build the data-only suppression gate for an `:after` timer completion:
   `{:path <decl-path> :rf/after-epoch <epoch>}` (Managed-Effects §Stale
   suppression — \"machine `:after` epoch and declaring path still match
-  the active snapshot\"). The CARRIED gate (captured at scheduling, riding
-  the synthetic timer event) and the CURRENT gate (read from the live
-  snapshot at expiry) are compared by `re-frame.reply/stale?`: a timer is
-  LIVE iff its declaring path is still active AND its carried epoch equals
-  the node's current per-path epoch; otherwise STALE. `path` is nil when
-  the node was exited (no live counterpart), which `re-frame.reply/stale?`
-  treats as a mismatch."
+  the active snapshot\"). A timer is LIVE iff its declaring path is still
+  active AND its carried epoch equals the node's current per-path epoch;
+  otherwise STALE. The timer handler decides that itself; this gate is the
+  evidence the reply carries: a fired reply's `:correlation` holds one
+  `:gate`, and a stale reply's holds the CARRIED gate (captured at
+  scheduling, riding the synthetic timer event) beside the CURRENT gate (read
+  from the live snapshot at expiry). `path` is nil when no declaring path is
+  known."
   [decl-path epoch]
   {:path           (when decl-path (vec decl-path))
    :rf/after-epoch epoch})
@@ -560,19 +561,6 @@
 ;; fact), and `:rf.reply/work-status :cancelled` (the closed work-status vocab).
 ;; ---------------------------------------------------------------------------
 
-(def timer-cancel-reasons
-  "The closed `:rf.machine.timer/cancelled` `:reason` set —
-  the cancel-reason taxonomy a cancelled-timer reply's `:rf.reply/cancel-reason`
-  carries: `:on-exit` (state exit), `:on-destroy` (actor destroy),
-  `:on-resolution` (subscription-delay re-resolution), `:on-supersede`
-  (in-place reschedule), `:on-frame-destroy` (frame teardown), and
-  `:on-restore` (epoch-restore host-timer cleanup — `timer/cancel-frame-
-  timers-on-restore!` releases the orphaned host handles the unwound epochs
-  left attached; Spec 005 §Root parallel `:after` trace catalogue). Matches
-  the closed `:reason` vocabulary in Spec 005's
-  `:rf.machine.timer/cancelled` catalogue."
-  #{:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy
-    :on-restore})
 
 (defn cancelled-timer-reply
   "Build the `:status :cancelled` reply for a cancelled machine `:after`
@@ -583,12 +571,15 @@
   `after-fired-reply` / `after-stale-reply` so a cancelled timer joins the
   same uniform work/reply row its scheduling started), `:rf.reply/work-kind :timer`,
   `:rf.reply/work-status :cancelled`, the `:cancelled? true` marker, and
-  `:rf.reply/cancel-reason` from `timer-cancel-reasons`. NO `:value` (the timer never
-  fired).
+  `:rf.reply/cancel-reason`. NO `:value` (the timer never fired).
 
   `ctx` keys: `:actor-id` (the timer's owning actor INSTANCE — optional),
-  `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, and `:reason` (one
-  of `timer-cancel-reasons`)."
+  `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, and `:reason` — the
+  closed `:rf.machine.timer/cancelled` `:reason` vocabulary of Spec 005:
+  `:on-exit` (state exit), `:on-destroy` (actor destroy), `:on-resolution`
+  (subscription-delay re-resolution), `:on-supersede` (in-place reschedule),
+  `:on-frame-destroy` (frame teardown), or `:on-restore` (epoch-restore
+  host-timer cleanup, `timer/cancel-frame-timers-on-restore!`)."
   [{:keys [actor-id state delay decl-path epoch frame reason]}]
   (cond-> {:status        :cancelled
            :cancelled?    true

@@ -283,7 +283,7 @@
         ;; reply (Managed-Effects §Cancellation). The canonical `:rf.reply/work-id`
         ;; matches the fired / stale reply's so the cancelled completion
         ;; joins the same uniform work/reply row the timer's scheduling
-        ;; started; `:rf.reply/cancel-reason` carries the closed `timer-cancel-reasons`
+        ;; started; `:rf.reply/cancel-reason` carries the closed cancel-reason
         ;; discriminator. The reply facts are extra keys BESIDE the public
         ;; trace shape (`:actor-id` / `:state` / `:delay` / `:epoch` /
         ;; `:reason` / sub identity), never a replacement for it.

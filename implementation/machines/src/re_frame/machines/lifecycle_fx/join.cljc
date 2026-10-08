@@ -145,16 +145,16 @@
 
 (defn- join-attempt-current?
   "True iff the carrier's exact-attempt coordinate matches the CURRENT join
-  attempt exactly: same parent/invoke identity, same logical child id, the
-  stamped actor is the actor CURRENTLY mapped to that child, and the
-  stamped attempt token equals the live join state's `:rf/attempt`. Every
-  clause is verified against runtime-owned state — nothing is trusted from
-  the carrier beyond equality with what the runtime already knows."
+  attempt exactly: same parent/invoke identity, the stamped actor is the
+  actor CURRENTLY mapped to the carrier's logical child, and the stamped
+  attempt token equals the live join state's `:rf/attempt`. Every clause is
+  verified against runtime-owned state — nothing is trusted from the carrier
+  beyond equality with what the runtime already knows. `child-id` is read off
+  the same completion `attempt` was projected from, so it needs no comparison."
   [attempt parent-id invoke-id child-id join-state]
   (and (map? attempt)
        (= parent-id (:parent-id attempt))
        (= invoke-id (:invoke-id attempt))
-       (= child-id  (:child-id attempt))
        (some? (:attempt attempt))
        (= (:rf/attempt join-state) (:attempt attempt))
        (= (get-in join-state [:children child-id]) (:spawned-id attempt))))
@@ -245,14 +245,10 @@
         children (:children spec)
         n-total  (count children)
         n-done   (count (:done   join-state))]
-    (cond
-      (= :all join)
-      (= n-done n-total)
-
-      (= :any join)
-      (>= n-done 1)
-
-      :else false)))
+    ;; Registration refuses any other `:join`.
+    (case join
+      :all (= n-done n-total)
+      :any (>= n-done 1))))
 
 (defn- join-unsatisfiable?
   "Decide whether `spec`'s join condition can NEVER be met by the remaining
@@ -281,10 +277,10 @@
         n-decided (+ n-done n-failed)
         n-pending (- n-total n-decided)
         max-possible-done (+ n-done n-pending)]
-    (cond
-      (= :all join)               (pos? n-failed)
-      (= :any join)               (< max-possible-done 1)
-      :else                       false)))
+    ;; Registration refuses any other `:join`.
+    (case join
+      :all (pos? n-failed)
+      :any (< max-possible-done 1))))
 
 (defn- compute-resolution
   "Pure. Given the post-bump `join-state'`, the join spec, and the
@@ -495,8 +491,8 @@
   state and auto-destroyed synchronously at that moment with `:reason
   :rf.machine/finished`, publishing its own closed work terminal on the way
   out. By the time the join resolves, every child in `:done` / `:failed` is
-  already gone, so there is nothing left to reap and no second, contradictory
-  `:cancelled` terminal to suppress.
+  already gone, so the live-member test below excludes it: there is nothing
+  left to reap and no second, contradictory `:cancelled` terminal to suppress.
 
   The `:frame` tag is REQUIRED for epoch-capture admission
   (`re-frame.epoch.capture/capture-event!` silently drops events whose tags
@@ -512,12 +508,7 @@
    {:keys [resolved? resolution-event join-event-kw]}]
   (let [destroy-fx
         (when resolved?
-          (let [children      (:children join-state'')
-                completed-ids (into #{} (concat (:done   join-state'')
-                                                (:failed join-state'')))
-                survivors     (->> children
-                                   (remove (fn [[cid _]]
-                                             (contains? completed-ids cid)))
+          (let [survivors     (->> (:children join-state'')
                                    (filter (fn [[cid spawned-id]]
                                              (live-attempt-member?
                                                runtime-db parent-id invoke-id
