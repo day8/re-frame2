@@ -2,10 +2,22 @@
   "The sidebar search-as-you-type filter. Every fn under test is `.cljc`-pure,
   so this runs on the JVM and on the CLJS node-test build (the `-cljs-test`
   suffix is what the `:node-test` ns-regexp selects)."
-  (:require [clojure.test :refer [are deftest is]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]))
 
 ;; ---- match-variant? ------------------------------------------------------
+
+(deftest tokenise-shape
+  (testing "blank / nil input returns empty vector"
+    (is (= [] (rf.story.ui.sidebar-search/tokenise nil)))
+    (is (= [] (rf.story.ui.sidebar-search/tokenise "")))
+    (is (= [] (rf.story.ui.sidebar-search/tokenise "   "))))
+  (testing "single token"
+    (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "foo")))
+    (is (= ["foo"] (rf.story.ui.sidebar-search/tokenise "  Foo  "))))
+  (testing "multi-token split on whitespace + lowercase"
+    (is (= ["counter" "five"] (rf.story.ui.sidebar-search/tokenise "Counter Five")))
+    (is (= ["a" "b" "c"]      (rf.story.ui.sidebar-search/tokenise "a   b\tc")))))
 
 (deftest match-variant-shape
   ;; the haystack carries the variant's :doc and :tags as well as its id
