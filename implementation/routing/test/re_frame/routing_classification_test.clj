@@ -1,64 +1,39 @@
 (ns re-frame.routing-classification-test
-  "EP-0025 routes — route OWNER data classification.
+  "Route-owned data classification (Spec 012 §Route data classification). A
+  route declares projection-relative `:sensitive` / `:large` paths, rooted at
+  its `{:query … :params …}` projection, and they are
 
-  Pins the `reg-route` subsystem-matrix row of EP-0025 (Spec 012 §Route data
-  classification): a route declares projection-relative `:sensitive` / `:large`
-  paths (rooted at the route's `{:query … :params …}` projection); they are
-
-    1. VALIDATED fail-loud at `reg-route` (a malformed path / wrong shape →
-       `:rf.error/invalid-route-classification`, before any state mutates);
+    1. VALIDATED fail-loud at `reg-route`
+       (`:rf.error/invalid-route-classification`, before any state mutates);
     2. LOWERED into the per-frame elision registry at route activation,
-       RE-ROOTED under `[:rf.runtime/routing :current …]` and tagged
-       `:source :route`, so the slice's `:query` / `:params` redact at egress;
-    3. DROPPED on route change / deactivation — routes are a SINGLETON
-       current-route, so activation REPLACES the prior route's `:source :route`
-       entries (a route declaring none clears them); and frame teardown drops
-       the whole runtime-db elision slot with the frame.
-
-  The unifying invariant: classification lands ATOMICALLY with the slice
-  publish (the same `:rf.db/runtime` commit), it is read ONLY at egress (the
-  handler / subs always see real values), and it never leaks across a route
-  change (the singleton drop).
+       re-rooted under `[:rf.runtime/routing :current …]` and owned by
+       `{:source :route}`, so the slice redacts at egress while the in-process
+       slice stays raw;
+    3. DROPPED on route change, route miss and frame teardown, leaving any
+       other owner's claim on the same path in place.
 
   ## Posture split
 
-  The classification contract itself is production-real and carries NO posture
-  guard — the fail-loud `reg-route` validation, the lowering / re-rooting into
-  the per-frame elision registry, the singleton drop, the
-  `rf.elision/elide-wire-value` redaction and the real SSR
-  `rf.ssr.payload-policy/project-runtime-db` consumer all run in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane). This egress genuinely happens in
-  production, so that is exactly where it must be proven.
+  The classification contract carries no posture guard: it runs in the
+  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`
+  (`-Dre-frame.debug=false`), because this egress happens in production.
 
-  The one dev-only surface here is the QUERY-KEY PROMOTION
-  ADVISORY. It is an authoring hint, emitted through `trace/emit! :warning`,
-  which sits behind `rf.interop/debug-enabled?` — read once at load time — so
-  under the real gate there is no advisory to observe. Its assertions sit
-  inside `(when rf.interop/debug-enabled? …)` arms, each commented as a
-  dev-instrumentation arm.
-
-  Three of those deftests are QUIET tests — `(is (empty? warnings))`. With no
-  trace bus every one of them passes VACUOUSLY, reporting \"no advisory fired\"
-  for a framework that never looked. They are inside the arm for that reason.
-  In their place the DETECTION is asserted posture-independently on
-  `rf.routing.classification/unpromoted-query-keys`, the pure always-on predicate
-  `advise-query-promotion!` is built from: it is what decides whether a route
-  has the footgun, and only the announcement is dev-gated."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  The one dev-only surface is the query-key promotion ADVISORY, a
+  `trace/emit! :warning` behind `rf.interop/debug-enabled?`. Its trace reads
+  sit inside `(when rf.interop/debug-enabled? …)`: a quiet row's `(= [] …)`
+  would pass vacuously with no trace bus. Every row also asserts the always-on
+  detection, `rf.routing.classification/unpromoted-query-keys`, in both
+  postures."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.interop :as rf.interop]
             [re-frame.privacy :as rf.privacy]
-            [re-frame.projection :as rf.projection]
             [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
-            ;; Drive the REAL SSR egress consumer (project-runtime-db
-            ;; / project-routing-egress). SSR is a test-only dep of the
-            ;; routing artefact (routing/deps.edn :test), so the routing suite
-            ;; may exercise the real SSR projection.
+            ;; SSR is a test-only dep of the routing artefact, so this suite
+            ;; drives the real SSR egress consumer.
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
@@ -66,361 +41,122 @@
 (def ^:private sentinel rf.privacy/redacted-sentinel)
 
 (defn- elision-reg
-  "Read the per-frame elision registry sub-tree from `:rf/default`'s
-  runtime-db."
-  []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/elision]))
+  [frame-id]
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/elision]))
 
-(defn- owners-sourced-by
-  "The set of paths in a multi-owner declaration map `decls` (`{path #{owner…}}`)
-  whose retained owner-set carries an owner with `:source src`."
-  [decls src]
-  (->> decls
-       (filter (fn [[_ owners]] (some #(= src (:source %)) owners)))
-       (map key)
-       set))
-
-(defn- route-sensitive-paths
-  "The set of runtime paths claimed by a `:source :route` owner in the sensitive
+(defn- route-paths
+  "The paths a `:source :route` owner claims on `axis`
+  (`:sensitive-declarations` or `:declarations`) of `frame-id`'s elision
   registry."
-  []
-  (owners-sourced-by (:sensitive-declarations (elision-reg)) :route))
+  ([axis] (route-paths axis :rf/default))
+  ([axis frame-id]
+   (->> (get (elision-reg frame-id) axis)
+        (filter (fn [[_ owners]] (some #(= :route (:source %)) owners)))
+        (map key)
+        set)))
 
-(defn- route-large-paths
-  []
-  (owners-sourced-by (:declarations (elision-reg)) :route))
+(defn- visit!
+  ([url]
+   (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :link}]))
+  ([url frame-id]
+   (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :link}] {:frame frame-id})))
 
-;; ===========================================================================
-;; (1) registration-time fail-loud validation (EP-0025 §Failure posture)
-;; ===========================================================================
+;; ---- registration-time validation -----------------------------------------
 
 (deftest reg-route-rejects-malformed-classification-loud
-  (testing "a non-vector axis fails loud at registration"
+  (testing "a non-vector axis"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-classification\]"
           (rf/reg-route :route/bad {:sensitive {:not :a-vector}} "/bad"))))
-  (testing "a non-sequential path entry fails loud, carrying the canonical
-            Spec 009 thrown-error shape"
-    (let [ex   (try (rf/reg-route :route/bad2 {:sensitive [:not-a-path]} "/bad2")
-                    nil
-                    (catch clojure.lang.ExceptionInfo e e))
-          data (ex-data ex)]
-      (is (= :rf.error/invalid-route-classification (:rf.error/id data)))
-      (is (= 'rf/reg-route (:where data)))
-      (is (= :fix-route-classification (:recovery data)))
-      (is (= :route/bad2 (:route-id data)))
-      (is (= :sensitive (:axis data)))))
-  (testing "a non-EDN-identity path segment fails loud (the :rf/path boundary)"
+  (testing "a non-sequential path entry, with the canonical thrown-error shape"
+    (let [ex (try (rf/reg-route :route/bad2 {:sensitive [:not-a-path]} "/bad2")
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= {:rf.error/id :rf.error/invalid-route-classification
+              :where       'rf/reg-route
+              :recovery    :fix-route-classification
+              :route-id    :route/bad2
+              :axis        :sensitive}
+             (select-keys (ex-data ex) [:rf.error/id :where :recovery :route-id :axis])))))
+  (testing "a non-EDN-identity path segment"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-classification\]"
           (rf/reg-route :route/bad3 {:large [[:params (fn [] :opaque)]]} "/bad3")))))
 
-;; ===========================================================================
-;; (2) activation ADDS the re-rooted registry entry (EP-0025 §Subsystem matrix)
-;; ===========================================================================
-
-(deftest activation-adds-re-rooted-sensitive-entry
-  (testing "navigating to a :sensitive route installs the re-rooted entry"
-    (rf/reg-route :route/oauth
-                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                  "/oauth")
-    (is (empty? (route-sensitive-paths))
-        "no route-sourced classification before any navigation")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
-    (is (= #{[:rf.runtime/routing :current :query :token]}
-           (route-sensitive-paths))
-        "the projection-relative [:query :token] is re-rooted under [:rf.runtime/routing :current …] and tagged :source :route")))
-
-;; ===========================================================================
-;; (3) route change / deactivation DROPS the entry (the singleton invariant)
-;; ===========================================================================
+;; ---- lowering and the singleton drop ----------------------------------------
 
 (deftest route-change-swaps-classification
-  (testing "a route change drops the leaving route's entry and installs the entering route's"
-    (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
-    (rf/reg-route :route/b {:sensitive [[:params :b-secret]]} "/b/:b-secret")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/a?a-secret=1" {:rf.route/cause :link}])
-    (is (= #{[:rf.runtime/routing :current :query :a-secret]} (route-sensitive-paths)))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/b/xyz" {:rf.route/cause :link}])
-    (is (= #{[:rf.runtime/routing :current :params :b-secret]} (route-sensitive-paths))
-        "only the entering route's classification survives the swap")))
+  (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
+  (rf/reg-route :route/b {:sensitive [[:params :b-secret]]} "/b/:b-secret")
+  (visit! "/a?a-secret=1")
+  (is (= #{[:rf.runtime/routing :current :query :a-secret]} (route-paths :sensitive-declarations)))
+  (visit! "/b/xyz")
+  (is (= #{[:rf.runtime/routing :current :params :b-secret]} (route-paths :sensitive-declarations))
+      "only the entering route's classification survives the swap"))
 
 (deftest not-found-drops-classification
-  (testing "a route-miss / not-found transition clears the leaving route's classification"
-    (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret" {:rf.route/cause :link}])
-    (is (seq (route-sensitive-paths)))
-    ;; a URL that matches no route → :rf.route/not-found (route-meta may be nil)
-    (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-route" {:rf.route/cause :link}])
-    (is (empty? (route-sensitive-paths))
-        "a not-found transition drops the prior route's :source :route entries")))
+  (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
+  (visit! "/oauth?token=secret")
+  (is (seq (route-paths :sensitive-declarations)))
+  (visit! "/no-such-route")
+  (is (empty? (route-paths :sensitive-declarations))))
 
 (deftest frame-destroy-drops-classification
-  (testing "destroying the frame drops the whole runtime-db elision slot (no leak)"
-    (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret" {:rf.route/cause :link}])
-    (is (seq (route-sensitive-paths)))
-    (rf/destroy-frame! :rf/default)
-    ;; the frame's runtime-db (and its [:rf.runtime/elision] slot) is gone with it
-    (is (nil? (:rf.db/runtime (rf/frame-state-value :rf/default)))
-        "the destroyed frame carries no runtime-db, so no classification survives")))
-
-;; ===========================================================================
-;; Sensitive wins over large (EP-0025 §Egress rules)
-;; ===========================================================================
+  (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
+  (visit! "/oauth?token=secret")
+  (is (seq (route-paths :sensitive-declarations)))
+  (rf/destroy-frame! :rf/default)
+  (is (nil? (:rf.db/runtime (rf/frame-state-value :rf/default)))
+      "the frame's runtime-db, elision registry included, goes with it"))
 
 (deftest sensitive-wins-over-large-at-lowering
-  (testing "a path declared BOTH :sensitive and :large lowers as sensitive only"
-    (rf/reg-route :route/both
-                  {:sensitive [[:query :secret]]
-                   :large     [[:query :secret] [:params :big]]}
-                  "/both/:big")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/both/x?secret=s" {:rf.route/cause :link}])
-    (is (contains? (route-sensitive-paths)
-                   [:rf.runtime/routing :current :query :secret]))
-    (is (not (contains? (route-large-paths)
-                        [:rf.runtime/routing :current :query :secret]))
-        "the co-declared path is dropped from :large — no large-elided marker can leak for it")
-    (is (contains? (route-large-paths)
-                   [:rf.runtime/routing :current :params :big])
-        "the large-only path still lowers")))
-
-;; ===========================================================================
-;; Nested :large ANCESTOR + :sensitive DESCENDANT — the
-;; single most-important EP-0025 Egress-rules clause for routes. The
-;; lowering only drops a :large path when it is EXACTLY equal to a
-;; :sensitive path (classification.cljc large-only = (remove sens-set)
-;; large-paths), so a :large ANCESTOR co-declared with a :sensitive
-;; DESCENDANT lowers BOTH entries into the registry. The egress walker's
-;; nested-axis suppression is the authority: at a :large-matched
-;; node whose coordinate STRICTLY SHADOWS a :sensitive descendant, sensitive
-;; DOMINATES — the walker descends-and-redacts the descendant rather than
-;; emitting a :rf.size/large-elided marker that would leak the ancestor's
-;; :path / :bytes / :type (and, under an explicit
-;; :rf.egress/include-digests? true, a SHA-256 digest over the secret-bearing
-;; subtree; no egress profile turns digests on).
-;; ===========================================================================
-
-(deftest nested-large-ancestor-sensitive-descendant-redacts-at-egress
-  (testing "a route declaring a :large ancestor + :sensitive descendant redacts
-            the descendant and emits NO large marker leaking the ancestor"
-    ;; :large on the :query :payload ANCESTOR subtree; :sensitive on the
-    ;; :query :payload :secret DESCENDANT inside it.
-    (rf/reg-route :route/nested
-                  {:large     [[:query :payload]]
-                   :sensitive [[:query :payload :secret]]}
-                  "/nested")
-    ;; Lowering keeps BOTH (the drop is exact-equal only) — confirm the
-    ;; ancestor lands :large and the descendant lands :sensitive. These two
-    ;; assertions pin the LOWERING contract, independent of the egress walker.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/nested" {:rf.route/cause :link}])
-    (is (contains? (route-large-paths)
-                   [:rf.runtime/routing :current :query :payload])
-        "the :large ancestor lowers (NOT dropped — it is not exactly a sensitive path)")
-    (is (contains? (route-sensitive-paths)
-                   [:rf.runtime/routing :current :query :payload :secret])
-        "the :sensitive descendant lowers")
-    ;; The egress projection is where nested-axis suppression MUST win. Place a
-    ;; nested oversized + secret value at the slice query path directly — the
-    ;; classification paths are what matter at egress.
-    (let [rdb     (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      (assoc-in [:rf.runtime/routing :current :query :payload]
-                                {:secret "topsecret-bearer-token-value"
-                                 :public "ok"}))
-          elided  (rf.elision/elide-wire-value rdb {:frame :rf/default})
-          payload (get-in elided [:rf.runtime/routing :current :query :payload])]
-      ;; The descendant secret is the BARE sentinel — redacted, not a marker.
-      (is (= sentinel (:secret payload))
-          "the :sensitive descendant is redacted (the bare sentinel)")
-      ;; The unmarked sibling inside the ancestor rides verbatim.
-      (is (= "ok" (:public payload))
-          "an unmarked sibling inside the large ancestor rides verbatim")
-      ;; CRUCIAL: the ancestor must NOT be a :rf.size/large-elided marker —
-      ;; a marker would leak the ancestor's :path / :bytes / :type (and a
-      ;; digest, where one is opted in) while a sensitive descendant is
-      ;; inside it. The walker descends the ancestor (so the descendant
-      ;; redacts) rather than collapsing it to a marker.
-      (is (not (rf.elision/marker? payload))
-          "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside"))))
-
-;; ===========================================================================
-;; End-to-end :large-redacts-at-egress for a route.
-;; This pins the EP-0025 large-axis promise on the route surface: a
-;; route-declared :large path holding an oversized value produces a
-;; :rf.size/large-elided size marker AT EGRESS while non-classified slice
-;; fields ride verbatim and the in-process handler/sub sees the raw value.
-;; ===========================================================================
-
-(deftest declared-large-produces-size-marker-at-egress
-  (testing "a route-classified :large param value produces a size marker via elide-wire-value"
-    (rf/reg-route :route/upload
-                  {:large [[:params :payload]]}
-                  "/upload/:payload")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/big-blob-value" {:rf.route/cause :link}])
-    (let [rdb     (:rf.db/runtime (rf/frame-state-value :rf/default))
-          elided  (rf.elision/elide-wire-value rdb {:frame :rf/default})
-          slice   (get-in elided [:rf.runtime/routing :current])
-          payload (get-in slice [:params :payload])]
-      (is (rf.elision/marker? payload)
-          "the declared :large param value is replaced by a :rf.size/large-elided marker off the wire")
-      (let [body (:rf.size/large-elided payload)]
-        (is (= [:rf.runtime/routing :current :params :payload] (:path body))
-            "the marker carries the concrete runtime path")
-        (is (= :route (:reason body))
-            "the marker's :reason carries the :source :route provenance")
-        (is (number? (:bytes body)) "the marker carries a byte count, not the value")
-        ;; The marker must NOT carry the raw bulk value in any slot.
-        (is (not (str/includes? (pr-str payload) "big-blob-value"))
-            "the raw value is off the wire"))
-      (is (= :route/upload (:route-id slice))
-          "non-classified slice fields (the route id) ride verbatim"))
-    (testing "the handler / sub still sees the RAW value in-process"
-      (is (= "big-blob-value"
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/routing :current :params :payload]))
-          "classification is read ONLY at egress — app code sees real values"))))
-
-;; ===========================================================================
-;; Cross-frame isolation of route classification. EP-0025 /
-;; Spec 012 §Singleton-drop: route classifications are PER-FRAME. Two
-;; frames navigating different :sensitive routes each see ONLY their own
-;; route-sourced entry in their registry, and frame A's egress never
-;; redacts using frame B's classification (frames-are-isolated-contexts).
-;; ===========================================================================
-
-(defn- route-sensitive-paths-for
-  "The set of runtime paths classified :sensitive :source :route in
-  `frame-id`'s elision registry."
-  [frame-id]
-  (owners-sourced-by (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
-                             [:rf.runtime/elision :sensitive-declarations])
-                     :route))
+  (rf/reg-route :route/both
+                {:sensitive [[:query :secret]]
+                 :large     [[:query :secret] [:params :big]]}
+                "/both/:big")
+  (visit! "/both/x?secret=s")
+  (is (= [#{[:rf.runtime/routing :current :query :secret]}
+          #{[:rf.runtime/routing :current :params :big]}]
+         [(route-paths :sensitive-declarations) (route-paths :declarations)])
+      "the co-declared path lowers as sensitive only; the large-only path still lowers"))
 
 (deftest cross-frame-route-classification-is-isolated
-  (testing "two frames navigating different :sensitive routes each carry ONLY
-            their own route-sourced classification (no cross-frame leak)"
-    ;; A second app frame alongside :rf/default. Routes are shared (the
-    ;; registry is process-global), but the lowered classification is
-    ;; per-frame runtime-db state.
-    (rf/make-frame {:id :frame/b :doc "second app frame for cross-frame isolation"})
-    (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
-    (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
-    ;; Frame A (:rf/default) → route A; frame B → route B.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/a?a-secret=AAA" {:rf.route/cause :link}] {:frame :rf/default})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/b?b-secret=BBB" {:rf.route/cause :link}] {:frame :frame/b})
-    ;; Each frame's registry carries ONLY its own route-sourced entry.
-    (is (= #{[:rf.runtime/routing :current :query :a-secret]}
-           (route-sensitive-paths-for :rf/default))
-        "frame A's registry carries route A's classification ONLY")
-    (is (= #{[:rf.runtime/routing :current :query :b-secret]}
-           (route-sensitive-paths-for :frame/b))
-        "frame B's registry carries route B's classification ONLY")
-    (testing "each frame's egress redacts using its OWN classification, not the sibling's"
-      (let [a-rdb (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      (assoc-in [:rf.runtime/routing :current :query]
-                                {:a-secret "AAA" :b-secret "BBB"}))
-            b-rdb (-> (:rf.db/runtime (rf/frame-state-value :frame/b))
-                      (assoc-in [:rf.runtime/routing :current :query]
-                                {:a-secret "AAA" :b-secret "BBB"}))
-            a-q   (get-in (rf.elision/elide-wire-value a-rdb {:frame :rf/default})
-                          [:rf.runtime/routing :current :query])
-            b-q   (get-in (rf.elision/elide-wire-value b-rdb {:frame :frame/b})
-                          [:rf.runtime/routing :current :query])]
-        ;; Frame A redacts a-secret (its own) and rides b-secret raw (B's, not A's).
-        (is (= sentinel (:a-secret a-q)) "frame A redacts its own :a-secret")
-        (is (= "BBB" (:b-secret a-q))
-            "frame A does NOT redact :b-secret — frame B's classification does not leak into A")
-        ;; Frame B redacts b-secret (its own) and rides a-secret raw (A's, not B's).
-        (is (= sentinel (:b-secret b-q)) "frame B redacts its own :b-secret")
-        (is (= "AAA" (:a-secret b-q))
-            "frame B does NOT redact :a-secret — frame A's classification does not leak into B")))))
-
-;; ===========================================================================
-;; Authoring-boundary footguns on reg-route classification. Two minor
-;; surfaces, both pinned here so the intended (fail-open) behaviour is
-;; EXPLICIT:
-;;
-;;   (1) :clear-sensitive / :clear-large — a plausible copy-paste from the
-;;       app-db commit-plane effect surface — are NOT classification keys
-;;       (validate+extract triggers ONLY on #{:sensitive :large}). A route is a
-;;       SINGLETON current-route, so a "clear" verb is meaningless by design.
-;;       They are SILENTLY IGNORED by validate+extract (returns nil — no
-;;       classification), BUT the reg-route bare-key guard rejects them LOUD
-;;       (they are unreserved bare keys → :rf.error/route-bad-metadata), so
-;;       a typo does fail at the authoring boundary. Pin both halves.
-;;
-;;   (2) :sensitive [[:query "token"]] with a STRING segment is accepted at
-;;       validation as concrete EDN, but the runtime slice keys an undeclared
-;;       query key as a STRING and a DECLARED one as a KEYWORD
-;;       (coerce-query). So a string-key declaration can never match a
-;;       keyword-promoted slot — it fails OPEN. Spec 012 §319 warns of the
-;;       keyword pairing; this locks the string-segment fail-open mode.
-;; ===========================================================================
+  (rf/make-frame {:id :frame/b :doc "second app frame"})
+  (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
+  (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
+  (visit! "/a?a-secret=AAA" :rf/default)
+  (visit! "/b?b-secret=BBB" :frame/b)
+  (is (= [#{[:rf.runtime/routing :current :query :a-secret]}
+          #{[:rf.runtime/routing :current :query :b-secret]}]
+         [(route-paths :sensitive-declarations :rf/default)
+          (route-paths :sensitive-declarations :frame/b)]))
+  (testing "each frame's egress redacts by its own classification only"
+    (let [egress (fn [frame-id]
+                   (-> (:rf.db/runtime (rf/frame-state-value frame-id))
+                       (assoc-in [:rf.runtime/routing :current :query] {:a-secret "AAA" :b-secret "BBB"})
+                       (rf.elision/elide-wire-value {:frame frame-id})
+                       (get-in [:rf.runtime/routing :current :query])))]
+      (is (= [{:a-secret sentinel :b-secret "BBB"}
+              {:a-secret "AAA" :b-secret sentinel}]
+             [(egress :rf/default) (egress :frame/b)])))))
 
 (deftest clear-keys-are-not-classification-keys-ignored-by-extract
-  (testing ":clear-sensitive / :clear-large are NOT classification
-            keys — validate+extract returns nil (silently ignored, no decl)"
-    ;; validate+extract triggers only on #{:sensitive :large}; a route carrying
-    ;; ONLY clear-keys has no classification to lower (a route is a singleton —
-    ;; a clear verb is meaningless).
-    (is (nil? (rf.routing.classification/validate+extract
-                :route/clearish {:clear-sensitive [[:query :token]]}))
-        ":clear-sensitive is not a classification key → no classification extracted")
-    (is (nil? (rf.routing.classification/validate+extract
-                :route/clearish {:clear-large [[:params :payload]]}))
-        ":clear-large is not a classification key → no classification extracted")))
+  (is (= [nil nil]
+         [(rf.routing.classification/validate+extract :route/clearish {:clear-sensitive [[:query :token]]})
+          (rf.routing.classification/validate+extract :route/clearish {:clear-large [[:params :payload]]})])
+      "only :sensitive / :large are classification keys; reg-route's bare-key guard rejects the clear verbs"))
 
-(deftest clear-keys-rejected-loud-at-reg-route-bare-key-guard
-  (testing "a bare :clear-sensitive / :clear-large key is NOT in the
-            reserved set, so reg-route's authoring-boundary guard fails it LOUD
-            (a typo cannot silently no-op at registration)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo #"\[:rf.error/route-bad-metadata\]"
-          (rf/reg-route :route/clear1 {:clear-sensitive [[:query :token]]} "/clear1"))
-        ":clear-sensitive is an unreserved bare key → rejected at reg-route")
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo #"\[:rf.error/route-bad-metadata\]"
-          (rf/reg-route :route/clear2 {:clear-large [[:params :payload]]} "/clear2"))
-        ":clear-large is an unreserved bare key → rejected at reg-route")))
-
-(deftest string-query-segment-fails-open-against-keyword-promoted-slice
-  (testing "a :sensitive [[:query \"token\"]] STRING-key declaration
-            silently FAILS OPEN — a route that PROMOTES :token keys the slice
-            with the KEYWORD :token, so the string-key decl never matches and the
-            value ships RAW at egress (the documented fail-open mode)"
-    ;; The route promotes `token` to the keyword `:token` via its :query schema,
-    ;; so the runtime slice key is `:token` (keyword) — but the classification
-    ;; declares the STRING key "token", which can never match.
-    (rf/reg-route :route/strmiss
-                  {:sensitive [[:query "token"]] :query [:map [:token :string]]}
-                  "/strmiss")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/strmiss?token=secret123" {:rf.route/cause :link}])
-    ;; The lowered registry carries the re-rooted STRING-key path…
-    (is (= #{[:rf.runtime/routing :current :query "token"]}
-           (route-sensitive-paths))
-        "the string-segment path lowers verbatim (string key, not keyword)")
-    ;; …but the runtime slice keys the value under the KEYWORD :token, so at
-    ;; egress the classification path does not match → the value ships RAW.
-    (let [rdb    (:rf.db/runtime (rf/frame-state-value :rf/default))
-          elided (rf.elision/elide-wire-value rdb {:frame :rf/default})
-          slice  (get-in elided [:rf.runtime/routing :current])]
-      (is (= "secret123" (get-in slice [:query :token]))
-          "FAIL-OPEN: the keyword-promoted slot is NOT redacted by the string-key decl"))))
-
-;; ===========================================================================
-;; reg-route-time query-key promotion ADVISORY. A :sensitive /
-;; :large [:query k] path on a route that does NOT promote `k` to a keyword
-;; (via :query / :query-defaults) silently fails open; the
-;; advisory is a WARN (never a throw — fail-open is intended). These pin the
-;; advisory fires for the footgun and stays quiet for the correct pairing.
-;; ===========================================================================
+;; ---- the query-key promotion advisory ----------------------------------------
+;;
+;; The runtime slice keys a query key as a keyword only when the route promotes
+;; it through `:query` or `:query-defaults`, so a `[:query k]` classification
+;; on an unpromoted key silently fails open. `reg-route` warns (never throws).
 
 (defn- capture-warnings
-  "Run `thunk` — a `reg-route` — with a :trace listener that captures every
-  :rf.warning/route-classification-query-key-unpromoted advisory; return the
-  captured trace tags maps (one per emit). The vector's `:promoted-keys`
-  metadata is the promoted-key set `reg-route` itself handed
-  `advise-query-promotion!`, recorded in both postures."
+  "Run `thunk` (a `reg-route`) and return the tags of every
+  `:rf.warning/route-classification-query-key-unpromoted` trace it emits. The
+  result's `:promoted-keys` metadata is the promoted-key set `reg-route`
+  handed `advise-query-promotion!`, recorded in both postures."
   [thunk]
   (let [seen     (atom [])
         promoted (atom nil)
@@ -440,318 +176,99 @@
     (with-meta @seen {:promoted-keys @promoted})))
 
 (defn- unpromoted
-  "The ALWAYS-ON detection behind the advisory: the query keys `route-meta`'s
-  classification names that the route does not promote to a keyword, judged
-  against the promoted-key set `reg-route` derived (the `:promoted-keys`
-  metadata of `warnings`, a `capture-warnings` result).
-  `rf.routing.classification/advise-query-promotion!` is exactly this predicate plus a
-  dev-gated `trace/emit!`, so this is the posture-independent half — it decides
-  whether a route HAS the footgun, and survives -Dre-frame.debug=false."
+  "The always-on detection behind the advisory, judged against the promoted-key
+  set `reg-route` derived (the `:promoted-keys` metadata of `warnings`)."
   [route-id route-meta warnings]
   (rf.routing.classification/unpromoted-query-keys
     (rf.routing.classification/validate+extract route-id route-meta)
     (:promoted-keys (meta warnings))))
 
 (deftest advisory-fires-for-unpromoted-sensitive-query-key
-  (testing "a :sensitive [[:query :token]] on a route with NO :query
-            schema naming :token emits the unpromoted-query-key advisory"
-    (let [warnings (capture-warnings
-                     #(rf/reg-route :route/advmiss {:sensitive [[:query :token]]} "/advmiss"))]
-      ;; SEMANTIC, posture-independent: the detection.
-      (is (= #{:token} (unpromoted :route/advmiss {:sensitive [[:query :token]]} warnings))
-          "the always-on predicate names :token as the unpromoted classified key")
+  (doseq [[route-id route-meta path expected]
+          [[:route/adv-miss     {:sensitive [[:query :token]]}
+            "/adv-miss" #{:token}]
+           [:route/adv-query    {:sensitive [[:query :token]] :query [:map [:token :string]]}
+            "/adv-query" #{}]
+           [:route/adv-optional {:sensitive [[:query :ref]] :query [:map [:ref {:optional true} :string]]}
+            "/adv-optional" #{}]
+           [:route/adv-default  {:sensitive [[:query :page]] :query-defaults {:page 1}}
+            "/adv-default" #{}]
+           ;; A string segment can never name a keyword-promoted slot.
+           [:route/adv-string   {:sensitive [[:query "token"]] :query [:map [:token :string]]}
+            "/adv-string" #{"token"}]
+           [:route/adv-large    {:large [[:query :blob]]}
+            "/adv-large" #{:blob}]
+           ;; Path captures are always keyword-keyed.
+           [:route/adv-params   {:sensitive [[:params :secret]]}
+            "/adv-params/:secret" #{}]]]
+    (let [warnings (capture-warnings #(rf/reg-route route-id route-meta path))]
+      (is (= expected (unpromoted route-id route-meta warnings)) (str route-id))
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
-        (is (= 1 (count warnings)) "exactly one advisory fired")
-        (let [w (first warnings)]
-          (is (= :route/advmiss (:route-id w)) "the advisory names the route")
-          (is (= [:token] (:query-keys w)) "the unpromoted key is named")
-          (is (empty? (:promoted-keys w)) "the route promotes no query keys")
-          (is (string? (:advice w)) "the advisory carries actionable guidance"))))))
+        (is (= (if (seq expected)
+                 [{:route-id route-id :query-keys (vec (sort-by str expected))}]
+                 [])
+               (mapv #(select-keys % [:route-id :query-keys]) warnings))
+            (str route-id))))))
 
-(deftest advisory-quiet-when-query-key-promoted
-  (testing "a :sensitive [[:query :token]] paired with a :query
-            schema naming :token (the correct pairing) emits NO advisory"
-    (let [warnings (capture-warnings
-                     #(rf/reg-route :route/advok
-                                    {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                                    "/advok"))]
-      ;; SEMANTIC, posture-independent: the detection finds nothing
-      ;; to advise on. Without this the `(empty? warnings)` leg below would pass
-      ;; vacuously under the gate — an empty trace ring satisfies it trivially.
-      (is (empty? (unpromoted :route/advok
-                              {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                              warnings))
-          "the always-on predicate finds no unpromoted key for the correct pairing")
-      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
-      ;; the trace ring, hence guarded.
-      (when rf.interop/debug-enabled?
-        (is (empty? warnings) "no advisory when the query key is promoted")))))
-
-(deftest advisory-honours-defaults-promotion
-  (testing ":query-defaults also counts as promotion — a key
-            declared there does NOT trigger the advisory"
-    (let [warnings (capture-warnings
-                    #(rf/reg-route :route/advdef
-                                   {:sensitive [[:query :page]] :query-defaults {:page 1}}
-                                   "/advdef"))]
-      ;; SEMANTIC, posture-independent: see the twin above.
-      (is (empty? (unpromoted :route/advdef
-                              {:sensitive [[:query :page]] :query-defaults {:page 1}}
-                              warnings))
-          ":query-defaults promotes :page → the predicate finds nothing")
-      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
-      (when rf.interop/debug-enabled?
-        (is (empty? warnings) ":query-defaults promotes :page → no advisory")))))
-
-(deftest advisory-vocabulary-is-two-sources-not-three
-  (testing "EP-0037 R5: the promotion vocabulary is TWO sources, :query and
-            :query-defaults. `:query-retain` is not one: it neither widens the
-            promoted set nor appears in the advice text, so a key named only
-            by `:query-retain` WARNS until the route declares it in :query or
-            :query-defaults."
-    (let [warnings (capture-warnings
-                     #(rf/reg-route :route/advret
-                                    {:sensitive [[:query :ref]]}
-                                    "/advret"))]
-      ;; SEMANTIC, posture-independent: `:query-retain` is not a promotion
-      ;; source, so NOTHING promotes :ref and the always-on predicate reports it.
-      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} warnings))
-          "a key only :query-retain would name is unpromoted")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count warnings))
-            "a classified query key with no :query / :query-defaults declaration warns")
-        (let [{:keys [query-keys promoted-keys advice]} (first warnings)]
-          (is (= [:ref] query-keys) "the unpromoted key is named")
-          (is (empty? promoted-keys) "nothing promotes it — there is no retain slot")
-          (is (str/includes? advice ":query / :query-defaults")
-              "the advice names exactly the two promotion sources")
-          (is (not (str/includes? advice ":query-retain"))
-              ":query-retain is absent from the advice vocabulary"))))
-    ;; The remedy: DECLARE the key, and the advisory falls
-    ;; silent — the same key is then keyword-promoted for real.
-    (let [migrated-meta {:sensitive [[:query :ref]]
-                         :query     [:map [:ref {:optional true} :string]]}
-          warnings      (capture-warnings
-                          #(rf/reg-route :route/advret-migrated migrated-meta
-                                         "/advret-migrated"))]
-      ;; SEMANTIC, posture-independent — without this the negative
-      ;; leg below is vacuous under the gate.
-      (is (empty? (unpromoted :route/advret-migrated migrated-meta warnings))
-          "declaring :ref in the :query schema is the explicit remedy")
-      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
-      (when rf.interop/debug-enabled?
-        (is (empty? warnings)
-            "declaring :ref in the :query schema silences the advisory")))))
-
-(deftest advisory-fires-for-string-segment-and-large-axis
-  (testing "a STRING [:query \"token\"] segment (can never be a
-            keyword-promoted slot) AND a :large [:query k] unpromoted key both
-            trigger the advisory"
-    (let [str-meta {:sensitive [[:query "token"]] :query [:map [:token :string]]}
-          w-str    (capture-warnings
-                     #(rf/reg-route :route/advstr str-meta "/advstr"))]
-      ;; SEMANTIC, posture-independent: a STRING segment can never
-      ;; name a keyword-promoted slot, so the predicate reports it even though
-      ;; the route promotes the keyword `:token`.
-      (is (= #{"token"} (unpromoted :route/advstr str-meta w-str))
-          "a string [:query \"token\"] segment is unpromotable by construction")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count w-str)) "the string-segment query key triggers the advisory")
-        (is (= ["token"] (:query-keys (first w-str))) "the string key is named")))
-    (let [w-large (capture-warnings
-                    #(rf/reg-route :route/advlarge {:large [[:query :blob]]} "/advlarge"))]
-      ;; SEMANTIC, posture-independent: the :large axis is scanned
-      ;; too, not just :sensitive.
-      (is (= #{:blob} (unpromoted :route/advlarge {:large [[:query :blob]]} w-large))
-          "the predicate scans the :large axis as well as :sensitive")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count w-large)) "an unpromoted :large [:query k] key triggers the advisory")
-        (is (= [:blob] (:query-keys (first w-large))))))))
-
-(deftest advisory-quiet-for-params-axis
-  (testing "a :sensitive [[:params k]] path NEVER triggers the
-            advisory — path captures are always keyword-keyed (immune)"
-    (let [meta     {:sensitive [[:params :secret]]}
-          warnings (capture-warnings
-                     #(rf/reg-route :route/advparam meta "/advparam/:secret"))]
-      ;; SEMANTIC, posture-independent: the predicate only ever
-      ;; looks under a `[:query …]` head, so the :params axis cannot contribute.
-      ;; Without this the negative leg below is vacuous under the gate.
-      (is (empty? (unpromoted :route/advparam meta warnings))
-          "the :params axis is immune to the query-promotion footgun")
-      ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
-      (when rf.interop/debug-enabled?
-        (is (empty? warnings) "no advisory fires for a :params-axis declaration")))))
-
-;; ===========================================================================
-;; Real EGRESS-CONSUMER + non-default PROFILE
-;; coverage. The egress assertions above call elide-wire-value MANUALLY under
-;; the bare {:frame :rf/default} (no :rf.egress/profile), exercising the walker
-;; directly but NO real consumer — a gap that would hide an SSR raw-ship
-;; leak. These drive a sensitive route through:
-;;
-;;   (a) project-egress under NAMED non-default egress profiles
-;;     (:rf.egress/off-box-observability, :rf.egress/off-box-tool) —
-;;     profile-AWARE redaction, not bare opts; and
-;;   (b) the REAL SSR consumer product — re-frame.ssr.payload-policy/
-;;     project-runtime-db + project-routing-egress (the SSR egress boundary) —
-;;     asserting the sensitive route's :query value redacts in the serialized
-;;     :rf/runtime-db slice end-to-end, while an unclassified field rides raw.
-;;
-;; SSR is a TEST-ONLY dep of the routing artefact (routing/deps.edn :test), so
-;; the routing test suite may drive the real SSR projection without SSR
-;; depending on routing.
-;; ===========================================================================
-
-(defn- navigate-sensitive-oauth!
-  "reg-route a :sensitive oauth route (token + payload) with a :query schema
-  that PROMOTES :token, navigate to it carrying a secret, and return the
-  frame's runtime-db value (with the route classification lowered)."
-  []
-  (rf/reg-route :route/oauth
-                {:sensitive [[:query :token]]
-                 :large     [[:query :payload]]
-                 :query     [:map [:token :string] [:payload :string]]}
-                "/oauth")
-  (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123&payload=big" {:rf.route/cause :link}])
-  (:rf.db/runtime (rf/frame-state-value :rf/default)))
-
-(deftest sensitive-route-redacts-under-off-box-profiles
-  (testing "the same route redacts under :rf.egress/off-box-observability
-            and :rf.egress/off-box-tool (every named off-box default profile)"
-    (let [rdb (navigate-sensitive-oauth!)]
-      (doseq [profile [:rf.egress/off-box-observability :rf.egress/off-box-tool]]
-        (let [slice (-> (rf.projection/project-egress
-                          rdb {:frame :rf/default :rf.egress/profile profile})
-                        (get-in [:rf.runtime/routing :current]))]
-          (is (= sentinel (get-in slice [:query :token]))
-              (str "the sensitive query value redacts under " profile))
-          ;; The :large payload elides to a size marker under off-box profiles.
-          (is (rf.elision/marker? (get-in slice [:query :payload]))
-              (str "the :large query value elides to a size marker under " profile)))))))
+;; ---- the real SSR egress consumer -------------------------------------------
 
 (deftest sensitive-route-redacts-through-real-ssr-consumer
-  (testing "a :sensitive route driven through the REAL SSR consumer
-            (project-runtime-db → project-routing-egress, the SSR egress
-            boundary) redacts the :query value in the serialized :rf/runtime-db
-            slice end-to-end — the adversarial coverage for an SSR raw-ship
-            leak"
-    (let [rdb   (navigate-sensitive-oauth!)
-          ;; project-runtime-db resolves the current frame (:rf/default, pinned
-          ;; by the reset-runtime fixture's with-frame) and runs the durable
-          ;; routing slice through project-routing-egress under
-          ;; :rf.egress/ssr-hydration.
-          slice (rf.ssr.payload-policy/project-runtime-db rdb)
-          route (get-in slice [:rf.runtime/routing :current])]
-      (is (some? route) "the durable :current route slice rides the payload")
-      (is (= sentinel (get-in route [:query :token]))
-          "the sensitive :query value is redacted in the SSR :rf/runtime-db slice")
-      (is (= :route/oauth (:route-id route))
-          "the unclassified route id rides the payload verbatim")
-      ;; The transient sibling never rides the wire (fail-closed allowlist).
-      (is (not (contains? (:rf.runtime/routing slice) :pending-navigation))
-          "only the durable :current slice ships")))
-  (testing "the in-process slice still carries the RAW value"
-    (is (= "secret123"
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                   [:rf.runtime/routing :current :query :token]))
-        "classification is read ONLY at egress — app code sees the real value")))
+  (rf/reg-route :route/oauth
+                {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                "/oauth")
+  (visit! "/oauth?token=secret123")
+  (let [rdb   (:rf.db/runtime (rf/frame-state-value :rf/default))
+        route (get-in (rf.ssr.payload-policy/project-runtime-db rdb)
+                      [:rf.runtime/routing :current])]
+    (testing "project-runtime-db, the SSR egress boundary, redacts the declared value"
+      (is (= sentinel (get-in route [:query :token])))
+      (is (= :route/oauth (:route-id route)) "an unclassified slot rides verbatim"))
+    (testing "the in-process slice stays raw"
+      (is (= "secret123" (get-in rdb [:rf.runtime/routing :current :query :token]))))))
 
-(deftest unclassified-route-rides-raw-through-real-ssr-consumer
-  (testing "a route with NO classification rides its :query verbatim
-            through the real SSR consumer (the projection is path-precise, not a
-            blanket scrub) — the negative control"
-    (rf/reg-route :route/plain {:query [:map [:q :string]]} "/plain")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/plain?q=visible" {:rf.route/cause :link}])
-    (let [slice (rf.ssr.payload-policy/project-runtime-db (:rf.db/runtime (rf/frame-state-value :rf/default)))
-          route (get-in slice [:rf.runtime/routing :current])]
-      (is (= "visible" (get-in route [:query :q]))
-          "an unclassified query value rides verbatim through the SSR projection"))))
-
-;; ===========================================================================
-;; MULTI-OWNER union — an effect-owned absolute path AND a route
-;; claim on the SAME absolute path survive INDEPENDENTLY. Spec 015 L149 permits
-;; an app to additionally classify a subsystem's absolute runtime-db path from a
-;; handler effect (`:source :effect`); a route change must NOT un-redact that
-;; effect-owned path. Both dispatch orders are pinned. A single-owner registry
-;; would let the route claim overwrite (forward order) or ignore (reverse
-;; order) the effect claim and then DELETE the path on route-leave — a
-;; privacy fail-open on the AI-egress boundary.
-;; ===========================================================================
+;; ---- multi-owner: an effect claim on the route's absolute path ---------------
+;;
+;; An app may classify a subsystem's absolute runtime-db path from a handler
+;; effect (`:source :effect`). A route change must drop only the route's own
+;; claim: a single-owner registry would let the route claim overwrite or
+;; ignore the effect claim and then delete the path on route leave.
 
 (def ^:private abs-token-path [:rf.runtime/routing :current :query :token])
 
-(defn- effect-classify-abs-token!
-  "An app classifies the route's ABSOLUTE storage path directly via a
-  commit-plane `:sensitive` effect (Spec 015 L149) — `:source :effect`."
-  []
+(defn- effect-classify-abs-token! []
   (rf/reg-event :app/classify-abs-token
     (fn [{:keys [db]} _] {:db db :sensitive [abs-token-path]}))
   (rf/dispatch-sync [:app/classify-abs-token]))
 
-(defn- token-path-classified?
-  "Shape-agnostic: is the absolute token path present in the sensitive registry
-  at all (i.e. still classified by SOME owner)?"
-  []
-  (contains? (:sensitive-declarations (elision-reg)) abs-token-path))
+(defn- reg-oauth-and-plain! []
+  (rf/reg-route :route/oauth
+                {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                "/oauth")
+  (rf/reg-route :route/plain {} "/plain"))
 
 (defn- token-owners []
-  (get (:sensitive-declarations (elision-reg)) abs-token-path))
+  (get-in (elision-reg :rf/default) [:sensitive-declarations abs-token-path]))
 
-(defn- redacts-token-at-abs-path?
-  "Place a value at the absolute token path and egress-project it — is it
-  redacted?"
-  []
-  (let [rdb   (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                  (assoc-in abs-token-path "secret123"))
-        slice (get-in (rf.elision/elide-wire-value rdb {:frame :rf/default})
-                      [:rf.runtime/routing :current :query :token])]
-    (= sentinel slice)))
+(defn- redacts-token-at-abs-path? []
+  (let [rdb (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
+                (assoc-in abs-token-path "secret123"))]
+    (= sentinel (get-in (rf.elision/elide-wire-value rdb {:frame :rf/default}) abs-token-path))))
 
 (deftest effect-then-route-then-route-leave-preserves-effect-claim
-  (testing "forward order: an effect classifies the route's absolute :query
-            :token path; a route ALSO claims it (union); after navigating AWAY
-            the effect claim SURVIVES and the path stays redacted"
-    (effect-classify-abs-token!)
-    (is (token-path-classified?) "the effect claim is installed")
-    (rf/reg-route :route/oauth
-                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                  "/oauth")
-    (rf/reg-route :route/plain {} "/plain")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
-    (is (= #{{:source :effect} {:source :route}} (token-owners))
-        "the effect and route claims UNION on the same absolute path")
-    ;; navigate to a route declaring NO classification (route-leave)
-    (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
-    (is (token-path-classified?)
-        "the effect claim SURVIVES the route change (a single-owner registry would delete the path)")
-    (is (= #{{:source :effect}} (token-owners))
-        "only the effect owner remains after the route left")
-    (is (redacts-token-at-abs-path?)
-        "a value at the effect-classified absolute path still redacts after route-leave")))
+  (effect-classify-abs-token!)
+  (reg-oauth-and-plain!)
+  (visit! "/oauth?token=secret123")
+  (is (= #{{:source :effect} {:source :route}} (token-owners)) "the two claims union")
+  (visit! "/plain")
+  (is (= #{{:source :effect}} (token-owners)) "the route leave drops only the route's claim")
+  (is (redacts-token-at-abs-path?)))
 
 (deftest route-then-effect-then-route-leave-preserves-effect-claim
-  (testing "reverse order: the route claims the absolute path first, THEN an
-            effect classifies it (union — the effect is neither ignored nor a
-            clobber); after route-leave the effect claim SURVIVES (a
-            single-owner registry would ignore it, then drop it)"
-    (rf/reg-route :route/oauth
-                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                  "/oauth")
-    (rf/reg-route :route/plain {} "/plain")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
-    (is (= #{{:source :route}} (token-owners)) "only the route claim so far")
-    (effect-classify-abs-token!)
-    (is (= #{{:source :route} {:source :effect}} (token-owners))
-        "the effect SET UNIONS in — it is not ignored under the standing route claim")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
-    (is (token-path-classified?)
-        "the effect claim SURVIVES the route change")
-    (is (= #{{:source :effect}} (token-owners))
-        "only the effect owner remains after the route left")
-    (is (redacts-token-at-abs-path?)
-        "a value at the effect-classified absolute path still redacts after route-leave")))
+  (reg-oauth-and-plain!)
+  (visit! "/oauth?token=secret123")
+  (effect-classify-abs-token!)
+  (is (= #{{:source :route} {:source :effect}} (token-owners))
+      "the effect unions in under the standing route claim")
+  (visit! "/plain")
+  (is (= #{{:source :effect}} (token-owners))))
