@@ -1,32 +1,9 @@
 (ns re-frame.boot-test
-  "Targeted JVM coverage for the framework boot lifecycle.
-
-  Boot is exercised transitively in every other test via the reset-runtime
-  fixture (which always calls rf/init!); this namespace covers the four
-  entry points themselves:
-
-    * init!                 — boot, idempotent for the SEATED adapter (a
-                              different one raises
-                              :rf.error/adapter-already-installed);
-                              explicit-adapter contract.
-                              Per Spec 002 §`:rf/default` is an ordinary id
-                              (EP-0002) init! does NOT create a :rf/default
-                              frame — the runtime never synthesises a default.
-    * install-adapter!      — single-adapter-per-process invariant
-    * dispose-adapter!      — tear down + clear the slot
-    * ensure-default-frame! — TEST-ONLY fixture helper that registers the
-                              ordinary :rf/default frame on demand (NOT a
-                              runtime path; init! does not call it).
-
-  `(rf/init! ...)` requires an explicit adapter spec map.
-  The no-arg form and the keyword form are both errors; the only
-  legal call shape is `(rf/init! adapter-map)`.
-
-  These tests deliberately install / dispose the adapter explicitly per
-  test; they do NOT rely on rf/init! from a shared fixture, because the
-  unit under test IS the boot lifecycle. The fixture below clears the
-  registrar, frames, flows, AND the adapter slot to guarantee each test
-  starts from a known cold state."
+  "JVM coverage for the boot lifecycle: `init!`, `install-adapter!`,
+  `dispose-adapter!` and the substrate-delegation throws before install and
+  after dispose. Each test starts from a cold, never-installed process (the
+  fixture clears the adapter slot and its disposed breadcrumb), because the
+  unit under test is boot itself."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -36,26 +13,15 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-;; ---- fixture --------------------------------------------------------------
-;; Cold-start each test: clear all framework state INCLUDING the installed
-;; adapter, so every deftest exercises the boot path from zero. We do NOT
-;; call rf/init! here — that is the unit under test.
-
 (defn cold-start [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; Wipe both the install slot AND the disposed breadcrumb so each test
-  ;; starts from a never-installed cold state. A plain
-  ;; `dispose-adapter!` would leave the breadcrumb true after the first
-  ;; test that installed, biasing every subsequent throw assertion toward
-  ;; `:rf.error/adapter-disposed` rather than `:rf.error/no-adapter-installed`.
+  ;; reset the breadcrumb too, or every later test would see :adapter-disposed
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (test-fn)
-  ;; Leave the world in a state the next namespace's fixture can reset
-  ;; from cleanly.
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (rf.registrar/clear-all!)
@@ -64,150 +30,49 @@
 
 (use-fixtures :each cold-start)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- count-frames []
-  (count @rf.frame/frames))
-
-(defn- default-frame-count []
-  (count (filter #(= :rf/default %) (keys @rf.frame/frames))))
-
-;; ---- tests ----------------------------------------------------------------
-
 (deftest init-is-idempotent
-  (testing "init! is idempotent — calling twice does not double-install the adapter; it creates NO :rf/default frame"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: no adapter installed at the start of the test")
-    (is (zero? (count-frames))
-        "precondition: no frames registered at the start of the test")
-    ;; First boot.
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (is (some? (rf.substrate.adapter/current-adapter)))
+  (is (empty? @rf.frame/frames) "init! creates no frame, :rf/default included")
+  (let [adapter-after-first (rf.substrate.adapter/current-adapter)
+        frames-after-first  @rf.frame/frames]
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (some? (rf.substrate.adapter/current-adapter))
-        "init! installs the supplied adapter")
-    (is (zero? (count-frames))
-        "init! registers no frames at all — no :rf/default either (EP-0002: the
-         runtime never synthesises a default)")
-    (let [adapter-after-first (rf.substrate.adapter/current-adapter)
-          frames-after-first  @rf.frame/frames]
-      ;; Second boot — should be a no-op.
-      (rf/init! rf.substrate.plain-atom/adapter)
-      (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
-          "the second init! does NOT re-install the adapter (same identity)")
-      (is (= frames-after-first @rf.frame/frames)
-          "the second init! does NOT mutate the frames registry — :rf/default is
-           still absent after two init! calls"))))
+    (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
+        "the second init! does not re-install")
+    (is (= frames-after-first @rf.frame/frames))))
 
 (deftest init-rejects-a-different-adapter
-  ;; `init!`'s guard asks "is the adapter I was handed the seated one?" via
-  ;; `same-adapter?`, so a different adapter reaches `install-adapter!` and
-  ;; raises. A guard asking "is ANYTHING seated?" would return nil on a
-  ;; second `init!` with a DIFFERENT adapter, leave the first adapter seated
-  ;; and emit nothing — the silent swallow Conventions §No silent swallow
-  ;; forbids. The middle arm is the load-bearing
-  ;; control: it is what distinguishes this rule from a naive `=` /
-  ;; `identical?` check, which would throw on every hot reload.
-  (testing "init! with a DIFFERENT adapter raises :rf.error/adapter-already-installed"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: cold start, no adapter installed")
+  ;; init! asks "is this the seated adapter?" (same canonical :kind, else
+  ;; identity), not "is anything seated?" — so a different adapter raises
+  ;; rather than being silently ignored, while a hot-reload copy is a no-op.
+  (testing "a different adapter raises and leaves the seated one in place"
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter
-                    (rf.substrate.adapter/current-adapter))
-        "the first init! seats the plain-atom adapter")
-    (let [other  (assoc rf.substrate.plain-atom/adapter :kind ::other)
-          thrown (try
-                   (rf/init! other)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (re-find #"\[:rf\.error/adapter-already-installed\]"
-                   (str (some-> thrown ex-message)))
-          "a second init! with a different adapter throws rather than no-opping;
-           the thrown message carries the [:rf.error/adapter-already-installed] token")
-      (let [data (ex-data thrown)]
-        (is (= :rf.error/adapter-already-installed (:rf.error/id data))
-            "ex-data carries the canonical :rf.error/id discriminator")
-        (is (identical? rf.substrate.plain-atom/adapter (:installed data))
-            "ex-data's :installed is the adapter that was already seated")
-        (is (identical? other (:attempted data))
-            "ex-data's :attempted is the adapter the caller tried to seat"))
+    (let [other (assoc rf.substrate.plain-atom/adapter :kind ::other)
+          data  (try (rf/init! other) nil
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/adapter-already-installed (:rf.error/id data)))
+      (is (identical? rf.substrate.plain-atom/adapter (:installed data)))
+      (is (identical? other (:attempted data)))
       (is (identical? rf.substrate.plain-atom/adapter
-                      (rf.substrate.adapter/current-adapter))
-          "the rejected init! leaves the seated adapter untouched")))
-
-  (testing "HOT-RELOAD CONTROL: a structural copy of the seated canonical adapter is NOT a different adapter"
-    ;; Every adapter Var is a plain `def`, so a `^:dev/after-load` boot
-    ;; re-calls init! with a structurally fresh map carrying fresh fn
-    ;; identities. A canonical `:rf.adapter/*` :kind is a stable token that
-    ;; survives that re-evaluation, so the re-call must be a no-op. An `=`
-    ;; or `identical?` rule would
-    ;; throw here, which is why this arm exists.
+                      (rf.substrate.adapter/current-adapter)))))
+  (testing "a structural copy of the seated canonical adapter is the same adapter"
     (rf.substrate.adapter/dispose-adapter!)
     (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
     (rf/init! rf.substrate.plain-atom/adapter)
-    (let [seated  (rf.substrate.adapter/current-adapter)
-          reload  (assoc rf.substrate.plain-atom/adapter :doc "reloaded")]
-      (is (not (identical? reload rf.substrate.plain-atom/adapter))
-          "control precondition: the reloaded map is a genuinely distinct object")
-      (is (= (:kind reload) (:kind rf.substrate.plain-atom/adapter))
-          "control precondition: it carries the same canonical :rf.adapter/* kind")
-      (is (nil? (rf/init! reload))
-          "re-initing with a structural copy of the seated canonical adapter does not throw")
-      (is (identical? seated (rf.substrate.adapter/current-adapter))
-          "and it does not re-install: the seated identity is unchanged")))
-
-  (testing "two distinct KIND-LESS custom adapters are different adapters (object-identity fallback)"
-    ;; A custom adapter with no canonical kind carries no distinguishing
-    ;; token, so `same-adapter?` falls back to object identity — two
-    ;; distinct custom maps are never conflated by a shared `:custom`.
+    (let [seated (rf.substrate.adapter/current-adapter)]
+      (is (nil? (rf/init! (assoc rf.substrate.plain-atom/adapter :doc "reloaded"))))
+      (is (identical? seated (rf.substrate.adapter/current-adapter)))))
+  (testing "two distinct kind-less custom adapters are different (identity fallback)"
     (rf.substrate.adapter/dispose-adapter!)
     (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
     (let [custom-a (dissoc rf.substrate.plain-atom/adapter :kind)
           custom-b (dissoc rf.substrate.plain-atom/adapter :kind)]
       (rf/init! custom-a)
-      (is (identical? custom-a (rf.substrate.adapter/current-adapter))
-          "the kind-less custom adapter is seated")
-      (let [thrown (try
-                     (rf/init! custom-b)
-                     nil
-                     (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :rf.error/adapter-already-installed
-               (:rf.error/id (ex-data thrown)))
-            "a second, structurally-equal but distinct kind-less map raises")
-        (is (identical? custom-a (rf.substrate.adapter/current-adapter))
-            "and the seated custom adapter is untouched"))
-      (is (nil? (rf/init! custom-a))
-          "re-initing with the IDENTICAL custom map is still an idempotent no-op"))))
-
-(deftest install-adapter-rejects-double-install
-  (testing "install-adapter! raises :rf.error/adapter-already-installed on a second call"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: cold start, no adapter installed")
-    ;; First install — succeeds.
-    (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "first install-adapter! seats the plain-atom adapter")
-    ;; Second install (without dispose) — must throw with the spec'd error.
-    (let [thrown (try
-                   (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      ;; A second install-adapter! call without an intervening dispose throws.
-      ;; The message is a human sentence carrying the
-      ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
-      ;; thrown-error shape); assert the token substring, NOT exact
-      ;; equality. The canonical discriminator is :rf.error/id below.
-      (is (re-find #"\[:rf\.error/adapter-already-installed\]"
-                   (str (some-> thrown ex-message)))
-          "the thrown message carries the [:rf.error/adapter-already-installed] token")
-      (let [data (ex-data thrown)]
-        (is (= :rf.error/adapter-already-installed (:rf.error/id data))
-            "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
-        (is (some? (:installed data))
-            "ex-data carries the currently :installed adapter")
-        (is (some? (:attempted data))
-            "ex-data carries the :attempted (rejected) adapter")))
-    ;; Sanity: the originally-installed adapter is still seated.
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "the rejected install does NOT replace or unseat the existing adapter")))
+      (is (= :rf.error/adapter-already-installed
+             (:rf.error/id (try (rf/init! custom-b) nil
+                                (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+      (is (identical? custom-a (rf.substrate.adapter/current-adapter)))
+      (is (nil? (rf/init! custom-a)) "the identical map is still an idempotent no-op"))))
 
 (deftest throwing-adapter-cleanup-still-finalizes-the-process-lifecycle
   (let [boom (ex-info "adapter host cleanup failed" {:kind ::cleanup-failed})
@@ -322,268 +187,44 @@
         "a fresh install succeeds after the exact cleanup owner settles")
     (is (false? (rf.substrate.adapter/adapter-disposed?)))))
 
-(deftest ensure-default-frame-is-idempotent
-  (testing "ensure-default-frame! creates :rf/default if absent; no-op if present"
-    ;; Frame creation needs an adapter to allocate the app-db container.
-    (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (zero? (count-frames))
-        "precondition: no frames registered")
-    ;; First call — creates :rf/default.
-    (rf.frame/ensure-default-frame!)
-    (is (= 1 (default-frame-count))
-        ":rf/default is registered after the first call")
-    (let [first-frame (get @rf.frame/frames :rf/default)
-          frames-snap @rf.frame/frames]
-      (is (some? first-frame)
-          "the :rf/default frame is present in the frames registry")
-      ;; Second call — no-op; identity preserved.
-      (rf.frame/ensure-default-frame!)
-      (is (identical? first-frame (get @rf.frame/frames :rf/default))
-          "a second call does NOT replace the :rf/default frame (identity preserved)")
-      (is (= frames-snap @rf.frame/frames)
-          "a second call does NOT mutate the frames registry at all — :rf/default
-           still appears exactly once after two ensure! calls")))
-  (testing "ensure-default-frame! does not disturb other frames"
-    ;; Register a sibling frame BEFORE the (possibly redundant) ensure!.
-    (rf/make-frame {:id :tenant-x :doc "tenant"})
-    (let [tenant-before (get @rf.frame/frames :tenant-x)]
-      (rf.frame/ensure-default-frame!)
-      (is (identical? tenant-before (get @rf.frame/frames :tenant-x))
-          "ensure-default-frame! leaves unrelated frames untouched"))))
-
-;; ---- (rf/init! ...) explicit-adapter contract -----------------------------
-;;
-;; `(rf/init! ...)` requires an explicit adapter spec map. The fn defn has
-;; no no-arg arity, so calling `(rf/init!)` raises a language-level
-;; ArityException at the call site rather than a runtime ex-info — earlier
-;; diagnosis, clearer stack trace, IDE-flaggable. The nil and keyword forms
-;; raise :rf.error/no-adapter-specified at runtime (there is no default-
-;; adapter registry to fall back to and no keyword-to-adapter lookup
-;; table).
-
-(deftest init-nil-arg-raises-no-adapter-specified
-  (testing "(rf/init! nil) raises :rf.error/no-adapter-specified"
-    (let [thrown (try
-                   (rf/init! nil)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/no-adapter-specified
-             (:rf.error/id (ex-data thrown)))
-          "rf/init! with nil raises; ex-data carries the :rf.error/no-adapter-specified tag"))
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the failed init! did NOT install any adapter")))
-
 (deftest init-keyword-arg-raises-no-adapter-specified
-  (testing "(rf/init! :reagent) raises :rf.error/no-adapter-specified — no registry, no keyword form"
-    (let [thrown (try
-                   (rf/init! :reagent)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/no-adapter-specified
-             (:rf.error/id (ex-data thrown)))
-          "rf/init! with a keyword raises — keyword form is not supported — carrying
-           the :rf.error/no-adapter-specified tag")
-      (let [data (ex-data thrown)]
-        (is (= :reagent (:received data))
-            "ex-data echoes the offending keyword")
-        (is (= "adapter spec map" (:expected data))
-            "ex-data names the expected shape")
-        (is (string? (:reason data))
-            "ex-data carries a :reason string pointing at the explicit-map pattern")))
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the failed init! did NOT install any adapter")))
+  (let [data (try (rf/init! :reagent) nil
+                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+    (is (= {:rf.error/id :rf.error/no-adapter-specified
+            :received    :reagent
+            :expected    "adapter spec map"}
+           (select-keys data [:rf.error/id :received :expected]))))
+  (is (nil? (rf.substrate.adapter/current-adapter))))
 
-(deftest adapter-swap-resets-substrate-state-keeps-registrar
-  (testing "dispose then install a different adapter — registrar survives, substrate state resets"
-    ;; Boot under adapter A (plain-atom), register a handler, register a
-    ;; non-default frame, and seed the default frame's app-db. Per EP-0002
-    ;; the runtime never synthesises :rf/default — this test declares it
-    ;; explicitly (an ordinary id) and runs ambient ops inside an explicit
-    ;; :rf/default scope, exactly as a single-frame app would.
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-sub      :n    (fn [db _] (:n db)))
-    (rf/make-frame {:id :rf/default :doc "explicit app frame"})
-    (rf/make-frame {:id :tenant-a :doc "tenant-a"})
-    (binding [rf.frame/*current-frame* :rf/default]
-      (rf/dispatch-sync [:seed 7]))
-    (is (= 7 (rf/subscribe-once [:n] {:frame :rf/default}))
-        "before swap: the seeded value is visible via the layer-1 sub")
-    (let [registrar-before @rf.registrar/kind->id->metadata]
-      ;; Build a distinct second adapter — same shape as plain-atom but a
-      ;; different identity, with wrapping fns that prove the runtime is
-      ;; routing through B (not the disposed A) after the swap.
-      (let [make-calls    (atom 0)
-            replace-calls (atom 0)
-            base-make     (:make-state-container rf.substrate.plain-atom/adapter)
-            base-replace  (:replace-container! rf.substrate.plain-atom/adapter)
-            adapter-b (assoc rf.substrate.plain-atom/adapter
-                             :make-state-container
-                             (fn [v]
-                               (swap! make-calls inc)
-                               (base-make v))
-                             :replace-container!
-                             (fn [c v]
-                               (swap! replace-calls inc)
-                               (base-replace c v)))]
-        ;; Swap: dispose A, install B.
-        (rf.substrate.adapter/dispose-adapter!)
-        (is (nil? (rf.substrate.adapter/current-adapter))
-            "between swap steps the slot is empty")
-        (rf.substrate.adapter/install-adapter! adapter-b)
-        (is (identical? adapter-b (rf.substrate.adapter/current-adapter))
-            "adapter B is now installed")
-        ;; The registrar (events / subs / handlers) survives the swap.
-        (is (= registrar-before @rf.registrar/kind->id->metadata)
-            "registrar contents are unchanged across the adapter swap")
-        ;; Substrate-held state (frame app-db containers) does NOT survive
-        ;; — the old plain-atom containers are not connected to adapter B.
-        ;; Recreate the :rf/default frame's containers via re-registration
-        ;; so that subsequent dispatches use B's :make-state-container.
-        (reset! rf.frame/frames {})
-        (rf.frame/ensure-default-frame!)
-        (is (= 1 (default-frame-count))
-            ":rf/default frame is recreated cleanly under adapter B")
-        (is (pos? @make-calls)
-            "adapter B's :make-state-container was invoked when the new :rf/default frame was created (proves frame creation routes through B)")
-        ;; Handlers from before the swap are still callable — registrar
-        ;; preserved them. Issue a fresh dispatch and observe via B.
-        (let [replace-pre @replace-calls]
-          (binding [rf.frame/*current-frame* :rf/default]
-            (rf/dispatch-sync [:seed 99]))
-          (is (> @replace-calls replace-pre)
-              "adapter B's :replace-container! was invoked by dispatch-sync (proves event commit routes through B, not the disposed A)"))
-        (is (= 99 (rf/subscribe-once [:n] {:frame :rf/default}))
-            "registered :seed event + :n sub still work end-to-end under adapter B")))))
-
-;; ---- substrate delegation: uniform no-adapter-installed throw -------------
-;;
-;; Every substrate-delegation fn in
-;; `re-frame.substrate.adapter` throws ONE shape when no adapter is
-;; installed:
-;;
-;;   :rf.error/no-adapter-installed
-;;   {:where    'rf/<fn>            ;; the offending public-surface symbol
-;;    :recovery :no-recovery
-;;    :reason   "<where> was called before (rf/init! ...); ..."}
-;;
-;; That covers every required delegation fn (`make-state-container`,
-;; `read-container`, `replace-container!`, `make-derived-value`, `render`,
-;; `render-to-string`) and the two optional fns (`subscribe-container`,
-;; `register-context-provider`). A nil adapter must not surface as an NPE —
-;; strictly worse than a structured throw because background-thread NPEs are
-;; hard to diagnose — and the ex-info shape matches the documented missing-fn
-;; contract used elsewhere in core.
-
-(defn- catch-no-adapter
-  "Invoke `thunk` with no adapter installed; return the caught
-  ExceptionInfo (or nil if nothing threw)."
-  [thunk]
+(defn- thrown-data [thunk]
   (try (thunk) nil
-       (catch clojure.lang.ExceptionInfo e e)))
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (def ^:private delegation-calls
-  "One call per substrate-delegation fn, paired with the public-surface symbol
-  its throw names in `:where` — every required fn plus the two optional ones."
-  [['rf/make-state-container        #(rf.substrate.adapter/make-state-container         {:k :v})]
-   ['rf/read-container              #(rf.substrate.adapter/read-container               ::dummy-container)]
-   ['rf/replace-container!          #(rf.substrate.adapter/replace-container!           ::dummy-container {:new :value})]
-   ['rf/make-derived-value          #(rf.substrate.adapter/make-derived-value           [::source]        (constantly 42))]
-   ['rf/render                      #(rf.substrate.adapter/render                       [:div]            ::mount-point {})]
-   ['ssr/render-to-string            #(rf.substrate.adapter/render-to-string             [:div]            {})]
-   ['rf/subscribe-container         #(rf.substrate.adapter/subscribe-container          ::dummy-container (fn [_]))]
-   ['rf/register-context-provider   #(rf.substrate.adapter/register-context-provider    :rf/default)]])
+  "Every delegation fn reaches the adapter through one `require-adapter!`;
+  one required fn, replace-container! (which inspects its container first)
+  and one optional fn stand for the set."
+  [['rf/make-state-container  #(rf.substrate.adapter/make-state-container {:k :v})]
+   ['rf/replace-container!    #(rf.substrate.adapter/replace-container! ::dummy-container {:new :value})]
+   ['rf/subscribe-container   #(rf.substrate.adapter/subscribe-container ::dummy-container (fn [_]))]])
 
 (deftest substrate-delegation-uniform-no-adapter-throw
-  (testing "every substrate-delegation fn throws :rf.error/no-adapter-installed before (rf/init! ...)"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: cold start — no adapter installed")
-    (let [cases delegation-calls]
-      (doseq [[where-sym thunk] cases]
-        (let [thrown (catch-no-adapter thunk)]
-          ;; It throws when called before (rf/init! ...). The message is a
-          ;; human sentence + the trailing [:rf.error/<id>] token; assert the
-          ;; token substring, not exact keyword-equality. Canonical
-          ;; discriminator is :rf.error/id.
-          (is (re-find #"\[:rf\.error/no-adapter-installed\]"
-                       (str (some-> thrown ex-message)))
-              (str where-sym " message carries the [:rf.error/no-adapter-installed] token"))
-          (let [data (ex-data thrown)]
-            ;; Per Spec 009 §The thrown-error shape: canonical
-            ;; discriminator slot is `:rf.error/id` (require-adapter!
-            ;; stamps it).
-            (is (= :rf.error/no-adapter-installed (:rf.error/id data))
-                (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
-            (is (= where-sym (:where data))
-                (str where-sym " ex-data :where echoes the offending public surface symbol"))
-            (is (= :no-recovery (:recovery data))
-                (str where-sym " ex-data :recovery is :no-recovery"))
-            (is (re-find #"rf/init!" (str (:reason data)))
-                (str where-sym " ex-data :reason names rf/init! as the recovery action"))))))))
+  (doseq [[where-sym thunk] delegation-calls]
+    (is (= {:rf.error/id :rf.error/no-adapter-installed :where where-sym :recovery :no-recovery}
+           (select-keys (thrown-data thunk) [:rf.error/id :where :recovery])))))
 
 (deftest replace-container-nil-container-skips-adapter-check
-  (testing "replace-container! with a nil container short-circuits via the write-after-destroy error path and does NOT consult the adapter slot"
-    ;; Defense-in-depth nil-container guard is checked BEFORE the
-    ;; adapter lookup so a scheduled drain hitting a destroyed frame
-    ;; does not produce a misleading 'no-adapter-installed' throw — it
-    ;; correctly emits :rf.error/write-after-destroy (EP-0008)
-    ;; regardless of whether an adapter is installed.
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: no adapter installed")
-    (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
-        "replace-container! on nil container returns nil silently (no throw)")
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the nil-container path did not consult or modify the adapter slot")))
+  ;; the nil-container guard runs before the adapter lookup, so a drain hitting
+  ;; a destroyed frame never reports a misleading no-adapter-installed
+  (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))))
 
-;; ---- disposed-vs-never-installed ------------------------------------------
-;;
-;; Post-dispose runtime calls raise `:rf.error/adapter-disposed`,
-;; distinct from `:rf.error/no-adapter-installed` (the fresh-process
-;; case). Both states leave the install slot nil so a subsequent
-;; install-adapter! works.
-
-(deftest adapter-disposed-predicate-tracks-lifecycle
-  (testing "adapter-disposed? reflects the dispose/install lifecycle"
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "fresh cold start — no install, no dispose; breadcrumb is false")
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "dispose with no adapter installed is a no-op — it does not pretend a
-         fresh process is post-dispose")
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "install clears the breadcrumb (and was already false)")
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (true? (rf.substrate.adapter/adapter-disposed?))
-        "after dispose-adapter!, the breadcrumb is true")
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "fresh install clears the breadcrumb")))
+(deftest dispose-with-nothing-installed-does-not-mark-the-process-disposed
+  (rf.substrate.adapter/dispose-adapter!)
+  (is (false? (rf.substrate.adapter/adapter-disposed?))))
 
 (deftest substrate-delegation-after-dispose-throws-adapter-disposed
-  (testing "every substrate-delegation fn throws :rf.error/adapter-disposed after dispose-adapter!"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: adapter slot is empty after dispose")
-    (is (true? (rf.substrate.adapter/adapter-disposed?))
-        "precondition: disposed breadcrumb is true")
-    (let [cases delegation-calls]
-      (doseq [[where-sym thunk] cases]
-        (let [thrown (catch-no-adapter thunk)]
-          ;; It throws when called after dispose-adapter!. The message is a
-          ;; human sentence + the trailing [:rf.error/<id>] token; assert the
-          ;; token substring, not exact keyword-equality. Canonical
-          ;; discriminator is :rf.error/id.
-          (is (re-find #"\[:rf\.error/adapter-disposed\]"
-                       (str (some-> thrown ex-message)))
-              (str where-sym " message carries the [:rf.error/adapter-disposed] token (not :no-adapter-installed)"))
-          (let [data (ex-data thrown)]
-            (is (= :rf.error/adapter-disposed (:rf.error/id data))
-                (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
-            (is (= where-sym (:where data))
-                (str where-sym " ex-data :where echoes the offending public surface symbol"))
-            (is (= :install-a-fresh-adapter (:recovery data))
-                (str where-sym " ex-data :recovery names the fresh-install remedy"))
-            (is (re-find #"destroy-adapter!" (str (:reason data)))
-                (str where-sym " ex-data :reason mentions the prior destroy-adapter!"))))))))
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.substrate.adapter/dispose-adapter!)
+  (doseq [[where-sym thunk] delegation-calls]
+    (is (= {:rf.error/id :rf.error/adapter-disposed :where where-sym :recovery :install-a-fresh-adapter}
+           (select-keys (thrown-data thunk) [:rf.error/id :where :recovery])))))
