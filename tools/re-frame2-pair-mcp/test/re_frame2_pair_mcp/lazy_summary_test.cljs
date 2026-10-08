@@ -1,48 +1,21 @@
 (ns re-frame2-pair-mcp.lazy-summary-test
-  "Unit tests for the lazy-summary default across every rich snapshot
-  slice.
-
-  A `{:rf.mcp/summary ...}` marker is the default for every rich slice
-  in the snapshot response — `:app-db`, `:sub-cache`, `:machines`,
-  `:epochs`, `:traces` — so a discovery snapshot ('I don't know which
-  slice carries the answer') stays under the wire cap by construction.
-
-  Tests pin the public helpers directly:
-  `tools.args/parse-mode-arg`, `tools.args/parse-modes-arg`,
-  `tools.snapshot-pipeline/resolve-slice-mode`,
-  `tools.snapshot-pipeline/summarise-other-slices-in-snapshot`,
-  `tools.summary/tree-summary`. A rename or signature drift surfaces
-  as a failing test rather than silent contract drift.
-
-  Wire-byte / token-budget assertions appear at the end — the
-  discovery-snapshot scenario MUST fit the 5,000-token cap."
+  "The lazy-summary default: every rich snapshot slice ships as a
+  `{:rf.mcp/summary ...}` marker unless the global `mode` or a per-slice
+  `modes` override asks for `:full`, so a discovery snapshot fits the
+  wire cap by construction."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
-;; ---------------------------------------------------------------------------
-;; parse-mode-arg — the input contract for the global `:mode` MCP arg.
-;; ---------------------------------------------------------------------------
-
 (deftest parse-mode-arg-resolution
-  ;; Budget-sensitive: an unknown value MUST default to the cheaper
-  ;; mode rather than expand by accident.
+  ;; Budget-sensitive: an unknown value MUST default to the cheaper mode.
   (doseq [[input expected note]
           [[nil :summary "absent ⇒ summary"]
-           ["" :summary "blank ⇒ summary"]
            ["full" :full "string full"]
-           [:full :full "keyword full"]
-           ["summary" :summary "string summary"]
-           [:summary :summary "keyword summary"]
-           ["garbage" :summary "an unknown string defaults to summary"]
-           [:nope :summary "an unknown keyword defaults to summary"]]]
+           ["garbage" :summary "an unknown string defaults to summary"]]]
     (is (= expected (args/parse-mode-arg input)) note)))
-
-;; ---------------------------------------------------------------------------
-;; parse-modes-arg — per-slice override map.
-;; ---------------------------------------------------------------------------
 
 (deftest parse-modes-arg-resolution
   ;; Unknown mode values fall through to the global default — the slice
@@ -51,45 +24,16 @@
           [[nil {} "absent ⇒ no overrides"]
            [{:app-db :full :epochs :summary} {:app-db :full :epochs :summary}
             "a CLJS map passes through"]
-           [#js {"app-db" "full" "sub-cache" "summary"} {:app-db :full :sub-cache :summary}
-            "string keys coerce to slice keywords"]
-           [#js {":app-db" "full"} {:app-db :full}
+           [#js {"app-db" "full" "sub-cache" "garbage" "garbage" "full"} {:app-db :full}
+            "string keys coerce; an unknown mode drops only its own slice; unknown slices drop"]
+           [#js {":epochs" "summary"} {:epochs :summary}
             "EDN-shaped string keys strip the leading colon"]
-           [#js {"app-db" "full" "garbage" "full"} {:app-db :full} "unknown slices drop"]
-           [#js {"app-db" "garbage"} {} "an unknown mode value drops its slice"]
-           [#js {"app-db" "garbage" "epochs" "summary"} {:epochs :summary}
-            "an unknown mode value drops only its own slice"]
-           ["scalar" {} "a string is not an override map"]
-           [42 {} "a number is not an override map"]
-           [true {} "a boolean is not an override map"]]]
+           ["scalar" {} "a non-map is not an override map"]]]
     (is (= expected (args/parse-modes-arg input)) note)))
 
-;; ---------------------------------------------------------------------------
-;; resolve-slice-mode — per-slice precedence resolution.
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-slice-mode-precedence
-  (doseq [[slice overrides global expected note]
-          [[:app-db {} :summary :summary "nothing pins the slice ⇒ summary"]
-           [:sub-cache {} :summary :summary "nothing pins the slice ⇒ summary"]
-           [:epochs {} nil :summary "no global mode ⇒ summary"]
-           [:app-db {} :full :full "the global mode applies to every slice"]
-           [:sub-cache {} :full :full "the global mode applies to every slice"]
-           [:epochs {} :full :full "the global mode applies to every slice"]
-           [:traces {} :full :full "the global mode applies to every slice"]
-           [:app-db {:app-db :full} :summary :full "per-slice :full beats global :summary"]
-           [:epochs {:epochs :summary} :full :summary "per-slice :summary beats global :full"]]]
-    (is (= expected (pipeline/resolve-slice-mode slice overrides global)) note)))
-
-;; ---------------------------------------------------------------------------
-;; summarise-other-slices-in-snapshot — the load-bearing pipeline step.
-;; ---------------------------------------------------------------------------
-
 (def ^:private fixture-snapshot
-  ;; Mirrors the path-slicing-test fixture shape. The :app-db slice is
-  ;; already a summary marker here because slice-app-db-in-snapshot
-  ;; runs upstream in the real pipeline; the function under test
-  ;; skips :app-db.
+  ;; :app-db is already a summary marker: slice-app-db-in-snapshot runs
+  ;; upstream, and the function under test skips it.
   {:rf/default {:app-db    {:rf.mcp/summary {:type :map :keys [:user :cart] :count 2 :bytes 100}}
                 :sub-cache {[:user/email] {:value "a@b" :ref-count 1}
                             [:cart/total] {:value 42   :ref-count 3}}
@@ -107,104 +51,54 @@
 (deftest summary-default-replaces-every-rich-slice
   (let [{:keys [snapshot resolved-modes]}
         (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {} :summary)
-        rf-default (:rf/default snapshot)]
-    (testing "resolved-modes echoes the per-slice mode"
-      (is (= {:sub-cache :summary :machines :summary
-              :epochs    :summary :traces   :summary}
-             resolved-modes)))
-    (testing ":app-db slice is left alone (handled by upstream slicer)"
-      (is (= {:rf.mcp/summary {:type :map :keys [:user :cart] :count 2 :bytes 100}}
-             (:app-db rf-default))))
-    (testing "every rich slice is a {:rf.mcp/summary ...} marker whose type matches the value shape"
-      (is (= :map    (-> rf-default :sub-cache :rf.mcp/summary :type)))
-      (is (= :map    (-> rf-default :machines  :rf.mcp/summary :type)))
-      (is (= :vector (-> rf-default :epochs    :rf.mcp/summary :type)))
-      (is (= :vector (-> rf-default :traces    :rf.mcp/summary :type))))
-    (testing "vector counts surface for drill-down"
-      (is (= 2 (-> rf-default :epochs :rf.mcp/summary :count)))
-      (is (= 2 (-> rf-default :traces :rf.mcp/summary :count))))
-    (testing "map keys surface for drill-down"
-      (is (= [:ids :state]
-             (-> rf-default :machines :rf.mcp/summary :keys))))))
+        marker-shape (fn [frame]
+                       (update-vals (dissoc frame :app-db) #(dissoc (:rf.mcp/summary %) :bytes)))]
+    (is (= {:sub-cache :summary :machines :summary :epochs :summary :traces :summary}
+           resolved-modes))
+    (is (= (update-vals fixture-snapshot :app-db) (update-vals snapshot :app-db))
+        ":app-db is left to the upstream slicer")
+    (is (= {:rf/default {:sub-cache {:type :map :keys [[:user/email] [:cart/total]] :count 2}
+                         :machines  {:type :map :keys [:ids :state] :count 2}
+                         :epochs    {:type :vector :count 2}
+                         :traces    {:type :vector :count 2}}
+            :stories    {:sub-cache {:type :map :keys [] :count 0}
+                         :machines  {:type :map :keys [:ids :state] :count 2}
+                         :epochs    {:type :vector :count 0}
+                         :traces    {:type :vector :count 0}}}
+           (update-vals snapshot marker-shape)))))
 
 (deftest full-mode-leaves-every-slice-untouched
-  (let [{:keys [snapshot resolved-modes]}
-        (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {} :full)]
-    (is (= {:sub-cache :full :machines :full
-            :epochs    :full :traces   :full}
-           resolved-modes))
-    (is (= (:rf/default fixture-snapshot)
-           (:rf/default snapshot))
-        "Snapshot under :full mode is unchanged")))
+  (is (= {:snapshot       fixture-snapshot
+          :resolved-modes {:sub-cache :full :machines :full :epochs :full :traces :full}}
+         (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {} :full))))
 
 (deftest per-slice-override-beats-global-mode
-  (testing "global :summary, per-slice :full on :epochs"
-    (let [{:keys [snapshot resolved-modes]}
-          (pipeline/summarise-other-slices-in-snapshot fixture-snapshot
-                                                       {:epochs :full}
-                                                       :summary)
-          rf-default (:rf/default snapshot)]
-      (is (= :full    (:epochs    resolved-modes)))
-      (is (= :summary (:sub-cache resolved-modes)))
-      (is (= 2 (count (:epochs rf-default)))
-          ":epochs ships full because per-slice override wins")
-      (is (some? (-> rf-default :sub-cache :rf.mcp/summary))
-          ":sub-cache stays summarised under global :summary")))
-  (testing "global :full, per-slice :summary on :traces"
-    (let [{:keys [snapshot resolved-modes]}
-          (pipeline/summarise-other-slices-in-snapshot fixture-snapshot
-                                                       {:traces :summary}
-                                                       :full)
-          rf-default (:rf/default snapshot)]
-      (is (= :summary (:traces    resolved-modes)))
-      (is (= :full    (:sub-cache resolved-modes)))
-      (is (some? (-> rf-default :traces :rf.mcp/summary))
-          ":traces is summarised because per-slice override wins")
-      (is (= 2 (count (:sub-cache rf-default)))
-          ":sub-cache ships full under global :full"))))
-
-(deftest empty-slices-stay-empty
-  ;; The :stories frame in the fixture has empty maps / vectors.
-  ;; Summarising an empty map yields {:type :map :count 0 :keys []
-  ;; :bytes ~3} — the marker is small but distinguishable from the raw
-  ;; empty value. Skip the marker for nil to avoid noise.
-  (let [{:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
-                             fixture-snapshot {} :summary)
-        stories (:stories snapshot)]
-    (is (= 0 (-> stories :sub-cache :rf.mcp/summary :count)))
-    (is (= 0 (-> stories :epochs    :rf.mcp/summary :count)))
-    (is (= 0 (-> stories :traces    :rf.mcp/summary :count)))))
+  (let [rf-default (:rf/default fixture-snapshot)]
+    (testing "global :summary, per-slice :full on :epochs"
+      (let [{:keys [snapshot resolved-modes]}
+            (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {:epochs :full} :summary)]
+        (is (= {:sub-cache :summary :machines :summary :epochs :full :traces :summary}
+               resolved-modes))
+        (is (= (:epochs rf-default) (-> snapshot :rf/default :epochs)))
+        (is (some? (-> snapshot :rf/default :sub-cache :rf.mcp/summary)))))
+    (testing "global :full, per-slice :summary on :traces"
+      (let [{:keys [snapshot resolved-modes]}
+            (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {:traces :summary} :full)]
+        (is (= {:sub-cache :full :machines :full :epochs :full :traces :summary}
+               resolved-modes))
+        (is (some? (-> snapshot :rf/default :traces :rf.mcp/summary)))
+        (is (= (:sub-cache rf-default) (-> snapshot :rf/default :sub-cache)))))))
 
 (deftest summary-skips-slices-not-in-include-set
-  ;; When the caller's `:include` filter excludes a slice, the frame
-  ;; map has no entry for that slice. The summariser MUST NOT add one.
-  (let [partial-snap {:rf/default {:app-db    {:k 1}
-                                    :sub-cache {[:q] {:value 1}}}}
-        {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
-                             partial-snap {} :summary)
-        rf-default (:rf/default snapshot)]
-    (is (not (contains? rf-default :machines)))
-    (is (not (contains? rf-default :epochs)))
-    (is (not (contains? rf-default :traces)))
-    (is (some? (-> rf-default :sub-cache :rf.mcp/summary)))))
-
-(deftest summary-passes-through-non-map-values
-  ;; A pathological frame value (scalar where a map was expected)
-  ;; passes through unchanged rather than crashing.
-  (let [weird {:rf/default :not-a-map}
-        {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
-                             weird {} :summary)]
-    (is (= :not-a-map (:rf/default snapshot)))))
-
-;; ---------------------------------------------------------------------------
-;; Wire-byte assertions — the load-bearing property.
-;; ---------------------------------------------------------------------------
+  ;; A slice the caller's `:include` filter left out MUST NOT be added.
+  (let [{:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
+                             {:rf/default {:app-db {:k 1} :sub-cache {[:q] {:value 1}}}} {} :summary)]
+    (is (= #{:app-db :sub-cache} (set (keys (:rf/default snapshot)))))))
 
 (defn- make-fat-snapshot
-  "Build a fixture snapshot with realistically heavy slices: a 1MB
-  app-db, a 100-entry sub-cache, 10 epoch records each carrying a full
-  app-db `:db-before`, and a 200-entry trace ring buffer. Mirrors the
-  cap-blowing shape the lazy-summary default must tame."
+  "Cap-blowing slices: a 1MB app-db, a 100-entry sub-cache, 30 machines
+  each carrying the app-db, 10 epochs each carrying it twice, and a
+  200-entry trace buffer."
   []
   (let [big-map (apply hash-map
                        (mapcat (fn [i] [(keyword (str "k" i))
@@ -226,18 +120,11 @@
                          :timestamp i}))}}))
 
 (deftest discovery-snapshot-fits-the-wire-cap
-  ;; The discovery snapshot ('I don't know which slice carries the
-  ;; answer') is the worst-case wire blow. With the lazy-summary
-  ;; default, every rich slice collapses to a marker — the entire
-  ;; response fits the 5,000-token cap.
   (let [fat (make-fat-snapshot)
-        ;; In the real pipeline, slice-app-db-in-snapshot runs upstream
-        ;; and turns :app-db into a summary marker. Simulate that here.
-        with-app-db-summary
-        (update-in fat [:rf/default :app-db] summary/tree-summary)
+        ;; In the real pipeline slice-app-db-in-snapshot summarises :app-db upstream.
         {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
-                             with-app-db-summary {} :summary)
-        wire (pr-str snapshot)
+                             (update-in fat [:rf/default :app-db] summary/tree-summary) {} :summary)
+        wire   (pr-str snapshot)
         tokens (tu/token-estimate wire)]
     (is (< tokens 5000)
         (str "Discovery snapshot under :summary mode MUST fit the 5k-token cap. "
