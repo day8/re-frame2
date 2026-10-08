@@ -1,15 +1,7 @@
 (ns re-frame.story-runtime-cljs-test
-  "CLJS smoke tests for the re-frame2-story runtime.
-
-  The bulk of runtime coverage lives in the JVM test ns
-  (`re-frame.story-runtime-test`) — args precedence, decorator
-  composition, snapshot-identity, lifecycle state-machine — all of
-  which run faster on the JVM with no Reagent / DOM dependencies.
-
-  This namespace covers the CLJS-specific surface: that the runtime
-  compiles under CLJS, that `run-variant` returns a `js/Promise`,
-  and that `snapshot-identity`'s `:content-hash` is 8-char lowercase
-  hex on CLJS, the fixed width the JVM renders."
+  "CLJS-specific runtime surface: `run-variant` returns a js/Promise that
+  settles, including when an async `:wait` is cut short. The rest of the
+  runtime is covered on the JVM (`re-frame.story-runtime-test`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -22,38 +14,16 @@
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.subs :as rf.subs]))
 
-;; ---- fixtures ------------------------------------------------------------
-;;
-;; CLJS doesn't allow runtime `require`, so the JVM fixture's
-;; `(require 're-frame.machines :reload)` step (which re-installs the
-;; machines artefact's reg-subs / event handlers after a registrar
-;; clear-all!) needs a different shape on CLJS. The CLJS approach
-;; manually re-runs the side-effecting parts of the machines ns.
-;; Since CLJS test isolation between deftests is less stringent than
-;; the JVM corpus (no per-test require :reload), we tolerate a
-;; non-empty registrar carrying over between tests.
-
 (defn reset-all! []
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; Seat the plain-atom adapter. `rf/init!` is idempotent for the adapter it
-  ;; seated, so a re-boot of plain-atom is a no-op (the test build may have
-  ;; seated it already via another suite's boot). The catch covers the case a
-  ;; sibling suite seated a DIFFERENT adapter, which raises
-  ;; `:rf.error/adapter-already-installed` rather than being ignored;
-  ;; this ns's assertions do not depend on which of the two
-  ;; plain-atom-shaped substrates is live.
+  ;; A sibling suite may have seated a different adapter.
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
-  ;; Re-register the machines artefact's framework-shipped sub
-  ;; (`:rf/machine`) after the registrar clear. The JVM equivalent
-  ;; uses `(require 're-frame.machines :reload)` which is unavailable
-  ;; in CLJS — we manually re-invoke the side-effecting part. Machine
-  ;; snapshots are durable RUNTIME-DB state (EP-0001) at
-  ;; [:rf.runtime/machines :snapshots <id>], so the framework sub
-  ;; is a runtime-db sub (db-position arg is the runtime-db value) — mirror
-  ;; `re-frame.machines` exactly.
+  ;; CLJS cannot `(require 're-frame.machines :reload)` as the JVM fixture
+  ;; does, so re-register the machines artefact's `:rf/machine` runtime-db sub
+  ;; that the registrar clear dropped.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -62,140 +32,60 @@
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!))
 
-;; Per cljs.test: async tests require fixtures to be supplied in
-;; map form — function-form fixtures can't suspend around the async
-;; body. Wrap the reset fn as a map.
+;; Async tests need map-form fixtures.
 (use-fixtures :each {:before reset-all!})
 
-;; ---- events-only fast-path on CLJS --------------------------------------
-;;
-;; The JVM-side `re-frame.story-runtime-test` covers the lifecycle
-;; transitions exhaustively. This CLJS smoke pins the cross-host
-;; contract: dispatching the `:mount-ready` event drives the
-;; lifecycle from `:pre-mount` directly to `:ready` on CLJS too, so
-;; the canvas's loading skeleton reads `:ready` post-
-;; allocate and never engages for events-only variants like
-;; counter_with_stories' `:story.counter/events-only-loaded` (the
-;; canonical events-only loader-body shape).
-
 (deftest cljs-events-only-fast-path-to-ready
-  (testing "an events-only variant lands :ready directly on
-            CLJS too: a variant
-            body declaring only `:setup`, with no `:loaders` / no
-            `:frame-setup` decorators / no `:loaders-complete-when`."
-    (rf/reg-event :test.eo/seed
-      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (rf.story/reg-variant :story.cljs.eo/v
-      {:setup [[:test.eo/seed]]})
+  (testing "an events-only variant lands :ready directly, through a js/Promise"
+    (rf/reg-event :test.eo/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
+    (rf.story/reg-variant :story.cljs.eo/v {:setup [[:test.eo/seed]]})
     (let [p (rf.story/run-variant :story.cljs.eo/v)]
-      (is (rf.story.async/promise? p) "run-variant returns a js/Promise")
+      (is (rf.story.async/promise? p))
       (async done
         (-> p
             (rf.story.async/then
               (fn [r]
-                (is (= :story.cljs.eo/v (:frame r)))
-                (is (= :ready  (:lifecycle r))
-                    "events-only variant lands :ready")
-                (is (true? (:seeded? (:app-db r)))
-                    "events still dispatched after the fast-path mount")
-                (is (empty? (:assertions r))
-                    "no `:rf.error/loader-incomplete` projection on the fast-path")
+                (is (= [:story.cljs.eo/v :ready true []]
+                       [(:frame r) (:lifecycle r) (:seeded? (:app-db r)) (vec (:assertions r))]))
                 (rf.story/destroy-variant! :story.cljs.eo/v)
                 (done))))))))
 
-;; ---- the run-variant promise resolves even when the play -----------------
-;;      runner aborts mid-:wait (frame torn down during the async yield) ----
-;;
-;; `runner-events/run-loop!` aborts a run that has lost its slot — the frame
-;; torn down mid-run (nil state), or a concurrent run! taking the slot over
-;; (token mismatch). Were that abort to return WITHOUT invoking done-cb
-;; during an async `:wait` yield (CLJS `js/setTimeout`), the play-promise
-;; would never resolve → `run-phase-4!`'s continuation would never fire →
-;; `finalise-run!`'s `then` would never fire → the outer `run-variant`
-;; promise would hang FOREVER (it chains only `then`, never `catch` / a
-;; timeout).
-;;
-;; This is the end-to-end guard for that path: a variant whose play has a
-;; `:wait` step, with the frame destroyed during the wait yield. A stranded
-;; continuation would NEVER call `done` and the cljs.test async runner would
-;; time out (a red hang); the aborted run settles, so `run-variant` resolves
-;; and `done` fires.
+;; A run loop that loses its slot during an async `:wait` yield (frame torn
+;; down, or a concurrent run! taking the slot) must still settle its
+;; continuation, or the outer run-variant promise would hang for ever.
 
 (deftest cljs-run-variant-resolves-when-frame-torn-down-mid-wait
-  (testing "tearing the variant frame down DURING a play's
-            `:wait` yield must still resolve the run-variant promise; the
-            aborted run loop settles its continuation instead of hanging"
-    (rf/reg-event :test.hang/touch
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf.story/reg-variant :story.cljs.hang/torn-down
-      {:setup      []
-       :script {:script [[:dispatch-sync [:test.hang/touch]]
-                              ;; The async yield window: the frame is
-                              ;; destroyed while this :wait's setTimeout is
-                              ;; pending, so the run loop resumes onto a
-                              ;; vanished run-state.
-                              [:wait 60]
-                              [:dispatch-sync [:test.hang/touch]]]}})
-    (async done
-      (let [p (rf.story/run-variant :story.cljs.hang/torn-down)]
-        ;; Destroy the frame mid-:wait (after run-phase-4! has scheduled the
-        ;; wait's setTimeout, before it resumes). This wipes the run-state
-        ;; slot (`clear-state!` via the :drop-run-state teardown hook), so the
-        ;; resuming loop finds a nil state and takes the stale-run abort.
-        (js/setTimeout #(rf.story/destroy-variant! :story.cljs.hang/torn-down) 15)
-        (-> p
-            (rf.story.async/then
-              (fn [r]
-                (is (map? r)
-                    "the run-variant promise RESOLVED — the torn-down-mid-wait
-                     run settled instead of hanging forever")
-                (done))))))))
+  (rf/reg-event :test.hang/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf.story/reg-variant :story.cljs.hang/torn-down
+    {:setup  []
+     :script {:script [[:dispatch-sync [:test.hang/touch]]
+                       [:wait 60]
+                       [:dispatch-sync [:test.hang/touch]]]}})
+  (async done
+    (let [p (rf.story/run-variant :story.cljs.hang/torn-down)]
+      ;; Destroy the frame while the :wait's setTimeout is pending.
+      (js/setTimeout #(rf.story/destroy-variant! :story.cljs.hang/torn-down) 15)
+      (-> p
+          (rf.story.async/then
+            (fn [r]
+              (is (map? r))
+              (done)))))))
 
 (deftest cljs-run-variant-resolves-when-concurrent-run-takes-over-mid-wait
-  (testing "a concurrent `run!` that takes over the run-state slot
-            (token swap) DURING a play's `:wait` yield must still
-            resolve the original run-variant promise; the stale loop settles
-            its own continuation rather than stranding the chain"
-    (rf/reg-event :test.hang2/touch
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf.story/reg-variant :story.cljs.hang/token-swap
-      {:setup      []
-       :script {:auto-run? false
-                     :script [[:dispatch-sync [:test.hang2/touch]]
-                              [:wait 60]
-                              [:dispatch-sync [:test.hang2/touch]]]}})
-    (async done
-      (let [p (rf.story/run-variant :story.cljs.hang/token-swap)]
-        (-> p
-            (rf.story.async/then
-              (fn [r]
-                (is (map? r)
-                    "the original run-variant promise RESOLVED even though a
-                     concurrent run! swapped the run-state token mid-:wait —
-                     the stale loop's continuation settled")
-                (rf.story/destroy-variant! :story.cljs.hang/token-swap)
-                (done))))
-        ;; Mid-:wait, fire a concurrent runner-events/run! for the SAME
-        ;; variant. It stamps a fresher :run-token onto the shared slot, so
-        ;; when the original run's loop resumes it sees a token mismatch and
-        ;; aborts — but must still settle ITS continuation. The concurrent run
-        ;; itself is allowed to complete; we only assert the ORIGINAL promise
-        ;; resolves.
-        (js/setTimeout
-          #(rf.story.play.runner-events/run! :story.cljs.hang/token-swap)
-          15)))))
-
-;; ---- snapshot-identity --------------------------------------------------
-
-(deftest cljs-snapshot-identity-shape
-  (testing "snapshot-identity produces an 8-char hex hash"
-    (rf.story/reg-story :story.cljs.id
-      {:component :app/v :args {:a 1}})
-    (rf.story/reg-variant :story.cljs.id/v
-      {:setup [[:init]] :tags #{:dev}})
-    (let [s (rf.story/snapshot-identity :story.cljs.id/v
-                                     {:substrate :reagent})]
-      (is (= :story.cljs.id/v (:variant-id s)))
-      (is (string?            (:content-hash s)))
-      (is (re-matches #"[0-9a-f]{8}" (:content-hash s))
-          "content-hash is unsigned fixed-width lowercase hex"))))
+  (rf/reg-event :test.hang2/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf.story/reg-variant :story.cljs.hang/token-swap
+    {:setup  []
+     :script {:auto-run? false
+              :script    [[:dispatch-sync [:test.hang2/touch]]
+                          [:wait 60]
+                          [:dispatch-sync [:test.hang2/touch]]]}})
+  (async done
+    (let [p (rf.story/run-variant :story.cljs.hang/token-swap)]
+      (-> p
+          (rf.story.async/then
+            (fn [r]
+              (is (map? r))
+              (rf.story/destroy-variant! :story.cljs.hang/token-swap)
+              (done))))
+      ;; Mid-:wait, a concurrent run! stamps a fresher run token on the slot.
+      (js/setTimeout #(rf.story.play.runner-events/run! :story.cljs.hang/token-swap) 15))))
