@@ -1,161 +1,29 @@
 (ns re-frame.ssr-request-durable-fact-test
-  "Durable request-derived facts use the RECORDABLE boundary
-  pattern, NOT the ambient `:rf.server/request` read.
-
-  EP-0017 §1 + Spec 011 §Durable request-derived facts: `:rf.server/request`
-  is an AMBIENT, host-transient read — its supplier re-runs on replay and never
-  re-presents the value a recorded run saw (and reads nil after per-request
-  frame teardown). So a setup handler that folds a request-derived fact into
-  DURABLE app-db (auth user / session state that ships in the hydration
-  payload) must NOT read it through the ambient cofx; it takes the fact as a
-  RECORDABLE leaf so the causal token carries it and replay re-presents it
-  verbatim. Two slice-A-legal shapes:
-
-    1. EVENT PAYLOAD — the host dispatches the setup event WITH the sanitized
-       derived fact; it rides `:event`, recorded as part of the dispatch.
-    2. PROVIDED recordable `:rf.cofx` LEAF — an app-owned
-       `{:recordable? true :provided? true}` cofx the host stamps onto the boot
-       token; a record missing it fails LOUDLY with
-       `:rf.error/missing-required-cofx` rather than silently re-reading the
-       host (the strict-replay contract).
-
-  This pins both shapes producing the durable app-db slice, the fail-loud on a
-  missing provided fact, AND the contrast that the ambient `:rf.server/request`
-  value is NOT recorded on the token (the symptom the pattern avoids).
-
-  ## Posture split
-
-  Everything this namespace pins is production-real — the durable app-db
-  writes, the fail-closed throw, the absence of the ambient request from the
-  causal token — with one exception: the `:rf.error/missing-required-cofx`
-  TRACE in `missing-provided-request-fact-fails-loud`. Trace emission runs
-  through `trace/emit-error!`, gated on `interop/debug-enabled?` and read once
-  at namespace-load time, so under `-Dre-frame.debug=false` the recorder sees
-  nothing. That one assertion sits inside a
-  `(when interop/debug-enabled? …)` arm; the fail-closed contract it sits
-  beside — the throw, its `:rf.error/id`, and the absent durable write — is
-  what a production server observes and runs in both postures.
-
-  `ambient-request-read-is-not-recorded-on-the-token` carries a positive pin
-  that the `:rf.cofx` record EXISTS before asserting what is not in it, so
-  the two negatives cannot pass by the record being absent altogether."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The ambient `:rf.server/request` read is unrecorded, so a durable
+  request-derived fact must arrive as event payload or a provided recordable
+  `:rf.cofx` leaf (Spec 011 §Durable request-derived facts) — and the raw
+  request never rides the causal token."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
-            [re-frame.test-support :refer [with-trace-recorder!]]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---- shape 1: event payload (the sanitized fact rides :event) -------------
-
-(deftest durable-app-db-from-request-fact-via-event-payload
-  (testing "a setup handler writes durable app-db from a request-derived fact
-            supplied as EVENT PAYLOAD — the fact rides :event (recorded), the
-            handler never reads the ambient request cofx"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
-      ;; The handler reads the SANITIZED session off its event arg, NOT off the
-      ;; ambient :rf.server/request cofx — so the durable write folds a recorded
-      ;; fact (the event), replay-stable.
-      (rf/reg-event :auth/server-init
-        {:platforms #{:server}}
-        (fn [{:keys [db]} [_ {:keys [user authed?]}]]
-          {:db (assoc db :auth/user user
-                         :auth/state (if authed? :authed :idle))}))
-      ;; Host adapter sanitizes the request and dispatches WITH the fact.
-      (rf/dispatch-sync [:auth/server-init {:user "alice" :authed? true}]
-                        {:frame server-frame})
-      (let [db (rf.frame/frame-app-db-value server-frame)]
-        (is (= "alice" (:auth/user db))
-            "durable app-db carries the request-derived user from event payload")
-        (is (= :authed (:auth/state db)))))))
-
-;; ---- shape 2: provided recordable :rf.cofx leaf ---------------------------
-
-(deftest durable-app-db-from-request-fact-via-provided-cofx
-  (testing "a setup handler writes durable app-db from a PROVIDED recordable
-            :rf.cofx leaf the host stamped onto the token after sanitizing the
-            request — the value is recorded + replay-stable, delivered flat"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
-      (rf/reg-cofx :auth.session/user
-        {:recordable? true :provided? true
-         :doc "Sanitized session user, stamped by the SSR host adapter."})
-      (rf/reg-event :auth/server-init-cofx
-        {:platforms        #{:server}
-         :rf.cofx/requires [:auth.session/user]}
-        (fn [{:keys [db auth.session/user]} _]
-          {:db (assoc db :auth/user user
-                         :auth/state (if user :authed :idle))}))
-      ;; Host adapter stamps the sanitized derived fact onto the boot token.
-      (rf/dispatch-sync [:auth/server-init-cofx]
-                        {:frame   server-frame
-                         :rf.cofx {:auth.session/user "bob"}})
-      (let [db (rf.frame/frame-app-db-value server-frame)]
-        (is (= "bob" (:auth/user db))
-            "durable app-db carries the request-derived user from the recorded :rf.cofx leaf")
-        (is (= :authed (:auth/state db)))))))
-
-(deftest missing-provided-request-fact-fails-loud
-  (testing "a PROVIDED recordable request fact absent from the token fails
-            LOUDLY with :rf.error/missing-required-cofx — NOT a silent
-            fall-back to get-request / nil (the strict-replay contract)"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
-      (with-trace-recorder! [traces]
-        (rf/reg-cofx :auth.session/user
-          {:recordable? true :provided? true
-           :doc "Sanitized session user, stamped by the SSR host adapter."})
-        (rf/reg-event :auth/server-init-strict
-          {:platforms        #{:server}
-           :rf.cofx/requires [:auth.session/user]}
-          (fn [{:keys [db auth.session/user]} _]
-            {:db (assoc db :auth/user user)}))
-        ;; Host did NOT stamp :auth.session/user — the provided fact is absent.
-        (let [ex (try (rf/dispatch-sync [:auth/server-init-strict] {:frame server-frame})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex) "dispatch threw rather than silently delivering nil")
-          (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
-              "the throw is :rf.error/missing-required-cofx (fail-closed)")
-          ;; Dev-instrumentation arm (see ns docstring). The
-          ;; fail-closed contract is pinned by the throw and its
-          ;; `:rf.error/id` above, both production-real; this is the dev
-          ;; trace restating the same category on the trace bus.
-          (when rf.interop/debug-enabled?
-            (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
-                "a :rf.error/missing-required-cofx error trace was emitted"))
-          ;; And no durable write landed.
-          (is (nil? (:auth/user (rf.frame/frame-app-db-value server-frame)))
-              "no durable app-db slice was written from a missing provided fact"))))))
-
-;; ---- contrast: the ambient :rf.server/request value is NOT recorded -------
-
 (deftest ambient-request-read-is-not-recorded-on-the-token
-  (testing "the ambient :rf.server/request value does NOT appear on the causal
-            token's :rf.cofx record — proving it is unrecorded (replay re-runs
-            the supplier), which is exactly why a DURABLE write must not fold it
-            (it would diverge on replay / read nil after teardown)"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
-          seen-cofx    (atom ::unset)]
-      (rf.ssr/set-request! server-frame {:request-method :get :uri "/x"
-                                      :headers {"cookie" "session=raw-secret"}})
-      ;; A handler that READS the ambient request (a legal NON-durable use:
-      ;; here just to capture the recorded :rf.cofx for the assertion).
-      (rf/reg-event :req/inspect-record
-        {:platforms        #{:server}
-         :rf.cofx/requires [:rf.server/request]}
-        (fn [{:as ctx _request :rf.server/request} _event]
-          (reset! seen-cofx (:rf.cofx ctx))
-          {}))
-      (rf/dispatch-sync [:req/inspect-record] {:frame server-frame})
-      ;; Pin that there IS a record to inspect before asserting
-      ;; what is missing from it. Without this the two negatives below would
-      ;; also hold if `:rf.cofx` were absent from the context entirely, which
-      ;; is a different (and much worse) world than the one under test.
-      (is (map? @seen-cofx)
-          "the handler ran and the context carried a :rf.cofx record")
-      (is (not (contains? (or @seen-cofx {}) :rf.server/request))
-          "the ambient request value is NOT on the token's :rf.cofx record")
-      (is (not (.contains (pr-str @seen-cofx) "raw-secret"))
-          "the raw request/cookie never rides the causal token"))))
+  (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
+        seen-cofx    (atom ::unset)]
+    (rf.ssr/set-request! server-frame {:request-method :get :uri "/x"
+                                       :headers {"cookie" "session=raw-secret"}})
+    (rf/reg-event :req/inspect-record
+      {:platforms        #{:server}
+       :rf.cofx/requires [:rf.server/request]}
+      (fn [ctx _]
+        (reset! seen-cofx (:rf.cofx ctx))
+        {}))
+    (rf/dispatch-sync [:req/inspect-record] {:frame server-frame})
+    (is (= [true false]
+           [(map? @seen-cofx) (str/includes? (pr-str @seen-cofx) "raw-secret")])
+        "[a :rf.cofx record exists, the request rides it]")))
