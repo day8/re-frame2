@@ -1,435 +1,156 @@
 (ns re-frame.substrate.spine-dispose-cljs-test
-  "Unit coverage for the substrate-spine's `dispose-adapter!` factory and
-  the active-roots tracking.
+  "The substrate spine's `dispose-adapter!` factory and sub-cache walk (Spec 006
+  §Adapter disposal lifecycle): every cleanup step is attempted, the FIRST
+  failure is rethrown (kept by presence, so a falsey throw still surfaces), and
+  later failures ride it as `rfAdapterTeardownSecondaryErrors`.
 
-  The spine builds a `dispose-adapter!` that drains the active-roots
-  set by calling `.unmount` on every tracked React root, and clears
-  the warn-once cache and the hiccup-emitter cell. These tests cover
-  that contract by sliding fake roots (objects with an `unmount`
-  method) into the active-roots cell directly — bypassing
-  `react-dom-client/createRoot` so the assertions stay node-runtime
-  compatible (no JSDOM, no Playwright).
+  Fake roots (objects with an `unmount` slot) and fake cached reactions stand in
+  for React roots and Reactions, so this runs on node with no DOM.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.disposable :as rf.disposable]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.spine :as rf.substrate.spine]))
 
-(defn- fake-root
-  "Build a minimal stand-in for a React root that records every
-  `.unmount` call in a per-instance counter atom. The spine only
-  exercises the `.unmount` slot on a Root, so this is enough."
-  []
-  (let [unmount-count (atom 0)
-        root          #js {:unmount #(swap! unmount-count inc)}]
-    {:root          root
+(defn- fake-root []
+  (let [unmount-count (atom 0)]
+    {:root          #js {:unmount #(swap! unmount-count inc)}
      :unmount-count unmount-count}))
 
-(deftest dispose-drains-every-root-then-rethrows-the-unmount-throw
-  (testing "one misbehaving root's unmount throw does not strand the rest of
-  the drain, and the identical failure is rethrown once the drain finished
-  (Spec 006 §Adapter disposal lifecycle: attempt all remaining
-  cleanup, then preserve and rethrow the first failure)"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          driver-root-cell  (atom nil)
-          set-tick-ref      (atom :stale-setter)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell             active-roots-cell
-                               :warn-cache                    warn-cache
-                               :emitter-cell                  emitter-cell
-                               :after-render-driver-root-cell driver-root-cell
-                               :after-render-set-tick-ref     set-tick-ref})
-          good-1            (fake-root)
-          good-2            (fake-root)
-          sentinel          (js/Error. "boom")
-          bad               #js {:unmount #(throw sentinel)}]
-      ;; Insertion order is not preserved in a set; the drain-everything
-      ;; guarantee is that BOTH good roots' unmount fires regardless of
-      ;; the bad one's traversal position.
-      (swap! active-roots-cell conj (:root good-1) bad (:root good-2))
-      (reset! warn-cache #{:some-stale-warn-key})
-      (let [thrown (try (dispose-fn)
-                        ::returned-normally
-                        (catch :default e e))]
-        (is (= 1 @(:unmount-count good-1))
-            "good-1 still unmounted despite a sibling unmount throw")
-        (is (= 1 @(:unmount-count good-2))
-            "good-2 still unmounted despite a sibling unmount throw")
-        (is (empty? @active-roots-cell)
-            "active-roots cell drained even when an unmount threw")
-        (is (identical? sentinel thrown)
-            "the identical unmount failure was rethrown after the drain — a
-            swallowed throw here would let rf/destroy-adapter! report success
-            over a failed teardown")
-        ;; The React-hook spine's extra teardown runs in a `finally`, so the
-        ;; rethrow cannot strand the warn cache or the after-render driver
-        ;; root — trading MUST (2)'s leak for MUST (2)'s report.
-        (is (empty? @warn-cache)
-            "warn-once cache still cleared past the rethrow")
-        (is (nil? @set-tick-ref)
-            "the after-render set-tick slot still cleared past the rethrow")))))
-
-;; ---- layered React-hook teardown: the singleton driver root ---------------
-;;
-;; `make-dispose-adapter!` layers warn-cache + singleton after-render DRIVER
-;; ROOT + set-tick teardown on top of the shared drain. The driver root is a
-;; host-specific resource this spine owns ALONE — it lives outside
-;; `active-roots-cell` — so a bare `(catch :default _ nil)` around its unmount
-;; would discard a failure there outright.
-;;
-;; ONE accumulator spans both layers, which makes the primacy rule
-;; ASYMMETRIC, and the asymmetry is the substance:
-;;
-;;   * driver-root failure is the ONLY failure  -> it is the PRIMARY and must
-;;     surface, or `destroy-adapter!` reports a clean nil over a React root
-;;     that never released.
-;;   * something earlier already failed         -> it is a SECONDARY on the
-;;     primary's `rfAdapterTeardownSecondaryErrors`, because the earlier
-;;     failure names the real fault and attachment never replaces it.
-;;
-;; A bare catch gets the second case right by accident and the first wrong
-;; every time. The two tests below pin the two cases, and within each one the
-;; DRAIN assertions and the RETHROW assertions are separated deliberately: a
-;; swallow regression fails only the RETHROW group, a throw-early regression
-;; fails only the DRAIN group, so neither test can pass a defect the other
-;; would catch.
-;;
-;; Node-runtime, no DOM: the spine only ever invokes `.unmount` on whatever
-;; occupies the cell, so a plain JS object with an `unmount` slot exercises
-;; the exact path a real `react-dom-client` root takes.
-
-(deftest dispose-surfaces-a-driver-root-only-unmount-failure-as-the-primary
-  (testing "when the singleton after-render driver root's unmount is the ONLY
-  teardown failure it becomes the PRIMARY and reaches the caller, after every
-  other layer has been attempted and finalized (Spec 006 §Adapter
-  disposal lifecycle MUST 2 + the first-failure rule)"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          sentinel          (js/Error. "driver root unmount failed")
-          driver-root-cell  (atom #js {:unmount #(throw sentinel)})
-          set-tick-ref      (atom :stale-setter)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell             active-roots-cell
-                               :warn-cache                    warn-cache
-                               :emitter-cell                  emitter-cell
-                               :after-render-driver-root-cell driver-root-cell
-                               :after-render-set-tick-ref     set-tick-ref})
-          healthy           (fake-root)]
-      (swap! active-roots-cell conj (:root healthy))
-      (reset! warn-cache #{:some-stale-warn-key})
-      (reset! emitter-cell (fn fake-emit [_ _] "<html/>"))
-      (let [thrown (try (dispose-fn)
-                        ::returned-normally
-                        (catch :default e e))]
-        ;; ---- DRAIN half. Stays green under a swallow regression; fails only
-        ;; if the driver-root throw is allowed to abandon a later step.
-        (is (= 1 @(:unmount-count healthy))
-            "the healthy app root was unmounted by the shared drain")
-        (is (empty? @active-roots-cell)
-            "active-roots cell drained to empty")
-        (is (nil? @emitter-cell)
-            "hiccup-emitter cell cleared")
-        (is (empty? @warn-cache)
-            "warn-once cache cleared past the driver-root throw")
-        (is (nil? @driver-root-cell)
-            "driver-root cell released even though its unmount threw — a
-            retained root would leak the very host resource being reported")
-        (is (nil? @set-tick-ref)
-            "after-render set-tick slot cleared so a fresh init! re-arms
-            against the new adapter rather than bumping a stale setter")
-        ;; ---- RETHROW half. The ONLY half a swallow regression fails, and the
-        ;; half a bare `(catch :default _ nil)` fails every time.
-        (is (identical? sentinel thrown)
-            "the identical driver-root unmount failure reached the caller as
-            the primary; ::returned-normally here is a silent success over a
-            failed teardown")))))
-
-(deftest dispose-attaches-a-driver-root-failure-behind-an-earlier-primary
-  (testing "when the shared drain ALREADY failed, the later driver-root
-  unmount failure rides the rethrown primary as secondary evidence instead of
-  displacing it or being discarded — one accumulator spanning the shared drain
-  and the layered React-hook teardown"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          root-boom         (js/Error. "app root unmount failed")
-          driver-boom       (js/Error. "driver root unmount failed")
-          driver-root-cell  (atom #js {:unmount #(throw driver-boom)})
-          set-tick-ref      (atom :stale-setter)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell             active-roots-cell
-                               :warn-cache                    warn-cache
-                               :emitter-cell                  emitter-cell
-                               :after-render-driver-root-cell driver-root-cell
-                               :after-render-set-tick-ref     set-tick-ref})
-          healthy           (fake-root)]
-      ;; Exactly one app root throws, so the shared drain's failure is the
-      ;; first recorded regardless of the set's traversal order, and the
-      ;; driver root's is unambiguously the later one.
-      (swap! active-roots-cell conj (:root healthy) #js {:unmount #(throw root-boom)})
-      (let [thrown (try (dispose-fn)
-                        ::returned-normally
-                        (catch :default e e))]
-        ;; ---- DRAIN half.
-        (is (= 1 @(:unmount-count healthy))
-            "the healthy app root was still unmounted despite two failures")
-        (is (empty? @active-roots-cell)
-            "active-roots cell drained to empty")
-        (is (nil? @driver-root-cell)
-            "driver-root cell released")
-        (is (nil? @set-tick-ref)
-            "after-render set-tick slot cleared")
-        ;; ---- RETHROW half: primacy, then attachment.
-        (is (identical? root-boom thrown)
-            "the EARLIER shared-drain failure stayed the primary — a later
-            driver-root failure must never displace the error that names the
-            real fault, and the primary keeps its identity and stack")
-        (let [secondary (when (instance? js/Object thrown)
-                          (aget thrown "rfAdapterTeardownSecondaryErrors"))]
-          (is (some? secondary)
-              "secondary evidence was attached to the rethrown primary")
-          (is (= 1 (if secondary (alength secondary) 0))
-              "exactly one secondary — the driver-root failure")
-          (is (identical? driver-boom (when secondary (aget secondary 0)))
-              "the driver-root failure rides the primary as secondary evidence
-              rather than being discarded, which is what threading one
-              accumulator through the layered teardown buys"))))))
-
-(deftest dispose-captures-a-falsey-driver-root-throw-by-presence
-  (testing "a driver root that throws `false` surfaces: the layered
-  teardown records by PRESENCE against `capture-none`, never by truthiness, so
-  the legal-but-falsey CLJS throw is not swallowed by the accumulator itself"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          driver-root-cell  (atom #js {:unmount #(throw false)})
-          set-tick-ref      (atom :stale-setter)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell             active-roots-cell
-                               :warn-cache                    warn-cache
-                               :emitter-cell                  emitter-cell
-                               :after-render-driver-root-cell driver-root-cell
-                               :after-render-set-tick-ref     set-tick-ref})
-          thrown            (try (dispose-fn)
-                                 ::returned-normally
-                                 (catch :default e e))]
-      (is (nil? @driver-root-cell)
-          "driver-root cell still released after a falsey throw")
-      (is (false? thrown)
-          "the falsey driver-root throw reached the caller instead of being
-          read as 'nothing failed' — a truthiness accumulator here would
-          swallow it as silently as a bare catch"))))
-
-(deftest dispose-clears-warn-cache-and-emitter
-  (testing "dispose-adapter! also empties the warn-once cache and the hiccup-emitter cell"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell active-roots-cell
-                               :warn-cache        warn-cache
-                               :emitter-cell      emitter-cell})]
-      (swap! warn-cache conj :some.ns/some-id)
-      (reset! emitter-cell (fn fake-emit [_ _] "<html/>"))
-      (is (= #{:some.ns/some-id} @warn-cache)
-          "precondition: warn-cache holds a seen id")
-      (is (some? @emitter-cell)
-          "precondition: emitter-cell holds a fn")
-      (dispose-fn)
-      (is (empty? @warn-cache)
-          "warn-cache cleared so a fresh install does not inherit stale warn-once state")
-      (is (nil? @emitter-cell)
-          "hiccup-emitter cell cleared so a fresh install starts from no emitter"))))
-
-;; ---- dispose-frame-sub-caches! --------------------------------------------
-;;
-;; The shared sub-cache walk lives in the spine so all three React-shaped
-;; adapters (Reagent / reagent-slim / UIx) drive the same implementation of
-;; Spec 006 §Adapter disposal lifecycle MUST (1): cancel all in-flight
-;; reactive subscriptions.
-;;
-;; These tests exercise the helper in isolation by populating
-;; `rf.frame/frames` directly with fake sub-cache entries — no adapter
-;; install, no real Reactions, no JSDOM. Each fake `:reaction` is a
-;; reified `rf.disposable/IDisposable` that records dispose calls; an
-;; integration test in `re-frame.dispose-adapter-sub-cache-walk-cljs-test`
-;; pins the through-the-Reagent-adapter shape.
-
-(defn- fake-reaction
-  "Build a stand-in for a cached Reaction that records every
-  `-dispose` call in a per-instance counter atom. The walk only
-  exercises the `IDisposable` `-dispose` slot, so this is enough."
-  []
+(defn- fake-reaction []
   (let [dispose-count (atom 0)]
     {:reaction      (reify rf.disposable/IDisposable
-                      (-dispose [_]
-                        (swap! dispose-count inc))
+                      (-dispose [_] (swap! dispose-count inc))
                       (-add-on-dispose [_ _f] nil))
      :dispose-count dispose-count}))
 
-(defn- fake-frame
-  "Build a frame-record-shaped map carrying a `:sub-cache` atom seeded
-  with the supplied `cache-map`. The walk only reads `:sub-cache` off
-  the frame record, so this is enough."
-  [cache-map]
+(defn- fake-frame [cache-map]
   {:sub-cache (atom cache-map)})
 
-(defn frames-fixture
-  "Save and restore `rf.frame/frames` + the `:adapter/dispose!` late-bind
-  hook so each test gets a clean slate and any other suite running in
-  the same JS heap sees the pre-existing globals."
-  [test-fn]
-  (let [saved-frames @rf.frame/frames
-        saved-hook   (rf.late-bind/get-fn-cached :adapter/dispose!)]
-    (reset! rf.frame/frames {})
-    ;; Install a dispose hook that calls rf-disposable's protocol fn so
-    ;; the walk's `interop/dispose!` invocation actually fires the
-    ;; recording reify. Without this seed `interop/dispose!` no-ops
-    ;; (the hook is unbound in a cold-start test) and we can't tell
-    ;; the walk from a stub.
-    (rf.late-bind/set-fn! :adapter/dispose! rf.disposable/-dispose)
-    (try (test-fn)
-         (finally
-           (reset! rf.frame/frames saved-frames)
-           (when saved-hook
-             (rf.late-bind/set-fn! :adapter/dispose! saved-hook))))))
+(defn- cells [driver-root]
+  {:active-roots-cell             (rf.substrate.spine/make-active-roots-cell)
+   :warn-cache                    (rf.substrate.spine/make-warn-once-cache)
+   :emitter-cell                  (rf.substrate.spine/make-hiccup-emitter-cell)
+   :after-render-driver-root-cell (atom driver-root)
+   :after-render-set-tick-ref     (atom :stale-setter)})
 
-(use-fixtures :each frames-fixture)
+(defn- dispose-thrown
+  "Run the factory-built `dispose-adapter!` over `c`; return what it threw, or
+  ::returned-normally."
+  [c]
+  (try ((rf.substrate.spine/make-dispose-adapter! c)) ::returned-normally
+       (catch :default e e)))
+
+(defn- cleared
+  "What a finished teardown leaves in each cell."
+  [{:keys [active-roots-cell warn-cache emitter-cell after-render-driver-root-cell
+           after-render-set-tick-ref]}]
+  [@active-roots-cell @warn-cache @emitter-cell @after-render-driver-root-cell
+   @after-render-set-tick-ref])
+
+(def ^:private all-cleared [#{} #{} nil nil nil])
+
+;; The walk disposes through the `:adapter/dispose!` hook, so seed it with the
+;; protocol fn and restore the globals afterwards.
+(use-fixtures :each
+  (fn [test-fn]
+    (let [saved-frames @rf.frame/frames
+          saved-hook   (rf.late-bind/get-fn-cached :adapter/dispose!)]
+      (reset! rf.frame/frames {})
+      (rf.late-bind/set-fn! :adapter/dispose! rf.disposable/-dispose)
+      (try (test-fn)
+           (finally
+             (reset! rf.frame/frames saved-frames)
+             (when saved-hook
+               (rf.late-bind/set-fn! :adapter/dispose! saved-hook)))))))
+
+(deftest dispose-drains-every-root-walks-the-sub-caches-then-rethrows
+  (let [c        (cells nil)
+        good-1   (fake-root)
+        good-2   (fake-root)
+        sentinel (js/Error. "boom")
+        r        (fake-reaction)
+        frm      (fake-frame {[:sub :x] (select-keys r [:reaction])})]
+    (reset! rf.frame/frames {:walk/a frm})
+    ;; A set does not keep insertion order: both good roots must unmount
+    ;; wherever the bad one falls.
+    (swap! (:active-roots-cell c) conj (:root good-1) #js {:unmount #(throw sentinel)}
+           (:root good-2))
+    (reset! (:warn-cache c) #{:some-stale-warn-key})
+    (let [thrown (dispose-thrown c)]
+      (is (= [true 1 1 1 {} all-cleared]
+             [(identical? sentinel thrown) @(:unmount-count good-1) @(:unmount-count good-2)
+              @(:dispose-count r) @(:sub-cache frm) (cleared c)])))))
+
+(deftest dispose-surfaces-a-driver-root-only-unmount-failure-as-the-primary
+  ;; The driver root lives outside `active-roots-cell`; when its unmount is the
+  ;; only failure it must reach the caller, after every other step ran.
+  (let [sentinel (js/Error. "driver root unmount failed")
+        c        (cells #js {:unmount #(throw sentinel)})
+        healthy  (fake-root)]
+    (swap! (:active-roots-cell c) conj (:root healthy))
+    (reset! (:warn-cache c) #{:some-stale-warn-key})
+    (reset! (:emitter-cell c) (fn fake-emit [_ _] "<html/>"))
+    (let [thrown (dispose-thrown c)]
+      (is (= [true 1 all-cleared]
+             [(identical? sentinel thrown) @(:unmount-count healthy) (cleared c)])))))
+
+(deftest dispose-attaches-a-driver-root-failure-behind-an-earlier-primary
+  (let [root-boom   (js/Error. "app root unmount failed")
+        driver-boom (js/Error. "driver root unmount failed")
+        c           (cells #js {:unmount #(throw driver-boom)})
+        healthy     (fake-root)]
+    (swap! (:active-roots-cell c) conj (:root healthy) #js {:unmount #(throw root-boom)})
+    (let [thrown (dispose-thrown c)]
+      (is (= [true 1 all-cleared [driver-boom]]
+             [(identical? root-boom thrown) @(:unmount-count healthy) (cleared c)
+              (vec (aget thrown "rfAdapterTeardownSecondaryErrors"))])))))
+
+(deftest dispose-captures-a-falsey-driver-root-throw-by-presence
+  (let [c (cells #js {:unmount #(throw false)})]
+    (is (= [false nil] [(dispose-thrown c) @(:after-render-driver-root-cell c)]))))
 
 (deftest dispose-frame-sub-caches-walks-every-live-frame
-  (testing "every cached :reaction across every live frame is disposed
-  and every frame's sub-cache atom is reset to {}"
-    (let [r-a-x  (fake-reaction)
-          r-a-y  (fake-reaction)
-          r-b    (fake-reaction)
-          frm-a  (fake-frame {[:sub :x] (select-keys r-a-x [:reaction])
-                              [:sub :y] (select-keys r-a-y [:reaction])})
-          frm-b  (fake-frame {[:sub :z] (select-keys r-b   [:reaction])})]
-      (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
-      (rf.substrate.spine/dispose-frame-sub-caches!)
-      (is (= 1 @(:dispose-count r-a-x))
-          "walk/a [:sub :x]'s reaction was disposed")
-      (is (= 1 @(:dispose-count r-a-y))
-          "walk/a [:sub :y]'s reaction was disposed")
-      (is (= 1 @(:dispose-count r-b))
-          "walk/b [:sub :z]'s reaction was disposed")
-      (is (= {} @(:sub-cache frm-a))
-          "walk/a's sub-cache atom was reset to {}")
-      (is (= {} @(:sub-cache frm-b))
-          "walk/b's sub-cache atom was reset to {}"))))
+  ;; Two healthy entries in one cache: a walk cut short to each cache's first
+  ;; entry fails here.
+  (let [r-a-x (fake-reaction)
+        r-a-y (fake-reaction)
+        r-b   (fake-reaction)
+        frm-a (fake-frame {[:sub :x] (select-keys r-a-x [:reaction])
+                           [:sub :y] (select-keys r-a-y [:reaction])})
+        frm-b (fake-frame {[:sub :z] (select-keys r-b [:reaction])})]
+    (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
+    (rf.substrate.spine/dispose-frame-sub-caches!)
+    (is (= [1 1 1 {} {}]
+           [@(:dispose-count r-a-x) @(:dispose-count r-a-y) @(:dispose-count r-b)
+            @(:sub-cache frm-a) @(:sub-cache frm-b)]))))
 
 (deftest dispose-frame-sub-caches-is-best-effort
-  (testing "a throwing per-entry dispose does NOT abort the rest of the
-  walk — every other cached reaction in the same cache AND every cache
-  in subsequent frames still gets disposed and cleared"
-    (let [good-1 (fake-reaction)
-          good-2 (fake-reaction)
-          ;; Poison entry: an object that doesn't satisfy IDisposable so
-          ;; the seeded `:adapter/dispose!` hook (rf.disposable/-dispose)
-          ;; throws when invoked on it.
-          poison {:reaction (js-obj "not" "a reaction")}
-          frm-a  (fake-frame {[:sub :good-1] (select-keys good-1 [:reaction])
-                              [:sub :poison] poison})
-          frm-b  (fake-frame {[:sub :good-2] (select-keys good-2 [:reaction])})]
-      (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
+  ;; The poison entry is not IDisposable, so the seeded hook throws on it.
+  (let [good-1 (fake-reaction)
+        good-2 (fake-reaction)
+        frm-a  (fake-frame {[:sub :good-1] (select-keys good-1 [:reaction])
+                            [:sub :poison] {:reaction (js-obj "not" "a reaction")}})
+        frm-b  (fake-frame {[:sub :good-2] (select-keys good-2 [:reaction])})]
+    (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
+    (rf.substrate.spine/dispose-frame-sub-caches!)
+    (is (= [1 1 {} {}]
+           [@(:dispose-count good-1) @(:dispose-count good-2)
+            @(:sub-cache frm-a) @(:sub-cache frm-b)]))))
 
-      (rf.substrate.spine/dispose-frame-sub-caches!)
-
-      (is (= 1 @(:dispose-count good-1))
-          "good-1 (same cache as the poison) was disposed despite the sibling throw")
-      (is (= 1 @(:dispose-count good-2))
-          "good-2 (different frame) was disposed despite the poison entry")
-      (is (= {} @(:sub-cache frm-a))
-          "walk/a's cache was still cleared despite the throw")
-      (is (= {} @(:sub-cache frm-b))
-          "walk/b's cache was still cleared after the throwing walk/a entry"))))
-
-(deftest dispose-frame-sub-caches-tolerates-frame-without-sub-cache
-  (testing "a frame record lacking the :sub-cache key is skipped (no throw)"
-    (reset! rf.frame/frames {:walk/no-cache {:other-key :value}})
-    (is (nil? (rf.substrate.spine/dispose-frame-sub-caches!))
-        "returns nil; the cacheless frame is skipped")))
-
-(deftest make-dispose-adapter-invokes-sub-cache-walk
-  (testing "the spine's `make-dispose-adapter!` factory drives the
-  sub-cache walk as part of its build of MUST-1 + MUST-2 + MUST-3.
-  Pinning this through the factory keeps the adapters in lockstep:
-  the UIx adapter wires its dispose-adapter! slot through
-  this factory only — if the factory ever stopped invoking the walk,
-  that adapter's dispose path would silently regress."
-    (let [r          (fake-reaction)
-          frm        (fake-frame {[:sub :x] (select-keys r [:reaction])})
-          _          (reset! rf.frame/frames {:walk/a frm})
-          active     (rf.substrate.spine/make-active-roots-cell)
-          warn-cache (rf.substrate.spine/make-warn-once-cache)
-          emitter    (rf.substrate.spine/make-hiccup-emitter-cell)
-          dispose-fn (rf.substrate.spine/make-dispose-adapter!
-                       {:active-roots-cell active
-                        :warn-cache        warn-cache
-                        :emitter-cell      emitter})]
-      (dispose-fn)
-      (is (= 1 @(:dispose-count r))
-          "factory-built dispose-adapter! reached the cached reaction")
-      (is (= {} @(:sub-cache frm))
-          "factory-built dispose-adapter! cleared the sub-cache atom"))))
-
-;; ---- spine derived-value -dispose idempotence + re-entrancy ---------------
-;;
-;; The earlier tests above drive the cache-walk through reified toy
-;; disposables. These pin the ACTUAL spine-produced derived value's
-;; `rf.disposable/IDisposable` `-dispose` — the concrete reify returned by
-;; `make-derived-value-fn` — against repeated and re-entrant disposal. An
-;; impl with no disposed guard that fires `@on-dispose-fns` and only then
-;; clears the vector re-fires the whole callback set on a second `-dispose`,
-;; and a callback that re-enters `-dispose` can recurse / double-fire. A real
-;; spine derived value is buildable node-side with no
-;; DOM: `make-derived-value-fn` takes `[gensym-prefix scheduler]` and returns
-;; the `make-derived-value` fn `[source-containers compute-fn]`.
-
-(defn- spine-derived-value
-  "Build one real spine-produced derived value over a fresh source
-  container and return it together with the source so a test can dispose
-  it directly. The compute is identity-of-first-source; tests here only
-  exercise the disposal protocol, not recompute."
-  []
+(deftest spine-derived-value-dispose-is-idempotent-and-re-entrant-safe
+  ;; A callback that re-enters `-dispose`, and a second plain `-dispose`, must
+  ;; each leave every callback fired exactly once.
   (let [scheduler (rf.substrate.spine/make-scheduler)
-        make-dv   (rf.substrate.spine/make-derived-value-fn "rf2-1bzlai-test-" scheduler)
-        src       (rf.substrate.spine/make-state-container 0)
-        dv        (make-dv [src] (fn [vs] (first vs)))]
-    {:dv dv :src src}))
-
-(deftest spine-derived-value-dispose-is-idempotent
-  (testing "a second -dispose on a spine-produced derived value does NOT
-  re-fire its on-dispose callbacks (idempotent per the IDisposable contract)"
-    (let [{:keys [dv]} (spine-derived-value)
-          fire-log     (atom [])]
-      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :cb-1))
-      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :cb-2))
-      (rf.disposable/-dispose dv)
-      (is (= [:cb-1 :cb-2] @fire-log)
-          "first -dispose fired both callbacks in registration order")
-      (rf.disposable/-dispose dv)
-      (is (= [:cb-1 :cb-2] @fire-log)
-          "second -dispose did NOT re-fire the callbacks (idempotent)"))))
-
-(deftest spine-derived-value-dispose-is-re-entrant-safe
-  (testing "an on-dispose callback that re-enters -dispose on the same
-  spine derived value does not recurse or double-fire the callback set"
-    (let [{:keys [dv]} (spine-derived-value)
-          fire-log     (atom [])]
-      ;; This callback defensively re-disposes the same object — the exact
-      ;; re-entrant shape that could recurse. With the guard flipped first
-      ;; and callbacks snapshot-and-cleared, the re-entrant call is a no-op.
-      (rf.disposable/-add-on-dispose dv
-        (fn []
-          (swap! fire-log conj :re-entrant-cb)
-          (rf.disposable/-dispose dv)))
-      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :after-cb))
-      (rf.disposable/-dispose dv)
-      (is (= [:re-entrant-cb :after-cb] @fire-log)
-          "each callback fired exactly once despite the re-entrant -dispose; no recursion, no double-fire"))))
+        make-dv   (rf.substrate.spine/make-derived-value-fn "rf-dispose-test-" scheduler)
+        dv        (make-dv [(rf.substrate.spine/make-state-container 0)] identity)
+        fire-log  (atom [])]
+    (rf.disposable/-add-on-dispose dv (fn []
+                                        (swap! fire-log conj :re-entrant-cb)
+                                        (rf.disposable/-dispose dv)))
+    (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :after-cb))
+    (rf.disposable/-dispose dv)
+    (rf.disposable/-dispose dv)
+    (is (= [:re-entrant-cb :after-cb] @fire-log))))
