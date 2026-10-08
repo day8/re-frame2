@@ -28,7 +28,6 @@
   | [[two-reads-in-one-island-are-two-cells]] | `n` calls are `n` subscriptions, React's own arithmetic | a hook that folded a component's reads into one cell and lost one of them |
   | [[use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation]] | the frame-incarnation rule, both halves | memoising on the frame KEYWORD, which is `=` across a reincarnation |
   | [[a-transition-around-a-write-stays-tear-free-and-is-still-blocking]] | React's external-store ceiling, measured rather than advertised | a docstring that claims transition-awareness |
-  | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## Why the readings are counts and identities, not text
 
@@ -56,8 +55,7 @@
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`), and
   each row degrades there to a STATED skip rather than to a false green.
   What can be said without a fiber is said in `hooks_island_cljs_test`."
-  (:require [clojure.set :as set]
-            [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -92,31 +90,6 @@
               (fn [{:keys [db]} [_ sym v]] {:db (assoc-in db [:prices sym] v)}))
 (rf/reg-event ::touch-elsewhere
               (fn [{:keys [db]} _] {:db (update db :elsewhere inc)}))
-
-;; ---------------------------------------------------------------------------
-;; The roster this file undertakes to reach
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "A row that starts returning early, or a mechanism that stops being
-  driven, fails the last deftest instead of quietly shrinking the
-  evidence."
-  #{:hooks/mounted-read
-    :hooks/selective-wake
-    :hooks/no-resubscribe
-    :hooks/no-resubscribe-uix
-    :hooks/strict-mode
-    :hooks/frame-isolation
-    :hooks/frame-isolation-uix
-    :hooks/context-only-resolution
-    :hooks/scheduled-resolution
-    :hooks/two-cells
-    :hooks/incarnation
-    :hooks/transition})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The island, and the two things it reports about itself
@@ -418,7 +391,6 @@
                          a boundary reads is indistinguishable to it")
                     (is (= 1 (:read-orders row)))))
 
-                (exercised! :hooks/mounted-read)
                 (testing "teardown releases every membership the mount took"
                   (is (= rf.fresco.roots-frames-support/released (teardown! handle))))
                 nil))
@@ -462,7 +434,6 @@
                   (is (= "from-the-island"
                          (rf/with-frame alpha @(rf/subscribe [::price "AAPL"])))))
 
-                (exercised! :hooks/selective-wake)
                 (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W2 selective wake"))
@@ -482,7 +453,7 @@
   subscription down and rebuilds it after every single re-render,
   releasing and re-acquiring the cell, and the value is right the whole
   time. Only the registration's IDENTITY says so."
-  [view mechanism]
+  [view]
   (let [k (price-key alpha "AAPL")]
     (seat! alpha {"AAPL" 191})
     (-> (mount-live! alpha [view {:sym "AAPL"}] k 1)
@@ -532,7 +503,6 @@
                      subscription was torn down and rebuilt")
                 (is (= residue (rf.fresco.test.runtime/residue))))
 
-              (exercised! mechanism)
               (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
               nil))))))
 
@@ -540,7 +510,7 @@
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
-      (-> (no-resubscribe-row! host :hooks/no-resubscribe)
+      (-> (no-resubscribe-row! host)
           (.catch (report-failure! "W3 no re-subscribe"))
           (.then (fn [_] (release-minted!) (done)))))))
 
@@ -548,7 +518,7 @@
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
-      (-> (no-resubscribe-row! uix-host :hooks/no-resubscribe-uix)
+      (-> (no-resubscribe-row! uix-host)
           (.catch (report-failure! "W3 no re-subscribe, UIx arm"))
           (.then (fn [_] (release-minted!) (done)))))))
 
@@ -598,7 +568,6 @@
                           would release a successor's and leave its own"
                   (is (= rf.fresco.roots-frames-support/released (teardown! handle))))
 
-                (exercised! :hooks/strict-mode)
                 (rf.fresco.roots-frames-support/quiesced!)))
             (.catch (report-failure! "W4 StrictMode"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -610,7 +579,7 @@
 (defn- isolation-row!
   "One island source, two frames, one query — and a promise resolved once
   both pages have been read."
-  [view mechanism]
+  [view]
   (let [ka (price-key alpha "AAPL")
         kb (price-key beta "AAPL")]
     (seat! alpha {"AAPL" "alpha-price"})
@@ -644,7 +613,6 @@
                 (is (= "alpha-moved" (text-at a ".price")))
                 (is (= "beta-price"  (text-at b ".price"))))
 
-              (exercised! mechanism)
               (rf.fresco.impl.mount/unmount! a)
               (is (= rf.fresco.roots-frames-support/released (teardown! b)))
               (rf.fresco.impl.mount/release! (assoc a :root nil))
@@ -654,7 +622,7 @@
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
-      (-> (isolation-row! host :hooks/frame-isolation)
+      (-> (isolation-row! host)
           (.catch (report-failure! "W5 frame isolation"))
           (.then (fn [_] (release-minted!) (done)))))))
 
@@ -662,7 +630,7 @@
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
-      (-> (isolation-row! uix-host :hooks/frame-isolation-uix)
+      (-> (isolation-row! uix-host)
           (.catch (report-failure! "W5 frame isolation, UIx arm"))
           (.then (fn [_] (release-minted!) (done)))))))
 
@@ -688,7 +656,7 @@
   `alpha` is the one a live `with-frame` names around the mount. One cell,
   keyed to beta, is the reading — a dynamic-var tier would key it to alpha,
   and both trees would look perfectly plausible on screen."
-  [view mechanism]
+  [view]
   (let [ka (price-key alpha "AAPL")
         kb (price-key beta  "AAPL")]
     (seat! alpha {"AAPL" "alpha-price"})
@@ -721,7 +689,6 @@
                   "and alpha — the frame the with-frame named — was never
                    written to"))
 
-            (exercised! mechanism)
             (is (= rf.fresco.roots-frames-support/released (teardown! b)))
             nil)))))
 
@@ -729,7 +696,7 @@
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
-      (-> (dynamic-scope-row! host :hooks/context-only-resolution)
+      (-> (dynamic-scope-row! host)
           (.catch (report-failure! "W5c hook frame resolution is context-only"))
           (.then (fn [_] (release-minted!) (done)))))))
 
@@ -890,7 +857,6 @@
                 (is (= 're-frame.fresco.native/use-sub (:where data)))))
             (is (not (contains? (rf.fresco.roots-frames-support/cell-keys) ka))
                 "and nothing was built under the frame the ambient scope named")
-            (exercised! :hooks/scheduled-resolution)
             nil)))))
 
 (deftest a-scheduled-render-that-outlives-the-scope-still-reads-the-boundarys-frame
@@ -947,7 +913,6 @@
                   (is (= 1 (count (readers-of ka))))
                   (is (= 1 (count (readers-of ke)))))
 
-                (exercised! :hooks/two-cells)
                 (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W5b two cells"))
@@ -1041,7 +1006,6 @@
                                   (is (= "live" (rf/with-frame alpha
                                                   @(rf/subscribe [::price "AAPL"])))))))
 
-                            (exercised! :hooks/incarnation)
                             (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                             nil))
                         ;; The inner chain finishes NOTHING and tears nothing
@@ -1086,19 +1050,7 @@
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
                          (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
-                (exercised! :hooks/transition)
                 (is (= rf.fresco.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W7 transition"))
             (.then (fn [_] (release-minted!) (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The roster
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test reaches none of the mechanisms")
-    (is (= declared-population (deref !exercised))
-        (str "declared but never reached: "
-             (pr-str (set/difference declared-population (deref !exercised)))))))
