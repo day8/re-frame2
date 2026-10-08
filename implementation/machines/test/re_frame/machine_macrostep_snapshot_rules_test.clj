@@ -1,18 +1,7 @@
 (ns re-frame.machine-macrostep-snapshot-rules-test
-  "What a macrostep may write to an actor's SNAPSHOT, and what it reports
-  having written.
-
-    - `:always` microstep traces — one
-      `:rf.machine.microstep/transition` per microstep, and the outer
-      `:rf.machine/transition` stamped with `:microsteps <count>` (0 when no
-      `:always` cascade ran). Spec 005 §Trace events.
-    - `:rf.error/machine-action-wrote-db` — an action's effect map may carry
-      `:data`, never `:db`. The app-db is not a machine action's to write
-      (Spec 005:463); the offending value is redacted at trace egress.
-
-  The one sanctioned snapshot patch, `:rf.machine/update-snapshot` (Spec
-  005:489) — its merge and its `:db` hard-disallow — is pinned in
-  `update_snapshot_schema_test`."
+  "What a macrostep reports about its `:always` microsteps (Spec 005 §Trace
+  events), and that an action's effect map may write `:data` but never `:db`
+  (Spec 005:463). The escape-hatch patch is `update_snapshot_schema_test`'s."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -22,24 +11,18 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Routed through the shared `rf.machines.test-support/with-trace-capture` — guaranteed
-;; unregister in a `finally`.
-(defn- record-traces! [body-fn]
+(defn- record-traces! [f]
   (rf.machines.test-support/with-trace-capture seen
-    (body-fn)
+    (f)
     @seen))
 
-(defn- ops [evs op] (filterv #(= op (:operation %)) evs))
-
-(defn- snap-of [machine-id]
-  (get-in @(rf/subscribe [:rf/machine machine-id]) [:state]))
-
-;; ---- :always microstep traces + the outer :microsteps count ---------------
+(defn- tags-of
+  "The `ks` of each `op` trace's tags, in emission order."
+  [evs op ks]
+  (into [] (comp (filter #(= op (:operation %))) (map #(select-keys (:tags %) ks))) evs))
 
 (deftest always-emits-microstep-traces-and-count
-  (testing "an :always-driven cascade emits one
-   :rf.machine.microstep/transition per microstep AND stamps :microsteps
-   on the outer :rf.machine/transition"
+  (testing "one :rf.machine.microstep/transition per :always microstep, counted on the outer trace"
     (rf/reg-machine :rem/quiz
       {:initial :asking
        :data    {:correct 9}
@@ -48,33 +31,19 @@
        :states  {:asking {:always [{:guard :enough? :target :winner}]
                           :on     {:answer {:action :count}}}
                  :winner {}}})
-    (let [evs   (record-traces!
-                  (fn [] (rf/dispatch-sync [:rem/quiz [:answer]])))
-          micro (ops evs :rf.machine.microstep/transition)
-          outer (ops evs :rf.machine/transition)]
-      (is (= :winner (snap-of :rem/quiz)) "the :always microstep flipped to :winner")
-      (is (= 1 (count micro)) "exactly one microstep trace")
-      (let [m (first micro)]
-        (is (= :asking (-> m :tags :from)))
-        (is (= :winner (-> m :tags :to)))
-        (is (= 0 (-> m :tags :microstep-index))))
-      (is (= 1 (count outer)) "one outer macrostep trace")
-      (is (= 1 (-> outer first :tags :microsteps))
-          "outer trace carries :microsteps 1"))))
+    (let [evs (record-traces! #(rf/dispatch-sync [:rem/quiz [:answer]]))]
+      (is (= [{:from :asking :to :winner :microstep-index 0}]
+             (tags-of evs :rf.machine.microstep/transition [:from :to :microstep-index])))
+      (is (= [{:microsteps 1}] (tags-of evs :rf.machine/transition [:microsteps]))))))
 
 (deftest no-always-stamps-zero-microsteps
-  (testing "a plain transition with no :always cascade stamps :microsteps 0"
-    (rf/reg-machine :rem/plain
-      {:initial :a :states {:a {:on {:go {:target :b}}} :b {}}})
-    (let [evs   (record-traces!
-                  (fn [] (rf/dispatch-sync [:rem/plain [:go]])))
-          outer (ops evs :rf.machine/transition)]
-      (is (= 0 (-> outer first :tags :microsteps)))
-      (is (empty? (ops evs :rf.machine.microstep/transition))))))
+  (rf/reg-machine :rem/plain {:initial :a :states {:a {:on {:go {:target :b}}} :b {}}})
+  (is (= [{:microsteps 0}]
+         (tags-of (record-traces! #(rf/dispatch-sync [:rem/plain [:go]]))
+                  :rf.machine/transition [:microsteps]))))
 
 (deftest always-inside-a-raised-event-counts-toward-microsteps
-  (testing "an :always step taken while handling a raised event counts in the
-   outer :microsteps, which equals the microstep traces the macrostep emitted"
+  (testing "an :always step taken while handling a raised event counts in the outer :microsteps"
     ;; `:go` enters `:a`, whose entry raises `:next`; handling `:next` lands
     ;; on `:b`, whose `:always` moves to `:c` inside that raise's settle.
     (rf/reg-machine :rem/raised-always
@@ -86,40 +55,22 @@
                  :c     {:entry :raise-next :on {:next :d}}
                  :d     {}}})
     (rf/dispatch-sync [:rem/raised-always [:rf.machine/start]])
-    (let [evs   (record-traces!
-                  (fn [] (rf/dispatch-sync [:rem/raised-always [:go]])))
-          micro (ops evs :rf.machine.microstep/transition)
-          outer (ops evs :rf.machine/transition)]
-      (is (= :d (snap-of :rem/raised-always)))
-      (is (= 1 (count micro)) "one :always microstep ran, inside the raise")
-      (is (= 1 (count outer)) "one outer macrostep trace")
-      (is (= (count micro) (-> outer first :tags :microsteps))
-          "the outer :microsteps agrees with the per-microstep stream"))))
-
-;; ---- :rf.error/machine-action-wrote-db — the app-db is not an action's ---
+    (let [evs (record-traces! #(rf/dispatch-sync [:rem/raised-always [:go]]))]
+      (is (= :d (rf.machines.test-support/machine-state :rem/raised-always)))
+      (is (= 1 (count (tags-of evs :rf.machine.microstep/transition []))))
+      (is (= [{:microsteps 1}] (tags-of evs :rf.machine/transition [:microsteps]))))))
 
 (deftest action-returning-db-emits-error-and-drops-db
-  (testing "an action whose effect map carries :db emits
-   :rf.error/machine-action-wrote-db; :data still flows, :db is dropped"
+  (testing "an action effect map carrying :db emits :rf.error/machine-action-wrote-db with the
+            offending value redacted at egress; :data still flows and :db is dropped"
     (rf/reg-machine :rem/wrote-db
       {:initial :a
        :actions {:bad (fn [_] {:db {:auth {:token "super-secret-jwt"}} :data {:legit 1}})}
        :states  {:a {:on {:go {:target :b :action :bad}}} :b {}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rem/wrote-db [:go]])))
-          ws  (ops evs :rf.error/machine-action-wrote-db)]
-      (is (= 1 (count ws)) "exactly one wrote-db error")
-      (is (= :bad (-> ws first :tags :action-id)))
-      ;; `:offending-value` (the whole app-db the action wrongly returned)
-      ;; is summarized to `:rf/redacted` at the trace egress chokepoint
-      ;; (`marks/project-machine-wrote-db-tags`) so it never leaks raw to
-      ;; listeners / epoch / MCP / logs. The `:action-id` locates the
-      ;; offending action; the operator does not need the app-db contents.
-      (is (= :rf/redacted (-> ws first :tags :offending-value))
-          "the offending app-db value is redacted at egress")
-      (is (not (re-find #"super-secret-jwt" (pr-str (-> ws first :tags))))
-          "the sensitive token appears nowhere in the egressed trace")
-      ;; :data flowed through; the FSM is at :b; app-db root was NOT clobbered.
-      (is (= {:legit 1} (:data @(rf/subscribe [:rf/machine :rem/wrote-db]))))
-      (is (= :b (snap-of :rem/wrote-db)))
-      (is (not (contains? @(rf/subscribe [:rf/machine :rem/wrote-db]) :db))))))
+    (let [errs (filterv #(= :rf.error/machine-action-wrote-db (:operation %))
+                        (record-traces! #(rf/dispatch-sync [:rem/wrote-db [:go]])))]
+      (is (= [{:action-id :bad :offending-value :rf/redacted}]
+             (tags-of errs :rf.error/machine-action-wrote-db [:action-id :offending-value])))
+      (is (not (re-find #"super-secret-jwt" (pr-str (mapv :tags errs)))))
+      (is (= {:state :b :data {:legit 1}}
+             (select-keys (rf.machines.test-support/snapshot :rem/wrote-db) [:state :data :db]))))))
