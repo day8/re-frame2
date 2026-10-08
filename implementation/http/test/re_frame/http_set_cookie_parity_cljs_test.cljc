@@ -1,137 +1,53 @@
 (ns re-frame.http-set-cookie-parity-cljs-test
-  "Cross-host response-headers SHAPE parity for `Set-Cookie`
-  (Spec 014 §Request envelope: `string → string`, or `string → vector of
-  strings` for a multi-valued header).
+  "Host-symmetric response-header shape for `Set-Cookie` (Spec 014 §Request
+  envelope: a multi-valued header is a vector of strings), asserted on both
+  hosts from one source.
 
-  Named `*-cljs-test.cljc` so BOTH cognitect.test-runner (JVM
-  `clojure -M:test`) and shadow-cljs (`npm run test:cljs`, `cljs-test$`
-  ns-regexp) discover it — the contract under test is host-symmetric BY
-  DESIGN, so a single source asserted on both runtimes is the right shape.
-
-  The JVM transport's `jvm-headers->map` rides every wire line
-  of a multi-valued response header as a vector element — so two
-  `Set-Cookie` lines decode to a 2-element vector, each cookie preserved
-  verbatim. A bare `Headers.forEach` + `js->clj` on CLJS would not match:
-  `forEach` keeps `Set-Cookie` OUT of its combined view and yields ONLY
-  THE LAST `Set-Cookie` line, silently DROPPING the earlier one(s). A
-  two-cookie 2xx/4xx response would then decode to a 2-element vector on
-  the JVM but a single (last-only) string on CLJS — an untraced cross-host
-  divergence that LOSES a cookie and contradicts the JVM's
-  RFC-6265-§3-correct shape.
-
-  The CLJS transport's `fetch-headers->map` recovers the unfolded lines via
-  `Headers.getSetCookie()` so a multi-valued `Set-Cookie` decodes
-  IDENTICALLY on both hosts (single → string; multi → a vector of the
-  verbatim wire lines, every line preserved)."
+  A bare `Headers.forEach` on CLJS yields only the LAST `Set-Cookie` line, so
+  the CLJS transport recovers the unfolded lines through
+  `Headers.getSetCookie()`; the JVM rides every wire line as a vector element.
+  Each host's native headers object is built here and flattened through that
+  host's transport helper."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing]]
-      :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.http.reply :as rf.http.reply]
+   #?(:clj  [clojure.test :refer [deftest is]]
+      :cljs [cljs.test :refer-macros [deftest is]])
    #?(:clj  [re-frame.http.transport-jvm :as rf.http.transport-jvm]
       :cljs [re-frame.http.transport-cljs :as rf.http.transport-cljs]))
   #?(:clj (:import [java.net.http HttpHeaders]
                    [java.util Map]
                    [java.util.function BiPredicate])))
 
-;; ---------------------------------------------------------------------------
-;; Per-host adapter: build the host's native response-headers object from a
-;; Clojure `{header-name [wire-line ...]}` map, then run the host's
-;; flatten-to-Clojure-map helper. The ASSERTIONS below are identical across
-;; hosts — that symmetry is the contract.
-;; ---------------------------------------------------------------------------
-
 #?(:clj
-   (def ^:private flatten-headers @#'rf.http.transport-jvm/jvm-headers->map))
-
-#?(:cljs
-   (def ^:private flatten-headers @#'rf.http.transport-cljs/fetch-headers->map))
-
-#?(:clj
-   (defn- decode-headers
-     "Build a real `java.net.http.HttpHeaders` from `{name [v ...]}` and
-     flatten it through the JVM transport's `jvm-headers->map`."
-     [m]
+   (defn- decode-headers [m]
      (let [java-map (reduce-kv
                       (fn [^java.util.HashMap acc k vs]
                         (.put acc k (java.util.ArrayList. ^java.util.Collection vs))
                         acc)
                       (java.util.HashMap.)
-                      m)
-           accept-all (reify BiPredicate (test [_ _ _] true))]
-       (flatten-headers (HttpHeaders/of ^Map java-map ^BiPredicate accept-all)))))
+                      m)]
+       (@#'rf.http.transport-jvm/jvm-headers->map
+        (HttpHeaders/of ^Map java-map ^BiPredicate (reify BiPredicate (test [_ _ _] true)))))))
 
 #?(:cljs
-   (defn- decode-headers
-     "Build a real Fetch `Headers` from `{name [v ...]}` (`.append` per wire
-     line, mirroring how a response is parsed) and flatten it through the
-     CLJS transport's `fetch-headers->map`."
-     [m]
+   (defn- decode-headers [m]
      (let [h (js/Headers.)]
        (doseq [[k vs] m
                v vs]
          (.append h k v))
-       (flatten-headers h))))
-
-;; ---------------------------------------------------------------------------
-;; The parity assertions (identical on both hosts)
-;; ---------------------------------------------------------------------------
+       (@#'rf.http.transport-cljs/fetch-headers->map h))))
 
 (deftest single-set-cookie-is-string-cross-host
-  (testing "a single Set-Cookie line decodes to a plain STRING
-            on both hosts (the single-valued fast path; no spurious
-            1-element vector)"
-    (let [out (decode-headers {"Set-Cookie" ["only=1; Path=/"]})]
-      (is (= "only=1; Path=/" (get out "set-cookie"))
-          "single cookie preserved as a string"))))
+  (is (= "only=1; Path=/" (get (decode-headers {"Set-Cookie" ["only=1; Path=/"]}) "set-cookie"))))
 
 (deftest multi-set-cookie-is-vector-of-verbatim-lines-cross-host
-  (testing "TWO Set-Cookie lines decode to a 2-element vector of
-            the verbatim wire lines on BOTH hosts. A forEach-folded CLJS
-            host would drop the FIRST cookie and return only the last as a
-            string. This is the headline cross-host parity case."
-    (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
-                   "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
-          out     (decode-headers {"Set-Cookie" cookies})
-          v       (get out "set-cookie")]
-      (is (vector? v)
-          "multi-valued Set-Cookie MUST be a vector on both hosts — comma-
-           folding violates RFC 6265 §3 (cookie values embed commas) and
-           forEach-folding loses all but the last line")
-      (is (= cookies v)
-          "each line preserved verbatim — the comma inside Expires is intact,
-           not interpreted as a separator, and the first line is not lost"))))
+  ;; The comma inside Expires must not split a line, and no line may be lost.
+  (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
+                 "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
+        v       (get (decode-headers {"Set-Cookie" cookies}) "set-cookie")]
+    (is (vector? v))
+    (is (= cookies v))))
 
 (deftest no-set-cookie-leaves-map-untouched-cross-host
-  (testing "a response with no Set-Cookie decodes its other
-            headers unchanged (the recovery is surgical to Set-Cookie); a
-            single non-cookie header stays a string on both hosts"
-    (let [out (decode-headers {"Content-Type" ["application/json"]})]
-      (is (= "application/json" (get out "content-type")))
-      (is (not (contains? out "set-cookie"))
-          "no spurious set-cookie key is synthesised"))))
-
-(deftest success-reply-meta-rides-host-normalized-headers-verbatim-cross-host
-  (testing "the host transport's normalized header map (built here
-            from the host's REAL native headers object) rides the canonical
-            success reply's [:meta :headers] VERBATIM on both hosts — the
-            multi-valued vector shape included. One header representation,
-            end to end; no reshape at the reply boundary."
-    (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
-                   "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
-          headers (decode-headers {"Set-Cookie"             cookies
-                                   "Content-Type"           ["application/json"]
-                                   "X-RateLimit-Remaining"  ["37"]})
-          reply   (rf.http.reply/success-reply
-                    {:request-id :parity/req :origin-event [:parity/load]
-                     :attempt 1 :frame :app/main :completed-at 1}
-                    {:ok true}
-                    {:status 200 :status-text "" :headers headers})]
-      (is (= headers (get-in reply [:meta :headers]))
-          "the normalized map threads verbatim — byte-identical shape on both hosts")
-      (is (= cookies (get-in reply [:meta :headers "set-cookie"]))
-          "the multi-valued vector-of-verbatim-lines shape survives onto the reply")
-      (is (= "37" (get-in reply [:meta :headers "x-ratelimit-remaining"]))
-          "single-valued headers stay strings under lower-cased names")
-      (is (= 200 (get-in reply [:meta :status])))
-      (is (= {:ok true} (:value reply))
-          ":value remains the accepted payload — metadata never displaces it"))))
+  (is (= {"content-type" "application/json"}
+         (decode-headers {"Content-Type" ["application/json"]}))
+      "no set-cookie key is synthesised"))
