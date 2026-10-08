@@ -4,8 +4,8 @@
   declared-only delivery); and a suppressed failure still records the causal
   `:completed-at`."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.resources]
