@@ -39,20 +39,22 @@
 ;; ---- reset ---------------------------------------------------------------
 
 (deftest reset-modes-persists-empty
-  (testing "reset-modes! empties the shell slot AND persists the empty
-            vector"
+  (testing "reset-modes! persists the empty vector, not just the ratom.
+
+            The node half of this row (shell state emptied) lives in the
+            sibling; only the storage claim lives here."
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
         (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-        ;; Teeth: an empty read after the reset alone would pass against a
-        ;; storage that never held anything.
+        ;; Teeth: `(= [] (load-modes-from-storage))` after the reset alone
+        ;; passes just as happily against a storage that never held
+        ;; anything. Prove the toggle PERSISTED first, so
+        ;; the empty read below is evidence that reset-modes! cleared it.
         (is (= [:Mode.app/x] (rf.story.ui.toolbar/load-modes-from-storage))
             "precondition: toggle-mode! really did persist the mode")
         (rf.story.ui.toolbar/reset-modes!)
-        (is (= [] (:active-modes (rf.story.ui.state/get-state)))
-            "reset-modes! emptied the shell slot")
         (is (= [] (rf.story.ui.toolbar/load-modes-from-storage))
             "reset-modes! persisted the empty vector")))))
 
