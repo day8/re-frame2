@@ -1,31 +1,8 @@
 (ns re-frame.machine-cofx-attach-test
-  "Machine consumer attachment.
-
-  Covers the three pieces and their adversarial corners:
-
-    1. INLINE-FN RESTRICTION — `:rf.cofx/requires` may live ONLY on a named
-       `:guards` / `:actions` entry map. An inline declaration (on an `:on`
-       slot, or on a `:guards` entry that is a map with no `:fn`) fails
-       registration with `:rf.error/machine-cofx-requires-inline`.
-
-    2. DERIVED ENSURE-SETS — the per-(state × event-type) ensure-set is
-       ensured BEFORE transition selection. Two adversarial corners:
-         (a) a GUARD's generator-backed recordable fact is GENERATED before
-             selection, so the guard reads the generated value (not nil) and
-             selects the right transition — the replay-sensitive corner;
-         (b) the `:always`-CLOSURE correctness — a generator-backed fact
-             required by an `:always` ACTION reachable from a transition's
-             TARGET is ensured in the SAME macrostep (the closure reaches
-             through the candidate target), and the generated value is
-             written back into the causal `:rf.cofx` record (so replay
-             re-presents it).
-
-    3. ENTRY REQUIRES DELIVERED — a named guard / action declaring a PROVIDED
-       recordable fact (`:rf/time-ms`) present on the token reads it off the
-       `:rf.cofx` record verbatim and folds it into a durable `:data` write.
-
-  These exercise the real dispatch path, not a routed-around green."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "A named guard / action's `:rf.cofx/requires` is ensured before transition
+  selection on every slot the runtime selects from; an inline declaration is
+  refused at registration."
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.machines :as rf.machines]
@@ -37,516 +14,108 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
-;; A fixed wall-clock sentinel the host clock never spontaneously returns.
-(def ^:private SCRIPTED-TIME-MS 1234500000)
-
-;; ===========================================================================
-;; 1. Inline-fn restriction — :rf.cofx/requires must be on a NAMED entry
-;; ===========================================================================
-
-(deftest inline-requires-is-refused-at-registration
-  (doseq [[label machine]
-          [["on an inline `:on` transition map"
-            {:initial :idle
-             :data    {}
-             :states  {:idle {:on {:go {:rf.cofx/requires [:rf/time-ms]
-                                        :target :done}}}
-                       :done {}}}]
-           ["on a `:guards` entry map with no `:fn`: an inline declaration with no
-            callback to attach the diet to"
-            {:initial :idle
-             :data    {}
-             :guards  {:bad {:rf.cofx/requires [:rf/time-ms]}}
-             :states  {:idle {:on {:go {:target :done :guard :bad}}}
-                       :done {}}}]
-           ["on a `:type :choice` candidate: the :choice slot is swept like the
-            :always it lowers to"
-            {:initial :idle
-             :data    {}
-             :states  {:idle     {:on {:go :checking}}
-                       :checking {:type   :choice
-                                  :choice [{:rf.cofx/requires [:rf/time-ms]
-                                            :target :a}
-                                           {:target :b}]}
-                       :a {} :b {}}}]]]
-    (let [e (is (thrown? ExceptionInfo (rf.machines/make-machine-handler machine))
-                (str label ": registration throws"))]
-      (is (= :rf.error/machine-cofx-requires-inline (:rf.error/id (ex-data e)))
-          (str label ": the failure is the named error category")))))
-
-;; ===========================================================================
-;; 2. Derived ensure-sets — ensured BEFORE transition selection
-;; ===========================================================================
-
-(deftest always-closure-fact-ensured-in-same-macrostep
-  (testing "ENSURE-SET :always-CLOSURE correctness — a generator-backed fact
-            required by an :always ACTION reachable from a transition's TARGET
-            is ensured in the SAME macrostep (the closure reaches THROUGH the
-            candidate target), and the generated value lands in the action's
-            :data write"
-    (rf/reg-cofx :test/jitter
-      {:recordable? true :doc "Replayable fixed jitter."}
-      (fn [] 42))
-    (let [m {:initial :idle
-             :data    {:armed? true}
-             :guards  {:armed? (fn [{:keys [data]}] (:armed? data))}
-             :actions {;; an :always action consuming a generator-backed fact
-                       :record-jitter
-                       {:rf.cofx/requires [:test/jitter]
-                        :fn (fn [{:keys [data] cofx :rf.cofx}]
-                              {:data (assoc data
-                                            :jitter (:test/jitter cofx)
-                                            :armed? false)})}}
-             :states  {:idle {:on {:go :pending}}
-                       ;; :pending's :always (guarded by :armed?, which the
-                       ;; action flips false) records the jitter then settles.
-                       :pending {:always {:guard  :armed?
-                                          :action :record-jitter
-                                          :target :done}}
-                       :done {}}}]
-      (rf/reg-machine :attach/always-closure m)
-      ;; :go targets :pending; the ensure-set for [:go] at :idle MUST include
-      ;; :test/jitter (reachable via :pending's :always action) so the jitter
-      ;; is generated BEFORE the macrostep that runs the :always action.
-      (rf/dispatch-sync [:attach/always-closure [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (let [d (rf.machines.test-support/machine-data :attach/always-closure)]
-        (is (= 42 (:jitter d))
-            "the :always action wrote the GENERATED jitter — the ensure-set
-             closure reached through the candidate target")
-        (is (= :done (rf.machines.test-support/machine-state :attach/always-closure))
-            "the :always cascade settled on :done")))))
-
-;; ---- multi-hop :always chain ---------------------------------------------
-;;
-;; The single-hop cases above reach an :always one hop from the candidate
-;; target. The runtime, however, settles :always to a MULTI-HOP fixed point
-;; in ONE macrostep (transition/drain-to-fixed-point), while the ensure step
-;; runs ONCE before that macrostep (registration/ensure-ctx-cofx). A
-;; :rf.cofx/requires declared on an :always guard/action reached at chain
-;; depth >=2 (A --go--> B, B :always--> C, C :always {:guard g-requiring-cofx})
-;; is ensured up front: the static closure chases the :always chain to a
-;; fixed point, so the depth>=2 fact is in the ensure-set (the guard reads
-;; the ensured value, never a silent nil) — preserving replay-determinism.
-
-(deftest multi-hop-always-guard-reads-ensured-fact
-  (testing "end-to-end: a guard reached at :always chain depth>=2 reads the
-            GENERATED fact (never nil) — the ensure step settled the same
-            fixed point the runtime macrostep does, so the deep guard selects
-            the right transition on the ensured value"
-    (rf/reg-cofx :test/deep-gen {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)
-          m {:initial :a
-             :data    {}
-             :guards  {:deep-rolled-six?
-                       {:rf.cofx/requires [:test/deep-gen]
-                        :fn (fn [{cofx :rf.cofx}]
-                              (reset! seen (:test/deep-gen cofx))
-                              (= 6 (:test/deep-gen cofx)))}}
-             :states  {:a {:on {:go :b}}
-                       :b {:always {:target :c}}
-                       :c {:always {:guard :deep-rolled-six? :target :done}}
-                       :done {}}}]
-      (rf/reg-machine :attach/multi-hop-gen m)
-      ;; No :test/deep-gen on the token — the ensure step must generate it
-      ;; BEFORE the macrostep settles A→B→(always)C→(always,guarded)done.
-      (rf/dispatch-sync [:attach/multi-hop-gen [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen)
-          "the depth>=2 :always guard read the GENERATED fact (not nil) —
-           ensured before the macrostep settled the multi-hop :always chain")
-      (is (= :done (rf.machines.test-support/machine-state :attach/multi-hop-gen))
-          "the deep guard fired on the ensured value, settling the chain"))))
-
-(deftest no-requires-machine-ensure-set-empty
-  (testing "a machine with no :rf.cofx/requires anywhere derives an empty
-            ensure-set (the no-op fast path)"
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :idle
-               :guards  {:g (fn [_] true)}
-               :states  {:idle {:on {:go {:target :done :guard :g}}}
-                         :done {}}})]
-      (is (empty? (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go]))
-          "no declared requires → empty ensure-set"))))
-
-;; ===========================================================================
-;; 3. Entry requires delivered — a named entry's declared fact reaches the fn
-;; ===========================================================================
-
-(deftest named-action-requires-fact-folded-into-data
-  (testing "a named ACTION declaring :rf/time-ms folds the recorded fact into
-            a durable :data write (replay-deterministic)"
-    (let [m {:initial :idle
-             :data    {}
-             :actions {:stamp
-                       {:rf.cofx/requires [:rf/time-ms]
-                        :fn (fn [{cofx :rf.cofx}]
-                              {:data {:stamped-at (:rf/time-ms cofx)}})}}
-             :states  {:idle {:on {:go {:target :done :action :stamp}}}
-                       :done {}}}]
-      (rf/reg-machine :attach/entry-action m)
-      (rf/dispatch-sync [:attach/entry-action [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= SCRIPTED-TIME-MS
-             (:stamped-at (rf.machines.test-support/machine-data :attach/entry-action)))
-          "the named action wrote the recorded :rf/time-ms into :data"))))
-
-(deftest generated-fact-written-back-into-causal-record
-  (testing "a GENERATED ensure-set fact is written back into the causal
-            :rf.cofx record an action then reads — replay re-presents it
-            (the generation step finds nothing to do on replay)"
-    (rf/reg-cofx :test/token {:recordable? true} (fn [] :GENERATED))
-    (let [m {:initial :idle
-             :data    {}
-             :actions {:capture
-                       {:rf.cofx/requires [:test/token]
-                        :fn (fn [{cofx :rf.cofx}]
-                              {:data {:captured (:test/token cofx)}})}}
-             :states  {:idle {:on {:go {:target :done :action :capture}}}
-                       :done {}}}]
-      (rf/reg-machine :attach/writeback m)
-      (rf/dispatch-sync [:attach/writeback [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= :GENERATED (:captured (rf.machines.test-support/machine-data :attach/writeback)))
-          "the action read the GENERATED fact off the augmented record"))))
-
-;; ===========================================================================
-;; pure-fn caller unaffected — no token → no ensure, no error
-;; ===========================================================================
-
-(deftest pure-fn-caller-no-ensure-no-error
-  (testing "a pure machine-transition (no router token) consumes no recordable
-            facts — the ensure step no-ops (no :rf/cofx stamp), no error"
-    (let [m {:initial :idle
-             :data    {}
-             :guards  {:g {:rf.cofx/requires [:rf/time-ms]
-                           :fn (fn [{cofx :rf.cofx}] (nil? cofx))}}
-             :states  {:idle {:on {:go {:target :done :guard :g}}}
-                       :done {}}}
-          ;; reg-machine* installs the index; drive the pure engine directly.
-          handler (rf.machines/make-machine-handler m)]
-      (is (some? handler)
-          "registration succeeds (named entry, legal)")
-      ;; The pure engine path carries no :rf/cofx, so the guard's cofx is nil
-      ;; and the ensure step is bypassed — no throw.
-      (is (some? (rf.machines/machine-transition m {:state :idle :data {}} [:go]))
-          "the pure engine runs without a token and without an ensure error"))))
-
-;; ===========================================================================
-;; PARALLEL ROOT :on / :after in the ensure-set
-;; ===========================================================================
-;;
-;; The parallel branch of `ensure-set-for` unions each REGION's scope AND the
-;; parallel ROOT's own `:on` / `:after` (live ancestor-fallback transition
-;; surfaces the runtime evaluates separately via `transition/root-on-match` /
-;; `root-after-match`). A coeffect declared by a root `:on` / root `:after`
-;; guard/action is therefore ensured before selection, so the guard/action
-;; reads the ensured value (or surfaces the missing-required throw).
-;; These tests prove the root surfaces contribute to the ensure-set.
-;;
-;; XState-v5 alignment: a transition (`on`) or delayed transition (`after`)
-;; declared on a `<parallel>` node is a first-class ancestor fallback (Spec 005
-;; §Root parallel `:on` / §Root-level `:after`, verified vs xstate@5.32.0); its
-;; guard/action requirements must be satisfied like any other node's.
-
-(deftest ensure-set-for-includes-parallel-root-after
-  (testing "white-box: ensure-set-for for the synthetic root :after timer event
-            ([:rf.machine.timer/after-elapsed delay epoch []]) includes the
-            ROOT :after candidate's requires"
-    (rf/reg-cofx :test/root-jitter {:recordable? true} (fn [] 7))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:type    :parallel
-               :data    {}
-               :actions {:root-stamp
-                         {:rf.cofx/requires [:test/root-jitter]
-                          :fn (fn [_] nil)}}
-               ;; root :after — root-owned delayed transition, decl-path [].
-               :after   {1000 {:target [[:a :two] [:b :two]]
-                               :action :root-stamp}}
-               :regions {:a {:initial :one :states {:one {} :two {}}}
-                         :b {:initial :one :states {:one {} :two {}}}}})
-          ;; the root timer carries decl-path [] (root-owned, not region-prefixed)
-          es (rf.machines.cofx-attach/ensure-set-for
-               m {:state {:a :one :b :one}
-                  :data  {:rf/after-epoch {[] 1}}}
-               [:rf.machine.timer/after-elapsed 1000 1 []])]
-      (is (contains? (set (map :id es)) :test/root-jitter)
-          "the ensure-set for the root :after timer includes the root :after
-           action's requires"))))
-
-(deftest parallel-root-on-guard-reads-ensured-generated-fact
-  (testing "end-to-end: a parallel ROOT :on guard requiring a generator-backed
-            fact reads the GENERATED value (never nil) — the ensure step ran
-            for the root surface before the root-fallback selection, so the
-            guard fires the root transition on the ensured value"
-    (rf/reg-cofx :test/root-gen {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)
-          m {:type    :parallel
-             :data    {}
-             :guards  {:root-six?
-                       {:rf.cofx/requires [:test/root-gen]
-                        :fn (fn [{cofx :rf.cofx}]
-                              (reset! seen (:test/root-gen cofx))
-                              (= 6 (:test/root-gen cofx)))}}
-             :on      {:go-all {:target [[:a :two] [:b :two]]
-                                :guard  :root-six?}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}]
-      (rf/reg-machine :attach/parallel-root-on m)
-      ;; No :test/root-gen on the token — the ensure step must generate it
-      ;; BEFORE the root-fallback selection evaluates the root guard.
-      (rf/dispatch-sync [:attach/parallel-root-on [:go-all]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen)
-          "the root :on guard read the GENERATED fact (not nil) — ensured
-           before the parallel root-fallback selection ran")
-      (is (= {:a :two :b :two}
-             (:state (snapshot :attach/parallel-root-on)))
-          "the root :on fired on the ensured value, moving both regions"))))
-
-;; ===========================================================================
-;; :type :choice candidates in the ensure-set
-;; ===========================================================================
-;;
-;; A `:type :choice` transient node carries its candidate vector under
-;; `:choice`, which LOWERS to `:always` only at `choice/desugar-choices` (run
-;; at transition / birth time). The index + ensure-set run on the RAW
-;; pre-desugar machine, so the ensure-set must treat a choice node's `:choice`
-;; vector as its `:always` candidates — otherwise a choice candidate guard's
-;; :rf.cofx/requires is never ensured, the guard reads nil, and strict replay
-;; diverges (it selects a DIFFERENT candidate). The inline-fn restriction
-;; likewise sweeps :choice (inline-requires-is-refused-at-registration's last row).
-
-(deftest choice-candidate-guard-reads-ensured-generated-fact
-  (testing "end-to-end: a :type :choice candidate GUARD requiring a
-            generator-backed fact reads the GENERATED value (never nil) — the
-            ensure-set closure treats the choice node's :choice vector as its
-            :always candidates, so the fact is ensured BEFORE the choice settles
-            (it lowers to :always in the same macrostep) and routes correctly"
-    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)
-          m {:initial :idle
-             :data    {}
-             :guards  {:rolled-six?
-                       {:rf.cofx/requires [:test/roll]
-                        :fn (fn [{cofx :rf.cofx}]
-                              (reset! seen (:test/roll cofx))
-                              (= 6 (:test/roll cofx)))}}
-             :states  {:idle     {:on {:go :checking}}
-                       :checking {:type   :choice
-                                  :choice [{:guard :rolled-six? :target :hit}
-                                           {:target :miss}]}
-                       :hit  {}
-                       :miss {}}}]
-      (rf/reg-machine :attach/choice-guard m)
-      ;; No :test/roll on the token — the ensure step must generate it BEFORE
-      ;; the choice node settles (it lowers to :always in the [:go] macrostep).
-      (rf/dispatch-sync [:attach/choice-guard [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen)
-          "the choice candidate guard read the GENERATED :test/roll (not nil) —
-           ensured before the choice settled")
-      (is (= :hit (rf.machines.test-support/machine-state :attach/choice-guard))
-          "the choice routed to :hit on the ensured value"))))
-
-;; ===========================================================================
-;; state-level / per-region :after candidates in the ensure-set
-;; ===========================================================================
-;;
-;; The synthetic timer event [:rf.machine.timer/after-elapsed delay epoch
-;; decl-path] routes to the scheduling node's :after-TABLE transition at
-;; decl-path/delay — a slot SEPARATE from :on, so the :on walk misses it. The
-;; ensure-set covers the per-state / per-region :after alongside the parallel
-;; ROOT :after (parallel-root-diet). A state-level :after
-;; guard/action declaring :rf.cofx/requires must have its facts ensured when
-;; the timer fires, else the guard reads nil / replay diverges.
-
-(deftest ensure-set-for-includes-state-after
-  (testing "white-box: ensure-set-for for a state-level :after timer event
-            ([:rf.machine.timer/after-elapsed delay epoch [state]]) includes the
-            :after candidate's requires — the :after slot the :on walk misses"
-    (rf/reg-cofx :test/token {:recordable? true} (fn [] :T))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :waiting
-               :data    {}
-               :guards  {:needs-token
-                         {:rf.cofx/requires [:test/token]
-                          :fn (fn [{cofx :rf.cofx}] (some? (:test/token cofx)))}}
-               :states  {:waiting {:after {5000 {:guard  :needs-token
-                                                 :target :done}}}
-                         :done    {}}})
-          ;; the state timer carries the scheduling node's decl-path [:waiting].
-          es (rf.machines.cofx-attach/ensure-set-for
-               m {:state :waiting :data {}}
-               [:rf.machine.timer/after-elapsed 5000 1 [:waiting]])]
-      (is (contains? (set (map :id es)) :test/token)
-          "the ensure-set for the state :after timer includes the :after guard's
-           requires — handling only the parallel ROOT :after would leave a
-           per-state :after guard reading nil"))))
-
-(deftest ensure-set-for-includes-per-region-after
-  (testing "white-box: for a parallel machine, the synthetic region-qualified
-            :after timer ([... [<region> <state>]]) resolves within the region
-            scope (region head stripped) and adds the region-state :after
-            candidate's requires (the region path)"
-    (rf/reg-cofx :test/region-token {:recordable? true} (fn [] :RT))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:type    :parallel
-               :data    {}
-               :guards  {:needs-region-token
-                         {:rf.cofx/requires [:test/region-token]
-                          :fn (fn [{cofx :rf.cofx}] (some? (:test/region-token cofx)))}}
-               :regions {:a {:initial :waiting
-                             :states  {:waiting {:after {3000 {:guard  :needs-region-token
-                                                               :target :done}}}
-                                       :done    {}}}
-                         :b {:initial :one :states {:one {} :two {}}}}})
-          ;; region-a timer: decl-path is region-qualified [:a :waiting].
-          es (rf.machines.cofx-attach/ensure-set-for
-               m {:state {:a :waiting :b :one} :data {}}
-               [:rf.machine.timer/after-elapsed 3000 1 [:a :waiting]])]
-      (is (contains? (set (map :id es)) :test/region-token)
-          "the region-qualified :after timer's guard requires is ensured — the
-           decl-path region head was stripped to resolve within region-a"))))
-
-;; ===========================================================================
-;; INLINE-LITERAL / defmachine named-cofx entry-maps resolve
-;; ===========================================================================
-;;
-;; Every ensure-set test above registers via a `def`/let-bound SYMBOL (`m`),
-;; which the reg-machine macro's compile-time literal-walk cannot see into — so
-;; `source-coords/collocate-element-source` never runs and the user's entry-map
-;; reaches the engine verbatim. That path cannot see a defect in the literal
-;; walk.
-;;
-;; When the SAME named-cofx `:guards`/`:actions` entry (`{:rf.cofx/requires
-;; [...] :fn (fn …)}`) is registered as an INLINE LITERAL in `reg-machine` (or
-;; via `defmachine`), the macro's dev arm walks the literal. A walk that
-;; DOUBLE-WRAPPED the entry (the WHOLE entry-map under a fresh `:fn`) would
-;; nest `:rf.cofx/requires` one level down. That would EMPTY the cofx-ensure
-;; index (`entry-requires` reads nil → no cofx ensured) AND resolve the
-;; guard/action `:fn` to a MAP (not a fn) → the guard would silently never fire
-;; (state stays :idle). The prod arm (`wrap-element-fns`) walks the same entry,
-;; and the ensure-index is NOT dev-gated, so the same break would reach
-;; production. These pin the inline-literal + defmachine paths in BOTH arms.
-
-(rf/defmachine ful212-defmachine
-  {:initial :idle
-   :data    {}
-   :guards  {:rolled-six?
-             {:rf.cofx/requires [:test/roll]
-              :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll cofx)))}}
-   :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
-             :done {}}})
-
-(deftest inline-literal-named-cofx-guard-fires-dev-arm
-  (testing "(dev arm): a named-cofx GUARD registered as an INLINE
-            LITERAL in reg-machine (macro dev arm → collocate-element-source)
-            resolves its generator-backed cofx and FIRES. A double-wrapped
-            entry would leave the ensure-index empty and the guard :fn a
-            map, so the guard would silently never fire (seen ::unset, state
-            :idle)."
-    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)]
-      ;; INLINE LITERAL — the reg-machine macro walks this map, so
-      ;; collocate-element-source runs on the named-cofx entry.
-      (rf/reg-machine :ful212/inline-dev
-        {:initial :idle
-         :data    {}
-         :guards  {:rolled-six?
-                   {:rf.cofx/requires [:test/roll]
-                    :fn (fn [{cofx :rf.cofx}]
-                          (reset! seen (:test/roll cofx))
-                          (= 6 (:test/roll cofx)))}}
-         :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
-                   :done {}}})
-      (rf/dispatch-sync [:ful212/inline-dev [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen)
-          "the inline-literal guard read the ENSURED generated fact (not nil) —
-           the ensure-index saw :rf.cofx/requires at the entry top level")
-      (is (= :done (rf.machines.test-support/machine-state :ful212/inline-dev))
-          "the guard :fn resolved to the fn (not the double-wrapped map) and
-           fired the transition"))))
-
-(deftest inline-literal-named-cofx-guard-fires-prod-arm
-  (testing "(prod arm): the SAME inline-literal named-cofx guard,
-            registered under `rf.interop/debug-enabled? false` (macro prod arm →
-            wrap-element-fns), also resolves + fires — wrap-element-fns
-            preserves the entry-map verbatim rather than double-wrapping it. The
-            ensure-index is NOT dev-gated, so prod must preserve it too."
-    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-machine :ful212/inline-prod
-        {:initial :idle
-         :data    {}
-         :guards  {:rolled-six?
-                   {:rf.cofx/requires [:test/roll]
-                    :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll cofx)))}}
-         :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
-                   :done {}}}))
-    (rf/dispatch-sync [:ful212/inline-prod [:go]]
-                      {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-    (is (= :done (rf.machines.test-support/machine-state :ful212/inline-prod))
-        "the prod-arm (wrap-element-fns) entry-map is preserved verbatim, so the
-         guard resolves + fires on the ensured generated value")))
-
-(deftest defmachine-named-cofx-guard-fires
-  (testing "(defmachine): a value-registered machine defined with
-            `defmachine` (which walks + stamps the literal at the def site)
-            whose :guards entry is a named-cofx form resolves its cofx and FIRES
-            when later passed to reg-machine — the stamped value carries the
-            entry through registration without double-wrapping it."
-    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
-    (rf/reg-machine :ful212/defmachine ful212-defmachine)
-    (rf/dispatch-sync [:ful212/defmachine [:go]]
-                      {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-    (is (= :done (rf.machines.test-support/machine-state :ful212/defmachine))
-        "the defmachine-stamped named-cofx guard resolved its cofx and fired —
-         the entry-map was collocated without double-wrapping")))
-
-;; ===========================================================================
-;; Every slot the runtime selects from is in the ensure-set
-;; ===========================================================================
-;;
-;; The ensure-set must cover each place `transition/pick-transition` can
-;; select a candidate from: a flat/compound machine's ROOT `:on` (the fallback
-;; after the active path), a parallel REGION body's own root `:on`, a region
-;; compound's `:on-done` (whose done-raise carries a region-name head), and a
-;; single `:spawn`'s `:on-error`. Each row pairs the slot with a control
-;; placing the SAME named guard on a neighbouring slot the ensure-set covers.
+(def ^:private machine-state rf.machines.test-support/machine-state)
 
 (def ^:private rolled-six
   {:rf.cofx/requires [:test/roll8]
    :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))})
 
+(defn- reg-roll! [] (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6)))
+
 (defn- ensured-ids [m snap event]
   (set (map :id (rf.machines.cofx-attach/ensure-set-for
                   (rf.machines.cofx-attach/index-ensure-sets m) snap event))))
 
-(deftest root-on-guard-fact-is-ensured-before-selection
-  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
-  (testing "CASE: a named guard on the machine ROOT's :on reads the generated
-            fact and its transition is selected"
-    (let [seen (atom ::unset)]
-      (rf/reg-machine :attach/root-on
+(defn- registration-error-id [machine]
+  (try (rf.machines/make-machine-handler machine) nil
+       (catch ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(deftest inline-requires-is-refused-at-registration
+  (doseq [[label machine]
+          [["an inline :on transition map"
+            {:initial :idle
+             :states  {:idle {:on {:go {:rf.cofx/requires [:rf/time-ms] :target :done}}}
+                       :done {}}}]
+           ["a :guards entry map with no :fn"
+            {:initial :idle
+             :guards  {:bad {:rf.cofx/requires [:rf/time-ms]}}
+             :states  {:idle {:on {:go {:target :done :guard :bad}}}
+                       :done {}}}]
+           ["a :type :choice candidate"
+            {:initial :idle
+             :states  {:idle     {:on {:go :checking}}
+                       :checking {:type   :choice
+                                  :choice [{:rf.cofx/requires [:rf/time-ms] :target :a}
+                                           {:target :b}]}
+                       :a {} :b {}}}]]]
+    (is (= :rf.error/machine-cofx-requires-inline (registration-error-id machine)) label)))
+
+(deftest candidate-action-and-always-closure-facts-are-ensured
+  ;; :go's action, :b's :always action and :c's :always guard (two hops past
+  ;; the candidate target) each require a fact the ensure step must generate
+  ;; before the one macrostep that settles the whole chain.
+  (rf/reg-cofx :test/token {:recordable? true} (fn [] :GENERATED))
+  (rf/reg-cofx :test/jitter {:recordable? true} (fn [] 42))
+  (reg-roll!)
+  (rf/reg-machine :attach/closure
+    {:initial :a
+     :data    {}
+     :guards  {:rolled-six? rolled-six}
+     :actions {:capture {:rf.cofx/requires [:test/token]
+                         :fn (fn [{:keys [data] cofx :rf.cofx}]
+                               {:data (assoc data :captured (:test/token cofx))})}
+               :jitter  {:rf.cofx/requires [:test/jitter]
+                         :fn (fn [{:keys [data] cofx :rf.cofx}]
+                               {:data (assoc data :jitter (:test/jitter cofx))})}}
+     :states  {:a    {:on {:go {:target :b :action :capture}}}
+               :b    {:always {:action :jitter :target :c}}
+               :c    {:always {:guard :rolled-six? :target :done}}
+               :done {}}})
+  (rf/dispatch-sync [:attach/closure [:go]])
+  (is (= {:state :done :data {:captured :GENERATED :jitter 42}}
+         (select-keys (rf.machines.test-support/snapshot :attach/closure) [:state :data]))))
+
+(deftest guard-facts-are-ensured-for-root-parallel-root-and-choice-selection
+  (reg-roll!)
+  (doseq [[id machine expected]
+          [[:attach/root-on
+            {:initial :idle
+             :guards  {:g rolled-six}
+             :on      {:go {:target :done :guard :g}}
+             :states  {:idle {} :done {}}}
+            :done]
+           [:attach/parallel-root-on
+            {:type    :parallel
+             :guards  {:g rolled-six}
+             :on      {:go {:target [[:a :two] [:b :two]] :guard :g}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+            {:a :two :b :two}]
+           [:attach/choice
+            {:initial :idle
+             :guards  {:g rolled-six}
+             :states  {:idle     {:on {:go :checking}}
+                       :checking {:type :choice :choice [{:guard :g :target :hit} {:target :miss}]}
+                       :hit {} :miss {}}}
+            :hit]]]
+    (rf/reg-machine id machine)
+    (rf/dispatch-sync [id [:go]])
+    (is (= expected (machine-state id)) (str id))))
+
+;; The reg-machine macro walks an inline literal; both arms must keep a named
+;; entry map's :rf.cofx/requires and :fn at the top level, never re-wrap it.
+(deftest inline-literal-named-cofx-guard-fires-in-both-macro-arms
+  (reg-roll!)
+  (doseq [[id dev?] [[:attach/inline-dev true] [:attach/inline-prod false]]]
+    (with-redefs [rf.interop/debug-enabled? dev?]
+      (rf/reg-machine id
         {:initial :idle
-         :guards  {:rolled-six? (update rolled-six :fn
-                                        (fn [f] (fn [ctx] (reset! seen (:test/roll8 (:rf.cofx ctx))) (f ctx))))}
-         :on      {:go {:target :done :guard :rolled-six?}}
-         :states  {:idle {} :done {}}})
-      (rf/dispatch-sync [:attach/root-on [:go]] {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen) "the root guard saw the ensured fact, not nil")
-      (is (= :done (rf.machines.test-support/machine-state :attach/root-on)))))
-  (testing "CONTROL: the identical guard on the LEAF :idle's :on"
-    (rf/reg-machine :attach/leaf-on
-      {:initial :idle
-       :guards  {:rolled-six? rolled-six}
-       :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}} :done {}}})
-    (rf/dispatch-sync [:attach/leaf-on [:go]] {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-    (is (= :done (rf.machines.test-support/machine-state :attach/leaf-on)))))
+         :guards  {:rolled-six? {:rf.cofx/requires [:test/roll8]
+                                 :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))}}
+         :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
+                   :done {}}}))
+    (rf/dispatch-sync [id [:go]])
+    (is (= :done (machine-state id)) (str id))))
 
 (deftest region-body-root-on-guard-fact-is-ensured
   (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
@@ -570,8 +139,9 @@
                                   snap [:go])
                      :test/roll8)))))
 
-(deftest region-compound-on-done-guard-fact-is-ensured
-  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
+;; Each synthetic event selects from a slot the :on walk never visits.
+(deftest synthetic-slot-candidate-facts-are-ensured
+  (reg-roll!)
   (let [flow {:initial :s1
               :on-done {:target :after :guard :g}
               :states  {:s1 {} :fin {:final? true}}}
@@ -579,34 +149,35 @@
               :guards  {:g rolled-six}
               :regions {:a {:initial :flow :states {:flow flow :after {}}}
                         :b {:initial :x :states {:x {}}}}}
-        snap {:state {:a [:flow :fin] :b :x} :data {}}]
-    (testing "CASE: region :a's compound :on-done, raised with its region head"
-      (is (contains? (ensured-ids par snap [:rf.machine/done [:a :flow]]) :test/roll8)))
-    (testing "CONTROL: the same :on-done on a flat machine (no region head)"
-      (is (contains? (ensured-ids {:initial :flow :guards {:g rolled-six}
-                                   :states  {:flow flow :after {}}}
-                                  {:state [:flow :fin] :data {}}
-                                  [:rf.machine/done [:flow]])
-                     :test/roll8)))
-    (testing "CONTROL: a done raised by a FOREIGN region head is not :a's"
-      (is (not (contains? (ensured-ids par snap [:rf.machine/done [:b :flow]]) :test/roll8))))))
-
-(deftest spawn-on-error-guard-fact-is-ensured
-  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
-  (let [snap {:state :working :data {}}
-        ev   [:rf.machine.spawn/error [:working] {:boom 1}]]
-    (testing "CASE: the guard on the spawning state's :spawn :on-error"
-      (is (contains? (ensured-ids {:initial :working :guards {:g rolled-six}
-                                   :states  {:working {:spawn {:machine-id :x/child
-                                                               :on-error {:target :errored :guard :g}}}
-                                             :errored {}}}
-                                  snap ev)
-                     :test/roll8)))
-    (testing "CONTROL: the same guard on the escape-hatch :on {:rf.machine.spawn/error …}"
-      (is (contains? (ensured-ids {:initial :working :guards {:g rolled-six}
-                                   :states  {:working {:spawn {:machine-id :x/child}
-                                                       :on    {:rf.machine.spawn/error
-                                                               {:target :errored :guard :g}}}
-                                             :errored {}}}
-                                  snap ev)
-                     :test/roll8)))))
+        two  {:initial :one :states {:one {} :two {}}}]
+    (are [ids m snap event] (= ids (ensured-ids m snap event))
+      ;; a region compound's :on-done, raised with its region head
+      #{:test/roll8} par {:state {:a [:flow :fin] :b :x}} [:rf.machine/done [:a :flow]]
+      ;; a done raised under a FOREIGN region head is not :a's
+      #{}            par {:state {:a [:flow :fin] :b :x}} [:rf.machine/done [:b :flow]]
+      ;; a single :spawn's :on-error
+      #{:test/roll8} {:initial :working
+                      :guards  {:g rolled-six}
+                      :states  {:working {:spawn {:machine-id :x/child
+                                                  :on-error   {:target :errored :guard :g}}}
+                                :errored {}}}
+                     {:state :working} [:rf.machine.spawn/error [:working] {:boom 1}]
+      ;; a state :after
+      #{:test/roll8} {:initial :waiting
+                      :guards  {:g rolled-six}
+                      :states  {:waiting {:after {5000 {:guard :g :target :done}}} :done {}}}
+                     {:state :waiting} [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
+      ;; a region state's :after, whose decl-path carries the region head
+      #{:test/roll8} {:type    :parallel
+                      :guards  {:g rolled-six}
+                      :regions {:a {:initial :waiting
+                                    :states  {:waiting {:after {3000 {:guard :g :target :done}}}
+                                              :done    {}}}
+                                :b two}}
+                     {:state {:a :waiting :b :one}} [:rf.machine.timer/after-elapsed 3000 1 [:a :waiting]]
+      ;; a parallel root's :after action
+      #{:test/roll8} {:type    :parallel
+                      :actions {:g rolled-six}
+                      :after   {1000 {:target [[:a :two] [:b :two]] :action :g}}
+                      :regions {:a two :b two}}
+                     {:state {:a :one :b :one}} [:rf.machine.timer/after-elapsed 1000 1 []])))
