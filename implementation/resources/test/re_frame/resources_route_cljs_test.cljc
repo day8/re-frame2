@@ -1,33 +1,21 @@
 (ns re-frame.resources-route-cljs-test
-  "Route ↔ resource integration (Spec 016 §Route integration). Cross-host
-  (JVM + CLJS), so the routing/resources seam
-  behaves identically server- and client-side.
+  "Route ↔ resource integration (Spec 016 §Route integration), cross-host so the
+  routing/resources seam behaves identically server- and client-side:
 
-  Exercises the cross-feature seam with BOTH artefacts loaded:
-
-    1. accepted-key extension — `:resources` is an accepted bare route key
-       once resources loads (every route below registers with it);
-    2. on route entry — each `:resources` entry is ensured with owner
-       `[:route route-id nav-token]` + cause `[:route-entry route-id
-       nav-token]`;
-    3. blocking? — a blocking resource keeps the route transition
-       `:loading` past the on-match drain, draining to `:idle` only when
-       it settles; a non-blocking resource fetches in the background
-       without holding the transition;
-    4. a blocking FIRST-load failure flips the route transition to
-       `:error` + populates `:rf.route/error`;
-    5. route leave / supersession releases the prior route's owner token;
-    6. `:when` gates a resource out (NOT sentinel nil params);
-    7. `:after` orders dependent resources by route-local id;
-    8. an unresolved-scope PLANNING failure surfaces on the route slice's `:error`
-       (not a silent cache miss);
-    9. `:keep-previous?` projects the previous key's data while the new
-       key first-loads WITHOUT polluting the new entry / its tags.
+    - route entry ensures each `:resources` entry under owner
+      `[:route route-id nav-token]` and cause `[:route-entry …]`;
+    - a `:blocking?` resource holds the route transition `:loading` until it
+      settles, and a blocking FIRST-load failure projects `:error`;
+    - leave / supersession releases the prior owner and its blocking slot;
+    - `:when`, `:after`, scope precedence and every planning failure fail
+      closed on the route slice;
+    - EP-0037 R1/R2: the one readiness projector, effective parent-chain plans,
+      byte-exact identity membership and retained-entry adoption.
 
   Named `*-cljs-test.cljc` so it is discovered by BOTH the JVM runner
   (`.*-test$`) and the shadow-cljs `:node-test` build (`cljs-test$`). The
-  managed-HTTP fx is stubbed (capturing no-op) so ensure's entry write +
-  the reply-driven blocking drain are deterministic without a live fetch."
+  managed-HTTP fx is stubbed (capturing no-op) so ensure's entry write + the
+  reply-driven blocking drain are deterministic without a live fetch."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -54,18 +42,10 @@
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- init!
-  "Per-test setup (runs after adapter install, registrar live): re-register
-  `:rf/default` as the URL-owning app frame, reset the routing counters,
-  re-publish the late-bound routing integration, and stub the managed-HTTP +
-  push-url fx so ensure + navigation are deterministic without a fetch /
-  browser.
-
-  The resources host-side caches (state / work-ledger / timers /
-  revalidate-listeners) are cleared by the shared `make-reset-runtime-
-  fixture`'s `:resources/reset-resources!` post-dispose hook, which runs
-  BEFORE this `:init-fn` — so no `rf.resources.state/reset-cache!` is repeated here. The
-  routing counter reset + late-bound integration re-publication belong here
-  (they are routing-suite setup, not resource cache hygiene)."
+  "Per-test setup, after the shared reset fixture has cleared the resources
+  host caches: re-register `:rf/default` as the URL-owning app frame, reset
+  the routing counters, re-publish the late-bound routing integration, and
+  stub the managed-HTTP + push-url fx."
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Route-resource suite default app frame."})
@@ -73,10 +53,8 @@
   (rf.resources.route/install-routing-integration!)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
-  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
-  ;; slot. This suite leaves the slot unwritten, so the reference resolves nil
-  ;; and a call that supplies no `:scope` of its own fails closed.
+  ;; A NAMED scope resolver over an app-db slot this suite never writes, so it
+  ;; resolves nil and a call that supplies no `:scope` of its own fails closed.
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope)))
@@ -88,24 +66,20 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- slice []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
+(defn- rdb [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
-(defn- entry [scoped-key]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entry-path scoped-key)))
+(defn- slice [] (get-in (rdb) [:rf.runtime/routing :current]))
 
-(defn- entries []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entries-path)))
+(defn- entry [scoped-key] (get-in (rdb) (rf.resources.state/entry-path scoped-key)))
+
+(defn- entries [] (get-in (rdb) (rf.resources.state/entries-path)))
 
 (defn- blocking-slot
   "The live blocking slot for `nav-token`, projected to the SET of its scoped
-  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier;
-  these assertions ask a membership question that the projection
-  answers, and the byte-exactness of the carrier is pinned directly off
-  `rf.resources.route/blocking-path` by `r2-a-plan-holding-both-byte-distinct-twins-*`."
+  keys. The slot itself is the byte-keyed `{<key-id> <scoped-key>}` carrier,
+  pinned directly by `r2-a-plan-holding-both-byte-distinct-twins-*`."
   [nav-token]
-  (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     (rf.resources.route/blocking-path nav-token)))))
+  (set (vals (get-in (rdb) (rf.resources.route/blocking-path nav-token)))))
 
 (defn- blocking-map
   "The byte-keyed blocking / plan-identity carrier `{<key-id> <scoped-key>}`
@@ -123,6 +97,24 @@
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
+(defn- slug-param [route] {:slug (get-in route [:params :slug])})
+
+(defn- article-key [slug]
+  (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug slug}))
+
+(defn- reg-article-route!
+  "`:route/article` at /articles/:slug with ONE `:resources` entry — by default
+  `:article/by-slug` keyed on the slug — merged with `entry-overrides`."
+  [entry-overrides]
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [(merge {:resource :article/by-slug :params slug-param}
+                                    entry-overrides)]}
+                "/articles/:slug"))
+
+(defn- navigate-article! [slug]
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug slug}}]))
+
 (defn- settle-success! [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -139,588 +131,30 @@
                         :generation   (:generation e)
                         :error        error}])))
 
-(defn- record-error-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:op-type :error` trace event emitted during it (capture order). The
-  listener is unregistered in a `finally`. Used by the blocking-failure and
-  planning-error assertions (the structured error must reach the
-  trace/error stream, not only route state)."
-  [body-fn]
+(defn- record-traces!
+  "Run `body-fn` with a trace listener installed; return every trace event
+  `pred` accepts, in capture order."
+  [pred body-fn]
   (let [seen (atom [])
-        k    ::route-error-recorder]
+        k    ::route-trace-recorder]
     (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :error (:op-type ev)) (swap! seen conj ev))))
+      k (fn [ev] (when (pred ev) (swap! seen conj ev))))
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
+
+(defn- record-error-traces! [body-fn]
+  (record-traces! #(= :error (:op-type %)) body-fn))
 
 (defn- errors-of [traces op]
   (filterv #(= op (:operation %)) traces))
 
-(defn- record-op-traces!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  trace event whose `:operation` is `op` (capture order). The sibling of
-  `record-error-traces!` for an ordinary `:rf.event` row — used by the
-  `:rf.resource/route-plan` plan-diff assertions."
-  [op body-fn]
-  (let [seen (atom [])
-        k    ::route-op-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= op (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
-    @seen))
-
-;; ===========================================================================
-;; 2. On route entry — owner
-;; ===========================================================================
-
-(deftest route-entry-ensures-with-route-owner
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [nav-token  (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
-        e          (entry scoped-key)]
-    (testing "route entry ensured the resource (a :loading entry exists)"
-      (is (some? e) "the route :resources entry was ensured on entry")
-      (is (= :loading (:status e)) "first load → :loading"))
-    (testing "the resource is owned by the route nav-token owner"
-      (is (contains? (:active-owners e) [:route :route/article nav-token])
-          "owner is [:route route-id nav-token]"))
-    (testing "the load's work record carries the route-entry activation cause"
-      (is (= [[:route-entry :route/article nav-token]]
-             (:causes (rf.resources.work-ledger/get-record
-                        (:rf.db/runtime (rf/frame-state-value :rf/default)) (:current-work e))))
-          "cause is [:route-entry route-id nav-token]"))))
-
-;; ===========================================================================
-;; 3. blocking? — keeps transition :loading, drains on settle
-;; ===========================================================================
-
-(deftest blocking-resource-holds-route-transition-until-it-settles
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [nav-token  (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (testing "a blocking resource keeps the route transition :loading"
-      (is (= :loading (:transition (slice)))
-          "transition stays :loading while the blocking resource is pending")
-      (is (= #{scoped-key} (blocking-slot nav-token))
-          "the blocking scoped key is the one requirement tracked under the nav-token"))
-    (testing "the route lands :idle only when the blocking resource settles"
-      (settle-success! scoped-key {:title "Intro"})
-      (is (= :idle (:transition (slice)))
-          "blocking resource settled → transition lands :idle")
-      (is (empty? (blocking-slot nav-token))
-          "the blocking slot drained on settle"))))
-
-(deftest non-blocking-resource-does-not-hold-the-transition
-  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :comments/list
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? false}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (testing "a non-blocking resource fetches in the background; the route is :idle"
-    (is (= :idle (:transition (slice)))
-        "no blocking resource → transition is :idle immediately")
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :comments/list {:slug "intro"})]
-      (is (= :loading (:status (entry scoped-key)))
-          "the non-blocking resource is still ensured (background fetch)"))))
-
-(deftest blocking-resource-already-fresh-settles-route-immediately
-  ;; A fresh ensure does not fetch (fresh-skip / cache-hit).
-  ;; A route blocked on an already-FRESH resource MUST settle the nav
-  ;; IMMEDIATELY on the cache-hit (no fetch, no reply will ever drain the
-  ;; blocking slot) — otherwise the route hangs forever.
-  ;; no :stale-after-ms → the entry is always fresh once loaded
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    ;; first entry: blocking resource fetches, then settles :loaded (fresh)
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (settle-success! scoped-key {:title "Intro"})
-    (is (= :loaded (:status (entry scoped-key))) "entry is fresh + :loaded")
-    ;; leave, then RE-ENTER the same route — the blocking ensure is now a
-    ;; fresh-skip cache-hit, which must drain the new nav-token blocking slot.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (let [nav-token-2 (:nav-token (slice))]
-      (testing "the re-entry ensure was a fresh-skip cache-hit (no new fetch)"
-        (is (= :loaded (:status (entry scoped-key)))
-            "the entry stayed :loaded — no refetch on the fresh re-entry")
-        (is (nil? (:current-work (entry scoped-key)))
-            "no in-flight work record — the cache served the value"))
-      (testing "the route settles :idle IMMEDIATELY (the fresh blocking
-                resource drained its slot on the cache-hit — no hang)"
-        (is (= :idle (:transition (slice)))
-            "a route blocked on a fresh resource lands :idle at once")
-        (is (empty? (blocking-slot nav-token-2))
-            "the new nav-token's blocking slot drained on the cache-hit")))))
-
-;; ===========================================================================
-;; 5. route leave / supersession releases the prior owner
-;; ===========================================================================
-
-(deftest route-leave-releases-prior-route-owner
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [token-1    (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (is (contains? (:active-owners (entry scoped-key)) [:route :route/article token-1]))
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (testing "leaving the route releases its nav-token owner from the entry"
-      (is (not (contains? (:active-owners (entry scoped-key))
-                          [:route :route/article token-1]))
-          "the prior route owner was released on leave"))))
-
-;; ---- route A→B (same scoped key) does not join abort-requested ------------
-;; A route leave releases the prior nav-token owner, which marks an in-flight
-;; attempt :abort-requested while the entry still points at it. An immediate
-;; re-entry of the SAME scoped key must NOT join that doomed work — it starts
-;; a fresh attempt, and a blocking re-entry must drain on the FRESH reply (not
-;; hang waiting on a reply the aborted work will never send).
+(defn- route-plan-tags
+  "The tags of the first `:rf.resource/route-plan` row `body-fn` emits."
+  [body-fn]
+  (:tags (first (record-traces! #(= :rf.resource/route-plan (:operation %)) body-fn))))
 
 (defn- work-record-for [scoped-key]
-  (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) (:current-work (entry scoped-key))))
-
-(deftest route-resupersede-same-key-blocking-transition-drains
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (let [wid1 (:current-work (entry scoped-key))
-          gen1 (:generation (entry scoped-key))]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))))
-      ;; re-enter the blocking route on the SAME key
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-      (let [token-2 (:nav-token (slice))]
-        (testing "the blocking re-entry holds :loading on a FRESH
-                  attempt (it did not join the abort-requested work)"
-          (is (= :loading (:transition (slice))) "blocking transition is loading on a fresh attempt")
-          (is (= (inc gen1) (:generation (entry scoped-key))) "fresh generation on re-entry")
-          (is (not= wid1 (:current-work (entry scoped-key))) "fresh work id, not the aborted one")
-          (is (= :running (:status (work-record-for scoped-key))) "the new attempt is live")
-          (is (contains? (:active-owners (entry scoped-key)) [:route :route/article token-2])
-              "the re-entry nav-token owns the fresh attempt")
-          (is (contains? (blocking-slot token-2) scoped-key) "the new token's blocking slot tracks the key"))
-        (testing "the FRESH attempt's reply drains the blocking slot → :idle
-                  (the route does not hang on the aborted work's missing reply)"
-          (settle-success! scoped-key {:title "Intro"})
-          (is (= :idle (:transition (slice))) "blocking transition drained on the fresh reply")
-          (is (empty? (blocking-slot token-2)) "the blocking slot drained"))))))
-
-;; ===========================================================================
-;; 6. :when gates the resource out
-;; ===========================================================================
-
-(deftest when-false-gates-the-resource-out
-  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :comments/list
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :when     (fn [_route _ctx] false)}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (testing ":when false admits no resource (NOT sentinel nil params)"
-    (is (empty? (entries)) "the gated-out resource was not ensured")))
-
-;; ===========================================================================
-;; 8. an unresolved-scope PLANNING failure surfaces on the route slice
-;; ===========================================================================
-
-(deftest unresolved-scope-planning-failure-surfaces-on-route-slice
-  ;; a {:from-db …} scope whose reference resolves nil, with no route resolver,
-  ;; is a fail-closed planning error at route entry (no silent cache miss).
-  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (rf/reg-route :route/secret
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :secret/doc
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/secret/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/secret :params {:slug "x"}}])
-  (testing "a fail-closed scope/params resolution is a route PLANNING error"
-    (is (= :rf.error/resource-route-plan
-           (:rf.error/id (:error (slice))))
-        ":rf.route/error carries the planning error, not a silent cache miss")
-    ;; The route-slice error map (built by plan-error) carries NO :operation
-    ;; slot duplicating :rf.error/id.
-    (is (not (contains? (:error (slice)) :operation))
-        "the slice error map has no :operation slot shadowing :rf.error/id")
-    (is (string? (:reason (:error (slice)))) "a human :reason sentence is present")
-    (is (some? (:recovery (:error (slice)))) "a :recovery disposition is present")
-    (is (empty? (entries)) "no entry was written for the unplannable resource")))
-
-;; ===========================================================================
-;; 9. :keep-previous? projects prior-key data WITHOUT polluting the new key
-;; ===========================================================================
-
-(deftest keep-previous-projects-prior-key-without-polluting-new-key
-  (rf/reg-resource :articles/list (article-spec {:params-schema [:map [:page :int]]
-                                                 :tags (fn [{:keys [page]} _] #{[:list page]})})
-                   article-spec-request)
-  (rf/reg-route :route/list
-                {:query     [:map [:page :int]]
-                 :resources [{:resource       :articles/list
-                              :params         (fn [route] {:page (get-in route [:query :page])})
-                              :keep-previous? true}]} "/list")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/list :query {:page 1}}])
-  (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :articles/list {:page 1})]
-    (settle-success! k1 [{:id 1 :title "Old page"}]))
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/list :query {:page 2}}])
-  (let [k1   (rf.resources.state/scoped-resource-key :rf.scope/global :articles/list {:page 1})
-        k2   (rf.resources.state/scoped-resource-key :rf.scope/global :articles/list {:page 2})
-        view @(rf/subscribe [:rf/resource {:resource :articles/list
-                                                 :scope   :rf.scope/global
-                                                 :params  {:page 2}}])]
-    (testing "the new key shows the previous key's data while it loads"
-      (is (true? (:previous? view)) "the state view flags :previous?")
-      (is (= k1 (:previous-key view)) "the previous-key points at the prior page")
-      (is (= [{:id 1 :title "Old page"}] (:previous-data view))
-          "previous-data is projected from the prior key")
-      (is (nil? (:data view)) "the new key has no data of its own yet"))
-    (testing "previous data does NOT pollute the new key's cache entry or tags"
-      (is (nil? (:data (entry k2))) "the new entry's :data is NOT the previous data")
-      (is (empty? (:tags (entry k2))) "the new entry borrows none of the prior key's tags"))))
-
-;; ===========================================================================
-;; 10. A blocking FIRST-load failure flips the route to :error AND emits an
-;;     error trace
-;; ===========================================================================
-
-(deftest blocking-first-load-failure-emits-error-trace
-  ;; The route slice carries the structured :error, and the SAME failure is
-  ;; ALSO published on the trace/error stream as
-  ;; `:rf.error/resource-route-blocking` with ResourceRouteBlockingTags shape.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
-        nav-token  (:nav-token (slice))
-        traces     (record-error-traces!
-                     #(settle-failure! scoped-key {:status 503 :message "upstream down"}))
-        evs        (errors-of traces :rf.error/resource-route-blocking)]
-    (testing "exactly one :rf.error/resource-route-blocking error trace is emitted"
-      (is (= 1 (count evs)) "one blocking-failure error trace on the stream"))
-    (testing "the error-trace tags conform to ResourceRouteBlockingTags"
-      (let [ev   (first evs)
-            tags (:tags ev)]
-        (is (= :rf.error/resource-route-blocking (:category tags))
-            ":category is stamped from the operation")
-        (is (= :article/by-slug (:resource-id tags)) ":resource-id tag present")
-        (is (= nav-token (:nav-token tags)) ":nav-token tag present")
-        (is (= {:status 503 :message "upstream down"} (:error tags))
-            ":error carries the resource's first-load failure envelope")
-        (is (string? (:reason tags)) ":reason present")))
-    (testing "route state STILL carries the structured error (both surfaces)"
-      (is (= :error (:transition (slice))))
-      (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))))))
-
-;; ===========================================================================
-;; 11. Superseded route-resource blocking slots are cleared
-;; ===========================================================================
-
-(deftest superseded-blocking-slot-does-not-block-future-navigation
-  ;; A BLOCKING route resource that NEVER settles (no reply — e.g. aborted /
-  ;; orphaned in-flight on supersession) would leave its old-nav-token
-  ;; blocking entry forever if only the reply-driven drain cleared it, since
-  ;; that drain fires only on a settle that still names the old owner. Leaving
-  ;; the route releases the prior owner, which MUST deterministically clear
-  ;; the stale slot, and the stale slot cannot bleed into the LIVE readiness
-  ;; projection for a later navigation — old-token state must not gate new
-  ;; transitions.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  ;; a plain (no-resources) route — its entry has nothing blocking
-  (rf/reg-route :route/home {} "/")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "a"}}])
-  (let [token-1 (:nav-token (slice))]
-    ;; supersede WITHOUT settling — then land on the plain route
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (let [token-2 (:nav-token (slice))]
-      (testing "the plain route lands :idle — the stale token's slot does not block it"
-        (is (not= token-1 token-2) "a new nav-token was minted")
-        (is (= :idle (:transition (slice)))
-            "the plain route is :idle; superseded blocking state is gone")
-        (is (empty? (blocking-slot token-1)) "stale slot cleared")
-        (is (empty? (blocking-slot token-2))
-            "the live token has no blocking requirements of its own")))))
-
-;; ===========================================================================
-;; 12. Fail-closed ctx + nil planning inputs
-;; ===========================================================================
-
-(deftest concrete-route-scope-overrides-the-registration-policy
-  ;; A route entry's `:scope` may be a CONCRETE value, and it is
-  ;; the route tier of the precedence ladder. The registration policy here is a
-  ;; {:from-db …} reference over an UNWRITTEN db slot, so it resolves nil and
-  ;; would fail closed on its own: a clean plan is positive evidence that the
-  ;; route tier was consulted and won.
-  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (let [plan (rf.resources.route/route-resource-plan
-               {:id :route/secret :params {:slug "x"}
-                :resources [{:resource :secret/doc
-                             :params   (fn [route] {:slug (get-in route [:params :slug])})
-                             :scope    [:rf.scope/session {:tenant "acme" :user 7}]}]}
-               {}
-               {:nav-token 1 :prev-id nil :prev-nav-token nil})]
-    (testing "the concrete route scope is threaded into the ensure"
-      (is (nil? (:plan-error plan))
-          "no planning error — the route tier supplied the scope the policy could not")
-      (let [ensure (->> (:fx plan)
-                        (some (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))))]
-        (is (= :rf.resource/ensure (first ensure)))
-        (is (= [:rf.scope/session {:tenant "acme" :user 7}] (:scope (second ensure)))
-            "the cache scope came from the route entry, NOT the spec policy")))))
-
-(deftest absent-route-scope-inherits-the-registration-policy
-  ;; The absent-vs-present test is (contains? entry :scope) — an entry that
-  ;; declares no :scope at all inherits.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)  ;; :rf.scope/global
-  (let [plan (rf.resources.route/route-resource-plan
-               {:id :route/article :params {:slug "x"}
-                :resources [{:resource :article/by-slug
-                             :params   (fn [route] {:slug (get-in route [:params :slug])})}]}
-               {}
-               {:nav-token 1 :prev-id nil :prev-nav-token nil})]
-    (testing "an entry with no :scope key resolves the registration policy"
-      (is (nil? (:plan-error plan)))
-      (let [ensure (->> (:fx plan)
-                        (some (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))))]
-        (is (= :rf.resource/ensure (first ensure)))
-        (is (= :rf.scope/global (:scope (second ensure)))
-            "the registration's explicit global claim governs")))))
-
-(deftest nil-ctx-fails-closed
-  ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
-  ;; proceed with an empty ctx that a session-scope resolver would read as nil.
-  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  ;; The thrown planning-error routes through rf.error/thrown-ex-info,
-  ;; so its message LEADS with a human sentence and TRAILS with the
-  ;; [:rf.error/resource-route-plan] greppability token, and the ex-data carries
-  ;; the canonical :where / :recovery slots (the conformant shape its sibling
-  ;; registry/registration-error follows).
-  (testing "the thrown planning-error carries the canonical thrown-error shape"
-    (let [thrown (try (rf.resources.route/route-resource-plan
-                        {:id :route/secret :resources []} nil {:nav-token 1})
-                      nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e e))
-          data   (ex-data thrown)
-          msg    (ex-message thrown)]
-      (is (= :rf.error/resource-route-plan (:rf.error/id data)))
-      (is (rf.error/message-has-id-token? msg)
-          "message carries the trailing [:rf.error/resource-route-plan] token (rule 4)")
-      (is (not (rf.error/keyword-only-message? msg))
-          "message is a human sentence, not a bare keyword (rule 1)")
-      (is (= 'rf/route-resource-plan (:where data))
-          ":where names the planning boundary helper")
-      (is (= :fix-route-integration (:recovery data))
-          ":recovery carries the site-specific disposition (overriding the default)")
-      (is (not (contains? data :operation))
-          "no dead :operation slot duplicating :rf.error/id"))))
-
-(deftest missing-nav-token-fails-closed
-  ;; The nav-token IS the route owner identity; planning without one would
-  ;; mint an unreleasable owner — fail closed.
-  (testing "route-resource-plan throws on a missing nav-token"
-    (is (thrown? #?(:clj Throwable :cljs :default)
-                 (rf.resources.route/route-resource-plan
-                   {:id :route/x :resources []}
-                   {}
-                   {:nav-token nil})))))
-
-(deftest nil-params-resolver-is-a-planning-error
-  ;; A PRESENT :params resolver returning nil is NOT a silent empty-param read
-  ;; — it is a fail-closed planning error (conditional resources use :when).
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              ;; resolver INTENDS params but returns nil
-                              :params   (fn [_route] nil)}]} "/articles/:slug")
-  (let [traces (record-error-traces!
-                 #(rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "x"}}]))]
-    (testing "the nil-params resolver surfaces a route planning error"
-      (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
-          "route slice carries the planning error, not a silent empty-param read")
-      (is (= :fix-params (:recovery (:error (slice)))) "carries :fix-params recovery")
-      (is (seq (errors-of traces :rf.error/resource-route-plan))
-          "the planning error is ALSO on the trace/error stream")
-      (is (empty? (entries)) "no entry was ensured for the unplannable resource"))))
-
-(deftest retired-fn-route-scope-is-a-planning-error
-  ;; The anonymous (fn [route ctx] …) route-scope resolver tier
-  ;; is RETIRED. It must be REFUSED LOUD, never silently inherit the spec
-  ;; policy: the scope is the tenant / user / leak boundary, so a :scope the
-  ;; author meant something by and got wrong reads no cache partition at all.
-  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (rf/reg-route :route/secret
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :secret/doc
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              ;; the retired tier, in its exact former spelling
-                              :scope    (fn [_route _ctx] [:rf.scope/session {:user 7}])}]}
-                "/secret/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/secret :params {:slug "x"}}])
-  (testing "a fn :scope on a route entry is a fail-closed planning error"
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
-        "no silent fallback to spec scope / global read")
-    (is (= :fix-scope (:recovery (:error (slice)))) "carries :fix-scope recovery")
-    (is (re-find #"RETIRED" (str (:reason (:error (slice)))))
-        "the diagnostic names the retirement, not merely 'invalid'")
-    (is (re-find #"reg-resource-scope" (str (:reason (:error (slice)))))
-        "and names the replacement currency")
-    (is (empty? (entries)) "no entry was ensured")))
-
-(deftest nil-route-scope-is-a-planning-error
-  ;; A PRESENT :scope of nil is NOT the absent case — absence is
-  ;; (contains? entry :scope). An author who wrote a nil there meant to say
-  ;; something and could not; inheriting silently would key a different
-  ;; partition than intended.
-  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (rf/reg-route :route/secret
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :secret/doc
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :scope    nil}]} "/secret/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/secret :params {:slug "x"}}])
-  (testing "a present-but-nil :scope is a fail-closed planning error"
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-    (is (= :fix-scope (:recovery (:error (slice)))))
-    (is (empty? (entries)) "no entry was ensured")))
-
-(deftest reserved-scope-typo-on-a-route-entry-is-a-planning-error
-  ;; The CONCRETE arm routes through the SAME shared canonicalization guard
-  ;; the payload override uses, so a misspelled reserved keyword is refused
-  ;; here on exactly the same terms — this site mints no id and no guard of
-  ;; its own.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :scope    :rf.scope/glabal}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "x"}}])
-  (testing "an unrecognised :rf.scope/* keyword is refused at route planning"
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
-        "surfaced on the route slice as a planning error")
-    (is (= :fix-scope (:recovery (:error (slice)))) "carries :fix-scope recovery")
-    (is (= :rf.error/resource-invalid-scope (:rf.error/id (:cause (:error (slice)))))
-        "the shared concrete-scope guard is what refused it — no new error id")
-    (is (empty? (entries)) "no entry was ensured")))
-
-(deftest throwing-when-predicate-is-a-planning-error
-  ;; A :when predicate that THROWS must be a planning error caught at the
-  ;; fail-closed boundary, not an escape that crashes the whole commit.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :when     (fn [_route _ctx] (throw (ex-info "boom" {})))}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "x"}}])
-  (testing "a throwing :when is a route planning error"
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-    (is (= :fix-when (:recovery (:error (slice)))) "carries :fix-when recovery")
-    (is (empty? (entries)) "no entry was ensured")))
-
-;; ===========================================================================
-;; 13. :after is dispatch-order, fail-closed on missing/cyclic
-;; ===========================================================================
-
-(deftest after-missing-target-is-a-planning-error
-  ;; :after naming an id no entry declares is a typo'd dependency — a
-  ;; planning error, NOT silent declaration-order fallthrough.
-  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :comments/list
-                              :id       :comments
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :after    #{:nope}}]} "/articles/:slug")  ;; :nope is declared by no entry
-  (let [traces (record-error-traces!
-                 #(rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "x"}}]))]
-    (testing "a missing :after target surfaces a planning error"
-      (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-      (is (= :fix-after (:recovery (:error (slice)))) "carries :fix-after recovery")
-      (is (seq (errors-of traces :rf.error/resource-route-plan))
-          "also on the trace/error stream")
-      (is (empty? (entries)) "no entry ensured — the plan failed closed"))))
-
-(deftest after-cycle-is-a-planning-error
-  ;; A cyclic :after dependency degrades NEITHER silently nor into an infinite
-  ;; loop — it is a fail-closed planning error.
-  (rf/reg-resource :a/res (article-spec {}) article-spec-request)
-  (rf/reg-resource :b/res (article-spec {}) article-spec-request)
-  (rf/reg-route :route/cyc
-                {:resources [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
-                             {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]} "/cyc")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/cyc}])
-  (testing "a cyclic :after is a planning error (no hang, no silent fallthrough)"
-    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
-    (is (= :fix-after (:recovery (:error (slice)))))
-    (is (empty? (entries)) "no entry ensured")))
-
-(deftest after-orders-multiple-deps-by-local-id
-  ;; The dispatch-order semantics: a dependent's ensure is dispatched
-  ;; AFTER every id it names (a 3-node chain, declared out of order).
-  (let [order (atom [])]
-    (rf/reg-resource :a/res (article-spec {}) (fn [_ _] (swap! order conj :a)
-                                               {:request {:method :get :url "/a"}}))
-    (rf/reg-resource :b/res (article-spec {}) (fn [_ _] (swap! order conj :b)
-                                               {:request {:method :get :url "/b"}}))
-    (rf/reg-resource :c/res (article-spec {}) (fn [_ _] (swap! order conj :c)
-                                               {:request {:method :get :url "/c"}}))
-    (rf/reg-route :route/chain
-                  {;; declared c, a, b — :after must reorder to a → b → c
-                   :resources [{:resource :c/res :id :c :params (fn [_] {:slug "c"}) :after #{:b}}
-                               {:resource :a/res :id :a :params (fn [_] {:slug "a"})}
-                               {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]} "/chain")
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/chain}])
-    (testing ":after topologically orders the ensure dispatches by local id"
-      (is (nil? (:error (slice))) "no planning error — all :after targets are valid")
-      (is (= [:a :b :c] @order) "a (no dep) → b (after a) → c (after b)"))))
-
-;; ===========================================================================
-;; 14. EP-0037 R2 — effective parent-chain resource plans
-;;     Composition parent to leaf, grouped identity dedupe + redundant-child
-;;     advisory, collapse-cycle fail-loud, the plan diff (kept adopted / added
-;;     ensured / removed released, attach-before-release), the partial-
-;;     revalidation law, and fail-loud branch resolution.
-;;     Spec 016 §Effective parent-chain resource plans.
-;; ===========================================================================
+  (rf.resources.work-ledger/get-record (rdb) (:current-work (entry scoped-key))))
 
 (defn- plan-dispatches
   "The event vectors dispatched by a plan's fx, in fx order."
@@ -730,9 +164,266 @@
 (defn- of-event [dispatches event-id]
   (filterv (fn [ev] (= event-id (first ev))) dispatches))
 
+(defn- resources-of [dispatches event-id]
+  (mapv #(:resource (second %)) (of-event dispatches event-id)))
+
+(defn- ids [ks] (mapv rf.resources.state/key-id ks))
+
+;; ===========================================================================
+;; Route entry, blocking readiness and leave
+;; ===========================================================================
+
+(deftest route-entry-ensures-with-route-owner
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {})
+  (navigate-article! "intro")
+  (let [nav-token (:nav-token (slice))
+        e         (entry (article-key "intro"))]
+    (is (= [:loading true] [(:status e) (contains? (:active-owners e) [:route :route/article nav-token])])
+        "ensured on entry, owned by [:route route-id nav-token]")
+    (is (= [[:route-entry :route/article nav-token]] (:causes (work-record-for (article-key "intro"))))
+        "the load's work record carries the route-entry activation cause")))
+
+(deftest blocking-resource-holds-route-transition-until-it-settles
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {:blocking? true})
+  (navigate-article! "intro")
+  (let [nav-token (:nav-token (slice))
+        k         (article-key "intro")]
+    (is (= [:loading #{k}] [(:transition (slice)) (blocking-slot nav-token)])
+        "the blocking key is the one requirement tracked under the nav-token")
+    (settle-success! k {:title "Intro"})
+    (is (= [:idle #{}] [(:transition (slice)) (blocking-slot nav-token)])
+        "the route lands :idle on settle and the slot drains")))
+
+(deftest non-blocking-resource-does-not-hold-the-transition
+  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
+  (reg-article-route! {:resource :comments/list :blocking? false})
+  (navigate-article! "intro")
+  (is (= [:idle :loading]
+         [(:transition (slice))
+          (:status (entry (rf.resources.state/scoped-resource-key :rf.scope/global :comments/list {:slug "intro"})))])
+      "the route is :idle while the resource still fetches in the background"))
+
+(deftest blocking-resource-already-fresh-settles-route-immediately
+  ;; A fresh re-entry is a cache-hit with no fetch, so no reply will ever drain
+  ;; the new blocking slot: the cache-hit itself must, or the route hangs.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {:blocking? true})
+  (rf/reg-route :route/home {} "/")
+  (let [k (article-key "intro")]
+    (navigate-article! "intro")
+    (settle-success! k {:title "Intro"})
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+    (navigate-article! "intro")
+    (is (= [:loaded nil :idle #{}]
+           [(:status (entry k)) (:current-work (entry k))
+            (:transition (slice)) (blocking-slot (:nav-token (slice)))])
+        "no refetch, no in-flight work, and the route lands :idle at once")))
+
+(deftest route-leave-releases-prior-route-owner
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {})
+  (rf/reg-route :route/home {} "/")
+  (navigate-article! "intro")
+  (let [owner [:route :route/article (:nav-token (slice))]
+        k     (article-key "intro")]
+    (is (contains? (:active-owners (entry k)) owner))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+    (is (not (contains? (:active-owners (entry k)) owner))
+        "the prior route owner was released on leave")))
+
+(deftest route-resupersede-same-key-blocking-transition-drains
+  ;; Leaving marks the in-flight attempt :abort-requested while the entry still
+  ;; points at it. An immediate re-entry of the SAME key must start a fresh
+  ;; attempt rather than join doomed work, and drain on the FRESH reply.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {:blocking? true})
+  (rf/reg-route :route/home {} "/")
+  (let [k (article-key "intro")]
+    (navigate-article! "intro")
+    (let [wid1 (:current-work (entry k))
+          gen1 (:generation (entry k))]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (rdb) wid1))))
+      (navigate-article! "intro")
+      (let [token-2 (:nav-token (slice))]
+        (is (= [:loading (inc gen1) :running true true]
+               [(:transition (slice)) (:generation (entry k)) (:status (work-record-for k))
+                (contains? (:active-owners (entry k)) [:route :route/article token-2])
+                (contains? (blocking-slot token-2) k)])
+            "a fresh, live attempt owned and tracked by the re-entry token")
+        (settle-success! k {:title "Intro"})
+        (is (= [:idle #{}] [(:transition (slice)) (blocking-slot token-2)])
+            "the fresh reply drains the slot — no hang on the aborted work")))))
+
+(deftest when-false-gates-the-resource-out
+  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
+  (reg-article-route! {:resource :comments/list :when (fn [_route _ctx] false)})
+  (navigate-article! "intro")
+  (is (empty? (entries)) ":when false admits no resource (NOT sentinel nil params)"))
+
+(deftest blocking-first-load-failure-emits-error-trace
+  ;; The route slice carries the structured :error AND the same failure is on the
+  ;; trace/error stream with the ResourceRouteBlockingTags shape.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {:blocking? true})
+  (navigate-article! "intro")
+  (let [nav-token (:nav-token (slice))
+        evs       (errors-of (record-error-traces!
+                               #(settle-failure! (article-key "intro") {:status 503 :message "upstream down"}))
+                             :rf.error/resource-route-blocking)]
+    (is (= [{:category    :rf.error/resource-route-blocking
+             :resource-id :article/by-slug
+             :nav-token   nav-token
+             :error       {:status 503 :message "upstream down"}}]
+           (mapv #(select-keys (:tags %) [:category :resource-id :nav-token :error]) evs))
+        "exactly one blocking-failure trace, carrying the first-load envelope")
+    (is (string? (:reason (:tags (first evs)))))
+    (is (= [:error :rf.error/resource-route-blocking]
+           [(:transition (slice)) (:rf.error/id (:error (slice)))]))))
+
+(deftest superseded-blocking-slot-does-not-block-future-navigation
+  ;; A blocking resource that NEVER settles would leave its slot forever if only
+  ;; the reply-driven drain cleared it. Leaving releases the prior owner, which
+  ;; must clear the stale slot so it cannot gate a later navigation.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (reg-article-route! {:blocking? true})
+  (rf/reg-route :route/home {} "/")
+  (navigate-article! "a")
+  (let [token-1 (:nav-token (slice))]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+    (let [token-2 (:nav-token (slice))]
+      (is (= [true :idle #{} #{}]
+             [(not= token-1 token-2) (:transition (slice))
+              (blocking-slot token-1) (blocking-slot token-2)])))))
+
+;; ===========================================================================
+;; Fail-closed planning
+;; ===========================================================================
+
+(deftest route-planning-failures-fail-closed-on-the-route-slice
+  ;; Each is a route PLANNING error — never a silent cache miss, a silent
+  ;; fallback to the spec scope, an escape that crashes the commit, or a hang —
+  ;; carrying its specific :recovery, on the slice AND the error stream, with
+  ;; nothing ensured.
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-resource :a/res (article-spec {}) article-spec-request)
+  (rf/reg-resource :b/res (article-spec {}) article-spec-request)
+  (doseq [[n label resources recovery]
+          [[1 "an unresolved {:from-db …} scope with no route resolver"
+            [{:resource :secret/doc :params slug-param}] :fix-registration]
+           [2 "a PRESENT :params resolver returning nil (conditional reads use :when)"
+            [{:resource :article/by-slug :params (fn [_route] nil)}] :fix-params]
+           [3 "the retired anonymous fn :scope tier, refused loud"
+            [{:resource :secret/doc :params slug-param
+              :scope    (fn [_route _ctx] [:rf.scope/session {:user 7}])}] :fix-scope]
+           [4 "a PRESENT :scope of nil (absence is (contains? entry :scope))"
+            [{:resource :secret/doc :params slug-param :scope nil}] :fix-scope]
+           [5 "a misspelt reserved scope keyword"
+            [{:resource :article/by-slug :params slug-param :scope :rf.scope/glabal}] :fix-scope]
+           [6 "a :when predicate that throws"
+            [{:resource :article/by-slug :params slug-param
+              :when     (fn [_route _ctx] (throw (ex-info "boom" {})))}] :fix-when]
+           [7 "an :after naming an id no entry declares"
+            [{:resource :article/by-slug :id :comments :params slug-param :after #{:nope}}] :fix-after]
+           [8 "a cyclic :after"
+            [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
+             {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}] :fix-after]]]
+    (let [route-id (keyword "route" (str "failing-" n))]
+      (rf/reg-route route-id {:params [:map [:slug :string]] :resources resources}
+                    (str "/failing-" n "/:slug"))
+      (let [traces (record-error-traces!
+                     #(rf/dispatch-sync [:rf.route/navigate {:to route-id :params {:slug "x"}}]))
+            err    (:error (slice))]
+        (is (= [:rf.error/resource-route-plan recovery true false true true]
+               [(:rf.error/id err) (:recovery err) (string? (:reason err))
+                (contains? err :operation)
+                (boolean (seq (errors-of traces :rf.error/resource-route-plan)))
+                (empty? (entries))])
+            label)
+        (when (= 5 n)
+          (is (= :rf.error/resource-invalid-scope (:rf.error/id (:cause err)))
+              "the shared concrete-scope guard refused it — no new error id"))))))
+
+(deftest route-entry-scope-precedence
+  ;; A CONCRETE route-entry :scope is the route tier of the precedence ladder and
+  ;; wins over the registration policy — here a policy that would fail closed on
+  ;; its own; an entry with no :scope key at all inherits the policy.
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (doseq [[label route-entry expected-scope]
+          [["the concrete route scope is threaded into the ensure"
+            {:resource :secret/doc :params slug-param :scope [:rf.scope/session {:tenant "acme" :user 7}]}
+            [:rf.scope/session {:tenant "acme" :user 7}]]
+           ["an entry with no :scope key resolves the registration's global claim"
+            {:resource :article/by-slug :params slug-param}
+            :rf.scope/global]]]
+    (let [plan   (rf.resources.route/route-resource-plan
+                   {:id :route/x :params {:slug "x"} :resources [route-entry]}
+                   {}
+                   {:nav-token 1 :prev-id nil :prev-nav-token nil})
+          ensure (first (of-event (plan-dispatches plan) :rf.resource/ensure))]
+      (is (= [nil :rf.resource/ensure expected-scope]
+             [(:plan-error plan) (first ensure) (:scope (second ensure))])
+          label))))
+
+(deftest nil-ctx-fails-closed
+  ;; A nil ctx is a routing↔resources seam bug: it must throw, not proceed with
+  ;; an empty ctx a session-scope resolver would read as nil. The throw has the
+  ;; canonical thrown-error shape (rf.error/thrown-ex-info).
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (let [thrown (try (rf.resources.route/route-resource-plan
+                      {:id :route/secret :resources []} nil {:nav-token 1})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))
+        data   (ex-data thrown)
+        msg    (ex-message thrown)]
+    (is (= {:rf.error/id :rf.error/resource-route-plan
+            :where       'rf/route-resource-plan
+            :recovery    :fix-route-integration}
+           (select-keys data [:rf.error/id :where :recovery])))
+    (is (not (contains? data :operation)) "no dead :operation slot duplicating :rf.error/id")
+    (is (rf.error/message-has-id-token? msg) "the message trails the [:rf.error/…] token")
+    (is (not (rf.error/keyword-only-message? msg)) "the message is a human sentence")))
+
+(deftest missing-nav-token-fails-closed
+  ;; The nav-token IS the route owner identity; planning without one would mint
+  ;; an unreleasable owner.
+  (is (thrown? #?(:clj Throwable :cljs :default)
+               (rf.resources.route/route-resource-plan
+                 {:id :route/x :resources []}
+                 {}
+                 {:nav-token nil}))))
+
+(deftest after-orders-multiple-deps-by-local-id
+  ;; A dependent's ensure is dispatched AFTER every id it names (a 3-node chain
+  ;; declared c, a, b).
+  (let [order (atom [])
+        reg!  (fn [id tag]
+                (rf/reg-resource id (article-spec {})
+                                 (fn [_ _] (swap! order conj tag) {:request {:method :get :url "/x"}})))]
+    (reg! :a/res :a)
+    (reg! :b/res :b)
+    (reg! :c/res :c)
+    (rf/reg-route :route/chain
+                  {:resources [{:resource :c/res :id :c :params (fn [_] {:slug "c"}) :after #{:b}}
+                               {:resource :a/res :id :a :params (fn [_] {:slug "a"})}
+                               {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]}
+                  "/chain")
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/chain}])
+    (is (= [nil [:a :b :c]] [(:error (slice)) @order]))))
+
+;; ===========================================================================
+;; EP-0037 R2 — effective parent-chain resource plans (Spec 016 §Effective
+;; parent-chain resource plans)
+;; ===========================================================================
+
 (deftest r2-branch-composes-parent-to-leaf
-  ;; A declared :parent composes the ancestor :resources with the leaf, parent-
-  ;; most first — the child never restates the shell read.
+  ;; A declared :parent composes the ancestor :resources with the leaf's,
+  ;; parent-most first — the child never restates the shell read.
   (rf/reg-resource :shell/viewer (article-spec {}) article-spec-request)
   (rf/reg-resource :leaf/settings (article-spec {}) article-spec-request)
   (let [branch [{:route-id   :route/account
@@ -740,69 +431,52 @@
                 {:route-id   :route/account.settings
                  :route-meta {:resources [{:resource :leaf/settings :params (fn [_] {:slug "s"}) :blocking? true}]}}]
         plan (rf.resources.route/route-resource-plan
-               {:id :route/account.settings :params {} :query {}}
-               {}
-               {:nav-token 1 :branch branch})
-        ensures (of-event (plan-dispatches plan) :rf.resource/ensure)]
-    (testing "both parent + leaf resources are ensured, parent-most first"
-      (is (nil? (:plan-error plan)))
-      (is (= [:shell/viewer :leaf/settings] (mapv #(:resource (second %)) ensures)))
-      (is (= 2 (count (:blocking plan))) "both blocking requirements enter the blocking set"))))
+               {:id :route/account.settings :params {} :query {}} {} {:nav-token 1 :branch branch})]
+    (is (= [nil [:shell/viewer :leaf/settings] 2]
+           [(:plan-error plan) (resources-of (plan-dispatches plan) :rf.resource/ensure) (count (:blocking plan))]))))
 
 (deftest r2-identity-dedupe-and-redundant-child-advisory
-  ;; Parent + child declare the SAME identity (same resource + scope + params):
-  ;; dedupe to ONE ensure fixed at the earliest (parent) position; blocking? is
-  ;; OR across contributors; the redundant child copy surfaces as an advisory.
+  ;; Parent and child declare the SAME identity: ONE ensure at the earliest
+  ;; (parent) position, blocking? OR'd across contributors, and the redundant
+  ;; child copy surfaces as an advisory.
   (rf/reg-resource :shell/banner (article-spec {}) article-spec-request)
   (rf/reg-resource :leaf/list (article-spec {}) article-spec-request)
-  (let [banner {:resource :shell/banner :params (fn [_] {:slug "u"})}
-        branch [{:route-id   :route/profile
-                 :route-meta {:resources [(assoc banner :blocking? true)]}}
-                {:route-id   :route/profile.favorites
-                 :route-meta {:resources [(assoc banner :blocking? false)     ;; redundant copy
-                                          {:resource :leaf/list :params (fn [_] {:slug "f"})}]}}]
-        plan (rf.resources.route/route-resource-plan
-               {:id :route/profile.favorites :params {} :query {}}
-               {}
-               {:nav-token 1 :branch branch})
-        ensures (of-event (plan-dispatches plan) :rf.resource/ensure)
+  (let [banner     {:resource :shell/banner :params (fn [_] {:slug "u"})}
+        branch     [{:route-id   :route/profile
+                     :route-meta {:resources [(assoc banner :blocking? true)]}}
+                    {:route-id   :route/profile.favorites
+                     :route-meta {:resources [(assoc banner :blocking? false)
+                                              {:resource :leaf/list :params (fn [_] {:slug "f"})}]}}]
+        plan       (rf.resources.route/route-resource-plan
+                     {:id :route/profile.favorites :params {} :query {}} {} {:nav-token 1 :branch branch})
         banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :shell/banner {:slug "u"})]
-    (testing "the duplicated banner dedupes to one ensure at the parent position"
-      (is (nil? (:plan-error plan)))
-      (is (= [:shell/banner :leaf/list] (mapv #(:resource (second %)) ensures))
-          "banner deduped + fixed earliest; leaf list follows"))
-    (testing "blocking? is OR across contributors — the parent marked it blocking"
-      (is (contains? (:blocking plan) (rf.resources.state/key-id banner-key))))
-    (testing "the redundant child declaration surfaces as an advisory"
-      (is (= 1 (count (:advisories plan))))
-      (let [adv (first (:advisories plan))]
-        (is (= :route/profile (get-in adv [:ancestor :route-id])))
-        (is (= :route/profile.favorites (get-in adv [:child :route-id])))
-        (is (= :shell/banner (:resource adv)))))))
+    (is (= [nil [:shell/banner :leaf/list] true]
+           [(:plan-error plan) (resources-of (plan-dispatches plan) :rf.resource/ensure)
+            (contains? (:blocking plan) (rf.resources.state/key-id banner-key))]))
+    (is (= [[:route/profile :route/profile.favorites :shell/banner]]
+           (mapv (juxt #(get-in % [:ancestor :route-id]) #(get-in % [:child :route-id]) :resource)
+                 (:advisories plan))))))
 
 (deftest r2-collapse-cycle-fails-the-whole-plan
-  ;; A and C resolve to one identity; B :after A; C :after B. Collapse produces
-  ;; identity(A,C) -> B and B -> identity(A,C): a cycle. The plan fails and
-  ;; dispatches no ensures (empty next ownership).
+  ;; A and C resolve to one identity; B :after A, C :after B — the collapse makes
+  ;; a cycle, so the plan fails and dispatches no ensures.
   (rf/reg-resource :cyc/shared (article-spec {}) article-spec-request)
   (rf/reg-resource :cyc/mid (article-spec {}) article-spec-request)
   (let [branch [{:route-id   :route/cyc
                  :route-meta {:resources [{:resource :cyc/shared :id :a :params (fn [_] {:slug "k"})}
                                           {:resource :cyc/mid    :id :b :params (fn [_] {:slug "m"}) :after #{:a}}
                                           {:resource :cyc/shared :id :c :params (fn [_] {:slug "k"}) :after #{:b}}]}}]
-        plan (rf.resources.route/route-resource-plan {:id :route/cyc :params {} :query {}} {}
-                                        {:nav-token 1 :branch branch})]
-    (testing "the collapse-created cycle is a planning error"
-      (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
-    (testing "no ensures are dispatched on the failed plan"
-      (is (empty? (of-event (plan-dispatches plan) :rf.resource/ensure))))))
+        plan   (rf.resources.route/route-resource-plan {:id :route/cyc :params {} :query {}} {}
+                                                       {:nav-token 1 :branch branch})]
+    (is (= [:rf.error/resource-route-plan []]
+           [(:rf.error/id (:plan-error plan)) (of-event (plan-dispatches plan) :rf.resource/ensure)]))))
+
+;; The `:rf.resource/route-plan` row is emitted behind `rf.interop/debug-enabled?`,
+;; so the trace assertions below run in the dev posture only.
 
 (deftest r2-plan-diff-trace-carries-the-identity-partition
-  ;; The SAME sibling-leaf navigation as the
-  ;; test above, read off the `:rf.resource/route-plan` TRACE rather than the
-  ;; returned fx: one row must answer "which identity was ensured / kept /
-  ;; removed on this navigation" without diffing two consecutive rows. The
-  ;; counts are the compact headline beside the identity vectors.
+  ;; One row answers which identity was ensured / kept / removed on a
+  ;; sibling-leaf navigation, without diffing two rows.
   (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
@@ -810,552 +484,254 @@
         shared-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
         a-key       (rf.resources.state/scoped-resource-key* :rf.scope/global :lf/a {:slug "a"})
         b-key       (rf.resources.state/scoped-resource-key* :rf.scope/global :lf/b {:slug "b"})
-        branch1 [{:route-id :route/p   :route-meta parent-meta}
-                 {:route-id :route/p.a :route-meta {:resources [{:resource :lf/a :params (fn [_] {:slug "a"})}]}}]
-        branch2 [{:route-id :route/p   :route-meta parent-meta}
-                 {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
-        plan1 (rf.resources.route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
-                                         {:nav-token 1 :branch branch1})
+        branch1     [{:route-id :route/p   :route-meta parent-meta}
+                     {:route-id :route/p.a :route-meta {:resources [{:resource :lf/a :params (fn [_] {:slug "a"})}]}}]
+        branch2     [{:route-id :route/p   :route-meta parent-meta}
+                     {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
+        plan1       (rf.resources.route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
+                                                            {:nav-token 1 :branch branch1})
         ;; plan1's shared identity has since LOADED — the reusable kept case.
-        rdb   {:rf.runtime/resources
-               {:entries {(rf.resources.state/key-id shared-key)
-                          {:resource/id :sh/v :resource/key shared-key
-                           :status :loaded :data {:n 1} :attempt 1}}}}
-        traces (record-op-traces!
-                 :rf.resource/route-plan
-                 (fn [] (rf.resources.route/route-resource-plan
-                          {:id :route/p.b :params {} :query {}} {}
-                          {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
-                           :prev-identities (:identities plan1) :branch branch2
-                           :runtime-db rdb})))]
-    ;; `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
-    ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
-    ;; is no row to read and the plan-diff assertions are vacuous by design.
+        rdb         {:rf.runtime/resources
+                     {:entries {(rf.resources.state/key-id shared-key)
+                                {:resource/id :sh/v :resource/key shared-key
+                                 :status :loaded :data {:n 1} :attempt 1}}}}
+        tags        (route-plan-tags
+                      #(rf.resources.route/route-resource-plan
+                         {:id :route/p.b :params {} :query {}} {}
+                         {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
+                          :prev-identities (:identities plan1) :branch branch2
+                          :runtime-db rdb}))]
     (when rf.interop/debug-enabled?
-      (let [tags (:tags (first traces))]
-        (is (some? tags) "the activation emits one :rf.resource/route-plan row")
-        (testing "the compact headline counts read
-                  1 ensured / 1 kept / 1 removed"
-          (is (= 1 (:ensured tags)))
-          (is (= 1 (:kept tags)))
-          (is (= 1 (:removed tags))))
-        (testing "and the row names WHICH identity took each path"
-          (is (= [b-key] (:ensured-identities tags))
-              "the added leaf took the real ensure path")
-          (is (= [shared-key] (:kept-identities tags))
-              "the shared parent was adopted without a fetch")
-          (is (= [a-key] (:removed-identities tags))
-              "the departed leaf is the prior-plan identity this plan drops"))
-        (testing ":identities carries the planner's GROUPED PLAN ORDER —
-                  parent-most first, one entry per collapsed identity"
-          (is (= [shared-key b-key] (:identities tags))))))))
+      (is (= {:ensured            1
+              :kept               1
+              :removed            1
+              :ensured-identities [b-key]
+              :kept-identities    [shared-key]
+              :removed-identities [a-key]
+              :identities         [shared-key b-key]}
+             (select-keys tags [:ensured :kept :removed :ensured-identities :kept-identities
+                                :removed-identities :identities]))
+          ":identities is the planner's grouped plan order, parent-most first"))))
 
 (deftest r2-removed-identities-is-membership-not-caller-order
-  ;; The test above removes exactly ONE identity,
-  ;; and a one-element vector is ordered under every implementation, so it
-  ;; cannot tell one apart from another. THREE removals can.
-  ;;
-  ;; `:removed-identities` answers WHICH prior identities the plan dropped. It
-  ;; promises no order and none leaks in from the caller: removal is not an
-  ;; ordered operation (the whole prior owner goes in ONE release effect), and
-  ;; no prior-plan order is available to report anyway — the live routing
-  ;; handoff records `(:identities plan)` as an UNORDERED MAP under
-  ;; `[:rf.runtime/routing :resource-plan <token>]` and hands that
-  ;; same map back as the next activation's `:prev-identities`. Filtering the
-  ;; caller's collection in place would republish carrier-iteration order while
-  ;; CLAIMING the prior plan's.
-  ;;
-  ;; Dropping to that carrier is necessary but not sufficient: a small CLJS
-  ;; set/map is backed by an ARRAY map and iterates in INSERTION order, so the
-  ;; caller's sequence would walk straight back out under CLJS while the JVM's
-  ;; hash iteration order would hide the leak. The row is
-  ;; sorted by the CEDN-1 `key-id`, which is what makes it a pure function of the
-  ;; removal membership on BOTH hosts. Per Spec 009 §Where trace emission lives.
-  (rf/reg-resource :rm/v (article-spec {}) article-spec-request)
-  (rf/reg-resource :rm/a (article-spec {}) article-spec-request)
-  (rf/reg-resource :rm/b (article-spec {}) article-spec-request)
-  (rf/reg-resource :rm/c (article-spec {}) article-spec-request)
-  (rf/reg-resource :rm/n (article-spec {}) article-spec-request)
+  ;; `:removed-identities` answers WHICH prior identities were dropped and
+  ;; promises no order: the routing handoff hands back an UNORDERED map, and a
+  ;; small CLJS set iterates in insertion order where the JVM's hashes. The row
+  ;; is sorted by CEDN-1 key-id, so it is a pure function of the membership on
+  ;; both hosts — tested with THREE removals, which a one-element vector cannot.
+  (doseq [id [:rm/v :rm/a :rm/b :rm/c :rm/n]]
+    (rf/reg-resource id (article-spec {}) article-spec-request))
   (let [key-of      (fn [id slug] (rf.resources.state/scoped-resource-key* :rf.scope/global id {:slug slug}))
         v-key       (key-of :rm/v "v")
         a-key       (key-of :rm/a "a")
         b-key       (key-of :rm/b "b")
         c-key       (key-of :rm/c "c")
-        n-key       (key-of :rm/n "n")
-        parent-meta {:resources [{:resource :rm/v :params (fn [_] {:slug "v"}) :blocking? true}]}
-        branch      [{:route-id :route/q   :route-meta parent-meta}
+        branch      [{:route-id :route/q
+                      :route-meta {:resources [{:resource :rm/v :params (fn [_] {:slug "v"}) :blocking? true}]}}
                      {:route-id :route/q.n :route-meta {:resources [{:resource :rm/n :params (fn [_] {:slug "n"})}]}}]
-        ;; the shared ancestor has LOADED, so it is genuinely adoptable (the
-        ;; kept case) — leaving a / b / c as the three this plan drops.
+        ;; the shared ancestor has LOADED, so it is kept — leaving a / b / c dropped.
         rdb         {:rf.runtime/resources
                      {:entries {(rf.resources.state/key-id v-key)
                                 {:resource/id :rm/v :resource/key v-key
                                  :status :loaded :data {:n 1} :attempt 1}}}}
         tags-for    (fn [prev-identities]
-                      (:tags (first (record-op-traces!
-                                      :rf.resource/route-plan
-                                      (fn [] (rf.resources.route/route-resource-plan
-                                               {:id :route/q.n :params {} :query {}} {}
-                                               {:nav-token       2
-                                                :prev-id         :route/q.a
-                                                :prev-nav-token  1
-                                                :prev-identities prev-identities
-                                                :branch          branch
-                                                :runtime-db      rdb}))))))
-        ;; the SAME four prior identities, supplied four ways: a vector, its
-        ;; exact REVERSE, the SET the live routing handoff actually threads, and
-        ;; a duplicate-bearing sequential.
-        forward     (tags-for [v-key a-key b-key c-key])
-        backward    (tags-for [c-key b-key a-key v-key])
-        as-set      (tags-for #{v-key a-key b-key c-key})
-        duplicated  (tags-for [a-key a-key v-key b-key b-key c-key c-key])]
-    ;; `trace/emit!` sits behind `rf.interop/debug-enabled?`, so the
-    ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
-    ;; is no row to read and these assertions are vacuous by design.
+                      (route-plan-tags
+                        #(rf.resources.route/route-resource-plan
+                           {:id :route/q.n :params {} :query {}} {}
+                           {:nav-token 2 :prev-id :route/q.a :prev-nav-token 1
+                            :prev-identities prev-identities :branch branch :runtime-db rdb})))
+        ;; the SAME prior identities supplied four ways: a vector, its reverse,
+        ;; the SET the live handoff threads, and a duplicate-bearing vector
+        variants    (mapv tags-for [[v-key a-key b-key c-key]
+                                    [c-key b-key a-key v-key]
+                                    #{v-key a-key b-key c-key}
+                                    [a-key a-key v-key b-key b-key c-key c-key]])]
     (when rf.interop/debug-enabled?
-      (testing "three prior identities are dropped, and the row names all three
-                however the caller supplied them"
-        (doseq [[label tags] [["a vector"                        forward]
-                              ["its reverse"                     backward]
-                              ["a SET (a de-duplicated caller)"   as-set]
-                              ["a duplicate-bearing vector"      duplicated]]]
-          (is (some? tags) (str label ": the activation emits one :rf.resource/route-plan row"))
-          (is (= 3 (:removed tags))
-              (str label ": three prior identities are dropped"))
-          (is (= #{a-key b-key c-key} (set (:removed-identities tags)))
-              (str label ": :removed-identities names exactly the dropped three"))
-          (is (= (:removed tags) (count (:removed-identities tags)))
-              (str label ": :removed is the SIZE of :removed-identities"))))
-      (testing ":removed-identities is a pure function of the removal MEMBERSHIP
-                — no caller-supplied ordering leaks into the row"
-        (is (= (:removed-identities forward) (:removed-identities backward))
-            (str "reversing the caller's :prev-identities MUST NOT reorder "
-                 ":removed-identities — the row promises membership, not the "
-                 "prior plan's order (Spec 009 §Where trace emission lives)"))
-        (is (= (:removed-identities forward) (:removed-identities as-set))
-            (str "a de-duplicated caller collection and a sequential one "
-                 "must get the byte-identical row"))
-        (is (= (:removed-identities forward) (:removed-identities duplicated))
-            (str "a duplicate in :prev-identities can neither duplicate an "
-                 ":removed-identities entry nor put :removed out of step with it")))
-      (testing "the ORDERED vectors ride the
-                planner's grouped plan order"
-        (is (= [v-key n-key] (:identities forward)))
-        (is (= [n-key] (:ensured-identities forward)))
-        (is (= [v-key] (:kept-identities forward)))))))
+      (is (= [[3 #{a-key b-key c-key}]]
+             (distinct (map (juxt :removed (comp set :removed-identities)) variants)))
+          "every variant drops exactly the three")
+      (is (apply = (map :removed-identities variants))
+          "the row is byte-identical however the caller ordered or duplicated it")
+      (is (= 3 (count (:removed-identities (peek variants))))
+          "a duplicate can neither duplicate an entry nor put :removed out of step"))))
 
 (deftest r2-identity-membership-is-byte-exact-not-clojure-equal
-  ;; The identity partition is keyed on
-  ;; the CEDN-1 BYTE key-id, not on Clojure `=`.
-  ;;
-  ;; Resource identity is `rf.resources.state/key-id`, and it is collection-KIND sensitive:
-  ;; `{:slug "s" :tags ["a"]}` and `{:slug "s" :tags '("a")}` live
-  ;; at two `rf.resources.state/entry-path`s, and yet the two scoped keys are `=` to Clojure
-  ;; AND hash alike. Every `=`-keyed carrier therefore collapses the pair, and
-  ;; the row's canonical `key-id` ordering runs AFTER the loss rather than
-  ;; before it — so sorting could not save it.
-  ;;
-  ;; The property this pins: a navigation whose prior plan held the LIST-bearing
-  ;; identity and whose next plan holds the VECTOR-bearing one reports the
-  ;; removal. Testing the prior identity against a set that only knows `=` would
-  ;; read it as still present and report `:removed 0` with an EMPTY
-  ;; `:removed-identities`. The removal is real — the entry sits at its own byte
-  ;; path and the prior owner's release lets it go — so that row would
-  ;; contradict the runtime.
-  ;;
-  ;; The pair is `=` under `clojure.core/=`, so an assertion written with `=`
-  ;; would pass on the WRONG key. Every claim below is therefore made on
-  ;; `rf.resources.state/key-id` of the emitted value.
-  (rf/reg-resource :bx/v (article-spec {}) article-spec-request)
-  (rf/reg-resource :bx/n (article-spec {}) article-spec-request)
-  (rf/reg-resource :bx/p (article-spec {}) article-spec-request)
-  (let [vec-key     (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags ["a"]})
-        list-key    (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags '("a")})
-        v-key       (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/v {:slug "v"})
-        n-key       (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/n {:slug "n"})
-        parent-meta {:resources [{:resource :bx/v :params (fn [_] {:slug "v"}) :blocking? true}]}
-        leaf-with-p {:resources [{:resource :bx/n :params (fn [_] {:slug "n"})}
-                                 {:resource :bx/p :params (fn [_] {:slug "p" :tags ["a"]})}]}
-        leaf-sans-p {:resources [{:resource :bx/n :params (fn [_] {:slug "n"})}]}
-        ;; `branch+p` plans the VECTOR-bearing identity; `branch-p` plans
-        ;; neither member of the pair, so both are dropped.
-        branch+p    [{:route-id :route/b :route-meta parent-meta}
-                     {:route-id :route/b.n :route-meta leaf-with-p}]
-        branch-p    [{:route-id :route/b :route-meta parent-meta}
-                     {:route-id :route/b.n :route-meta leaf-sans-p}]
-        loaded      (fn [k rid] [(rf.resources.state/key-id k)
-                                 {:resource/id rid :resource/key k
-                                  :status :loaded :data {:n 1} :attempt 1}])
-        ;; the shared ancestor is LOADED, so it is genuinely adoptable.
-        rdb         {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v)])}}
-        ;; …and here the VECTOR-bearing identity is loaded too, so adoption
-        ;; across the pair is REACHABLE if membership were `=`-keyed.
-        rdb+p       {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v)
-                                                               (loaded vec-key :bx/p)])}}
-        tags-for    (fn [branch runtime-db prev-identities]
-                      (:tags (first (record-op-traces!
-                                      :rf.resource/route-plan
-                                      (fn [] (rf.resources.route/route-resource-plan
-                                               {:id :route/b.n :params {} :query {}} {}
-                                               {:nav-token       2
-                                                :prev-id         :route/b.a
-                                                :prev-nav-token  1
-                                                :prev-identities prev-identities
-                                                :branch          branch
-                                                :runtime-db      runtime-db}))))))
-        ids         (fn [ks] (mapv rf.resources.state/key-id ks))]
-    (testing "premise: the two params shapes are ONE value to Clojure and TWO
-              identities to the cache"
-      (is (= vec-key list-key)
-          "clojure.core/= cannot tell them apart, which is why every =-keyed
-           carrier collapses them")
-      (is (= 1 (count (set [vec-key list-key])))
-          "…and neither can a set: the collapse is in the carrier, not in a
-           comparison this code could have written differently")
-      (is (not= (rf.resources.state/key-id vec-key) (rf.resources.state/key-id list-key))
-          "premise: while the CEDN-1 byte identities differ")
-      (is (not= (rf.resources.state/entry-path vec-key) (rf.resources.state/entry-path list-key))
-          "premise: so the cache holds two entries, and dropping one IS a
-           removal"))
+  ;; Resource identity is the CEDN-1 key-id, which is collection-KIND sensitive:
+  ;; `{:tags ["a"]}` and `{:tags '("a")}` are two cache entries, yet `=` (and
+  ;; hashing) collapse them. So every claim is made on key-ids.
+  (doseq [id [:bx/v :bx/n :bx/p]]
+    (rf/reg-resource id (article-spec {}) article-spec-request))
+  (let [vec-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags ["a"]})
+        list-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/p {:slug "p" :tags '("a")})
+        v-key     (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/v {:slug "v"})
+        n-key     (rf.resources.state/scoped-resource-key* :rf.scope/global :bx/n {:slug "n"})
+        branch    (fn [leaf-resources]
+                    [{:route-id :route/b
+                      :route-meta {:resources [{:resource :bx/v :params (fn [_] {:slug "v"}) :blocking? true}]}}
+                     {:route-id :route/b.n :route-meta {:resources leaf-resources}}])
+        n-entry   {:resource :bx/n :params (fn [_] {:slug "n"})}
+        branch+p  (branch [n-entry {:resource :bx/p :params (fn [_] {:slug "p" :tags ["a"]})}])
+        branch-p  (branch [n-entry])
+        loaded    (fn [k rid] [(rf.resources.state/key-id k)
+                               {:resource/id rid :resource/key k :status :loaded :data {:n 1} :attempt 1}])
+        ;; the ancestor is adoptable; in rdb+p so is the VECTOR-bearing twin
+        rdb       {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v)])}}
+        rdb+p     {:rf.runtime/resources {:entries (into {} [(loaded v-key :bx/v) (loaded vec-key :bx/p)])}}
+        tags-for  (fn [branch runtime-db prev-identities]
+                    (route-plan-tags
+                      #(rf.resources.route/route-resource-plan
+                         {:id :route/b.n :params {} :query {}} {}
+                         {:nav-token 2 :prev-id :route/b.a :prev-nav-token 1
+                          :prev-identities prev-identities :branch branch :runtime-db runtime-db})))
+        split-of  (fn [tags] (mapv #(ids (% tags)) [:ensured-identities :kept-identities :removed-identities]))]
+    (is (not= (rf.resources.state/key-id vec-key) (rf.resources.state/key-id list-key))
+        "premise: ONE value to `=`, TWO byte identities to the cache")
     (when rf.interop/debug-enabled?
-      (testing "the prior plan's LIST-bearing identity is reported REMOVED when
-                the next plan holds only its VECTOR-bearing twin"
-        (let [tags (tags-for branch+p rdb [v-key list-key])]
-          (is (= 1 (:removed tags))
-              "one prior identity was dropped, and the row says so")
-          (is (= (ids [list-key]) (ids (:removed-identities tags)))
-              "…and names the LIST-bearing key, asserted on its byte identity
-               because `=` would accept the vector-bearing one here")
-          (is (= (ids [n-key vec-key]) (ids (:ensured-identities tags)))
-              "the VECTOR-bearing identity is ENSURED — it has no entry of its
-               own, and byte-exact membership does not match its twin")
-          (is (= (ids [v-key]) (ids (:kept-identities tags)))
-              "…while the genuinely adoptable ancestor is still kept")))
-      (testing "ADOPTION does not cross the pair either: a LIST-bearing prior
-                identity must not hand its owner to the VECTOR-bearing twin,
-                even when that twin's own entry is adoptable"
-        (let [tags (tags-for branch+p rdb+p [v-key list-key])]
-          (is (= (ids [n-key vec-key]) (ids (:ensured-identities tags)))
-              "the twin is ENSURED — it is loaded and adoptable, so ONLY the
-               byte-exact membership test keeps it out of the kept vector")
-          (is (= (ids [v-key]) (ids (:kept-identities tags))))
-          (is (= (ids [list-key]) (ids (:removed-identities tags))))))
-      (testing "…while a prior identity that IS the planned one is adopted, so
-                the claim above is about the pair and not about adoption
-                being broken"
-        (let [tags (tags-for branch+p rdb+p [v-key vec-key])]
-          (is (= (ids [v-key vec-key]) (ids (:kept-identities tags)))
-              "both adoptable prior identities are kept")
-          (is (= (ids [n-key]) (ids (:ensured-identities tags))))
-          (is (= 0 (:removed tags)) "and nothing was dropped")))
-      (testing "both members are dropped together when NEITHER is planned"
-        (let [gone (tags-for branch-p rdb [list-key vec-key])]
-          (is (= 2 (:removed gone))
-              "both byte identities are removed — a set-backed carrier would
-               report ONE, having already thrown the other away")
-          (is (= (sort (ids [list-key vec-key])) (sort (ids (:removed-identities gone))))
-              "…and both are named")
-          (is (= (:removed-identities gone)
-                 (:removed-identities (tags-for branch-p rdb [vec-key list-key])))
-              "the row is still a pure function of the removal MEMBERSHIP —
-               swapping the caller's order does not move it"))))))
-
-(deftest r2-navigating-between-byte-distinct-twins-reports-the-removal
-  ;; The same property END TO END, through
-  ;; the real `:rf.route/navigate` path and the real routing handoff, rather
-  ;; than a direct planner call.
-  ;;
-  ;; Two sibling routes declare the SAME resource under the SAME scope, with
-  ;; params that differ only in the KIND of one collection: `{:tags ["a"]}` vs
-  ;; `{:tags '("a")}`. Those are two cache entries at two `rf.resources.state/entry-path`s
-  ;; and one value to Clojure `=`. Navigating between them therefore removes one
-  ;; identity and ensures the other, and the row must report that removal.
-  ;;
-  ;; Each plan here holds ONE member of the pair. The case where a SINGLE plan
-  ;; holds BOTH — which a set-shaped `[:rf.runtime/routing :resource-plan]`
-  ;; slot could not carry at all — is the twin test below.
-  (rf/reg-resource :tw/feed (article-spec {}) article-spec-request)
-  (rf/reg-route :route/tw-vec
-                {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags ["a"]})}]}
-                "/tw/vec")
-  (rf/reg-route :route/tw-list
-                {:resources [{:resource :tw/feed :params (fn [_] {:slug "f" :tags '("a")})}]}
-                "/tw/list")
-  (let [vec-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :tw/feed {:slug "f" :tags ["a"]})
-        list-key (rf.resources.state/scoped-resource-key* :rf.scope/global :tw/feed {:slug "f" :tags '("a")})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/tw-list}])
-    (settle-success! list-key [{:id 1}])
-    (testing "premise: the first navigation created the LIST-bearing entry, and
-              the VECTOR-bearing twin does not exist"
-      (is (some? (entry list-key)))
-      (is (nil? (entry vec-key))
-          "the cache keys on canonical bytes, so the twin is genuinely absent
-           even though its scoped key is `=` to the one that is present"))
-    (let [tags (:tags (first (record-op-traces!
-                               :rf.resource/route-plan
-                               (fn [] (rf/dispatch-sync
-                                        [:rf.route/navigate {:to :route/tw-vec}])))))]
-      (testing "the sibling navigation ensures the twin"
-        (is (some? (entry vec-key))
-            "a second entry now exists at the VECTOR-bearing byte path — the
-             navigation really did dispatch an ensure rather than adopt across
-             the pair"))
-      (when rf.interop/debug-enabled?
-        (testing "…and the row reports the removal it performed"
-          (is (= 1 (:removed tags))
-              "the LIST-bearing identity left the plan — testing the prior
-               identity against an `=`-keyed set would read it as still
-               present and report `:removed 0`")
-          (is (= [(rf.resources.state/key-id list-key)] (mapv rf.resources.state/key-id (:removed-identities tags)))
-              "…and it is named, asserted on the byte identity because `=`
-               would have accepted the vector-bearing key here")
-          (is (= [(rf.resources.state/key-id vec-key)] (mapv rf.resources.state/key-id (:ensured-identities tags)))
-              "while the twin is ENSURED")
-          (is (empty? (:kept-identities tags))
-              "and nothing was kept — the two are not one identity"))))))
+      (is (= [(ids [n-key vec-key]) (ids [v-key]) (ids [list-key])]
+             (split-of (tags-for branch+p rdb [v-key list-key])))
+          "the LIST twin is REMOVED when the next plan holds only its VECTOR twin, which is ensured")
+      (is (= [(ids [n-key vec-key]) (ids [v-key]) (ids [list-key])]
+             (split-of (tags-for branch+p rdb+p [v-key list-key])))
+          "adoption does not cross the pair, even when the twin's own entry is adoptable")
+      (is (= [(ids [n-key]) (ids [v-key vec-key]) []]
+             (split-of (tags-for branch+p rdb+p [v-key vec-key])))
+          "control: a prior identity that IS the planned one is adopted")
+      (let [gone (tags-for branch-p rdb [list-key vec-key])]
+        (is (= [2 (sort (ids [list-key vec-key]))] [(:removed gone) (sort (ids (:removed-identities gone)))])
+            "both are dropped together when neither is planned — a set-backed carrier reports one")
+        (is (= (:removed-identities gone)
+               (:removed-identities (tags-for branch-p rdb [vec-key list-key])))
+            "and the row is still independent of the caller's order")))))
 
 (deftest r2-a-plan-holding-both-byte-distinct-twins-plans-blocks-and-drains-both
-  ;; THE twin test. One plan requires BOTH members of an
-  ;; `=`-equal but byte-DISTINCT pair, through the real `:rf.route/navigate`
-  ;; path and the real routing handoff.
-  ;;
-  ;; The pair survives the round trip only if it is byte-keyed at two points:
-  ;; `collapse-and-order` groups occurrences by byte `key-id`, since grouping
-  ;; by scoped key under Clojure `=` would turn two route entries requiring
-  ;; the two identities into ONE dedup-req — one ensure dispatched, the second
-  ;; byte identity never fetched (a DISPATCH defect); and the
-  ;; `[:rf.runtime/routing :resource-plan]` / `:resource-blocking` slots are
-  ;; `{key-id scoped-key}` maps, since a SET cannot hold both members however
-  ;; carefully the planner counts.
-  ;;
-  ;; Every claim below is asserted on `rf.resources.state/key-id`, never on `=`: the two
-  ;; scoped keys are `=` and hash alike, so an `=`-written assertion would pass
-  ;; on the WRONG key and prove nothing.
+  ;; ONE plan requiring BOTH members of an `=`-equal, byte-DISTINCT pair, through
+  ;; the real navigate path. It survives only if `collapse-and-order` groups by
+  ;; key-id (else one ensure, the twin never fetched) and the :resource-plan /
+  ;; :resource-blocking slots are `{key-id scoped-key}` maps (a set holds one).
   (rf/reg-resource :tw2/feed (article-spec {}) article-spec-request)
   (rf/reg-route :route/tw2-both
-                {:resources [{:id        :vec-entry
-                              :resource  :tw2/feed
-                              :params    (fn [_] {:slug "f" :tags ["a"]})
-                              :blocking? true}
-                             {:id        :list-entry
-                              :resource  :tw2/feed
-                              :params    (fn [_] {:slug "f" :tags (list "a")})
-                              :blocking? true}]}
+                {:resources [{:id :vec-entry :resource :tw2/feed :blocking? true
+                              :params (fn [_] {:slug "f" :tags ["a"]})}
+                             {:id :list-entry :resource :tw2/feed :blocking? true
+                              :params (fn [_] {:slug "f" :tags (list "a")})}]}
                 "/tw2/both")
   (let [vec-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :tw2/feed {:slug "f" :tags ["a"]})
         list-key (rf.resources.state/scoped-resource-key* :rf.scope/global :tw2/feed {:slug "f" :tags (list "a")})
-        ids      (fn [ks] (vec (sort (mapv rf.resources.state/key-id ks))))
-        rdb      (fn [] (:rf.db/runtime (rf/frame-state-value :rf/default)))]
-    (testing "premise: ONE value to Clojure, TWO identities to the cache"
-      (is (= vec-key list-key))
-      (is (= 1 (count (set [vec-key list-key]))))
-      (is (not= (rf.resources.state/key-id vec-key) (rf.resources.state/key-id list-key)))
-      (is (not= (rf.resources.state/entry-path vec-key) (rf.resources.state/entry-path list-key))))
-    (let [tags      (:tags (first (record-op-traces!
-                                    :rf.resource/route-plan
-                                    (fn [] (rf/dispatch-sync
-                                             [:rf.route/navigate {:to :route/tw2-both}])))))
+        sorted   (fn [ks] (vec (sort (ids ks))))]
+    (is (not= (rf.resources.state/key-id vec-key) (rf.resources.state/key-id list-key))
+        "premise: ONE value to `=`, TWO byte identities to the cache")
+    (let [tags      (route-plan-tags #(rf/dispatch-sync [:rf.route/navigate {:to :route/tw2-both}]))
           token     (:nav-token (slice))
-          ;; the blocking carrier AS COMMITTED — the SSR drain reads exactly
-          ;; this and pumps until every member settles.
-          blocking0 (get-in (rdb) (rf.resources.route/blocking-path token))]
-      (testing "TWO dedup-reqs, TWO ensures — the second identity is really fetched"
-        (is (some? (entry vec-key)) "the vector-bearing identity was ensured")
-        (is (some? (entry list-key)) "…and so was its list-bearing twin")
-        (is (= 2 (count (select-keys (entries) [(rf.resources.state/key-id vec-key)
-                                                (rf.resources.state/key-id list-key)])))
-            "two cache entries at two byte paths — a collapsed plan leaves one"))
-      (testing "the handoff slot carries BOTH identities, byte-keyed"
-        (is (= (blocking-map vec-key list-key) (get-in (rdb) (rf.resources.route/plan-path token)))
-            "[:rf.runtime/routing :resource-plan <token>] is {key-id scoped-key}
-             and holds the pair — a set would hold exactly one of them"))
-      (testing "…and so does the blocking slot: two independent wait points"
-        (is (= (blocking-map vec-key list-key) blocking0))
-        (is (= :loading (:transition (slice)))
-            "both blocking first loads are outstanding"))
-      (testing "the SSR drain sees both, and only both, as unsettled"
-        (is (false? (rf.resources.ssr/blocking-settled? (entries) blocking0)))
-        (is (= (ids [vec-key list-key])
-               (ids (vals (rf.resources.ssr/unsettled-blocking-keys (entries) blocking0))))))
-      (testing "each twin settles INDEPENDENTLY — one settle prunes one wait point"
-        (settle-success! vec-key [{:id 1}])
-        (is (= (blocking-map list-key) (get-in (rdb) (rf.resources.route/blocking-path token)))
-            "only the LIST-bearing requirement is still outstanding; an
-             `=`-keyed prune could not have told the two apart")
-        (is (= :loading (:transition (slice)))
-            "the route is still :loading — the twin has not settled")
-        (is (false? (rf.resources.ssr/blocking-settled? (entries) blocking0))
-            "the SSR drain agrees: one member of the pair is still in flight")
-        (is (= (ids [list-key])
-               (ids (vals (rf.resources.ssr/unsettled-blocking-keys (entries) blocking0))))))
-      (testing "…and when the twin settles too the route lands and the drain ends"
-        (settle-success! list-key [{:id 2}])
-        (is (empty? (get-in (rdb) (rf.resources.route/blocking-path token))))
-        (is (= :idle (:transition (slice))))
-        (is (true? (rf.resources.ssr/blocking-settled? (entries) blocking0))))
+          ;; the blocking carrier AS COMMITTED — exactly what the SSR drain reads
+          blocking0 (get-in (rdb) (rf.resources.route/blocking-path token))
+          drain     (fn [] [(rf.resources.ssr/blocking-settled? (entries) blocking0)
+                            (sorted (vals (rf.resources.ssr/unsettled-blocking-keys (entries) blocking0)))])]
+      (is (= [true true] [(some? (entry vec-key)) (some? (entry list-key))])
+          "TWO ensures — the second identity is really fetched")
+      (is (= [(blocking-map vec-key list-key) (blocking-map vec-key list-key) :loading]
+             [(get-in (rdb) (rf.resources.route/plan-path token)) blocking0 (:transition (slice))])
+          "the handoff and blocking slots both hold the pair, byte-keyed")
+      (is (= [false (sorted [vec-key list-key])] (drain)) "the SSR drain sees both as unsettled")
+      (settle-success! vec-key [{:id 1}])
+      (is (= [(blocking-map list-key) :loading [false (sorted [list-key])]]
+             [(get-in (rdb) (rf.resources.route/blocking-path token)) (:transition (slice)) (drain)])
+          "each twin settles INDEPENDENTLY — one settle prunes exactly one wait point")
+      (settle-success! list-key [{:id 2}])
+      (is (= [true :idle [true []]]
+             [(empty? (get-in (rdb) (rf.resources.route/blocking-path token))) (:transition (slice)) (drain)]))
       (when rf.interop/debug-enabled?
-        (testing "the plan row reports two ensures over two identities"
-          (is (= 2 (:ensured tags)) "two real ensures, not one deduped ensure")
-          (is (= 0 (:kept tags)))
-          (is (= 0 (:removed tags)))
-          (is (= (ids [vec-key list-key]) (ids (:identities tags))))
-          (is (= (ids [vec-key list-key]) (ids (:ensured-identities tags))))
-          (is (= (ids [vec-key list-key]) (ids (:blocking tags)))))))))
+        (is (= {:ensured 2 :kept 0 :removed 0} (select-keys tags [:ensured :kept :removed])))
+        (is (= (repeat 3 (sorted [vec-key list-key]))
+               (map #(sorted (% tags)) [:identities :ensured-identities :blocking])))))))
 
 (deftest r2-a-transition-keeping-one-twin-and-removing-the-other-reports-both
-  ;; The other half of the twin test: a navigation AWAY from
-  ;; the both-twins plan to one that keeps the VECTOR-bearing identity and
-  ;; drops its LIST-bearing twin. The prior plan's handoff slot carries
-  ;; both, so the diff has both to reason about — a set-shaped slot would
-  ;; deliver the prior plan holding ONE identity and hide the removal.
+  ;; Away from the both-twins plan to one keeping the VECTOR twin: the prior
+  ;; handoff slot carries both, so the diff can report the LIST twin's removal.
   (rf/reg-resource :tw3/feed (article-spec {}) article-spec-request)
   (rf/reg-route :route/tw3-both
-                {:resources [{:id :vec-entry  :resource :tw3/feed
-                              :params (fn [_] {:slug "g" :tags ["a"]})}
-                             {:id :list-entry :resource :tw3/feed
-                              :params (fn [_] {:slug "g" :tags (list "a")})}]}
+                {:resources [{:id :vec-entry  :resource :tw3/feed :params (fn [_] {:slug "g" :tags ["a"]})}
+                             {:id :list-entry :resource :tw3/feed :params (fn [_] {:slug "g" :tags (list "a")})}]}
                 "/tw3/both")
   (rf/reg-route :route/tw3-vec
-                {:resources [{:resource :tw3/feed
-                              :params (fn [_] {:slug "g" :tags ["a"]})}]}
+                {:resources [{:resource :tw3/feed :params (fn [_] {:slug "g" :tags ["a"]})}]}
                 "/tw3/vec")
   (let [vec-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :tw3/feed {:slug "g" :tags ["a"]})
-        list-key (rf.resources.state/scoped-resource-key* :rf.scope/global :tw3/feed {:slug "g" :tags (list "a")})
-        ids      (fn [ks] (mapv rf.resources.state/key-id ks))
-        rdb      (fn [] (:rf.db/runtime (rf/frame-state-value :rf/default)))]
+        list-key (rf.resources.state/scoped-resource-key* :rf.scope/global :tw3/feed {:slug "g" :tags (list "a")})]
     (rf/dispatch-sync [:rf.route/navigate {:to :route/tw3-both}])
-    ;; both twins LOAD, so the retained one is genuinely adoptable at commit.
+    ;; both twins LOAD, so the retained one is genuinely adoptable at commit
     (settle-success! vec-key [{:id 1}])
     (settle-success! list-key [{:id 2}])
-    (testing "premise: the first plan owns BOTH byte identities"
-      (is (= (blocking-map vec-key list-key)
-             (get-in (rdb) (rf.resources.route/plan-path (:nav-token (slice)))))))
-    (let [tags  (:tags (first (record-op-traces!
-                                :rf.resource/route-plan
-                                (fn [] (rf/dispatch-sync
-                                         [:rf.route/navigate {:to :route/tw3-vec}])))))
-          token (:nav-token (slice))]
-      (testing "the NEXT handoff carries exactly the surviving identity"
-        (is (= (blocking-map vec-key) (get-in (rdb) (rf.resources.route/plan-path token)))))
+    (is (= (blocking-map vec-key list-key)
+           (get-in (rdb) (rf.resources.route/plan-path (:nav-token (slice)))))
+        "premise: the first plan owns BOTH byte identities")
+    (let [tags (route-plan-tags #(rf/dispatch-sync [:rf.route/navigate {:to :route/tw3-vec}]))]
+      (is (= (blocking-map vec-key) (get-in (rdb) (rf.resources.route/plan-path (:nav-token (slice)))))
+          "the next handoff carries exactly the surviving identity")
       (when rf.interop/debug-enabled?
-        (testing "one KEPT, one REMOVED, nothing ensured — and the row names which"
-          (is (= 1 (:kept tags)) "the vector-bearing twin was adopted, not re-fetched")
-          (is (= 0 (:ensured tags)))
-          (is (= 1 (:removed tags))
-              "the list-bearing twin left the plan — a set-shaped prior slot
-               would report :removed 0 here, never having carried it")
-          (is (= (ids [vec-key]) (ids (:kept-identities tags)))
-              "asserted on the byte identity: `=` would accept the twin")
-          (is (= (ids [list-key]) (ids (:removed-identities tags))))
-          (is (empty? (:ensured-identities tags))))))))
+        (is (= [1 0 1 (ids [vec-key]) (ids [list-key]) []]
+               [(:kept tags) (:ensured tags) (:removed tags)
+                (ids (:kept-identities tags)) (ids (:removed-identities tags)) (ids (:ensured-identities tags))])
+            "one KEPT, one REMOVED, nothing ensured")))))
 
 (deftest r2-plan-order-is-witnessed-not-merely-membership
-  ;; `:identities` / `:ensured-identities` / `:kept-identities` carry
-  ;; the planner's GROUPED PLAN ORDER, and order is the whole claim: a test that
-  ;; checked set membership would pass on a shuffled vector. So the branch is
-  ;; built so that plan order is NOT the order any other structure would produce
-  ;; — the leaf declares its two resources in REVERSE alphabetical order, and the
-  ;; parent's identity must still come first because the branch is walked
-  ;; parent-most first.
-  (rf/reg-resource :po/mid (article-spec {}) article-spec-request)
-  (rf/reg-resource :po/zulu (article-spec {}) article-spec-request)
-  (rf/reg-resource :po/alpha (article-spec {}) article-spec-request)
-  (let [mid-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :po/mid {:slug "m"})
-        zulu-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :po/zulu {:slug "z"})
-        alpha-key (rf.resources.state/scoped-resource-key* :rf.scope/global :po/alpha {:slug "a"})
-        branch    [{:route-id :route/p
-                    :route-meta {:resources [{:resource :po/mid :params (fn [_] {:slug "m"})}]}}
-                   {:route-id :route/p.leaf
-                    :route-meta {:resources [{:resource :po/zulu  :params (fn [_] {:slug "z"})}
-                                             {:resource :po/alpha :params (fn [_] {:slug "a"})}]}}]
-        tags      (:tags (first (record-op-traces!
-                                  :rf.resource/route-plan
-                                  (fn [] (rf.resources.route/route-resource-plan
-                                           {:id :route/p.leaf :params {} :query {}} {}
-                                           {:nav-token 2 :branch branch :runtime-db {}})))))]
+  ;; The identity vectors carry GROUPED PLAN ORDER. The leaf declares zulu
+  ;; before alpha and the parent comes first, an order neither alphabetical nor
+  ;; key-id sorting would produce.
+  (doseq [id [:po/mid :po/zulu :po/alpha]]
+    (rf/reg-resource id (article-spec {}) article-spec-request))
+  (let [key-of (fn [id slug] (rf.resources.state/scoped-resource-key* :rf.scope/global id {:slug slug}))
+        branch [{:route-id :route/p
+                 :route-meta {:resources [{:resource :po/mid :params (fn [_] {:slug "m"})}]}}
+                {:route-id :route/p.leaf
+                 :route-meta {:resources [{:resource :po/zulu  :params (fn [_] {:slug "z"})}
+                                          {:resource :po/alpha :params (fn [_] {:slug "a"})}]}}]
+        tags   (route-plan-tags
+                 #(rf.resources.route/route-resource-plan
+                    {:id :route/p.leaf :params {} :query {}} {}
+                    {:nav-token 2 :branch branch :runtime-db {}}))
+        order  [(key-of :po/mid "m") (key-of :po/zulu "z") (key-of :po/alpha "a")]]
     (when rf.interop/debug-enabled?
-      (testing "the vectors carry PLAN order, which is neither declaration-name
-                order nor the canonical byte order the removal vector uses"
-        (is (= [mid-key zulu-key alpha-key] (:identities tags))
-            (str "parent-most first, then the leaf's two in DECLARATION order — "
-                 (pr-str (:identities tags))))
-        (is (= (:identities tags) (:ensured-identities tags))
-            "nothing is adoptable here, so the ensured vector is the whole plan
-             in the same order")
-        (is (not= (sort-by rf.resources.state/key-id (:identities tags)) (:identities tags))
-            "and plan order is DISTINGUISHABLE from key-id order on this
-             branch — otherwise the assertion above could not tell them apart")
-        (is (not= (vec (sort-by (comp name second) (:identities tags))) (:identities tags))
-            "…nor is it alphabetical by resource-id, which the leaf's reversed
-             declaration order rules out")))))
+      (is (= [order order] [(:identities tags) (:ensured-identities tags)])
+          "nothing is adoptable, so the ensured vector is the whole plan, in plan order"))))
 
 (deftest r2-branch-resolve-fails-loud
-  ;; A :parent naming an unregistered route aborts the plan (a committed failed
-  ;; activation): empty next ownership, no partial ensure/adopt, prior owner
-  ;; released.
+  ;; A :parent naming an unregistered route aborts the plan: empty next
+  ;; ownership, no partial ensure/adopt, and the prior owner released.
   (let [plan (rf.resources.route/route-resource-plan
                {:id :route/leaf :params {} :query {}} {}
                {:nav-token 2 :prev-id :route/prev :prev-nav-token 1
                 :prev-identities #{[:rf.scope/global :old/res {}]}
                 :branch-error {:kind :unknown-parent :route-id* :route/ghost}})
-        ds (plan-dispatches plan)]
-    (testing "an unresolved :parent is a planning error"
-      (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
-    (testing "no partial next owner is attached; the prior owner is released"
-      (is (empty? (of-event ds :rf.resource/ensure)))
-      (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
-      (is (= 1 (count (of-event ds :rf.resource/release-owner))))
-      (is (empty? (:identities plan)) "empty next-ownership set"))))
+        ds   (plan-dispatches plan)]
+    (is (= [:rf.error/resource-route-plan 0 0 1 true]
+           [(:rf.error/id (:plan-error plan))
+            (count (of-event ds :rf.resource/ensure))
+            (count (of-event ds :rf.resource.internal/adopt-owner))
+            (count (of-event ds :rf.resource/release-owner))
+            (empty? (:identities plan))]))))
 
 ;; ===========================================================================
-;; 15. EP-0037 R1: the ONE readiness projector
-;;
-;;     Route readiness is a PURE projection over the active plan's blocking
-;;     requirements (Spec 012 §Route readiness is a resource projection). These
-;;     pin the table itself, then the paths that must project through it:
-;;     activation commit, retained-owner adoption, resource settle, SSR
-;;     hydration, and epoch restore.
+;; EP-0037 R1 — the ONE readiness projector (Spec 012 §Route readiness is a
+;; resource projection): the table, then the paths that project through it.
 ;; ===========================================================================
-
-;; ---- the table ------------------------------------------------------------
 
 (deftest requirement-state-reads-spec-016-facts-not-a-settle-signal
-  (testing "an absent entry is pending — its ensure has not been applied yet"
-    (is (= :pending (rf.resources.route/requirement-state nil))))
-  (testing "own usable data is :ready"
-    (is (= :ready (rf.resources.route/requirement-state {:status :loaded :data {:a 1}}))))
-  (testing "a BACKGROUND-refresh failure keeps its data and stays :ready"
-    ;; `entry-failed` returns a :fetching-with-data entry to :loaded and records
-    ;; :refresh-error — it must NOT read as a failed first load, so it never
-    ;; makes the route :error.
-    (is (= :ready (rf.resources.route/requirement-state
-                    {:status        :loaded :data {:a 1}
-                     :refresh-error {:kind :rf.http/server :status 503}}))))
-  (testing "a FIRST-load failure (no usable data, :error) is :failed"
-    (is (= :failed (rf.resources.route/requirement-state
-                     {:status :error :data nil :attempt 1
-                      :error  {:kind :rf.http/server :status 503}}))))
-  (testing "work in flight is :pending"
-    (is (= :pending (rf.resources.route/requirement-state {:status :loading :data nil :attempt 1})))
-    (is (= :pending (rf.resources.route/requirement-state {:status :fetching :data nil :attempt 1}))))
-  (testing "an enqueued but never-attempted entry is :pending (its load is coming)"
-    (is (= :pending (rf.resources.route/requirement-state {:status :idle :data nil :attempt 0}))))
-  (testing "settled with no data and nothing left to settle it is :inert"
-    ;; an ABORTED first load — it neither completes nor fails the route.
-    (is (= :inert (rf.resources.route/requirement-state {:status :idle :data nil :attempt 1}))))
-  (testing "previous-data can never complete a newly-keyed first load"
-    ;; `:previous-key` is a projection POINTER; the new key's own `:data` is
-    ;; still nil, so the requirement is a pending FIRST load.
-    (is (= :pending (rf.resources.route/requirement-state
-                      {:status       :loading :data nil :attempt 1
-                       :previous-key [:rf.scope/global :article/by-slug {:slug "a"}]})))))
-
-;; ---- the projector, as a pure function ------------------------------------
+  (doseq [[label e expected]
+          [["an absent entry: its ensure has not been applied yet" nil :pending]
+           ["own usable data" {:status :loaded :data {:a 1}} :ready]
+           ["a BACKGROUND-refresh failure keeps its data — never a failed first load"
+            {:status :loaded :data {:a 1} :refresh-error {:kind :rf.http/server :status 503}} :ready]
+           ["a FIRST-load failure"
+            {:status :error :data nil :attempt 1 :error {:kind :rf.http/server :status 503}} :failed]
+           ["work in flight" {:status :loading :data nil :attempt 1} :pending]
+           ["enqueued but never attempted: its load is coming" {:status :idle :data nil :attempt 0} :pending]
+           ["settled with no data and nothing left to settle it (an ABORTED first load)"
+            {:status :idle :data nil :attempt 1} :inert]]]
+    (is (= expected (rf.resources.route/requirement-state e)) label)))
 
 (defn- runtime-db-with
-  "Hand-build a runtime-db carrying a route slice at `nav-token` with
-  `transition`, a blocking slot naming every key in `entries-by-key`, and those
-  durable cache entries. The pure-projection fixture."
+  "A route slice at `nav-token` with `transition`, a blocking slot naming every
+  key in `entries-by-key`, and those durable entries — the pure-projection fixture."
   [nav-token transition entries-by-key]
   {:rf.runtime/routing   {:current           {:route-id   :route/article
                                               :nav-token  nav-token
@@ -1368,43 +744,33 @@
 (def ^:private req-a (rf.resources.state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "a"}))
 (def ^:private req-b (rf.resources.state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
 
-(deftest reconcile-readiness-projects-the-spec-012-table
-  (testing "all requirements ready → :idle, and the slot is pruned empty"
-    (let [rdb (rf.resources.route/reconcile-readiness
-                (runtime-db-with "nav-1" :loading {req-a {:status :loaded :data {:x 1}}}))]
-      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (nil? (get-in rdb [:rf.runtime/routing :current :error])))
-      (is (empty? (get-in rdb (rf.resources.route/blocking-path "nav-1")))
-          "a resolved requirement is pruned, so a later invalidation cannot re-block")))
-  (testing "one still pending → :loading"
-    (let [rdb (rf.resources.route/reconcile-readiness
-                (runtime-db-with "nav-1" :idle {req-a {:status :loaded :data {:x 1}}
-                                                req-b {:status :loading :data nil :attempt 1}}))]
-      (is (= :loading (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (= (blocking-map req-b) (get-in rdb (rf.resources.route/blocking-path "nav-1")))
-          "only the outstanding requirement remains")))
-  (testing "a failed blocking first load → :error carrying the structured error"
-    (let [rdb (rf.resources.route/reconcile-readiness
-                (runtime-db-with "nav-1" :loading
-                                 {req-a {:resource/id :article/by-slug
-                                         :status      :error :data nil :attempt 1
-                                         :error       {:kind :rf.http/server :status 503}}}))
-          err (get-in rdb [:rf.runtime/routing :current :error])]
-      (is (= :error (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (= :rf.error/resource-route-blocking (:rf.error/id err)))
-      (is (= :article/by-slug (:resource-id err)))
-      (is (= (blocking-map req-a) (get-in rdb (rf.resources.route/blocking-path "nav-1")))
-          "the failed requirement is NOT pruned — a later successful load re-projects :idle")))
-  (testing "no blocking slot for the live token is a structural no-op"
-    ;; This is what keeps a committed PLANNING error (:error on the slice, no
-    ;; blocking slot written) from being clobbered back to :idle.
-    (let [rdb {:rf.runtime/routing
-               {:current {:nav-token  "nav-1"
-                          :transition :error
-                          :error      {:rf.error/id :rf.error/resource-route-plan}}}}]
-      (is (identical? rdb (rf.resources.route/reconcile-readiness rdb))))))
+(defn- readiness
+  "[transition error-id resource-id blocking-slot] of `rdb` at nav-1."
+  [rdb]
+  (let [cur (get-in rdb [:rf.runtime/routing :current])]
+    [(:transition cur) (:rf.error/id (:error cur)) (:resource-id (:error cur))
+     (into {} (get-in rdb (rf.resources.route/blocking-path "nav-1")))]))
 
-;; ---- the error trace is EDGE-triggered -------------------------------------
+(deftest reconcile-readiness-projects-the-spec-012-table
+  (let [project #(readiness (rf.resources.route/reconcile-readiness (runtime-db-with "nav-1" %1 %2)))]
+    (is (= [:idle nil nil {}] (project :loading {req-a {:status :loaded :data {:x 1}}}))
+        "all ready → :idle, and the resolved requirement is pruned so a later invalidation cannot re-block")
+    (is (= [:loading nil nil (blocking-map req-b)]
+           (project :idle {req-a {:status :loaded :data {:x 1}}
+                           req-b {:status :loading :data nil :attempt 1}}))
+        "one still pending → :loading, and only it remains")
+    (is (= [:error :rf.error/resource-route-blocking :article/by-slug (blocking-map req-a)]
+           (project :loading {req-a {:resource/id :article/by-slug :status :error :data nil :attempt 1
+                                     :error {:kind :rf.http/server :status 503}}}))
+        "a failed blocking first load → :error, NOT pruned so a later success re-projects :idle"))
+  ;; What keeps a committed PLANNING error (no blocking slot written) from being
+  ;; clobbered back to :idle.
+  (let [rdb {:rf.runtime/routing
+             {:current {:nav-token  "nav-1"
+                        :transition :error
+                        :error      {:rf.error/id :rf.error/resource-route-plan}}}}]
+    (is (identical? rdb (rf.resources.route/reconcile-readiness rdb))
+        "no blocking slot for the live token is a structural no-op")))
 
 (def ^:private pending-req
   {:resource/id :article/by-slug :status :loading :data nil :attempt 1})
@@ -1415,200 +781,98 @@
   {:resource/id :article/by-slug :status :error :data nil :attempt 1
    :error       {:kind :rf.http/server :status http-status}})
 
-(defn- blocking-error-traces [traces]
-  (errors-of traces :rf.error/resource-route-blocking))
+(defn- blocking-error-count [traces]
+  (count (errors-of traces :rf.error/resource-route-blocking)))
 
 (deftest reconcile-readiness-emits-the-blocking-error-once-per-edge-into-error
-  ;; `reconcile-readiness` re-picks the deterministic first
-  ;; failure over the CURRENT outstanding set on EVERY settle. When a second
-  ;; blocking requirement fails LATER but sorts canonically EARLIER, that pick
-  ;; legitimately moves — but the route never left `:error`, so there is no new
-  ;; transition to report. The trace is gated on the transition EDGE, not on
-  ;; value-inequality with the slice.
-  (testing "a second failure while ALREADY :error re-picks silently — one trace"
-    (let [[early late] (sort-by rf.resources.state/key-id [req-a req-b])
-          final  (volatile! nil)
-          traces (record-error-traces!
-                   (fn []
-                     ;; settle 1 — the canonically LATER requirement fails first,
-                     ;; taking the route from :loading INTO :error.
-                     (let [rdb1 (rf.resources.route/reconcile-readiness
-                                  (runtime-db-with "nav-1" :loading
-                                                   {early pending-req
-                                                    late  (failed-req 503)}))]
-                       ;; settle 2 — the canonically EARLIER one fails too. It
-                       ;; becomes the deterministic first failure.
-                       (vreset! final
-                                (rf.resources.route/reconcile-readiness
-                                  (assoc-in rdb1 (rf.resources.state/entry-path early)
-                                            (failed-req 500)))))))
-          rdb2   @final]
-      (is (= :error (get-in rdb2 [:rf.runtime/routing :current :transition])))
-      (is (= 500 (get-in rdb2 [:rf.runtime/routing :current :error :error :status]))
-          (str "the slice reports the CURRENT deterministic first failure — "
-               ":error is a pure function of the live outstanding set, NOT a "
-               "latched first observation that could go stale on refetch"))
-      (is (= (blocking-map early late) (get-in rdb2 (rf.resources.route/blocking-path "nav-1")))
-          "neither failed requirement is pruned")
-      (is (= 1 (count (blocking-error-traces traces)))
-          "ONE trace per transition INTO :error, not one per settle")))
-  (testing "a GENUINE re-entry into :error still emits — the edge gate does not over-suppress"
-    ;; The failed identity refetches successfully (route → :idle), then fails
-    ;; again. That is a real second transition into :error and must be reported.
-    (let [traces (record-error-traces!
-                   (fn []
-                     (let [rdb1 (rf.resources.route/reconcile-readiness
-                                  (runtime-db-with "nav-1" :loading
-                                                   {req-a (failed-req 503)}))
-                           ;; the retry lands: :error → :idle (and the now-ready
-                           ;; requirement is pruned from the slot)
-                           rdb2 (rf.resources.route/reconcile-readiness
-                                  (assoc-in rdb1 (rf.resources.state/entry-path req-a)
-                                            {:resource/id :article/by-slug
-                                             :status :loaded :data {:x 1}}))]
-                       (is (= :idle (get-in rdb2 [:rf.runtime/routing :current :transition]))
-                           "a successful load re-projects :idle — no stale error survives")
-                       ;; a fresh activation re-blocks on the same identity, which
-                       ;; fails again
-                       (rf.resources.route/reconcile-readiness
-                         (-> rdb2
-                             (assoc-in (rf.resources.route/blocking-path "nav-1") (blocking-map req-a))
-                             (assoc-in (rf.resources.state/entry-path req-a) (failed-req 500)))))))]
-      (is (= 2 (count (blocking-error-traces traces)))
-          "two distinct transitions INTO :error are two traces"))))
-
-;; ---- 3. previous data does not complete a newly-keyed first load -----------
+  ;; :error is re-picked over the CURRENT outstanding set on every settle, so a
+  ;; second failure that sorts earlier legitimately moves it — but the route never
+  ;; left :error, so the trace is gated on the transition EDGE, not on the value.
+  (let [[early late] (sort-by rf.resources.state/key-id [req-a req-b])
+        final  (volatile! nil)
+        traces (record-error-traces!
+                 (fn []
+                   (let [rdb1 (rf.resources.route/reconcile-readiness
+                                (runtime-db-with "nav-1" :loading {early pending-req late (failed-req 503)}))]
+                     (vreset! final (rf.resources.route/reconcile-readiness
+                                      (assoc-in rdb1 (rf.resources.state/entry-path early) (failed-req 500)))))))]
+    (is (= [:error 500 (blocking-map early late) 1]
+           [(get-in @final [:rf.runtime/routing :current :transition])
+            (get-in @final [:rf.runtime/routing :current :error :error :status])
+            (get-in @final (rf.resources.route/blocking-path "nav-1"))
+            (blocking-error-count traces)])
+        "the slice reports the CURRENT first failure, neither is pruned, and ONE trace fired"))
+  ;; A GENUINE re-entry into :error still emits: the failed identity refetches
+  ;; (→ :idle), then a fresh activation re-blocks on it and it fails again.
+  (let [traces (record-error-traces!
+                 (fn []
+                   (let [rdb1 (rf.resources.route/reconcile-readiness
+                                (runtime-db-with "nav-1" :loading {req-a (failed-req 503)}))
+                         rdb2 (rf.resources.route/reconcile-readiness
+                                (assoc-in rdb1 (rf.resources.state/entry-path req-a)
+                                          {:resource/id :article/by-slug :status :loaded :data {:x 1}}))]
+                     (is (= :idle (get-in rdb2 [:rf.runtime/routing :current :transition]))
+                         "a successful load re-projects :idle — no stale error survives")
+                     (rf.resources.route/reconcile-readiness
+                       (-> rdb2
+                           (assoc-in (rf.resources.route/blocking-path "nav-1") (blocking-map req-a))
+                           (assoc-in (rf.resources.state/entry-path req-a) (failed-req 500)))))))]
+    (is (= 2 (blocking-error-count traces)) "two transitions INTO :error are two traces")))
 
 (deftest keep-previous-projection-does-not-complete-the-new-first-load
+  ;; :keep-previous? projects the previous key's data while the new key
+  ;; first-loads, but never inserts it into the new entry (data or tags), and
+  ;; previous pixels are not a completed load: the route stays :loading.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource       :article/by-slug
-                              :params         (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking?      true
-                              :keep-previous? true}]} "/articles/:slug")
-  (let [key-a (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "a"})
-        key-b (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "b"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "a"}}])
-    (settle-success! key-a {:title "A"})
-    (is (= :idle (:transition (slice))) "precondition: slug a landed")
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "b"}}])
-    (let [b (entry key-b)]
-      (testing "the new key projects the previous key's data but owns none"
-        (is (= key-a (:previous-key b)) "the projection pointer is set")
-        (is (nil? (:data b)) "previous data is NEVER inserted into the new entry"))
-      (testing "the route stays :loading — previous pixels are not a completed load"
-        (is (= :pending (rf.resources.route/requirement-state b)))
-        (is (= :loading (:transition (slice))))
-        (is (contains? (blocking-slot (:nav-token (slice))) key-b))))))
+  (reg-article-route! {:blocking? true :keep-previous? true})
+  (navigate-article! "a")
+  (settle-success! (article-key "a") {:title "A"})
+  (is (= :idle (:transition (slice))) "precondition: slug a landed")
+  (navigate-article! "b")
+  (let [b    (entry (article-key "b"))
+        view @(rf/subscribe [:rf/resource {:resource :article/by-slug
+                                           :scope    :rf.scope/global
+                                           :params   {:slug "b"}}])]
+    (is (= [true (article-key "a") {:title "A"} nil]
+           ((juxt :previous? :previous-key :previous-data :data) view))
+        "the state view projects the prior key's data")
+    (is (= [(article-key "a") nil true :pending]
+           [(:previous-key b) (:data b) (empty? (:tags b)) (rf.resources.route/requirement-state b)])
+        "the new entry holds only the projection pointer")
+    (is (= [:loading true]
+           [(:transition (slice)) (contains? (blocking-slot (:nav-token (slice))) (article-key "b"))]))))
 
-;; ---- 4/5. hydration + epoch restore reconcile a contradicted cache ---------
-
-(deftest restore-recomputes-a-readiness-the-restored-resources-contradict
-  (testing "a snapshot's :loading whose requirement restored WITH data lands :idle"
-    (let [rdb (rf.resources.ssr/reconcile-on-restore
-                (runtime-db-with "nav-1" :loading
-                                 {req-a {:resource/id  :article/by-slug
-                                         :resource/key req-a
-                                         :status       :loaded :data {:x 1} :attempt 1}}))]
-      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
-          "restore must not preserve a :loading the restored resource state contradicts")))
-  (testing "a snapshot captured MID-LOAD does not restore a :loading nothing can settle"
-    ;; The in-flight attempt did not survive the restore (its work row is
-    ;; dangled and the entry settles to last-stable :idle), so a preserved
-    ;; :loading would hang the route forever.
-    (let [rdb (rf.resources.ssr/reconcile-on-restore
-                (runtime-db-with "nav-1" :loading
-                                 {req-a {:resource/id  :article/by-slug
-                                         :resource/key req-a
-                                         :status       :loading :data nil :attempt 1
-                                         :current-work "work-1"}}))]
-      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (empty? (get-in rdb (rf.resources.route/blocking-path "nav-1"))))))
-  (testing "a restored FAILED blocking requirement projects the route :error"
-    (let [rdb (rf.resources.ssr/reconcile-on-restore
-                (runtime-db-with "nav-1" :loading
-                                 {req-a {:resource/id  :article/by-slug
-                                         :resource/key req-a
-                                         :status       :error :data nil :attempt 1
-                                         :error        {:kind :rf.http/server :status 503}}}))]
-      (is (= :error (get-in rdb [:rf.runtime/routing :current :transition])))
-      (is (= :rf.error/resource-route-blocking
-             (:rf.error/id (get-in rdb [:rf.runtime/routing :current :error])))))))
-
-(deftest hydration-recomputes-a-readiness-the-hydrated-resources-contradict
+(deftest restore-and-hydration-recompute-a-readiness-the-cache-contradicts
+  ;; A snapshot's (or payload's) :loading must not survive resource state that
+  ;; contradicts it — and a mid-load capture, whose attempt did not survive the
+  ;; restore, must not leave a :loading nothing can ever settle.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (let [rdb (rf.resources.ssr/hydrate-runtime-db
-              (runtime-db-with "nav-1" :loading
-                               {req-a {:resource/id  :article/by-slug
-                                       :resource/key req-a
-                                       :status       :loaded :data {:x 1} :attempt 1}}))]
-    (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
-        "hydration must not preserve a :loading the hydrated entries contradict")
-    (is (empty? (get-in rdb (rf.resources.route/blocking-path "nav-1"))))))
+  (let [req (fn [m] (merge {:resource/id :article/by-slug :resource/key req-a :attempt 1} m))]
+    (doseq [[label reconcile e expected]
+            [["restore: the requirement came back WITH data"
+              rf.resources.ssr/reconcile-on-restore (req {:status :loaded :data {:x 1}})
+              [:idle nil nil {}]]
+             ["restore: captured MID-LOAD"
+              rf.resources.ssr/reconcile-on-restore (req {:status :loading :data nil :current-work "work-1"})
+              [:idle nil nil {}]]
+             ["restore: a FAILED blocking first load"
+              rf.resources.ssr/reconcile-on-restore (req {:status :error :data nil
+                                                         :error {:kind :rf.http/server :status 503}})
+              [:error :rf.error/resource-route-blocking :article/by-slug (blocking-map req-a)]]
+             ["hydration: the requirement arrived WITH data"
+              rf.resources.ssr/hydrate-runtime-db (req {:status :loaded :data {:x 1}})
+              [:idle nil nil {}]]]]
+      (is (= expected (readiness (reconcile (runtime-db-with "nav-1" :loading {req-a e})))) label))))
 
 ;; ===========================================================================
-;; 16. EP-0037 R2: retained-entry adoption and contributor attribution
-;;
-;;     (a) RETAINED-ENTRY LOSS. Prior-plan MEMBERSHIP alone does not make an
-;;         identity adoptable. `:rf.resource.internal/adopt-owner` issues no fetch, so
-;;         adopting an identity whose entry has vanished (clear / remove / GC /
-;;         a hydration-like mismatch) or cannot progress (settled with no data
-;;         and no live work) commits a blocking slot nothing can ever drain —
-;;         a permanent `:loading`. A retained identity is adopted only when it
-;;         is genuinely REUSABLE (own usable data, or genuinely live work);
-;;         anything else takes the ordinary ensure/readiness path.
-;;
-;;     (b) CONTRIBUTOR ATTRIBUTION. A parent-chain plan resolves every
-;;         contributor's declarations against the LEAF target, so the leaf
-;;         `:route-id` alone cannot say WHICH declaration failed. Spec 016
-;;         §Effective parent-chain resource plans rule 3 requires the error to
-;;         identify both the contributor route id and the resource declaration.
+;; EP-0037 R2 — retained-entry adoption and contributor attribution
 ;; ===========================================================================
-
-;; ---- (a) the adoptability predicate ---------------------------------------
 
 (defn- ledger-with
-  "A `:rf.runtime/work-ledger` map carrying `work-id` at `status`, keyed the way
-  the runtime keys it (the CEDN-1 byte identity, not the work-id itself)."
+  "A `:rf.runtime/work-ledger` carrying `work-id` at `status`, keyed by the
+  CEDN-1 byte identity as the runtime keys it."
   [work-id status]
   {(rf.resources.work-ledger/work-id-id work-id) {:work/id work-id :status status}})
-
-(deftest adoptable-splits-reusable-from-unusable-retained-identities
-  ;; Derived from the ONE projector's `requirement-state` classification — this
-  ;; is not a second readiness table. The only split it adds is INSIDE
-  ;; `:pending`, which deliberately conflates "work is in flight" with "no work
-  ;; yet, the plan is about to ensure it": readiness treats both as "the route
-  ;; waits", adoption must not.
-  (let [live-work {:rf.runtime/work-ledger (ledger-with "w-live" :running)}
-        dead-work {:rf.runtime/work-ledger (ledger-with "w-dead" :cancelled)}
-        doomed    {:rf.runtime/work-ledger (ledger-with "w-doom" :abort-requested)}]
-    (testing "own usable data is reusable — adopt, never revalidate"
-      (is (rf.resources.route/adoptable? {} {:status :loaded :data {:a 1} :attempt 1})))
-    (testing "genuinely live work is reusable — its own settle will drain the slot"
-      (is (rf.resources.route/adoptable? live-work {:status :loading :data nil :attempt 1
-                                       :current-work "w-live"})))
-    (testing "an ABSENT entry is not adoptable — adopt-owner would be a no-op"
-      (is (not (rf.resources.route/adoptable? {} nil))))
-    (testing "an enqueued but never-attempted entry is not adoptable — no work exists"
-      (is (not (rf.resources.route/adoptable? {} {:status :idle :data nil :attempt 0}))))
-    (testing "settled with no data and nothing left to settle it is not adoptable"
-      (is (not (rf.resources.route/adoptable? {} {:status :idle :data nil :attempt 1}))))
-    (testing "a failed first load is not adoptable — there is nothing to reuse"
-      (is (not (rf.resources.route/adoptable? {} {:status :error :data nil :attempt 1
-                                     :error {:kind :rf.http/server}}))))
-    (testing "an in-flight-LOOKING entry whose work is dead is not adoptable"
-      ;; `:current-work` alone is not proof of work — the LINKED RECORD'S status
-      ;; is (the same liveness `ensure`'s dedupe gate reads).
-      (is (not (rf.resources.route/adoptable? dead-work {:status :loading :data nil :attempt 1
-                                            :current-work "w-dead"})))
-      (is (not (rf.resources.route/adoptable? doomed {:status :loading :data nil :attempt 1
-                                         :current-work "w-doom"})))
-      (is (not (rf.resources.route/adoptable? {} {:status :loading :data nil :attempt 1
-                                     :current-work "w-pruned"}))
-          "a pointer with no record at all is dead work too"))))
-
-;; ---- (a) the planner routes unusable retained identities to ensure ---------
 
 (defn- rdb-with-entries
   "A runtime-db carrying only durable cache `entries-by-key` (plus an optional
@@ -1620,83 +884,54 @@
      ledger (assoc :rf.runtime/work-ledger ledger))))
 
 (deftest r2-retained-identity-is-adopted-only-when-genuinely-reusable
+  ;; Prior-plan MEMBERSHIP alone does not make an identity adoptable:
+  ;; adopt-owner issues no fetch, so adopting an entry that vanished or cannot
+  ;; progress commits a blocking slot nothing can drain. A retained identity is
+  ;; adopted only with own usable data or genuinely live work — `:current-work`
+  ;; alone is not proof of work, the linked record's status is.
   (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
   (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
-  (let [parent-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}
-        branch      [{:route-id :route/p   :route-meta parent-meta}
-                     {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
-        shared-key  (rf.resources.state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
-        plan-for    (fn [runtime-db]
-                      (rf.resources.route/route-resource-plan
-                        {:id :route/p.b :params {} :query {}} {}
-                        {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
-                         :prev-identities #{shared-key} :branch branch
-                         :runtime-db runtime-db}))]
-    (testing "a LOADED retained identity is adopted — the partial-revalidation law"
-      (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
-                                                          :data {:n 1} :attempt 1}}))
-            ds   (plan-dispatches plan)]
-        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource.internal/adopt-owner))))
-        (is (= [:lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (not (contains? (:blocking plan) (rf.resources.state/key-id shared-key)))
-            "already has usable data — nothing left to wait for")))
-    (testing "an IN-FLIGHT retained identity is adopted — its own settle drains the slot"
-      (let [plan (plan-for (rdb-with-entries
-                             {shared-key {:resource/id :sh/v :status :loading :data nil
-                                          :attempt 1 :current-work "w-1"}}
-                             (ledger-with "w-1" :running)))
-            ds   (plan-dispatches plan)]
-        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource.internal/adopt-owner))))
-        (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key)) "still outstanding")))
-    (testing "a MISSING retained identity takes the ordinary ensure path"
-      ;; Prior-plan membership alone must not dispatch adopt-owner: it is a
-      ;; NO-OP on an absent entry, so the committed blocking slot would have
-      ;; nothing that could ever drain it.
-      (let [plan (plan-for (rdb-with-entries {}))
-            ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
-        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key))
-            "recorded blocking — and an ensure exists to drain it")))
-    (testing "an UNUSABLE retained identity (settled, no data, no work) is ensured"
-      (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :idle
-                                                          :data nil :attempt 1}}))
-            ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
-        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
-        (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key))
-            "a blocking requirement with no usable data at commit must hold the route")))
-    (testing "a retained identity whose work is DEAD is ensured, not adopted"
-      (let [plan (plan-for (rdb-with-entries
-                             {shared-key {:resource/id :sh/v :status :loading :data nil
-                                          :attempt 1 :current-work "w-doomed"}}
-                             (ledger-with "w-doomed" :abort-requested)))
-            ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
-        (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))))
-    (testing "attach-before-release holds on every route — the release is LAST"
-      (doseq [rdb [(rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
-                                                  :data {:n 1} :attempt 1}})
-                   (rdb-with-entries {})]]
-        (let [ds (plan-dispatches (plan-for rdb))]
-          (is (= :rf.resource/release-owner (first (last ds))))
-          (is (= [:route :route/p.a 1] (:owner (second (last ds))))))))))
-
-;; ---- (a) end-to-end liveness: the route must actually settle ---------------
-
-(defn- abort-current-work!
-  "Abort the entry's live attempt through the canonical failure reply carrying
-  an `:rf.http/aborted` envelope — the cancellation branch of
-  `failed-handler`, which is the only settle path a managed-HTTP abort takes.
-  The first load settles to a non-error `:idle` with `:current-work` cleared
-  — the `idle / no data / no work` retained entry."
-  [scoped-key]
-  (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource/key scoped-key
-                        :work/id      (:current-work e)
-                        :generation   (:generation e)
-                        :error        {:kind :rf.http/aborted :reason :aborted}}])))
+  (let [branch     [{:route-id :route/p
+                     :route-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}}
+                    {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
+        shared-key (rf.resources.state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
+        plan-for   (fn [runtime-db]
+                     (rf.resources.route/route-resource-plan
+                       {:id :route/p.b :params {} :query {}} {}
+                       {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
+                        :prev-identities #{shared-key} :branch branch
+                        :runtime-db runtime-db}))
+        shape      (fn [plan]
+                     (let [ds (plan-dispatches plan)]
+                       [(resources-of ds :rf.resource.internal/adopt-owner)
+                        (resources-of ds :rf.resource/ensure)
+                        (contains? (:blocking plan) (rf.resources.state/key-id shared-key))]))
+        shared     (fn [m] {shared-key (merge {:resource/id :sh/v :data nil :attempt 1} m)})
+        loaded     (rdb-with-entries (shared {:status :loaded :data {:n 1}}))]
+    (testing "a reusable retained identity is adopted"
+      (is (= [[:sh/v] [:lf/b] false] (shape (plan-for loaded)))
+          "LOADED — the partial-revalidation law; nothing left to wait for")
+      (is (= [[:sh/v] [:lf/b] true]
+             (shape (plan-for (rdb-with-entries (shared {:status :loading :current-work "w-1"})
+                                                (ledger-with "w-1" :running)))))
+          "IN-FLIGHT — its own settle drains the slot"))
+    (testing "an unusable retained identity takes the ordinary ensure path, and holds the route"
+      (doseq [[label entries ledger]
+              [["missing (adopt-owner would be a no-op on it)" {} nil]
+               ["settled with no data and no work" (shared {:status :idle}) nil]
+               ["enqueued but never attempted" (shared {:status :idle :attempt 0}) nil]
+               ["a failed first load" (shared {:status :error :error {:kind :rf.http/server}}) nil]
+               ["its work is abort-requested" (shared {:status :loading :current-work "w-doomed"})
+                (ledger-with "w-doomed" :abort-requested)]
+               ["its work is cancelled" (shared {:status :loading :current-work "w-dead"})
+                (ledger-with "w-dead" :cancelled)]
+               ["a work pointer with no record at all" (shared {:status :loading :current-work "w-pruned"}) nil]]]
+        (is (= [[] [:sh/v :lf/b] true] (shape (plan-for (rdb-with-entries entries ledger)))) label)))
+    (testing "attach-before-release on every route — the release is LAST"
+      (doseq [runtime-db [loaded (rdb-with-entries {})]]
+        (let [release (last (plan-dispatches (plan-for runtime-db)))]
+          (is (= [:rf.resource/release-owner [:route :route/p.a 1]]
+                 [(first release) (:owner (second release))])))))))
 
 (defn- reg-shell-branch! []
   (rf/reg-resource :prof/banner (article-spec {}) article-spec-request)
@@ -1714,99 +949,51 @@
                  :resources [{:resource :prof/tab-two :params (fn [_] {:slug "two"})}]}
                 "/prof/two"))
 
+(def ^:private banner-key
+  (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"}))
+
 (deftest r2-sibling-nav-recovers-a-retained-identity-that-vanished
-  ;; LIVENESS. The shared parent banner is removed out from under the plan diff
-  ;; (a public `:rf.resource/remove` — GC / clear-scope / reconciliation have
-  ;; the same shape). The sibling navigation still sees it in the previous
-  ;; plan's identity set. Dispatching a no-op adopt-owner against the absent
-  ;; entry while committing a blocking slot for it would leave the route
-  ;; :loading with no entry, no work and no reply that could ever drain it.
+  ;; LIVENESS through the real navigate path: the shared banner is removed out
+  ;; from under the plan diff, yet stays in the previous plan's identity set.
   (reg-shell-branch!)
-  (let [banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
-        tab1-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+  (settle-success! banner-key {:name "Ada"})
+  (settle-success! (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"}) [{:id 1}])
+  (rf/dispatch-sync [:rf.resource/remove {:resource :prof/banner :params {:slug "b"}}])
+  (is (nil? (entry banner-key)) "precondition: the retained identity is gone")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+  (let [nav-token (:nav-token (slice))]
+    (is (= [:loading true :loading true]
+           [(:status (entry banner-key)) (some? (:current-work (entry banner-key)))
+            (:transition (slice)) (contains? (blocking-slot nav-token) banner-key)])
+        "re-ensured with live work, so the committed blocking slot can drain")
     (settle-success! banner-key {:name "Ada"})
-    (settle-success! tab1-key [{:id 1}])
-    (is (= :idle (:transition (slice))) "precondition: the first activation landed")
-    (rf/dispatch-sync [:rf.resource/remove {:resource :prof/banner :params {:slug "b"}}])
-    (is (nil? (entry banner-key)) "precondition: the retained identity is gone")
-
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
-    (let [nav-token (:nav-token (slice))]
-      (testing "the vanished identity is re-ensured, not adopted into the void"
-        (is (some? (entry banner-key)) "an entry exists again — the ensure path ran")
-        (is (= :loading (:status (entry banner-key))))
-        (is (some? (:current-work (entry banner-key)))
-            "live work exists, so the committed blocking slot can drain"))
-      (testing "the blocking slot settles — no permanent :loading"
-        (is (= :loading (:transition (slice))) "the route legitimately waits")
-        (is (contains? (blocking-slot nav-token) banner-key))
-        (settle-success! banner-key {:name "Ada"})
-        (is (= :idle (:transition (slice))))
-        (is (empty? (blocking-slot nav-token)))
-        (is (rf.resources.state/has-data? (entry banner-key)))))))
-
-(deftest r2-sibling-nav-recovers-a-retained-identity-that-cannot-progress
-  ;; LIVENESS. Same branch, but the retained banner EXISTS and is unusable: its
-  ;; first load was aborted, so it sits `:idle` with no data and no current
-  ;; work. Adopting it attaches an owner to a dead entry and issues no fetch —
-  ;; the blocking requirement is silently never satisfied.
-  (reg-shell-branch!)
-  (let [banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
-        tab1-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
-    (settle-success! tab1-key [{:id 1}])
-    (abort-current-work! banner-key)
-    (let [aborted (entry banner-key)]
-      (is (= :idle (:status aborted)) "precondition: settled with no data")
-      (is (nil? (:current-work aborted)) "precondition: no work left")
-      (is (not (rf.resources.state/has-data? aborted)))
-      (is (= :inert (rf.resources.route/requirement-state aborted))))
-
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
-    (let [nav-token (:nav-token (slice))
-          banner    (entry banner-key)]
-      (testing "the unusable retained identity takes the ordinary ensure path"
-        (is (= :loading (:status banner)) "a fresh load started")
-        (is (some? (:current-work banner)))
-        (is (some (fn [o] (= [:route :route/prof.two nav-token] o)) (:active-owners banner))
-            "the next owner is attached"))
-      (testing "and the ordinary readiness path — it blocks, then settles"
-        (is (contains? (blocking-slot nav-token) banner-key))
-        (is (= :loading (:transition (slice))))
-        (settle-success! banner-key {:name "Ada"})
-        (is (= :idle (:transition (slice))))
-        (is (rf.resources.state/has-data? (entry banner-key)))))))
+    (is (= [:idle #{} true]
+           [(:transition (slice)) (blocking-slot nav-token)
+            (rf.resources.state/has-data? (entry banner-key))])
+        "no permanent :loading")))
 
 (deftest r2-adoption-of-in-flight-work-neither-revalidates-nor-aborts
-  ;; The counterweight to the two liveness tests: a genuinely reusable
-  ;; retained identity is still adopted WITHOUT revalidation, and releasing the
-  ;; prior owner cannot abort work the next plan still needs.
+  ;; The counterweight to the liveness test: a genuinely reusable retained
+  ;; identity is adopted WITHOUT revalidation, and releasing the prior owner
+  ;; cannot abort work the next plan still needs.
   (reg-shell-branch!)
-  (let [banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
-    (let [before (entry banner-key)
-          work   (:current-work before)]
-      (is (= :loading (:status before)) "precondition: the banner is in flight")
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
-      (let [after (entry banner-key)]
-        (testing "the in-flight identity is adopted, not restarted"
-          (is (= (:generation before) (:generation after)) "no new generation")
-          (is (= work (:current-work after)) "the same work record — no refetch"))
-        (testing "releasing the prior owner did not abort the shared work"
-          (is (not (rf.resources.work-ledger/terminal? (:status (rf.resources.work-ledger/get-record
-                                                     (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                                     work))))))
-        (testing "the adopted work's own settle lands the route"
-          (settle-success! banner-key {:name "Ada"})
-          (is (= :idle (:transition (slice))))))
-      (testing "a LOADED retained identity is likewise never revalidated"
-        (let [gen (:generation (entry banner-key))]
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
-          (is (= gen (:generation (entry banner-key))) "generation unchanged")
-          (is (= :idle (:transition (slice)))))))))
-
-;; ---- (b) contributor attribution on an ancestor planning failure -----------
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+  (let [before (entry banner-key)
+        work   (:current-work before)]
+    (is (= :loading (:status before)) "precondition: the banner is in flight")
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
+    (let [after (entry banner-key)]
+      (is (= [(:generation before) work false]
+             [(:generation after) (:current-work after)
+              (rf.resources.work-ledger/terminal? (:status (rf.resources.work-ledger/get-record (rdb) work)))])
+          "the same generation and work record, still live — adopted, not restarted or aborted"))
+    (settle-success! banner-key {:name "Ada"})
+    (is (= :idle (:transition (slice))) "the adopted work's own settle lands the route")
+    (let [gen (:generation (entry banner-key))]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
+      (is (= [gen :idle] [(:generation (entry banner-key)) (:transition (slice))])
+          "a LOADED retained identity is likewise never revalidated"))))
 
 (defn- ancestor-branch
   "A two-segment branch whose ANCESTOR carries `anc-entry` and whose leaf
@@ -1827,84 +1014,56 @@
     [@plan traces]))
 
 (deftest r2-ancestor-planning-failure-names-the-contributing-declaration
+  ;; A parent-chain plan resolves every contributor against the LEAF target, so
+  ;; the leaf :route-id alone cannot say which declaration failed. Spec 016
+  ;; §Effective parent-chain resource plans rule 3: the error names the
+  ;; contributor route and declaration too.
   (rf/reg-resource :audit/ancestor (article-spec {}) article-spec-request)
   (rf/reg-resource :audit/leaf (article-spec {}) article-spec-request)
-  (testing "an ancestor :params resolver returning nil"
-    (let [[plan traces] (ancestor-plan-error
-                          (ancestor-branch {:resource :audit/ancestor :id :anc
-                                            :params (fn [_] nil)}))
-          err (:plan-error plan)]
-      (is (= :rf.error/resource-route-plan (:rf.error/id err)))
-      (testing "the LEAF target and the resource are named"
-        (is (= :route/leaf (:route-id err)))
-        (is (= :audit/ancestor (:resource-id err))))
-      (testing "and so is the CONTRIBUTING route + local declaration"
-        (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))))
-      (testing "the error TRACE carries the same attribution"
-        (let [tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
-          (is (= :route/leaf (:route-id tags)) "the leaf target")
-          (is (= :audit/ancestor (:resource-id tags)))
-          (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags)))))
-      (testing "the plan stays fail-closed — no partial ensures or adoptions"
-        (let [ds (plan-dispatches plan)]
-          (is (empty? (of-event ds :rf.resource/ensure)))
-          (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
-          (is (empty? (:identities plan)))))))
-  (testing "an ancestor :scope that is the retired fn tier"
-    (let [[plan _] (ancestor-plan-error
-                     (ancestor-branch {:resource :audit/ancestor :id :anc
-                                       :params (fn [_] {:slug "a"})
-                                       :scope  (fn [_ _] :rf.scope/global)}))]
-      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))
-      (is (= :fix-scope (:recovery (:plan-error plan))) "the specific recovery survives")))
-  (testing "an ancestor :when predicate that throws"
-    (let [[plan _] (ancestor-plan-error
-                     (ancestor-branch {:resource :audit/ancestor :id :anc
-                                       :params (fn [_] {:slug "a"})
-                                       :when   (fn [_ _] (throw (ex-info "boom" {})))}))]
-      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))))
-  (testing "an ancestor :after naming an id no contributor declares"
-    ;; The local `:after` validation runs over the contributor's WHOLE declared
-    ;; vector before `:when` filters it, so the contributor route is what
-    ;; attribution adds to the leaf-shaped error.
-    (let [[plan _] (ancestor-plan-error
-                     (ancestor-branch {:resource :audit/ancestor :id :anc
-                                       :params (fn [_] {:slug "a"})
-                                       :after  #{:not-a-local-id}}))
-          err (:plan-error plan)]
-      (is (= :route/ancestor (get-in err [:contributor :route-id])))
-      (is (= :fix-after (:recovery err)))))
-  (testing "a LEAF failure is attributed to the leaf — attribution is not ancestor-only"
-    (let [[plan _] (ancestor-plan-error
-                     [{:route-id :route/ancestor
-                       :route-meta {:resources [{:resource :audit/ancestor :id :anc
-                                                 :params (fn [_] {:slug "a"})}]}}
-                      {:route-id :route/leaf
-                       :route-meta {:resources [{:resource :audit/leaf :id :lf
-                                                 :params (fn [_] nil)}]}}])]
-      (is (= {:route-id :route/leaf :local-id :lf} (:contributor (:plan-error plan))))))
-  (testing "a resolver throwing its OWN :contributor cannot publish a FALSE one"
-    ;; `:contributor` is the PLANNER's key. A `:when` / `:params`
-    ;; / `:scope` resolver is arbitrary programmer code and may throw any
-    ;; `ex-info`, including one carrying an unnamespaced `:contributor` of its
-    ;; own. Treating that as authoritative would publish a fabricated attribution
-    ;; on BOTH the route slice and the error trace, defeating the whole point
-    ;; of Spec 016 §Effective parent-chain resource plans rule 3. The planner
-    ;; knows the actual contributor and always wins.
-    (let [[plan traces] (ancestor-plan-error
-                          (ancestor-branch
-                            {:resource :audit/ancestor :id :anc
-                             :params   (fn [_]
-                                         (throw (ex-info "boom"
-                                                  {:contributor {:route-id :wrong
-                                                                 :local-id :wrong}})))}))
-          err  (:plan-error plan)
-          tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
-      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))
-          "the ACTUAL contributing declaration, not the resolver's claim")
-      (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags))
-          "the trace agrees with the slice — one source of truth")
-      (is (= :route/leaf (:route-id err)) "the leaf target is unchanged"))))
+  (let [anc        {:route-id :route/ancestor :local-id :anc}
+        anc-entry  (fn [m] (merge {:resource :audit/ancestor :id :anc :params (fn [_] {:slug "a"})} m))
+        trace-tags (fn [traces] (:tags (first (errors-of traces :rf.error/resource-route-plan))))]
+    (testing "on the slice error AND its trace, fail-closed"
+      (let [[plan traces] (ancestor-plan-error (ancestor-branch (anc-entry {:params (fn [_] nil)})))
+            ds            (plan-dispatches plan)]
+        (is (= [:rf.error/resource-route-plan :route/leaf :audit/ancestor anc]
+               ((juxt :rf.error/id :route-id :resource-id :contributor) (:plan-error plan))))
+        (is (= [:route/leaf :audit/ancestor anc]
+               ((juxt :route-id :resource-id :contributor) (trace-tags traces))))
+        (is (= [[] [] true]
+               [(of-event ds :rf.resource/ensure) (of-event ds :rf.resource.internal/adopt-owner)
+                (empty? (:identities plan))])
+            "no partial ensures or adoptions")))
+    (testing "every failure kind is attributed, keeping its specific recovery"
+      (doseq [[label branch contributor recovery]
+              [["an ancestor :scope in the retired fn tier"
+                (ancestor-branch (anc-entry {:scope (fn [_ _] :rf.scope/global)})) anc :fix-scope]
+               ["an ancestor :when that throws"
+                (ancestor-branch (anc-entry {:when (fn [_ _] (throw (ex-info "boom" {})))})) anc :fix-when]
+               ;; the local :after validation runs before :when filters, so it
+               ;; attributes the contributing ROUTE
+               ["an ancestor :after naming an id no contributor declares"
+                (ancestor-branch (anc-entry {:after #{:not-a-local-id}})) {:route-id :route/ancestor} :fix-after]
+               ["a LEAF failure is attributed to the leaf"
+                [{:route-id :route/ancestor :route-meta {:resources [(anc-entry {})]}}
+                 {:route-id :route/leaf
+                  :route-meta {:resources [{:resource :audit/leaf :id :lf :params (fn [_] nil)}]}}]
+                {:route-id :route/leaf :local-id :lf} :fix-params]]]
+        (let [err (:plan-error (first (ancestor-plan-error branch)))]
+          (is (= [contributor recovery]
+                 [(select-keys (:contributor err) (keys contributor)) (:recovery err)])
+              label))))
+    (testing "a resolver throwing its OWN :contributor cannot publish a false one"
+      ;; :contributor is the PLANNER's key; resolver code may throw any ex-info
+      (let [[plan traces] (ancestor-plan-error
+                            (ancestor-branch
+                              (anc-entry {:params (fn [_]
+                                                    (throw (ex-info "boom"
+                                                             {:contributor {:route-id :wrong
+                                                                            :local-id :wrong}})))})))]
+        (is (= [anc anc :route/leaf]
+               [(:contributor (:plan-error plan)) (:contributor (trace-tags traces))
+                (:route-id (:plan-error plan))]))))))
 
 (deftest r2-warm-prefetch-planning-failure-is-attributed-too
   ;; The warm plan shares `materialize-occurrences`, so the same attribution
@@ -1913,9 +1072,7 @@
   (rf/reg-resource :audit/leaf (article-spec {}) article-spec-request)
   (let [plan (rf.resources.route/route-resource-warm-plan
                {:id :route/leaf :params {} :query {}}
-               {:branch (ancestor-branch {:resource :audit/ancestor :id :anc
-                                          :params (fn [_] nil)})})
-        err  (:plan-error plan)]
-    (is (= :prefetch (:plan-cause err)))
-    (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err)))
-    (is (empty? (:fx plan)) "fail-closed — no partial warm ensures")))
+               {:branch (ancestor-branch {:resource :audit/ancestor :id :anc :params (fn [_] nil)})})]
+    (is (= [:prefetch {:route-id :route/ancestor :local-id :anc} true]
+           [(:plan-cause (:plan-error plan)) (:contributor (:plan-error plan)) (empty? (:fx plan))])
+        "fail-closed — no partial warm ensures")))
