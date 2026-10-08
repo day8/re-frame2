@@ -1,13 +1,12 @@
 (ns re-frame.ep0037-r6-integrated-proof-cljs-test
   "EP-0037 R6 — the INTEGRATED proof.
 
-  Every other EP-0037 suite proves its own row in isolation. R6 asks a different
-  question: does ONE routed application, wired the way the guides teach it,
-  actually get all of it at once? So this namespace carries a small routed
-  exercise app — `conduit`, a Conduit/RealWorld-shaped shell with a branch-wide
-  viewer read, two leaf reads, an intent-prefetching link, an auth-guarded tab
-  and a login route — and then proves the headline capabilities AGAINST THAT ONE
-  APP:
+  Every other EP-0037 suite proves its own row in isolation. R6 asks whether ONE
+  routed application, wired the way the guides teach it, gets all of it at once.
+  So this namespace carries a small routed exercise app — `conduit`, a
+  Conduit/RealWorld-shaped shell with a branch-wide viewer read, two leaf reads,
+  an intent-prefetching link, an auth-guarded tab and a login route — and proves
+  the headline capabilities AGAINST THAT ONE APP:
 
     1. the parent shell reads through the BRANCH plan (declared once on the
        shell, ensured on every leaf activation, never duplicated per leaf);
@@ -15,48 +14,23 @@
     3. intent warmup on a REAL link — the anchor the app's view body renders,
        through the handler that anchor actually carries;
     4. auth denial + fresh return, registered through the PUBLIC `rf/reg-event`
-       door and sealed into a frame built AFTER the app's registrations — the
-       order in which an image selecting both the app's registration and the
-       framework's default would throw `:rf.error/image-duplicate-id`.
-       Proving the denial row through the internal
-       `events/reg-event` back door would certify a door applications cannot
-       use;
+       door and sealed into a frame built AFTER the app's registrations;
     5. SSR — the `403` floor when the app registers no arm, application
        redirect supersession, and hydration REUSE (no client double-fetch);
     6. no render-caused work — the app's shell render reads subs and projects
        hrefs and prefetch payloads, and causes NOTHING.
 
-  Deliberately a small app, not a RealWorld clone: the proof needs exactly
-  enough surface to exercise a parent/leaf branch, a guard, a link and an SSR
-  round trip. Extra pages would add wall-clock, not evidence.
+  It also closes the integration arms that only exist BETWEEN rows: door parity
+  over the effective plan (row 2, `every-door-plans-the-same-branch-and-the-
+  same-reads`), `rf/route-link`'s composed CLJS intent handler and prefetch's
+  absence list (row 7), `:on-match` suppression on a planning failure (row 6),
+  and one integrated teardown (row 10).
 
-  Beyond the six, the file closes integration arms no per-row suite reaches,
-  because they only exist BETWEEN rows:
-
-    * DOOR PARITY over the effective plan (row 2). The per-row suites prove
-      cause-parametric targets for a resource-FREE route, and branch
-      composition through one door. That five doors produce the same branch
-      AND the same resource identity set is proven by `every-door-plans-the-
-      same-branch-and-the-same-reads`.
-    * `rf/route-link`'s CLJS intent arm (row 7): its composed
-      `:on-mouse-enter` handler.
-    * prefetch's ABSENCE list (row 7): no guard, no `:on-match`, no scroll/URL
-      fx, no sibling frame.
-    * `:on-match` suppression on a planning failure (row 6).
-    * one integrated teardown (row 10): a frame holding a branch plan, route
-      owners, warm prefetch work and a pending leave releases all of it.
-
-  Named `*-cljs-test.cljc` so BOTH lanes run it: the JVM runner (`.*-test$`,
-  `clojure -M:test` from `implementation/resources`) and the shadow-cljs
-  `:node-test` build (`cljs-test$`, `npm run test:cljs`). It lives in the
-  resources artefact's test tree because that is the only `:test` alias
-  carrying routing + resources + ssr + http together — the exact classpath an
-  integrated routed app needs.
-
-  The managed-HTTP fx is stubbed to a capturing no-op so ensure's entry write
-  and the reply-driven blocking drain are deterministic without a live fetch;
-  the host nav fxs are captured so the URL/scroll side is observable without a
-  browser."
+  Named `*-cljs-test.cljc` so BOTH lanes run it. It lives in the resources
+  artefact's test tree because that is the only `:test` alias carrying routing
+  + resources + ssr + http together. The managed-HTTP fx is stubbed to a
+  capturing no-op and the host nav fxs are captured, so the URL/scroll side is
+  observable without a browser."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -84,10 +58,9 @@
 ;; ===========================================================================
 
 (defn- init!
-  "Per-test setup (runs after adapter install, registrar live): reset the
-  routing counters and re-publish the late-bound routing integration. The
-  exercise app's own frames are built by `boot-app!` in each test body, AFTER
-  its registrations — see the ns docstring."
+  "Per-test setup: reset the routing counters and re-publish the late-bound
+  routing integration. The app's own frames are built by `boot-app!` in each
+  test body, AFTER its registrations."
   []
   (rf.routing/reset-counters!)
   (rf.resources.route/install-routing-integration!))
@@ -104,10 +77,11 @@
 ;;   /feed          :conduit/feed      parent shell; page-1 feed read (blocking)
 ;;   /article/:slug :conduit/article   parent shell; article read (blocking)
 ;;   /settings      :conduit/settings  parent shell; guarded by :conduit/signed-in?
+;;   /profile/:handle :conduit/profile parent shell; `:query-defaults` {:tab :authored}
 ;;   /login         :conduit/login     the auth landing route
 ;;
-;; The shell declares the viewer ONCE. No leaf re-declares it: `:parent` IS the
-;; opt-in to the parent's branch-wide requirements (EP-0037 governing law 5).
+;; The shell declares the viewer ONCE: `:parent` IS the opt-in to the parent's
+;; branch-wide requirements (EP-0037 governing law 5).
 ;; ===========================================================================
 
 (def ^:private app-frame-id :conduit/app)
@@ -118,9 +92,8 @@
 (def ^:private page-views (atom []))
 
 (defn- register-resources! []
-  ;; `:params-schema` is required on every resource — it validates and
-  ;; canonicalizes the params that ARE the resource identity (Spec 016
-  ;; §Resource registration spec). A param-free read declares `[:map]`.
+  ;; `:params-schema` is required on every resource — the params ARE the
+  ;; resource identity. A param-free read declares `[:map]`.
   (rf/reg-resource :conduit/viewer
                    {:scope :rf.scope/global :params-schema [:map]}
                    (fn [_params _ctx] {:request {:method :get :url "/api/user"}}))
@@ -135,13 +108,9 @@
   (rf/reg-resource :conduit/settings
                    {:scope :rf.scope/global :params-schema [:map]}
                    (fn [_params _ctx] {:request {:method :get :url "/api/user/settings"}}))
-  ;; The profile read's identity includes a ROUTE QUERY key that the route
-  ;; declares a `:query-defaults` value for. `:tab` is
-  ;; `[:maybe :keyword]` DELIBERATELY: an unfilled default arrives as `nil`, and
-  ;; admitting it is what lets the door-parity and prefetch-reuse arms below
-  ;; OBSERVE the split as two resource identities instead of hiding it behind a
-  ;; planning failure. A route whose defaults reach every door never produces the
-  ;; nil.
+  ;; The profile read's identity includes a ROUTE QUERY key with a declared
+  ;; default. `:tab` admits nil DELIBERATELY: an unfilled default then shows up
+  ;; as a second resource identity instead of hiding behind a planning failure.
   (rf/reg-resource :conduit/profile
                    {:scope         :rf.scope/global
                     :params-schema [:map [:handle :string] [:tab [:maybe :keyword]]]}
@@ -150,9 +119,8 @@
                                 :url    (str "/api/profiles/" handle "?tab=" tab)}})))
 
 (defn- register-routes! []
-  ;; The shell is an ordinary route that also happens to be a `:parent`. It
-  ;; acquires no outlet, component, or view lifecycle (governing law 5) — only
-  ;; its `:resources` compose into its descendants' plans.
+  ;; The shell is an ordinary route that also happens to be a `:parent`: only
+  ;; its `:resources` compose into its descendants' plans (governing law 5).
   (rf/reg-route :conduit/shell
                 {:resources [{:id :viewer :resource :conduit/viewer :blocking? true}]}
                 "/")
@@ -166,9 +134,8 @@
   (rf/reg-route :conduit/article
                 {:parent    :conduit/shell
                  :params    [:map [:slug :string]]
-                 ;; ordinary activation work — analytics. Fire-and-forget: it
-                 ;; never moves route readiness, and it runs only after the
-                 ;; effective plan formed.
+                 ;; fire-and-forget activation work (analytics): it never moves
+                 ;; readiness, and runs only after the effective plan formed
                  :on-match  [[:conduit/page-viewed]]
                  :resources [{:id        :article
                               :resource  :conduit/article
@@ -180,11 +147,9 @@
                  :can-enter [:conduit/signed-in?]
                  :resources [{:id :settings :resource :conduit/settings :blocking? true}]}
                 "/settings")
-  ;; The `:query-defaults` leaf. Nothing exotic — the exact shape
-  ;; `examples/real-apps/realworld_http/routing.cljs` ships four times over: a
-  ;; declared query key with a default, read by a resource's `:params` fn so the
-  ;; default is part of the READ's identity. Every door below must resolve the
-  ;; SAME `:tab`.
+  ;; The `:query-defaults` leaf — the shape `examples/real-apps/realworld_http/
+  ;; routing.cljs` ships: a declared query key with a default, read by a
+  ;; resource's `:params` fn so the default is part of the READ's identity.
   (rf/reg-route :conduit/profile
                 {:parent         :conduit/shell
                  :params         [:map [:handle :string]]
@@ -201,8 +166,7 @@
   (rf/reg-route :conduit/login {} "/login"))
 
 (defn- register-subs-and-events! []
-  ;; The guard is an ordinary route-owned subscription over the resolved
-  ;; target. It returns a BOOLEAN — entry is terminal.
+  ;; The guard is an ordinary route-owned subscription returning a BOOLEAN.
   (rf/reg-sub :conduit/signed-in?
               (fn [db _] (boolean (get-in db [:conduit/session :signed-in?]))))
   (rf/reg-event :conduit/sign-in
@@ -214,30 +178,17 @@
   "Register the application's `:rf.route/entry-denied` arm through the PUBLIC
   `rf/reg-event` — the spelling every guide, example and skill teaches.
 
-    :none    register nothing. The framework's shipped no-op default handles
-             the denial: a hard client deny, and on a server frame the `403`
-             floor stands.
-    :client  the fresh-return recipe — stash the denied
-             `RouteDestination`, replace-navigate to login, and after sign-in
-             dispatch a FRESH navigate with the stored destination.
-    :server  the server entry point's arm — emit Spec 011's canonical
-             `:rf.server/redirect`, whose redirect precedence supersedes the
-             default `403`.
+    :none    register nothing: the framework's shipped no-op default handles the
+             denial — a hard client deny, and the `403` floor on a server frame.
+    :client  the fresh-return recipe — stash the denied `RouteDestination`,
+             replace-navigate to login, and after sign-in navigate FRESH to it.
+    :server  emit Spec 011's canonical `:rf.server/redirect`, whose redirect
+             precedence supersedes the default `403`.
 
-  A real app's client and server entry points register the arm appropriate to
-  their host; splitting it here is that same split, not a test convenience.
-
-  BEHAVIOUR ONLY — no metadata map, which is the whole recipe. The denial
-  payload's URL carriers (`:requested-url` / `:destination` / `:target`) embed
-  query values and path params, and their `:sensitive` classification is a fact
-  about the FRAMEWORK's payload shape rather than something the application is
-  asked to restate, so it rides across a behaviour override and an app that
-  declares its own paths gets the union (Spec 012 §Replaceable framework
-  defaults). Redaction at actual egress under exactly this bare
-  spelling is proven upstream by
-  `re-frame.routing-egress-test/public-entry-denied-override-still-redacts-carriers-on-egress`,
-  so this app cites that contract instead of re-asserting it — and models the
-  recipe with no boilerplate, because an exercise app is copied."
+  BEHAVIOUR ONLY, with no metadata map: the denial payload's URL carriers keep
+  their framework `:sensitive` classification across a behaviour override,
+  which `re-frame.routing-egress-test/public-entry-denied-override-still-
+  redacts-carriers-on-egress` proves at actual egress."
   [arm]
   (case arm
     :none nil
@@ -275,24 +226,17 @@
    (stub-host-fx!)))
 
 (defn- seal-frame!
-  "Build one of the app's frames and return its id. Called AFTER
-  `register-app!` — and that ORDER is the point. An application's namespaces
-  load and register, and THEN its frames are built. Sealing last exercises
-  image assembly: were the default image to select BOTH the app's provenanced
-  registration and the framework's own no-provenance default, an app that
-  registered `:rf.route/entry-denied` through the public door would make the
-  very next `rf/make-frame` throw `:rf.error/image-duplicate-id`."
+  "Build one of the app's frames and return its id, AFTER `register-app!` — the
+  order an application loads in. Were the default image to select both the
+  app's provenanced `:rf.route/entry-denied` and the framework's no-provenance
+  default, this `rf/make-frame` would throw `:rf.error/image-duplicate-id`."
   ([] (seal-frame! {}))
   ([{:keys [frame-id platform url-bound?]}]
    (let [id (or frame-id app-frame-id)]
-     ;; NOT url-bound by default, deliberately. A url-bound frame is wired to
-     ;; the HOST address bar: on a host that has one (the CLJS lane) claiming
-     ;; ownership syncs the frame to the current location, and destroying the
-     ;; owner transfers ownership and re-syncs the successor. Both are correct,
-     ;; and both are proven where they belong (`routing_url_bound_test`,
-     ;; `routing_history_cljs_test`). Letting them fire here would make this
-     ;; proof's activations host-dependent and prove nothing about planning.
-     ;; The exercise app drives its URL-driven doors explicitly instead.
+     ;; NOT url-bound by default: a url-bound frame syncs to the HOST address
+     ;; bar on a host that has one (the CLJS lane), which would make this
+     ;; proof's activations host-dependent. The URL-driven doors are driven
+     ;; explicitly instead.
      (rf/make-frame (cond-> {:id id :doc "conduit — the EP-0037 R6 exercise app"}
                       platform   (assoc :platform platform)
                       url-bound? (assoc :url-bound? true)))
@@ -308,10 +252,10 @@
 ;; ---- the app's view bodies (the render substrate) --------------------------
 
 (defn- article-link-props
-  "The exercise app's article link, exactly as its view body authors it: an
-  address, plus one link-behaviour key, plus ordinary DOM attributes on the
-  same flat map. `caller-intent` is an application-supplied `:on-mouse-enter`
-  — the framework's intent handler must COMPOSE with it, not replace it."
+  "The app's article link as its view body authors it: an address, one
+  link-behaviour key and ordinary DOM attributes on one flat map.
+  `caller-intent` is an application `:on-mouse-enter` the framework's intent
+  handler must COMPOSE with, not replace."
   ([slug] (article-link-props slug nil))
   ([slug caller-intent]
    (cond-> {:to         :conduit/article
@@ -322,14 +266,9 @@
      caller-intent (assoc :on-mouse-enter caller-intent))))
 
 (defn- render-shell
-  "What the exercise app's shell view body DOES at render time, and nothing
-  more: read the route projection through subscriptions, and project one nav
-  link's anchor. Returns the projection so a test can assert on it.
-
-  On the JVM this is the SSR render fn (`route-link-render-ssr`, the registered
-  `:route/link` JVM handler); on CLJS it is the client render fn
-  (`route-link-render`, what `rf/route-link` is registered as). Both are pure
-  projections of the address — computing an href is not travelling to it."
+  "What the shell view body does at render time, and nothing more: read the
+  route projection through subscriptions and project one nav link's anchor —
+  `route-link-render-ssr` on the JVM, `route-link-render` on CLJS."
   [frame-id slug]
   (rf/with-frame frame-id
     {:route  @(rf/subscribe [:rf/route])
@@ -361,15 +300,13 @@
   (filterv (fn [o] (and (vector? o) (= :route (first o)))) (:active-owners e)))
 
 (defn- identity-set
-  "The set of scoped resource identities this frame's entries hold — the
-  observable projection of the effective plan."
+  "The scoped resource identities this frame's entries hold — the observable
+  projection of the effective plan."
   [frame-id]
   (into #{} (map (fn [[_ e]] (:resource/key e))) (entries frame-id)))
 
 (defn- profile-identities
-  "Every `:conduit/profile` resource identity this frame holds an entry for. The
-  COUNT is the observable fact: a hover and a click on one link must
-  land on ONE identity, not two."
+  "Every `:conduit/profile` identity this frame holds an entry for."
   [frame-id]
   (vec (sort-by str (filter #(= :conduit/profile (second %)) (identity-set frame-id)))))
 
@@ -382,17 +319,16 @@
                         :data         data}]
                       {:frame frame-id})))
 
+(defn- reset-host-effects! []
+  (reset! pushed []) (reset! replaced []) (reset! scrolled []) (reset! page-views []))
+
 (def ^:private listener-seq (atom 0))
 
 (defn- capture-traces
   "Run `f` with a trace listener installed; return the collected trace events.
-
-  The 2-arity also hands each event to `on-event` AS IT ARRIVES (trace delivery
-  is synchronous — Spec 009 §Emitting trace events). A vector read once `f` has
-  returned can be counted, but it cannot be interleaved with milestones `f`'s own
-  code reaches, and interleaving is the whole of an ORDERING claim: it is what
-  distinguishes a dispatch that FOLLOWED a caller's handler from one that
-  preceded it."
+  The 2-arity also hands each event to `on-event` AS IT ARRIVES (delivery is
+  synchronous), which is what lets an ORDERING claim interleave trace events
+  with milestones `f`'s own code reaches."
   ([f] (capture-traces f nil))
   ([f on-event]
    (let [seen (atom [])
@@ -410,9 +346,7 @@
 
 ;; ===========================================================================
 ;; 1 + 2. The parent shell reads through the BRANCH plan; the leaf reads too
-;;
-;;     EP conformance row 4 (branch composition) and row 5 (partial
-;;     activation), exercised through the app rather than the planner.
+;;        (EP conformance rows 4 and 5, through the app rather than the planner)
 ;; ===========================================================================
 
 (deftest shell-and-leaf-read-through-one-branch-plan
@@ -420,67 +354,43 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug "routing-as-data"}}]
                       {:frame app})
     (let [akey  (article-key "routing-as-data")
-          token (:nav-token (slice app))]
-      (testing "the shell's branch-wide viewer read is planned from the LEAF activation"
-        (is (some? (entry app viewer-key))
-            "the parent contributed :conduit/viewer without the leaf re-declaring it"))
-      (testing "the leaf's own read is planned too"
-        (is (some? (entry app akey))))
-      (testing "no duplicated entries — one entry per identity, and only the two
-                the branch actually declares"
-        (is (= #{viewer-key akey} (identity-set app))
-            "exactly viewer + article; the shell read is not duplicated per leaf")
-        (is (= 1 (count (route-owners (entry app viewer-key))))
-            "one route owner on the shared shell read, not one per contributor"))
-      (testing "both reads are owned by THIS activation's plan"
-        (is (= [[:route :conduit/article token]] (route-owners (entry app viewer-key))))
-        (is (= [[:route :conduit/article token]] (route-owners (entry app akey)))))
-      (testing "the route is :loading while the blocking branch first-loads, and
-                :idle once every blocking requirement has data"
-        (is (= :loading (:transition (slice app))))
-        (settle! app viewer-key {:username "ada"})
-        (settle! app akey {:title "Routing as data"})
-        (is (= :idle (:transition (slice app))))
-        (is (nil? (:error (slice app)))))
-      (testing "activation work ran, exactly once, and never touched readiness"
-        (is (= 1 (count @page-views)))))))
+          owner [[:route :conduit/article (:nav-token (slice app))]]]
+      (is (= [#{viewer-key akey} owner owner]
+             [(identity-set app) (route-owners (entry app viewer-key)) (route-owners (entry app akey))])
+          "the parent contributed the viewer without the leaf re-declaring it: one entry per
+           identity, each owned once by THIS activation's plan")
+      (is (= :loading (:transition (slice app))) "the route waits on the blocking branch")
+      (settle! app viewer-key {:username "ada"})
+      (settle! app akey {:title "Routing as data"})
+      (is (= [:idle nil 1] [(:transition (slice app)) (:error (slice app)) (count @page-views)])
+          ":idle once every blocking requirement has data; activation work ran exactly once"))))
 
 (deftest sibling-leaf-navigation-keeps-the-shell-read
-  (testing "moving between leaves of the same shell does not turn the parent
-            requirement into a new page load (the partial-revalidation law)"
-    (let [app (boot-app!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug "a"}}]
-                        {:frame app})
-      (settle! app viewer-key {:username "ada"})
-      (settle! app (article-key "a") {:title "A"})
-      (let [gen-before (:generation (entry app viewer-key))]
-        (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
-        (is (= gen-before (:generation (entry app viewer-key)))
-            "the shell read was KEPT — same generation, no revalidation")
-        (is (rf.resources.state/has-data? (entry app viewer-key))
-            "…and keeps its data across the sibling move")
-        (is (some? (entry app feed-key))
-            "the newly added leaf identity was ensured")
-        (is (empty? (route-owners (entry app (article-key "a"))))
-            "the removed leaf's route owner was released")
-        (is (= 1 (count (route-owners (entry app viewer-key))))
-            "the kept shell read carries exactly one live route owner — the new
-             plan's; attach-before-release left no duplicate and no gap")))))
+  ;; Moving between leaves of one shell does not turn the parent requirement
+  ;; into a new page load (the partial-revalidation law).
+  (let [app (boot-app!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug "a"}}] {:frame app})
+    (settle! app viewer-key {:username "ada"})
+    (settle! app (article-key "a") {:title "A"})
+    (let [gen-before (:generation (entry app viewer-key))]
+      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
+      (is (= [gen-before true true [] 1]
+             [(:generation (entry app viewer-key))
+              (rf.resources.state/has-data? (entry app viewer-key))
+              (some? (entry app feed-key))
+              (route-owners (entry app (article-key "a")))
+              (count (route-owners (entry app viewer-key)))])
+          "the shell read is KEPT with its data, the added leaf is ensured, the removed leaf's
+           owner is released, and attach-before-release left exactly one owner on the shell"))))
 
 ;; ===========================================================================
 ;; Door parity over the EFFECTIVE plan (row 2)
-;;
-;;     The per-row suites prove cause-parametric targets for a resource-free
-;;     route (routing_plan_seam_test) and branch composition through ONE door
-;;     (resources_route_cljs_test). Neither proves that FIVE doors agree on the
-;;     branch AND on the resource identity set — the integration claim.
 ;; ===========================================================================
 
 (defn- plan-footprint
-  "The observable plan footprint of a frame that has just activated: the
-  committed target facts, the URL those facts derive to, the parent-to-leaf
-  chain, and the effective resource identity set. History and scroll EFFECTS
-  are deliberately absent — row 2 allows exactly those to differ by cause."
+  "The committed target facts, the URL they derive to, the parent-to-leaf chain
+  and the effective resource identity set. History and scroll EFFECTS are
+  absent — row 2 allows exactly those to differ by cause."
   [f]
   (let [s (slice f)]
     {:target     (select-keys s [:route-id :params :query :fragment])
@@ -490,9 +400,8 @@
      :identities (identity-set f)}))
 
 (defn- door-footprint
-  "Activate one destination through one door on its own freshly sealed frame, and
-  return that frame's plan footprint. `addr` is the NAMED address; `url` is the
-  same destination spelled as a URL."
+  "Activate one destination through one door on its own freshly sealed frame.
+  `addr` is the NAMED address; `url` is the same destination as a URL."
   [frame-id door {:keys [addr url]}]
   (let [f (seal-frame! {:frame-id frame-id})]
     (case door
@@ -503,9 +412,8 @@
     (plan-footprint f)))
 
 (defn- door-footprints
-  "The five doors' footprints for one destination, each on its own fresh frame —
-  the four client doors plus the SSR server door. `label` namespaces the frame
-  ids so two destinations can be checked in one test."
+  "The four client doors' footprints plus the SSR server door's, each on its own
+  fresh frame, namespaced by `label`."
   [label destination]
   (let [client (into {} (map (fn [door]
                                [door (door-footprint
@@ -520,76 +428,39 @@
     (assoc client :ssr server)))
 
 (deftest every-door-plans-the-same-branch-and-the-same-reads
+  ;; Five doors agree on the target, its URL, the branch and the effective
+  ;; reads. The `:query-defaults` route is the hard case: `match-url` fills the
+  ;; default for the URL-bearing doors and the named-address door goes nowhere
+  ;; near it, so the ONE ResolvedTarget seam must fill it there — else one
+  ;; destination commits a different slice, history entry and cache identity
+  ;; by door. The target carries the default; the canonical URL never spells it.
   (register-app!)
-  (let [slug     "door-parity"
-        akey     (article-key slug)
-        expected {:target     {:route-id :conduit/article
-                               :params   {:slug slug}
-                               :query    {}
-                               :fragment nil}
-                  :url        (str "/article/" slug)
-                  :chain      [:conduit/shell :conduit/article]
-                  :identities #{viewer-key akey}}]
-    (doseq [[door footprint] (door-footprints
-                               "article"
-                               {:addr {:to :conduit/article :params {:slug slug}}
-                                :url  (str "/article/" slug)})]
-      (testing (str "the " (name door) " door resolves the same target, the same "
-                    "parent-to-leaf branch, and the same effective reads")
-        (is (= expected footprint) (str "door " door " diverged"))))))
-
-(deftest every-door-plans-the-same-reads-for-a-query-defaults-route
-  (testing "door parity holds for a route declaring `:query-defaults` and
-            `:resources`. `match-url` fills the default for the three
-            URL-bearing doors; the NAMED-address door goes nowhere near
-            `match-url`, so the ONE ResolvedTarget seam fills it there. Without
-            that fill the same destination would commit `:query {}` here and
-            `{:tab :authored}` there — a different slice, a different derived
-            URL (a different history entry) and a different resource cache
-            identity depending on which door the user came through."
-    (register-app!)
-    (let [handle   "ada"
-          pkey     (profile-key handle :authored)
-          expected {:target     {:route-id :conduit/profile
-                                 :params   {:handle handle}
-                                 ;; the DECLARED DEFAULT, resolved — not `{}`,
-                                 ;; and not `{:tab nil}`
-                                 :query    {:tab :authored}
-                                 :fragment nil}
-                    ;; …and the URL stays free of the defaulted key: the target
-                    ;; carries the default, the URL never spells it, so one
-                    ;; destination has exactly ONE canonical URL.
-                    :url        (str "/profile/" handle)
-                    :chain      [:conduit/shell :conduit/profile]
-                    :identities #{viewer-key pkey}}]
-      (doseq [[door footprint] (door-footprints
-                                 "profile"
-                                 {:addr {:to :conduit/profile :params {:handle handle}}
-                                  :url  (str "/profile/" handle)})]
-        (testing (str "the " (name door) " door resolves the same target, URL, "
-                      "branch and effective reads")
-          (is (= expected footprint) (str "door " door " diverged")))))))
+  (doseq [[label destination expected]
+          [["article"
+            {:addr {:to :conduit/article :params {:slug "door-parity"}} :url "/article/door-parity"}
+            {:target     {:route-id :conduit/article :params {:slug "door-parity"} :query {} :fragment nil}
+             :url        "/article/door-parity"
+             :chain      [:conduit/shell :conduit/article]
+             :identities #{viewer-key (article-key "door-parity")}}]
+           ["profile"
+            {:addr {:to :conduit/profile :params {:handle "ada"}} :url "/profile/ada"}
+            {:target     {:route-id :conduit/profile :params {:handle "ada"} :query {:tab :authored} :fragment nil}
+             :url        "/profile/ada"
+             :chain      [:conduit/shell :conduit/profile]
+             :identities #{viewer-key (profile-key "ada" :authored)}}]]]
+    (doseq [[door footprint] (door-footprints label destination)]
+      (is (= expected footprint) (str label ": door " door " diverged")))))
 
 (deftest a-url-that-spells-the-default-resolves-the-same-target
-  (testing "`/profile/ada` and `/profile/ada?tab=authored` are the
-            same destination, so they resolve the same target and the same read.
-            The default-spelling URL is simply the non-canonical spelling: its
-            target derives the canonical URL back."
-    (register-app!)
-    (let [bare    (door-footprint :conduit/dflt-bare :url
-                                  {:url "/profile/ada"})
-          spelled (door-footprint :conduit/dflt-spelled :url
-                                  {:url "/profile/ada?tab=authored"})]
-      (is (= bare spelled))
-      (is (= "/profile/ada" (:url spelled))
-          "the canonical URL for the target omits the key already at its default"))))
+  ;; `/profile/ada?tab=authored` is the non-canonical spelling of `/profile/ada`:
+  ;; the same target and read, deriving the canonical URL back.
+  (register-app!)
+  (let [bare    (door-footprint :conduit/dflt-bare :url {:url "/profile/ada"})
+        spelled (door-footprint :conduit/dflt-spelled :url {:url "/profile/ada?tab=authored"})]
+    (is (= [bare "/profile/ada"] [spelled (:url spelled)]))))
 
 ;; ===========================================================================
-;; 3. Intent warmup on a REAL link
-;;
-;;     EP conformance row 7 (prefetch isolation) + row 3's intent arm, driven
-;;     through the anchor the app's view body actually renders. On CLJS this
-;;     covers `rf/route-link`'s composed intent handler.
+;; 3. Intent warmup on a REAL link (EP conformance row 7 + row 3's intent arm)
 ;; ===========================================================================
 
 (deftest a-real-link-warms-the-whole-branch-on-intent
@@ -599,19 +470,15 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
     (settle! app viewer-key {:username "ada"})
     (settle! app feed-key [{:slug slug}])
-    (reset! pushed []) (reset! replaced []) (reset! scrolled []) (reset! page-views [])
-    (let [before-token (:nav-token (slice app))
-          before-slice (slice app)
+    (reset-host-effects!)
+    (let [before-slice (slice app)
           viewer-gen   (:generation (entry app viewer-key))
           props        (article-link-props slug)
-          anchor       (:anchor (render-shell app slug))
-          attrs        (second anchor)]
-      (testing "the rendered anchor is an href projection; :prefetch is a link
-                behaviour key and never reaches the DOM"
-        (is (= "/article/warm-me" (:href attrs)))
-        (is (not (contains? attrs :prefetch)))
-        (is (= "preview-link" (:class attrs)) "ordinary DOM props pass through"))
-
+          attrs        (second (:anchor (render-shell app slug)))]
+      (is (= ["/article/warm-me" false "preview-link"]
+             [(:href attrs) (contains? attrs :prefetch) (:class attrs)])
+          "the anchor is an href projection; :prefetch is a link behaviour key that never
+           reaches the DOM, while ordinary DOM props pass through")
       (is (= [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
              (rf.routing.link/prefetch-payload props))
           "the link's intent payload is the address ONLY — no policy, no fragment")
@@ -619,105 +486,57 @@
                    "the real anchor carries the composed intent handler; that
                     handler's own behaviour is pinned by
                     `the-real-anchor-intent-handler-composes-and-dispatches`"))
-
-      ;; Drive warmup through the payload the anchor's handler dispatches. The
-      ;; handler itself enqueues ASYNCHRONOUSLY (it is a DOM event handler), so
-      ;; the behavioural arm dispatches that exact payload synchronously — same
-      ;; event, same frame, observable in one turn on both hosts.
+      ;; The anchor's handler enqueues ASYNCHRONOUSLY (a DOM event handler), so
+      ;; the exact payload it dispatches is dispatched synchronously here.
       (let [traces (capture-traces
                      #(rf/dispatch-sync (rf.routing.link/prefetch-payload props) {:frame app}))]
-        (testing "warm mode ran the FULL effective branch plan, ownerlessly"
-          (is (some? (entry app viewer-key)) "the shell requirement is in the warm plan")
-          (is (some? (entry app akey))       "…and so is the leaf requirement")
-          (is (empty? (route-owners (entry app akey)))
-              "the warmed leaf identity has NO route owner — it stays GC-eligible"))
-        (testing "prefetch is not activation: no route state, token, guard,
-                  activation work, URL or scroll effect"
-          (is (= before-slice (slice app)) "the route slice is byte-identical")
-          (is (= before-token (:nav-token (slice app))) "no nav-token was allocated")
-          (is (nil? (pending app)) "no pending navigation")
-          (is (empty? @pushed) "no history push")
-          (is (empty? @replaced) "no history replace")
-          (is (empty? @scrolled) "no scroll effect")
-          (is (empty? @page-views) "the destination's :on-match did NOT run")
-          (is (not-any? #(#{:rf.route/navigate :rf.route/entry-denied
-                            :rf.route/navigation-blocked}
-                          (-> % :tags :rf.trace/event-id))
-                        traces)
-              "no navigation or guard event ran during warmup"))
-        (testing "the already-fresh shell requirement was not refetched"
-          (is (= viewer-gen (:generation (entry app viewer-key))))))
-
-      (testing "activation REUSES the warm work and attaches the real owner"
-        (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug slug}}]
-                          {:frame app})
-        (let [token (:nav-token (slice app))
-              e     (entry app akey)]
-          (is (= [[:route :conduit/article token]] (route-owners e))
-              "the activation attached its owner to the warmed identity")
-          (is (= 1 (:attempt e))
-              "…and joined the warm work rather than starting a second attempt")
-          (is (= 1 (count @page-views))
-              "the activation ran :on-match once — the prefetch had not"))))))
+        (is (= [true true []]
+               [(some? (entry app viewer-key)) (some? (entry app akey)) (route-owners (entry app akey))])
+            "warm mode ran the FULL effective branch plan, ownerlessly — the warmed leaf stays GC-eligible")
+        (is (= [before-slice nil [] [] [] [] false viewer-gen]
+               [(slice app) (pending app) @pushed @replaced @scrolled @page-views
+                (boolean (some #(#{:rf.route/navigate :rf.route/entry-denied :rf.route/navigation-blocked}
+                                 (-> % :tags :rf.trace/event-id))
+                               traces))
+                (:generation (entry app viewer-key))])
+            "prefetch is not activation: no route state or token, no pending navigation, no
+             history or scroll effect, no :on-match, no navigation or guard event — and the
+             already-fresh shell read was not refetched"))
+      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug slug}}]
+                        {:frame app})
+      (let [e (entry app akey)]
+        (is (= [[[:route :conduit/article (:nav-token (slice app))]] 1 1]
+               [(route-owners e) (:attempt e) (count @page-views)])
+            "activation attached its owner to the warmed identity, joined the warm work rather
+             than starting a second attempt, and ran :on-match once")))))
 
 (deftest hover-then-click-on-a-query-defaults-route-warms-one-identity
-  (testing "R3's headline capability on a route declaring
-            `:query-defaults`. Hover the link, then click THAT SAME link: there
-            must be exactly ONE cache entry for the destination, carrying the
-            activation's real owner and still on its FIRST attempt.
-
-            Were the named-address door to skip the defaults, the href, the
-            prefetch payload and the warm plan would resolve `{:tab nil}` while
-            the activation resolved `{:tab :authored}` — so one link would
-            produce TWO entries: the warm one ownerless, GC-eligible and never
-            reused, and the click arriving as a fresh `:attempt 1` on a second
-            identity. That failure is SILENT: no error, no warning, a passive
-            prefetch indistinguishable
-            from a working one without measuring — exactly the failure mode
-            `rf.routing.link/validate-prefetch!` argues for failing loud about."
-    (let [app    (boot-app!)
-          handle "ada"
-          pkey   (profile-key handle :authored)
-          props  {:to :conduit/profile :params {:handle handle} :prefetch :intent}
-          ;; ONE link. Both halves come off the SAME props map through the same
-          ;; two seams a real anchor uses: `prefetch-payload` is what the
-          ;; `:on-mouse-enter` handler dispatches, and `link-model`'s `:payload`
-          ;; is what the click handler dispatches. Hand-rolling either half would
-          ;; be a different test — the claim is about one link.
-          model  (rf.routing.link/link-model props app)]
-      (testing "the anchor the app renders warms and activates the same
-                destination"
-        (is (= (str "/profile/" handle) (:href model))
-            "the href omits the key already at its declared default")
-        (is (= [:rf.route/prefetch {:to :conduit/profile :params {:handle handle}}]
-               (rf.routing.link/prefetch-payload props))
-            "the payload is the address only — the defaults are resolved by the
-             prefetch handler, through the same seam the activation uses"))
-
-      ;; hover
-      (rf/dispatch-sync (rf.routing.link/prefetch-payload props) {:frame app})
-      (let [warmed (profile-identities app)]
-        (is (= 1 (count warmed)) "hover warmed exactly one profile identity")
-        (is (= [pkey] warmed)
-            "…and it is the identity the DEFAULT resolves to, not `{:tab nil}`")
-        (is (empty? (route-owners (entry app pkey)))
-            "the warm entry is ownerless — warmup is not activation"))
-
-      ;; click THAT SAME anchor — the link door, exactly what `:on-click`
-      ;; dispatches
-      (rf/dispatch-sync (:payload model) {:frame app})
-      (let [token    (:nav-token (slice app))
-            profiles (profile-identities app)
-            e        (entry app pkey)]
-        (is (= 1 (count profiles))
-            "ONE entry for the destination — the click joined the warm work
-             instead of starting a fresh load on a second identity")
-        (is (= [[:route :conduit/profile token]] (route-owners e))
-            "the activation attached its real owner to the WARMED entry")
-        (is (= 1 (:attempt e))
-            "…on the first attempt — the warm work was reused, not restarted")
-        (is (= {:tab :authored} (:query (slice app)))
-            "and the committed slice carries the resolved default")))))
+  ;; R3's headline capability on a `:query-defaults` route: hover the link, then
+  ;; click THAT SAME link, and there is exactly ONE cache entry, carrying the
+  ;; activation's owner on its FIRST attempt. Were the named-address door to
+  ;; skip the defaults, warmup would resolve `{:tab nil}` and the click
+  ;; `{:tab :authored}` — two entries, SILENTLY: the failure mode
+  ;; `rf.routing.link/validate-prefetch!` argues for failing loud about.
+  (let [app    (boot-app!)
+        handle "ada"
+        pkey   (profile-key handle :authored)
+        props  {:to :conduit/profile :params {:handle handle} :prefetch :intent}
+        ;; ONE link: `prefetch-payload` is what `:on-mouse-enter` dispatches and
+        ;; `link-model`'s `:payload` is what `:on-click` dispatches
+        model  (rf.routing.link/link-model props app)]
+    (is (= [(str "/profile/" handle) [:rf.route/prefetch {:to :conduit/profile :params {:handle handle}}]]
+           [(:href model) (rf.routing.link/prefetch-payload props)])
+        "the href omits the defaulted key; the payload is the address only — the prefetch
+         handler resolves the defaults through the seam the activation uses")
+    (rf/dispatch-sync (rf.routing.link/prefetch-payload props) {:frame app})
+    (is (= [[pkey] []] [(profile-identities app) (route-owners (entry app pkey))])
+        "hover warmed exactly ONE identity — the default's, not `{:tab nil}` — ownerlessly")
+    (rf/dispatch-sync (:payload model) {:frame app})
+    (let [e (entry app pkey)]
+      (is (= [[pkey] [[:route :conduit/profile (:nav-token (slice app))]] 1 {:tab :authored}]
+             [(profile-identities app) (route-owners e) (:attempt e) (:query (slice app))])
+          "the click joined the warm work on its first attempt and the committed slice carries
+           the resolved default"))))
 
 #?(:cljs
    (deftest the-real-anchor-intent-handler-composes-and-dispatches
@@ -777,145 +596,102 @@
                "…attributed to the routing substrate"))))))
 
 ;; ===========================================================================
-;; 4. Auth denial + fresh return, through the PUBLIC door
-;;
-;;     EP conformance row 8 (guard parity). The app registers its denial arm
-;;     BEFORE its frames are sealed, and image assembly must accept that order.
+;; 4. Auth denial + fresh return, through the PUBLIC door (EP row 8)
 ;; ===========================================================================
 
 (deftest the-app-seals-a-frame-after-registering-the-public-denial-handler
-  (testing "an app that registers :rf.route/entry-denied through the PUBLIC
-            rf/reg-event assembles a frame, rather than throwing
-            :rf.error/image-duplicate-id with colliding coordinates
-            [{:ns nil} {:ns \"<app ns>\"}]."
-    (let [app (boot-app! {:auth-arm :client})]
-      (is (some? app) "the app frame sealed cleanly after the app registration")
-      (is (= 1 (count (filter #(= :rf.route/entry-denied %)
-                              (keys (rf.registrar/registrations :event)))))
-          "one :event registration for the id — the app's replaced the default")
-      (is (some? (seal-frame! {:frame-id :conduit/second-frame}))
-          "…and a second frame sealed later assembles too"))))
+  ;; Rather than throwing :rf.error/image-duplicate-id with colliding
+  ;; coordinates [{:ns nil} {:ns "<app ns>"}].
+  (let [app (boot-app! {:auth-arm :client})]
+    (is (= [true 1 true]
+           [(some? app)
+            (count (filter #(= :rf.route/entry-denied %) (keys (rf.registrar/registrations :event))))
+            (some? (seal-frame! {:frame-id :conduit/second-frame}))])
+        "the frame sealed, the app's registration replaced the default, and a later frame seals too")))
 
 (deftest a-denial-handler-registered-after-the-frame-was-sealed-still-fires
-  (testing "the complementary order — seal first, register second. `docs/routing/
-            testing.md` writes its entry-denied spy this way (make-frame, then
-            reg-event), so the recipe every reader copies must work: a re-eval'd
-            registration resolves a fresh sealed generation and swaps it into
-            the already-live frame (docs/core/images.md §re-eval)."
-    (register-app! :none)
-    (let [app (seal-frame! {:frame-id :conduit/late-arm})
-          seen (atom [])]
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
-      (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app})
-      (is (= 1 (count @seen))
-          "the late registration received the denial on the already-sealed frame")
-      (is (= {:to :conduit/settings} (:destination (first @seen))))
-      (is (= :conduit/feed (:route-id (slice app))) "and the deny still held"))))
+  ;; The complementary order — `docs/routing/testing.md` writes its entry-denied
+  ;; spy this way: a re-eval'd registration resolves a fresh sealed generation
+  ;; and swaps it into the live frame (docs/core/images.md §re-eval).
+  (register-app! :none)
+  (let [app  (seal-frame! {:frame-id :conduit/late-arm})
+        seen (atom [])]
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
+    (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app})
+    (is (= [[{:to :conduit/settings}] :conduit/feed]
+           [(mapv :destination @seen) (:route-id (slice app))])
+        "the late registration received the one denial, and the deny still held")))
 
 (deftest denial-redirects-to-login-and-a-fresh-navigate-returns
   (let [app (boot-app! {:auth-arm :client})]
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
     (settle! app viewer-key {:username "ada"})
     (settle! app feed-key [])
-    (testing "a signed-out visit to the guarded tab is DENIED, terminally"
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app})
-      (is (= :conduit/login (:route-id (slice app)))
-          "the app's denial handler replace-navigated to login")
-      (is (nil? (pending app))
-          "a denial creates NO pending navigation — entry is terminal, not paused")
-      (is (nil? (entry app settings-key))
-          "no protected activation work ran — the guarded read was never ensured")
-      (is (= {:to :conduit/settings}
-             (get-in (rf/app-db-value app) [:conduit/session :return-to]))
-          "the denied destination was stashed as a replayable RouteDestination"))
-    (testing "after sign-in a FRESH navigate with the stored destination returns"
-      (rf/dispatch-sync [:conduit/sign-in] {:frame app})
-      (rf/dispatch-sync [:rf.route/navigate
-                         (get-in (rf/app-db-value app) [:conduit/session :return-to])]
-                        {:frame app})
-      (is (= :conduit/settings (:route-id (slice app)))
-          "the guard re-evaluated on the new attempt and allowed")
-      (is (some? (entry app settings-key))
-          "the guarded leaf read is now planned")
-      (is (some? (entry app viewer-key))
-          "…alongside the shell read the branch plan still contributes"))))
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app})
+    (is (= [:conduit/login nil nil {:to :conduit/settings}]
+           [(:route-id (slice app)) (pending app) (entry app settings-key)
+            (get-in (rf/app-db-value app) [:conduit/session :return-to])])
+        "denied TERMINALLY: replace-navigated to login, no pending navigation, the guarded read
+         never ensured, the destination stashed as a replayable RouteDestination")
+    (rf/dispatch-sync [:conduit/sign-in] {:frame app})
+    (rf/dispatch-sync [:rf.route/navigate (get-in (rf/app-db-value app) [:conduit/session :return-to])]
+                      {:frame app})
+    (is (= [:conduit/settings true true]
+           [(:route-id (slice app)) (some? (entry app settings-key)) (some? (entry app viewer-key))])
+        "a FRESH navigate re-evaluates the guard and plans the leaf beside the shell read")))
 
 (deftest denial-with-no-application-arm-is-a-hard-client-deny
-  (testing "the framework's shipped no-op default keeps a denial SAFE for an app
-            that registers no arm: exactly one denial trace, no
-            :rf.error/no-such-handler, and the current route stands"
-    (let [app (boot-app! {:auth-arm :none})]
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
-      (let [traces (capture-traces
-                     #(rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}]
-                                        {:frame app}))]
-        (is (= 1 (count (filter #(= :rf.route/entry-denied (:operation %)) traces))))
-        (is (not-any? #(= :rf.error/no-such-handler (:operation %)) traces))
-        (is (= :conduit/feed (:route-id (slice app))) "hard deny — the app stayed put")
-        (is (nil? (pending app)))))))
+  ;; The shipped no-op default keeps a denial SAFE for an app with no arm.
+  (let [app (boot-app! {:auth-arm :none})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
+    (let [traces (capture-traces
+                   #(rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app}))]
+      (is (= [1 false :conduit/feed nil]
+             [(count (filter #(= :rf.route/entry-denied (:operation %)) traces))
+              (boolean (some #(= :rf.error/no-such-handler (:operation %)) traces))
+              (:route-id (slice app))
+              (pending app)])
+          "exactly one denial trace, no :rf.error/no-such-handler, and the app stayed put"))))
 
 ;; ===========================================================================
 ;; 5. SSR — the 403 floor, redirect supersession, and hydration REUSE
-;;
-;;     EP conformance row 8's SSR arm + row 6's hydration arm, through the app.
 ;; ===========================================================================
 
 (deftest ssr-hard-deny-stamps-the-403-floor
-  (testing "on the app's SERVER frame, a guarded deep link with no application
-            arm stamps the default 403 and commits nothing"
-    (let [srv (boot-app! {:auth-arm :none :frame-id :conduit/server :platform :server})]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
-      (is (= 403 (:status (rf.ssr/get-response srv))))
-      (is (nil? (slice srv)) "no route committed for the denied target")
-      (is (nil? (entry srv settings-key))
-          "and no resource or hydration data for it was produced"))))
+  (let [srv (boot-app! {:auth-arm :none :frame-id :conduit/server :platform :server})]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
+    (is (= [403 nil nil] [(:status (rf.ssr/get-response srv)) (slice srv) (entry srv settings-key)])
+        "a guarded deep link with no application arm stamps 403 and commits nothing")))
 
 (deftest ssr-application-redirect-supersedes-the-403
-  (testing "the server entry point's arm emits Spec 011's canonical
-            :rf.server/redirect, whose redirect precedence replaces the floor"
-    (let [srv (boot-app! {:auth-arm :server :frame-id :conduit/server :platform :server})]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
-      (let [resp (rf.ssr/get-response srv)]
-        (is (= "/login" (get-in resp [:redirect :location])))
-        (is (= 302 (:status resp)) "the app redirect superseded the default 403")))))
+  (let [srv (boot-app! {:auth-arm :server :frame-id :conduit/server :platform :server})]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
+    (let [resp (rf.ssr/get-response srv)]
+      (is (= ["/login" 302] [(get-in resp [:redirect :location]) (:status resp)])))))
 
 (deftest ssr-hydration-reuses-the-servers-branch-reads
-  (testing "the server activates through the same branch plan, the client
-            hydrates it, and the fresh identities are REUSED — the client does
-            not duplicate an SSR ensure merely because the branch was rebuilt"
-    (let [srv  (boot-app! {:frame-id :conduit/server :platform :server})
-          slug "hydrate-me"
-          akey (article-key slug)]
-      (rf/dispatch-sync [:rf.route/handle-url-change (str "/article/" slug)] {:frame srv})
-      (is (= :conduit/article (:route-id (slice srv))))
-      (is (= :loading (:transition (slice srv)))
-          "the server waits on the branch's blocking requirements")
-      (settle! srv viewer-key {:username "ada"})
-      (settle! srv akey {:title "Hydrate me"})
-      (is (= :idle (:transition (slice srv)))
-          "…and renders once every blocking requirement of the plan has data")
-
-      (let [projected (rf.resources.ssr/project-resources-runtime-db (rdb srv) srv)
-            hydrated  (rf.resources.ssr/hydrate-runtime-db projected)
-            plan      (rf.resources.ssr/hydrate-refetch-plan hydrated)
-            planned   (into #{} (map :resource/key) plan)]
-        (testing "both branch reads crossed the wire"
-          (is (some? (get-in hydrated [rf.resources.state/resources-key :entries (rf.resources.state/key-id viewer-key)])))
-          (is (some? (get-in hydrated [rf.resources.state/resources-key :entries (rf.resources.state/key-id akey)]))))
-        (testing "and neither is refetched on the client — hydration REUSE"
-          (is (not (contains? planned viewer-key))
-              "the shell read was fresh with data; no double-fetch")
-          (is (not (contains? planned akey))
-              "the leaf read was fresh with data; no double-fetch")
-          (is (empty? plan) "the whole hydrated branch is reused as-is"))))))
+  ;; The client does not duplicate an SSR ensure merely because the branch was
+  ;; rebuilt.
+  (let [srv  (boot-app! {:frame-id :conduit/server :platform :server})
+        akey (article-key "hydrate-me")]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hydrate-me"] {:frame srv})
+    (is (= [:conduit/article :loading] [(:route-id (slice srv)) (:transition (slice srv))])
+        "the server waits on the branch's blocking requirements")
+    (settle! srv viewer-key {:username "ada"})
+    (settle! srv akey {:title "Hydrate me"})
+    (is (= :idle (:transition (slice srv))) "…and renders once every one has data")
+    (let [hydrated (rf.resources.ssr/hydrate-runtime-db
+                     (rf.resources.ssr/project-resources-runtime-db (rdb srv) srv))
+          hydrated-entry #(get-in hydrated [rf.resources.state/resources-key :entries
+                                            (rf.resources.state/key-id %)])]
+      (is (= [true true []]
+             [(some? (hydrated-entry viewer-key)) (some? (hydrated-entry akey))
+              (vec (rf.resources.ssr/hydrate-refetch-plan hydrated))])
+          "both branch reads crossed the wire and the whole branch is reused — no double-fetch"))))
 
 ;; ===========================================================================
-;; 6. No render-caused work
-;;
-;;     EP conformance row 3 (passive render) against the RUNNING app. The
-;;     host-agnostic fixture pins the pure-data substrate of a render; this
-;;     invokes the app's actual render body against live frame state.
+;; 6. No render-caused work (EP row 3, against the RUNNING app)
 ;; ===========================================================================
 
 (deftest rendering-the-app-shell-causes-nothing
@@ -924,39 +700,26 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
     (settle! app viewer-key {:username "ada"})
     (settle! app feed-key [{:slug slug}])
-    (reset! pushed []) (reset! replaced []) (reset! scrolled []) (reset! page-views [])
+    (reset-host-effects!)
     (let [before-slice   (slice app)
           before-entries (entries app)
-          traces (capture-traces #(dotimes [_ 3] (render-shell app slug)))
-          shell  (render-shell app slug)]
-      (testing "rendering READ the projections it is supposed to read"
-        (is (= :conduit/feed (:route-id (:route shell))))
-        (is (= [:conduit/shell :conduit/feed] (:chain shell))
-            "the shell view composes the route chain from state, not an outlet")
-        (is (= "/article/passive" (:href (second (:anchor shell))))))
-      (testing "…and CAUSED nothing"
-        (is (empty? (event-ids traces))
-            "no event ran during render — no navigate, no ensure, no prefetch,
-             no application event")
-        (is (= before-slice (slice app)) "the route slice is untouched")
-        (is (= before-entries (entries app))
-            "no resource entry was created, refetched, or re-owned by rendering")
-        (is (empty? @pushed) "no history entry")
-        (is (empty? @replaced))
-        (is (empty? @scrolled))
-        (is (empty? @page-views))))))
+          traces         (capture-traces #(dotimes [_ 3] (render-shell app slug)))
+          shell          (render-shell app slug)]
+      (is (= [:conduit/feed [:conduit/shell :conduit/feed] "/article/passive"]
+             [(:route-id (:route shell)) (:chain shell) (:href (second (:anchor shell)))])
+          "rendering READ the projections — the chain composed from state, not an outlet")
+      (is (= [#{} before-slice before-entries [] [] [] []]
+             [(event-ids traces) (slice app) (entries app) @pushed @replaced @scrolled @page-views])
+          "…and CAUSED nothing: no event, no slice or entry change, no history or scroll effect"))))
 
 ;; ===========================================================================
 ;; A planning failure commits a failed activation and runs NO activation work
-;;
-;;     EP conformance row 6's last clause: `:on-match` "is not dispatched when
-;;     planning fails".
+;; (EP row 6: `:on-match` "is not dispatched when planning fails")
 ;; ===========================================================================
 
 (deftest a-planning-failure-commits-the-target-and-suppresses-on-match
   (register-app!)
-  ;; A route whose params resolver fails closed. Not app surface — the failure
-  ;; arm of the app's own planner.
+  ;; the failure arm of the app's own planner: a params resolver failing closed
   (rf/reg-route :conduit/broken
                 {:parent    :conduit/shell
                  :on-match  [[:conduit/page-viewed]]
@@ -967,62 +730,38 @@
                 "/broken")
   (let [app (seal-frame! {:frame-id :conduit/broken-app})]
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/broken}] {:frame app})
-    (testing "the failed target COMMITS, so the error is addressable"
-      (is (= :conduit/broken (:route-id (slice app))))
-      (is (= "/broken" (rf.routing/route-url {:to (:route-id (slice app))}))
-          "the committed facts still derive the destination URL"))
-    (testing "readiness projects :error with the structured planning error"
-      (is (= :error (:transition (slice app))))
-      (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice app))))))
-    (testing "no partial plan executed, and NO activation work ran"
-      (is (empty? (identity-set app))
-          "not one ensure from the invalid plan was dispatched")
-      (is (empty? @page-views)
-          ":on-match is suppressed on a committed planning failure"))))
+    (is (= [:conduit/broken "/broken" :error :rf.error/resource-route-plan #{} []]
+           [(:route-id (slice app)) (rf.routing/route-url {:to (:route-id (slice app))})
+            (:transition (slice app)) (:rf.error/id (:error (slice app)))
+            (identity-set app) @page-views])
+        "the failed target COMMITS (the error is addressable), readiness projects the
+         structured planning error, no partial plan executed and :on-match was suppressed")))
 
 ;; ===========================================================================
-;; 10. Frame isolation and teardown — integrated
-;;
-;;     EP conformance row 10. The per-subsystem destroy tests each release one
-;;     cache; this proves that ONE frame holding a branch plan, route
-;;     owners, warm prefetch work AND a pending leave releases all of it.
+;; 10. Frame isolation and teardown — integrated (EP row 10)
 ;; ===========================================================================
 
 (deftest two-frames-of-the-app-share-no-plan-and-no-warm-work
   (register-app!)
   (let [a    (seal-frame! {:frame-id :conduit/app-a})
         b    (seal-frame! {:frame-id :conduit/app-b})
-        slug "isolated"
-        akey (article-key slug)]
+        akey (article-key "isolated")]
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame a})
-    (testing "frame A activated; frame B has no route and no plan"
-      (is (= :conduit/feed (:route-id (slice a))))
-      (is (nil? (slice b)))
-      (is (empty? (entries b)) "B ensured nothing — A's branch plan is A's"))
-    (testing "a prefetch in A warms A only"
-      (rf/dispatch-sync [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
-                        {:frame a})
-      (is (some? (entry a akey)) "A warmed the destination")
-      (is (nil? (entry b akey))
-          "B was not warmed — the carried-frame invariant holds for cache entries too"))
-    (testing "B activating the same address builds its OWN plan and owners"
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug slug}}]
-                        {:frame b})
-      (is (= [[:route :conduit/article (:nav-token (slice b))]]
-             (route-owners (entry b akey)))
-          "B's entry carries B's own route owner")
-      (is (empty? (route-owners (entry a akey)))
-          "A's copy of the SAME identity is still the ownerless warm entry — the
-           two frames' plans never touch each other's ownership")
-      (is (= (:nav-token (slice a)) (:nav-token (slice b)))
-          "each frame allocated its FIRST nav-token independently — the
-           allocator is per-frame, not a shared global counter"))))
+    (is (= [:conduit/feed nil true] [(:route-id (slice a)) (slice b) (empty? (entries b))])
+        "A activated; B has no route and ensured nothing")
+    (rf/dispatch-sync [:rf.route/prefetch {:to :conduit/article :params {:slug "isolated"}}] {:frame a})
+    (is (= [true nil] [(some? (entry a akey)) (entry b akey)])
+        "a prefetch in A warms A only — the carried-frame invariant holds for cache entries")
+    (rf/dispatch-sync [:rf.route/navigate {:to :conduit/article :params {:slug "isolated"}}] {:frame b})
+    (is (= [[[:route :conduit/article (:nav-token (slice b))]] [] true]
+           [(route-owners (entry b akey)) (route-owners (entry a akey))
+            (= (:nav-token (slice a)) (:nav-token (slice b)))])
+        "B builds its OWN plan and owners while A's copy stays the ownerless warm entry, and
+         each frame allocated its first nav-token independently")))
 
 (deftest destroying-a-frame-releases-its-whole-routing-footprint
   (register-app!)
-  ;; A leaveable route, so the frame also holds a pending-leave value at
-  ;; destroy time — the one piece of route state that survives a blocked
-  ;; navigation.
+  ;; a leaveable route, so the frame also holds a pending leave at destroy time
   (rf/reg-route :conduit/editor
                 {:parent    :conduit/shell
                  :can-leave [:conduit/editor-clean?]}
@@ -1030,28 +769,19 @@
   (rf/reg-sub :conduit/editor-clean? (fn [_ _] false))
   (let [keep-alive (seal-frame! {:frame-id :conduit/keeper})
         doomed     (seal-frame! {:frame-id :conduit/doomed})
-        slug       "teardown"
-        akey       (article-key slug)]
-    ;; the doomed frame accumulates: a branch plan + route owners, warm
-    ;; prefetch work, and a pending leave.
+        akey       (article-key "teardown")]
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/editor}] {:frame doomed})
-    (rf/dispatch-sync [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
+    (rf/dispatch-sync [:rf.route/prefetch {:to :conduit/article :params {:slug "teardown"}}]
                       {:frame doomed})
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame doomed})
-    (is (some? (pending doomed)) "the dirty editor blocked the leave")
-    (is (some? (entry doomed akey)) "and the frame holds warm prefetch work")
-    (is (seq (identity-set doomed)) "…and a live branch plan")
-    ;; the keeper frame is doing its own work concurrently
+    (is (= [true true true]
+           [(some? (pending doomed)) (some? (entry doomed akey)) (boolean (seq (identity-set doomed)))])
+        "premise: the doomed frame holds a blocked leave, warm prefetch work and a live plan")
     (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame keep-alive})
     (let [keeper-ids (identity-set keep-alive)]
       (rf/destroy-frame! doomed)
-      (testing "the destroyed frame's whole routing footprint is gone"
-        (is (nil? (rf/frame-state-value doomed))
-            "no runtime-db survives — plans, owners, warm entries and the
-             pending leave went with it"))
-      (testing "and the surviving frame is untouched"
-        (is (= :conduit/feed (:route-id (slice keep-alive))))
-        (is (= keeper-ids (identity-set keep-alive))
-            "the keeper's plan identities are exactly as they were")
-        (is (nil? (pending keep-alive))
-            "the destroyed frame's pending leave never leaked across")))))
+      (is (nil? (rf/frame-state-value doomed))
+          "no runtime-db survives — plans, owners, warm entries and the pending leave went with it")
+      (is (= [:conduit/feed keeper-ids nil]
+             [(:route-id (slice keep-alive)) (identity-set keep-alive) (pending keep-alive)])
+          "the surviving frame is untouched"))))
