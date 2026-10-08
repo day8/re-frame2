@@ -1,72 +1,36 @@
 (ns re-frame.trace-listener-elision-prod-test
-  "Per Spec 009 §Production builds: under
-  `:advanced` + `goog.DEBUG=false`, the entire trace surface elides via
-  the `re-frame.interop/debug-enabled?` gate. No listener callback should
-  fire; no event-map should be allocated; no buffer push should happen.
+  "Spec 009 §Production builds: under `:advanced` + `goog.DEBUG=false` the
+  `re-frame.interop/debug-enabled?` gate is constant-folded, so `emit!` is a
+  no-op and a registered listener never fires, while dispatch itself still
+  runs. The ring half is `re-frame.trace-bus-elision-prod-test`.
 
-  The JVM tests use `with-redefs` against the JVM-side
-  `debug-enabled?` symbol — useful but not load-bearing for the genuine
-  closure-fold contract. This file compiles under
-  `:browser-test-prod-elision` (a dedicated shadow-cljs build with
-  `goog.DEBUG=false` + `:advanced`) so the gate is constant-folded by the
-  closure compiler. Under that compile:
-
-    - `(rf.trace.tooling/register-listener! ...)` returns a key; the callback registry
-      atom still exists at the value layer, but
-    - `(rf/dispatch-sync [...])` runs handlers normally yet
-      `rf.trace/emit!` becomes a no-op (its body sits inside the gate);
-      hence the callback never fires.
-    - `(rf/emit-trace-event! ...)` is not a public surface — but
-      `re-frame.trace/emit!` IS. Calling it directly under prod-mode
-      must also be a no-op.
-
-  Companion to `re-frame.schemas-boundary-prod-test` (Spec 010 prod
-  smoke). Naming convention: namespaces ending in `-elision-prod-test` are
-  picked up ONLY by the `:browser-test-prod-elision` build. The default
-  `:browser-test` and `:node-test` builds use regexes `.*-dom-cljs-test$` and
-  `cljs-test$` and therefore do NOT pick up these files."
+  Built only by `:browser-test-prod-elision` (the `-elision-prod-test`
+  suffix); `:browser-test` and `:node-test` select other suffixes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
-            ;; The listener surface (`register-listener!`
-            ;; etc.) lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ---- callback NEVER fires under prod-mode --------------------------------
-
 (deftest registered-listener-does-not-fire-under-prod
-  (testing "Per Spec 009 §Production builds: under `:advanced` +
-            `goog.DEBUG=false`, rf.trace/emit!'s body is DCE'd. A registered
-            listener observes NO events when dispatch runs, because the
-            emit call sites have been elided."
+  (testing "dispatch runs the handler; the listener observes nothing"
     (let [seen (atom [])]
-      (rf.trace.tooling/register-listener! ::prod-no-trace
-        (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :prod/ping
-                       (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
-      ;; The handler still runs (router is not elision-gated; only the
-      ;; trace surface is).
+      (rf.trace.tooling/register-listener! ::prod-no-trace (fn [ev] (swap! seen conj ev)))
+      (rf/reg-event :prod/ping (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       (rf/dispatch-sync [:prod/ping])
-      (is (= true (:pinged? (rf/app-db-value :rf/default)))
-          "the handler ran — only the trace surface is gated, not dispatch")
-      (is (empty? @seen)
-          "no events observed — Spec 009 §Production builds elision contract holds")
+      (is (= true (:pinged? (rf/app-db-value :rf/default))) "control: the handler ran")
+      (is (empty? @seen))
       (rf.trace.tooling/unregister-listener! ::prod-no-trace))))
 
 (deftest emit-direct-call-is-noop-under-prod
-  (testing "Direct invocation of rf.trace/emit! is a no-op under prod-mode.
-            The gate sits inside the fn body, so even bypassing the
-            runtime's normal dispatch path doesn't escape elision."
+  (testing "the gate sits inside emit! itself, so a direct call is elided too"
     (let [seen (atom [])]
       (rf.trace.tooling/register-listener! ::direct-emit (fn [ev] (swap! seen conj ev)))
-      ;; Direct emit — would deliver under dev-mode.
       (rf.trace/emit! :info :rf.prod-test/direct-emit {:should "never appear"})
-      (is (empty? @seen)
-          "rf.trace/emit! is a no-op under :advanced + goog.DEBUG=false")
+      (is (empty? @seen))
       (rf.trace.tooling/unregister-listener! ::direct-emit))))
