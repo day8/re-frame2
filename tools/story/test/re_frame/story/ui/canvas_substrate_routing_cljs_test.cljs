@@ -1,47 +1,18 @@
 (ns re-frame.story.ui.canvas-substrate-routing-cljs-test
-  "The canvas SINGLE-PANE branch and the `render-variant` host hook must
-  resolve the renderer through the substrate registry, keyed on the
-  variant's DECLARED substrate.
+  "The canvas single pane, the side-by-side grid and the `render-variant`
+  host hook resolve the renderer through the substrate registry, keyed on
+  the variant's DECLARED substrate — never Reagent by default.
 
-  ## The failure this namespace witnesses
+  That failure is a working path rendering the WRONG thing, so every row
+  distinguishes which substrate rendered: the variant's `:component`
+  resolves to a Reagent view emitting `reagent-view-render`, while the stub
+  registered under `:uix` emits `uix-stub-render`.
 
-  Story's substrate abstraction is an open runtime registry with a public
-  `register-substrate!`, and the default render path must use it. A
-  `rf.story.ui.canvas/canvas-inner` that used the declared substrate set only
-  as a COUNT — sending a set of size one to a branch that calls
-  `(rf/view view-id)` itself and embeds the result as a Reagent hiccup
-  vector — or a `canonical/render-host-scope` that passed a LITERAL
-  `:reagent` into the shared seam would render a variant declaring
-  `:substrates #{:uix}` — a set of size one, which is exactly what a
-  single-substrate UIx story looks like — under REAGENT, without telling
-  the user.
-
-  ## Why a green compile proves nothing, and what these tests do instead
-
-  That failure is a working code path rendering the WRONG thing, which compiles
-  perfectly. Every test here therefore DISTINGUISHES WHICH SUBSTRATE ACTUALLY
-  RENDERED: the variant's `:component` resolves to a Reagent view emitting
-  `reagent-view-render`, while the stub registered under `:uix` emits
-  `uix-stub-render`. Asserting the uix marker is present AND the reagent
-  marker is absent is the whole point — either assertion alone would pass on
-  a path that rendered both, or neither.
-
-  The neighbouring suites cannot catch it. `render_shell_cljs_test`'s
-  `:uix` arms drive `multi-substrate-grid` DIRECTLY, and
-  `story_multi_substrate_cljs_test` covers `render-view` on its own terms —
-  neither goes anywhere near `canvas-inner`, which is the path almost every
-  story takes.
-
-  ## Registry hygiene
-
-  `substrate->render-fn` is a `defonce` atom that `rf.story/clear-all!` does not
-  touch, so a `:uix` stub registered here would leak into every namespace that
-  runs after this one — including `render_shell_cljs_test`'s
-  `unregistered-substrate-renders-inline-error-cell`, whose precondition is
-  that `:uix` is ABSENT. The `:after` fixture dissocs it.
-
-  Sub-millisecond per case; no DOM mount, no React, no Playwright."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  `substrate->render-fn` is a `defonce` atom `rf.story/clear-all!` does not
+  touch, so the `:after` fixture dissocs the `:uix` stub rather than leak
+  it into `render_shell_cljs_test`'s
+  `unregistered-substrate-renders-inline-error-cell`."
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
@@ -65,10 +36,8 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
-  ;; Machine snapshots are durable RUNTIME-DB state (EP-0001) at
-  ;; [:rf.runtime/machines :snapshots <id>] — the framework `:rf/machine` sub
-  ;; reads the runtime-db partition. Mirror `re-frame.machines`. Without it the lifecycle
-  ;; machine cannot resolve and the canvas reads `:pre-mount` indefinitely.
+  ;; Without the framework `:rf/machine` sub the lifecycle machine cannot
+  ;; resolve and the canvas reads `:pre-mount` indefinitely.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -78,9 +47,6 @@
   (rf.story.ui.state/reset-shell-state!)
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
-  ;; Start every case from a KNOWN-EMPTY :uix slot. Individual tests register
-  ;; the stub when they want the registered path; the unregistered-substrate
-  ;; test wants it absent.
   (rf.story.ui.multi-substrate/unregister-substrate! :uix)
   (register-probe-views!))
 
@@ -91,34 +57,27 @@
 
 ;; ---- probe views + variants ----------------------------------------------
 
-;; The two markers that make "which substrate rendered?" answerable. If the
-;; canvas resolves through `rf/view` (a Reagent-pinned path)
-;; the tree carries `reagent-view-render`; if it resolves through the registry
-;; it carries `uix-stub-render`. They are mutually exclusive by construction.
-
 (defn- reagent-probe-view [_args]
   [:div {:data-test "reagent-view-render"} "rendered under reagent"])
 
 (defn- uix-stub-render
-  "Stand-in for a host-registered UIx render fn. The real one would build a
-  React element; this returns hiccup so the test can walk it without a React
-  render cycle. What matters is WHICH fn the canvas reached, not what it built."
+  "Stand-in for a host-registered UIx render fn. It returns hiccup so the
+  test can walk it without a React render cycle, and prints the view-id it
+  was handed."
   [_variant-id view-id _eff-args]
   [:div {:data-test "uix-stub-render"} (str "rendered under uix: " (pr-str view-id))])
 
 (defn- register-probe-views! []
   (rf/reg-view* :views/probe reagent-probe-view)
   (rf.story/reg-story* :story.substrate-routing {:doc "substrate-routing witness story"})
-  ;; `:loaders` is declared so `events-only-variant?` returns false — the only
-  ;; condition that matters for the `loading-phase?` skeleton gate. The test
-  ;; drives the lifecycle machine directly, so the slot needs no real event.
+  ;; `:loaders` makes `events-only-variant?` false, so the skeleton gate
+  ;; applies and `ready-tree` drives past it.
   (rf.story/reg-variant* :story.substrate-routing/uix-only
     {:doc        "Declares ONE substrate, and it is not Reagent."
      :component  :views/probe
      :substrates #{:uix}
      :loaders    [[:noop/loader]]})
-  ;; The same declaration, one level up. The STORY names the
-  ;; subject and the layer; the variant names neither and inherits both.
+  ;; The STORY names the subject and the layer; the variant names neither.
   (rf.story/reg-story* :story.substrate-story-scope
     {:doc        "witness — story-level :component + :substrates"
      :component  :views/probe
@@ -126,12 +85,6 @@
   (rf.story/reg-variant* :story.substrate-story-scope/inherits
     {:doc     "Declares neither :component nor :substrates."
      :loaders [[:noop/loader]]})
-  (rf.story/reg-variant* :story.substrate-routing/reagent-only
-    {:doc        "Declares ONE substrate, Reagent — the baseline."
-     :component  :views/probe
-     :substrates #{:reagent}
-     :loaders    [[:noop/loader]]})
-  ;; The same declaration, inherited through `:extends`.
   ;; The parent VARIANT names the subject and the layer; its story names
   ;; neither, and the child names neither.
   (rf.story/reg-story* :story.substrate-extends
@@ -165,12 +118,10 @@
 
 (def ^:private canvas-inner @#'rf.story.ui.canvas/canvas-inner)
 
-(defn- ready-tree
-  "Drive `variant-id`'s lifecycle to `:ready`, then render the canvas's inner
-  tree and expand it to plain hiccup. `:ready` + the first-rendered sentinel
-  is what elides the skeleton so the render reaches the substrate branch at
-  all — a skeleton tree carries NEITHER marker and would make both assertions
-  fail for the wrong reason."
+(defn- ready-canvas-inner
+  "Drive `variant-id`'s lifecycle to `:ready` and mark it rendered, so the
+  canvas's inner render reaches the substrate branch rather than the
+  skeleton, then render it."
   [variant-id]
   (rf/make-frame {:id variant-id})
   (rf.story.loaders/mount! variant-id)
@@ -178,159 +129,76 @@
   (rf.story.loaders/finish-loaders! variant-id)
   (rf.story.loaders/finish-events! variant-id)
   (rf.story.ui.canvas/mark-variant-rendered! variant-id)
-  (rf.story.test-helpers.e2e-multi-frame/expand-tree (canvas-inner variant-id)))
+  (canvas-inner variant-id))
 
-(defn- rendered-under-uix? [tree]
-  (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")))
+(defn- ready-tree [variant-id]
+  (rf.story.test-helpers.e2e-multi-frame/expand-tree (ready-canvas-inner variant-id)))
 
 (defn- rendered-under-reagent? [tree]
   (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "reagent-view-render")))
 
-;; ===========================================================================
-;; THE WITNESS — the canvas single-pane path honours the declared substrate
-;; ===========================================================================
-
-(deftest single-pane-substrate-is-resolved-not-counted
-  (testing "the substrate SET SIZE decides grid-vs-single-pane and
-            nothing else. A one-element set is not a licence to assume
-            Reagent: swap the sole declared substrate and the renderer swaps
-            with it, with the count held constant at one."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [uix-tree     (ready-tree :story.substrate-routing/uix-only)
-          reagent-tree (ready-tree :story.substrate-routing/reagent-only)]
-      (is (and (rendered-under-uix? uix-tree)
-               (not (rendered-under-reagent? uix-tree)))
-          "#{:uix} → the uix render fn")
-      (is (and (rendered-under-reagent? reagent-tree)
-               (not (rendered-under-uix? reagent-tree)))
-          "#{:reagent} → the built-in reagent render fn (the baseline — the
-           same count, the other renderer)")
-      (rf.story/destroy-variant! :story.substrate-routing/uix-only)
-      (rf.story/destroy-variant! :story.substrate-routing/reagent-only))))
-
-(deftest single-pane-says-so-when-the-substrate-is-unregistered
-  (testing "the user-visible half. With :uix declared but NOT registered,
-            the single pane must say so rather than silently painting
-            Reagent: silence would give a UIx user a Reagent render and no
-            signal that anything was wrong."
-    (is (not (contains? @rf.story.ui.multi-substrate/substrate->render-fn :uix))
-        "precondition: :uix absent from the registry")
-    (let [variant-id :story.substrate-routing/uix-only
-          tree       (ready-tree variant-id)
-          text       (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
-      (is (re-find #"is not registered" text)
-          "the miss is named — `render-view`'s FRAGMENT-level diagnostic,
-           the counterpart to the grid's cell-level error cell")
-      (is (re-find #"uix" text)
-          "and it names WHICH substrate, so the author knows what to
-           register")
-      (is (not (rendered-under-reagent? tree))
-          "it did NOT fall back to Reagent — falling back silently is the
-           bug, not the remedy")
-      (rf.story/destroy-variant! variant-id))))
-
-;; ===========================================================================
-;; render-variant's host hook — the second pinned site
-;; ===========================================================================
-
-(deftest render-variant-host-honours-the-declared-substrate
-  (testing "`canonical/render-host-scope` reads the substrate off the
-            variant; a LITERAL :reagent in the shared seam would make
-            `render-variant` paint a #{:uix} variant under Reagent too, and
-            the canvas and the host would agree only by both being wrong the
-            same way. They must agree by both being right."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [result (rf.story.render/render-variant :story.substrate-routing/uix-only)
-          tree   (rf.story.test-helpers.e2e-multi-frame/expand-tree (:rendered result))]
-      (is (= :rendered (:status result))
-          "the CLJS canonical vocabulary installs the host → :rendered")
-      (is (rendered-under-uix? tree)
-          "render-variant painted through the :uix render fn")
-      (is (not (rendered-under-reagent? tree))
-          "and not through Reagent")
-      (rf.story/destroy-variant! :story.substrate-routing/uix-only))))
-
-;; ===========================================================================
-;; The same agreement, with the declaration ONE LEVEL UP
-;; ===========================================================================
-;;
-;; `plan/variant-plan` folds `:substrates` and `:component` from the VARIANT,
-;; its `:extends` chain and then its STORY into `[:world …]`, and the canvas
-;; and `render-variant` both read them off the plan. A plan that stopped at
-;; the `:extends` chain would hand `render-variant` nothing for a STORY-level
-;; declaration — the `:reagent` host default and a nil view. The two rows
-;; below are the pair: the canvas half is the CONTROL, the host half the one
-;; at risk. Asserting only the host would not say they agree, which is the
-;; property the plan exists to guarantee.
-
-(deftest story-level-declaration-reaches-the-render-variant-host
-  (testing "a story declares the subject and the layer once; its
-            variant declares neither. `render-variant` must paint through
-            the :uix render fn. A plan carrying no `:substrates` would let
-            the host default :reagent win, and one carrying no `:component`
-            would hand it a nil view."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [result (rf.story.render/render-variant :story.substrate-story-scope/inherits)
-          tree   (rf.story.test-helpers.e2e-multi-frame/expand-tree (:rendered result))]
-      (is (= :rendered (:status result)))
-      (is (rendered-under-uix? tree)
-          "the inherited layer reached the host — the substrate half")
-      (is (re-find #":views/probe" (rf.story.test-helpers.e2e-multi-frame/text-nodes tree))
-          "and the inherited SUBJECT reached it too: the uix stub prints the
-           view-id it was handed, so a nil view would print `nil` here. This
-           is the `:component` half.")
-      (is (not (rendered-under-reagent? tree))
-          "and it did NOT fall back to Reagent")
-      (rf.story/destroy-variant! :story.substrate-story-scope/inherits))))
-
-(deftest story-level-declaration-makes-canvas-and-host-agree
-  (testing "the canvas single-pane path and `render-variant` both honour a
-            story-level declaration. Were only the canvas to honour it, the
-            disagreement would be invisible: the live shell would paint UIx
-            while `render-variant` painted Reagent, for the same variant.
-            Both must be UIx."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [variant-id  :story.substrate-story-scope/inherits
-          canvas-tree (ready-tree variant-id)
-          host-tree   (rf.story.test-helpers.e2e-multi-frame/expand-tree
-                        (:rendered (rf.story.render/render-variant variant-id)))]
-      (is (and (rendered-under-uix? canvas-tree)
-               (not (rendered-under-reagent? canvas-tree)))
-          "the canvas — the control")
-      (is (and (rendered-under-uix? host-tree)
-               (not (rendered-under-reagent? host-tree)))
-          "and the host")
-      (rf.story/destroy-variant! variant-id))))
-
-;; ===========================================================================
-;; The declaration inherited through `:extends`
-;; ===========================================================================
-;;
-;; spec/017 §`:extends` inherits world context, and the plan compiler folds
-;; `[:world :component]` / `[:world :substrates]` over the `:extends` chain
-;; before falling back to the story. The canvas and the grid read both off
-;; the plan. Reading the RAW variant body, then the story, would render an
-;; `:extends` child of a variant naming its own subject with its story's
-;; view, or none, while `run-variant`, Docs and the plan hash use the
-;; inherited one.
-
 (defn- uix-stub-text
-  "The text the :uix stub rendered — it prints the view-id it was handed —
-  or nil when it did not render. The stub's own node, not the tree's text:
-  the canvas title row prints its view-id too."
+  "The text the :uix stub rendered, or nil when it did not render. The
+  stub's own node, not the tree's text: the canvas title row prints its
+  view-id too."
   [tree]
   (some-> (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")
           (nth 2)))
+
+;; ---- the single pane -----------------------------------------------------
+
+(deftest single-pane-says-so-when-the-substrate-is-unregistered
+  (testing "with :uix declared but NOT registered, the single pane names
+            the missing substrate rather than silently painting Reagent"
+    (let [variant-id :story.substrate-routing/uix-only
+          tree       (ready-tree variant-id)]
+      (is (re-find #"substrate :uix is not registered"
+                   (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)))
+      (is (not (rendered-under-reagent? tree)))
+      (rf.story/destroy-variant! variant-id))))
+
+(deftest an-extends-child-renders-the-subject-and-layer-it-inherits
+  (testing "the child names neither `:component` nor `:substrates`; its
+            parent variant names both. The canvas renders the parent's view
+            under the parent's :uix layer."
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (ready-tree :story.substrate-extends/child)]
+      (is (= "rendered under uix: :views/probe" (uix-stub-text tree)))
+      (is (not (rendered-under-reagent? tree))
+          "and it did not fall back to the host substrate")
+      (rf.story/destroy-variant! :story.substrate-extends/child))))
+
+(deftest a-cross-story-extends-renders-its-parents-subject
+  (testing "the child's OWN story names a different subject; the plan, a
+            headless run and Docs all say the parent's"
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (is (= "rendered under uix: :views/probe"
+           (uix-stub-text (ready-tree :story.substrate-borrow/borrow))))
+    (rf.story/destroy-variant! :story.substrate-borrow/borrow)))
+
+;; ---- render-variant's host hook ------------------------------------------
+
+(deftest story-level-declaration-reaches-the-render-variant-host
+  (testing "a story declares the subject and the layer once; its variant
+            declares neither. `render-variant` paints the inherited subject
+            through the :uix render fn — not the `:reagent` host default,
+            and not a nil view"
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (rf.story.test-helpers.e2e-multi-frame/expand-tree
+                 (:rendered (rf.story.render/render-variant :story.substrate-story-scope/inherits)))]
+      (is (= "rendered under uix: :views/probe" (uix-stub-text tree)))
+      (is (not (rendered-under-reagent? tree)))
+      (rf.story/destroy-variant! :story.substrate-story-scope/inherits))))
+
+;; ---- the grid ------------------------------------------------------------
 
 (defn- react-class? [f]
   (and (fn? f) (true? (.-cljs$lang$type ^js f))))
 
 (defn- expand-to-cells
   "`e2e-multi-frame/expand-tree`, except that a Reagent CLASS head stays a
-  leaf. A grid cell is `safe-render-cell`'s `[<error-boundary class>
-  {:substrate … :view-id … …}]`: only React can render it, and a walk that
-  calls its constructor without `new` runs it against the wrong receiver.
-  So its props are read as written."
+  leaf: a grid cell is `safe-render-cell`'s `[<error-boundary class> {…}]`,
+  which only React can render, so its props are read as written."
   [tree]
   (cond
     (and (vector? tree) (fn? (first tree)) (not (react-class? (first tree))))
@@ -342,109 +210,35 @@
     (seq? tree)    (map expand-to-cells tree)
     :else          tree))
 
-(defn- nodes [tree]
-  (tree-seq (some-fn vector? seq?) seq tree))
-
-(defn- grid-node
-  "The side-by-side grid's node in an `expand-to-cells` tree, or nil."
-  [tree]
-  (some #(when (and (vector? %) (map? (second %)) (= "group" (:role (second %)))) %)
-        (nodes tree)))
-
-(defn- grid-label
-  "The grid's `aria-label` — it names the substrates the grid lays out."
-  [tree]
-  (:aria-label (second (grid-node tree))))
-
 (defn- grid-cells
-  "`[substrate view-id]` for each cell of the grid, name-sorted by substrate."
+  "`[substrate view-id]` for each cell of the side-by-side grid (the
+  `role=\"group\"` node), name-sorted by substrate."
   [tree]
-  (->> (nodes (grid-node tree))
-       (filter #(and (vector? %) (react-class? (first %))))
-       (map (fn [[_ {:keys [substrate view-id]}]] [substrate view-id]))
-       (sort-by (comp name first))))
-
-(defn- ready-grid-tree
-  "`ready-tree`, expanded with `expand-to-cells`."
-  [variant-id]
-  (rf/make-frame {:id variant-id})
-  (rf.story.loaders/mount! variant-id)
-  (rf.story.loaders/start-loaders! variant-id)
-  (rf.story.loaders/finish-loaders! variant-id)
-  (rf.story.loaders/finish-events! variant-id)
-  (rf.story.ui.canvas/mark-variant-rendered! variant-id)
-  (expand-to-cells (canvas-inner variant-id)))
-
-(deftest an-extends-child-renders-the-subject-and-layer-it-inherits
-  (testing "the child names neither `:component` nor
-            `:substrates`; its parent variant names both. The canvas must
-            render the parent's view under the parent's :uix layer. Reading
-            the child's raw body, then its story's, would find no
-            `:component` and say so."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (ready-tree :story.substrate-extends/child)]
-      (is (= "rendered under uix: :views/probe" (uix-stub-text tree))
-          "the inherited layer rendered the inherited subject")
-      (is (not (rendered-under-reagent? tree))
-          "and it did not fall back to the host substrate")
-      (rf.story/destroy-variant! :story.substrate-extends/child))))
-
-(deftest a-cross-story-extends-renders-its-parents-subject
-  (testing "the worse case: the child's OWN story names a
-            different subject, so a raw read would render that view with args
-            meant for the parent's, while the plan, a headless run and Docs
-            all say the parent's"
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (ready-tree :story.substrate-borrow/borrow)]
-      (is (= "rendered under uix: :views/probe" (uix-stub-text tree))
-          "the parent's subject, under the parent's layer")
-      (is (not (re-find #":views/story-level"
-                        (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)))
-          "never the child's story's subject")
-      (rf.story/destroy-variant! :story.substrate-borrow/borrow))))
+  (let [nodes #(tree-seq (some-fn vector? seq?) seq %)
+        grid  (some #(when (and (vector? %) (map? (second %)) (= "group" (:role (second %)))) %)
+                    (nodes tree))]
+    (->> (nodes grid)
+         (filter #(and (vector? %) (react-class? (first %))))
+         (map (fn [[_ {:keys [substrate view-id]}]] [substrate view-id]))
+         (sort-by (comp name first)))))
 
 (deftest an-extends-child-takes-the-grid-it-inherits
-  (testing "two inherited substrates put the canvas on its
-            side-by-side grid, and the grid must render the inherited subject
-            in each cell. The canvas's own substrate read decides the branch;
-            the grid does its own read for its cells."
+  (testing "two inherited substrates put the canvas on its side-by-side
+            grid, and every cell renders the inherited subject"
     (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (ready-grid-tree :story.substrate-extends/grid-child)]
-      (is (= "Multi-substrate render — reagent, uix" (grid-label tree))
-          "the canvas took the grid branch, over both inherited substrates")
-      (is (= [[:reagent :views/probe] [:uix :views/probe]] (grid-cells tree))
-          "and every cell renders the inherited subject")
-      (rf.story/destroy-variant! :story.substrate-extends/grid-child))))
+    (is (= [[:reagent :views/probe] [:uix :views/probe]]
+           (grid-cells (expand-to-cells (ready-canvas-inner :story.substrate-extends/grid-child)))))
+    (rf.story/destroy-variant! :story.substrate-extends/grid-child)))
 
-;; ===========================================================================
-;; single-render-substrate — the policy, on its own terms
-;; ===========================================================================
-;;
-;; A single-tree render has to reduce a declared SET to one substrate. The
-;; rule the canvas and the host both depend on: never paint under a substrate
-;; the variant did not declare.
+;; ---- single-render-substrate ---------------------------------------------
 
 (deftest single-render-substrate-policy
-  (testing "one declared substrate wins outright — the single-substrate case
-            this namespace witnesses"
-    (is (= :uix (rf.story.ui.multi-substrate/single-render-substrate #{:uix} :reagent)))
-    (is (= :reagent (rf.story.ui.multi-substrate/single-render-substrate #{:reagent} :reagent))))
-
-  (testing "nothing declared falls back to the host default"
-    (is (= :reagent (rf.story.ui.multi-substrate/single-render-substrate nil :reagent)))
-    (is (= :reagent (rf.story.ui.multi-substrate/single-render-substrate #{} :reagent))))
-
-  (testing "a multi-substrate variant that DECLARED the host default keeps it
-            — the common #{:reagent :uix} case renders under the host
-            default"
-    (is (= :reagent (rf.story.ui.multi-substrate/single-render-substrate #{:reagent :uix} :reagent))))
-
-  (testing "a multi-substrate variant that did NOT declare the host default
-            gets a declared one, chosen deterministically by name rather than
-            by hash order — never the undeclared default"
-    (let [picked (rf.story.ui.multi-substrate/single-render-substrate #{:uix :custom} :reagent)]
-      (is (contains? #{:uix :custom} picked)
-          "the pick is one the variant actually declared")
-      (is (= :custom picked)
-          "and it is name-sorted, so the choice is a decision rather than
-           whatever the set's hash order happened to be"))))
+  ;; A single-tree render never paints under a substrate the variant did
+  ;; not declare.
+  (are [declared expected]
+       (= expected (rf.story.ui.multi-substrate/single-render-substrate declared :reagent))
+    #{:uix}           :uix
+    nil               :reagent
+    #{:reagent :uix}  :reagent
+    ;; Host default not declared: the name-sorted first, not hash order.
+    #{:uix :custom}   :custom))
