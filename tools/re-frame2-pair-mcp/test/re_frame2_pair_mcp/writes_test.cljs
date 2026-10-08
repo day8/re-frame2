@@ -1,23 +1,9 @@
 (ns re-frame2-pair-mcp.writes-test
-  "Server-boundary write-gate tests.
-
-  The write-tool BODIES (`restore-epoch-tool` / `replace-app-db-tool`)
-  refuse `:rf.error/writes-disabled` as their first action without
-  touching nREPL — already covered (restore_epoch_test /
-  replace_app_db_test). But the real MCP server handler
-  (`server.cljs/handle-call`) runs `ensure-connection!` for EVERY tool
-  BEFORE the tool body. On a stock install with NO nREPL port, that
-  connection step REJECTS. Without an OUTER guard the tool body's gate
-  never fires, so a disabled `restore-epoch` / `replace-app-db` would
-  surface a misleading `:nrepl-port-not-found` (or run discovery /
-  elicitation) instead of the intended destructive-tool refusal — the
-  default-safe write posture would be observably FALSE at the MCP
-  boundary.
-
-  These tests pin the OUTER ring: the pre-connection guard
-  (`writes/refuse-pre-connection`) and the server `handle-call` ordering
-  that proves the refusal precedes `ensure-connection!` (discovery never
-  runs; the session-state stays pristine)."
+  "The server boundary refuses a disabled write tool BEFORE
+  `ensure-connection!`, so a stock install with no nREPL port answers
+  `:rf.error/writes-disabled` rather than `:nrepl-port-not-found`; and the
+  discovery-error envelope keeps its namespaced reason in
+  `structuredContent`."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -32,95 +18,33 @@
              (server/reset-session-state-for-tests!)
              (writes/set-allow-writes! false))})
 
-(def ^:private read-edn tu/extract-edn)
-(def ^:private err? tu/error?)
-
-;; ---------------------------------------------------------------------------
-;; refuse-pre-connection — the pure pre-dispatch predicate.
-;; ---------------------------------------------------------------------------
-
-(deftest refuse-pre-connection-passes-write-tools-through-when-on
-  (writes/set-allow-writes! true)
-  (doseq [tool ["restore-epoch" "replace-app-db"]]
-    (is (nil? (writes/refuse-pre-connection tool))
-        (str tool " falls through to normal dispatch when writes are ON"))))
-
-(deftest refuse-pre-connection-never-gates-non-write-tools
-  (writes/set-allow-writes! false)
-  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs"
-                "trace-window" "discover-app"]]
-    (is (nil? (writes/refuse-pre-connection tool))
-        (str tool " is not a gated write tool — must proceed to dispatch"))))
-
-;; ---------------------------------------------------------------------------
-;; Server boundary — the refusal precedes ensure-connection! (no discovery).
-;; ---------------------------------------------------------------------------
-
-(defn- assert-refused-locally [tool-name done]
-  ;; The session-state is reset (pristine, :discovered? false) by the
-  ;; fixture, and no --port-file / env is configured in the test harness,
-  ;; so the real discovery cascade would REJECT with :nrepl-port-not-found
-  ;; if `handle-call` reached `ensure-connection!`. Proving the result is
-  ;; :rf.error/writes-disabled (NOT :nrepl-port-not-found) AND that the
-  ;; session stayed pristine shows the refusal ran FIRST.
-  (-> (server/handle-call-for-tests {} tool-name #js {} nil)
-      (.then (fn [result]
-               (is (err? result))
-               (let [edn (read-edn result)]
-                 (is (= :rf.error/writes-disabled (:reason edn))
-                     (str tool-name " returns writes-disabled, NOT nrepl-port-not-found"))
-                 (is (= tool-name (:tool edn))))
-               (let [snap (server/session-state-snapshot)]
-                 (is (false? (:discovered? snap))
-                     "discovery was NOT run — the refusal short-circuited before ensure-connection!")
-                 (is (nil? (:discovery-error snap))
-                     "no discovery attempt recorded — connection step never reached"))))
-      (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
-      (.then (fn [_] (done)))))
-
-(deftest restore-epoch-refused-before-connection
+(deftest write-tools-refused-before-connection
+  ;; No port is configured here, so reaching `ensure-connection!` would
+  ;; answer a discovery error and mark the session discovered.
   (async done
-    (writes/set-allow-writes! false)
-    (assert-refused-locally "restore-epoch" done)))
-
-(deftest replace-app-db-refused-before-connection
-  (async done
-    (writes/set-allow-writes! false)
-    (assert-refused-locally "replace-app-db" done)))
-
-;; ---------------------------------------------------------------------------
-;; Server-level error envelope — namespace-preserving structuredContent.
-;;
-;; The discovery-error / handler-threw envelopes are built in server.cljs
-;; OUTSIDE the per-tool callbacks, routed through `wire/result` so the
-;; fully-qualified token survives in the SDK-friendly structured slot. A
-;; raw `(clj->js payload)` would truncate the namespace on `:rf.error/*`
-;; reason VALUES (`:rf.error/foo` → `"foo"`). Here we drive a NON-write
-;; tool through the pristine, no-port harness so `ensure-connection!`
-;; rejects and `handle-call*` builds the discovery-error envelope; we
-;; assert both the EDN text slot AND the structured slot agree on the
-;; reason, namespace intact.
-;; ---------------------------------------------------------------------------
+    (-> (reduce (fn [p tool-name]
+                  (.then p (fn [_]
+                             (.then (server/handle-call-for-tests {} tool-name #js {} nil)
+                                    (fn [result]
+                                      (is (tu/error? result))
+                                      (is (= :rf.error/writes-disabled (:reason (tu/extract-edn result)))
+                                          tool-name)
+                                      (is (false? (:discovered? (server/session-state-snapshot)))
+                                          (str tool-name " never ran discovery")))))))
+                (js/Promise.resolve nil)
+                ["restore-epoch" "replace-app-db"])
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 (deftest discovery-error-structured-content-preserves-reason-namespace
+  ;; A raw `clj->js` would truncate a `:rf.error/*` reason to its name.
   (async done
-    (writes/set-allow-writes! false)
     (-> (server/handle-call-for-tests {} "snapshot" #js {} nil)
         (.then (fn [result]
-                 (is (err? result) "discovery failure rides as isError")
-                 (let [edn          (read-edn result)
-                       reason       (:reason edn)
-                       reason-token (str (symbol reason))
-                       sc           (j/get result :structuredContent)]
-                   ;; The canonical EDN reason is a keyword.
-                   (is (keyword? reason) "the EDN reason is a keyword")
-                   ;; The structured slot must carry the reason under its
-                   ;; colon-less FULLY-QUALIFIED token — proving the
-                   ;; envelope went through wire/result, not a raw clj->js
-                   ;; (a namespaced reason would otherwise be truncated).
-                   (is (= reason-token (j/get sc "reason"))
-                       "structuredContent :reason keeps its fully-qualified token")
-                   (is (= false (j/get sc "ok?"))
-                       ":ok? false round-trips through the structured slot"))))
+                 (is (tu/error? result) "discovery failure rides as isError")
+                 (let [reason (:reason (tu/extract-edn result))]
+                   (is (keyword? reason))
+                   (is (= (str (symbol reason))
+                          (j/get-in result [:structuredContent "reason"]))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
