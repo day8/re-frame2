@@ -565,9 +565,7 @@
   what `f` answers; `f` is handed the page-global window itself, so a row
   can assert on the state its readings are taken in.
 
-  `checkpoint-support/with-macrotask-deferral` is the model, and the
-  claim is the same one: the code under test is unmodified and unaware.
-  Two writes, because a page-global window is ONE FACT IN TWO PLACES and
+  The code under test is unmodified and unaware. Two writes, because a page-global window is ONE FACT IN TWO PLACES and
   either alone is a different bug:
 
   - `impl.roots/open-adoption-window!` answers one ref for the whole page
