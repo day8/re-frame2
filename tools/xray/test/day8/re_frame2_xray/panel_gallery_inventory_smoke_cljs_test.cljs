@@ -123,52 +123,22 @@
    ["gallery-views"                 gallery-views/register-all!]])
 
 (deftest each-gallery-register-all-drops-non-empty-inventory
-  (testing "every panel-gallery namespace's `register-all!` runs without
-            throwing AND produces non-empty per-gallery inventory.
-
-            A typo in ONE gallery (a lowercase `:workspace.*` id, an
-            unregistered `:feature/*` tag) aborts that gallery's
-            register-all! while the aggregate inventory stays non-empty
-            from the other galleries. That is exactly the shape this
-            per-gallery loop catches: one gallery returns zero stories
-            + zero variants + zero workspaces, the rest stay healthy.
-
-            Mechanic — clear-all + install canonical tags ONCE per
-            gallery, invoke the gallery's `register-all!`, snapshot
-            the three side-table id sets, assert each is non-empty.
-            A lowercase `:workspace.xray.routing/all` in
-            gallery_routing.cljs would drop the workspace count to zero
-            for that gallery; an unregistered `:feature/opts` tag in
-            gallery_edn_inspector.cljs would raise
-            `:rf.error/unknown-tag` on the first variant tagged with it,
-            halting the cascade and dropping story/variant counts."
-    (doseq [[label register-all!] galleries]
-      (rf.story/clear-all!)
-      (rf.story/install-canonical-vocabulary!)
-      ;; The gallery's register-all! is allowed to throw — that is
-      ;; itself an authoring bug. `is` records the throw as a failure
-      ;; with the label so the panel-gallery maintainer can spot
-      ;; which gallery is broken without scanning the boot log.
-      (is (try
-            (register-all!)
-            true
-            (catch :default e
-              (println "[panel-gallery-inventory-smoke]" label
-                       "register-all! threw:" (ex-message e))
-              false))
-          (str label ": register-all! must not throw"))
-      ;; Inventory delta — at least one story, at least one variant,
-      ;; at least one workspace under the registrar after this
-      ;; gallery's register-all! ran. Each L4 gallery contributes
-      ;; exactly one story + N variants + one workspace; the smoke
-      ;; pins the lower bound (NOT the exact count — a future
-      ;; addition variant must not break the smoke).
-      (let [story-ids     (rf.story/ids :story)
-            variant-ids   (rf.story/ids :variant)
-            workspace-ids (rf.story/ids :workspace)]
-        (is (seq story-ids)
-            (str label ": at least one story registered"))
-        (is (seq variant-ids)
-            (str label ": at least one variant registered"))
-        (is (seq workspace-ids)
-            (str label ": at least one workspace registered"))))))
+  ;; Per gallery, because one gallery's typo (a lowercase `:workspace.*`
+  ;; id, an unregistered `:feature/*` tag) aborts only that gallery's
+  ;; register-all! while the aggregate inventory stays non-empty.
+  (doseq [[label register-all!] galleries]
+    (rf.story/clear-all!)
+    (rf.story/install-canonical-vocabulary!)
+    (let [ran? (try
+                 (register-all!)
+                 true
+                 (catch :default e
+                   (println "[panel-gallery-inventory-smoke]" label
+                            "register-all! threw:" (ex-message e))
+                   false))]
+      (is (= [true true true true]
+             [ran?
+              (boolean (seq (rf.story/ids :story)))
+              (boolean (seq (rf.story/ids :variant)))
+              (boolean (seq (rf.story/ids :workspace)))])
+          (str label ": register-all! runs and registers a story, a variant and a workspace")))))
