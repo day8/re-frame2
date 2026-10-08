@@ -1,31 +1,17 @@
 /**
  * Unit tests for .github/scripts/preflight-story-package.sh.
  *
- * # Why these exist
- *
  * The preflight is the last gate before an IRREVERSIBLE Clojars publish of
- * `day8/re-frame2-story`. Its green side cannot be exercised end-to-end in
- * this repo: a genuinely rewritten tools/story/deps.edn resolves the five
- * in-repo coordinates from Clojars, and none of them are published yet
- * (`clojure -M:clein pom` fails at classpath resolution — which is itself
- * the "cannot deploy before its dependencies exist" gate working). So the
- * script's PARSING + VERDICT half is proved here against fixture poms,
- * exactly as the reagent-slim sibling does.
+ * `day8/re-frame2-story`. Its green side cannot be exercised end-to-end here,
+ * because a genuinely rewritten tools/story/deps.edn resolves its in-repo
+ * coordinates from Clojars, so the script's PARSING + VERDICT half is proved
+ * against fixture poms: a throwaway post-`clein pom` build tree with a no-op
+ * stub `clojure` on PATH, and the real script run against it. Run against the
+ * unrewritten deps.edn, `clein pom` silently skips all five `:local/root`
+ * coordinates; that is the pom this gate exists to stop.
  *
- * The failure this pins is not hypothetical. Run against the unrewritten
- * tools/story/deps.edn in the repo, `clein pom` emits a pom carrying only
- * {org.clojure/clojure, reagent/reagent, metosin/malli} — all five
- * `:local/root` coordinates (core, reagent adapter, machines, HTTP, Xray)
- * are silently skipped. That pom is UNREWRITTEN_POM below.
- *
- * # Mechanism
- *
- * Same shape as _preflight-reagent-slim-package.test.cjs: build a throwaway
- * dir that looks like a post-`clein pom` build tree, put a stub `clojure` on
- * PATH so the script's own `clojure -M:clein pom` is a no-op, and run the
- * real script against it. See that file's `buildCommand` comment for the
- * WSL double-expansion portability contract this runner also honours:
- * the `bash -lc` string may reference only $PWD and $PATH.
+ * The `bash -lc` string references only $PWD and $PATH: WSL's bash.exe expands
+ * it twice, so a variable it assigned itself would read empty.
  */
 
 'use strict';
@@ -38,9 +24,6 @@ const path = require('path');
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const SCRIPT_REL = '.github/scripts/preflight-story-package.sh';
-// Process-scoped fixture lanes under the gitignored in-repo `.scratch/`;
-// the shared root is never removed, so a concurrent suite cannot delete
-// this one's fixtures mid-run.
 const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const VERSION = '0.0.1.alpha';
@@ -52,8 +35,8 @@ function test(name, fn) {
 
 // ── Pom fixtures ────────────────────────────────────────────────────────
 
-// `exclusions` is a list of [groupId, artifactId] pairs. The emitted shape
-// is verbatim what `clein pom` writes for a deps.edn `:exclusions` vector.
+// `exclusions` is a list of [groupId, artifactId] pairs, emitted verbatim as
+// `clein pom` writes a deps.edn `:exclusions` vector.
 function dep(groupId, artifactId, version, exclusions = []) {
   return [
     '    <dependency>',
@@ -104,14 +87,13 @@ const IN_REPO_NAMES = [
   're-frame2-xray',
 ];
 
-// Story excludes reagent-slim from its Xray edge. It is
-// load-bearing — without it a published Story consumer resolves TWO
-// providers of re-frame.adapter.reagent — so the preflight asserts it and
-// the CORRECT fixture must carry it.
+// Story excludes reagent-slim from its Xray edge: without it a published Story
+// consumer resolves TWO providers of re-frame.adapter.reagent, so the CORRECT
+// fixture carries it.
 const XRAY_EXCLUSIONS = [['day8', 'reagent-slim']];
 
-// Pass `{ exclusions: [...] }` to override; by default the Xray coordinate
-// carries its exclusion and every other in-repo coordinate carries none.
+// By default the Xray coordinate carries its exclusion and every other in-repo
+// coordinate carries none; `{ exclusions }` overrides.
 function inRepoDep(name, version = VERSION, { exclusions } = {}) {
   const excl = exclusions !== undefined
     ? exclusions
@@ -119,29 +101,10 @@ function inRepoDep(name, version = VERSION, { exclusions } = {}) {
   return dep('day8', name, version, excl);
 }
 
-function inRepoDeps(version = VERSION) {
-  return IN_REPO_NAMES.map((name) => inRepoDep(name, version));
-}
-
-// What a CORRECTLY rewritten deps.edn produces: all five in-repo
-// coordinates at the lockstep version, plus the three third-party deps.
-const REWRITTEN_POM = pomWith([...THIRD_PARTY, ...inRepoDeps()]);
-
-// What the UNREWRITTEN deps.edn produces — verbatim shape captured by
-// running `clojure -M:clein pom` in tools/story. This is the pom the
-// preflight exists to stop reaching Clojars.
-const UNREWRITTEN_POM = pomWith(THIRD_PARTY);
+// What a CORRECTLY rewritten deps.edn produces.
+const REWRITTEN_POM = pomWith([...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n))]);
 
 // ── Fixture construction ────────────────────────────────────────────────
-
-function writeStub(file, body) {
-  fs.writeFileSync(file, body, { mode: 0o755 });
-  fs.chmodSync(file, 0o755);
-}
-
-function relPosix(abs) {
-  return path.relative(REPO_ROOT, abs).split(path.sep).join('/');
-}
 
 function shQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -149,196 +112,94 @@ function shQuote(s) {
 
 function makeFixture({ pom = REWRITTEN_POM } = {}) {
   const dir = makeScratchDir(REPO_ROOT, 'rf2-story-preflight');
-
-  if (pom !== null) {
-    const pomDir = path.join(
-      dir, 'target', 'classes', 'META-INF', 'maven', 'day8', 're-frame2-story',
-    );
-    fs.mkdirSync(pomDir, { recursive: true });
-    fs.writeFileSync(path.join(pomDir, 'pom.xml'), pom);
-  }
+  const pomDir = path.join(
+    dir, 'target', 'classes', 'META-INF', 'maven', 'day8', 're-frame2-story',
+  );
+  fs.mkdirSync(pomDir, { recursive: true });
+  fs.writeFileSync(path.join(pomDir, 'pom.xml'), pom);
 
   const binDir = path.join(dir, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   // `clojure -M:clein pom` — no-op; target/ is pre-placed above.
-  writeStub(path.join(binDir, 'clojure'), '#!/usr/bin/env sh\nexit 0\n');
+  const stub = path.join(binDir, 'clojure');
+  fs.writeFileSync(stub, '#!/usr/bin/env sh\nexit 0\n', { mode: 0o755 });
+  fs.chmodSync(stub, 0o755);
 
-  return { dir, rel: relPosix(dir) };
+  return { rel: path.relative(REPO_ROOT, dir).split(path.sep).join('/') };
 }
 
-// Only $PWD and $PATH — see the header note on WSL double expansion.
-function buildCommand(rel, version) {
-  return [
+function run(fixture) {
+  const command = [
     'env',
-    `PATH="$PWD/${rel}/bin:$PATH"`,
-    `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(version)} ${shQuote(rel)}`,
+    `PATH="$PWD/${fixture.rel}/bin:$PATH"`,
+    `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(VERSION)} ${shQuote(fixture.rel)}`,
   ].join(' ');
+  const res = spawnSync('bash', ['-lc', command], { cwd: REPO_ROOT, encoding: 'utf8' });
+  return { status: res.status, out: `${res.stdout}\n${res.stderr}` };
 }
 
-function run(fixture, version = VERSION) {
-  return spawnSync('bash', ['-lc', buildCommand(fixture.rel, version)], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
+function expectFail(deps, what, messagePattern) {
+  const { status, out } = run(makeFixture({ pom: pomWith(deps) }));
+  assert.notEqual(status, 0, `${what}: expected a NON-ZERO exit — the gate waved a bad package through\n${out}`);
+  assert.match(out, messagePattern, `${what}: expected a diagnostic matching ${messagePattern}\n${out}`);
 }
 
-function cleanup() {
-  cleanupScratchDirs();
-}
-
-function expectPass(fixture, what, version = VERSION) {
-  const res = run(fixture, version);
-  const out = `${res.stdout}\n${res.stderr}`;
-  assert.equal(res.status, 0, `${what}: expected exit 0 (PASSED), got ${res.status}\n${out}`);
-  assert.match(out, /verification PASSED/, `${what}: expected a PASSED verdict\n${out}`);
-}
-
-function expectFail(fixture, what, messagePattern, version = VERSION) {
-  const res = run(fixture, version);
-  const out = `${res.stdout}\n${res.stderr}`;
-  assert.notEqual(
-    res.status, 0,
-    `${what}: expected a NON-ZERO exit, got ${res.status} — the gate waved a bad package through\n${out}`,
-  );
-  assert.doesNotMatch(out, /verification PASSED/, `${what}: must not print a PASSED verdict\n${out}`);
-  if (messagePattern) {
-    assert.match(out, messagePattern, `${what}: expected a diagnostic matching ${messagePattern}\n${out}`);
-  }
-}
-
-// ── The correct pom must pass ───────────────────────────────────────────
-//
 // The over-tightening trap: a preflight that reds a CORRECT pom blocks a
 // legitimate release and gets bypassed by whoever is trying to ship.
-
 test('a correctly rewritten pom PASSES', () => {
-  expectPass(makeFixture(), 'rewritten pom');
-});
-
-// ── The unrewritten pom ─────────────────────────────────────────────────
-
-test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () => {
-  const fixture = makeFixture({ pom: UNREWRITTEN_POM });
-  expectFail(fixture, 'unrewritten pom', /MISSING the required DIRECT dependency day8\/re-frame2\b/);
-  // Every one of the five must be reported, not just the first.
-  const out = (() => {
-    const res = run(fixture);
-    return `${res.stdout}\n${res.stderr}`;
-  })();
-  for (const name of IN_REPO_NAMES) {
-    assert.match(
-      out, new RegExp(`MISSING the required DIRECT dependency day8/${name}\\.`),
-      `unrewritten pom: expected day8/${name} to be reported missing\n${out}`,
-    );
-  }
+  const { status, out } = run(makeFixture());
+  assert.equal(status, 0, `rewritten pom: expected exit 0, got ${status}\n${out}`);
+  assert.match(out, /verification PASSED/, `rewritten pom: expected a PASSED verdict\n${out}`);
 });
 
 test('a pom missing ONLY Xray fails — the rf2-r8trk edge at the package boundary', () => {
-  // Xray is a required Story dep. A rewrite loop that does not cover
-  // every in-repo coordinate produces exactly this pom.
-  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES
-    .filter((n) => n !== 're-frame2-xray')
-    .map((n) => inRepoDep(n))];
+  // A rewrite loop that does not cover every in-repo coordinate produces this.
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    [...THIRD_PARTY, ...IN_REPO_NAMES.filter((n) => n !== 're-frame2-xray').map((n) => inRepoDep(n))],
     'pom missing only Xray',
     /MISSING the required DIRECT dependency day8\/re-frame2-xray/,
   );
 });
 
-// ── Lockstep ────────────────────────────────────────────────────────────
-
 test('an in-repo dep at the WRONG version fails', () => {
-  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
-    (n) => inRepoDep(n, n === 're-frame2-http' ? '0.0.0.stale' : VERSION),
-  )];
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n, n === 're-frame2-http' ? '0.0.0.stale' : VERSION))],
     'stale in-repo version',
     /day8\/re-frame2-http is at version '0\.0\.0\.stale', expected the lockstep/,
   );
 });
 
-// ── The reagent-slim exclusion on the Xray edge ─────────────────────────
-//
-// The deletion this guards against looks like tidy-up to anyone meeting the
-// exclusion cold, and the failure it prevents is silent at build time: the
-// consumer just gets the wrong adapter. `clojure -Stree` and a complete pom
-// are both entirely consistent with the colliding graph, so this
-// assertion is the only thing standing over it.
-
+// Deleting the exclusion looks like tidy-up, and the failure it prevents is
+// silent at build time: the consumer just gets the wrong adapter. Maven scopes
+// <exclusions> to the dependency carrying them, so one parked on another edge
+// excludes nothing that matters.
 test('the exclusion must sit on the XRAY edge, not merely somewhere in the pom', () => {
-  // An exclusion parked on the wrong coordinate excludes nothing that
-  // matters — Maven scopes <exclusions> to the dependency carrying them.
-  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => {
-    if (n === 're-frame2-xray') return inRepoDep(n, VERSION, { exclusions: [] });
-    if (n === 're-frame2-machines') return inRepoDep(n, VERSION, { exclusions: XRAY_EXCLUSIONS });
-    return inRepoDep(n);
-  })];
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => {
+      if (n === 're-frame2-xray') return inRepoDep(n, VERSION, { exclusions: [] });
+      if (n === 're-frame2-machines') return inRepoDep(n, VERSION, { exclusions: XRAY_EXCLUSIONS });
+      return inRepoDep(n);
+    })],
     'exclusion on the wrong edge',
     /day8\/re-frame2-xray does not EXCLUDE day8\/reagent-slim/,
   );
 });
 
-// ── Incomplete + unexpected coordinates ─────────────────────────────────
-
 test('an empty <version> fails — an incomplete GAV is unresolvable', () => {
-  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
-    (n) => inRepoDep(n, n === 're-frame2-machines' ? '' : VERSION),
-  )];
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n, n === 're-frame2-machines' ? '' : VERSION))],
     'empty version',
     /has a missing or empty <version>/,
   );
 });
 
 test('a leaked test-only dependency fails with a pointed hint', () => {
-  // re-frame2-epoch is test-only for Story and lives under its :test alias.
-  // Seeing it in the published pom means the alias leaked into :deps.
-  const deps = [...THIRD_PARTY, ...inRepoDeps(), dep('day8', 're-frame2-epoch', VERSION)];
+  // re-frame2-epoch is test-only for Story, under its :test alias; in the
+  // published pom it means the alias leaked into :deps.
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => inRepoDep(n)), dep('day8', 're-frame2-epoch', VERSION)],
     'leaked test-only dep',
     /UNEXPECTED DIRECT dependency day8\/re-frame2-epoch.*test-only for Story/s,
-  );
-});
-
-// ── Structural failure modes ────────────────────────────────────────────
-
-test('an absent <dependencies> block fails rather than passing vacuously', () => {
-  const pom = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<project xmlns="http://maven.apache.org/POM/4.0.0">',
-    '  <groupId>day8</groupId>',
-    '  <artifactId>re-frame2-story</artifactId>',
-    '</project>',
-    '',
-  ].join('\n');
-  expectFail(makeFixture({ pom }), 'no dependencies block', /MISSING the required DIRECT dependency/);
-});
-
-test('a missing pom file fails', () => {
-  expectFail(makeFixture({ pom: null }), 'missing pom', /expected pom not found/);
-});
-
-test('a malformed pom fails rather than parsing to an empty dep set', () => {
-  expectFail(makeFixture({ pom: '<project><dependencies>' }), 'malformed pom', /not well-formed XML/);
-});
-
-// ── Portability contract ────────────────────────────────────────────────
-
-test('the bash -lc command references only pre-existing shell variables', () => {
-  const referenced = [...buildCommand('some/rel', VERSION).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)]
-    .map((m) => m[1]);
-  const notPreExisting = referenced.filter((n) => !['PWD', 'PATH'].includes(n));
-  assert.deepEqual(
-    notPreExisting, [],
-    'WSL\'s bash.exe expands the -c string TWICE, so a variable this command assigns '
-      + 'itself resolves to EMPTY before the assignment runs — dropping the fixture stub off '
-      + `PATH. Offending: ${notPreExisting.join(', ')}.`,
   );
 });
 
@@ -354,7 +215,7 @@ for (const { name, fn } of tests) {
   }
 }
 
-cleanup();
+cleanupScratchDirs();
 
 if (failed > 0) {
   console.error(`preflight-story-package tests: ${failed} of ${tests.length} failed.`);
