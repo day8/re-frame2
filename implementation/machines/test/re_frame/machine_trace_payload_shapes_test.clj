@@ -1,26 +1,11 @@
 (ns re-frame.machine-trace-payload-shapes-test
-  "The payload shapes three machine trace events carry — each a CLOSED
-  vocabulary the Xray epoch panel's Handler section reads:
-
-    1. `:rf.machine/action-ran` carries `:phase` from the closed set
-       `:exit / :transition / :entry / :always / :after-action /
-       :initial-entry / :destroy-exit` (`:exit` / `:transition` / `:entry`
-       and `:initial-entry` are pinned in `action_ran_decl_path_test`).
-    2. `:rf.machine/guard-evaluated` carries `:outcome :threw` with
-       `:exception` when the guard fn throws. Per Spec 005
-       §`:rf.machine/guard-evaluated` (XState v5 alignment):
-       a throwing guard SURFACES the error and ABORTS the macrostep — the
-       candidate walk does NOT continue past it, no transition fires, the
-       snapshot rolls back atomically, and a
-       `:rf.error/machine-action-exception` error trace fires (the same
-       failed-macrostep / atomic-rollback surface a thrown ACTION takes).
-    3. `:rf.machine.timer/cancelled` (single canonical event id) is
-       emitted on every cancellation path with `:reason` from the
-       closed set `:on-exit / :on-destroy / :on-resolution /
-       :on-supersede / :on-frame-destroy`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Payload shapes the Xray epoch panel reads off machine traces: the
+  `:rf.machine/action-ran` `:phase`, a throwing guard's
+  `:rf.machine/guard-evaluated` (which aborts the macrostep, Spec 005
+  §`:rf.machine/guard-evaluated`), and `:rf.machine.timer/cancelled` with its
+  `:reason`, paired to the `:scheduled` arm it closes."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -28,12 +13,7 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- helpers ---------------------------------------------------------------
-
-;; Routed through the shared `rf.machines.test-support/with-trace-capture`
-;; — guaranteed unregister in a `finally`.
-(defn- record-traces!
-  [body-fn]
+(defn- record-traces! [body-fn]
   (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
@@ -41,169 +21,75 @@
 (defn- ops [evs op]
   (filterv #(= op (:operation %)) evs))
 
-;; =====================================================================
-;; (1) :rf.machine/action-ran carries :phase
-;; =====================================================================
-
-(deftest action-ran-phase-always
-  (testing "an `:always` step's action-ran carries :phase :always"
-    (rf/reg-machine :rf2-82a0u/always
-      {:initial :a
-       :data    {:hop? true}
-       :guards  {:hop? (fn [{d :data}] (:hop? d))}
-       :actions {:do-step (fn [_] {:data {:hop? false}})
-                 :tap     (fn [_] nil)}
-       :states  {:a {:on {:go {:target :b}}}
-                 :b {:always [{:guard :hop? :target :c :action :do-step}]}
-                 :c {:entry :tap}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rf2-82a0u/always [:go]])))
-          as  (ops evs :rf.machine/action-ran)
-          by-id (into {} (map (juxt #(-> % :tags :action-id)
-                                    #(-> % :tags :phase)))
-                          as)]
-      (is (= :always (:do-step by-id))
-          ":do-step ran from the :always microstep — :phase :always")
-      (is (= :entry (:tap by-id))
-          ":tap is :c's :entry from the :always-driven entry cascade"))))
-
-(deftest action-ran-phase-after-action
-  (testing "an :after-driven transition action-ran carries :phase :after-action"
-    (rf/reg-machine :rf2-82a0u/after
-      {:initial :loading
-       :actions {:do-timeout (fn [_] nil)}
-       :states  {:loading {:after {1000 {:target :done :action :do-timeout}}}
-                 :done    {}}})
-    ;; Bootstrap into :loading first (so the per-path epoch lands at 1).
-    ;; Then dispatch the synthetic after-elapsed event carrying the
-    ;; matching delay-key + carried-epoch + carried-decl-path tuple.
-    (let [_ (rf/dispatch-sync [:rf2-82a0u/after [:rf.machine/start]])
-          evs (record-traces!
-                (fn []
-                  (rf/dispatch-sync
-                    [:rf2-82a0u/after
-                     [:rf.machine.timer/after-elapsed 1000 1 [:loading]]])))
-          as  (ops evs :rf.machine/action-ran)
-          do-t (some #(when (= :do-timeout (-> % :tags :action-id)) %) as)]
-      (is (some? do-t) ":do-timeout fired")
-      (is (= :after-action (-> do-t :tags :phase))
-          "the timer-driven transition's :action stamps :after-action"))))
-
-;; =====================================================================
-;; (2) :rf.machine/guard-evaluated outcome :threw
-;; =====================================================================
+(deftest action-ran-phase-marks-always-and-after-actions
+  (rf/reg-machine :ps/phases
+    {:initial :a
+     :actions {:hop (fn [_] nil) :tap (fn [_] nil) :timeout (fn [_] nil)}
+     :states  {:a {:on {:go :b}}
+               :b {:always [{:target :c :action :hop}]}
+               :c {:entry :tap
+                   :after {1000 {:target :d :action :timeout}}}
+               :d {}}})
+  (let [evs (record-traces!
+              (fn []
+                (rf/dispatch-sync [:ps/phases [:go]])
+                (rf/dispatch-sync [:ps/phases [:rf.machine.timer/after-elapsed 1000 1 [:c]]])))]
+    (is (= [[:hop :always] [:tap :entry] [:timeout :after-action]]
+           (mapv (comp (juxt :action-id :phase) :tags) (ops evs :rf.machine/action-ran))))))
 
 (deftest guard-evaluated-threw-surfaces-error-and-aborts-selection
-  (testing "XState v5 alignment: a throwing guard emits
-            :outcome :threw + :exception (so it stays observable) but
-            then ABORTS transition selection — the candidate walk does NOT
-            continue to the next sibling, and a
-            :rf.error/machine-action-exception error trace fires. XState v5
-            surfaces a guard error and aborts selection; it never swallows
-            the throw and silently demotes to a lower-priority candidate."
-    (rf/reg-machine :rf2-82a0u/guard-throws
-      {:initial :idle
-       :guards  {:boom (fn [_] (throw (ex-info "guard boom" {})))
-                 :ok   (fn [_] true)}
-       :states  {:idle  {:on {:go [{:guard :boom :target :A}
-                                   {:guard :ok   :target :B}]}}
-                 :A     {}
-                 :B     {}}})
-    ;; Boot first so the atomic-rollback target is the committed :idle
-    ;; snapshot (a guard throw on the SAME macrostep as a lazy boot rolls
-    ;; the boot back too — there would be no committed snapshot at all).
-    (rf/dispatch-sync [:rf2-82a0u/guard-throws [:rf.machine/start]])
-    (let [evs   (record-traces!
-                  (fn [] (rf/dispatch-sync [:rf2-82a0u/guard-throws [:go]])))
-          gs    (ops evs :rf.machine/guard-evaluated)
-          errs  (ops evs :rf.error/machine-action-exception)]
-      ;; The throwing guard's observability trace still fires...
-      (is (= 1 (count gs))
-          "ONLY the throwing guard evaluated — selection aborted, the next
-           sibling was NEVER reached (XState v5: surface + abort, not demote)")
-      (let [g1 (first gs)]
-        (is (= :boom (-> g1 :tags :guard-id)))
-        (is (= :threw (-> g1 :tags :outcome))
-            ":threw outcome marker on the throwing guard")
-        (is (instance? Throwable (-> g1 :tags :exception))
-            ":exception slot carries the thrown Throwable"))
-      ;; ...and the guard throw surfaces as a FAILED macrostep through the
-      ;; same machine-scoped error category a thrown action takes.
-      (is (= 1 (count errs))
-          "the guard throw surfaces a :rf.error/machine-action-exception
-           (the machine-scoped throw category — same surface as an action throw)")
-      ;; Atomic rollback: no transition fired, the snapshot stays at :idle.
-      (let [db   (rf.frame/frame-runtime-db-value :rf/default)
-            snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/guard-throws])]
-        (is (= :idle (:state snap))
-            "macrostep aborted atomically — neither :A nor :B was entered")))))
-
-;; =====================================================================
-;; (3) :rf.machine.timer/cancelled — unified event with :reason
-;; =====================================================================
-
-(defn- timer-cancellations [evs]
-  (ops evs :rf.machine.timer/cancelled))
+  (rf/reg-machine :ps/guard-throws
+    {:initial :idle
+     :guards  {:boom (fn [_] (throw (ex-info "guard boom" {})))
+               :ok   (fn [_] true)}
+     :states  {:idle {:on {:go [{:guard :boom :target :A}
+                                {:guard :ok   :target :B}]}}
+               :A    {}
+               :B    {}}})
+  ;; Boot first: a throw on the macrostep that lazily boots rolls the boot back too.
+  (rf/dispatch-sync [:ps/guard-throws [:rf.machine/start]])
+  (let [evs (record-traces! #(rf/dispatch-sync [:ps/guard-throws [:go]]))]
+    (is (= [[:boom :threw true]]
+           (mapv (fn [{t :tags}] [(:guard-id t) (:outcome t) (instance? Throwable (:exception t))])
+                 (ops evs :rf.machine/guard-evaluated)))
+        "only the throwing guard ran: selection aborted instead of falling through to :ok")
+    (is (= 1 (count (ops evs :rf.error/machine-action-exception))))
+    (is (= :idle (rf.machines.test-support/machine-state :ps/guard-throws))
+        "the macrostep rolled back atomically")))
 
 (deftest cancelled-on-exit-carries-its-reason-and-mirrors-scheduled
-  (testing "an :after timer cancelled by state-exit emits ONE :cancelled with
-            :reason :on-exit, whose payload mirrors :scheduled's shape for
-            arm-cancel pairing by (machine-id, state, epoch)"
-    (rf/reg-machine :rf2-82a0u/mirror
-      {:initial :loading
-       :states  {:loading {:after {30000 :timeout}
-                           :on    {:cancel :idle}}
-                 :idle    {}
-                 :timeout {}}})
-    (let [evs (record-traces!
-                (fn []
-                  ;; Bootstrap into :loading (the fx layer arms the timer), then
-                  ;; exit it, which fires after-cancel-fx.
-                  (rf/dispatch-sync [:rf2-82a0u/mirror [:rf.machine/start]])
-                  (rf/dispatch-sync [:rf2-82a0u/mirror [:cancel]])))
-          sched-ev  (first (ops evs :rf.machine.timer/scheduled))
-          cs        (timer-cancellations evs)
-          cancel-ev (first cs)]
-      (is (some? sched-ev) ":scheduled fired")
-      (is (= 1 (count cs))
-          "exactly one cancellation trace from the exit")
-      (is (= :on-exit (-> cancel-ev :tags :reason))
-          ":reason :on-exit stamped on the unified event")
-      (is (= :rf2-82a0u/mirror
-             (-> sched-ev :tags :actor-id)
-             (-> cancel-ev :tags :actor-id))
-          ":actor-id names the machine on both halves of the pair")
-      (is (= (-> sched-ev :tags :state)
-             (-> cancel-ev :tags :state))
-          ":state matches")
-      (is (some? (-> cancel-ev :tags :epoch))
-          ":epoch present for pairing")
-      (is (= (-> sched-ev :tags :epoch)
-             (-> cancel-ev :tags :epoch))
-          ":epoch matches — the cancel closes the same arm's slot")
-      (is (some? (-> cancel-ev :tags :frame))
-          ":frame present (epoch-capture admission)"))))
+  (rf/reg-machine :ps/mirror
+    {:initial :loading
+     :states  {:loading {:after {30000 :timeout}
+                         :on    {:cancel :idle}}
+               :idle    {}
+               :timeout {}}})
+  (let [evs     (record-traces!
+                  (fn []
+                    (rf/dispatch-sync [:ps/mirror [:rf.machine/start]])
+                    (rf/dispatch-sync [:ps/mirror [:cancel]])))
+        pairing (-> (ops evs :rf.machine.timer/scheduled)
+                    first
+                    :tags
+                    (select-keys [:actor-id :state :epoch :frame]))]
+    (is (= {:actor-id :ps/mirror :state :loading :epoch 1 :frame :rf/default} pairing))
+    (is (= [(assoc pairing :reason :on-exit)]
+           (mapv #(select-keys (:tags %) [:actor-id :state :epoch :frame :reason])
+                 (ops evs :rf.machine.timer/cancelled)))
+        "one cancellation, pairable with its arm by (actor, state, epoch)")))
 
 (deftest cancelled-on-destroy-emits-reason-on-destroy
-  (testing "destroying a machine with an armed `:after` timer cancels
-            via the destroy path with `:reason :on-destroy`"
-    (rf/reg-machine :rf2-82a0u/destroy-target
-      {:initial :armed
-       :states  {:armed {:after {60000 :done}}
-                 :done  {}}})
-    (rf/reg-machine :rf2-82a0u/destroyer
-      {:initial :ready
-       :states  {:ready {:on {:fire {:action (fn [_]
-                                               {:fx [[:rf.machine/destroy
-                                                      :rf2-82a0u/destroy-target]]})}}}}})
-    (let [evs (record-traces!
-                (fn []
-                  ;; Bootstrap the target so its :after arms.
-                  (rf/dispatch-sync [:rf2-82a0u/destroy-target [:rf.machine/start]])
-                  ;; Bootstrap the destroyer, then trigger destroy.
-                  (rf/dispatch-sync [:rf2-82a0u/destroyer [:rf.machine/start]])
-                  (rf/dispatch-sync [:rf2-82a0u/destroyer [:fire]])))
-          cs  (timer-cancellations evs)
-          destroy-evs (filter #(= :on-destroy (-> % :tags :reason)) cs)]
-      (is (seq destroy-evs)
-          (str "at least one :reason :on-destroy emit; got " (mapv #(-> % :tags :reason) cs))))))
+  (rf/reg-machine :ps/destroy-target
+    {:initial :armed
+     :states  {:armed {:after {60000 :done}}
+               :done  {}}})
+  (rf/reg-machine :ps/destroyer
+    {:initial :ready
+     :states  {:ready {:on {:fire {:action (fn [_]
+                                             {:fx [[:rf.machine/destroy :ps/destroy-target]]})}}}}})
+  (let [evs (record-traces!
+              (fn []
+                (rf/dispatch-sync [:ps/destroy-target [:rf.machine/start]])
+                (rf/dispatch-sync [:ps/destroyer [:rf.machine/start]])
+                (rf/dispatch-sync [:ps/destroyer [:fire]])))]
+    (is (some #{:on-destroy} (map #(-> % :tags :reason) (ops evs :rf.machine.timer/cancelled))))))
