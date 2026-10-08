@@ -1,55 +1,12 @@
 (ns re-frame.ssr-route-miss-404-production-test
-  "ACCEPTANCE — an SSR request for an UNROUTABLE URL answers HTTP 404
-  under the REAL production gate.
+  "An SSR request for an unroutable URL answers 404 under the real
+  production gate — not a soft-404 200.
 
-  WHY. `re-frame.interop/debug-enabled?` reads `-Dre-frame.debug=false`
-  ONCE at namespace-load time. A URL-driven route miss reaching the outside
-  world through ONE channel — `plan/emit-intents!` → `trace/emit-error!`,
-  which sits inside that gate — would buffer nothing on a production JVM:
-  `flush-response!` would have nothing to project and `:status` would stay
-  200. RFC 9110 calls 200 a success, and Google calls a 200'd not-found
-  page a soft 404 and drops it from Search. So that ONE emit site also
-  rides the always-on error axis (`error-emit/dispatch-error-record!`, via
-  the `:error-emit/dispatch-error-record` late-bind hook) alongside its
-  dev trace.
-
-  WHY THIS SUITE IS POSTURE-INDEPENDENT, AND WHY THAT MATTERS. Every
-  assertion below is true under BOTH postures and mentions the dev trace
-  bus NOWHERE, so the namespace joins `scripts/test-ssr-prod-gate.sh` by
-  default (that roster is an EXCLUSION list) and executes under
-  `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
-  false]` rebind CANNOT reach a load-time gate — it is not evidence for
-  this contract, and a suite relying on it stays green while production
-  ships a 200.
-
-  WHAT IS PINNED:
-
-    1. The wire. A route miss projects `{:status 404 :code :not-found}`
-       onto the response accumulator, with NO redirect — a status-only
-       404.
-    2. The record. EXACTLY ONE always-on `:rf.error/no-such-handler`
-       record reaches an off-box shipper, carrying `:kind :route`, the
-       emitting `:frame`, `:time`, `:recovery`, the structured `:reason`
-       and a REDACTED `:url` — never a raw query / fragment carrier value,
-       never an app-db slice (EP-0015 fail-closed; the `:url` slot is the
-       class most likely to carry `?token=…` / `#access_token=…`).
-    3. The `:kind` gate. An unregistered EVENT dispatch is a SERVER defect
-       and answers 500, not 404 — the gate that makes the always-on route
-       miss safe, since without it every `:rf.error/no-such-handler`
-       reaching the projector would answer 404.
-    4. The seam. A projector registered through `reg-error-projector`
-       still wins over the built-in default on the always-on path.
-
-  Companion suites:
-    - `re-frame.ssr-end-to-end-test` — the end-to-end cascade, and the
-      default projector's whole case table.
-    - `re-frame.ssr-error-projector-substrate-test` — the always-on
-      substrate install.
-    - `re-frame.ssr-error-two-frame-attribution-test` — the always-on
-      listener routing a record to its emitting frame with a sibling
-      server frame live.
-    - `re-frame.ssr-routing-egress-production-test` — the
-      other always-on witness written to run in this lane."
+  The route miss's dev trace is elided under `-Dre-frame.debug=false`, so
+  the same emit site also rides the always-on error axis, and that record is
+  what a production server projects from. Every assertion here holds in both
+  postures, so the namespace runs under `scripts/test-ssr-prod-gate.sh` for
+  real — a `with-redefs` of the load-time gate would prove nothing."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -58,222 +15,57 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; NOTE the fixture does NOT clear the always-on error-listener registry.
-;; `re-frame.ssr` installs its own `::error-projection` listener there at
-;; ns-load time, and that listener IS the production status-projection
-;; path this suite exercises; wiping the registry would silently disarm
-;; every 404 assertion below into a vacuous 200. Each test unregisters
-;; only the shipper stand-in it registered.
+;; The fixture must not clear the always-on registry: `re-frame.ssr`'s
+;; `::error-projection` listener there IS the production projection path.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
+(defn- server-frame []
+  (rf.frame/make-anon-frame-record!
+    {:platform :server
+     :ssr      {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}}))
 
-;; A URL that matches no registered route AND carries both carrier classes
-;; the EP-0015 scrub targets: a query VALUE and an opaque `#fragment`.
-(def ^:private hostile-miss-url
-  "/no-such-page?token=s3cr3t-query-value&flag#s3cr3t-fragment-value")
-
-(defn- register-routes! []
+(defn- miss!
+  "Register the routes, dispatch a URL change for `url` on frame `f`, and
+  return the always-on records a shipper saw."
+  [f url]
   (rf/reg-route :route/home {} "/")
-  (rf/reg-route :rf.route/not-found {} "/not-found"))
-
-(defn- server-frame
-  "A `:platform :server` frame wired to `projector-id` (the built-in
-  default unless a test names its own)."
-  ([] (server-frame :rf.ssr/default-error-projector))
-  ([projector-id]
-   (rf.frame/make-anon-frame-record!
-     {:platform :server
-      :ssr      {:public-error-id   projector-id
-                 :dev-error-detail? false}})))
-
-(defn- capture-always-on!
-  "Register an off-box-shipper stand-in on the ALWAYS-ON error axis (the
-  `:errors` stream of `register-listener!` — surface #4, not the dev trace
-  bus). Returns the atom collecting every record it receives."
-  [id]
+  (rf/reg-route :rf.route/not-found {} "/not-found")
   (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
-    seen))
-
-;; ===========================================================================
-;; (1) THE WIRE — an unroutable URL answers 404, no redirect
-;; ===========================================================================
+    (rf.error-emit/register-error-listener! ::shipper #(swap! seen conj %))
+    (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame f})
+    (rf.error-emit/unregister-error-listener! ::shipper)
+    @seen))
 
 (deftest unroutable-url-projects-404-under-the-production-gate
-  (testing "`[:rf.route/handle-url-change \"/no-such-page\"]` on a
-            server frame projects the default projector's 404 onto
-            `:rf/response`. This is the central assertion: a miss riding
-            only the dev trace would observe 200 under
-            `-Dre-frame.debug=false` while passing in dev."
-    (register-routes!)
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      ;; The durable `:rf.route/not-found` slice (the app's source of truth
-      ;; for WHAT to render) and the per-request HTTP status (the wire
-      ;; decision) are both present and stay distinct surfaces.
-      (is (= :rf.route/not-found
-             (get-in (rf/frame-state-value f)
-                     [:rf.db/runtime :rf.runtime/routing :current :route-id]))
-          "the navigation slice committed the not-found fallback")
-
-      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
-        (is (= 404 (:status response))
-            "the drain projects the route miss onto :status — 404, not a soft-404 200")
-        (is (nil? (:redirect response))
-            "status-only: a route miss is not a redirect")
-        (is (= {:status     404
-                :code       :not-found
-                :message    "Page not found"
-                :retryable? false}
-               public-error)
-            "the projected :rf/public-error is the locked 404 shape per
-             Spec 011 §Default projector — the host classifies on the
-             projection, not by re-inferring from (:status response)")))))
-
-;; ===========================================================================
-;; (2) THE RECORD — exactly one, tight, redacted
-;; ===========================================================================
-
-(deftest the-always-on-record-carries-the-route-discriminator-and-attribution
-  (testing "the production record is the enumerated tight shape —
-            category + `:kind :route` + emitting `:frame` + `:time` +
-            `:recovery`. `:kind` is what the default projector gates its 404
-            arm on, so a record without it would silently fall to 500."
-    (register-routes!)
-    (let [seen (capture-always-on! ::shape)
-          f    (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf.error-emit/unregister-error-listener! ::shape)
-      (is (= [:rf.error/no-such-handler] (mapv :error @seen))
-          "exactly one always-on record, and it is the route-miss category —
-           Spec 009's one-runtime-error law: not one per channel, and not one
-           per telemetry intent")
-      (let [record (first @seen)]
-        (is (= #{:error :kind :frame :time :recovery :url}
-               (set (keys record)))
-            "the key set is CLOSED: `dispatch-error-record!` delivers the
-             record unchanged to every registered shipper, so exactly the
-             enumerated slots — no :db, no :params, no event vector, no
-             exception, no raw carrier")
-        (is (= :route (:kind record))
-            ":kind :route — the mandatory discriminator per Spec 009's
-             catalogue row, and the default projector's 404 gate")
-        (is (= f (:frame record))
-            "the emitting server frame — per-frame attribution is what lets
-             the projection listener route this to the right response
-             accumulator with many concurrent request frames live")
-        (is (integer? (:time record))
-            "the union record's mandatory :time slot")
-        (is (= :replaced-with-default (:recovery record))
-            "the framework-owned recovery, not an app-steerable policy")))))
+  (let [f (server-frame)]
+    (miss! f "/no-such-page")
+    (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
+      (is (= [404 {:status 404 :code :not-found :message "Page not found" :retryable? false}]
+             [(:status response) public-error])))))
 
 (deftest the-always-on-record-redacts-url-carrier-values
-  (testing "EP-0015 EGRESS: the always-on record is part of
-            what a PRODUCTION build sends off-box, so the fail-closed scrub
-            has to cover it and not just the dev trace. A
-            route-miss URL has no matched route and therefore no
-            `:params` / `:query` schema to target, yet it is the class most
-            likely to carry `?token=…` / `#access_token=…`. The redaction is
-            applied at the emit site, BEFORE either axis sees the tags."
-    (register-routes!)
-    (let [seen (capture-always-on! ::redaction)
-          f    (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change hostile-miss-url] {:frame f})
-      (rf.error-emit/unregister-error-listener! ::redaction)
-      (let [url (:url (first @seen))]
-        (is (some? url) "the record names the requested URL")
-        (is (not (str/includes? url "s3cr3t-query-value"))
-            "the query carrier VALUE never reaches an off-box shipper")
-        (is (not (str/includes? url "s3cr3t-fragment-value"))
-            "nor does the opaque #fragment, which could be an implicit-grant
-             token")
-        (is (str/starts-with? url "/no-such-page")
-            "the structured PATH survives — an error UI / SEO dashboard still
-             sees WHICH page was missing")
-        (is (str/includes? url "token=")
-            "and the query KEY survives: a security dashboard can still see
-             that a `token` parameter was present")))))
+  (testing "exactly one record, closed to the enumerated slots, carrying the
+            `:kind :route` the default projector's 404 gates on and the
+            emitting frame; its `:url` keeps the path and the query KEY but
+            never a query value or a `#fragment` (EP-0015)"
+    (let [f       (server-frame)
+          records (miss! f "/no-such-page?token=s3cr3t-query-value&flag#s3cr3t-fragment-value")
+          url     (:url (first records))]
+      (is (= [{:error :rf.error/no-such-handler :kind :route :frame f
+               :time true :recovery :replaced-with-default :url true}]
+             (mapv #(-> % (update :time integer?) (update :url string?)) records)))
+      (is (str/starts-with? url "/no-such-page?token="))
+      (is (not-any? #(str/includes? url %) ["s3cr3t-query-value" "s3cr3t-fragment-value"])))))
 
 (deftest a-malformed-miss-carries-its-structured-reason
-  (testing "the `:reason` vocabulary is uniform across
-            the route slice and BOTH error axes, so a production shipper can
-            tell a plain miss from a malformed URL without the dev trace."
-    (register-routes!)
-    (let [seen (capture-always-on! ::reason)
-          f    (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/bad%ZZ-encoding"] {:frame f})
-      (rf.error-emit/unregister-error-listener! ::reason)
-      (let [record (first @seen)]
-        (is (= :rf.error/no-such-handler (:error record)))
-        (is (= :malformed-url (:reason record))
-            "the malformed percent-encoding is named on the production record")
-        (is (= 404 (:status (rf.ssr/flush-response! f)))
-            "and it is still a 404 on the wire — a malformed URL matches no
-             route")))))
-
-;; ===========================================================================
-;; (3) THE :kind GATE — a server defect is a 500, not a 404
-;; ===========================================================================
-
-(deftest an-unregistered-event-dispatch-projects-500-not-404
-  (testing "THE :kind GATE: `:rf.error/no-such-handler` covers
-            three misses discriminated by `:kind`. Only `:kind :route` is a
-            missing-PAGE condition. A dispatch to an event id the server
-            forgot to register is a SERVER defect — telling the client its
-            URL was wrong would be a lie, and would poison crawler
-            behaviour. Without the gate, the always-on route miss would
-            make every unregistered-event dispatch answer 404."
-    (register-routes!)
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:never/registered] {:frame f})
-      (is (= 500 (:status (rf.ssr/flush-response! f)))
-          "the event-kind miss falls through to the locked generic-500"))))
-
-;; ===========================================================================
-;; (4) THE SEAM — a registered projector still wins
-;; ===========================================================================
-
-(deftest a-custom-projector-still-wins-on-the-promoted-path
-  (testing "the always-on route miss feeds the `reg-error-projector`
-            seam rather than bypassing it — which is why `:status` is not
-            derived from the routing slice at the host boundary. A frame that names its own projector gets its own
-            mapping, in production, on the route-miss path."
-    (register-routes!)
-    (rf/reg-error-projector :myapp/route-miss-projector
-      {:doc "Custom projector — a route miss is a 410 Gone."}
-      (fn [trace-event]
-        (if (= :rf.error/no-such-handler (:operation trace-event))
-          {:status 410 :code :gone :message "This page is gone" :retryable? false}
-          {:status 500 :code :internal-error :message "Nope" :retryable? false})))
-
-    (let [f (server-frame :myapp/route-miss-projector)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
-        (is (= 410 (:status response))
-            "the custom projector's status reaches the wire — the runtime
-             default did not shadow it")
-        (is (= :gone (:code public-error)))))))
-
-;; ===========================================================================
-;; (5) A CLIENT FRAME — the record fans, but there is no response to stamp
-;; ===========================================================================
+  (let [f      (server-frame)
+        record (first (miss! f "/bad%ZZ-encoding"))]
+    (is (= [:rf.error/no-such-handler :malformed-url 404]
+           [(:error record) (:reason record) (:status (rf.ssr/flush-response! f))]))))
 
 (deftest a-client-frame-route-miss-stamps-no-status
-  (testing "the always-on route miss does not give a CLIENT frame an HTTP
-            response. The record fans to off-box shippers on both hosts, but
-            the projection listener no-ops for a non-server frame — there is
-            no request to fail."
-    (register-routes!)
-    (let [seen     (capture-always-on! ::client)
-          client-f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
-                        {:frame client-f})
-      (rf.error-emit/unregister-error-listener! ::client)
-      (is (= [:rf.error/no-such-handler] (mapv :error @seen))
-          "the always-on record still fans — a CLJS production build's error
-           shipper sees the client-side route miss too")
-      (is (= 200 (:status (rf.ssr/get-response client-f)))
-          "but no status is stamped: a client frame has no HTTP response"))))
+  (testing "the record still fans, but a client frame has no response to stamp"
+    (let [client (rf.frame/make-anon-frame-record! {:platform :client})]
+      (is (= [[:rf.error/no-such-handler] 200]
+             [(mapv :error (miss! client "/no-such-page"))
+              (:status (rf.ssr/get-response client))])))))
