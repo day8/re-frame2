@@ -195,9 +195,7 @@
       (is (str/includes? flat "view-only")))))
 
 (deftest dialog-share-chip-opens-dialog
-  (testing "the toolbar SHARE chip's on-click opens the dialog — rendered
-            here with no variant focused, so the no-variant report and
-            snippet paths run too"
+  (testing "the toolbar SHARE chip's on-click opens the dialog"
     (rf.story.ui.share/close-share-export-dialog!)
     (is (nil? (rf.story.ui.share/share-export-dialog)) "closed before the click")
     (let [attrs (second (rf.story.ui.share/share-chip))]
