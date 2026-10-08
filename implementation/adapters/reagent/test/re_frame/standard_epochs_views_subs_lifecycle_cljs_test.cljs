@@ -1,59 +1,16 @@
 (ns re-frame.standard-epochs-views-subs-lifecycle-cljs-test
-  "Substrate contract coverage for the standard-epochs
-  Views/subscriptions section's view + subscription LIFECYCLE.
+  "The view and subscription lifecycle the standard-epochs testbed's
+  Views/subscriptions section demonstrates
+  (`tools/xray/testbeds/standard_epochs/core.cljs`, which is test-free),
+  asserted here on a copy of its subs under the same `:standard-epochs/*`
+  ids; the testbed is never loaded. Child A reads an L1→L2→L3 chain plus
+  the arg-keyed `[:standard-epochs/greater-than? N]`; Child B renders a prop
+  and subscribes nothing.
 
-  The standard-epochs testbed (`tools/xray/testbeds/standard_epochs/core.cljs`)
-  is test-free: its BUTTONS demonstrate the
-  behaviour for Xray + re-frame2-pair inspection. The hard ASSERTIONS
-  live here — the substrate subs/views contract suite — mirroring
-  the section's shape. Sibling to
-  `re-frame.sub-dispose-view-cljs-test` (the `:rf.sub/dispose` emit
-  axis); this file pins the cache-STATE + render-CAUSE axes.
-
-  The section has TWO children so re-render CAUSES are separable:
-
-    Child A — SUBSCRIPTION-driven. Subscribes an own L1→L2→L3 chain
-              (`:chain-root` → `:chain-doubled` → `:chain-labelled`)
-              PLUS the arg-keyed `[:standard-epochs/greater-than? N]` sub.
-    Child B — PROPS-driven. Receives a prop, subscribes NOTHING.
-
-  The five contract assertions:
-
-    1. Mounting A creates A's sub-cache entries — the chain L1/L2/L3
-       AND `[:standard-epochs/greater-than? 5]`.
-    2. Changing the sub-arg N (5 → 10) creates a DISTINCT
-       `[:standard-epochs/greater-than? 10]` cache entry — the
-       parameterized-sub cache is keyed by arg.
-    3. Changing a chain input recomputes L1→L2→L3 (invalidation
-       propagation down the chain).
-    4. Unmounting A disposes ALL of A's subs (last-reader-gone GC) —
-       the chain L1/L2/L3 + every `[:gt? N]` entry — and records the
-       unmount via `:rf.view/rendered` + the `:rf.sub/dispose` stream.
-    5. A render driven by an own-sub change names that sub on
-       `:rf.view/triggered-by` (Child A); a render driven by a PROPS
-       change does NOT (Child B) — the consumer reads the absence as
-       `← props changed`. (Pairs with Xray's render-cause
-       attribution.)
-
-  Mechanism. A view's mount→render→deref path subscribes (a derefer
-  arriving) and the unmount path unsubscribes (the derefer dropping)
-  — the per-subscribe ref-count machinery in `re-frame.subs.cache`
-  (Spec 006 §Reference counting and disposal). These tests
-  stand in for the view by driving the subscribe/unsubscribe pairs
-  directly with the Reagent adapter installed and inspecting the
-  frame's `:sub-cache` atom (keyed by the query-vector, per
-  `re-frame.subs/cache-key` = identity). That keeps them headless
-  (no JSDOM / Playwright) and matches the test-surface convention
-  used by `sub-dispose-view-cljs-test`. The render-cause assertion
-  (item 5) drives a real `(rf/view ...)` render inside a cascade so
-  the substrate-agnostic `views.cljs` wrapper stamps
-  `:rf.view/triggered-by` from the in-flight buffer.
-
-  The subs / views here are a copy of the testbed's, registered under
-  the same `:standard-epochs/*` ids. This ns never loads the testbed, so
-  it pins the framework contract, not the testbed's wiring.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  Subscribe/unsubscribe pairs stand in for A's mount and unmount, read
+  against the frame's `:sub-cache` (keyed by query-vector), as in
+  `re-frame.sub-dispose-view-cljs-test`; the render-cause test drives a
+  real `(rf/view ...)` render inside a cascade."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -65,12 +22,10 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ===========================================================================
-;; The standard-epochs Views/subs section, replicated verbatim
-;; ===========================================================================
+;; ---- the section's subs and events -----------------------------------------
 ;;
-;; Child A's own L1→L2→L3 chain rooted at :views/chain-input (NOT :base —
-;; that feeds the testbed's flow), plus the arg-keyed greater-than? sub.
+;; Child A's chain is rooted at :views/chain-input (NOT :base, which feeds the
+;; testbed's flow).
 
 (defn- register-section-subs! []
   (rf/reg-sub :standard-epochs/chain-root            ;; L1
@@ -95,10 +50,9 @@
   (rf/reg-event :standard-epochs/perturb-chain
     (fn [{:keys [db]} _] {:db (update-in db [:views :chain-input] inc)})))
 
-;; Child A's full read-set, stood up as the view's mount-time subscribes.
-;; Returns the held reactions so a test can deref / unsubscribe them as a
-;; mount → unmount pair. `threshold` is A's prop (the arg-key driver).
 (defn- mount-a!
+  "Child A's mount-time subscribes at `threshold` (its prop), returning the
+  held reactions for a later `unmount-a!`."
   [threshold]
   {:chain     (rf/subscribe [:standard-epochs/chain-labelled])
    :gt        (rf/subscribe [:standard-epochs/greater-than? threshold])
@@ -110,228 +64,132 @@
   (rf/unsubscribe [:standard-epochs/chain-labelled])
   (rf/unsubscribe [:standard-epochs/greater-than? threshold]))
 
-(defn- sub-cache
-  "The frame's live sub-cache map (cache-key → entry). Keys are the
-  query-vectors themselves (cache-key = identity)."
-  []
+(defn- sub-cache []
   @(:sub-cache (rf.frame/frame :rf/default)))
 
-(defn- cached?
-  "Is `query-v` present in the live sub-cache?"
-  [query-v]
+(defn- cached? [query-v]
   (contains? (sub-cache) query-v))
 
-;; ===========================================================================
-;; #1 — mounting A creates its sub-cache entries
-;; ===========================================================================
+(def ^:private chain-read-set
+  [[:standard-epochs/chain-labelled]
+   [:standard-epochs/chain-doubled]
+   [:standard-epochs/chain-root]])
+
+;; ---- the lifecycle ---------------------------------------------------------
 
 (deftest mounting-a-creates-chain-and-arg-keyed-cache-entries
-  (testing "#1: mounting Child A subscribes its own L1→L2→L3
-   chain AND the arg-keyed [:standard-epochs/greater-than? 5] sub — every
-   one lands a sub-cache entry. The chain's intermediate L1 (:chain-root)
-   + L2 (:chain-doubled) materialise via the cascade even though A only
-   names the L3 + the gt? sub directly."
+  (testing "mounting Child A caches its L3 and [:greater-than? 5] reads, and
+   the cascaded L1/L2 chain inputs it never names"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-
     (is (empty? (sub-cache)) "precondition: cold cache before mount")
-
     (let [held (mount-a! 5)]
-      (is (= "2×input = 2" @(:chain held))
-          "chain L3 computes against the seeded :chain-input")
-      (is (false? @(:gt held))
-          "gt? 5: chain-root 1 is NOT > 5")
-
-      ;; A's whole read-set is cached, including the cascaded chain inputs.
-      (is (cached? [:standard-epochs/chain-labelled])
-          "L3 :chain-labelled cached (A's direct deref)")
-      (is (cached? [:standard-epochs/chain-doubled])
-          "L2 :chain-doubled cached (cascaded input)")
-      (is (cached? [:standard-epochs/chain-root])
-          "L1 :chain-root cached (cascaded input)")
-      (is (cached? [:standard-epochs/greater-than? 5])
-          "arg-keyed [:gt? 5] cached")
-
+      (is (= ["2×input = 2" false] [@(:chain held) @(:gt held)])
+          "L3 computes against the seeded root 1, which is NOT > 5")
+      (is (= [] (remove cached? (conj chain-read-set [:standard-epochs/greater-than? 5])))
+          "A's whole read-set is cached, including the cascaded chain inputs")
       (unmount-a! held))))
 
-;; ===========================================================================
-;; #2 — changing the sub-arg N creates a DISTINCT cache entry
-;; ===========================================================================
-
 (deftest changing-the-arg-creates-a-distinct-cache-entry
-  (testing "#2: the parameterized-sub cache is keyed by arg.
-   With A mounted at N=5, changing the arg to N=10 (the testbed's
-   button 11) materialises a NEW [:standard-epochs/greater-than? 10] entry
-   ALONGSIDE the original [:standard-epochs/greater-than? 5] — two distinct
-   slots over the one registration."
+  (testing "the parameterized-sub cache is keyed by arg: re-rendering A at
+   N=10 caches [:greater-than? 10] alongside [:greater-than? 5]"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-
     (let [held-5 (mount-a! 5)]
       @(:gt held-5)
-      (is (cached? [:standard-epochs/greater-than? 5])
-          "[:gt? 5] cached after the N=5 mount")
-      (is (not (cached? [:standard-epochs/greater-than? 10]))
-          "precondition: no [:gt? 10] slot yet")
-
-      ;; The arg changes (5 → 10): the root re-renders A with the new
-      ;; prop, so A subscribes the new query-vector.
+      (is (= [true false]
+             [(cached? [:standard-epochs/greater-than? 5]) (cached? [:standard-epochs/greater-than? 10])])
+          "precondition: [:gt? 5] cached after the N=5 mount, and no [:gt? 10] slot yet")
       (let [held-10 (mount-a! 10)]
         @(:gt held-10)
-        (is (cached? [:standard-epochs/greater-than? 10])
-            "[:gt? 10] is a NEW, distinct cache entry — cache keyed by arg")
-        (is (cached? [:standard-epochs/greater-than? 5])
-            "[:gt? 5] still present — distinct slot, not overwritten")
-        (is (not (identical? (:gt held-5) (:gt held-10)))
-            "the two args yield two distinct reactions")
-
+        (is (= [true true false]
+               [(cached? [:standard-epochs/greater-than? 10]) (cached? [:standard-epochs/greater-than? 5])
+                (identical? (:gt held-5) (:gt held-10))])
+            "[:gt? 10] is a new slot beside [:gt? 5], with its own reaction")
         (unmount-a! held-5)
         (unmount-a! held-10)))))
 
-;; ===========================================================================
-;; #3 — changing a chain input recomputes L1→L2→L3
-;; ===========================================================================
-
 (deftest perturbing-chain-input-recomputes-the-chain
-  (testing "#3: with A mounted, perturbing the chain input
-   (the testbed's button 12) propagates invalidation down L1 (:chain-root)
-   → L2 (:chain-doubled) → L3 (:chain-labelled). The L3 value the view
-   reads reflects the new root — the recompute reached the leaf."
+  (testing "with A mounted, perturbing the chain root propagates through
+   L1 → L2 → L3 to the value the view reads"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-
     (let [held (mount-a! 5)]
       (is (= "2×input = 2" @(:chain held))
           "precondition: L3 = 2×1 against the seeded root")
-
-      ;; Perturb the L1 root. The chain reaction graph invalidates and
-      ;; recomputes through to the leaf the view derefs.
       (rf/dispatch-sync [:standard-epochs/perturb-chain])
-
-      (is (= 2 (get-in (rf.frame/frame-app-db-value :rf/default)
-                       [:views :chain-input]))
-          "L1 source advanced 1 → 2")
-      (is (= "2×input = 4" @(:chain held))
-          "L3 recomputed to 2×2 = 4 — invalidation propagated L1→L2→L3")
-      (is (false? @(:gt held))
-          "[:gt? 5] still false off the shared root (2 is not > 5)")
-
+      (is (= [2 "2×input = 4" false]
+             [(get-in (rf.frame/frame-app-db-value :rf/default) [:views :chain-input])
+              @(:chain held) @(:gt held)])
+          "the root advanced 1 → 2, L3 recomputed to 2×2, and [:gt? 5] stays false")
       (unmount-a! held)))
 
-  (testing "#3 (gt? recompute): once the root crosses the
-   threshold the arg-keyed sub flips — same shared L1 drives both legs."
+  (testing "once the shared root crosses the threshold the arg-keyed sub flips"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
     (let [held (mount-a! 1)]
       (is (false? @(:gt held)) "precondition: root 1 is not > 1")
-      (rf/dispatch-sync [:standard-epochs/perturb-chain]) ;; root → 2
+      (rf/dispatch-sync [:standard-epochs/perturb-chain])
       (is (true? @(:gt held)) "[:gt? 1] flipped true after root 1 → 2")
       (unmount-a! held))))
 
-;; ===========================================================================
-;; #4 — unmounting A disposes ALL of A's subs
-;; ===========================================================================
-
 (deftest unmounting-a-disposes-every-sub-and-records-the-unmount
-  (testing "#4: unmounting Child A (the testbed's button 13)
-   drops the last derefer on every sub A held, so the synchronous
-   last-reader-gone GC evicts ALL of them — the chain L1/L2/L3 AND
-   every [:gt? N] entry the section accumulated — and the unmount is
-   RECORDED on the :rf.sub/dispose trace stream."
+  (testing "unmounting A drops the last derefer on every sub it held, so
+   last-reader-gone GC evicts the chain and every [:gt? N] entry, each
+   recorded on the :rf.sub/dispose stream"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-
-    ;; Mount A, change the arg (so TWO [:gt? N] entries accumulate), then
-    ;; unmount — the full set must dispose.
     (let [held-5  (mount-a! 5)
           _       (do @(:chain held-5) @(:gt held-5))
           held-10 (mount-a! 10)
           _       (do @(:chain held-10) @(:gt held-10))]
-      ;; Precondition: the whole accumulated read-set is cached.
-      (doseq [k [[:standard-epochs/chain-labelled]
-                 [:standard-epochs/chain-doubled]
-                 [:standard-epochs/chain-root]
-                 [:standard-epochs/greater-than? 5]
-                 [:standard-epochs/greater-than? 10]]]
-        (is (cached? k) (str "precondition: " (pr-str k) " cached")))
-
+      (is (= [] (remove cached? (conj chain-read-set
+                                      [:standard-epochs/greater-than? 5]
+                                      [:standard-epochs/greater-than? 10])))
+          "precondition: the whole accumulated read-set is cached")
       (with-trace-recorder! [disposes {:pred #(= :rf.sub/dispose (:operation %))}]
-        ;; Unmount A: drop every derefer. chain-labelled is held by both
-        ;; mounts (ref-count 2), so it disposes only on the LAST drop —
-        ;; pinning the last-reader-gone invariant.
+        ;; Both mounts hold chain-labelled (ref-count 2), so only the LAST
+        ;; drop disposes it.
         (unmount-a! held-5)
         (is (cached? [:standard-epochs/chain-labelled])
             "chain L3 still cached after the first unmount — ref-count 2→1")
         (unmount-a! held-10)
-
-        ;; Every slot A held is gone.
-        (doseq [k [[:standard-epochs/chain-labelled]
-                   [:standard-epochs/chain-doubled]
-                   [:standard-epochs/chain-root]
-                   [:standard-epochs/greater-than? 5]
-                   [:standard-epochs/greater-than? 10]]]
-          (is (not (cached? k))
-              (str (pr-str k) " disposed — last reader gone")))
-        (is (empty? (sub-cache))
-            "A's whole read-set evicted; cache drained")
-
-        ;; The unmount is RECORDED: a :rf.sub/dispose fired for each
-        ;; evicted sub-id with the ref-count-drop reason.
+        (is (empty? (sub-cache)) "A's whole read-set evicted; cache drained")
         (let [ids (into #{} (map #(get-in % [:tags :rf.sub/id])) @disposes)]
-          (is (contains? ids :standard-epochs/chain-labelled)
-              ":rf.sub/dispose recorded for the chain L3")
-          (is (contains? ids :standard-epochs/chain-doubled)
-              ":rf.sub/dispose recorded for the chain L2")
-          (is (contains? ids :standard-epochs/chain-root)
-              ":rf.sub/dispose recorded for the chain L1")
-          (is (contains? ids :standard-epochs/greater-than?)
-              ":rf.sub/dispose recorded for the arg-keyed sub"))
-        (is (every? #(= :no-more-derefers (get-in % [:tags :rf.sub/reason]))
-                    @disposes)
-            "every dispose carries :reason :no-more-derefers (ref-count-drop)")))))
+          (is (= [[] #{:no-more-derefers}]
+                 [(remove ids [:standard-epochs/chain-labelled :standard-epochs/chain-doubled
+                               :standard-epochs/chain-root :standard-epochs/greater-than?])
+                  (into #{} (map #(get-in % [:tags :rf.sub/reason])) @disposes)])
+              ":rf.sub/dispose recorded each chain level and the arg-keyed sub, every one :no-more-derefers"))))))
 
-;; ===========================================================================
-;; #5 — render cause: sub-driven (A) vs props-driven (B)
-;; ===========================================================================
+;; ---- render cause: sub-driven (A) vs props-driven (B) ----------------------
 ;;
-;; The substrate-agnostic views.cljs wrapper stamps :rf.view/triggered-by
-;; on :rf.view/rendered when an own sub of the view changed value in the
-;; cascade; it is ABSENT on a render with no changed own sub (the
-;; consumer reads the absence as ← props / parent re-render). Child A
-;; names its sub; Child B (props-only) names nothing.
+;; The views.cljs wrapper stamps :rf.view/triggered-by on :rf.view/rendered
+;; when an own sub changed value in the cascade, and omits it otherwise; the
+;; consumer reads the absence as ← props / parent re-render.
 
 (def ^:private view-rendered-pred
   #(= :rf.view/rendered (:operation %)))
 
 (deftest child-a-render-named-by-its-sub-child-b-by-props
-  (testing "#5: Child A (subscription-driven) re-renders ←
-   a SUB changed, so :rf.view/rendered names that sub on
-   :rf.view/triggered-by. Child B (props-driven) subscribes nothing, so
-   its re-render names NO sub — the foil. Pairs with Xray's
-   render-cause attribution."
+  (testing "Child A's in-cascade re-render names its changed sub on
+   :rf.view/triggered-by; Child B's, reading no sub, names none"
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-
-    ;; Child A — subscription-driven. Derefs the chain leaf.
     (rf/reg-view ^{:rf/id :standard-epochs/child-a} child-a [_threshold]
       [:div @(rf/subscribe [:standard-epochs/chain-labelled])])
-
-    ;; Child B — props-driven. Subscribes nothing; renders its prop.
     (rf/reg-view ^{:rf/id :standard-epochs/child-b} child-b [prop]
       [:div prop])
 
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
-      ;; A renders INSIDE the perturb cascade: the handler bumps the
-      ;; chain root (its first recompute reports value-changed? into the
-      ;; in-flight buffer), then A renders and its deref-sink records
-      ;; [:standard-epochs/chain-labelled]. The intersection resolves
-      ;; :triggered-by to A's own changed sub.
+      ;; The handler's read is the sub's first recompute in the cascade, so it
+      ;; reports value-changed? into the in-flight buffer before A renders.
       (let [render-a (rf/view :standard-epochs/child-a)]
         (rf/reg-event :standard-epochs/perturb-then-render-a
           (fn [_ _]
@@ -339,9 +197,6 @@
             (render-a 5)
             {}))
         (rf/dispatch-sync [:standard-epochs/perturb-then-render-a]))
-
-      ;; B renders INSIDE a cascade too, but reads NO sub. Its render
-      ;; is driven by the prop it was handed.
       (let [render-b (rf/view :standard-epochs/child-b)]
         (rf/reg-event :standard-epochs/render-b
           (fn [_ _]
@@ -349,17 +204,10 @@
             {}))
         (rf/dispatch-sync [:standard-epochs/render-b]))
 
-      (let [a-ev (first (filter #(= :standard-epochs/child-a
-                                    (get-in % [:tags :rf.view/id]))
-                                @traces))
-            b-ev (first (filter #(= :standard-epochs/child-b
-                                    (get-in % [:tags :rf.view/id]))
-                                @traces))]
-        (is (some? a-ev) "Child A emitted :rf.view/rendered")
-        (is (= :standard-epochs/chain-labelled
-               (get-in a-ev [:tags :rf.view/triggered-by]))
-            "A re-render is attributed to its own changed sub (sub-driven)")
-
-        (is (some? b-ev) "Child B emitted :rf.view/rendered")
-        (is (not (contains? (:tags b-ev) :rf.view/triggered-by))
-            "B names NO sub — render driven by props, the foil to A")))))
+      (let [ev-for (fn [id] (first (filter #(= id (get-in % [:tags :rf.view/id])) @traces)))
+            a-ev   (ev-for :standard-epochs/child-a)
+            b-ev   (ev-for :standard-epochs/child-b)]
+        (is (= [:standard-epochs/chain-labelled true false]
+               [(get-in a-ev [:tags :rf.view/triggered-by])
+                (some? b-ev) (contains? (:tags b-ev) :rf.view/triggered-by)])
+            "A's render is attributed to its own changed sub; B rendered and names NO sub")))))
