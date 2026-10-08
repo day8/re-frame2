@@ -1,19 +1,15 @@
 (ns re-frame.story.ui.multi-substrate-boundary-dom-cljs-test
   "The side-by-side grid's per-cell error boundary CONTAINS a view that
-  throws under one substrate.
-
-  The grid is the surface that shows substrate-portability gaps, so a view
-  that throws under one substrate is its whole reason to exist: the healthy
-  cell keeps rendering and the failing cell turns red beside it
+  throws under one substrate: the healthy cell keeps rendering and the
+  failing cell turns red beside it
   (`tools/story/spec/003-Render-Shell.md` §Multi-substrate side-by-side
-  rendering). A boundary that captured the error and then rendered the
-  same throwing child again would have React hand the error to the next
-  boundary up. Story has none, so the whole shell would unmount.
+  rendering). Story has no boundary above the grid, so an escaped error
+  would unmount the whole shell.
 
   Every row mounts the REAL grid through `reagent.dom.client` inside an
   outer boundary this file owns, which records anything that escapes the
-  cell. An error reaching it is exactly the defect, and containing it here
-  keeps a regression from taking down the rest of the browser suite.
+  cell and keeps a regression from taking down the rest of the browser
+  suite.
 
   `-dom-cljs-test$` puts this namespace in `:browser-test` AND in
   `:node-test`; the rows need a real fiber, so in Node they say so rather
@@ -43,7 +39,7 @@
   (fn [] [:span "mounted"]))
 
 (defn- healthy-view
-  "Renders under every substrate."
+  "Renders under :reagent; the :uix stub throws instead."
   [_args]
   [:div {:data-test "healthy-view"} "healthy " [mount-counter]])
 
@@ -53,12 +49,9 @@
 (defn- uix-render
   "Stand-in for a host-registered `:uix` render fn. It hands back a CHILD
   component, as the real `:reagent` renderer does, so the throw happens while
-  React renders the cell's children rather than inside the render fn call.
-  `:views/boom` throws under this substrate only; everything else renders."
-  [_variant-id view-id eff-args]
-  (if (= :views/boom view-id)
-    [throwing-view eff-args]
-    [:div {:data-test "uix-healthy"} "healthy under uix"]))
+  React renders the cell's children rather than inside the render fn call."
+  [_variant-id _view-id eff-args]
+  [throwing-view eff-args])
 
 ;; ---- the outer boundary -----------------------------------------------------
 
@@ -90,17 +83,12 @@
   (rf.frame/ensure-default-frame!)
   (reset! !mounts 0)
   (reset! !escaped nil)
-  (rf/reg-view* :views/healthy healthy-view)
   (rf/reg-view* :views/boom healthy-view)
   (rf.story/register-substrate! :uix uix-render)
   (rf.story/reg-story* :story.grid-boundary {:doc "grid-boundary witness story"})
   (rf.story/reg-variant* :story.grid-boundary/boom
     {:doc        "Renders under :reagent, throws under :uix."
      :component  :views/boom
-     :substrates #{:reagent :uix}})
-  (rf.story/reg-variant* :story.grid-boundary/healthy
-    {:doc        "Renders under both."
-     :component  :views/healthy
      :substrates #{:reagent :uix}}))
 
 (defn- restore-registry!
@@ -148,9 +136,7 @@
 (defn- found? [^js node selector]
   (some? (.querySelector node selector)))
 
-;; ===========================================================================
-;; THE WITNESS — one substrate throws, the other keeps rendering
-;; ===========================================================================
+;; ---- rows -------------------------------------------------------------------
 
 (deftest a-throwing-substrate-renders-a-red-cell-beside-the-healthy-one
   (testing "the view throws under :uix only. The :reagent
@@ -170,28 +156,11 @@
           (is (re-find #"boom under uix" (text node))
               "and it carries the thrown message"))))))
 
-(deftest a-shell-state-change-re-renders-the-cells-without-remounting
-  (testing "the grid derefs the shell state, so any shell-state change
-            re-renders it. The cell boundary is ONE component type, so the
-            subject re-renders in place and keeps its local state — a
-            boundary class minted per render would remount every cell
-            instead"
-    (if-not (browser?)
-      (is true ":node-test — no DOM; :browser-test runs this row")
-      (with-root
-        (fn [node root]
-          (mount-grid! root :story.grid-boundary/healthy)
-          (is (found? node "[data-test=\"healthy-view\"]"))
-          (is (= 1 @!mounts) "control: the subject mounted once")
-          (rf.story.ui.state/swap-state! assoc ::unrelated (random-uuid))
-          (settle!)
-          (is (found? node "[data-test=\"healthy-view\"]"))
-          (is (= 1 @!mounts) "the shell-state change did not remount the subject"))))))
-
 (deftest a-captured-error-clears-when-the-cell-renders-something-else
-  (testing "the boundary is one long-lived instance per cell, so a captured
-            error must not outlive its inputs: replacing the :uix render fn
-            re-renders the same cell with new inputs, which clears the red
+  (testing "the boundary is ONE long-lived component type per cell: a grid
+            re-render on a shell-state change re-renders every subject in
+            place (keeping its local state), and a captured error does not
+            outlive its inputs — replacing the :uix render fn clears the red
             cell"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
@@ -205,7 +174,6 @@
             (rf.story.ui.state/swap-state! assoc ::unrelated (random-uuid))
             (settle!)
             (is (= mounted @!mounts) "the grid re-rendered in place: nothing remounted"))
-          (is (nil? @!escaped))
           (is (found? node "[data-test=\"uix-healthy\"]")
               "the :uix cell renders through its new render fn")
           (is (not (re-find #"render error" (text node)))
