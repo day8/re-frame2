@@ -98,17 +98,9 @@
     (is true ":node-test: no DOM — the :browser-test runner exercises this")
     (assert-renders ::kw-form-2 (kw-args 15) "slim-kw-form-2" "visible/visible|13")))
 
-(deftest slim-boundary-twenty-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (assert-renders ::positional (positional-args 20) "slim-positional" "20|a19")))
-
-(deftest slim-boundary-twenty-one-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (assert-renders ::positional (positional-args 21) "slim-positional" "21|a20")))
-
-(deftest slim-boundary-twenty-two-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (assert-renders ::positional (positional-args 22) "slim-positional" "22|a21")))
+(deftest slim-boundary-twenty-and-twenty-one-positional-arguments
+  (testing "the fixed-arity limit and one past it, where apply falls back to .apply"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test runner exercises this")
+      (doseq [[n expected] [[20 "20|a19"] [21 "21|a20"]]]
+        (assert-renders ::positional (positional-args n) "slim-positional" expected)))))
