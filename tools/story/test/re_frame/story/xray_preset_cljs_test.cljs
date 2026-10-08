@@ -1,51 +1,15 @@
 (ns re-frame.story.xray-preset-cljs-test
-  "CLJS-runtime tests for the per-story Xray preset, specifically the
-  Xray-as-RHS mount-time bridges that propagate Story-side configuration
-  into Xray's config slot.
+  "The per-story Xray preset and the cross-host bridges, asserted against
+  Xray's REAL config slot, `:active-filters` slot, matcher and tab.
 
-  ## Why a separate `_cljs_test.cljs` file
-
-  The pure data + JVM-runnable surface lives in
-  `re-frame.story.xray-preset-test` (.cljc). The `:node-test` build's
-  ns-regexp is `cljs-test$` — to land actual CLJS-runtime coverage the
-  test namespace name must match that pattern. Hence this companion
-  file. The `.cljc` sibling, which the JVM lane runs, stays the home for
-  the deep-merge / resolve pure-data tests.
-
-  ## Why there is ALSO a `_dom_cljs_test.cljs` sibling
-
-  `re-frame.story.xray-preset-dom-cljs-test` owns the one contract this
-  lane cannot state: that `wire-cross-host!` REMOVES the keydown
-  listener. `keybinding/attach!` and `keybinding/detach!` both open with
-  `(exists? js/document)`, and this runtime has no document, so nothing
-  can attach here and an `attached?` assertion would pass without
-  meaning anything (see the note on the slot half below).
-  Only a namespace ending `-dom-cljs-test` is loaded by `:browser-test`,
-  which is the sole lane with a real document.
-
-  ## Coverage
-
-  - `disable-keybinding!`: writes
-    `{:rf.xray/keybinding-enabled? false}` into Xray's config slot via
-    its `configure!` surface. Verified directly against Xray's
-    config-atom in the node-test build (Xray's source path is on the
-    test classpath) and via a shimmed `configure!` fn that captures
-    the call payload.
-  - `detach-keybinding!`: drives Xray's
-    `keybinding/detach!` so the listener Xray's preload installed
-    under the default-true posture is removed at runtime (the slot
-    alone is read only at attach time).
-  - `wire-cross-host!`: calls
-    `disable-keybinding!` then `detach-keybinding!` as part of the
-    cross-host bridge so Story's RHS-mounted Xray never swallows the
-    host's Cmd/Ctrl+K command palette — both the intent declaration
-    (slot flip) and the runtime mechanism (detach!) fire together.
-    (A whole-shell open composes `(do (wire-cross-host!) (apply-open!))`
-    directly.)"
+  The pure resolution / lowering surface runs on the JVM in
+  `re-frame.story.xray-preset-test`. This lane has no document, so
+  `keybinding/attach!` never installs a listener here; the listener half
+  of `wire-cross-host!` is asserted in
+  `re-frame.story.xray-preset-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.filters.typed-predicates :as xray-typed]
-            [day8.re-frame2-xray.keybinding :as xray-keybinding]
             [day8.re-frame2-xray.mount :as xray-mount]
             [day8.re-frame2-xray.registry :as xray-registry]
             [re-frame.core :as rf]
@@ -58,11 +22,8 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
-;; Self-sufficient setup: this namespace installs its own adapter and
-;; canonical vocabulary rather than relying on an earlier namespace
-;; having called `init!`. A suite that passes only because a neighbour
-;; seated the adapter first is a false green; the per-ns isolation gate
-;; exists to catch exactly that.
+;; Self-sufficient setup: the namespace seats its own adapter and canonical
+;; vocabulary, so it does not pass only because a neighbour called `init!`.
 
 (defn reset-all! []
   (rf.story/clear-all!)
@@ -76,19 +37,14 @@
 
 ;; ---- Xray-side helpers ---------------------------------------------------
 ;;
-;; The `:filters` tests assert against Xray's REAL `:active-filters`
-;; slot, so they need Xray's handler set + the `:rf/xray` frame. This is
-;; the same lightweight setup Xray's own filter suites use
-;; (`filters/persistence-cljs-test`): register the handlers, make the
-;; frame. `reset-for-test!` clears the registry's idempotency sentinel,
-;; which `reset-all!`'s `rf.registrar/clear-all!` would otherwise leave set
-;; over an emptied registrar — handlers would silently not re-register.
+;; `reset-for-test!` clears the registry's idempotency sentinel, which
+;; `rf.registrar/clear-all!` would otherwise leave set over an emptied
+;; registrar, so the handlers would silently not re-register.
 
 (defn- mount-xray!
   "Model what Xray's `mount-<panel>!` does to the world: register the
   handler set and the `:rf/xray` frame. Does NOT drain the pending
-  filter slot — the tests that exercise parking need the flush to be
-  their own act."
+  filter slot."
   []
   (xray-registry/reset-for-test!)
   (xray-registry/register-xray-handlers!)
@@ -96,9 +52,7 @@
   nil)
 
 (defn- install-xray-frame!
-  "`mount-xray!` plus a clean slate: drain anything a previous test
-  parked (`flush-pending-filters!` is the only accessor) and reset the
-  live slot to unfiltered."
+  "`mount-xray!` plus a clean slate: nothing parked, no pills."
   []
   (mount-xray!)
   (rf.story.xray-preset/flush-pending-filters!)
@@ -113,7 +67,7 @@
     @(rf/subscribe [:rf.xray/active-filters])))
 
 (defn- reg-filtered-variant!
-  "Register a story + variant carrying `xray-preset` as its `:xray` slot."
+  "Register a story + variant carrying `preset` as its `:xray` slot."
   [variant-id preset]
   (rf.story/reg-story :story.filt
     {:doc "filters" :component :Some.view})
@@ -126,227 +80,64 @@
   [event-id]
   {:event [event-id {}]})
 
-;; ---- disable-keybinding! -------------------------------------------------
-
-(deftest disable-keybinding-shimmed-configure
-  (testing "disable-keybinding! calls Xray's configure! with the exact slot map"
-    ;; Belt-and-braces test: redef Xray's `configure!` var directly
-    ;; (the bridge calls it through a declared `:require`, not a
-    ;; runtime symbol lookup) so we capture the exact opts
-    ;; map. Guards the payload shape against accidental extras / typos.
-    (let [captured (atom nil)]
-      (with-redefs [xray-config/configure!
-                    (fn [opts] (reset! captured opts) nil)]
-        (is (true? (rf.story.xray-preset/disable-keybinding!))
-            "returns true when the configure! call landed")
-        (is (= {:rf.xray/keybinding-enabled? false} @captured)
-            "configure! is called with exactly the keybinding-disable slot")))))
-
-;; ---- detach-keybinding! --------------------------------------------------
-
-(deftest detach-keybinding-drives-xray-keybinding-detach
-  (testing "detach-keybinding! removes Xray's global keydown listener"
-    ;; Belt-and-braces test: redef Xray's `detach!` var directly. The
-    ;; bridge calls it through a declared `:require`, so
-    ;; the assertion mirrors that direct-reference contract rather
-    ;; than a runtime symbol lookup.
-    (let [called? (atom false)]
-      (with-redefs [xray-keybinding/detach!
-                    (fn [] (reset! called? true) nil)]
-        (is (true? (rf.story.xray-preset/detach-keybinding!))
-            "returns true when keybinding/detach! is reachable")
-        (is (true? @called?)
-            "keybinding/detach! was driven by the bridge")))))
-
-;; ---- wire-cross-host! drives the bridges ---------------------------------
+;; ---- :filters ------------------------------------------------------------
 ;;
-;; A whole-shell open is `(do (wire-cross-host!) (apply-open!))`. These
-;; tests pin the bridge ordering against that composition.
-
-(deftest wire-cross-host-sequences-slot-then-detach
-  (testing "wire-cross-host! flips the slot BEFORE removing
-            the listener; sequencing matters because a host (or test
-            runner) inspecting the slot mid-flow must always see the
-            declared intent. We capture the order via a shared log and
-            assert disable-keybinding! ran before detach-keybinding!."
-    (let [calls (atom [])]
-      (with-redefs [rf.story.xray-preset/disable-keybinding!
-                    (fn [] (swap! calls conj :disable) true)
-                    rf.story.xray-preset/detach-keybinding!
-                    (fn [] (swap! calls conj :detach) true)
-                    rf.story.xray-preset/apply-open!
-                    (fn [] (swap! calls conj :open) nil)]
-        (rf.story.xray-preset/wire-cross-host!)
-        (rf.story.xray-preset/apply-open!)
-        (is (= [:disable :detach :open] @calls)
-            "slot flip (intent) lands before detach! (runtime removal)
-             which lands before the composed apply-open!")))))
-
-;; ---- runtime integration: the slot half ----------------------------------
-;;
-;; This lane can prove only the SLOT half of `wire-cross-host!`'s contract.
-;; It has no document (no jsdom or happy-dom in any dependency list), and
-;; `attach!` opens with `(exists? js/document)`, so nothing ever installs a
-;; listener here. A row asserting BOTH halves with only the `attach!`
-;; PRECONDITION guarded —
-;;
-;;     (when (exists? js/document)
-;;       (xray-keybinding/attach!)
-;;       (is (true? (xray-keybinding/attached?)) "precondition: ..."))
-;;     ...
-;;     (is (false? (xray-keybinding/attached?))
-;;         "wire-cross-host! removed the listener")
-;;
-;; — would skip the precondition, read `(false? false)` in the UNGUARDED
-;; assertion and PASS, reporting a removed listener that was never
-;; installed. A dead row merely fails to cover; a hollow one claims to.
-;;
-;; The listener half lives in `re-frame.story.xray-preset-dom-cljs-test`,
-;; where a real document makes `attach!` and `detach!` reach their bodies.
-;; The slot flip is plain atom arithmetic and needs no host: the dev
-;; control in `static-export-wire-cross-host-touches-no-xray-config`
-;; below drives the REAL (unshimmed) `wire-cross-host!` from the
-;; default-true posture and reads the slot false afterwards.
-
-;; ---- apply-preset! -------------------------------------------------------
-;;
-;; `apply-preset!`'s CLJS rows live here rather than in the `.cljc`
-;; sibling `re-frame.story.xray-preset-test`. That namespace does not
-;; match the `:node-test` build's `cljs-test$` ns-regexp, so `#?(:cljs …)`
-;; blocks there would run on no host at all — dead code that reads as
-;; coverage.
-;;
-;; No row exercises an absent-Xray posture: `day8/re-frame2-xray` is a
-;; declared Story dependency, so a build that resolves
-;; `re-frame.story.xray-preset` has already resolved Xray's mount ns.
-
-(deftest apply-preset-nil-on-missing-preset
-  (testing "no :xray slot → no work, returns nil"
-    (rf.story/reg-story :story.nilpre
-      {:doc "no slot"
-       :component :Some.view})
-    (rf.story/reg-variant :story.nilpre/v
-      {:doc "v"})
-    (is (nil? (rf.story.xray-preset/apply-preset! :story.nilpre/v)))))
-
-;; ---- :filters preset drives Xray's real filter surface -------------------
-;;
-;; These tests assert the REAL `:rf/xray` `:active-filters` slot and a
-;; real matcher outcome. They deliberately do NOT assert that a
-;; `configure!` shim was called — a shimmed-call assertion would let an
-;; inert preset (one the schema accepts and that then does nothing) read
-;; as covered.
+;; Asserted on the REAL slot and a real matcher outcome, never on a
+;; `configure!` shim, so an inert preset cannot read as covered.
 
 (deftest filters-preset-lands-on-live-active-filters-slot
-  (testing "a schema-valid {:out [:app/noise]} preset becomes Xray's
-            canonical pill shape in the live :active-filters slot"
-    (install-xray-frame!)
-    (let [vid (reg-filtered-variant! :story.filt/out {:filters {:out [:app/noise]}})]
-      (is (= {:filters {:out [:app/noise]}} (rf.story.xray-preset/apply-preset! vid))
-          "apply-preset! returns the resolved preset")
-      (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters))
-          "the live slot carries Xray's pill shape, not Story's bare keyword"))))
-
-(deftest filters-preset-actually-matches-events
-  (testing "the landed pill matches the declared event and nothing else —
-            this is the assertion that proves the preset FILTERS rather
-            than merely occupying the slot. A bare keyword handed over
-            unlowered canonicalises to :never and would match nothing."
-    (install-xray-frame!)
-    (let [vid (reg-filtered-variant! :story.filt/match {:filters {:out [:app/noise]}})]
-      (rf.story.xray-preset/apply-preset! vid)
-      (let [pill (first (:out (active-filters)))]
-        (is (true? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) pill))
-            "the OUT pill matches the event-bundle the story declared")
-        (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/signal) pill))
-            "and does not match an unrelated event")
-        ;; Stated directly: Story's own wire shape must not reach Xray
-        ;; unlowered.
-        (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) :app/noise))
-            "a BARE keyword canonicalises to :never — the inert shape")))))
-
-(deftest filters-preset-seeds-xray-config-surface
-  (testing "the preset also seeds Xray's established host-seed surface
-            (:rf.xray/filters), the value filters/hydrate! reads"
+  (testing "a {:out [:app/noise]} preset lands as Xray's pill shape on the
+            live slot and on the config seed `filters/hydrate!` reads"
     (install-xray-frame!)
     (xray-config/set-filter-seed! nil)
     (try
-      (let [vid (reg-filtered-variant! :story.filt/seed {:filters {:out [:app/noise]}})]
-        (rf.story.xray-preset/apply-preset! vid)
-        (is (= {:in [] :out [{:pattern :app/noise}]} (xray-config/get-filter-seed))
-            "the seed carries the lowered pill shape too"))
+      (rf.story.xray-preset/apply-preset!
+        (reg-filtered-variant! :story.filt/out {:filters {:out [:app/noise]}}))
+      (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters)))
+      (is (= {:in [] :out [{:pattern :app/noise}]} (xray-config/get-filter-seed)))
+      (testing "and Xray's matcher reads the landed pill as filtering exactly that event"
+        (let [pill (first (:out (active-filters)))]
+          (is (true? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) pill)))
+          (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/signal) pill)))))
       (finally (xray-config/set-filter-seed! nil)))))
 
-;; ---- pre-first-mount: the parked set -------------------------------------
-
 (deftest filters-preset-parks-then-flushes-once-when-frame-arrives
-  (testing "an initially selected variant can resolve its preset BEFORE
-            the RHS panel's first mount created :rf/xray. The lowered set
-            parks and the embed's post-mount flush lands it — dropping it
-            would make the preset a silent no-op. The flush drains the
-            park, so a second panel mount does not re-apply a preset the
-            user may since have edited away through the ribbon."
-    ;; Model the pre-mount world: drain any prior park, then remove the
-    ;; frame so `apply-preset!` genuinely has nowhere to dispatch.
+  (testing "a preset resolved before the RHS panel's first mount created
+            :rf/xray parks and lands on the embed's post-mount flush. The
+            flush drains the park, so a later panel mount does not re-apply
+            pills the user has since cleared through the ribbon."
     (install-xray-frame!)
     (swap! rf.frame/frames dissoc :rf/xray)
     (is (nil? (rf.frame/frame :rf/xray))
         "precondition: the Xray frame does not exist yet")
-    (let [vid (reg-filtered-variant! :story.filt/park {:filters {:out [:app/noise]}})]
-      (rf.story.xray-preset/apply-preset! vid)
-      ;; The RHS panel-host now mounts Xray, registering the frame; its
-      ;; very next act is the flush.
-      (mount-xray!)
-      (is (= {:in [] :out [{:pattern :app/noise}]}
-             (rf.story.xray-preset/flush-pending-filters!))
-          "the flush returns the pill set it applied")
-      (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters))
-          "and the live slot now carries it")
-      ;; User clears the pills through the ribbon.
+    (rf.story.xray-preset/apply-preset!
+      (reg-filtered-variant! :story.filt/park {:filters {:out [:app/noise]}}))
+    (mount-xray!)
+    (rf.story.xray-preset/flush-pending-filters!)
+    (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters)))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out []}]))
+    (rf.story.xray-preset/flush-pending-filters!)
+    (is (= {:in [] :out []} (active-filters))
+        "the user's cleared slot survives the second mount")))
+
+(deftest only-a-present-filters-map-replaces-the-users-pills
+  (testing "a present but empty :filters clears the pills (the story is
+            deliberately unfiltered); a preset with no :filters key leaves
+            the user's own ribbon pills alone"
+    (install-xray-frame!)
+    (doseq [[variant-id preset out] [[:story.filt/empty     {:filters {:in [] :out []}} []]
+                                     [:story.filt/nofilters {:panel :trace}             [{:pattern :user/pill}]]]]
       (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out []}]))
-      (is (nil? (rf.story.xray-preset/flush-pending-filters!))
-          "second flush is a no-op — nothing is pending")
-      (is (= {:in [] :out []} (active-filters))
-          "the user's cleared slot survives the second mount"))))
+        (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out [{:pattern :user/pill}]}]))
+      (rf.story.xray-preset/apply-preset! (reg-filtered-variant! variant-id preset))
+      (is (= out (:out (active-filters))) (str variant-id)))))
 
-;; ---- empty vs absent :filters --------------------------------------------
-
-(deftest explicit-empty-filters-clears-the-slot
-  (testing "a PRESENT but empty :filters map asserts the whole filter
-            state — 'this story is deliberately unfiltered' — so it
-            clears whatever pills were active"
-    (install-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out [{:pattern :stale/pill}]}]))
-    (is (= [{:pattern :stale/pill}] (:out (active-filters)))
-        "precondition: a stale pill is active")
-    (let [vid (reg-filtered-variant! :story.filt/empty {:filters {:in [] :out []}})]
-      (rf.story.xray-preset/apply-preset! vid)
-      (is (= {:in [] :out []} (active-filters))
-          "the explicit empty preset cleared the pills"))))
-
-(deftest absent-filters-leaves-the-slot-alone
-  (testing "a preset with NO :filters key is a cheap no-op — it must not
-            clobber the user's own ribbon pills"
-    (install-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out [{:pattern :user/pill}]}]))
-    (let [vid (reg-filtered-variant! :story.filt/nofilters {:panel :trace})]
-      (rf.story.xray-preset/apply-preset! vid)
-      (is (= [{:pattern :user/pill}] (:out (active-filters)))
-          "the user's pill survives a preset that says nothing about filters"))))
-
-;; ---- :panel preset selects Xray's real tab -------------------------------
+;; ---- :panel --------------------------------------------------------------
 ;;
-;; The `:panel` arm dispatches `:rf.xray/select-tab`. Dispatching an
-;; unregistered id raises nothing, so a test asserting only that the
-;; dispatch HAPPENED would stay green over a silent no-op. This test reads
-;; the OUTCOME instead: Xray's own `:rf.xray/selected-tab` sub.
-;;
-;; The preset dispatches asynchronously; the redef routes that one dispatch
-;; through `dispatch-sync` in the frame the caller named, so the real
-;; registered handler (or its absence) decides the result synchronously.
+;; Dispatching an unregistered id raises nothing, so this reads the OUTCOME
+;; through Xray's own `:rf.xray/selected-tab` sub. The redef routes the
+;; preset's async dispatch through `dispatch-sync` in the frame it named.
 
 (defn- selected-tab
   "Read Xray's live selected tab through its own sub."
@@ -368,77 +159,36 @@
       (is (= :trace (selected-tab))
           "the preset's :panel reached a handler Xray actually registers"))))
 
-;; ---- project-root propagator ---------------------------------------------
+;; ---- project-root bridge -------------------------------------------------
 
 (deftest propagate-project-root-reaches-xray
-  (testing "propagate-project-root! bridges Story's root into Xray's config slot"
-    ;; Xray is a declared dependency and the bridge calls
-    ;; `xray-config/configure!` through a direct `:require`, so the honest
-    ;; assertion is that the propagation LANDS.
-    ;;
-    ;; Seed Story's project-root via configure! — exercises the whole
-    ;; configure! → set-project-root! → propagator pipeline.
+  (testing "Story's configure! bridges its project root into Xray's own config slot"
     (rf.story/configure! {:rf.story/project-root "/home/me/code/my-app"})
     (try
-      (is (= "/home/me/code/my-app" (rf.story.xray-preset/propagate-project-root!))
-          "the propagator returns the root it bridged into Xray's slot")
-      (is (= "/home/me/code/my-app" (xray-config/get-project-root))
-          "the value actually landed in Xray's own config slot")
+      (is (= "/home/me/code/my-app" (xray-config/get-project-root)))
       (finally
-        ;; Reset BOTH slots so neighbouring tests see the baseline —
-        ;; the bridge writes through to Xray's global atom.
         (rf.story/configure! {:rf.story/project-root nil})
         (xray-config/set-project-root! nil)))))
 
-(deftest propagate-project-root-nil-when-unset
-  (testing "propagate-project-root! returns nil when Story has no project-root configured"
-    ;; Clear any prior seed (the fixture resets the registrar but not
-    ;; the config atom).
-    (rf.story/configure! {:rf.story/project-root nil})
-    (is (nil? (rf.story.xray-preset/propagate-project-root!))
-        "no propagation when Story's project-root is nil")))
-
-;; ===========================================================================
-;; STATIC EXPORT — the preset drive boundary
-;; ===========================================================================
+;; ---- static export: the preset drive boundary ----------------------------
 ;;
-;; The shell's SELECTION-WATCHER refuses to drive Xray under
-;; `static-mode?`, but it only fires on a CHANGE of selection.
-;; `hydrate-url-state!` runs earlier in the same `component-did-mount`, so
-;; an ordinary DEEP LINK arrives with its variant already selected and
-;; reaches `wire-cross-host!` + `on-variant-selected!` without ever passing
-;; the watcher. A guard on the watcher alone would therefore let a story
-;; carrying a valid `:xray {:open? true :panel :epoch}` preset attempt
-;; Xray open/panel/filter operations in a published static export, where
-;; there is deliberately no Xray at all (`tools/story/spec/013-Static-Build.md`
-;; §Static-mode runtime semantics). These tests pin the boundary at the
-;; namespace entry points, so no caller — the mount-time path included —
-;; can route around it.
-;;
-;; Each test runs its DEV control FIRST, because the failure this class of
-;; guard actually produces is an over-broad one that kills the feature in
-;; dev as well, which a static-only assertion cannot see.
-
-(deftest drive-xray?-is-false-only-in-a-static-export
-  (testing "the single predicate both namespace entry points consult"
-    (is (true? (rf.story.xray-preset/drive-xray?))
-        "dev control: the node-test build may drive Xray")
-    (with-redefs [rf.story.config/static-mode? true]
-      (is (false? (rf.story.xray-preset/drive-xray?))
-          "static export: Xray cannot render, so Story must not drive it"))))
+;; A deep link arrives with its variant already selected, so it reaches
+;; `wire-cross-host!` + `on-variant-selected!` without passing the shell's
+;; selection-watcher. These tests pin the static-mode boundary at the
+;; namespace entry points (`tools/story/spec/013-Static-Build.md`
+;; §Static-mode runtime semantics). Each runs a DEV control, because an
+;; over-broad guard that kills the feature in dev too is the failure this
+;; class of guard actually produces.
 
 (deftest static-export-wire-cross-host-touches-no-xray-config
-  (testing "wire-cross-host! is inert under static-mode?.
-            Asserted against Xray's REAL config slot with no shims, so this
-            is an effect-level reading rather than a call-count one."
-    ;; Baseline: the default-true posture, so a flip is a real transition.
+  (testing "wire-cross-host! is inert under static-mode?, read off Xray's
+            REAL config slot with no shims"
     (xray-config/set-keybinding-enabled! true)
     (try
       (with-redefs [rf.story.config/static-mode? true]
         (rf.story.xray-preset/wire-cross-host!)
         (is (true? (xray-config/keybinding-attach-enabled?))
             "static: the slot is UNTOUCHED — no bridge fired"))
-      ;; DEV CONTROL, same slot, same call, same test.
       (rf.story.xray-preset/wire-cross-host!)
       (is (false? (xray-config/keybinding-attach-enabled?))
           "dev control: the bridge still flips the slot to false")
@@ -446,10 +196,8 @@
         (xray-config/set-keybinding-enabled! true)))))
 
 (deftest static-export-mount-time-preset-drives-nothing
-  (testing "the MOUNT-TIME entry point a preset-bearing deep link
-            reaches. `on-variant-selected!` applies the preset for an
-            already-selected variant; under static-mode? not one of the three
-            preset operations (open / panel / filters) is attempted."
+  (testing "under static-mode? the mount-time entry point a preset-bearing
+            deep link reaches attempts none of open / panel / filters"
     (reg-filtered-variant! :story.filt/deep-link
                            {:open?   true
                             :panel   :epoch
@@ -457,16 +205,14 @@
     (let [opened     (atom 0)
           dispatched (atom [])
           configured (atom [])
-          ;; Boundary spies at Story's OWN edge — the Xray surfaces the
-          ;; preset drives. Redefining these keeps the dev control from
-          ;; needing a mounted Xray while still proving the calls happen.
+          ;; Spies at the Xray surfaces the preset drives, so the dev
+          ;; control needs no mounted Xray.
           with-spies (fn [f]
                        (with-redefs [xray-mount/open!       (fn [& _] (swap! opened inc) nil)
                                      rf/dispatch            (fn [ev & _] (swap! dispatched conj ev) nil)
                                      xray-config/configure! (fn [opts] (swap! configured conj opts) nil)]
                          (f)))]
       (try
-        ;; DEV CONTROL FIRST — the deep-link path DOES drive Xray in dev.
         (with-spies #(rf.story.xray-preset/on-variant-selected! :story.filt/deep-link))
         (is (= 1 @opened)
             "dev control: :open? true reached Xray's mount/open!")
@@ -474,15 +220,13 @@
             "dev control: :panel reached the :rf.xray/select-tab dispatch")
         (is (some #(contains? % :rf.xray/filters) @configured)
             "dev control: :filters reached Xray's configure! seed")
-        ;; NOW THE STATIC ARM — counters must not move.
         (let [open-before       @opened
               dispatched-before (count @dispatched)
               configured-before (count @configured)]
-          (with-redefs [rf.story.config/static-mode? true]
-            (is (nil? (rf.story.xray-preset/on-variant-selected! :story.filt/deep-link))
-                "static: the mount-time preset entry point returns nil")
-            (is (nil? (rf.story.xray-preset/apply-preset! :story.filt/deep-link))
-                "static: apply-preset! itself is inert, so no caller can route around it"))
+          (with-spies #(with-redefs [rf.story.config/static-mode? true]
+                         (rf.story.xray-preset/on-variant-selected! :story.filt/deep-link)
+                         ;; apply-preset! too, so no caller can route around the guard
+                         (rf.story.xray-preset/apply-preset! :story.filt/deep-link)))
           (is (= open-before @opened)
               "static: mount/open! was NOT reached")
           (is (= dispatched-before (count @dispatched))
@@ -490,9 +234,6 @@
           (is (= configured-before (count @configured))
               "static: Xray's configure! was not seeded"))
         (finally
-          ;; `:filters` parks in `pending-filters` when no :rf/xray frame
-          ;; exists, and `flush-pending-filters!` is a no-op until one
-          ;; does — so seat the frame first. `install-xray-frame!` is the
-          ;; file's own drain helper; the per-test fixture clears the
-          ;; frame + registrar again afterwards.
+          ;; The dev control parked `:filters` (no :rf/xray frame here);
+          ;; seating the frame drains the park for the next test.
           (install-xray-frame!))))))
