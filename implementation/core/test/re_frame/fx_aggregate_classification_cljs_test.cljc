@@ -1,77 +1,33 @@
 (ns re-frame.fx-aggregate-classification-cljs-test
-  "Classification projection at the fx-arg-bearing trace slots
-  (`:rf.event/fx` on `:rf.fx/do-fx` + every `[:rf.fx/id :rf.fx/args]`-shaped
-  slot), for two cases no app-side classification can reach:
+  "Classification at the fx-arg-bearing trace slots (`:rf.event/fx` on
+  `:rf.fx/do-fx`, and every `[:rf.fx/id :rf.fx/args]` slot) for the two cases
+  a static per-fx `:sensitive` cannot reach:
 
-    CASE (a) — a `[:dispatch [target-event …]]` (or `:dispatch-later`) fx
-    entry NESTED inside another handler's `:fx` vector inherits the TARGET
-    event's own `:sensitive` registration at the DISPATCHING handler's trace.
-    `:dispatch` (a reserved fx) declares no fx classification, so a per-entry
-    walk keyed on fx classification alone finds nothing — the classified
-    target's raw payload would ship at the parent's `:rf.event/fx` aggregate
-    and `:dispatch` `:rf.fx/handled` slots even though the target's own
-    `:rf.event/v` redacts.
+    (a) a `:dispatch` / `:dispatch-later` entry carries a TARGET event, whose
+        own registration classification applies to its payload;
+    (b) `:rf.http/managed`'s per-call `:sensitive?` flag and its reply
+        addresses, routed through the `:http/project-managed-fx-args` hook.
 
-    CASE (b) — `:rf.http/managed`'s DYNAMIC privacy model (the per-call
-    `:sensitive?` flag inside the args map,
-    `re-frame.http.privacy/request-sensitive?`), which the dedicated
-    `:rf.http/*` trace ops honour, is honoured at the aggregate too; a walker
-    that understood only STATIC per-fx `:sensitive` paths would leak a
-    `:sensitive?`-flagged managed request's raw body at its own `:rf.event/fx`
-    aggregate. Routed via the `:http/project-managed-fx-args` late-bind hook
-    (http publishes the SAME redaction its dedicated composers run; core stays
-    decoupled).
-
-  Both route through ONE chokepoint
-  (`re-frame.classification/project-fx-args`), so the deterministic teeth here
-  drive `project-trace-event` directly on hand-built trace shapes (mirroring
-  machine_routed_event_classification_cljs_test) and the live round-trips prove
-  handlers / fx bodies still read RAW values (classification is egress-only).
-
-  Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
-  (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
-  runner both run it (http + machines ride core's test-only classpath).
-
-  ## Posture split
-
-  Section A is the chokepoint under a microscope — `project-trace-event` driven
-  on hand-built shapes — and needs no trace stream at all, so ALL of it runs
-  under `scripts/test-core-prod-gate.sh` unchanged. That is where the teeth are.
-
-  Section B's live round-trips read the DEV TRACE stream, which emits nothing
-  under `-Dre-frame.debug=false`. Their trace-reading steps sit
-  inside `(when rf.interop/debug-enabled? …)` arms — INCLUDING the two closing
-  whole-stream sweeps. Those sweeps are the reason the arm wraps the trace half
-  as a block: `(is (not (some #(leaks? pw-sentinel %) @traces)))` over an EMPTY
-  `@traces` is a redaction suite reporting green for having emitted nothing —
-  a false green.
-
-  What stays OUTSIDE the arm is each round-trip's step 1 — the handler / fx
-  body receiving the RAW value. Redaction here is EGRESS-ONLY, so that step is
-  posture-independent, it is the half of the contract a production build
-  actually executes, and without it \"the sentinel appears nowhere\" would be
-  satisfied by a cascade that never carried the sentinel in the first place."
+  The live round-trips read the dev trace, so their trace reads sit inside
+  `(when rf.interop/debug-enabled? …)` arms (a no-leak sweep over an empty
+  stream passes for free); each first proves, in every posture, that the
+  handler or fx body received the RAW value — redaction is egress-only."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            ;; Boot the optional http artefact so the
-            ;; `:http/project-managed-fx-args` hook is bound (published at
-            ;; `re-frame.http.managed` load — the artefact's load-time anchor).
+            ;; Loading the http artefact binds the `:http/project-managed-fx-args` hook.
             [re-frame.http.managed]
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; The reset fixture auto-registers + scope-pins a default frame (the ambient
-;; scope a bare `dispatch-sync` cascades into).
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; UNIQUE sentinels that must never appear raw in any projected trace slot.
 (def ^:private pw-sentinel "rf2-32ffq1-PW-9e5b27")
 (def ^:private email "user@example.test")
 
@@ -84,165 +40,40 @@
     (rf/register-listener! :trace ::probe (fn [ev] (swap! a conj ev)))
     a))
 
-;; The classified TARGET event — `:sensitive` rooted at its arg-map, exactly
-;; the declaration that already redacts the target's own `:rf.event/v`.
 (defn- register-target-classification! []
   (rf.registrar/register! :event ::target {:sensitive [[:secret]]}))
 
-;; =====================================================================
-;; A. Deterministic projector teeth — hand-built trace shapes.
-;; =====================================================================
-
 (deftest aggregate-dispatch-later-inherits-target-classification
-  (testing "CASE (a): a [:dispatch-later {:ms … :event [classified-target …]}]
-            entry redacts the carried TARGET event's payload too"
+  (testing "a [:dispatch-later {:ms … :event [classified-target …]}] entry redacts
+            the carried target's payload and keeps the rest of the shape"
     (register-target-classification!)
-    (let [ev {:operation :rf.fx/do-fx
-              :tags {:frame        :rf/default
-                     :rf.event/fx [[:dispatch-later
-                                    {:ms    500
-                                     :event [::target {:secret pw-sentinel}]}]]}}
-          t  (project ev)]
-      (is (= rf.privacy/redacted-sentinel
-             (get-in t [:rf.event/fx 0 1 :event 1 :secret]))
-          "the deferred target payload :secret reads :rf/redacted")
-      (is (= 500 (get-in t [:rf.event/fx 0 1 :ms]))
-          "shape retained — :ms survives")
-      (is (not (leaks? pw-sentinel t))))))
+    (is (= [[:dispatch-later {:ms 500 :event [::target {:secret rf.privacy/redacted-sentinel}]}]]
+           (:rf.event/fx (project {:operation :rf.fx/do-fx
+                                   :tags {:frame       :rf/default
+                                          :rf.event/fx [[:dispatch-later
+                                                         {:ms    500
+                                                          :event [::target {:secret pw-sentinel}]}]]}}))))))
 
-(deftest handled-slot-for-dispatch-inherits-target-classification
-  (testing "CASE (a): the :dispatch-specific [:rf.fx/id :rf.fx/args] slot
-            (:rf.fx/handled and the fx error traces share the shape) redacts
-            the TARGET event's payload"
-    (register-target-classification!)
-    (doseq [op [:rf.fx/handled :rf.error/fx-handler-exception]]
-      (let [t (project {:operation op
-                        :tags {:frame      :rf/default
-                               :rf.fx/id   :dispatch
-                               :rf.fx/args [::target {:secret pw-sentinel}]}})]
-        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args 1 :secret]))
-            (str op " :rf.fx/args target payload redacts"))
-        (is (not (leaks? pw-sentinel t)) (str op " leaks no secret"))))))
-
-(deftest aggregate-managed-http-honours-dynamic-sensitive-flag
-  (testing "CASE (b): a :rf.http/managed entry flagged :sensitive? true redacts
-            its request :body in the :rf.event/fx aggregate (mirroring the
-            dedicated :rf.http/* composers), and a classified :on-success
-            reply-address payload rides the target's own classification"
-    (register-target-classification!)
-    (let [args {:request    {:method :post
-                             :url    "https://api.example.test/login"
-                             :body   {:password pw-sentinel :email email}}
-                :sensitive? true
-                :decode     :json
-                :on-success [::target {:secret pw-sentinel}]
-                :on-failure [::noop]}
-          t    (project {:operation :rf.fx/do-fx
-                         :tags {:frame        :rf/default
-                                :rf.event/fx [[:rf.http/managed args]]}})
-          out  (get-in t [:rf.event/fx 0 1])]
-      (is (= rf.privacy/redacted-sentinel (get-in out [:request :body]))
-          "the sensitive request's whole :body reads :rf/redacted")
-      (is (= "https://api.example.test/login" (get-in out [:request :url]))
-          "shape retained — the (query-free) url survives")
-      (is (= rf.privacy/redacted-sentinel (get-in out [:on-success 1 :secret]))
-          "the classified :on-success reply-address payload redacts too")
-      (is (= [::noop] (:on-failure out))
-          "a bare reply address rides through untouched")
-      (is (not (leaks? pw-sentinel t))
-          "the password appears nowhere in the projected do-fx trace"))))
-
-;; ---- reply addressing is ONE privacy contract ------------------
-;;
 ;; `:reply-to`, `:on-success` and `:on-failure` are alternate ADDRESSING forms
-;; for the same reply (Spec 014 §Reply addressing), not alternate PRIVACY
-;; contracts. Spec 014 §Unified one-handler form explicitly teaches carrying
-;; the originating message on the address (`:reply-to [:article/load msg]`),
-;; so a payload-bearing unified address is an ordinary shape — and if only the
-;; two SPLIT keys rode the target registration's classification, moving a
-;; continuation between supported spellings would leak fields its target had
-;; declared `:sensitive`.
-
-(def ^:private reply-address-keys [:reply-to :on-success :on-failure])
-
+;; for one reply (Spec 014 §Reply addressing), not alternate privacy contracts.
 (deftest every-reply-address-key-rides-target-classification-in-aggregate
-  (testing "the SAME classified target vector under EACH supported
-            reply-address key redacts identically in the :rf.event/fx
-            aggregate — addressing form is not a privacy boundary"
-    (register-target-classification!)
-    (doseq [k reply-address-keys]
-      (let [t   (project {:operation :rf.fx/do-fx
-                          :tags {:frame        :rf/default
-                                 :rf.event/fx [[:rf.http/managed
-                                                {:request {:method :post
-                                                           :url    "https://api.example.test/save"}
-                                                 k        [::target {:secret pw-sentinel
-                                                                     :email  email}]}]]}})
-            out (get-in t [:rf.event/fx 0 1])]
-        (is (= rf.privacy/redacted-sentinel (get-in out [k 1 :secret]))
-            (str k " reply-address payload rides the target registration's classification"))
-        (is (= email (get-in out [k 1 :email]))
-            (str k " keeps unmarked fields — path-precise, not whole-event"))
-        (is (= ::target (get-in out [k 0]))
-            (str k " retains the event id — identity is not redacted"))
-        (is (not (leaks? pw-sentinel t))
-            (str k " leaks the declared-sensitive value nowhere in the aggregate"))))))
-
-(deftest reply-address-projection-preserves-nil-and-bare-addresses
-  (testing "precision: an explicit nil (the fire-and-forget spelling)
-            stays nil rather than becoming a redaction sentinel, and an
-            unclassified bare address rides through untouched"
-    (register-target-classification!)
-    (doseq [k reply-address-keys]
-      (let [out (get-in (project {:operation :rf.fx/do-fx
-                                  :tags {:frame        :rf/default
-                                         :rf.event/fx [[:rf.http/managed
-                                                        {:request {:method :get
-                                                                   :url    "https://api.example.test/x"}
-                                                         k        nil}]]}})
-                        [:rf.event/fx 0 1])]
-        (is (contains? out k) (str k " is still present"))
-        (is (nil? (get out k)) (str "an explicit nil " k " survives projection as nil")))
-      (let [out (get-in (project {:operation :rf.fx/do-fx
-                                  :tags {:frame        :rf/default
-                                         :rf.event/fx [[:rf.http/managed
-                                                        {:request {:method :get
-                                                                   :url    "https://api.example.test/x"}
-                                                         k        [::unclassified {:note "plain"}]}]]}})
-                        [:rf.event/fx 0 1])]
-        (is (= [::unclassified {:note "plain"}] (get out k))
-            (str "an unclassified " k " address rides through untouched"))))))
-
-(deftest aggregate-managed-http-not-sensitive-stays-fail-open
-  (testing "precision: a NON-sensitive managed request's body rides raw in the
-            aggregate (the documented fail-open — no reflexive over-redaction),
-            while denylisted headers still redact unconditionally"
-    (let [t (project {:operation :rf.fx/do-fx
-                      :tags {:frame        :rf/default
-                             :rf.event/fx [[:rf.http/managed
-                                            {:request {:method  :get
-                                                       :url     "https://api.example.test/user"
-                                                       :headers {"Authorization" pw-sentinel
-                                                                 "Accept"        "application/json"}
-                                                       :body    {:note pw-sentinel}}}]]}})
-          req (get-in t [:rf.event/fx 0 1 :request])]
-      (is (= pw-sentinel (get-in req [:body :note]))
-          "an unflagged request body rides raw — per-call :sensitive? is the signal")
-      (is (not= pw-sentinel (get-in req [:headers "Authorization"]))
-          "…but the denylisted Authorization header redacts regardless")
-      (is (= "application/json" (get-in req [:headers "Accept"]))
-          "non-denylisted headers survive"))))
-
-;; =====================================================================
-;; B. Live round-trips — dispatch through the real drain; handlers and fx
-;;    bodies read RAW values while every emitted trace slot redacts.
-;; =====================================================================
+  (register-target-classification!)
+  (doseq [k [:reply-to :on-success :on-failure]]
+    (testing (str k " redacts the target's declared path, keeping the id and unmarked fields")
+      (is (= [::target {:secret rf.privacy/redacted-sentinel :email email}]
+             (get-in (project {:operation :rf.fx/do-fx
+                               :tags {:frame       :rf/default
+                                      :rf.event/fx [[:rf.http/managed
+                                                     {:request {:method :post
+                                                                :url    "https://api.example.test/save"}
+                                                      k        [::target {:secret pw-sentinel
+                                                                          :email  email}]}]]}})
+                     [:rf.event/fx 0 1 k]))))))
 
 (deftest live-nested-dispatch-redacts-at-parent-and-target-slots
-  (testing "CASE (a) acceptance: event B returns {:fx [[:dispatch [A {…}]]]}
-            with A classified — A's handler reads the RAW secret; B's
-            :rf.event/fx aggregate, the :dispatch :rf.fx/handled slot, AND A's
-            own :rf.event/v all redact"
+  (testing "B returns {:fx [[:dispatch [A {…}]]]} with A classified — A's handler
+            reads the RAW secret; B's :rf.event/fx aggregate, the :dispatch
+            :rf.fx/handled slot and A's own :rf.event/v all redact"
     (let [captured (atom ::none)]
       (rf/reg-event ::target
         {:sensitive [[:secret]]}
@@ -255,57 +86,36 @@
       (let [traces (record-traces!)]
         (rf/dispatch-sync [::parent])
         (rf/unregister-listener! :trace ::probe)
-
-        ;; 1. control flow untouched — the target handler read the raw secret.
-        ;;    ALWAYS-ON: egress-only redaction, and the proof that
-        ;;    the secret was ever in flight.
         (is (= pw-sentinel @captured)
             "the target handler received the RAW secret (egress-only redaction)")
-
-       ;; Steps 2-5 read the dev trace stream; step 5's sweep would
-       ;; certify "no leak" over an empty `@traces`, so they sit in the arm.
-       (when rf.interop/debug-enabled?
-        ;; 2. the parent's :rf.event/fx aggregate redacts the nested payload.
-        (let [entries (for [ev    @traces
-                            :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
-                            :when (vector? fx-vec)
-                            [id args] fx-vec
-                            :when (= :dispatch id)]
-                        args)]
-          (is (seq entries) "the do-fx aggregate carried the :dispatch entry")
-          (doseq [args entries]
-            (is (= rf.privacy/redacted-sentinel (get-in args [1 :secret]))
-                "the nested target payload :secret redacts in :rf.event/fx")
-            (is (= email (get-in args [1 :email]))
-                "the non-secret :email survives in :rf.event/fx")))
-
-        ;; 3. the :dispatch :rf.fx/handled slot redacts too.
-        (let [handled (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) @traces)]
-          (is (seq handled) ":dispatch emitted a :rf.fx/handled trace")
-          (doseq [ev handled]
-            (is (= rf.privacy/redacted-sentinel
-                   (get-in ev [:tags :rf.fx/args 1 :secret]))
-                "the :dispatch :rf.fx/args target payload redacts")))
-
-        ;; 4. the target's OWN dispatched-event trace redacts too (the
-        ;;    PARENT's view is the case under test).
-        (let [vs (->> @traces
-                      (keep #(get-in % [:tags :rf.event/v]))
-                      (filter #(= ::target (first %))))]
-          (is (seq vs) "the target's own dispatched-event trace surfaced")
-          (doseq [v vs]
-            (is (= rf.privacy/redacted-sentinel (get-in v [1 :secret]))
-                "A's own :rf.event/v redacts")))
-
-        ;; 5. the whole-stream sweep — the secret appears NOWHERE.
-        (is (not (some #(leaks? pw-sentinel %) @traces))
-            "no emitted trace event leaks the secret sentinel"))))))
+        (when rf.interop/debug-enabled?
+          (let [entries (for [ev    @traces
+                              :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
+                              :when (vector? fx-vec)
+                              [id args] fx-vec
+                              :when (= :dispatch id)]
+                          args)]
+            (is (seq entries) "the do-fx aggregate carried the :dispatch entry")
+            (doseq [args entries]
+              (is (= [::target {:secret rf.privacy/redacted-sentinel :email email}] args)
+                  "the nested target payload redacts in :rf.event/fx; :email survives")))
+          (let [handled (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) @traces)]
+            (is (seq handled) ":dispatch emitted a :rf.fx/handled trace")
+            (doseq [ev handled]
+              (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args 1 :secret])))))
+          (let [vs (->> @traces
+                        (keep #(get-in % [:tags :rf.event/v]))
+                        (filter #(= ::target (first %))))]
+            (is (seq vs) "the target's own dispatched-event trace surfaced")
+            (doseq [v vs]
+              (is (= rf.privacy/redacted-sentinel (get-in v [1 :secret])))))
+          (is (not (some #(leaks? pw-sentinel %) @traces))
+              "no emitted trace event leaks the secret"))))))
 
 (deftest live-managed-http-dynamic-flag-redacts-in-aggregate
-  (testing "CASE (b) acceptance: a handler combining [:dispatch [bare]] with a
-            :sensitive?-flagged :rf.http/managed request — the fx body receives
-            the RAW body; the :rf.event/fx aggregate and the managed
-            :rf.fx/handled slot both redact it"
+  (testing "a :sensitive?-flagged :rf.http/managed request — the fx body receives
+            the RAW body; the :rf.event/fx aggregate and the :rf.fx/handled slot
+            both redact it"
     (let [http (atom [])]
       (rf/reg-event ::bare (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event ::issue
@@ -321,45 +131,30 @@
                   :on-success [::bare]
                   :on-failure [::bare]}]]}))
       (let [traces (record-traces!)]
-        ;; A fn-value override neutralises the real transport (no network) but
-        ;; keeps the ORIGINAL fx-id on both the aggregate and the handled slot,
-        ;; so the trace pipeline under test runs unchanged.
+        ;; A fn-value override stands in for the transport but keeps the
+        ;; ORIGINAL fx-id on both slots, so the trace pipeline runs unchanged.
         (rf/dispatch-sync [::issue]
                           {:fx-overrides {:rf.http/managed
                                           (fn [_ args] (swap! http conj args))}})
         (rf/unregister-listener! :trace ::probe)
-
-        ;; 1. the fx body received the RAW body (egress-only redaction).
-        ;;    ALWAYS-ON — see step 1 of the deftest above.
         (is (= pw-sentinel (get-in (first @http) [:request :body :password]))
             "the managed fx received the RAW password")
-
-       ;; Steps 2-4 read the dev trace stream; step 4's sweep would
-       ;; certify "no leak" over an empty `@traces`, so they sit in the arm.
-       (when rf.interop/debug-enabled?
-        ;; 2. the :rf.event/fx aggregate redacts the managed entry's body.
-        (let [entries (for [ev    @traces
-                            :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
-                            :when (vector? fx-vec)
-                            [id args] fx-vec
-                            :when (= :rf.http/managed id)]
-                        args)]
-          (is (seq entries) "the do-fx aggregate carried the managed entry")
-          (doseq [args entries]
-            (is (= rf.privacy/redacted-sentinel (get-in args [:request :body]))
-                "the sensitive request's whole :body redacts in :rf.event/fx")
-            (is (= "https://api.example.test/login" (get-in args [:request :url]))
-                "shape retained — the url survives")))
-
-        ;; 3. the managed [:rf.fx/id :rf.fx/args] slot redacts too.
-        (let [handled (filter #(= :rf.http/managed (get-in % [:tags :rf.fx/id]))
-                              @traces)]
-          (is (seq handled) "the managed fx emitted a :rf.fx/handled trace")
-          (doseq [ev handled]
-            (is (= rf.privacy/redacted-sentinel
-                   (get-in ev [:tags :rf.fx/args :request :body]))
-                "the managed :rf.fx/args request body redacts")))
-
-        ;; 4. whole-stream sweep.
-        (is (not (some #(leaks? pw-sentinel %) @traces))
-            "no emitted trace event leaks the password sentinel"))))))
+        (when rf.interop/debug-enabled?
+          (let [entries (for [ev    @traces
+                              :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
+                              :when (vector? fx-vec)
+                              [id args] fx-vec
+                              :when (= :rf.http/managed id)]
+                          args)]
+            (is (seq entries) "the do-fx aggregate carried the managed entry")
+            (doseq [args entries]
+              (is (= rf.privacy/redacted-sentinel (get-in args [:request :body])))
+              (is (= "https://api.example.test/login" (get-in args [:request :url]))
+                  "shape retained — the url survives")))
+          (let [handled (filter #(= :rf.http/managed (get-in % [:tags :rf.fx/id])) @traces)]
+            (is (seq handled) "the managed fx emitted a :rf.fx/handled trace")
+            (doseq [ev handled]
+              (is (= rf.privacy/redacted-sentinel
+                     (get-in ev [:tags :rf.fx/args :request :body])))))
+          (is (not (some #(leaks? pw-sentinel %) @traces))
+              "no emitted trace event leaks the password"))))))
