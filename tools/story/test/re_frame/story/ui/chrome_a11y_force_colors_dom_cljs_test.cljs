@@ -1,20 +1,10 @@
 (ns re-frame.story.ui.chrome-a11y-force-colors-dom-cljs-test
-  "CLJS smoke tests for the 'Use system colors' opt-in surface in the
-  Chrome A11y panel.
-
-  Coverage:
-
-  - `set-force-colors-opt-in!` writes through to the in-memory ratom
-    AND stamps / clears the `data-rf-force-colors=\"active\"`
-    attribute on the live `<html>` (the chrome root is optional —
-    when absent the cascade still reaches descendants via `<html>`).
-    The `-dom-cljs-test` suffix puts this namespace in `:browser-test`,
-    where the attribute assertions run against a real `<html>`. The
-    node lane, which has no `document`, runs it too; there the
-    attribute assertions sit behind `(when-let [html ...])` and only
-    the ratom half executes.
-  - `motion-css` carries the attribute-selector block the opt-in
-    activates."
+  "The 'Use system colors' opt-in in the Chrome A11y panel:
+  `set-force-colors-opt-in!` writes the ratom AND stamps / clears
+  `data-rf-force-colors=\"active\"` on the live `<html>`, and `motion-css`
+  carries the selector block that attribute activates. `:browser-test` runs
+  the attribute assertions against a real `<html>`; the node lane has no
+  `document`, so there only the ratom half runs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story.theme.motion :as rf.story.theme.motion]
             [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]))
@@ -59,29 +49,20 @@
 
 ;; ---- set / clear --------------------------------------------------------
 
-(deftest set-true-stamps-attribute-on-html-root
-  (testing "`set-force-colors-opt-in!` writes through to
-            the in-memory ratom AND stamps the attribute on `<html>`
-            so the sibling selectors in `theme/motion.cljc` fire on
-            the next paint."
+(deftest set-force-colors-opt-in-stamps-and-clears-the-html-attribute
+  (testing "on: the ratom reads true AND `<html>` carries the active
+            attribute, so the sibling selectors in `theme/motion.cljc` fire"
     (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
-    (is (true? (rf.story.ui.chrome-a11y/force-colors-opt-in?))
-        "ratom reflects the new value")
+    (is (true? (rf.story.ui.chrome-a11y/force-colors-opt-in?)))
     (when-let [html (html-root)]
       (is (= "active"
-             (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))
-          "<html> carries the active attribute"))))
-
-(deftest set-false-clears-attribute-on-html-root
-  (testing "flipping the toggle off clears the attribute
-            so the chrome reverts to author-encoded colours."
-    (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
+             (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute)))))
+  (testing "off: the ratom reads false AND the attribute is cleared, so the
+            chrome reverts to author-encoded colours"
     (rf.story.ui.chrome-a11y/set-force-colors-opt-in! false)
-    (is (false? (rf.story.ui.chrome-a11y/force-colors-opt-in?))
-        "ratom reflects the flipped value")
+    (is (false? (rf.story.ui.chrome-a11y/force-colors-opt-in?)))
     (when-let [html (html-root)]
-      (is (nil? (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))
-          "<html> attribute cleared"))))
+      (is (nil? (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))))))
 
 ;; ---- motion-css carries the attribute-selector arm ---------------------
 
@@ -90,7 +71,5 @@
             sibling block keyed on `[data-rf-force-colors=\"active\"]`
             so the operator opt-in activates the same system-token
             chrome the OS HCM media query paints."
-    (let [css rf.story.theme.motion/motion-css]
-      (is (string? css))
-      (is (re-find #"\[data-rf-force-colors=\"active\"\]" css)
-          "attribute selector is present in motion-css"))))
+    (is (re-find #"\[data-rf-force-colors=\"active\"\]" rf.story.theme.motion/motion-css)
+        "attribute selector is present in motion-css")))
