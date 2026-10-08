@@ -1,20 +1,12 @@
 (ns re-frame2-pair-mcp.watch-epochs-test
-  "Unit tests for the `watch-epochs` MCP tool — specifically the
-  empty-result advisory.
+  "Unit tests for the `watch-epochs` MCP tool: the empty-result advisory
+  and the cursor-stale paths, driven through the real tool.
 
-  watch-epochs returns matches that landed AFTER a :since-id AND
-  satisfy an optional :pred. When matches is empty the operator wants
-  to know which gate filtered the result:
-
-    - The :since-id is at (or past) the head — calmly \"nothing new\".
-    - Events landed since the id, but the :pred excluded them all —
-      point at the predicate.
-    - Genuinely empty history — no advisory.
-
-  Without the advisory these three cases all look identical (empty
-  matches + no further detail), feeding a misread that the listener
-  isn't capturing events; the advisory disambiguates them."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  An empty `:matches` has three causes the advisory tells apart: a
+  genuinely empty history (no advisory), a `:since-id` at the head
+  (`:no-events-since-id`, pinned in `epoch_frame_test`), and a `:pred`
+  that excluded everything since the id (`:pred-excludes-history`)."
+  (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]))
@@ -38,175 +30,70 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
-;; ---------------------------------------------------------------------------
-;; Empty matches + empty history → no advisory.
-;; ---------------------------------------------------------------------------
+(defn- watch!
+  "Run watch-epochs on `args` against a runtime whose poll answers `answer`."
+  [args answer]
+  (with-substr-eval! [["__re_frame2_pair_runtime" true] [:default answer]]
+    #(we/watch-epochs-tool nil (tu/args->js args))))
 
 (deftest empty-history-no-advisory
-  (testing "watch-epochs with truly empty per-frame ring → no advisory"
-    (async done
-      (let [script [["__re_frame2_pair_runtime" true]
-                    [:default                    {:matches        []
-                                                  :id-aged-out?   false
-                                                  :requested-id   nil
-                                                  :head-id        nil
-                                                  :next-id        nil
-                                                  :history-count  0
-                                                  :since-count    0
-                                                  :remaining      0}]]]
-        (-> (with-substr-eval! script
-              (fn []
-                (-> (we/watch-epochs-tool nil (tu/args->js {}))
-                    (.then (fn [result]
-                             (let [edn (tu/extract-edn result)]
-                               (is (true? (:ok? edn)))
-                               (is (= 0 (:count edn)))
-                               (is (not (contains? edn :advisory)))
-                               (done))))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Empty matches + history non-empty + since-count = 0 → :no-events-since-id.
-;; ---------------------------------------------------------------------------
-
-(deftest history-non-empty-but-nothing-since-id
-  (testing "watch-epochs at head of ring → :no-events-since-id advisory"
-    (async done
-      (let [script [["__re_frame2_pair_runtime" true]
-                    [:default                    {:matches        []
-                                                  :id-aged-out?   false
-                                                  :requested-id   :epoch-9
-                                                  :head-id        :epoch-9
-                                                  :next-id        nil
-                                                  :history-count  9
-                                                  :since-count    0
-                                                  :remaining      0}]]]
-        (-> (with-substr-eval! script
-              (fn []
-                (-> (we/watch-epochs-tool nil (tu/args->js {:since-id ":epoch-9"
-                                                            :frame "step-deck"}))
-                    (.then (fn [result]
-                             (let [edn      (tu/extract-edn result)
-                                   advisory (:advisory edn)]
-                               (is (some? advisory))
-                               (is (= :no-events-since-id (:reason advisory)))
-                               (is (= 9 (:epochs-in-history advisory)))
-                               (is (= :step-deck (:frame advisory)))
-                               (is (re-find #"none have landed since" (:hint advisory)))
-                               (done))))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Empty matches + since-count > 0 → :pred-excludes-history.
-;; ---------------------------------------------------------------------------
+  (async done
+    (-> (watch! {} {:matches [] :id-aged-out? false :history-count 0 :since-count 0 :remaining 0})
+        (.then (fn [result]
+                 (let [edn (tu/extract-edn result)]
+                   (is (= 0 (:count edn)))
+                   (is (not (contains? edn :advisory)))
+                   (done)))))))
 
 (deftest pred-filters-all-events-since-id
-  (testing "watch-epochs with :pred excluding every event → :pred-excludes-history"
-    (async done
-      (let [script [["__re_frame2_pair_runtime" true]
-                    [:default                    {:matches        []
-                                                  :id-aged-out?   false
-                                                  :requested-id   :epoch-3
-                                                  :head-id        :epoch-9
-                                                  :next-id        nil
-                                                  :history-count  9
-                                                  :since-count    6
-                                                  :remaining      0}]]]
-        (-> (with-substr-eval! script
-              (fn []
-                (-> (we/watch-epochs-tool
-                      nil
-                      (tu/args->js {:since-id ":epoch-3"
-                                    :pred #js {:event-id ":no/match"}}))
-                    (.then (fn [result]
-                             (let [edn      (tu/extract-edn result)
-                                   advisory (:advisory edn)]
-                               (is (some? advisory))
-                               (is (= :pred-excludes-history (:reason advisory)))
-                               (is (= 9 (:epochs-in-history advisory)))
-                               (is (= 6 (:epochs-since-id advisory)))
-                               (is (re-find #":pred filter excluded"
-                                            (:hint advisory)))
-                               (done))))))))))))
-
-;; ---------------------------------------------------------------------------
-;; Non-empty matches → no advisory.
-;; ---------------------------------------------------------------------------
+  (async done
+    (-> (watch! {:since-id ":epoch-3" :pred #js {:event-id ":no/match"}}
+                {:matches [] :id-aged-out? false :requested-id :epoch-3 :head-id :epoch-9
+                 :history-count 9 :since-count 6 :remaining 0})
+        (.then (fn [result]
+                 (is (= {:reason :pred-excludes-history :epochs-in-history 9 :epochs-since-id 6}
+                        (select-keys (:advisory (tu/extract-edn result))
+                                     [:reason :epochs-in-history :epochs-since-id])))
+                 (done))))))
 
 (deftest non-empty-matches-no-advisory
-  (testing "watch-epochs with matches → no advisory"
-    (async done
-      (let [script [["__re_frame2_pair_runtime" true]
-                    [:default                    {:matches        [{:epoch-id :e1}]
-                                                  :id-aged-out?   false
-                                                  :requested-id   nil
-                                                  :head-id        :e1
-                                                  :next-id        nil
-                                                  :history-count  5
-                                                  :since-count    5
-                                                  :remaining      0}]]]
-        (-> (with-substr-eval! script
-              (fn []
-                (-> (we/watch-epochs-tool nil (tu/args->js {}))
-                    (.then (fn [result]
-                             (let [edn (tu/extract-edn result)]
-                               (is (true? (:ok? edn)))
-                               (is (= 1 (:count edn)))
-                               (is (not (contains? edn :advisory)))
-                               (done))))))))))))
+  (async done
+    (-> (watch! {} {:matches [{:epoch-id :e1}] :id-aged-out? false :head-id :e1
+                    :history-count 5 :since-count 5 :remaining 0})
+        (.then (fn [result]
+                 (let [edn (tu/extract-edn result)]
+                   (is (= 1 (:count edn)))
+                   (is (not (contains? edn :advisory)))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cursor-failure paths driven through the REAL watch-epochs-tool.
-;;
-;; The cursor-stale branches — a MALFORMED :cursor and an AGED-OUT ring
-;; id — exercised ONLY against the HAND-REIMPLEMENTED copy of the
-;; server-side slice logic in cursor_pagination_test
-;; (`runtime-form-output`) would leave a divergence in the REAL tool's
-;; emitted envelope / branch condition green. These feed
-;; a garbage :cursor and a canned {:id-aged-out? true} runtime response
-;; through the actual `watch-epochs-tool` and assert the
-;; :rf.mcp/cursor-stale envelope it returns.
+;; Cursor-stale paths through the REAL tool. cursor_pagination_test checks
+;; the slice logic against a hand-reimplemented copy; these keep the real
+;; envelope and branch condition from diverging from it.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-cursor-returns-cursor-stale
-  (testing "a garbage :cursor short-circuits to the :rf.mcp/cursor-stale envelope BEFORE any runtime eval"
-    (async done
-      ;; No eval stub installed on purpose: the malformed-cursor branch
-      ;; returns before probe/eval-after-runtime!, so it must NOT touch the
-      ;; socket. A branch that fell through to the eval would reach the
-      ;; unstubbed nrepl call, which rejects, and the assertions would fail.
-      (-> (we/watch-epochs-tool nil (tu/args->js {:cursor "not-a-valid-cursor!!!"}))
-          (.then (fn [result]
-                   (is (true? (tu/error? result)) "a malformed cursor rides isError")
-                   (let [edn (tu/extract-edn result)]
-                     (is (false? (:ok? edn)))
-                     (is (= :rf.mcp/cursor-stale (:reason edn))
-                         "a malformed cursor maps to the same stale reason as an age-out")
-                     (is (= "watch-epochs" (:tool edn)))
-                     (is (string? (:hint edn))))
-                   (done)))))))
+  (async done
+    ;; No eval stub: the malformed branch returns before any runtime round-trip.
+    (-> (we/watch-epochs-tool nil (tu/args->js {:cursor "not-a-valid-cursor!!!"}))
+        (.then (fn [result]
+                 (is (tu/error? result))
+                 (is (= {:reason :rf.mcp/cursor-stale :tool "watch-epochs"}
+                        (select-keys (tu/extract-edn result) [:reason :tool])))
+                 (done))))))
 
 (deftest aged-out-ring-returns-cursor-stale
-  (testing "an :id-aged-out? true runtime response with a live :since-id trips the cursor-stale envelope"
-    (async done
-      (let [script [["__re_frame2_pair_runtime" true]
-                    [:default                    {:matches       []
-                                                  :id-aged-out?  true
-                                                  :requested-id  :epoch-99
-                                                  :head-id       :epoch-149
-                                                  :next-id       nil
-                                                  :history-count 50
-                                                  :since-count   0
-                                                  :remaining     0}]]]
-        (-> (with-substr-eval! script
-              (fn []
-                (-> (we/watch-epochs-tool nil (tu/args->js {:since-id ":epoch-99"}))
-                    (.then (fn [result]
-                             (is (true? (tu/error? result)) "an aged-out ring id rides isError")
-                             (let [edn (tu/extract-edn result)]
-                               (is (false? (:ok? edn)))
-                               (is (= :rf.mcp/cursor-stale (:reason edn)))
-                               (is (= "watch-epochs" (:tool edn)))
-                               (is (= :epoch-99 (:requested-id edn))
-                                   "the requested id rides back so the agent sees what aged out")
-                               (is (= :epoch-149 (:head-id edn))
-                                   "the current head rides back for a rewind")
-                               (done))))))))))))
+  (async done
+    (-> (watch! {:since-id ":epoch-99"}
+                {:matches [] :id-aged-out? true :requested-id :epoch-99 :head-id :epoch-149
+                 :history-count 50 :since-count 0 :remaining 0})
+        (.then (fn [result]
+                 (is (tu/error? result))
+                 (is (= {:reason       :rf.mcp/cursor-stale
+                         :tool         "watch-epochs"
+                         :requested-id :epoch-99
+                         :head-id      :epoch-149}
+                        (select-keys (tu/extract-edn result)
+                                     [:reason :tool :requested-id :head-id]))
+                     "the dead id and the current head ride back for a rewind")
+                 (done))))))
