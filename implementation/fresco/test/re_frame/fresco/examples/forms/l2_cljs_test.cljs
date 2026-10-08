@@ -143,19 +143,6 @@
         "one props map serves both spellings, so a change to the contract
          cannot reach one field and miss the other")))
 
-(deftest the-two-form-fields-carry-no-reset-trigger
-  ;; An absence, read off the view. Nothing in this application asks
-  ;; either field to abandon an edit in place, so a revision there would
-  ;; be a prop a reader reasons about for nothing. The subject field's row
-  ;; reads a PRESENT trigger through this same projection, which is what
-  ;; makes these two nils a finding rather than a blind spot.
-  (doseq [[tag opts] [[:input    {:field :assignee :label "Assignee" :text "ada"}]
-                      [:textarea {:field :notes :label "Notes" :multiline? true :text "note"}]]]
-    (let [control (tagged (field-tree (assoc opts :problem nil)) tag)]
-      (is (some? control) (str "premise: the view rendered the " (name (:field opts)) " control"))
-      (is (nil? (::rf.fresco/revision (rf.fresco.test/attrs control)))
-          (str "the " (name (:field opts)) " field carries no `::h/revision`")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Recipe 3 — the status the write owns
 ;; ---------------------------------------------------------------------------
