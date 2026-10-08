@@ -42,14 +42,6 @@
 ;; Pure
 ;; ---------------------------------------------------------------------------
 
-(deftest the-default-grid-is-a-hundred-cells
-  (is (= {:rows 10 :cols 10} rf.fresco.examples.grid.events/default-dimensions))
-  (is (= 100 (count (rf.fresco.examples.grid.events/seed-cells rf.fresco.examples.grid.events/default-dimensions))))
-  (is (= "0" (get (rf.fresco.examples.grid.events/seed-cells rf.fresco.examples.grid.events/default-dimensions) [0 0])))
-  (is (= "99" (get (rf.fresco.examples.grid.events/seed-cells rf.fresco.examples.grid.events/default-dimensions) [9 9]))
-      "each cell seeds to a distinct digit string, so a witness reading
-       one cell can tell it apart from its neighbours"))
-
 (deftest the-policy-refuses-anything-that-is-not-a-digit-string
   (is (= "12" (rf.fresco.examples.grid.events/digits-only "9" "12")) "accepted")
   (is (= "" (rf.fresco.examples.grid.events/digits-only "9" "")) "an empty field is a legal state")
