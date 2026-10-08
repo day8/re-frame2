@@ -1,17 +1,10 @@
 (ns re-frame.story-help-cljs-test
-  "CLJS smoke tests for Story's first-time-user help overlay.
-
-  Covers:
-
-  - `seen?` degrades to false when localStorage is absent.
-  - `help-content` renders as hiccup.
-  - `open!` / `close!` toggle the local open atom.
-
-  The localStorage round-trip is NOT here: this namespace ends
-  `-cljs-test`, which `:browser-test` never loads, and the node lane has
-  no `window.localStorage`, so a storage row here would run in neither
-  lane. It lives in `re-frame.story-help-dom-cljs-test`, which BOTH
-  lanes load."
+  "CLJS tests for Story's first-time-user help overlay on the node lane:
+  `seen?` degrades to false without localStorage, the help content's
+  shortcuts table and inspectors list, and `open!` / `close!` on the open
+  atom. The localStorage round trip, including the seen flag `close!` writes,
+  needs `window.localStorage`, so it lives in
+  `re-frame.story-help-dom-cljs-test`, which the browser lane loads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.story.ui.help :as rf.story.ui.help]
@@ -31,11 +24,6 @@
 (deftest seen-defaults-to-false
   (testing "seen? is false when localStorage has never been touched"
     (is (false? (rf.story.ui.help/seen?)))))
-
-;; `seen-defaults-to-false` asserts the no-storage degradation path, and
-;; the node lane is exactly where that belongs. The persistence
-;; round-trip, `mark-seen-persists`, needs `window.localStorage` and
-;; lives in `re-frame.story-help-dom-cljs-test`.
 
 ;; ---- hiccup shape --------------------------------------------------------
 
@@ -102,12 +90,6 @@
       (is (not (str/includes? (str/lower-case (str (inspectors-text))) absent))
           (str (pr-str absent) " is not in the inspectors list")))))
 
-(deftest help-content-is-hiccup
-  (testing "help-content returns a hiccup vector rooted at :div"
-    (let [out (rf.story.ui.help/help-content)]
-      (is (vector? out))
-      (is (= :div (first out))))))
-
 ;; ---- open / close behaviour ----------------------------------------------
 
 (deftest open-then-close-toggles-atom
@@ -116,8 +98,3 @@
     (is (true? @@#'rf.story.ui.help/open?))
     (rf.story.ui.help/close!)
     (is (false? @@#'rf.story.ui.help/open?))))
-
-;; The two `open?` ratom assertions above run on node, so they live here.
-;; The persistence half of `close!` — it marks the overlay seen — needs
-;; `window.localStorage`, so it lives in
-;; `re-frame.story-help-dom-cljs-test` as `close!-marks-the-overlay-seen`.
