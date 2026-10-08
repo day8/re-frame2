@@ -1,27 +1,12 @@
 (ns re-frame.frame-lifecycle-test
-  "JVM lifecycle tests for re-frame.frame. The smoke suite covers the
-  basics (frame-lifecycle, frame-multi-instance, destroy-frame-signals-
-  active-machines); this file exercises the edge cases of make-frame,
-  destroy-frame!, ensure-default-frame!, and the surgical-
-  update path. Per Spec 002 §Frames, §Destroy, §make-frame is atomic,
-  §Re-registration — surgical update, §Per-instance frames.
+  "JVM lifecycle edge cases of `make-frame`, `destroy-frame!`, presets and the
+  surgical re-registration update (Spec 002 §Frames, §Destroy, §make-frame is
+  atomic, §Re-registration, §Per-instance frames).
 
-  ## Posture split
-
-  Every assertion here is posture-independent — it holds in the ordinary
-  `clojure -M:test` suite AND under the real production gate
-  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when rf.interop/debug-enabled? …)` arm.
-
-  Those arms observe the `:trace` stream, which is dev-only: every
-  `rf.trace/emit-error!` / lifecycle emit site is gated on
-  `rf.interop/debug-enabled?`, read once at namespace-load time, so under the gate
-  the framework emits none of it BY DESIGN. What matters about a destroy is not
-  that it ANNOUNCED itself but that it HAPPENED — the frame left the registry,
-  the sub-cache disposed, the pending events never ran, the teardown continued
-  past a throwing `:on-destroy`. Those are the assertions outside the arms —
-  and where the trace would otherwise be the only witness, a posture-independent
-  one sits beside it."
+  What a destroy did is always-on: the frame left the registry, the sub-cache
+  disposed, queued events never ran, teardown continued past a throwing
+  `:on-destroy`. The trace that announces it is dev-only, so trace reads sit
+  in `(when rf.interop/debug-enabled? ...)` arms beside an always-on witness."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -44,8 +29,7 @@
   (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; Framework events / fx / subs are registered at namespace-load time;
-  ;; clear-all! wiped them. Reload to resurrect the framework registrations.
+  ;; restore the ns-load framework registrations clear-all! wiped
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
@@ -62,609 +46,279 @@
     (is (.await latch 5 TimeUnit/SECONDS)
         "the executor reached the deterministic barrier")))
 
-;; ---- Spec 002 §Re-registration — surgical update -------------------------
-
 (deftest make-frame-surgical-update-preserves-runtime-state
-  (testing "re-registering a live frame replaces metadata but preserves app-db, sub-cache, and queue"
-    ;; Set up a frame with live state.
-    (rf/make-frame {:id :tenant :doc "v1 metadata" :preset :default})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n :payload "live"}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    ;; Populate app-db.
-    (rf/dispatch-sync [:seed 42] {:frame :tenant})
-    ;; Pin a sub in the cache.
-    (let [pinned         (rf/subscribe [:n] {:frame :tenant})
-          orig-record    (rf.frame/frame :tenant)
-          orig-app-db    (:app-db orig-record)
-          orig-sub-cache (:sub-cache orig-record)
-          orig-router    (:router orig-record)
-          orig-lifecycle (:lifecycle orig-record)]
-      (is (= 42 @pinned) "sub returns the seeded value before re-registration")
-      (is (contains? @orig-sub-cache [:n]) "sub-cache holds the pinned entry")
-
-      ;; Surgical update: re-register with new metadata.
-      (rf/make-frame {:id :tenant :doc          "v2 metadata"
-                      :fx-overrides {:http :stub.v2}})
-
-      (let [new-record (rf.frame/frame :tenant)]
-        ;; Replaceable slot — config — is the new value.
-        (is (= "v2 metadata" (get-in new-record [:config :doc]))
-            ":config slot was replaced")
-        (is (= {:http :stub.v2} (get-in new-record [:config :fx-overrides]))
-            "new :fx-overrides are visible")
-        ;; Preserved slots — app-db, sub-cache, router, lifecycle — are
-        ;; the SAME mutable objects (identical?).
-        (is (identical? orig-app-db    (:app-db new-record))
-            "app-db container was preserved across re-registration")
-        (is (identical? orig-sub-cache (:sub-cache new-record))
-            "sub-cache atom was preserved")
-        (is (identical? orig-router    (:router new-record))
-            "router atom was preserved")
-        (is (identical? orig-lifecycle (:lifecycle new-record))
-            ":lifecycle map was preserved (not bumped to a new :created-at)"))
-
-      ;; The seeded app-db value survives the re-registration.
-      (is (= {:n 42 :payload "live"} (rf/app-db-value :tenant))
-          "app-db value survived the surgical update")
-      ;; The pinned reaction still resolves to the same value.
-      (is (= 42 @pinned)
-          "pinned subscription continues to read the live app-db"))))
-
-;; ---- Spec 002 §Destroy — machine cascade ---------------------------------
+  ;; re-registering a live frame replaces its config but keeps app-db, the
+  ;; sub-cache, the router and the lifecycle as the same objects
+  (rf/make-frame {:id :tenant :doc "v1 metadata" :preset :default})
+  (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n :payload "live"}}))
+  (rf/reg-sub :n (fn [db _] (:n db)))
+  (rf/dispatch-sync [:seed 42] {:frame :tenant})
+  (let [pinned      (rf/subscribe [:n] {:frame :tenant})
+        orig-record (rf.frame/frame :tenant)]
+    (is (= [42 true] [@pinned (contains? @(:sub-cache orig-record) [:n])]))
+    (rf/make-frame {:id :tenant :doc          "v2 metadata"
+                    :fx-overrides {:http :stub.v2}})
+    (let [new-record (rf.frame/frame :tenant)]
+      (is (= ["v2 metadata" {:http :stub.v2} true true true true]
+             [(get-in new-record [:config :doc])
+              (get-in new-record [:config :fx-overrides])
+              (identical? (:app-db orig-record)    (:app-db new-record))
+              (identical? (:sub-cache orig-record) (:sub-cache new-record))
+              (identical? (:router orig-record)    (:router new-record))
+              (identical? (:lifecycle orig-record) (:lifecycle new-record))])))
+    (is (= [{:n 42 :payload "live"} 42] [(rf/app-db-value :tenant) @pinned])
+        "app-db and the pinned subscription survive the update")))
 
 (deftest destroy-frame-cascade-emits-per-active-machine
-  (testing "destroy emits one :rf.machine.lifecycle/destroyed per active machine snapshot, carrying :reason :parent-frame-destroyed"
-    (rf/make-frame {:id :ten :doc "tenant"})
-    ;; Seed three machine snapshots directly into app-db so we don't
-    ;; depend on a full machine-runtime invocation.
-    ;; EP-0001: machine snapshots are durable runtime-db state.
-    (rf/reg-event :seed-machines
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime
-         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
-                   {:flow/login    {:state :authed     :data {:user "a"}}
-                    :flow/checkout {:state :reviewing  :data {:cart [1 2]}}
-                    :flow/billing  {:state :collected  :data {}}})}))
-    (rf/dispatch-sync [:seed-machines] {:frame :ten})
-    ;; SEMANTIC, posture-independent: three machine snapshots
-    ;; really are active, so the cascade below has three actors to walk.
-    (is (= #{:flow/login :flow/checkout :flow/billing}
-           (set (keys (get-in (:rf.db/runtime (rf/frame-state-value :ten))
-                              [:rf.runtime/machines :snapshots]))))
-        "three machine snapshots are active on :ten before the destroy")
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::cascade (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame! :ten)
-      (rf/unregister-listener! :trace ::cascade)
-      ;; SEMANTIC, posture-independent: the destroy completed — the frame and
-      ;; its three snapshots are gone from the registry.
-      (is (nil? (rf.frame/frame :ten))
-          ":ten (and every snapshot it held) left the registry")
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; per-machine SIGNAL is a developer/tooling notification and rides the
-      ;; dev `:trace` stream only.
-      (when rf.interop/debug-enabled?
-        (let [cascade (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
-                              @traces)]
-          (is (= 3 (count cascade))
-              "one trace event per active machine snapshot")
-          (is (every? #(= :ten (:frame (:tags %))) cascade)
-              "all events carry the destroyed frame's id")
-          (is (= #{:flow/login :flow/checkout :flow/billing}
-                 (set (map #(:actor-id (:tags %)) cascade)))
-              "every actor-id is signalled exactly once (the reaped live INSTANCE address; :machine-id reserved for the registered TYPE)")
-          (is (= #{:authed :reviewing :collected}
-                 (set (map #(:last-state (:tags %)) cascade)))
-              "each event carries that machine's last-state from the snapshot")
-          (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) cascade)
-              "each event carries :reason :parent-frame-destroyed (the unified discriminator)"))
-        ;; A :rf.frame/destroyed trace is also emitted (after the cascade).
-        (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
-            "expected a :rf.frame/destroyed trace")))))
-
-;; ---- frame destroy runs `:exit` cascades reverse-creation ----
-;;
-;; Per Spec 005 §Cross-Spec Interactions §1: a frame destroy with active
-;; machine instances must run each machine's `:exit` cascade in reverse-
-;; creation order BEFORE the snapshot is cleared. The test above seeds
-;; snapshots directly and observes the trace; this test exercises the real cascade
-;; through the machines artefact via `reg-machine` + `[:rf.machine/spawn
-;; ...]` so the wired-up runtime path is verified at the core boundary.
+  (rf/make-frame {:id :ten :doc "tenant"})
+  ;; machine snapshots are durable runtime-db state, seeded directly
+  (rf/reg-event :seed-machines
+    (fn [{rt :rf.db/runtime} _]
+      {:rf.db/runtime
+       (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
+                 {:flow/login    {:state :authed     :data {:user "a"}}
+                  :flow/checkout {:state :reviewing  :data {:cart [1 2]}}
+                  :flow/billing  {:state :collected  :data {}}})}))
+  (rf/dispatch-sync [:seed-machines] {:frame :ten})
+  (is (= #{:flow/login :flow/checkout :flow/billing}
+         (set (keys (get-in (:rf.db/runtime (rf/frame-state-value :ten))
+                            [:rf.runtime/machines :snapshots]))))
+      "precondition: three machine snapshots are active")
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::cascade (fn [ev] (swap! traces conj ev)))
+    (rf/destroy-frame! :ten)
+    (rf/unregister-listener! :trace ::cascade)
+    (is (nil? (rf.frame/frame :ten)))
+    (when rf.interop/debug-enabled?
+      ;; one signal per active actor, carrying its last state and the unified
+      ;; :parent-frame-destroyed reason, then the frame's own destroyed trace
+      (is (= [#{[:ten :flow/login :authed :parent-frame-destroyed]
+                [:ten :flow/checkout :reviewing :parent-frame-destroyed]
+                [:ten :flow/billing :collected :parent-frame-destroyed]}
+              3
+              true]
+             (let [cascade (filter #(= :rf.machine.lifecycle/destroyed (:operation %)) @traces)]
+               [(set (map (comp (juxt :frame :actor-id :last-state :reason) :tags) cascade))
+                (count cascade)
+                (boolean (some #(= :rf.frame/destroyed (:operation %)) @traces))]))))))
 
 (deftest destroy-frame-runs-exit-cascades-in-reverse-creation-order
-  (testing "destroy-frame! runs spawned actors' :exit actions newest-spawn-first"
-    (rf/make-frame {:id :rf2-vsigt/auth :doc "cross-slice test frame"})
-    (let [exit-log (atom [])
-          child    {:initial :running
-                    :data    {}
-                    :states  {:running {:exit (fn [{data :data}]
-                                                 (swap! exit-log
-                                                        conj (:rf/self-id data))
-                                                 {})}}}
-          boot     {:initial :idle
-                    :data    {}
-                    :states
-                    {:idle {:on {:go {:action (fn [_]
-                                        {:fx [[:rf.machine/spawn
-                                               {:machine-id :rf2-vsigt/child
-                                                :id-prefix  :rf2-vsigt/child}]
-                                              [:rf.machine/spawn
-                                               {:machine-id :rf2-vsigt/child
-                                                :id-prefix  :rf2-vsigt/child}]
-                                              [:rf.machine/spawn
-                                               {:machine-id :rf2-vsigt/child
-                                                :id-prefix  :rf2-vsigt/child}]]})}}}}}]
-      (rf/reg-machine :rf2-vsigt/child child)
-      (rf/reg-machine :rf2-vsigt/boot boot)
-      (rf/dispatch-sync [:rf2-vsigt/boot [:go]] {:frame :rf2-vsigt/auth})
-      ;; All 3 spawned actors are live.
-      (is (= 3 (count (filter #{:rf2-vsigt/child#1
-                                 :rf2-vsigt/child#2
-                                 :rf2-vsigt/child#3}
-                              (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf2-vsigt/auth)) [:rf.runtime/machines :snapshots])))))
-          "three spawned actor snapshots live at [:rf.runtime/machines :snapshots <id>]")
-      ;; Destroy the frame.
-      (rf/destroy-frame! :rf2-vsigt/auth)
-      ;; :exit fired three times in REVERSE-spawn order.
-      (is (= [:rf2-vsigt/child#3 :rf2-vsigt/child#2 :rf2-vsigt/child#1]
-             @exit-log)
-          ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
-      ;; Every spawned actor handler is unregistered.
-      (is (nil? (rf.registrar/lookup :event :rf2-vsigt/child#1))
-          "spawned actor handler #1 was unregistered")
-      (is (nil? (rf.registrar/lookup :event :rf2-vsigt/child#2))
-          "spawned actor handler #2 was unregistered")
-      (is (nil? (rf.registrar/lookup :event :rf2-vsigt/child#3))
-          "spawned actor handler #3 was unregistered")
-      ;; The singleton `:rf2-vsigt/child` / `:rf2-vsigt/boot` machines
-      ;; stay registered — handlers live in the global registrar; the
-      ;; frame destroy walk does NOT unregister them.
-      (is (some? (rf.registrar/lookup :event :rf2-vsigt/child))
-          "singleton :rf2-vsigt/child handler stays globally registered")
-      (is (some? (rf.registrar/lookup :event :rf2-vsigt/boot))
-          "singleton :rf2-vsigt/boot handler stays globally registered"))))
-
-;; ---- Spec 002 §Destroy — live subscribers --------------------------------
+  ;; Spec 005 §Cross-Spec Interactions §1, through real spawned actors
+  (rf/make-frame {:id :rf2-vsigt/auth :doc "cross-slice test frame"})
+  (let [exit-log (atom [])
+        child    {:initial :running
+                  :data    {}
+                  :states  {:running {:exit (fn [{data :data}]
+                                               (swap! exit-log
+                                                      conj (:rf/self-id data))
+                                               {})}}}
+        spawn    [:rf.machine/spawn {:machine-id :rf2-vsigt/child
+                                     :id-prefix  :rf2-vsigt/child}]
+        boot     {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle {:on {:go {:action (fn [_] {:fx [spawn spawn spawn]})}}}}}
+        children [:rf2-vsigt/child#1 :rf2-vsigt/child#2 :rf2-vsigt/child#3]]
+    (rf/reg-machine :rf2-vsigt/child child)
+    (rf/reg-machine :rf2-vsigt/boot boot)
+    (rf/dispatch-sync [:rf2-vsigt/boot [:go]] {:frame :rf2-vsigt/auth})
+    (is (= 3 (count (filter (set children)
+                            (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf2-vsigt/auth))
+                                          [:rf.runtime/machines :snapshots]))))))
+    (rf/destroy-frame! :rf2-vsigt/auth)
+    (is (= (reverse children) @exit-log) ":exit ran newest-first")
+    ;; the spawned actors' handlers go; the singleton machines stay registered
+    (is (= [nil nil nil true true]
+           [(rf.registrar/lookup :event :rf2-vsigt/child#1)
+            (rf.registrar/lookup :event :rf2-vsigt/child#2)
+            (rf.registrar/lookup :event :rf2-vsigt/child#3)
+            (some? (rf.registrar/lookup :event :rf2-vsigt/child))
+            (some? (rf.registrar/lookup :event :rf2-vsigt/boot))]))))
 
 (deftest destroy-frame-with-live-subscribers
-  (testing "destroy clears the sub-cache, fires on-dispose, and post-destroy subs return nil"
-    (rf/make-frame {:id :live :doc "live"})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:answer 7}}))
-    (rf/reg-sub :answer (fn [db _] (:answer db)))
-    (rf/dispatch-sync [:seed] {:frame :live})
-    (let [r1            (rf/subscribe [:answer] {:frame :live})
-          r2            (rf/subscribe [:answer] {:frame :live})
-          dispose-fired (atom 0)]
-      ;; Pin the cache entry and attach an on-dispose hook so we can
-      ;; observe destroy clearing it.
-      (re-frame.interop/add-on-dispose! r1 (fn [] (swap! dispose-fired inc)))
-      (is (= 7 @r1) "sub reads the seeded value before destroy")
-      (is (identical? r1 r2) "the cache returns the same reaction on repeat subscribe")
-      (let [cache (:sub-cache (rf.frame/frame :live))]
-        (is (contains? @cache [:answer]) "cache holds the entry"))
-
-      ;; Capture traces and destroy.
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::sub-destroy (fn [ev] (swap! traces conj ev)))
-        (rf/destroy-frame! :live)
-        (rf/unregister-listener! :trace ::sub-destroy)
-        (is (= 1 @dispose-fired)
-            "on-dispose hook fired exactly once when destroy walked the sub-cache")
-        ;; Dev-instrumentation arm (see ns docstring). The
-        ;; cache-clearing this deftest is named for is `@dispose-fired` above
-        ;; and the nil post-destroy subscribe below — both posture-independent.
-        (when rf.interop/debug-enabled?
-          (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
-              "expected :rf.frame/destroyed trace")))
-
-      ;; Post-destroy subscribe returns nil with :replaced-with-default.
-      (let [t-after (atom [])]
-        (rf/register-listener! :trace ::post (fn [ev] (swap! t-after conj ev)))
-        (let [r3 (rf/subscribe [:answer] {:frame :live})]
-          (is (nil? r3)
-              "subscribe against a destroyed frame returns nil"))
-        (rf/unregister-listener! :trace ::post)
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some (fn [ev]
-                      (and (= :rf.error/frame-destroyed (:operation ev))
-                           (= :replaced-with-default (:recovery ev))))
-                    @t-after)
-              "expected :rf.error/frame-destroyed trace with :replaced-with-default recovery"))))))
-
-;; ---- Spec 002 §Per-instance frames --------------------------------------
+  (rf/make-frame {:id :live :doc "live"})
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:answer 7}}))
+  (rf/reg-sub :answer (fn [db _] (:answer db)))
+  (rf/dispatch-sync [:seed] {:frame :live})
+  (let [r1            (rf/subscribe [:answer] {:frame :live})
+        r2            (rf/subscribe [:answer] {:frame :live})
+        dispose-fired (atom 0)
+        traces        (atom [])]
+    (re-frame.interop/add-on-dispose! r1 (fn [] (swap! dispose-fired inc)))
+    (is (= [7 true] [@r1 (identical? r1 r2)]) "precondition: one cached reaction")
+    (rf/register-listener! :trace ::sub-destroy (fn [ev] (swap! traces conj ev)))
+    (rf/destroy-frame! :live)
+    ;; the walk disposed the reaction once, and a later subscribe returns nil
+    (is (= [1 nil] [@dispose-fired (rf/subscribe [:answer] {:frame :live})]))
+    (rf/unregister-listener! :trace ::sub-destroy)
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev]
+                  (and (= :rf.error/frame-destroyed (:operation ev))
+                       (= :replaced-with-default (:recovery ev))))
+                @traces)
+          "the post-destroy subscribe traces :replaced-with-default"))))
 
 (deftest make-frame-gensyms-id-and-isolates-fx-overrides
-  (testing "make-frame returns gensym'd ids; per-frame :fx-overrides isolate effect handling"
-    (let [calls-real (atom [])
-          calls-A    (atom [])
-          calls-B    (atom [])]
-      ;; Register the canonical fx and two stubs. The override map lets
-      ;; each frame redirect :http to its own stub independently.
-      (rf/reg-fx :http
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls-real conj args)))
-      (rf/reg-fx :http.stub-A
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls-A conj args)))
-      (rf/reg-fx :http.stub-B
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls-B conj args)))
-      (rf/reg-event :go
-        (fn [_ [_ payload]]
-          {:fx [[:http payload]]}))
-
-      (let [a (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-A}})
-            b (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-B}})]
-        ;; Gensym contract: id is a keyword in the :rf.frame namespace,
-        ;; the two ids differ, and neither collides with :rf/default.
-        (is (keyword? a))
-        (is (keyword? b))
-        (is (= "rf.frame" (namespace a)))
-        (is (= "rf.frame" (namespace b)))
-        (is (not= a b)
-            "two make-frame calls produce distinct gensym'd ids")
-
-        ;; Drive the same event into each frame; per-frame overrides
-        ;; route the :http effect to that frame's stub.
-        (rf/dispatch-sync [:go {:url "/A"}] {:frame a})
-        (rf/dispatch-sync [:go {:url "/B"}] {:frame b})
-
-        (is (= [{:url "/A"}] @calls-A)
-            "frame A's override sent :http to stub-A")
-        (is (= [{:url "/B"}] @calls-B)
-            "frame B's override sent :http to stub-B")
-        (is (empty? @calls-real)
-            "the canonical :http handler was not invoked under either override")))))
-
-;; ---- Spec 002 §make-frame is atomic — :initial-events runs synchronously --
+  (let [calls (atom [])]
+    (doseq [fx [:http :http.stub-A :http.stub-B]]
+      (rf/reg-fx fx {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj [fx args]))))
+    (rf/reg-event :go
+      (fn [_ [_ payload]]
+        {:fx [[:http payload]]}))
+    (let [a (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-A}})
+          b (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-B}})]
+      (is (= ["rf.frame" "rf.frame" true] [(namespace a) (namespace b) (not= a b)])
+          "distinct gensym'd ids in the :rf.frame namespace")
+      (rf/dispatch-sync [:go {:url "/A"}] {:frame a})
+      (rf/dispatch-sync [:go {:url "/B"}] {:frame b})
+      (is (= [[:http.stub-A {:url "/A"}] [:http.stub-B {:url "/B"}]] @calls)
+          "each frame's override routed :http to its own stub, never the canonical one"))))
 
 (deftest make-frame-initial-events-runs-synchronously
-  (testing ":initial-events completes inside make-frame; app-db is fully populated by the time it returns (EP-0027)"
-    (rf/reg-event :boot
-      (fn [{:keys [db]} [_ payload]]
-        {:db {:booted? true :payload payload :seq [:a :b :c]}}))
-    ;; Hook a trace listener so we can assert the ordering between the
-    ;; setup-step dispatch and :rf.frame/created emission. Per Spec 002
-    ;; §make-frame is atomic — the setup runs first, then :rf.frame/created
-    ;; is emitted (the frame becomes observable to listeners).
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
-      (rf/make-frame {:id :booted :doc            "frame with initial-events"
-                      :initial-events [[:boot {:hello "world"}]]})
-      (rf/unregister-listener! :trace ::oc)
-
-      ;; The moment make-frame returned, app-db must already reflect
-      ;; the setup event's commit.
-      (is (= {:booted? true :payload {:hello "world"} :seq [:a :b :c]}
-             (rf/app-db-value :booted))
-          ":initial-events ran synchronously — the full setup handler body
-           committed, payload included, before make-frame returned")
-
-      ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
-      ;; (make-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
-      ;;
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; SYNCHRONY this deftest is named for is the whole-db assertion
-      ;; above, read the instant `make-frame` returned; it runs in both
-      ;; postures. The trace ORDER below is the same fact restated on a
-      ;; dev-only channel — under the gate there is no trace ring to index
-      ;; into, so `run-end-idx` / `created-idx` are both nil. A missing trace
-      ;; leaves its index nil, so the `<` below goes red on it too.
-      (when rf.interop/debug-enabled?
-      (let [run-end-idx (->> @traces
-                             (keep-indexed
-                               (fn [i ev]
-                                 (when (and (= :rf.event/run-end (:operation ev))
-                                            (= :boot (:rf.trace/event-id (:tags ev))))
-                                   i)))
-                             first)
-            created-idx (->> @traces
-                             (keep-indexed
-                               (fn [i ev]
-                                 (when (= :rf.frame/created (:operation ev))
-                                   i)))
-                             first)]
-        (is (< run-end-idx created-idx)
-            "the setup's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it"))))))
-
-;; ---- destroy-frame! interrupts active drain on next dequeue --
-;;
-;; Per Spec 002 §Edge cases worth pinning §Frame disposal mid-drain: the
-;; ordinary drain checks destruction ownership before each dequeue; the exact
-;; incarnation claim is the cutoff, lifecycle-dead may publish later. On detect
-;; it stops and emits one `:rf.frame/drain-interrupted` whose dropped count
-;; combines claim-time and check-time removals. An authored callback already on
-;; the stack may return and entered authored afters may unwind, but its returned
-;; framework tail is inert.
+  ;; the setup commits before make-frame returns, and before :rf.frame/created
+  (rf/reg-event :boot
+    (fn [{:keys [db]} [_ payload]]
+      {:db {:booted? true :payload payload :seq [:a :b :c]}}))
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
+    (rf/make-frame {:id :booted :doc            "frame with initial-events"
+                    :initial-events [[:boot {:hello "world"}]]})
+    (rf/unregister-listener! :trace ::oc)
+    (is (= {:booted? true :payload {:hello "world"} :seq [:a :b :c]}
+           (rf/app-db-value :booted)))
+    (when rf.interop/debug-enabled?
+      (let [index-of (fn [pred] (first (keep-indexed (fn [i ev] (when (pred ev) i)) @traces)))]
+        (is (< (index-of #(and (= :rf.event/run-end (:operation %))
+                               (= :boot (:rf.trace/event-id (:tags %)))))
+               (index-of #(= :rf.frame/created (:operation %))))
+            "listeners observe the frame only once it is fully booted")))))
 
 (deftest destroy-from-handler-interrupts-drain-and-emits-interrupted
-  (testing "a handler that destroys its own frame mid-drain stops the
-            drain, drops the remaining queue, and emits exactly one
-            :rf.frame/drain-interrupted carrying the dropped count.
-            The authored self-destruct callback may return, but its returned
-            framework tail is inert and later queued events are dropped"
-    (rf/make-frame {:id :drain-int/worker :doc "drain-interrupt frame"})
-    (let [ran           (atom [])
-          traces        (atom [])
-          captured-tick (atom [])]
-      ;; Plain mutator — runs whenever the drain dequeues.
-      (rf/reg-event :drain-int/tick
-        (fn [{:keys [db]} _]
-          (swap! ran conj :tick)
-          {:db (update db :n (fnil inc 0))}))
-      ;; Handler that destroys its own frame mid-cascade. The first
-      ;; tick has already run; destroy mid-drain MUST interrupt the
-      ;; remainder.
-      (rf/reg-event :drain-int/self-destruct
-        (fn [_ _]
-          (swap! ran conj :self-destruct)
-          ;; Call destroy-frame! directly — bypasses the
-          ;; `dispatch-sync-in-handler` policy that would otherwise
-          ;; bite us if we tried to dispatch destruction through the
-          ;; router. Spec 002 says destroy-frame! interrupts the
-          ;; ACTIVE drain; the trigger can be anything.
-          (rf.frame/destroy-frame! :drain-int/worker)
-          {}))
-      (rf/register-listener! :trace ::drain-int (fn [ev] (swap! traces conj ev)))
-      ;; Pre-seed the queue with 4 plain async dispatches, then sync-
-      ;; drain the self-destruct AT THE FRONT — it runs first, destroys
-      ;; the frame, and the remaining 4 ticks (still queued) must be
-      ;; dropped, with exactly one :rf.frame/drain-interrupted emitted.
-      ;;
-      ;; The JVM `rf.interop/next-tick`
-      ;; runs on a separate single-thread executor; without redef'ing it
-      ;; the async drain races the main thread and may drain the 4 ticks
-      ;; BEFORE `dispatch-sync` reaches the drain-lock — leaving an empty
-      ;; queue and yielding `:dropped-count 0`. CLJS `next-tick` is a
-      ;; next-turn TASK (not a microtask) and cannot run until the test's
-      ;; synchronous stack unwinds, so the race is JVM-only. Capturing
-      ;; the scheduled drains via `with-redefs` makes the ordering
-      ;; deterministic on both platforms — by the time `dispatch-sync`
-      ;; runs, the 4 ticks are still in the queue and no async drainer
-      ;; has touched the drain-lock. The captured drains are discarded
-      ;; (the frame is destroyed before any of them would dequeue, and a
-      ;; drain on an already-destroyed frame is a silent no-op —
-      ;; `destroy-frame-pending-drain-pins-no-op-contract` pins that
-      ;; contract separately).
-      (with-redefs [rf.interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-        (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker})
-        (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker}))
-      (rf/unregister-listener! :trace ::drain-int)
-
-      ;; The self-destruct ran first (dispatch-sync seeds at the front);
-      ;; the trailing ticks did NOT run.
-      (is (= [:self-destruct] @ran)
-          "the only handler that ran was the self-destruct seed itself")
-
-      ;; The frame is gone.
-      (is (nil? (rf.frame/frame :drain-int/worker))
-          "destroy-frame! removed the frame from the registry")
-
-      ;; Exactly one :rf.frame/drain-interrupted trace fired carrying
-      ;; the dropped count (4 ticks queued before the seed).
-      ;;
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; INTERRUPTION itself is `(= [:self-destruct] @ran)` and the empty
-      ;; registry slot above — both posture-independent; the report of how
-      ;; many events were dropped is a dev-tooling detail.
-      (when rf.interop/debug-enabled?
-        (let [interrupts (filterv (fn [ev]
-                                    (= :rf.frame/drain-interrupted (:operation ev)))
-                                  @traces)]
-          (is (= 1 (count interrupts))
-              "exactly one :rf.frame/drain-interrupted trace")
-          (let [ev (first interrupts)]
-            (is (= :rf.frame (:op-type ev))
-                ":op-type is :frame (lifecycle family, not :error)")
-            (is (= :drain-int/worker (:frame (:tags ev)))
-                ":tags carries the destroyed frame id")
-            (is (= 4 (:dropped-count (:tags ev)))
-                ":dropped-count reflects the 4 trailing ticks left in the queue")))))))
+  ;; A handler that destroys its own frame stops the drain and drops the rest of
+  ;; the queue. next-tick is captured so the four ticks are still queued when
+  ;; dispatch-sync seeds the self-destruct at the front; the captured drains are
+  ;; discarded (destroy-frame-pending-drain-pins-no-op-contract pins them).
+  (rf/make-frame {:id :drain-int/worker :doc "drain-interrupt frame"})
+  (let [ran           (atom [])
+        traces        (atom [])
+        captured-tick (atom [])]
+    (rf/reg-event :drain-int/tick
+      (fn [{:keys [db]} _]
+        (swap! ran conj :tick)
+        {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :drain-int/self-destruct
+      (fn [_ _]
+        (swap! ran conj :self-destruct)
+        (rf.frame/destroy-frame! :drain-int/worker)
+        {}))
+    (rf/register-listener! :trace ::drain-int (fn [ev] (swap! traces conj ev)))
+    (with-redefs [rf.interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
+      (dotimes [_ 4] (rf/dispatch [:drain-int/tick] {:frame :drain-int/worker}))
+      (rf/dispatch-sync [:drain-int/self-destruct] {:frame :drain-int/worker}))
+    (rf/unregister-listener! :trace ::drain-int)
+    (is (= [[:self-destruct] nil] [@ran (rf.frame/frame :drain-int/worker)]))
+    (when rf.interop/debug-enabled?
+      (is (= [[:rf.frame :drain-int/worker 4]]
+             (keep #(when (= :rf.frame/drain-interrupted (:operation %))
+                      [(:op-type %) (:frame (:tags %)) (:dropped-count (:tags %))])
+                   @traces))
+          "one lifecycle-family interruption trace carrying the dropped count"))))
 
 (deftest destroy-from-handler-allows-authored-callback-return
-  (testing "destroy does not forcibly interrupt authored code already on the
-            stack, but the returned framework tail is inert"
-    (rf/make-frame {:id :rtc/worker})
-    (let [completed (atom false)]
-      ;; This handler:
-      ;;   (a) destroys the frame partway through
-      ;;   (b) keeps running — does more work after the destroy call
-      ;;   (c) sets the completion flag at the very end
-      ;; Authored code already on the stack may return. The exact-incarnation
-      ;; fence governs the framework-owned work after that return.
-      (rf/reg-event :rtc/work-then-destroy
-        (fn [_ _]
-          (rf.frame/destroy-frame! :rtc/worker)
-          ;; Post-destroy bookkeeping still runs inside this handler.
-          (reset! completed true)
-          {}))
-      (rf/dispatch-sync [:rtc/work-then-destroy] {:frame :rtc/worker})
-      (is (true? @completed)
-          "authored handler code returned after calling destroy-frame!"))))
+  ;; destroy does not interrupt authored code already on the stack
+  (rf/make-frame {:id :rtc/worker})
+  (let [completed (atom false)]
+    (rf/reg-event :rtc/work-then-destroy
+      (fn [_ _]
+        (rf.frame/destroy-frame! :rtc/worker)
+        (reset! completed true)
+        {}))
+    (rf/dispatch-sync [:rtc/work-then-destroy] {:frame :rtc/worker})
+    (is (true? @completed))))
 
-;; ---- EP-0027 — handler-time frame construction is FORBIDDEN --------------
-;;
-;; Per EP-0027 §Construction: frames are created by the VIEW (`frame-root`, the
-;; ENSURE boundary — `frame-provider` is SCOPE and creates nothing) or at TOP
-;; LEVEL (tests, boot, SSR per request — an explicit `make-frame`).
-;; Constructing a frame INSIDE an
-;; event handler is not supported — a handler changes app-db, and the view
-;; materializes frames from it — and fails loud with
-;; `:rf.error/frame-construction-in-handler`. The signal for "inside a
-;; handler" is `rf.trace/*handler-scope*` being bound (the router binds it for the
-;; duration of a handler's run and ONLY then; a bare ambient `with-frame` scope
-;; does not bind it), so a genuine TOP-LEVEL construction still runs setup
-;; synchronously. The make-frame route is pinned on both hosts by
-;; `frame_initial_events_cljs_test`'s `frame-construction-in-handler-fails-loud`;
-;; this file pins the anon-record route that shares the guard.
+;; Constructing a frame inside an event handler fails loud (EP-0027
+;; §Construction). The make-frame route is pinned on both hosts by
+;; frame_initial_events_cljs_test; this file pins the anon-record route.
 
 (deftest make-frame-record-in-handler-fails-loud
-  (testing "make-frame / make-anon-frame-record! from inside a handler also fails
-            loud — it shares the make-frame construction guard (EP-0027)"
-    (rf/make-frame {:id :rf/default})
-    (let [caught (atom nil)
-          before (rf/frame-ids)]
-      (rf/reg-event :sub-actor/boot
-        (fn [{:keys [db]} _] {:db (assoc db :booted? true)}))
-      (rf/reg-event :parent/spawn-sub-actor
-        (fn [{:keys [db]} _]
-          (reset! caught
-                  (try (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:sub-actor/boot]]})
-                       nil
-                       (catch clojure.lang.ExceptionInfo e
-                         (:rf.error/id (ex-data e)))))
-          {:db db}))
-      (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
-      (is (= :rf.error/frame-construction-in-handler @caught)
-          "a handler-time make-anon-frame-record! fails loud")
-      ;; The anon id is minted inside the refused call, so the witness is the
-      ;; whole registered set rather than one id.
-      (is (= before (rf/frame-ids))
-          "no half-registered child frame is left behind"))))
+  ;; the anon-record entry shares make-frame's handler-time construction guard
+  (rf/make-frame {:id :rf/default})
+  (let [caught (atom nil)
+        before (rf/frame-ids)]
+    (rf/reg-event :sub-actor/boot
+      (fn [{:keys [db]} _] {:db (assoc db :booted? true)}))
+    (rf/reg-event :parent/spawn-sub-actor
+      (fn [{:keys [db]} _]
+        (reset! caught
+                (try (rf.frame/make-anon-frame-record!
+                       {:initial-events [[:sub-actor/boot]]})
+                     nil
+                     (catch clojure.lang.ExceptionInfo e
+                       (:rf.error/id (ex-data e)))))
+        {:db db}))
+    (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
+    ;; the anon id is minted inside the refused call, so the whole set is read
+    (is (= [:rf.error/frame-construction-in-handler before] [@caught (rf/frame-ids)]))))
 
 (deftest make-frame-construction-failure-leaves-no-registrar-or-trace-residue
-  (testing "a make-frame whose frame CONSTRUCTION fails (no adapter
-            installed: make-frame before rf/init!) leaves NO frames-store record
-            and NO trace-disabled residue. `new-frame-record` (which calls
-            make-state-container) is built BEFORE the trace-
-            suppression writes, so a construction throw escapes before any
-            process-global metadata is written — nothing to roll back."
-    (let [fid :test/no-adapter-frame]
-      ;; Cold-start the adapter lifecycle to the never-installed state so
-      ;; make-state-container raises :rf.error/no-adapter-installed — the exact
-      ;; "make-frame before rf/init!" scenario. The test frame
-      ;; carries :rf.trace/frame-no-emit? true, whose set-frame-no-emit! write
-      ;; is the trace residue we assert never lands.
-      (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
-      (let [thrown-id (try (rf/make-frame {:id fid :rf.trace/frame-no-emit? true})
-                           nil
-                           (catch clojure.lang.ExceptionInfo e
-                             (:rf.error/id (ex-data e))))]
-        (is (= :rf.error/no-adapter-installed thrown-id)
-            "construction fails loud with the no-adapter throw (frame never built)"))
-      ;; No half-registered process-global state survives the failed build:
-      (is (nil? (rf.frame/frame fid))
-          "no frame record landed in the frames atom")
-      (is (nil? (rf.frame/frame-meta fid))
-          "the failed frame is invisible to the frame-meta introspection surface")
-      (is (false? (rf.trace/frame-trace-disabled? fid))
-          "no trace-disabled residue — set-frame-no-emit! never ran for the failed frame")
-      ;; Restore a working adapter so the fixture teardown / next test are clean.
-      (rf/init! rf.substrate.plain-atom/adapter))))
-
-;; ---- substrate ownership: frames never touch the registrar /
-;;      source store ---------------------------------------------------------
-;;
-;; A frame is a LIVE runtime object, not an image-resolved program member.
-;; Routing a seat/reseat through `rf.registrar/register! :frame` would ALSO
-;; record a `:frame` descriptor in the provenance source store and bump the
-;; source-store GENERATION — the key leg of the resolved-image-generation cache
-;; (EP-0023). Merely seating or hot-reseating a frame would then invalidate the
-;; default-generation cache and fire the live-frame reprojection hook, for a
-;; change that is NOT a registration-pool change. This test pins that frames
-;; stay out of both stores, end-to-end.
+  ;; make-frame before rf/init!: the record is built before any trace-policy
+  ;; write, so the throw escapes before process-global state is touched
+  (let [fid :test/no-adapter-frame]
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (is (= [:rf.error/no-adapter-installed nil nil false]
+           [(try (rf/make-frame {:id fid :rf.trace/frame-no-emit? true})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e
+                   (:rf.error/id (ex-data e))))
+            (rf.frame/frame fid)
+            (rf.frame/frame-meta fid)
+            (rf.trace/frame-trace-disabled? fid)]))
+    (rf/init! rf.substrate.plain-atom/adapter)))
 
 (deftest frame-seating-writes-no-registrar-row-and-no-source-store-descriptor
-  (testing "seating + reseating a frame writes NO :frame registrar
-            row, records NO :frame source-store descriptor, and does NOT bump
-            the source-store generation (no resolved-image-generation cache
-            invalidation, no image-descriptor churn); frame introspection rides
-            frame-meta"
-    (let [gen-before (rf.source-store/store-generation)]
-      ;; First seat + hot reseat (surgical update) + a make-frame reseat.
-      (rf/make-frame {:id :h1vqa4/owned :doc "v1"})
-      (rf/make-frame {:id :h1vqa4/owned :doc "v2 (reseat refreshes config)"})
-      (is (= "v2 (reseat refreshes config)" (:doc (rf/frame-meta :h1vqa4/owned)))
-          "the reseat refreshed the stored config (upsert semantics) via frame-meta")
-      (is (nil? (rf.registrar/lookup :frame :h1vqa4/owned))
-          "no :frame registrar row exists for the seated frame")
-      (is (not (contains? (rf.registrar/registrations :frame) :h1vqa4/owned))
-          "the (reserved, intentionally empty) :frame registrar slot stays empty")
-      (is (empty? (rf.source-store/descriptors-for :frame :h1vqa4/owned))
-          "no :frame descriptor was recorded in the provenance source store")
-      (is (= gen-before (rf.source-store/store-generation))
-          "the source-store generation did NOT move — seating/reseating a frame
-           cannot invalidate the resolved-image-generation cache")
-      ;; Destroy leaves the world exactly as before (frames store only).
-      (rf/destroy-frame! :h1vqa4/owned)
-      (is (nil? (rf/frame-meta :h1vqa4/owned)) "destroyed frame is gone")
-      (is (= gen-before (rf.source-store/store-generation))
-          "destroy does not move the source-store generation either"))))
-
-;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
-;;
-;; Presets expand at registration time into a fixed bundle of metadata
-;; keys. Per Spec 002 §Frame presets the closed v1 set is :default,
-;; :test and :story. User-supplied keys win on conflict; the
-;; original :preset value is preserved verbatim for inspection.
+  ;; A frame is a live runtime object, not a registration: a :frame registrar
+  ;; row would also record a source-store descriptor and bump the store
+  ;; generation, invalidating the image-generation cache on every seat.
+  (let [gen-before (rf.source-store/store-generation)]
+    (rf/make-frame {:id :h1vqa4/owned :doc "v1"})
+    (rf/make-frame {:id :h1vqa4/owned :doc "v2 (reseat refreshes config)"})
+    (is (= ["v2 (reseat refreshes config)" nil true gen-before]
+           [(:doc (rf/frame-meta :h1vqa4/owned))
+            (rf.registrar/lookup :frame :h1vqa4/owned)
+            (empty? (rf.source-store/descriptors-for :frame :h1vqa4/owned))
+            (rf.source-store/store-generation)]))
+    (rf/destroy-frame! :h1vqa4/owned)
+    (is (= [nil gen-before]
+           [(rf/frame-meta :h1vqa4/owned) (rf.source-store/store-generation)]))))
 
 (deftest each-preset-expands-to-its-closed-v1-bundle
-  (testing "every closed-v1 preset expands to its fixed bundle, and the :preset
-            value itself is preserved on the config for inspection"
-    (doseq [[preset fx-overrides drain-depth mint-policy]
-            [;; :default expands to {} — identical to omitting :preset.
-             [:default nil nil nil]
-             ;; :test redirects the canonical Spec 014 HTTP fx to its
-             ;; canned-success stub and stamps :drain-depth 100 so tooling reads
-             ;; it off frame-meta. EP-0017 §6: it defaults the cofx mint policy
-             ;; to :strict — a declared-absent generator-backed recordable fact
-             ;; under a test frame is missing-required, never a freshly-minted
-             ;; per-run value (strict-by-default tests are core).
-             [:test {:rf.http/managed :rf.http/managed-canned-success} 100 :strict]
-             ;; :story tightens :drain-depth to 16 so a runaway cascade fails
-             ;; fast under a story. A story is a live demo, NOT a determinism
-             ;; fixture: no mint-policy entry, so it rides the router's :live
-             ;; default.
-             [:story {:rf.http/managed :rf.http/managed-canned-success} 16 nil]]]
-      (let [id (keyword "p" (name preset))]
-        (rf/make-frame {:id id :preset preset})
-        (let [cfg (:config (rf.frame/frame id))]
-          (is (= preset (:preset cfg))
-              (str preset ": :preset is preserved on the config"))
-          (is (= fx-overrides (:fx-overrides cfg))
-              (str preset ": :fx-overrides expansion"))
-          (is (= drain-depth (:drain-depth cfg))
-              (str preset ": :drain-depth expansion"))
-          (is (= mint-policy (:rf.cofx/mint-policy cfg))
-              (str preset ": :rf.cofx/mint-policy expansion")))))))
+  ;; [preset fx-overrides drain-depth mint-policy]; :default is {}, :test stubs
+  ;; managed HTTP with a strict mint policy, :story fails a runaway cascade fast
+  (doseq [[preset fx-overrides drain-depth mint-policy]
+          [[:default nil nil nil]
+           [:test {:rf.http/managed :rf.http/managed-canned-success} 100 :strict]
+           [:story {:rf.http/managed :rf.http/managed-canned-success} 16 nil]]]
+    (let [id (keyword "p" (name preset))]
+      (rf/make-frame {:id id :preset preset})
+      (is (= [preset fx-overrides drain-depth mint-policy]
+             ((juxt :preset :fx-overrides :drain-depth :rf.cofx/mint-policy)
+              (:config (rf.frame/frame id))))
+          (str preset)))))
 
 (deftest preset-user-keys-win-on-conflict
-  (testing "user-supplied keys override individual expansion entries"
-    ;; :test sets :drain-depth 100 by default; user overrides to 1000.
-    (rf/make-frame {:id :p/override :preset      :test
-                    :drain-depth 1000})
-    (let [cfg (:config (rf.frame/frame :p/override))]
-      (is (= :test (:preset cfg)))
-      (is (= 1000 (:drain-depth cfg))
-          "user :drain-depth wins over the preset's expansion default")
-      (is (= {:rf.http/managed :rf.http/managed-canned-success}
-             (:fx-overrides cfg))
-          "non-overridden expansion entries still apply"))))
+  (rf/make-frame {:id :p/override :preset      :test
+                  :drain-depth 1000})
+  (is (= [:test 1000 {:rf.http/managed :rf.http/managed-canned-success}]
+         ((juxt :preset :drain-depth :fx-overrides) (:config (rf.frame/frame :p/override))))
+      "the user's :drain-depth wins and the other expansion entries still apply"))
 
 (deftest preset-unknown-throws
-  (testing "unknown preset values throw :rf.error/unknown-preset"
-    (is (thrown? Exception
-          (rf/make-frame {:id :p/bad :preset :devcards}))
-        "passing a preset outside the closed v1 set is a registration-time error")))
+  (is (thrown? Exception (rf/make-frame {:id :p/bad :preset :devcards}))
+      "a preset outside the closed v1 set is a registration-time error"))
 
-;; ---- drain-after-destroy null guard ----------------------------
-;;
-;; A scheduled drain can race frame destruction. By the time the drain fires,
-;; the frame's app-db container is nil (rf.frame/app-db-container returns nil
-;; for destroyed frames), and a per-event :db commit in router.cljc would
-;; write through nil → NullPointerException on the executor thread.
-;;
-;; A defense-in-depth guard sits at the single choke point through
-;; which every container write flows: substrate/adapter/replace-container!
-;; no-ops when container is nil and emits :rf.error/write-after-destroy
-;; (EP-0008: an always-on :rf.error category — the same destroy-race the
-;; dispatch/subscribe paths surface production-survivably as
-;; :rf.error/frame-destroyed).
+;; A drain racing a destroy reads a nil app-db container; replace-container!,
+;; the one choke point every container write flows through, no-ops on it.
 
 (deftest replace-container-no-ops-on-nil-container
   ;; Direct unit-level coverage of the guard at the adapter wrapper. The
@@ -688,103 +342,39 @@
           (is (= 1 (count errs))
               "exactly one :rf.error/write-after-destroy trace fired"))))))
 
-;; ---- pin race semantics rather than the workaround --------------
-;;
-;; The `with-redefs [rf.interop/next-tick ...]` in the tests above is what
-;; makes their ordering deterministic; removed as "redundant", they would
-;; flake. This test pins the CONTRACT —
-;; "draining onto a destroyed frame is a quiet no-op" — by
-;; capturing next-tick, dispatching events, destroying the frame, and
-;; THEN running the captured tick. A scheduled drain that fires after the
-;; destroy must not throw (`drain-try!` revalidates the exact incarnation and
-;; never reaches the per-event :db commit, so nothing writes through the
-;; destroyed frame's nil container) and must not mutate state; queued events
-;; cut by destruction are quiet drops rather than one error per envelope.
-
 (deftest destroy-frame-pending-drain-pins-no-op-contract
-  (testing "queued events that drain AFTER destroy do not mutate state,
-            do not throw, and are dropped quietly"
-    (rf/make-frame {:id :rf2-dpny/worker :doc "race-pin frame"})
-    (let [side-effects (atom 0)
-          traces       (atom [])
-          captured     (atom [])]
-      (rf/reg-event :rf2-dpny/tick
-                       (fn [{:keys [db]} _] (swap! side-effects inc) {:db db}))
-      (rf/register-listener! :trace ::rf2-dpny (fn [ev] (swap! traces conj ev)))
-
-      ;; Capture next-tick: dispatches schedule a drain, the drain
-      ;; thunk goes into the atom instead of executing.
-      (with-redefs [rf.interop/next-tick (fn [f] (swap! captured conj f) nil)]
-        (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
-        (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
-        ;; Two events are queued; neither has drained yet.
-        (let [router (:router (rf.frame/frame :rf2-dpny/worker))
-              queue  (:queue @router)]
-          (is (= 2 (count queue))
-              "two events queued, deterministically un-drained")))
-
-      ;; Destroy the frame BEFORE the captured ticks run.
-      (rf/destroy-frame! :rf2-dpny/worker)
-      (is (nil? (rf.frame/frame :rf2-dpny/worker))
-          "the frame is gone from the registry")
-
-      ;; NOW run the captured ticks. Each `drain-try!` revalidates the
-      ;; exact incarnation, finds it destroyed, and releases the lock
-      ;; without draining. The contract is a quiet no-op.
-      (doseq [tick @captured]
-        (is (nil? (try (tick) nil
-                       (catch Throwable e e)))
-            "the captured drain ran without throwing"))
-
-      (rf/unregister-listener! :trace ::rf2-dpny)
-
-      ;; (a) State did NOT mutate — the handler never ran.
-      (is (= 0 @side-effects)
-          "the :rf2-dpny/tick handler did NOT increment the counter")
-
-      ;; (b) The drain-onto-destroyed-frame path is a SILENT no-op:
-      ;;     `drain-try!` short-circuits on the incarnation check
-      ;;     without emitting any trace. The
-      ;;     :rf.error/frame-destroyed trace is emitted by dispatch! /
-      ;;     dispatch-sync!, NOT by the drain itself — events queued
-      ;;     before destroy already passed the dispatch check.
-      ;;     Pre-destroy queued events become quiet drops. Pin that.
-      ;;     Nor is it reported as an interruption: the drain-interrupted
-      ;;     trace fires only when a drain pass actually STARTED on a live
-      ;;     frame and then detected destruction mid-pass.
-      (let [destroyed-traces (filter #(= :rf.error/frame-destroyed (:operation %))
-                                     @traces)
-            interrupts       (filter #(= :rf.frame/drain-interrupted (:operation %))
-                                     @traces)]
-        (is (zero? (count destroyed-traces))
-            "the drain itself does NOT emit :rf.error/frame-destroyed —
-             that trace fires at dispatch time, not at drain time")
-        (is (zero? (count interrupts))
-            "no :rf.frame/drain-interrupted — the drain never started
-             on the already-destroyed frame"))
-
-      ;; (c) Defence-in-depth: a subsequent dispatch AFTER destroy DOES
-      ;;     trace :rf.error/frame-destroyed (the public contract for
-      ;;     dispatching to a destroyed frame).
-      (let [after-traces (atom [])]
-        (rf/register-listener! :trace ::rf2-dpny-after (fn [ev] (swap! after-traces conj ev)))
-        (rf/dispatch-sync [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
-        (rf/unregister-listener! :trace ::rf2-dpny-after)
-        ;; Dev-instrumentation arm (see ns docstring). NOTE that
-        ;; (b) above is a pair of NEGATIVE trace assertions and is therefore
-        ;; vacuous under the gate; the no-op contract this deftest is named
-        ;; for is carried by (a), (d) and (e), all posture-independent.
-        (when rf.interop/debug-enabled?
-          (is (some #(= :rf.error/frame-destroyed (:operation %)) @after-traces)
-              "post-destroy dispatch (not the drain) traces :rf.error/frame-destroyed")))
-
-      ;; (d) The handler still never ran.
-      (is (= 0 @side-effects)
-          "no handler ran across the entire lifecycle")
-
-      ;; (e) Frame stays gone.
-      (is (nil? (rf.frame/frame :rf2-dpny/worker))
-          "the frame did not somehow re-materialise from the post-destroy drain"))))
+  ;; events queued before a destroy, drained after it, neither run nor throw
+  (rf/make-frame {:id :rf2-dpny/worker :doc "race-pin frame"})
+  (let [side-effects (atom 0)
+        traces       (atom [])
+        captured     (atom [])]
+    (rf/reg-event :rf2-dpny/tick
+      (fn [{:keys [db]} _] (swap! side-effects inc) {:db db}))
+    (rf/register-listener! :trace ::rf2-dpny (fn [ev] (swap! traces conj ev)))
+    (with-redefs [rf.interop/next-tick (fn [f] (swap! captured conj f) nil)]
+      (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+      (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+      (is (= 2 (count (:queue @(:router (rf.frame/frame :rf2-dpny/worker)))))
+          "precondition: two events queued, un-drained"))
+    (rf/destroy-frame! :rf2-dpny/worker)
+    (is (= [] (keep #(try (%) nil (catch Throwable e e)) @captured))
+        "the captured drains ran without throwing")
+    (rf/unregister-listener! :trace ::rf2-dpny)
+    ;; the drain emits neither frame-destroyed (a dispatch-time trace) nor
+    ;; drain-interrupted (it never started)
+    (is (= [0 0 0]
+           [@side-effects
+            (count (filter #(= :rf.error/frame-destroyed (:operation %)) @traces))
+            (count (filter #(= :rf.frame/drain-interrupted (:operation %)) @traces))]))
+    (let [after-traces (atom [])]
+      (rf/register-listener! :trace ::rf2-dpny-after (fn [ev] (swap! after-traces conj ev)))
+      (rf/dispatch-sync [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+      (rf/unregister-listener! :trace ::rf2-dpny-after)
+      (when rf.interop/debug-enabled?
+        (is (some #(= :rf.error/frame-destroyed (:operation %)) @after-traces)
+            "a post-destroy dispatch traces :rf.error/frame-destroyed")))
+    (is (= [0 nil] [@side-effects (rf.frame/frame :rf2-dpny/worker)])
+        "no handler ran and the frame did not re-materialise")))
 
 (deftest destroy-claim-prevents-cold-release-from-running-queued-handlers
   (testing "the destroy claim is the queued-work cutoff, before lifecycle-dead publication"
@@ -818,10 +408,8 @@
                       nil)]
         (rf/dispatch [:destroy-claim/queued] {:frame frame-id})
         (rf/dispatch [:destroy-claim/queued] {:frame frame-id}))
-      (is (= 1 (count @captured-ticks))
-          "the initial dispatch pair scheduled one drain attempt")
-      (is (= 2 (count (:queue @(:router (rf.frame/frame frame-id)))))
-          "both events are queued before destroy starts")
+      (is (= [1 2] [(count @captured-ticks) (count (:queue @(:router (rf.frame/frame frame-id))))])
+          "precondition: one scheduled drain attempt and two queued events")
 
       ;; `:machines/teardown-on-frame-destroy!` runs after claim-frame-destroy! has returned
       ;; (and therefore after the cold lock release) but before
@@ -853,16 +441,12 @@
         (finally
           (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)))
 
-      (is (= 0 @parent-runs)
-          "queued handlers are no-op as soon as this incarnation's destroy is claimed")
-      (is (= 0 @user-effects)
-          "a dropped queued handler cannot emit user effects")
-      (is (= 0 @child-runs)
-          "a dropped queued handler cannot enqueue or run child dispatches")
-      (is (= {:destroyed? false :queued 0} @gap-observation)
-          "the queued drain was disposed while the frame was claimed but still lifecycle-live")
-      (is (nil? (rf.frame/frame frame-id))
-          "destroy still completes after the claim-window barrier"))))
+      ;; no queued handler, user effect or child ran once the destroy was
+      ;; claimed; the queue emptied while the frame was still lifecycle-live,
+      ;; and the destroy completed
+      (is (= [0 0 0 {:destroyed? false :queued 0} nil]
+             [@parent-runs @user-effects @child-runs @gap-observation
+              (rf.frame/frame frame-id)])))))
 
 (deftest post-claim-dispatch-enters-real-queue-but-never-executes
   (testing "ordinary work submitted after claim may queue but cannot run in the claim-to-dead gap"
@@ -916,10 +500,9 @@
                               nil)]
                 (rf/dispatch [:destroy-claim/post-claim-parent]
                              {:frame frame-id}))
-              (is (= 2 (count @captured-ticks))
-                  "one pre-claim and one post-claim submit each scheduled a drain")
-              (is (= 1 (count (:queue @(:router (get @rf.frame/frames frame-id)))))
-                  "the ordinary envelope was enqueued after the claim cutoff")
+              (is (= [2 1] [(count @captured-ticks)
+                            (count (:queue @(:router (get @rf.frame/frames frame-id))))])
+                  "a drain per submit, and the ordinary envelope enqueued after the cutoff")
               ;; Execute BOTH already-captured scheduler callbacks separately.
               ;; Claim cleared :scheduled?, so the post-claim submit captured a
               ;; second callback. The first callback atomically consumes the
@@ -938,11 +521,9 @@
                   ;; These two are ROUTER STATE — production-real, and they are
                   ;; the algorithm this deftest pins (Spec 002 §Drain-loop
                   ;; pseudocode). They stay outside the arm.
-                  (is (true? (:destroy-claim-report-emitted? router-state))
-                      "the first callback compare-marks this router generation")
-                  (is (not (contains? router-state
-                                      :destroy-claim-dropped-count))
-                      "the first callback atomically consumes claim-time evidence")
+                  (is (= [true false] [(:destroy-claim-report-emitted? router-state)
+                                       (contains? router-state :destroy-claim-dropped-count)])
+                      "the first callback compare-marks the router and consumes the claim-time count")
                   ;; Dev-instrumentation arm (see ns docstring).
                   (when rf.interop/debug-enabled?
                     (is (= 1 (count interrupts))
@@ -965,25 +546,15 @@
           (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)
           (rf/unregister-listener! :trace ::post-claim-combined-count)))
 
-      (is (zero? @parent-runs)
-          "the post-claim ordinary handler never runs")
-      (is (zero? @user-effects)
-          "a drain-dropped post-claim handler cannot emit user effects")
-      (is (zero? @child-runs)
-          "a drain-dropped post-claim handler cannot enqueue or run children")
-      (is (= {:destroyed? false :queued 0} @gap-observation)
-          "the claim predicate emptied the real queue while lifecycle was still live")
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; "never executes" half of this deftest's name is the four zero-count
-      ;; assertions plus `@gap-observation` above, all posture-independent.
+      (is (= [0 0 0 {:destroyed? false :queued 0} nil]
+             [@parent-runs @user-effects @child-runs @gap-observation
+              (rf.frame/frame frame-id)])
+          "the post-claim handler never ran and the claim emptied the live queue")
       (when rf.interop/debug-enabled?
-        (let [interrupts (filterv #(= :rf.frame/drain-interrupted (:operation %))
-                                  @traces)]
-          (is (= 1 (count interrupts))
-              "the observing drain emits exactly one interruption trace")
-          (is (= 2 (get-in (first interrupts) [:tags :dropped-count]))
-              "dropped-count combines one claim-time and one check-time removal")))
-      (is (nil? (rf.frame/frame frame-id)) "destroy completes after the gap proof"))))
+        (is (= [2] (keep #(when (= :rf.frame/drain-interrupted (:operation %))
+                            (get-in % [:tags :dropped-count]))
+                         @traces))
+            "one interruption trace, combining a claim-time and a check-time removal")))))
 
 (deftest on-destroy-cascade-is-isolated-from-preclaim-and-bound-work
   (testing "only the cleanup seed and its queued descendants run after claim"
@@ -1047,15 +618,12 @@
       (doseq [tick @captured-ticks] (tick))
       (executor-barrier!)
 
-      (is (= 1 @cleanup-runs) ":on-destroy seed runs exactly once")
-      (is (= 1 @child-runs) "queued cleanup child runs on the isolated cascade")
-      (is (= 1 @effect-runs) "cleanup effects execute normally")
-      (is (zero? @ordinary-runs) "pre-claim ordinary work is discarded")
-      (is (zero? @escaped-runs)
-          "bound-fn executor work cannot inherit teardown authority")
-      (is (zero? @nested-sync-runs)
-          "generic nested dispatch-sync remains rejected during cleanup")
-      (is (nil? (rf.frame/frame frame-id)) "teardown completes"))))
+      ;; the seed, its queued child and its effect run once; pre-claim work,
+      ;; executor work bound inside cleanup, and nested dispatch-sync do not
+      (is (= [1 1 1 0 0 0 nil]
+             [@cleanup-runs @child-runs @effect-runs
+              @ordinary-runs @escaped-runs @nested-sync-runs
+              (rf.frame/frame frame-id)])))))
 
 (deftest destroy-from-active-handler-runs-cleanup-and-cuts-off-old-queue
   (testing "self-destroy has one private cleanup cascade inside the active drain"
@@ -1089,348 +657,179 @@
       (rf/dispatch-sync [:destroy-claim/self-destroy] {:frame frame-id})
       (doseq [tick @captured-ticks] (tick))
 
-      (is (= 1 @cleanup-runs)
-          "the internal cleanup seed runs despite generic nested-sync rejection")
-      (is (zero? @ordinary-runs)
-          "the pre-existing queue is cut off by the handler's destroy claim")
-      (is (nil? (rf.frame/frame frame-id)) "self-destroy completes exactly once"))))
+      ;; the cleanup seed runs despite nested-sync rejection, and the
+      ;; pre-existing queue is cut off by the handler's destroy claim
+      (is (= [1 0 nil] [@cleanup-runs @ordinary-runs (rf.frame/frame frame-id)])))))
 
 (deftest replace-container-on-destroyed-frame-does-not-npe
-  ;; Tighter reproducer that hits the adapter guard directly via the
-  ;; live runtime. The router's per-event :db commit reads the frame's
-  ;; app-db container right before writing — and if the frame was
-  ;; destroyed mid-drain, app-db-container returns nil. We exercise that
-  ;; exact shape by reading app-db-container AFTER destroy and feeding the
-  ;; nil container straight into replace-container!.
-  (testing "rf.frame/app-db-container on a destroyed frame is nil; replace-container! handles it"
-    (let [recorded (atom [])]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
-      (rf/make-frame {:id :race/destroyed-mid-write})
-      (rf.frame/destroy-frame! :race/destroyed-mid-write)
-      (let [container (rf.frame/app-db-container :race/destroyed-mid-write)]
-        (is (nil? container)
-            "app-db-container on a destroyed frame returns nil — the precondition for the NPE the guard prevents")
-        ;; This is the exact call shape from router.cljc's :db commit:
-        ;; a no-op + always-on error trace, not an NPE.
-        (is (nil? (rf.substrate.adapter/replace-container! container {:would :have :npe'd true}))
-            "writing through the nil container is a documented no-op"))
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; NPE this deftest reproduces is ruled out by the two assertions above,
-      ;; both posture-independent.
-      (when rf.interop/debug-enabled?
-        (let [errs (filterv (fn [ev]
-                              (and (= :error (:op-type ev))
-                                   (= :rf.error/write-after-destroy
-                                      (:operation ev))))
-                            @recorded)]
-          (is (pos? (count errs))
-              ":rf.error/write-after-destroy fired for the post-destroy write"))))))
-
-;; ---- frame-ids / frame-meta re-export round-trip ----------------
-;;
-;; The frame-lifecycle tests above read via direct atom reads. The public
-;; re-exports `rf/frame-ids` and `rf/frame-meta` are the documented
-;; introspection surface; this test pins their round-trip contract.
+  (let [recorded (atom [])]
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
+    (rf/make-frame {:id :race/destroyed-mid-write})
+    (rf.frame/destroy-frame! :race/destroyed-mid-write)
+    (let [container (rf.frame/app-db-container :race/destroyed-mid-write)]
+      (is (= [nil nil]
+             [container (rf.substrate.adapter/replace-container! container {:would :have :npe'd true})])
+          "a destroyed frame's container is nil, and writing through it is a no-op"))
+    (when rf.interop/debug-enabled?
+      (is (some #(and (= :error (:op-type %))
+                      (= :rf.error/write-after-destroy (:operation %)))
+                @recorded)))))
 
 (deftest frame-ids-round-trip
-  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id"
-    ;; EP-0002: `:rf/default` is an ORDINARY id — `init!` does
-    ;; not create it, and `frame-ids` is a frame-neutral enumeration
-    ;; surface (it reports exactly the registered frames, never synthesises
-    ;; a default). It appears here only because this test registers it
-    ;; explicitly, alongside the user frames — proving the round-trip
-    ;; without leaning on a runtime-synthesised floor.
-    (rf/make-frame {:id :rf/default :doc "explicitly-registered ordinary default frame"})
-    (rf/make-frame {:id :tenants/acme :doc "acme tenant"  :preset :default})
-    (rf/make-frame {:id :tenants/widgets :doc "widgets co"   :preset :default})
-    (is (= #{:rf/default :tenants/acme :tenants/widgets} (rf/frame-ids))
-        "frame-ids is exactly the registered frames; :rf/default appears because
-         it was EXPLICITLY registered (no runtime floor)"))
-  (testing "frame-ids does NOT synthesise :rf/default when it was never registered"
-    ;; Fresh slate (the :each fixture already reset frames + init!'d without
-    ;; creating :rf/default). Register only user frames.
-    (reset! rf.frame/frames {})
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (rf/make-frame {:id :tenants/solo :doc "sole user frame"})
-    (is (= #{:tenants/solo} (rf/frame-ids))
-        "EP-0002: :rf/default is not present unless explicitly registered")))
+  ;; frame-ids reports exactly the registered frames; :rf/default is an
+  ;; ordinary id (EP-0002) that init! never synthesises
+  (rf/make-frame {:id :rf/default :doc "explicitly-registered ordinary default frame"})
+  (rf/make-frame {:id :tenants/acme :doc "acme tenant"  :preset :default})
+  (is (= #{:rf/default :tenants/acme} (rf/frame-ids)))
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf/make-frame {:id :tenants/solo :doc "sole user frame"})
+  (is (= #{:tenants/solo} (rf/frame-ids))))
 
 (deftest frame-meta-round-trip
-  (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape
-            per Spec-Schemas §:rf/frame-meta — user-supplied metadata,
-            preset-expansion keys, and lifecycle fields all at the top level"
-    (rf/make-frame {:id :tenants/acme :doc          "acme tenant"
-                    :preset       :default
-                    :fx-overrides {:rf.http/managed
-                                   :rf.http/managed-canned-success}})
-    (let [m (rf/frame-meta :tenants/acme)]
-      (is (= :tenants/acme (:id m))
-          ":id reflects the registered frame id")
-      (is (= "acme tenant" (:doc m))
-          "user-supplied :doc is at the top level of the flat shape")
-      (is (= :default (:preset m))
-          ":preset is preserved verbatim per Spec 002 §Frame presets")
-      (is (= {:rf.http/managed :rf.http/managed-canned-success}
-             (:fx-overrides m))
-          ":fx-overrides is at the top level of the flat shape")
-      (is (number? (:created-at m))
-          ":created-at is the host clock at make-frame time — flat, not nested
-           under any :lifecycle sub-map")
-      (is (false? (:destroyed? m))
-          ":destroyed? is at the top level of the flat shape")
-      (is (nil? (:config m))
-          "no internal :config grouping leaks through — flat shape only")
-      (is (nil? (:lifecycle m))
-          "no internal :lifecycle grouping leaks through — flat shape only"))))
-
-;; ---- :on-destroy handler throw semantics ----------------------
-;;
-;; Per Spec 002 §Destroy — `:on-destroy` handler throw semantics: a throw
-;; from the user-supplied `:on-destroy` event handler MUST NOT abort
-;; teardown. The runtime catches, emits :rf.error/on-destroy-handler-
-;; exception, and continues the destroy recipe end-to-end.
+  ;; the flat :rf/frame-meta shape (Spec-Schemas): user metadata, preset keys and
+  ;; lifecycle fields at the top level, no internal grouping
+  (rf/make-frame {:id :tenants/acme :doc          "acme tenant"
+                  :preset       :default
+                  :fx-overrides {:rf.http/managed
+                                 :rf.http/managed-canned-success}})
+  (let [m (rf/frame-meta :tenants/acme)]
+    (is (= [{:id           :tenants/acme
+             :doc          "acme tenant"
+             :preset       :default
+             :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
+             :destroyed?   false}
+            true false false]
+           [(select-keys m [:id :doc :preset :fx-overrides :destroyed?])
+            (number? (:created-at m))
+            (contains? m :config)
+            (contains? m :lifecycle)]))))
 
 (deftest on-destroy-throw-does-not-abort-teardown
-  (testing "a throwing :on-destroy event still results in a fully destroyed
-            frame — machine cascade, sub-cache, :rf.frame/destroyed,
-            registry dissoc all run regardless"
-    (rf/make-frame {:id :throwy/worker :doc       "throwy on-destroy frame"
-                    :on-destroy [:throwy/blow-up]})
-    ;; Handler that always throws.
-    (rf/reg-event :throwy/blow-up
-      (fn [{:keys [db]} _]
-        {:db (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))}))
-    ;; Pin a live subscription so we can verify sub-cache disposal still ran.
-    (rf/reg-event :throwy/seed (fn [{:keys [db]} _] {:db {:n 42}}))
-    (rf/reg-sub :throwy/n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:throwy/seed] {:frame :throwy/worker})
-    (let [pinned         (rf/subscribe [:throwy/n] {:frame :throwy/worker})
-          dispose-fired  (atom 0)
-          traces         (atom [])]
-      (is (= 42 @pinned) "sub reads the seeded value before destroy")
-      (re-frame.interop/add-on-dispose! pinned
-                                        (fn [] (swap! dispose-fired inc)))
-      (rf/register-listener! :trace ::rf2-r1ciy (fn [ev] (swap! traces conj ev)))
-
-      ;; Destroy MUST NOT propagate the throw.
-      (is (nil? (try (rf/destroy-frame! :throwy/worker)
-                     (catch Throwable e e)))
-          "destroy-frame! returns nil even though :on-destroy threw")
-
-      (rf/unregister-listener! :trace ::rf2-r1ciy)
-
-      ;; (a) The :rf.error/on-destroy-handler-exception trace fired.
-      ;; Dev-instrumentation arm (see ns docstring). "Does not
-      ;; abort teardown" is (b), (c) and the non-propagating `destroy-frame!`
-      ;; above — all posture-independent; the REPORT of the swallowed throw is
-      ;; a dev diagnostic.
-      (when rf.interop/debug-enabled?
-        (let [errs (filterv (fn [ev]
-                              (and (= :error (:op-type ev))
-                                   (= :rf.error/on-destroy-handler-exception
-                                      (:operation ev))))
-                            @traces)]
-          (is (= 1 (count errs))
-              "exactly one :rf.error/on-destroy-handler-exception trace")
-          (let [ev (first errs)
-                tags (:tags ev)]
-            (is (= :throwy/worker (:frame tags))
-                ":tags carries the destroyed frame id")
-            (is (= [:throwy/blow-up] (:event tags))
-                ":tags carries the :on-destroy event vector")
-            (is (some? (:exception tags))
-                ":tags carries the captured exception")
-            (is (= :fire-on-destroy-event! (:where tags))
-                ":tags carries the call-site :where marker"))))
-
-      ;; (b) The frame is fully gone from the registry.
-      (is (not (contains? @rf.frame/frames :throwy/worker))
-          "destroy-frame! dissoc'd the frame entry despite the throw")
-
-      ;; (c) The sub-cache was disposed (on-dispose fired).
-      (is (= 1 @dispose-fired)
-          "sub-cache disposal ran — on-dispose hook fired once")
-
-      ;; (d) :rf.frame/destroyed trace was emitted (post-throw step still ran).
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
-            ":rf.frame/destroyed trace was emitted — teardown continued past the throw")))))
-
-;; ---- re-entrant destroy-frame! is a silent no-op --------------
-;;
-;; Per Spec 002 §Destroy — re-entrant `destroy-frame!` is a silent no-op:
-;; a call to `destroy-frame!` from inside the same id's `:on-destroy`
-;; handler (or any code reachable from it) MUST short-circuit silently —
-;; the outer destroy is already in flight; re-running the recipe would
-;; corrupt half-torn-down state.
+  (rf/make-frame {:id :throwy/worker :doc       "throwy on-destroy frame"
+                  :on-destroy [:throwy/blow-up]})
+  (rf/reg-event :throwy/blow-up
+    (fn [{:keys [db]} _]
+      {:db (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))}))
+  (rf/reg-event :throwy/seed (fn [{:keys [db]} _] {:db {:n 42}}))
+  (rf/reg-sub :throwy/n (fn [db _] (:n db)))
+  (rf/dispatch-sync [:throwy/seed] {:frame :throwy/worker})
+  (let [pinned        (rf/subscribe [:throwy/n] {:frame :throwy/worker})
+        dispose-fired (atom 0)
+        traces        (atom [])]
+    (is (= 42 @pinned))
+    (re-frame.interop/add-on-dispose! pinned (fn [] (swap! dispose-fired inc)))
+    (rf/register-listener! :trace ::rf2-r1ciy (fn [ev] (swap! traces conj ev)))
+    ;; destroy returns normally, dissocs the frame and still walks the sub-cache
+    (is (= [nil false 1]
+           [(try (rf/destroy-frame! :throwy/worker)
+                 (catch Throwable e e))
+            (contains? @rf.frame/frames :throwy/worker)
+            @dispose-fired]))
+    (rf/unregister-listener! :trace ::rf2-r1ciy)
+    (when rf.interop/debug-enabled?
+      (is (= [[[:throwy/worker [:throwy/blow-up] true :fire-on-destroy-event!]] true]
+             [(keep #(when (and (= :error (:op-type %))
+                                (= :rf.error/on-destroy-handler-exception (:operation %)))
+                       (let [tags (:tags %)]
+                         [(:frame tags) (:event tags) (some? (:exception tags)) (:where tags)]))
+                    @traces)
+              (boolean (some #(= :rf.frame/destroyed (:operation %)) @traces))])
+          "one on-destroy exception trace, and teardown continued to the destroyed trace"))))
 
 (deftest re-entrant-destroy-from-on-destroy-is-silent-noop
-  (testing "destroy-frame! called from within :on-destroy must NOT recurse —
-            :on-destroy fires exactly once, teardown completes once"
-    (let [on-destroy-count (atom 0)
-          traces           (atom [])]
-      (rf/make-frame {:id :reent/worker :doc        "re-entrancy frame"
-                      :on-destroy [:reent/cleanup]})
-      ;; The :on-destroy handler itself calls destroy-frame! on its own
-      ;; frame. Without the re-entrancy guard this would recurse
-      ;; indefinitely (or until a stack overflow).
-      (rf/reg-event :reent/cleanup
-        (fn [_ _]
-          (swap! on-destroy-count inc)
-          (rf.frame/destroy-frame! :reent/worker)
-          {}))
-      (rf/register-listener! :trace ::reent (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame! :reent/worker)
-      (rf/unregister-listener! :trace ::reent)
+  (let [on-destroy-count (atom 0)
+        traces           (atom [])]
+    (rf/make-frame {:id :reent/worker :doc        "re-entrancy frame"
+                    :on-destroy [:reent/cleanup]})
+    (rf/reg-event :reent/cleanup
+      (fn [_ _]
+        (swap! on-destroy-count inc)
+        (rf.frame/destroy-frame! :reent/worker)
+        {}))
+    (rf/register-listener! :trace ::reent (fn [ev] (swap! traces conj ev)))
+    (rf/destroy-frame! :reent/worker)
+    (rf/unregister-listener! :trace ::reent)
+    (is (= [1 nil] [@on-destroy-count (rf.frame/frame :reent/worker)])
+        ":on-destroy fired once and teardown completed")
+    (when rf.interop/debug-enabled?
+      (is (= [1 0]
+             [(count (filter #(= :rf.frame/destroyed (:operation %)) @traces))
+              (count (filter #(= :rf.error/on-destroy-handler-exception (:operation %)) @traces))])
+          "teardown ran once, and the re-entrant no-op is silent"))))
 
-      ;; (a) :on-destroy ran exactly once — the re-entrant inner call was a no-op.
-      (is (= 1 @on-destroy-count)
-          ":on-destroy fired once; the re-entrant destroy-frame! did not re-run it")
-
-      ;; (b) Exactly one :rf.frame/destroyed trace emitted.
-      ;; (c) No :rf.error/on-destroy-handler-exception (the inner call
-      ;;     was a silent no-op, not a throw).
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; re-entrancy guard itself is (a) above, posture-independent; (c) is a
-      ;; NEGATIVE trace assertion and would pass vacuously under the gate,
-      ;; which is why it sits inside the arm rather than outside it.
-      (when rf.interop/debug-enabled?
-        (let [destroyed-traces (filter #(= :rf.frame/destroyed (:operation %)) @traces)]
-          (is (= 1 (count destroyed-traces))
-              "exactly one :rf.frame/destroyed trace — teardown ran end-to-end once"))
-        (let [errs (filter #(= :rf.error/on-destroy-handler-exception (:operation %))
-                           @traces)]
-          (is (zero? (count errs))
-              "re-entrant no-op is silent — no error trace")))
-
-      ;; (d) The frame is gone.
-      (is (nil? (rf.frame/frame :reent/worker))
-          "the frame is fully destroyed"))))
-
-;; ---- exact-incarnation cleanup via the frame VALUE ------------
-;;
-;; A fresh `make-frame` VALUE carries EXACT incarnation authority
-;; (`:rf.frame/incarnation-token` = the installed `:drain-lock`). The one-arg
-;; `destroy-frame!` of that value is incarnation-EXACT: it destroys ONLY the
-;; incarnation the value names, never a same-id successor reseated in between.
-;; A frame-id KEYWORD stays address-directed (destroys the current incarnation).
+;; A make-frame VALUE carries its incarnation's token, so destroying the value
+;; is incarnation-exact; a frame-id keyword destroys the current incarnation.
 
 (deftest make-frame-value-carries-exact-incarnation-token
-  (testing "the returned frame VALUE carries the live incarnation's token"
-    (let [va (rf/make-frame {:id :inc/tok :doc "A"})]
-      (is (rf.frame/frame-value? va) "make-frame returns a frame VALUE")
-      (is (some? (rf.frame/frame-value-incarnation-token va))
-          "the value carries an incarnation token")
-      (is (identical? (rf.frame/frame-value-incarnation-token va)
-                      (rf.frame/frame-incarnation-token :inc/tok))
-          "the carried token IS the live incarnation's :drain-lock")))
-  (testing "an idempotent re-make-frame carries the SAME (preserved) token"
-    (let [va (rf/make-frame {:id :inc/rereg :doc "A"})
-          vb (rf/make-frame {:id :inc/rereg :doc "A-refreshed"})]
-      (is (identical? (rf.frame/frame-value-incarnation-token va)
-                      (rf.frame/frame-value-incarnation-token vb))
-          "re-registration preserves :drain-lock, so both values name one incarnation"))))
+  (let [va (rf/make-frame {:id :inc/tok :doc "A"})]
+    (is (= [true true]
+           [(rf.frame/frame-value? va)
+            (identical? (rf.frame/frame-value-incarnation-token va)
+                        (rf.frame/frame-incarnation-token :inc/tok))])
+        "make-frame returns a frame value carrying the live incarnation's token"))
+  (let [va (rf/make-frame {:id :inc/rereg :doc "A"})
+        vb (rf/make-frame {:id :inc/rereg :doc "A-refreshed"})]
+    (is (identical? (rf.frame/frame-value-incarnation-token va)
+                    (rf.frame/frame-value-incarnation-token vb))
+        "re-registration preserves the incarnation")))
 
 (deftest destroy-value-N-does-not-tear-down-successor-N+1
-  (testing "destroying a STALE frame VALUE (incarnation A) leaves a same-id
-            successor B alive, while ordinary cleanup of B's own value releases it"
-    (let [va      (rf/make-frame {:id :inc/x :doc "A"})
-          a-token (rf.frame/frame-value-incarnation-token va)]
-      ;; Tear A down (address-directed) and re-seat a fresh incarnation B under
-      ;; the SAME id — a distinct incarnation with a distinct token.
-      (rf/destroy-frame! :inc/x)
-      (is (nil? (rf.frame/frame :inc/x)) "A is gone after its address-directed destroy")
-      (let [vb      (rf/make-frame {:id :inc/x :doc "B"})
-            b-token (rf.frame/frame-value-incarnation-token vb)]
-        (is (not (identical? a-token b-token)) "B is a distinct incarnation")
-        ;; The OWNER of the stale value A exits: destroying value-A must NOT
-        ;; reap B (the carried token is stale → the two-arg arity no-ops).
-        (rf/destroy-frame! va)
-        (is (some? (rf.frame/frame :inc/x))
-            "B survives — the stale value-A teardown did not destroy incarnation N+1")
-        (is (identical? b-token (rf.frame/frame-incarnation-token :inc/x))
-            "the live incarnation is still exactly B")
-        ;; Ordinary A-style cleanup still works: destroying B's OWN value fully
-        ;; releases B.
-        (rf/destroy-frame! vb)
-        (is (nil? (rf.frame/frame :inc/x))
-            "B is fully released by destroying its own value")))))
+  (let [va      (rf/make-frame {:id :inc/x :doc "A"})
+        a-token (rf.frame/frame-value-incarnation-token va)]
+    (rf/destroy-frame! :inc/x)
+    (is (nil? (rf.frame/frame :inc/x)))
+    (let [vb      (rf/make-frame {:id :inc/x :doc "B"})
+          b-token (rf.frame/frame-value-incarnation-token vb)]
+      (rf/destroy-frame! va)
+      (is (= [false true] [(identical? a-token b-token)
+                           (identical? b-token (rf.frame/frame-incarnation-token :inc/x))])
+          "a stale destroy of value A leaves the distinct successor B live")
+      (rf/destroy-frame! vb)
+      (is (nil? (rf.frame/frame :inc/x)) "B's own value releases it"))))
 
 (deftest with-new-frame-exit-teardown-is-incarnation-exact
-  (testing "with-new-frame binds make-frame's VALUE; a body that destroys A and
-            reseats B under the same id must leave B alive on macro exit"
-    (let [b-token (atom nil)]
-      (rf/with-new-frame [f (rf/make-frame {:id :wnf/x :doc "A"})]
-        ;; Inside the scope: tear A down and re-seat a fresh B under the same id.
-        (rf/destroy-frame! :wnf/x)
-        (rf/make-frame {:id :wnf/x :doc "B"})
-        (reset! b-token (rf.frame/frame-incarnation-token :wnf/x)))
-      ;; The macro's `finally (destroy-frame! f)` consumed value-A's stale token
-      ;; → a no-op against B.
-      (is (some? (rf.frame/frame :wnf/x))
-          "B survives with-new-frame's exit teardown")
-      (is (identical? @b-token (rf.frame/frame-incarnation-token :wnf/x))
-          "the surviving incarnation is exactly B")
-      (rf/destroy-frame! :wnf/x)))
-  (testing "ordinary with-new-frame cleanup releases exactly the incarnation it created"
-    (rf/with-new-frame [f (rf/make-frame {:id :wnf/y :doc "solo"})]
-      (is (some? (rf.frame/frame :wnf/y)) "the frame is live inside the scope"))
-    (is (nil? (rf.frame/frame :wnf/y))
-        "with-new-frame destroyed exactly the incarnation it created")))
+  ;; a body that destroys A and reseats B under the same id leaves B alive on exit
+  (let [b-token (atom nil)]
+    (rf/with-new-frame [f (rf/make-frame {:id :wnf/x :doc "A"})]
+      (rf/destroy-frame! :wnf/x)
+      (rf/make-frame {:id :wnf/x :doc "B"})
+      (reset! b-token (rf.frame/frame-incarnation-token :wnf/x)))
+    (is (identical? @b-token (rf.frame/frame-incarnation-token :wnf/x)))
+    (rf/destroy-frame! :wnf/x))
+  (rf/with-new-frame [f (rf/make-frame {:id :wnf/y :doc "solo"})]
+    nil)
+  (is (nil? (rf.frame/frame :wnf/y))
+      "ordinary exit destroys exactly the incarnation it created"))
 
-;; ---- frame-provider target triage ------------------------------
-;; `require-frame-provider-target!` teaches ONE frame-target grammar: a frame-id
-;; KEYWORD or the live frame VALUE `make-frame` returns, and its name and
-;; recovery id say so. These pin the grammar and the recovery id so neither
-;; can silently narrow to keyword-only.
+;; require-frame-provider-target! accepts a frame-id keyword or a live frame value.
 
 (deftest require-frame-provider-target-accepts-both-target-spellings
-  (testing "a frame-id KEYWORD normalizes to itself"
-    (rf/make-frame {:id :target/kw :doc "kw target"})
-    (is (= :target/kw
-           (rf.frame/require-frame-provider-target! :target/kw 'test/where))
-        "a keyword target passes through as the frame id"))
-  (testing "a live frame VALUE normalizes to the SAME id the keyword names"
-    (let [v (rf/make-frame {:id :target/val :doc "value target"})]
-      (is (rf.frame/frame-value? v) "make-frame returns a frame VALUE")
-      (is (= :target/val
-             (rf.frame/require-frame-provider-target! v 'test/where))
-          "a frame value normalizes to its frame id — the same grammar as the keyword"))))
+  (rf/make-frame {:id :target/kw :doc "kw target"})
+  (let [v (rf/make-frame {:id :target/val :doc "value target"})]
+    (is (= [:target/kw :target/val]
+           [(rf.frame/require-frame-provider-target! :target/kw 'test/where)
+            (rf.frame/require-frame-provider-target! v 'test/where)])
+        "a keyword and a frame value normalize to the frame id")))
 
 (deftest require-frame-provider-target-rejects-neither-shape-with-supply-frame-target
-  (testing "a non-nil value that is neither a keyword nor a frame value throws
-            :rf.error/bad-frame-provider-arg carrying :recovery :supply-frame-target"
-    (doseq [bad ["app" 7 ['x] {:not :a-frame}]]
-      (let [data (try
-                   (rf.frame/require-frame-provider-target! bad 'test/where)
-                   ::no-throw
-                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-        (is (= :rf.error/bad-frame-provider-arg (:rf.error/id data))
-            (str (pr-str bad) " is a bad public provider argument"))
-        (is (= :supply-frame-target (:recovery data))
-            (str (pr-str bad) " carries the target-grammar recovery id, not a keyword-only one"))
-        (is (= bad (:received data)) "the payload echoes the offending value")
-        (is (= 'test/where (:where data)) "the payload names the validating call site"))))
-  (testing "the human :reason names both target arms, so it agrees with the
-            :supply-frame-target recovery"
-    (let [reason (try
-                   (rf.frame/require-frame-provider-target! "app" 'test/where)
-                   ::no-throw
-                   (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))]
-      (is (re-find #"frame id keyword" reason)
-          "the human reason names the keyword arm")
-      (is (re-find #"live frame value" reason)
-          "the human reason names the frame-value arm"))))
+  ;; anything that is neither a keyword nor a frame value takes the same path
+  (is (= {:rf.error/id :rf.error/bad-frame-provider-arg
+          :recovery    :supply-frame-target
+          :received    "app"
+          :where       'test/where}
+         (select-keys (try
+                        (rf.frame/require-frame-provider-target! "app" 'test/where)
+                        ::no-throw
+                        (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                      [:rf.error/id :recovery :received :where]))))
 
 (deftest require-frame-provider-target-nil-remains-no-frame-context
-  (testing "nil stays ABSENCE — :rf.error/no-frame-context, not a bad argument"
-    (let [data (try
-                 (rf.frame/require-frame-provider-target! nil 'test/where)
-                 ::no-throw
-                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-      (is (= :rf.error/no-frame-context (:rf.error/id data))
-          "a nil target is absence, a distinct category from a bad argument")
-      (is (= :supply-frame (:recovery data))
-          "the absence recovery is :supply-frame, distinct from the target recovery"))))
+  ;; nil is absence, a distinct category and recovery from a bad argument
+  (is (= {:rf.error/id :rf.error/no-frame-context :recovery :supply-frame}
+         (select-keys (try
+                        (rf.frame/require-frame-provider-target! nil 'test/where)
+                        ::no-throw
+                        (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                      [:rf.error/id :recovery]))))
 
