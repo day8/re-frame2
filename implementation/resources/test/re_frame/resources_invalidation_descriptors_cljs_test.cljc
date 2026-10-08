@@ -1,45 +1,15 @@
 (ns re-frame.resources-invalidation-descriptors-cljs-test
-  "Scoped invalidation descriptors (EP-0016 D2 — Spec 016
-  §Scoped invalidation descriptors).
-
-  A mutation's `:invalidates` arm declares which resource `(tags, scope)` pairs
-  to mark stale after the write settles. Two PUBLIC input forms lower to ONE
-  scoped invalidation engine:
-
-    - the bare tag-set shorthand `#{[:article slug] …}` — invalidate those tags
-      in the mutation's resolved (execution) scope (`:rf.scope/same`);
-    - the per-target DESCRIPTOR form `{:scope … :tags #{…}}` (a single
-      descriptor or a vector) — each descriptor names its OWN scope, so one
-      mutation can precisely invalidate global facts AND viewer-relative
-      (session-scoped) facts in one execution, without a blunt cross-scope blast.
-
-  These JVM+CLJS unit tests pin the descriptor semantics:
-
-    1. a bare tag-set invalidates the mutation's resolved scope;
-    2. a descriptor invalidates EXACTLY the resolved scoped keys — a
-       `:rf.scope/global` descriptor + a `{:from-db …}` session descriptor in
-       ONE mutation reach both, and only the resolved scope (not a global blast);
-    3. re-fetch (active owner) vs mark-stale (ownerless) variants;
-    4. the descriptors compose with the `:reply-to` completion
-       continuation (pinned by the populate suite's
-       `populate-exempt-composes-with-descriptors-and-reply-to`);
-    5. a stale / superseded settle does NOT invalidate (the mandatory
-       stale-suppression boundary the descriptor path inherits);
-    6. a `{:from-db …}` descriptor scope resolved against the SETTLE-time
-       app-db; a nil-resolving reference is FAIL-CLOSED (no invalidation, a loud
-       diagnostic — never an implicit global blast);
-    7. `:rf.scope/same` is the default when a descriptor omits `:scope`;
-    8. a malformed `:invalidates` result fails CLOSED at settle time.
-
-  The transport is exercised end-to-end by overriding `:rf.http/managed` with a
-  capturing stub that synthesises the transport's reply-event-append shape."
+  "Scoped invalidation descriptors (Spec 016 §Scoped invalidation
+  descriptors). A mutation's :invalidates is either a bare tag-set, which
+  invalidates the mutation's resolved scope (:rf.scope/same), or descriptors
+  {:scope … :tags #{…}}, each naming its own scope. Both lower to one engine
+  that resolves scopes at settle time and fails closed on a nil or malformed
+  scope."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   ;; load-bearing side-effecting requires: register the :rf.resource/* +
-   ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
@@ -53,18 +23,14 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport ---------------------------------------------------
-
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
   (rf.registrar/clear-kind! :resource-scope)
-  ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
       (when username [:rf.scope/session {:username username}])))
-  ;; an app event that writes / removes the logged-in user (the resolver input)
   (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)}))
   (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)})))
 
@@ -80,18 +46,18 @@
        :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
-;; ---- helpers ---------------------------------------------------------------
-
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-(defn- entries [] (get-in (runtime-db) (rf.resources.state/entries-path)))
+(defn- invalidated? [scoped-key] (some? (:invalidated-at (entry scoped-key))))
 
-(defn- reply-success!
-  ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
-  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result}) opts)))
+(defn- reply-success! [args result]
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
 (def ^:private global-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
 (defn- session-feed-key [u] (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
+
+(def ^:private article-owned
+  {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]})
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -108,39 +74,59 @@
     (fn [_p _] {:request {:method :get :url "/feed"}})))
 
 (defn- own-loaded!
-  "Ensure + load an entry under `payload` so it has an ACTIVE owner (so a
-  subsequent invalidation REFETCHES it). Resets `last-managed-args` after."
+  "Load an entry with an active owner, so an invalidation refetches it."
   [payload]
   (rf/dispatch-sync [:rf.resource/ensure payload])
   (reply-success! @last-managed-args {:seed true})
   (reset! last-managed-args nil))
 
 (defn- ownerless-stale-load!
-  "Drive an entry to :loaded with NO active owner (ensure with an owner, then
-  release it) so an invalidation leaves it stale (observable via
-  :invalidated-at) rather than refetching it."
-  [{:keys [resource params scope] :as payload}]
+  "Load an entry, then release its owner, so an invalidation leaves it stale
+  (observable as :invalidated-at) rather than refetching it."
+  [payload]
   (rf/dispatch-sync [:rf.resource/ensure payload])
   (reply-success! @last-managed-args {:seed true})
-  (rf/dispatch-sync [:rf.resource/release-owner
-                     (select-keys (assoc payload :owner (:owner payload))
-                                  [:resource :params :scope :owner])])
+  (rf/dispatch-sync [:rf.resource/release-owner (select-keys payload [:resource :params :scope :owner])])
   (reset! last-managed-args nil))
 
-(defn- record-invalidations!
-  "Run `body-fn`; return the vector of every `:rf.resource/invalidated` trace
-  event emitted during it (one per descriptor dispatch)."
-  [body-fn]
+(defn- reg-save!
+  "Register :m/save on the global scope with the given :invalidates fn."
+  [invalidates]
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :invalidates invalidates}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})))
+
+(defn- global-and-session-descriptors [{:keys [slug]} _result]
+  [{:scope :rf.scope/global :tags #{[:article slug]}}
+   {:scope {:from-db :t/session} :tags #{[:feed]}}])
+
+(defn- execute! [mutation instance-id]
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation :params {:slug "w"} :instance instance-id}]))
+
+(defn- execute-and-reply! [mutation instance-id value]
+  (execute! mutation instance-id)
+  (reply-success! @last-managed-args value))
+
+(defn- traces-of [op body-fn]
   (let [seen (atom [])
-        k    ::inv-recorder]
+        k    ::recorder]
     (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.resource/invalidated (:operation ev)) (swap! seen conj ev))))
+      k (fn [ev] (when (= op (:operation ev)) (swap! seen conj (:tags ev)))))
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-;; ===========================================================================
-;; 1. The bare tag-set shorthand invalidates the mutation's resolved scope
-;; ===========================================================================
+(defn- record-invalidations!
+  "Run `body-fn`; return the tags of every :rf.resource/invalidated trace (one
+  per dispatched descriptor)."
+  [body-fn]
+  (traces-of :rf.resource/invalidated body-fn))
+
+(defn- settled-invalidations
+  "Run `body-fn`; return the :invalidation facet of each :rf.mutation/succeeded trace."
+  [body-fn]
+  (mapv :invalidation (traces-of :rf.mutation/succeeded body-fn)))
 
 (deftest bare-tag-set-invalidates-resolved-scope
   (reg-article-resource!)
@@ -148,251 +134,93 @@
     {:params-schema [:map [:slug :string]]
      :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; ownerless article — the invalidation leaves it stale (observable)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :b1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the bare tag-set invalidated the global article entry (the
-            mutation's resolved scope), marking it stale"
-    (is (some? (:invalidated-at (entry global-key))))))
-
-;; ===========================================================================
-;; 2. A descriptor reaches BOTH global and session scopes — exactly, no blast
-;; ===========================================================================
+  (ownerless-stale-load! article-owned)
+  (execute-and-reply! :m/save :b1 {:title "new"})
+  (is (invalidated? global-key)))
 
 (deftest descriptor-invalidates-global-and-session-exactly
-  ;; Validation rule 6: a mutation invalidates global AND session-scoped
-  ;; targets in ONE execution — and ONLY the resolved scoped keys (not a
-  ;; global blast across all scopes). This is the RealWorld favorite/feed case.
+  ;; One execution reaches a global and a session-scoped target, and only the
+  ;; resolved session: another user's feed is untouched.
   (reg-article-resource!)
   (reg-feed-resource!)
   (rf/dispatch-sync [:t/login "jake"])
-  ;; a DIFFERENT user's feed must NOT be touched (the precise-vs-blast proof)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope [:rf.scope/session {:username "abel"}]
-                                          :params {} :owner [:v :feed-abel]}])
-  (reply-success! @last-managed-args {:seed true})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope [:rf.scope/session {:username "abel"}]
-                                                 :params {} :owner [:v :feed-abel]}])
-  ;; jake's feed (session) + the global article, both ownerless + stale-observable
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
-                                          :params {} :owner [:v :feed-jake]}])
-  (reply-success! @last-managed-args {:seed true})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope {:from-db :t/session}
-                                                 :params {} :owner [:v :feed-jake]}])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/reg-mutation :m/favorite
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (reply-success! @last-managed-args {:favorited true})
-  (testing "the GLOBAL article entry was invalidated by the global descriptor"
-    (is (some? (:invalidated-at (entry global-key)))))
-  (testing "jake's SESSION feed was invalidated by the {:from-db} descriptor
-            (resolved against the settle-time app-db)"
-    (is (some? (:invalidated-at (entry (session-feed-key "jake"))))))
-  (testing "abel's session feed was NOT touched — the descriptor invalidated
-            EXACTLY the resolved scoped keys, not a global blast across scopes"
-    (is (nil? (:invalidated-at (entry (session-feed-key "abel")))))))
-
-;; ===========================================================================
-;; 3. re-fetch (active owner) vs mark-stale (ownerless) variants
-;; ===========================================================================
+  (ownerless-stale-load! {:resource :r/feed :scope [:rf.scope/session {:username "abel"}]
+                          :params {} :owner [:v :feed-abel]})
+  (ownerless-stale-load! {:resource :r/feed :scope {:from-db :t/session} :params {} :owner [:v :feed-jake]})
+  (ownerless-stale-load! article-owned)
+  (reg-save! global-and-session-descriptors)
+  (execute-and-reply! :m/save :f1 {:favorited true})
+  (is (= [true true false]
+         (map invalidated? [global-key (session-feed-key "jake") (session-feed-key "abel")]))))
 
 (deftest descriptor-refetches-active-owner-marks-stale-ownerless
   (reg-article-resource!)
   (reg-feed-resource!)
   (rf/dispatch-sync [:t/login "jake"])
-  ;; the global article has an ACTIVE owner -> the descriptor must REFETCH it
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]})
-  ;; jake's feed is OWNERLESS -> the descriptor must leave it stale (no refetch)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
-                                          :params {} :owner [:v :feed]}])
-  (reply-success! @last-managed-args {:seed true})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope {:from-db :t/session}
-                                                 :params {} :owner [:v :feed]}])
-  (reset! last-managed-args nil)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :v1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the ACTIVE-owner global article REFETCHED (back in flight, a fresh GET lowered)"
-    (is (contains? #{:loading :fetching} (:status (entry global-key))))
-    (is (some? @last-managed-args))
-    (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))
-  (testing "the OWNERLESS session feed was left STALE (not refetched — its
-            :invalidated-at fact is set, no fetch started)"
-    (let [e (entry (session-feed-key "jake"))]
-      (is (some? (:invalidated-at e)))
-      (is (not (contains? #{:loading :fetching} (:status e)))))))
-
-;; ===========================================================================
-;; 5. A stale / superseded settle does NOT invalidate
-;; ===========================================================================
+  (own-loaded! article-owned)
+  (ownerless-stale-load! {:resource :r/feed :scope {:from-db :t/session} :params {} :owner [:v :feed]})
+  (reg-save! global-and-session-descriptors)
+  (execute-and-reply! :m/save :v1 {:title "new"})
+  (is (= [true {:method :get :url "/a/w"}]
+         [(contains? #{:loading :fetching} (:status (entry global-key))) (:request @last-managed-args)])
+      "the owned article refetched")
+  (let [e (entry (session-feed-key "jake"))]
+    (is (= [true false] [(some? (:invalidated-at e)) (contains? #{:loading :fetching} (:status e))])
+        "the ownerless feed was left stale, not refetched")))
 
 (deftest stale-settle-does-not-invalidate
-  ;; Validation: a superseded mutation reply NEVER applies cache consequences —
-  ;; the descriptor invalidation is gated behind the live-instance acceptance.
   (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; ownerless article (stale-observable)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  ;; execute the mutation, CAPTURE its reply args, then SUPERSEDE it by a
-  ;; re-execute under the SAME instance id (a new generation / work-id) — the
-  ;; first reply is now stale.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
+  (reg-save! (fn [{:keys [slug]} _result] #{[:article slug]}))
+  (ownerless-stale-load! article-owned)
+  (execute! :m/save :s1)
   (let [stale-args @last-managed-args]
     (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
-    ;; deliver the STALE first reply — it must be suppressed, no invalidation
-    (let [invs (record-invalidations! #(reply-success! stale-args {:title "stale"}))]
-      (testing "the superseded reply fired NO invalidation"
-        (is (empty? invs)))
-      (testing "the article entry was NOT marked stale by the suppressed reply"
-        (is (nil? (:invalidated-at (entry global-key))))))))
-
-;; ===========================================================================
-;; 6. {:from-db} resolved at settle time; nil-resolving is FAIL-CLOSED
-;; ===========================================================================
+    ;; a re-execute under the same instance supersedes the first reply
+    (execute! :m/save :s1)
+    (is (= [[] false]
+           [(record-invalidations! #(reply-success! stale-args {:title "stale"})) (invalidated? global-key)])
+        "the superseded reply fired no invalidation")))
 
 (deftest from-db-descriptor-resolved-at-settle-time
-  ;; Validation rule 7: a descriptor referencing a named scope resolver
-  ;; resolves against db AT SETTLE TIME. The mutation executes while "zed" is
-  ;; logged in, and the session switches to "yan" before the captured reply
-  ;; settles — so the descriptor must reach yan's feed and leave zed's alone.
-  ;; Both feeds are ownerless, so the invalidation marks them stale rather
-  ;; than refetching them.
+  ;; Executed while zed is logged in; yan logs in before the reply settles.
   (reg-article-resource!)
   (reg-feed-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (reg-save! (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}]))
   (doseq [u ["zed" "yan"]]
     (ownerless-stale-load! {:resource :r/feed :scope [:rf.scope/session {:username u}]
                             :params {} :owner [:v :feed u]}))
   (rf/dispatch-sync [:t/login "zed"])
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :z1}])
+  (execute! :m/save :z1)
   (let [reply-args @last-managed-args]
     (rf/dispatch-sync [:t/login "yan"])
     (reply-success! reply-args {:title "new"}))
-  (testing "the {:from-db} descriptor resolved the SETTLE-time session (yan),
-            not the execute-time one (zed)"
-    (is (some? (:invalidated-at (entry (session-feed-key "yan"))))
-        "the settle-time session's feed is invalidated")
-    (is (nil? (:invalidated-at (entry (session-feed-key "zed"))))
-        "the execute-time session's feed is untouched")))
+  (is (= [true false] (map invalidated? [(session-feed-key "yan") (session-feed-key "zed")]))
+      "the settle-time session's feed is invalidated, the execute-time one untouched"))
 
 (deftest from-db-descriptor-nil-fails-closed
-  ;; A {:from-db} descriptor that resolves NIL (no logged-in user) produces NO
-  ;; invalidation and a loud diagnostic — never an implicit global blast.
+  ;; Not logged in. The global article carries [:article-list], so a fallback
+  ;; to a global blast would stale it.
   (reg-article-resource!)
   (reg-feed-resource!)
-  ;; NOT logged in — the resolver's :inputs are absent. A global article entry
-  ;; exists; a global-blast bug would wrongly invalidate it via the [:feed]/
-  ;; [:article-list] tag overlap.
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:article-list]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (let [seen (atom [])
-        k    ::succeeded-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
-    (try
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :n1}])
-      (reply-success! @last-managed-args {:title "new"})
-      (finally (rf.trace.tooling/unregister-listener! k)))
-    (testing "the nil-resolving {:from-db} descriptor is recorded as fail-closed
-              :unresolved evidence on the settlement trace's :invalidation facet"
-      (is (= 1 (count @seen)))
-      (let [inv (:invalidation (:tags (first @seen)))]
-        (is (= [:t/session] (:unresolved inv)) "the unresolved resolver id is named")
-        (is (empty? (:dispatched inv)) "no descriptor dispatched")))
-    (testing "FAIL-CLOSED — the nil-resolving descriptor produced NO
-              invalidation (the global article entry was NOT blasted)"
-      (is (nil? (:invalidated-at (entry global-key)))))))
+  (ownerless-stale-load! article-owned)
+  (reg-save! (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:article-list]}}]))
+  (let [invs (settled-invalidations #(execute-and-reply! :m/save :n1 {:title "new"}))]
+    (is (= [[[:t/session] true]] (mapv (juxt :unresolved (comp empty? :dispatched)) invs))
+        "the unresolved resolver is recorded and nothing dispatched")
+    (is (not (invalidated? global-key)))))
 
 (deftest descriptor-trace-evidence-records-resolved-scopes
-  ;; Validation rule 14 / Spec 016 §Trace evidence for invalidation: the
-  ;; settlement trace's :invalidation facet records the resolved scope per
-  ;; descriptor + the descriptor count.
   (reg-article-resource!)
   (reg-feed-resource!)
   (rf/dispatch-sync [:t/login "jake"])
-  (rf/reg-mutation :m/favorite
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-  (let [seen (atom [])
-        k    ::succeeded-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
-    (try
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :t1}])
-      (reply-success! @last-managed-args {:favorited true})
-      (finally (rf.trace.tooling/unregister-listener! k)))
-    (testing "the :invalidation facet records both resolved descriptor scopes"
-      (let [inv (:invalidation (:tags (first @seen)))]
-        (is (= 2 (:descriptor-count inv)))
-        (is (= 2 (count (:dispatched inv))))
-        (is (= #{:rf.scope/global [:rf.scope/session {:username "jake"}]}
-               (set (map :scope (:dispatched inv))))
-            "the global descriptor + the {:from-db}-resolved session scope")
-        (is (empty? (:unresolved inv)))))))
-
-;; ---- a typo'd CONCRETE literal scope in an :invalidates DESCRIPTOR ---------
-;; fails closed at settle through the SAME canonicalize-scope path.
-;; The reserved-scope-typo rejection is covered elsewhere via OTHER surfaces
-;; (the scope-resolver path: scope_registry/resolved-scope-routes-through-
-;; canonicalization; the :patches/:populates target-map path:
-;; mutation/validate-target-key-rejects-an-invalid-identity). This pins it
-;; through the :invalidates DESCRIPTOR wiring specifically — a regression that
-;; bypassed canonicalize-scope HERE would turn a typo into a silent wrong /
-;; no-op cache-scope invalidation, the exact fail-closed promise the EP makes.
+  (reg-save! global-and-session-descriptors)
+  (let [[inv] (settled-invalidations #(execute-and-reply! :m/save :t1 {:favorited true}))]
+    (is (= [2 2 #{:rf.scope/global [:rf.scope/session {:username "jake"}]} true]
+           [(:descriptor-count inv) (count (:dispatched inv))
+            (set (map :scope (:dispatched inv))) (empty? (:unresolved inv))]))))
 
 (defn- record-surfaced-errors!
-  "Run `body-fn`; return the vector of always-on error-emit records surfaced
-  during it (the production-survivable error stream the dispatched settle-time
-  throw fans out through, carrying the underlying ex-info as `:exception`)."
+  "Run `body-fn`; return the always-on error-emit records surfaced during it."
   [body-fn]
   (let [seen (atom [])
         k    ::err-recorder]
@@ -401,63 +229,26 @@
     @seen))
 
 (defn- error-id-of
-  "The `:rf.error/id` an error-emit record carries — either directly on the
-  record's `:error` (a typed category record) or on the underlying
-  `:exception`'s ex-data (a dispatched handler throw wrapping the boundary
-  ex-info)."
+  "The :rf.error/id on a record's :exception ex-data, else its :error."
   [rec]
   (or (some-> rec :exception ex-data :rf.error/id)
       (:error rec)))
 
 (deftest descriptor-typo-concrete-scope-fails-closed-at-settle
-  ;; A mutation :invalidates DESCRIPTOR carrying a typo'd CONCRETE reserved
-  ;; scope (:rf.scope/glabal) is resolved at settle time through
-  ;; resolve-descriptor-scope -> rf.resources.state/canonicalize-scope — the SAME
-  ;; typo-rejecting path. It fails closed LOUD (no silent wrong-scope blast).
+  ;; A typo'd reserved scope in a descriptor resolves through
+  ;; canonicalize-scope at settle and fails closed loudly, never as a silent
+  ;; wrong-scope invalidation.
   (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     ;; the descriptor's CONCRETE :scope is a reserved-namespace typo
-     :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/glabal :tags #{[:article slug]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; an ownerless GLOBAL article entry exists; a regression that dropped
-  ;; canonicalization (resolving the typo to itself, or blasting global) would
-  ;; be observable as this entry wrongly marked stale.
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ty1}])
+  (reg-save! (fn [{:keys [slug]} _result] [{:scope :rf.scope/glabal :tags #{[:article slug]}}]))
+  (ownerless-stale-load! article-owned)
+  (execute! :m/save :ty1)
   (let [errs (record-surfaced-errors! #(reply-success! @last-managed-args {:title "new"}))]
-    (testing "the typo'd descriptor scope failed closed at settle through the
-              shared canonicalize-scope path — surfaced as
-              :rf.error/resource-invalid-scope (never a silent wrong cache
-              scope)"
-      (is (some (fn [rec] (= :rf.error/resource-invalid-scope (error-id-of rec))) errs)
-          ":rf.error/resource-invalid-scope was surfaced at the resolution boundary"))
-    (testing "FAIL-CLOSED — no entry was blasted: the global article was NOT
-              marked stale by the typo'd descriptor (the invalidation never
-              dispatched)"
-      (is (nil? (:invalidated-at (entry global-key)))))))
-
-;; ---- :cross-scope? true on an :invalidates DESCRIPTOR settles --------------
-;; end-to-end (the scope-agnostic fan-out reaches entries in MULTIPLE scopes,
-;; and the mutation-supplied [:mutation …] cause satisfies the cause-required
-;; gate). The cross-scope cause-required REJECTION is covered on the raw
-;; :rf.resource/invalidate-tags event (invalidation_gc/invalidate-tags-cross-
-;; scope-*); the pure normalize round-trip
-;; (normalize-lowers-the-public-forms) proves the flag is
-;; carried but does NOT settle a mutation, prove the fan-out, or pin the
-;; [:mutation …] cause wiring. This is the end-to-end pin.
+    (is (some #(= :rf.error/resource-invalid-scope (error-id-of %)) errs))
+    (is (not (invalidated? global-key)))))
 
 (deftest descriptor-cross-scope-fans-out-and-supplies-mutation-cause-at-settle
-  ;; a caller-scoped article so the two entries can live under two concrete
-  ;; (distinct) scopes; a :rf.scope/global-policy resource could not. The
-  ;; ensures below each pass an explicit `:scope`, which overrides the policy.
+  ;; A :cross-scope? descriptor with no :cause reaches the tag in every scope;
+  ;; the mutation supplies the cause the cross-scope gate requires.
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope))
@@ -466,290 +257,100 @@
      :params-schema [:map [:slug :string]]
      :tags (fn [{:keys [slug]} _] #{[:article slug]})}
     (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  ;; two same-tag article entries in DIFFERENT scopes, both ownerless +
-  ;; stale-observable. A scoped (non-cross-scope) invalidation would reach at
-  ;; most one; only the scope-agnostic fan-out reaches BOTH.
   (let [sa {:user "amy"}
         sb {:user "bo"}
         ka (rf.resources.state/scoped-resource-key sa :rx/article {:slug "w"})
         kb (rf.resources.state/scoped-resource-key sb :rx/article {:slug "w"})]
     (ownerless-stale-load! {:resource :rx/article :scope sa :params {:slug "w"} :owner [:v :a]})
     (ownerless-stale-load! {:resource :rx/article :scope sb :params {:slug "w"} :owner [:v :b]})
-    (rf/reg-mutation :m/purge
-      {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       ;; a :cross-scope? true descriptor with NO explicit :cause — the
-       ;; mutation runtime supplies the [:mutation <id> <instance>] cause by
-       ;; construction, satisfying the cause-required gate.
-       :invalidates (fn [{:keys [slug]} _result]
-                      [{:tags #{[:article slug]} :cross-scope? true}])}
-      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (let [seen (atom [])
-          k    ::succeeded-recorder]
-      (rf.trace.tooling/register-listener!
-        k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
-      (try
-        (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/purge :params {:slug "w"} :instance :x1}])
-        (reply-success! @last-managed-args {:purged true})
-        (finally (rf.trace.tooling/unregister-listener! k)))
-      (testing "the scope-agnostic fan-out reached the same tag in BOTH scopes
-                (a scoped descriptor would have reached at most one)"
-        (is (some? (:invalidated-at (entry ka))) "amy's session entry marked stale")
-        (is (some? (:invalidated-at (entry kb))) "bo's session entry marked stale"))
-      (testing "the settlement :invalidation trace facet records the
-                cross-scope dispatch as the audited escape (the :cross-scope?
-                flag rides the dispatched descriptor evidence)"
-        (let [inv (:invalidation (:tags (first @seen)))]
-          (is (= 1 (:descriptor-count inv)))
-          (is (= 1 (count (:dispatched inv))))
-          (let [d (first (:dispatched inv))]
-            (is (true? (:cross-scope? d)) "the descriptor is recorded cross-scope")
-            (is (nil? (:scope d)) "a cross-scope dispatch is scope-agnostic (no concrete scope)")
-            (is (= #{[:article "w"]} (set (:tags d)))))
-          (is (empty? (:unresolved inv)) "no unresolved descriptor"))))))
+    (reg-save! (fn [{:keys [slug]} _result] [{:tags #{[:article slug]} :cross-scope? true}]))
+    (let [[inv]   (settled-invalidations #(execute-and-reply! :m/save :x1 {:purged true}))
+          [d :as dispatched] (:dispatched inv)]
+      (is (= [true true] (map invalidated? [ka kb])) "the fan-out reached both scopes")
+      (is (= [1 1 true nil #{[:article "w"]} true]
+             [(:descriptor-count inv) (count dispatched) (:cross-scope? d) (:scope d)
+              (set (:tags d)) (empty? (:unresolved inv))])
+          "the trace records one scope-agnostic cross-scope dispatch"))))
 
-;; ===========================================================================
-;; 7. :rf.scope/same is the default when a descriptor omits :scope
-;; ===========================================================================
+(defn- lower [raw] (rf.resources.mutation-runtime/normalize-invalidation-descriptors raw 'test))
 
-(deftest descriptor-omitting-scope-defaults-to-same
-  (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     ;; a descriptor with NO :scope -> :rf.scope/same -> the mutation's
-     ;; resolved (:rf.scope/global) scope.
-     :invalidates (fn [{:keys [slug]} _result] [{:tags #{[:article slug]}}])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :sm1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "a scopeless descriptor invalidated the mutation's resolved scope"
-    (is (some? (:invalidated-at (entry global-key))))))
-
-;; ===========================================================================
-;; 8. Pure normalization + fail-closed malformed result
-;; ===========================================================================
+(defn- desc [scope tags & {:as flags}]
+  (merge {:scope scope :tags tags :cross-scope? false :refetch-populated? false} flags))
 
 (deftest normalize-lowers-the-public-forms
-  (testing "a bare tag-set lowers to ONE :rf.scope/same descriptor"
-    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
-                       #{[:article "w"] [:article-list]} 'test)]
-      (is (nil? more))
-      (is (= :rf.scope/same (:scope d)))
-      (is (= #{[:article "w"] [:article-list]} (:tags d)))))
-  (testing "a single descriptor map lowers to a one-element vector"
-    (let [ds (rf.resources.mutation-runtime/normalize-invalidation-descriptors
-               {:scope :rf.scope/global :tags #{[:x]}} 'test)]
-      (is (= 1 (count ds)))
-      (is (= :rf.scope/global (:scope (first ds))))))
-  (testing "a vector of descriptors lowers each, defaulting omitted :scope to :rf.scope/same"
-    (let [ds (rf.resources.mutation-runtime/normalize-invalidation-descriptors
-               [{:scope :rf.scope/global :tags #{[:a]}}
-                {:tags #{[:b]} :cross-scope? true}] 'test)]
-      (is (= 2 (count ds)))
-      (is (= :rf.scope/global (:scope (first ds))))
-      (is (= :rf.scope/same (:scope (second ds))))
-      (is (true? (:cross-scope? (second ds))))))
-  (testing "a nil / empty result lowers to an empty vector (invalidates nothing)"
-    (is (= [] (rf.resources.mutation-runtime/normalize-invalidation-descriptors nil 'test)))
-    (is (= [] (rf.resources.mutation-runtime/normalize-invalidation-descriptors #{} 'test)))))
+  (is (= [(desc :rf.scope/same #{[:article "w"] [:article-list]})] (lower #{[:article "w"] [:article-list]}))
+      "a bare tag-set is one :rf.scope/same descriptor")
+  (is (= [(desc :rf.scope/global #{[:x]})] (lower {:scope :rf.scope/global :tags #{[:x]}}))
+      "a single descriptor map")
+  (is (= [(desc :rf.scope/global #{[:a]}) (desc :rf.scope/same #{[:b]} :cross-scope? true)]
+         (lower [{:scope :rf.scope/global :tags #{[:a]}} {:tags #{[:b]} :cross-scope? true}]))
+      "a vector lowers each; an omitted :scope defaults to :rf.scope/same")
+  (is (= [[] []] (map lower [nil #{}])) "an empty result invalidates nothing"))
 
 (deftest normalize-fails-closed-on-malformed
-  (testing "a non-collection scalar result is a loud fail-closed error"
+  (doseq [bad [:nonsense {:scope :rf.scope/global}]]
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-invalidation"
-          (rf.resources.mutation-runtime/normalize-invalidation-descriptors :nonsense 'test))))
-  (testing "a descriptor missing :tags is a loud fail-closed error"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-invalidation"
-          (rf.resources.mutation-runtime/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
-
-;; ===========================================================================
-;; A LONE vector tag is ONE tag, not a scalar tag-set
-;; ===========================================================================
+          (lower bad))
+        (pr-str bad))))
 
 (deftest lone-vector-tag-normalizes-to-one-tag
-  ;; A naive `(set raw)` on a lone vector tag `[:article "w"]` would split it
-  ;; into the scalar set `#{:article "w"}` — a tag-set that names nothing and
-  ;; silently matches nothing. The shared `rf.resources.state/normalize-tag-set` (and the
-  ;; mutation `:invalidates` bare shorthand that uses it) MUST treat a lone
-  ;; vector tag as the ONE tag `#{[:article "w"]}`.
-  (testing "the shared normalizer wraps a lone vector tag as one tag"
-    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [:article "w"])))
-    (is (= #{[:article-list]} (rf.resources.state/normalize-tag-set [:article-list]))
-        "a single-element marker tag is still one tag, not #{:article-list}"))
-  (testing "a tag-SET form lowers UNCHANGED"
-    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set #{[:article "w"]})))
-    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [[:article "w"]]))
-        "a vector wrapping one tag is the set of that tag")
-    (is (= #{[:article "w"] [:article-list]}
-           (rf.resources.state/normalize-tag-set #{[:article "w"] [:article-list]}))))
-  (testing "the mutation :invalidates bare shorthand lowers a lone vector tag
-            to one :rf.scope/same descriptor carrying the one tag"
-    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors [:article "w"] 'test)]
-      (is (nil? more))
-      (is (= :rf.scope/same (:scope d)))
-      (is (= #{[:article "w"]} (:tags d))
-          "the lone tag is the single tag, NOT #{:article \"w\"}"))))
+  ;; A naive (set raw) would split [:article "w"] into #{:article "w"}, which
+  ;; silently matches nothing.
+  (is (= [#{[:article "w"]} #{[:article-list]} #{[:article "w"]} #{[:article "w"]}]
+         (map rf.resources.state/normalize-tag-set
+              [[:article "w"] [:article-list] #{[:article "w"]} [[:article "w"]]]))))
 
 (deftest lone-vector-tag-matches-the-right-resource-end-to-end
-  ;; The adversarial end-to-end: a mutation whose :invalidates returns a LONE
-  ;; vector tag `[:article slug]` must invalidate the entry carrying that tag.
-  ;; Wrapping it with `(set raw)` would make it `#{:article "w"}`, matching
-  ;; NOTHING — the ownerless article would stay fresh (a silent no-op the
-  ;; author never sees). This pins the tag is treated as a single tag.
   (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     ;; a LONE vector tag written directly (not wrapped in a set) — the natural
-     ;; single-tag shorthand.
-     :invalidates (fn [{:keys [slug]} _result] [:article slug])}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :lv1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the lone vector tag matched + invalidated the [:article \"w\"] entry"
-    (is (some? (:invalidated-at (entry global-key)))
-        "the article carrying tag [:article \"w\"] was marked stale")))
+  (reg-save! (fn [{:keys [slug]} _result] [:article slug]))
+  (ownerless-stale-load! article-owned)
+  (execute-and-reply! :m/save :lv1 {:title "new"})
+  (is (invalidated? global-key) "the bare lone vector tag is one tag"))
 
 (deftest lone-vector-tag-direct-invalidate-tags-event-matches
-  ;; The SAME tag semantics on the DIRECT :rf.resource/invalidate-tags event:
-  ;; a lone vector `:tags [:article "w"]` invalidates the [:article "w"] entry
-  ;; (events.cljc routes through the same shared rf.resources.state/normalize-tag-set).
   (reg-article-resource!)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  ;; a lone vector tag on the public event :tags
+  (ownerless-stale-load! article-owned)
   (rf/dispatch-sync [:rf.resource/invalidate-tags
                      {:scope :rf.scope/global :tags [:article "w"]
                       :cause [:manual :t/inv]}])
-  (testing "the direct event's lone vector :tags matched the [:article \"w\"] entry"
-    (is (some? (:invalidated-at (entry global-key)))
-        "the article was marked stale by the lone-vector :tags")))
-
-;; ===========================================================================
-;; The DESCRIPTOR-MAP arm shares the lone-vector-tag normalizer
-;; ===========================================================================
-
-(deftest lone-vector-tag-descriptor-map-normalizes-to-one-tag
-  ;; `normalize-one-descriptor` (the per-target DESCRIPTOR MAP arm) lowers
-  ;; `:tags` through the SAME `rf.resources.state/normalize-tag-set` normalizer
-  ;; as the bare tag-set shorthand and the direct `:rf.resource/invalidate-tags`
-  ;; `:tags`. A naive `(set tags)` would split a lone vector tag
-  ;; `{:tags [:article "w"]}` into the scalar set `#{:article "w"}`, silently
-  ;; matching nothing.
-  (testing "a single descriptor map with a lone vector :tags normalizes to one tag"
-    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
-                       {:tags [:article "w"]} 'test)]
-      (is (nil? more))
-      (is (= :rf.scope/same (:scope d)))
-      (is (= #{[:article "w"]} (:tags d))
-          "the lone tag is the single tag, NOT #{:article \"w\"}")))
-  (testing "a vector of descriptor maps also normalizes each lone vector :tags"
-    (let [[d1 d2] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
-                    [{:scope :rf.scope/global :tags [:article "w"]}
-                     {:tags [:article-list]}] 'test)]
-      (is (= #{[:article "w"]} (:tags d1)))
-      (is (= #{[:article-list]} (:tags d2))))))
+  (is (invalidated? global-key) "the event's lone vector :tags is one tag"))
 
 (deftest lone-vector-tag-descriptor-map-matches-end-to-end
-  ;; The adversarial end-to-end for the descriptor-map arm: a mutation whose
-  ;; :invalidates returns a DESCRIPTOR MAP `{:tags [:article slug]}` — the
-  ;; per-target form, not the bare shorthand — must still invalidate the
-  ;; entry carrying that lone vector tag.
   (reg-article-resource!)
-  (rf/reg-mutation :m/save-descriptor
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     ;; a descriptor MAP whose :tags is a LONE vector tag written directly
-     ;; (not wrapped in a set).
-     :invalidates (fn [{:keys [slug]} _result] {:tags [:article slug]})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
-                                                 :params {:slug "w"} :owner [:v :a]}])
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-descriptor :params {:slug "w"} :instance :lv2}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the descriptor-map lone vector tag matched + invalidated the [:article \"w\"] entry"
-    (is (some? (:invalidated-at (entry global-key)))
-        "the article carrying tag [:article \"w\"] was marked stale")))
-
-;; ===========================================================================
-;; The per-pass :rf.resource/invalidated EP fields
-;; ===========================================================================
+  (reg-save! (fn [{:keys [slug]} _result] {:tags [:article slug]}))
+  (ownerless-stale-load! article-owned)
+  (execute-and-reply! :m/save :lv2 {:title "new"})
+  (is (invalidated? global-key) "a descriptor map's lone vector :tags is one tag"))
 
 (deftest invalidated-trace-pins-ep0016-diagnostic-fields
-  ;; Capture a REAL invalidation pass and assert the
-  ;; EP-0016 diagnostic fields a behavior test would not pin — :matched,
-  ;; :refetched, :left-stale, :exempt (the populate Rider-1 spare), and
-  ;; :any-tag-match-other-scope?. Active (refetch), ownerless (left-stale),
-  ;; populated-exempt, and same-tag-other-scope entries are all exercised in
-  ;; one pass so each field carries a non-trivial value.
+  ;; One pass touching an owned entry (refetched), a populated entry (exempt)
+  ;; and a same tag living in another scope, so each field is non-trivial.
   (reg-article-resource!)
   (rf/reg-resource :r/article-list
     {:scope :rf.scope/global
      :params-schema [:map]
      :tags (fn [_p _] #{[:article-list]})}
     (fn [_p _] {:request {:method :get :url "/articles"}}))
+  (reg-feed-resource!)
   (rf/dispatch-sync [:t/login "jake"])
-  ;; ACTIVE-owner list entry (global) → REFETCH on invalidation
   (own-loaded! {:resource :r/article-list :scope :rf.scope/global :params {} :owner [:v :list]})
-  ;; OWNERLESS article detail (global) under tag [:article w] → left-stale,
-  ;; BUT this same mutation POPULATES it → EXEMPT (Rider 1 spares it)
   (ownerless-stale-load! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :w]})
-  ;; a SAME-TAG entry in ANOTHER scope ([:article-list] on jake's feed) so
-  ;; :any-tag-match-other-scope? is observable — the global descriptor's
-  ;; [:article-list] tag also lives on jake's session feed.
-  (reg-feed-resource!) ;; r/feed carries #{[:feed] [:article-list]}
+  ;; jake's feed also carries [:article-list], in another scope
   (ownerless-stale-load! {:resource :r/feed :scope {:from-db :t/session} :params {} :owner [:v :feed]})
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     ;; populate the detail key authoritatively…
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
-     ;; …then a GLOBAL descriptor invalidating BOTH [:article w] (matches the
-     ;; populated-exempt detail) AND [:article-list] (matches the active list
-     ;; here AND jake's feed in ANOTHER scope).
      :invalidates (fn [{:keys [slug]} _r]
                     [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}])}
     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
-  (let [invs (record-invalidations!
-               #(do (rf/dispatch-sync [:rf.mutation/execute
-                                       {:mutation :m/favorite :params {:slug "w"} :instance :iv1}])
-                    (reply-success! @last-managed-args {:slug "w" :favorited true})))
-        ;; one pass (one descriptor) → one :rf.resource/invalidated row
-        row (:tags (first invs))]
-    (testing "exactly one invalidation pass row"
-      (is (= 1 (count invs))))
-    (testing ":matched names the global list key (NOT the exempt detail key)"
-      (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})]
-        (is (= [list-key] (:matched row)) "the populate-exempt detail is excluded from :matched")))
-    (testing ":refetched / :left-stale reflect the active-owner decision"
-      (is (= 1 (:refetched row)) "the active-owner list refetched")
-      (is (= 0 (:left-stale row)) "no ownerless matched key (the detail was exempt)"))
-    (testing ":exempt names the populated detail key the Rider-1 spare kept fresh"
-      (is (= [global-key] (:exempt row))))
-    (testing ":any-tag-match-other-scope? is true ([:article-list] lives on
-              jake's session feed too — distinguishes 'no match HERE' from
-              'no resource provides this tag in any scope')"
-      (is (true? (:any-tag-match-other-scope? row))))))
+  (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})
+        invs     (record-invalidations!
+                   #(execute-and-reply! :m/favorite :iv1 {:slug "w" :favorited true}))]
+    (is (= [{:matched [list-key] :refetched 1 :left-stale 0 :exempt [global-key]
+             :any-tag-match-other-scope? true}]
+           (mapv #(select-keys % [:matched :refetched :left-stale :exempt :any-tag-match-other-scope?])
+                 invs))
+        "one pass: the owned list refetched, the populated detail exempt, the tag found in another scope")))
