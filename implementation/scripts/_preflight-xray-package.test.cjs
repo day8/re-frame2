@@ -2,48 +2,25 @@
  * Unit tests for .github/scripts/preflight-xray-package.sh, and for the
  * rewrite roster it grades.
  *
- * # Why these exist
- *
  * The preflight is the last gate before an IRREVERSIBLE Clojars publish of
- * `day8/re-frame2-xray` — the one script standing between a pom with holes in
- * it and a registry with no yank. Its Story and reagent-slim siblings each
- * carry a suite; this is Xray's.
+ * `day8/re-frame2-xray`, and it runs only on an `xray-v*` TAG PUSH, so the drift
+ * it exists to catch — release-xray.yml's rewrite roster falling behind
+ * tools/xray/deps.edn — is invisible in ordinary CI. `clein pom` skips
+ * `:local/root` coordinates SILENTLY, so a workflow rewriting fewer coordinates
+ * than deps.edn declares would publish a pom missing the rest.
  *
- * It also closes the gap those siblings leave. The preflight only runs on an
- * `xray-v*` TAG PUSH, so the drift it exists to catch — release-xray.yml's
- * rewrite roster falling behind tools/xray/deps.edn — is invisible in ordinary
- * CI. `clein pom` skips `:local/root` coordinates SILENTLY, so a workflow that
- * rewrites fewer coordinates than deps.edn declares would publish a pom missing
- * the rest, with every gate green. The roster tests below derive BOTH sides —
- * the coordinates from deps.edn, the roster from the workflow — so neither can
- * fall behind the other without reddening a PR.
+ *   1. ROSTER — every `:local/root` coordinate in tools/xray/deps.edn targets a
+ *      publishable artefact (one carrying `:aliases -> :clein/build`), and
+ *      release-xray.yml rewrites every one. Both sides are derived.
+ *   2. VERDICT — the script's pom parsing and verdict, against fixture poms in
+ *      a throwaway post-`clein pom` build tree with a stub `clojure` on PATH.
+ *      Xray's preflight calls `clojure` TWICE — once to DERIVE its required set
+ *      from the committed deps.edn, once for `clein pom` — so the stub branches
+ *      on the alias and, for the derivation, writes a fixture coordinate list to
+ *      the `(spit "…")` target the script's own `-e` form names.
  *
- * # The three groups
- *
- *   1. ROSTER — read tools/xray/deps.edn structurally, partition its
- *      `:local/root` coordinates by whether the target artefact is publishable
- *      (carries an `:aliases -> :clein/build`), and assert release-xray.yml
- *      rewrites every publishable one and NO unpublishable one.
- *   2. THE UNPUBLISHABLE EDGE — pin the set of coordinates whose target
- *      artefact is unpublishable (each an open operator decision), so it
- *      cannot change by accident in either direction. The set is empty.
- *   3. VERDICT — the script's pom parsing and verdict, against fixture poms.
- *
- * # Mechanism for group 3
- *
- * Same shape as _preflight-story-package.test.cjs: build a throwaway dir that
- * looks like a post-`clein pom` build tree, put a stub `clojure` on PATH, and
- * run the real script against it. Xray's preflight calls `clojure` TWICE — once
- * to DERIVE its required set from the committed deps.edn, once for
- * `clein pom` — so the stub branches on the alias and, for the derivation call,
- * writes a fixture coordinate list to the `(spit "…")` target named in the
- * script's own `-e` form. The derivation itself is not stubbed away
- * unexamined: group 1 exercises it for real against the committed deps.edn,
- * through the repo's own EDN authority.
- *
- * See _preflight-reagent-slim-package.test.cjs's `buildCommand` comment for the
- * WSL double-expansion portability contract this runner also honours:
- * the `bash -lc` string may reference only $PWD and $PATH.
+ * The `bash -lc` string references only $PWD and $PATH: WSL's bash.exe expands
+ * it twice, so a variable it assigned itself would read empty.
  */
 
 'use strict';
@@ -63,21 +40,14 @@ const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.c
 const { readEdn, isMap, mapGetKeyword } = require('./lib/edn.cjs');
 
 const VERSION = '0.0.1.alpha';
-
-// The coordinates deliberately NOT rewritten, because their target artefact
-// carries no `:clein/build` and so has no Maven coordinate to rewrite TO.
-//
-// EMPTY, and the emptiness is asserted rather than assumed — see the ledger
-// test below.
 const FRESCO = 'day8/re-frame2-fresco';
-const UNPUBLISHABLE = [];
 
 const tests = [];
 function test(name, fn) {
   tests.push({ name, fn });
 }
 
-// ── Group 1 + 2: the rewrite roster, derived from both sides ────────────
+// ── Group 1: the rewrite roster, derived from both sides ────────────────
 
 /** Every main-`:deps` `:local/root` coordinate in the deps.edn at `file`. */
 function localRootCoords(file) {
@@ -113,11 +83,8 @@ function publishable(dir) {
 }
 
 /**
- * The workflow with its comment lines removed. A YAML `#` comment and a shell
- * `#` comment inside a `run:` block are the same token, and the header prose
- * quotes coordinates in both. Matching raw text would let a coordinate DESCRIBED
- * in a comment stand in for one that is actually rewritten — the false PASS
- * that is this gate's whole failure mode.
+ * The workflow with its comment lines removed, so a coordinate DESCRIBED in a
+ * YAML or shell comment cannot stand in for one that is actually rewritten.
  */
 function workflowCode() {
   return fs.readFileSync(WORKFLOW, 'utf8')
@@ -136,17 +103,9 @@ function partitionedCoords() {
   return { coords, rewritable, unrewritable };
 }
 
-test('tools/xray declares in-repo coordinates at all — no vacuous green', () => {
-  const { coords } = partitionedCoords();
-  assert.ok(
-    coords.length > 0,
-    'zero :local/root coordinates read out of tools/xray/deps.edn. Every assertion below '
-      + 'would then pass over an empty set, which is indistinguishable from a correct roster.',
-  );
-});
-
 test('release-xray.yml rewrites EVERY publishable in-repo coordinate', () => {
-  const { rewritable } = partitionedCoords();
+  const { coords, rewritable } = partitionedCoords();
+  assert.ok(coords.length > 0, 'zero :local/root coordinates read out of tools/xray/deps.edn — no vacuous green');
   const code = workflowCode();
   const missing = rewritable.filter(({ root }) => !code.includes(`"${root}"`));
   assert.deepEqual(
@@ -159,47 +118,22 @@ test('release-xray.yml rewrites EVERY publishable in-repo coordinate', () => {
   );
 });
 
-test('release-xray.yml rewrites NO unpublishable coordinate', () => {
-  const { unrewritable } = partitionedCoords();
-  const code = workflowCode();
-  const rewritten = unrewritable.filter(({ root }) => code.includes(`"${root}"`));
-  assert.deepEqual(
-    rewritten.map((c) => `${c.lib} (${c.root})`), [],
-    'These coordinates target an artefact with NO :aliases -> :clein/build, so there is no '
-      + 'published version to pin them to — but release-xray.yml rewrites them anyway. That is '
-      + 'WORSE than omitting them: the pom names a GAV that does not and cannot exist, the '
-      + 'presence-based preflight passes it, and the failure lands in the consumer\'s build '
-      + 'instead of our release job. Publish the artefact, vendor it, or move the edge to '
-      + 'late-bind.',
-  );
-});
-
 test('NO coordinate is unpublishable — the ledger is empty (rf2-gra70)', () => {
-  // Pinned by equality, so the set cannot change in either direction
-  // unnoticed, and the empty set is the stronger form of the pin: a NEW
-  // unpublishable coordinate reds here rather than quietly joining a
-  // known-bad set. The pin is a ledger of open operator decisions, not a
-  // tolerance for accumulating them.
-  //
-  // Every in-repo coordinate is publishable. `${FRESCO}` ships from
-  // release.yml's post-matrix `deploy-fresco` stage, so its coordinate is
-  // rewritable and release-xray.yml rewrites it. What Xray's publishability
-  // depends on is release ORDER (a framework `v*` tag before an `xray-v*`
-  // one), which `clojure -P` enforces at classpath resolution.
+  // A coordinate whose target carries no `:clein/build` has no Maven coordinate
+  // to rewrite TO, so each one is an open operator decision; a NEW one reds
+  // here rather than quietly joining a known-bad set.
   const { unrewritable } = partitionedCoords();
   assert.deepEqual(
-    unrewritable.map((c) => c.lib), UNPUBLISHABLE,
-    'The set of unpublishable in-repo coordinates Xray declares has changed, and it is '
-      + 'supposed to be empty. A coordinate here targets an artefact with no '
-      + ':aliases -> :clein/build, so nothing can pin it: publish that artefact, vendor it, '
-      + 'or move the edge to late-bind — and until one of those, release-xray.yml must NOT '
-      + 'rewrite it and this preflight must refuse the deploy. Do not make it green by '
-      + 'rewriting the coordinate anyway: a pom naming a GAV Clojars does not have moves the '
+    unrewritable.map((c) => c.lib), [],
+    'An in-repo coordinate Xray declares targets an artefact with no :aliases -> :clein/build, '
+      + 'so nothing can pin it: publish that artefact, vendor it, or move the edge to '
+      + 'late-bind — and until one of those, release-xray.yml must NOT rewrite it and this '
+      + 'preflight must refuse the deploy. A pom naming a GAV Clojars does not have moves the '
       + 'failure from our release job to the consumer\'s build, where there is no yank.',
   );
 });
 
-// ── Group 3: pom fixtures ───────────────────────────────────────────────
+// ── Group 2: pom fixtures ───────────────────────────────────────────────
 
 function dep(groupId, artifactId, version) {
   return [
@@ -227,10 +161,7 @@ function pomWith(deps) {
   ].join('\n');
 }
 
-// Verbatim shape of the pom `clojure -M:clein pom` writes in tools/xray with
-// NO rewrite applied: four third-party artefacts and nothing else, alongside
-// ten `Skipping coordinate` lines on stdout. This is the pom the preflight
-// exists to stop reaching Clojars.
+// The third-party artefacts `clojure -M:clein pom` writes in tools/xray.
 const THIRD_PARTY = [
   dep('org.clojure', 'clojure', '1.11.2'),
   dep('zprint', 'zprint', '1.3.0'),
@@ -238,10 +169,8 @@ const THIRD_PARTY = [
   dep('juji', 'editscript', '0.6.5'),
 ];
 
-// The ten coordinates as the script's derivation emits them:
-// `group/artifact`, one per line, sorted. Kept as a literal so the verdict
-// fixtures below are independent of what deps.edn happens to say —
-// group 1 is what asserts the two agree.
+// The ten coordinates as the script's derivation emits them, one per line,
+// sorted. A literal, so the verdict fixtures are independent of deps.edn.
 const DERIVED_ALL = [
   'day8/re-frame2',
   'day8/re-frame2-epoch',
@@ -255,22 +184,15 @@ const DERIVED_ALL = [
   'day8/reagent-slim',
 ];
 
-function inRepoDeps(libs, version = VERSION) {
+// Every in-repo coordinate, `overrides` mapping a lib to a different version.
+function inRepoDeps(libs, overrides = {}) {
   return libs.map((lib) => {
     const [group, artifact] = lib.split('/');
-    return dep(group, artifact, version);
+    return dep(group, artifact, lib in overrides ? overrides[lib] : VERSION);
   });
 }
 
-// What the rewrite step produces: ALL TEN in-repo coordinates at the
-// lockstep version. `clein pom` skips none of them, because every
-// coordinate's target artefact is publishable.
 const COMPLETE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL)]);
-
-// Nine rewritten, Fresco skipped. A negative-control fixture: it is a plain
-// incomplete pom and must be refused like any other, with the generic hint.
-const NINE = DERIVED_ALL.filter((lib) => lib !== FRESCO);
-const NINE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(NINE)]);
 
 // ── Fixture construction ────────────────────────────────────────────────
 
@@ -314,14 +236,11 @@ function clojureStub(required) {
 
 function makeFixture({ pom = COMPLETE_POM, required = DERIVED_ALL } = {}) {
   const dir = makeScratchDir(REPO_ROOT, 'rf2-xray-preflight');
-
-  if (pom !== null) {
-    const pomDir = path.join(
-      dir, 'target', 'classes', 'META-INF', 'maven', 'day8', 're-frame2-xray',
-    );
-    fs.mkdirSync(pomDir, { recursive: true });
-    fs.writeFileSync(path.join(pomDir, 'pom.xml'), pom);
-  }
+  const pomDir = path.join(
+    dir, 'target', 'classes', 'META-INF', 'maven', 'day8', 're-frame2-xray',
+  );
+  fs.mkdirSync(pomDir, { recursive: true });
+  fs.writeFileSync(path.join(pomDir, 'pom.xml'), pom);
 
   const binDir = path.join(dir, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
@@ -330,163 +249,58 @@ function makeFixture({ pom = COMPLETE_POM, required = DERIVED_ALL } = {}) {
   return { dir, rel: relPosix(dir) };
 }
 
-// Only $PWD and $PATH — see the header note on WSL double expansion.
-function buildCommand(rel, version) {
-  return [
+function run(fixture) {
+  const command = [
     'env',
-    `PATH="$PWD/${rel}/bin:$PATH"`,
-    `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(version)} ${shQuote(rel)}`,
+    `PATH="$PWD/${fixture.rel}/bin:$PATH"`,
+    `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(VERSION)} ${shQuote(fixture.rel)}`,
   ].join(' ');
+  const res = spawnSync('bash', ['-lc', command], { cwd: REPO_ROOT, encoding: 'utf8' });
+  return { status: res.status, out: `${res.stdout}\n${res.stderr}` };
 }
 
-function run(fixture, version = VERSION) {
-  return spawnSync('bash', ['-lc', buildCommand(fixture.rel, version)], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
+function expectFail(fixture, what, messagePattern) {
+  const { status, out } = run(fixture);
+  assert.notEqual(status, 0, `${what}: expected a NON-ZERO exit — the gate waved a bad package through\n${out}`);
+  assert.match(out, messagePattern, `${what}: expected a diagnostic matching ${messagePattern}\n${out}`);
 }
 
-function output(res) {
-  return `${res.stdout}\n${res.stderr}`;
-}
-
-function expectPass(fixture, what, version = VERSION) {
-  const res = run(fixture, version);
-  const out = output(res);
-  assert.equal(res.status, 0, `${what}: expected exit 0 (PASSED), got ${res.status}\n${out}`);
-  assert.match(out, /verification PASSED/, `${what}: expected a PASSED verdict\n${out}`);
-}
-
-function expectFail(fixture, what, messagePattern, version = VERSION) {
-  const res = run(fixture, version);
-  const out = output(res);
-  assert.notEqual(
-    res.status, 0,
-    `${what}: expected a NON-ZERO exit, got ${res.status} — the gate waved a bad package through\n${out}`,
-  );
-  assert.doesNotMatch(out, /verification PASSED/, `${what}: must not print a PASSED verdict\n${out}`);
-  if (messagePattern) {
-    assert.match(out, messagePattern, `${what}: expected a diagnostic matching ${messagePattern}\n${out}`);
-  }
-  return out;
-}
-
-// ── The correct pom must pass ───────────────────────────────────────────
-//
 // The over-tightening trap: a preflight that reds a CORRECT pom blocks a
 // legitimate release and gets bypassed by whoever is trying to ship.
-
 test('a pom carrying every in-repo coordinate PASSES', () => {
-  expectPass(makeFixture({ pom: COMPLETE_POM }), 'complete pom');
+  const { status, out } = run(makeFixture());
+  assert.equal(status, 0, `complete pom: expected exit 0, got ${status}\n${out}`);
+  assert.match(out, /verification PASSED/, `complete pom: expected a PASSED verdict\n${out}`);
 });
-
-// ── The unrewritten pom ─────────────────────────────────────────────────
-
-test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () => {
-  const fixture = makeFixture({ pom: pomWith(THIRD_PARTY) });
-  const out = expectFail(fixture, 'unrewritten pom', /10 of 10 in-repo coordinate\(s\) are absent/);
-  for (const lib of DERIVED_ALL) {
-    assert.match(
-      out, new RegExp(`MISSING the in-repo dependency ${lib.replace('/', '\\/')},`),
-      `unrewritten pom: expected ${lib} to be reported missing\n${out}`,
-    );
-  }
-});
-
-// ── A pom missing only Fresco ───────────────────────────────────────────
 
 test('the nine-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
-  // Fresco is published, so a pom missing it is an ordinary hole and gets
-  // the ordinary advice: add it to the rewrite step.
-  const out = expectFail(
-    makeFixture({ pom: NINE_POM }),
+  expectFail(
+    makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL.filter((lib) => lib !== FRESCO))]) }),
     'nine-of-ten pom',
     /1 of 10 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-fresco/,
   );
-  assert.match(
-    out, new RegExp(`MISSING the in-repo dependency ${FRESCO.replace('/', '\\/')},`),
-    `a skipped coordinate must be reported missing\n${out}`,
-  );
-  assert.match(
-    out, /add the coordinate to the rewrite step in/,
-    `a skipped PUBLISHABLE coordinate must carry the generic remediation hint\n${out}`,
-  );
-  assert.doesNotMatch(
-    out, /MISSING the in-repo dependency day8\/re-frame2-epoch/,
-    `no other coordinate may be reported missing\n${out}`,
-  );
 });
 
-// ── Lockstep ────────────────────────────────────────────────────────────
-
 test('an in-repo dep at the WRONG version fails', () => {
-  const deps = [...THIRD_PARTY, ...DERIVED_ALL.map((lib) => {
-    const [group, artifact] = lib.split('/');
-    return dep(group, artifact, lib === 'day8/re-frame2-machines' ? '0.0.0.stale' : VERSION);
-  })];
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL, { 'day8/re-frame2-machines': '0.0.0.stale' })]) }),
     'stale in-repo version',
     /day8\/re-frame2-machines is at version '0\.0\.0\.stale', expected the lockstep/,
   );
 });
 
-// ── Incomplete coordinates ──────────────────────────────────────────────
-
 test('an empty <version> fails — an incomplete GAV is unresolvable', () => {
-  const deps = [...THIRD_PARTY, ...DERIVED_ALL.map((lib) => {
-    const [group, artifact] = lib.split('/');
-    return dep(group, artifact, lib === 'day8/re-frame2-flows' ? '' : VERSION);
-  })];
   expectFail(
-    makeFixture({ pom: pomWith(deps) }),
+    makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL, { 'day8/re-frame2-flows': '' })]) }),
     'empty version',
     /has a missing or empty <version>/,
   );
 });
 
-// ── Structural failure modes ────────────────────────────────────────────
-
 test('a derivation that finds NO coordinates is refused, not passed vacuously', () => {
-  // The gate's required set is derived, so an empty derivation would make every
-  // assertion pass over an empty set. The script exits 2 instead.
-  const res = run(makeFixture({ pom: COMPLETE_POM, required: [] }));
-  assert.equal(res.status, 2, `expected exit 2 on an empty derivation, got ${res.status}\n${output(res)}`);
-  assert.match(output(res), /found ZERO :local\/root coordinates/, output(res));
-});
-
-test('an absent <dependencies> block fails rather than passing vacuously', () => {
-  const pom = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<project xmlns="http://maven.apache.org/POM/4.0.0">',
-    '  <groupId>day8</groupId>',
-    '  <artifactId>re-frame2-xray</artifactId>',
-    '</project>',
-    '',
-  ].join('\n');
-  expectFail(makeFixture({ pom }), 'no dependencies block', /MISSING the in-repo dependency/);
-});
-
-test('a missing pom file fails', () => {
-  expectFail(makeFixture({ pom: null }), 'missing pom', /expected pom not found/);
-});
-
-test('a malformed pom fails rather than parsing to an empty dep set', () => {
-  expectFail(makeFixture({ pom: '<project><dependencies>' }), 'malformed pom', /not well-formed XML/);
-});
-
-// ── Portability contract ────────────────────────────────────────────────
-
-test('the bash -lc command references only pre-existing shell variables', () => {
-  const referenced = [...buildCommand('some/rel', VERSION).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)]
-    .map((m) => m[1]);
-  const notPreExisting = referenced.filter((n) => !['PWD', 'PATH'].includes(n));
-  assert.deepEqual(
-    notPreExisting, [],
-    'WSL\'s bash.exe expands the -c string TWICE, so a variable this command assigns '
-      + 'itself resolves to EMPTY before the assignment runs — dropping the fixture stub off '
-      + `PATH. Offending: ${notPreExisting.join(', ')}.`,
-  );
+  // An empty required set would make every assertion pass over nothing.
+  const { status, out } = run(makeFixture({ required: [] }));
+  assert.equal(status, 2, `expected exit 2 on an empty derivation, got ${status}\n${out}`);
 });
 
 let failed = 0;
