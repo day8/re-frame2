@@ -1,23 +1,9 @@
 (ns re-frame.story-save-variant-test
-  "JVM tests for the save-current-canvas-state-as-variant flow.
-
-  Pure-data coverage: the args-snapshot helper, the EDN code-gen
-  (`gen-variant-snippet`), the dialog state-machine transitions, and the
-  default-id derivation. Mirrors the cljs-test arm in
-  `story_save_variant_cljs_test.cljs`.
-
-  ## Coverage layers
-
-  - `snapshot-args` — pure args-resolution against the live registrar +
-    shell-state cell-overrides.
-  - `gen-variant-snippet` — codegen output is `read-string`-able EDN
-    with the expected `(reg-variant <id> {:extends ... :args {...}})`
-    shape.
-  - Dialog state machine (`open` / `close` / `set-draft-id`) — pure
-    transitions JVM-testable in isolation.
-  - `:rf.story/save-current-as-variant` event handler — registered via
-    `install-canonical-event-handlers!` and dispatchable through the
-    standard re-frame router."
+  "JVM tests for the save-current-canvas-state-as-variant flow: the args
+  snapshot, the `gen-variant-snippet` codegen, the dialog state machine, the
+  capture report the trigger builds, and the
+  `:rf.story/save-current-as-variant` event handler. The cljs-test arm is
+  `story_save_variant_cljs_test.cljs`."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
@@ -43,52 +29,43 @@
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
   (rf.story.save-variant/set-open-dialog-fn! nil)
-  ;; The event-handler tests dispatch
-  ;; `:rf.story/save-current-as-variant` ambiently, and that frame-scoped op
-  ;; requires a carried frame stamp (EP-0002). Pin the ordinary `:rf/default`
-  ;; frame (registered just above) as the established scope for the test
-  ;; body so the dispatch lands on a real frame rather than raising
-  ;; :rf.error/no-frame-context.
+  ;; `:rf.story/save-current-as-variant` is frame-scoped (EP-0002), so the
+  ;; event-handler tests' ambient dispatch needs an established frame.
   (rf/with-frame :rf/default
     (f)))
 
 (use-fixtures :each reset-all!)
 
+(defn- capture-dialog!
+  "Install an open-dialog callback that records its source id and args; returns the atom."
+  []
+  (let [captured (atom nil)]
+    (rf.story.save-variant/set-open-dialog-fn!
+      (fn [source-id args & _] (reset! captured {:source-id source-id :args args})))
+    captured))
+
 ;; ---- snapshot-args -------------------------------------------------------
 
 (deftest snapshot-args-returns-resolved-args
-  (testing "snapshot-args delegates to args/resolve-args + returns the merged map"
+  (testing "snapshot-args resolves story and variant args, with cell overrides
+            winning; an unknown variant is an empty map, not a throw"
     (rf.story/reg-story :story.snap {:args {:theme :light}})
-    (rf.story/reg-variant :story.snap/v
-      {:args {:label "hello" :n 1}
-       :setup []})
-    (let [snap (rf.story.save-variant/snapshot-args :story.snap/v)]
-      (is (= "hello" (:label snap)))
-      (is (= 1 (:n snap)))
-      (is (= :light (:theme snap)) "story-level args are part of the snapshot"))))
-
-(deftest snapshot-args-includes-cell-overrides
-  (testing "cell-overrides supplied as opts override the variant args"
-    (rf.story/reg-variant :story.snap/v
-      {:args   {:label "before" :keep "yes"}
-       :setup []})
-    (let [snap (rf.story.save-variant/snapshot-args
-                 :story.snap/v
-                 {:cell-overrides {:label "after"}})]
-      (is (= "after" (:label snap)) "override wins over variant args")
-      (is (= "yes"   (:keep snap))  "non-overridden keys come through"))))
-
-(deftest snapshot-args-empty-for-unknown-variant
-  (testing "an unknown variant returns an empty map (no throw)"
+    (rf.story/reg-variant :story.snap/v {:args {:label "hello" :n 1} :setup []})
+    (is (= {:label "hello" :n 1 :theme :light}
+           (select-keys (rf.story.save-variant/snapshot-args :story.snap/v) [:label :n :theme])))
+    (is (= {:label "after" :n 1}
+           (select-keys (rf.story.save-variant/snapshot-args :story.snap/v
+                                                             {:cell-overrides {:label "after"}})
+                        [:label :n])))
     (is (= {} (rf.story.save-variant/snapshot-args :story.nope/missing)))))
 
 ;; ---- gen-variant-snippet -------------------------------------------------
 
 (deftest gen-variant-snippet-renders-reg-variant
   (testing "the snippet is the exact (reg-variant ...) form: the id, then
-            :doc and :extends only when given, then :args with each entry on
-            its own line aligned under the first, under the rf.story alias
-            unless another is given"
+            :doc and :extends only when given, then :args in sorted key order
+            with each entry on its own line aligned under the first, under the
+            rf.story alias unless another is given"
     (are [opts expected] (= expected (rf.story.save-variant/gen-variant-snippet opts))
       {:variant-id :story.counter/saved
        :extends    :story.counter/happy-path
@@ -98,62 +75,25 @@
            "   :args {:label \"hi\"\n"
            "          :n 3}})")
 
-      ;; no :extends → no :extends slot
-      {:variant-id :story.x/y :args {:n 1}}
-      "(rf.story/reg-variant :story.x/y\n  {:args {:n 1}})"
+      {:variant-id :story.x/y :args {:z 1 :a 2 :m 3}}
+      "(rf.story/reg-variant :story.x/y\n  {:args {:a 2\n          :m 3\n          :z 1}})"
 
-      ;; empty args render an empty map literal
       {:variant-id :story.x/y :args {}}
       "(rf.story/reg-variant :story.x/y\n  {:args {}})"
 
       {:variant-id :story.x/y :doc "captured via Save" :args {:n 1}}
       "(rf.story/reg-variant :story.x/y\n  {:doc \"captured via Save\"\n   :args {:n 1}})"
 
-      ;; a custom alias
       {:variant-id :story.x/y :alias "rf" :args {}}
       "(rf/reg-variant :story.x/y\n  {:args {}})")))
 
-(defn- extract-args-map
-  "Walk balanced braces after the `:args` token to extract the args-map
-  substring from the generated snippet."
-  [snippet]
-  (let [start (str/index-of snippet ":args")
-        after (subs snippet start)
-        open  (str/index-of after "{")]
-    (loop [i (inc open) depth 1]
-      (cond
-        (or (nil? i) (>= i (count after)))
-        nil
-
-        (zero? depth)
-        (subs after open i)
-
-        :else
-        (let [c (.charAt ^String after i)]
-          (case c
-            \{ (recur (inc i) (inc depth))
-            \} (recur (inc i) (dec depth))
-            (recur (inc i) depth)))))))
-
 (deftest gen-variant-snippet-args-roundtrip
-  (testing "the rendered :args map reads back as the original map"
-    (let [args     {:label "alice" :n 42 :tags #{:a :b} :nested {:k 1}}
-          snippet  (rf.story.save-variant/gen-variant-snippet
-                     {:variant-id :story.x/y :args args})
-          args-str (extract-args-map snippet)]
-      (is (some? args-str) "extractor found an :args map substring")
-      (is (= args (edn/read-string args-str))))))
-
-(deftest gen-variant-snippet-sorted-keys
-  (testing "args keys render in sorted order for determinism"
-    (let [args     {:z 1 :a 2 :m 3}
-          snip     (rf.story.save-variant/gen-variant-snippet
-                     {:variant-id :story.x/y :args args})
-          ;; Read the order inside the :args map alone: the snippet's own
-          ;; `:args` slot key also starts with `:a`.
-          args-str (extract-args-map snip)]
-      (is (= [":a" ":m" ":z"] (re-seq #":\w+" args-str))
-          ":a < :m < :z in the rendered :args map"))))
+  (let [args {:label "alice" :n 42 :tags #{:a :b} :nested {:k 1}}]
+    (is (= args (-> (rf.story.save-variant/gen-variant-snippet {:variant-id :story.x/y :args args})
+                    edn/read-string
+                    (nth 2)
+                    :args))
+        "the rendered :args map reads back as the original")))
 
 ;; ---- default-variant-id --------------------------------------------------
 
@@ -165,25 +105,12 @@
 
 (deftest open-builds-dialog-state
   (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                             :story.x/y
-                             {:n 1}
-                             1000)]
-    (is (true? (:open? s)))
-    (is (= :story.x/y (:source-id s)))
-    (is (= {:n 1} (:args s)))
-    (is (qualified-keyword? (:draft-id s)))))
-
-(deftest close-returns-idle
-  (let [opened (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                                  :story.x/y {:n 1} 0)
-        closed (rf.story.save-variant/close opened)]
-    (is (= rf.story.save-variant/initial-dialog-state closed))))
-
-(deftest set-draft-id-replaces
-  (let [s (-> rf.story.save-variant/initial-dialog-state
-              (rf.story.save-variant/open :story.x/y {} 0)
-              (rf.story.save-variant/set-draft-id :story.x/edited))]
-    (is (= :story.x/edited (:draft-id s)))))
+                                      :story.x/y {:n 1} 1000)]
+    (is (= [true :story.x/y {:n 1} true]
+           [(:open? s) (:source-id s) (:args s) (qualified-keyword? (:draft-id s))]))
+    (is (= :story.x/edited (:draft-id (rf.story.save-variant/set-draft-id s :story.x/edited))))
+    (is (= rf.story.save-variant/initial-dialog-state (rf.story.save-variant/close s))
+        "close returns to idle")))
 
 ;; ---- save-current-as-variant! end-to-end ---------------------------------
 
@@ -191,15 +118,10 @@
   (testing "the impure trigger calls the registered open-dialog callback"
     (rf.story/reg-variant :story.snap/v {:args {:n 7} :setup []})
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.snap/v)
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [source-id args _now-ms _violations & _]
-          (reset! captured {:source-id source-id :args args})))
-      (let [result (rf.story.save-variant/save-current-as-variant!)]
-        (is (some? @captured) "the callback fired")
-        (is (= :story.snap/v (:source-id @captured)))
-        (is (= 7 (-> @captured :args :n)))
-        (is (= :story.snap/v (:source-id result)))))))
+    (let [captured (capture-dialog!)
+          result   (rf.story.save-variant/save-current-as-variant!)]
+      (is (= [:story.snap/v 7 :story.snap/v]
+             [(:source-id @captured) (-> @captured :args :n) (:source-id result)])))))
 
 ;; ---- the eight-slice capture report rides the trigger --------------------
 
@@ -232,20 +154,14 @@
                                {:variant-id variant-id})
                              :slices
                              (filter #(= :db-seed (:slice %)))
-                             first))]
-      (testing "a declared :db-seed is captured-as-declared"
-        (rf.story/reg-variant :story.seed/declared {:args {:n 1} :db-seed {[:count] 1}})
-        (let [row (db-seed-row :story.seed/declared)]
-          (is (= :captured-as-declared (:status row)))
-          (is (= {[:count] 1} (:value row)))))
-      (testing "an inherited :db-seed reads exactly like a declared one"
+                             first))
+          status+val  (juxt :status :value)]
+      (testing "a declared or inherited :db-seed is captured-as-declared"
         (rf.story/reg-variant :story.seed/parent {:args {:n 1} :db-seed {[:count] 1}})
         (rf.story/reg-variant :story.seed/child {:extends :story.seed/parent})
-        (let [row (db-seed-row :story.seed/child)]
-          (is (= :captured-as-declared (:status row))
-              "the inherited seed carries forward via :extends")
-          (is (= {[:count] 1} (:value row)) "the row's value is the inherited seed")
-          (is (not (str/includes? (:note row) "app-db state is not captured")))))
+        (is (= [:captured-as-declared {[:count] 1}] (status+val (db-seed-row :story.seed/parent))))
+        (is (= [:captured-as-declared {[:count] 1}] (status+val (db-seed-row :story.seed/child))))
+        (is (not (str/includes? (:note (db-seed-row :story.seed/child)) "app-db state is not captured"))))
       (testing "an inherited :setup is named beside the seed, not as the seed"
         (rf.story/reg-variant :story.setup/parent {:args {:n 1} :setup [[:counter/inc]]})
         (rf.story/reg-variant :story.setup/child {:extends :story.setup/parent})
@@ -256,8 +172,7 @@
         (rf.story/reg-variant :story.bare/parent {:args {:n 1}})
         (rf.story/reg-variant :story.bare/child {:extends :story.bare/parent})
         (let [row (db-seed-row :story.bare/child)]
-          (is (= :not-wired (:status row)))
-          (is (nil? (:value row)))
+          (is (= [:not-wired nil] (status+val row)))
           (is (str/includes? (:note row) "app-db state is not captured"))
           (is (not (str/includes? (:note row) ":setup"))))))))
 
@@ -283,19 +198,17 @@
        :viewport      :tablet})
     (rf.story/reg-variant :story.inherit/child {:extends :story.inherit/parent})
     (let [rows (saved-rows :story.inherit/child)]
-      (is (= :captured-as-declared (-> rows :sub-overrides :status)))
-      (is (= {[:cart/items] [:a]} (-> rows :sub-overrides :value)))
-      (is (= :captured-as-declared (-> rows :network :status)))
-      (is (= cart-route (-> rows :network :value)))
-      (is (= :captured-as-declared (-> rows :viewport :status)))
-      (is (= :tablet (-> rows :viewport :value)))))
+      (is (= {:sub-overrides [:captured-as-declared {[:cart/items] [:a]}]
+              :network       [:captured-as-declared cart-route]
+              :viewport      [:captured-as-declared :tablet]}
+             (into {} (map (fn [s] [s ((juxt :status :value) (rows s))]))
+                   [:sub-overrides :network :viewport])))))
   (testing "a chain that carries none of them stays not-wired"
     (rf.story/reg-variant :story.inherit/bare-parent {:args {:n 1}})
     (rf.story/reg-variant :story.inherit/bare-child {:extends :story.inherit/bare-parent})
     (let [rows (saved-rows :story.inherit/bare-child)]
       (doseq [s [:sub-overrides :network :viewport]]
-        (is (= :not-wired (-> rows s :status)) (str s))
-        (is (nil? (-> rows s :value)) (str s))))))
+        (is (= [:not-wired nil] ((juxt :status :value) (rows s))) (str s))))))
 
 (deftest save-current-as-variant!-fx-overrides-row-reads-the-declared-slot
   (testing "a source's :network lowers to a managed-stub fx override in the
@@ -460,12 +373,9 @@
 (deftest save-current-as-variant!-nil-when-no-focus
   (testing "without a focused variant the trigger is a no-op"
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [_ _ _ _] (reset! captured :fired)))
-      (let [result (rf.story.save-variant/save-current-as-variant!)]
-        (is (nil? result) "no result without a focus")
-        (is (nil? @captured) "callback never fires without a focus")))))
+    (let [captured (capture-dialog!)]
+      (is (= [nil nil] [(rf.story.save-variant/save-current-as-variant!) @captured])
+          "no result, and the callback never fires"))))
 
 ;; ---- :rf.story/save-current-as-variant event handler ---------------------
 
@@ -473,23 +383,15 @@
   (testing "dispatching :rf.story/save-current-as-variant runs the save flow"
     (rf.story/reg-variant :story.event/v {:args {:n 9} :setup []})
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.event/v)
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [source-id args & _]
-          (reset! captured {:source-id source-id :args args})))
+    (let [captured (capture-dialog!)]
       (rf/dispatch-sync [rf.story.save-variant/id-save-current-as-variant])
-      (is (= :story.event/v (:source-id @captured)))
-      (is (= 9 (-> @captured :args :n))))))
+      (is (= [:story.event/v 9] [(:source-id @captured) (-> @captured :args :n)])))))
 
 (deftest event-handler-honors-payload-opts
   (testing "the event payload's :variant-id overrides the focused variant"
     (rf.story/reg-variant :story.event/explicit {:args {:n 11} :setup []})
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [source-id args & _]
-          (reset! captured {:source-id source-id :args args})))
+    (let [captured (capture-dialog!)]
       (rf/dispatch-sync [rf.story.save-variant/id-save-current-as-variant
                          {:variant-id :story.event/explicit}])
-      (is (= :story.event/explicit (:source-id @captured)))
-      (is (= 11 (-> @captured :args :n))))))
+      (is (= [:story.event/explicit 11] [(:source-id @captured) (-> @captured :args :n)])))))
