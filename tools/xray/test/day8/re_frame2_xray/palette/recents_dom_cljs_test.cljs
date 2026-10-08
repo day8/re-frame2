@@ -19,3 +19,12 @@
     (do
       (recents/save! [:foo :bar])
       (is (= [:foo :bar] (recents/load))))))
+
+(deftest save-caps-at-max
+  (if-not (ls/available?)
+    (is true "skipped: no localStorage (node lane — see ns docstring)")
+    (do
+      (recents/save! [:a :b :c :d :e])
+      ;; `=` rather than `<=`: a silently no-op write (swallowed quota or
+      ;; SecurityError) leaves `load` returning `[]`, and `<=` passes on that.
+      (is (= recents/max-recents (count (recents/load)))))))
