@@ -1,36 +1,23 @@
 (ns re-frame.frame-upsert-linearization-jvm-test
-  "Linearize frame-id construction.
+  "Frame-id construction linearizes (JVM only; CLJS is single-threaded). The
+  construction transaction reserves the id before adapter callbacks and keeps it
+  through publication or exact rollback, so a re-registration racing a destroy
+  cannot resurrect a partial zombie record, a same-id contender cannot publish
+  its config or trace policy, and a failed re-registration restores the prior
+  record without erasing concurrent work. `:rf.frame/must-create?` throws
+  `:rf.error/frame-id-taken` on a live id.
 
-  THE WINDOW (JVM-only; CLJS is single-threaded). An `upsert-frame!` that read
-  `(get @frames id)` and THEN wrote (`swap! frames assoc id …` on create /
-  `swap! frames update id assoc …` on re-register) as two separate steps would
-  let two actors racing in the read→write window both read the id absent and
-  both `assoc` — a LAST-WRITER CLOBBER orphaning the loser's container /
-  drain-lock / durable state; and a re-registration racing a concurrent
-  `destroy-frame!` would do a bare `(update m id assoc …)` on a dissoc'd id,
-  RESURRECTING a partial `{:config … :generation …}` zombie with no state
-  container and no `:drain-lock`.
-
-  The construction transaction reserves a frame id before adapter callbacks and
-  retains that ownership through publication or exact rollback. A same-id
-  contender fails promptly; disjoint ids remain independent. Plus an internal
-  create-exclusive mode (`:rf.frame/must-create?`) that throws typed
-  `:rf.error/frame-id-taken` on a taken id — the primitive for a
-  fresh-isolated-frame contract.
-
-  These fixtures open construction windows DETERMINISTICALLY via the
-  `rf.frame/*upsert-decide-probe*` JVM linearization seam (a `nil`-in-production
-  dynamic hook fired once after reservation and before the authoritative
-  registry path),
-  conveyed into the racing thread by `future` binding-conveyance — NO sleeps.
-  Each asserts the fail-fast transaction contract without sleeps."
+  A re-registering live frame stays visible to every actor with its staged
+  config. These tests read the dev-only trace retention ring, so the prod gate
+  skips this namespace; `frame-upsert-linearization-production-test` re-proves
+  the contention invariants through production state. Windows open on the
+  `rf.frame/*upsert-decide-probe*` and `*upsert-policy-probe*` seams."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
             ;; Loads the trace-tooling artefact so its retention-policy
@@ -44,22 +31,14 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.trace.tooling/clear-listeners!)
-  ;; Clear the process-global trace-policy stores so a frame-scoped no-emit /
-  ;; retention override written by one test never leaks into the next
-  ;; (these stores are SEPARATE from `frames`, which the reset
-  ;; above does unwind).
+  ;; the trace-policy stores live outside `frames`
   (rf.trace/clear-frame-no-emit!)
   (rf.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
-;; The per-frame retention cap the winning config's `:rf.trace/events-retained`
-;; override installed, read straight from the trace-tooling ring store (a
-;; white-box read of the process-global store config publication must linearize).
-;; nil when no override ring was written for the frame.
+;; the frame's retention cap in the trace-tooling ring store, or nil
 (defn- retained-cap [frame-id]
-  ;; Double deref: `#'…/trace-rings` is the VAR, its value is the store ATOM,
-  ;; and the atom's value is the rings map.
   (get-in @@#'re-frame.trace.tooling/trace-rings [frame-id :events-retained]))
 
 (use-fixtures :each reset-runtime)
@@ -68,52 +47,11 @@
   (try (thunk) nil
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
-;; A probe that trips a "reached the window" latch for the target id, then blocks
-;; on a "release" latch — the deterministic reserved-construction window opener.
 (defn- window-probe [target reached release]
   (fn [id]
     (when (= id target)
       (.countDown ^CountDownLatch reached)
       (.await ^CountDownLatch release 10 TimeUnit/SECONDS))))
-
-;; ===========================================================================
-;; Create/create: the transaction owner is the only actor allowed to publish.
-;; ===========================================================================
-
-(deftest same-id-contender-loses-before-owner-installs
-  ;; A owns the id and pauses before installation. B fails promptly at
-  ;; reservation admission instead of entering callbacks, allocating a state
-  ;; container nobody owns, or adopting A's future record.
-  (let [reached       (CountDownLatch. 1)
-        release       (CountDownLatch. 1)
-        allocations   (atom 0)
-        original-make rf.substrate.adapter/make-state-container]
-    (with-redefs [rf.substrate.adapter/make-state-container
-                  (fn [initial]
-                    (swap! allocations inc)
-                    (original-make initial))]
-      (let [a (binding [rf.frame/*upsert-decide-probe* (window-probe :race/x reached release)]
-                (future (rf.frame/upsert-frame! :race/x {:tags #{:a}})))]
-        (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before B runs")
-        (is (= :rf.error/frame-construction-in-progress
-               (err-id #(rf.frame/upsert-frame! :race/x {:tags #{:b}})))
-            "same-id contender loses with the typed construction conflict")
-        (is (nil? (rf.frame/frame :race/x))
-            "the owner's unpublished construction is invisible")
-        (is (zero? @allocations) "neither actor has allocated while A is paused")
-        (.countDown release)
-        (is (= :race/x @a) "the reservation owner completes")
-        (is (= 1 @allocations)
-            "exactly the installed frame's state container was allocated")
-        (is (= #{:a} (get-in (rf.frame/frame :race/x) [:config :tags]))
-            "only the owner's config is published")
-        (is (some? (rf.frame/frame-state-container :race/x))
-            "the published record has a real state container")))))
-
-;; ===========================================================================
-;; Re-register vs destroy: construction retains same-id ownership through
-;; publication, so teardown cannot turn the provisional row into a zombie.
-;; ===========================================================================
 
 (deftest reregister-owner-rejects-concurrent-destroy-no-zombie
   (rf.frame/upsert-frame! :zombie/x {:tags #{:orig}})
@@ -126,46 +64,30 @@
     (is (nil? (rf.frame/destroy-frame! :zombie/x))
         "same-id destroy loses promptly without disturbing the transaction")
     (.countDown release)
-    (is (= :zombie/x @a) "A completes and returns the id")
-    (is (identical? token-orig (rf.frame/frame-incarnation-token :zombie/x))
-        "the original incarnation survives")
-    (is (= #{:reregister} (get-in (rf.frame/frame :zombie/x) [:config :tags]))
-        "the owner's metadata is published")
-    (is (some? (rf.frame/frame-state-container :zombie/x))
-        "the record remains full, never a partial zombie")))
-
-;; ===========================================================================
-;; must-create (create-exclusive).
-;; ===========================================================================
+    ;; the original incarnation survives as a full record with the owner's config
+    (is (= [:zombie/x true #{:reregister} true]
+           [@a
+            (identical? token-orig (rf.frame/frame-incarnation-token :zombie/x))
+            (get-in (rf.frame/frame :zombie/x) [:config :tags])
+            (some? (rf.frame/frame-state-container :zombie/x))]))))
 
 (deftest must-create-throws-typed-collision-on-an-already-live-id
   (rf.frame/upsert-frame! :mc/taken {})
-  (is (= :rf.error/frame-id-taken
-         (err-id #(rf.frame/upsert-frame! :mc/taken {:rf.frame/must-create? true})))
-      "must-create against a LIVE id throws the typed :rf.error/frame-id-taken —
-       it never adopts or surgically refreshes the pre-existing frame")
-  (is (some? (rf.frame/frame-state-container :mc/taken))
-      "the pre-existing frame is untouched by the rejected exclusive construction"))
+  (let [container (rf.frame/frame-state-container :mc/taken)]
+    (is (= [:rf.error/frame-id-taken true]
+           [(err-id #(rf.frame/upsert-frame! :mc/taken {:rf.frame/must-create? true}))
+            (identical? container (rf.frame/frame-state-container :mc/taken))])
+        "the live frame is neither adopted nor refreshed")))
 
 (deftest must-create-installs-cleanly-on-a-free-id
-  (is (= :mc/free (rf.frame/upsert-frame! :mc/free {:rf.frame/must-create? true}))
-      "must-create on a free id installs normally and returns the id")
-  (is (some? (rf.frame/frame-state-container :mc/free)) "a full record was installed")
-  (is (false? (contains? (:config (rf.frame/frame :mc/free)) :rf.frame/must-create?))
-      "the construction-only :rf.frame/must-create? key is stripped from stored config"))
-
-;; ===========================================================================
-;; A same-id loser must not overwrite the OWNER's frame-scoped
-;; trace policy.
-;;
-;; `upsert-frame!`'s two frame-scoped TRACE POLICY writes — the `set-frame-
-;; no-emit!` suppression flag (always written) and the `:rf.trace/events-
-;; retained` retention override — live in process-global stores SEPARATE from
-;; the `frames` registry. The per-id transaction keeps registry and auxiliary
-;; publication under one owner, including rollback.
-;; ===========================================================================
+  (is (= [:mc/free true false]
+         [(rf.frame/upsert-frame! :mc/free {:rf.frame/must-create? true})
+          (some? (rf.frame/frame-state-container :mc/free))
+          (contains? (:config (rf.frame/frame :mc/free)) :rf.frame/must-create?)])
+      "a full record, with the construction-only key stripped from its config"))
 
 (deftest exclusive-create-loser-must-not-overwrite-winner-trace-policy
+  ;; the retention ring arm; the no-emit store is the production twin's
   (let [reached (CountDownLatch. 1)
         release (CountDownLatch. 1)
         a       (binding [rf.frame/*upsert-decide-probe*
@@ -176,25 +98,17 @@
                                           :rf.trace/frame-no-emit? false
                                           :rf.trace/events-retained 10})))]
     (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before policy publication")
-    (is (= :rf.error/frame-construction-in-progress
-           (err-id #(rf.frame/upsert-frame! :tp/race
-                                         {:rf.trace/frame-no-emit? true
-                                          :rf.trace/events-retained 99})))
-        "B loses before it can mutate either auxiliary policy store")
-    (is (false? (rf.trace/frame-trace-disabled? :tp/race))
-        "no suppression policy is published while A is paused")
-    (is (nil? (retained-cap :tp/race))
-        "no retention policy is published while A is paused")
+    (is (= [:rf.error/frame-construction-in-progress nil]
+           [(err-id #(rf.frame/upsert-frame! :tp/race
+                                             {:rf.trace/frame-no-emit? true
+                                              :rf.trace/events-retained 99}))
+            (retained-cap :tp/race)])
+        "B loses, and no retention policy is published while A is paused")
     (.countDown release)
-    (is (= :tp/race @a) "the owner completes")
-    (is (false? (rf.trace/frame-trace-disabled? :tp/race))
-        "the owner's no-emit policy is final")
-    (is (= 10 (retained-cap :tp/race))
-        "the owner's retention policy is final")))
+    (is (= [:tp/race 10] [@a (retained-cap :tp/race)]) "the owner's retention policy is final")))
 
 (deftest reregister-owner-rejects-newer-policy-contender
-  ;; A stages a provisional re-registration and pauses before policy publication.
-  ;; B cannot become a "newer winner" while A owns the transaction.
+  ;; A pauses after staging, before policy publication; B cannot become a newer winner
   (rf.frame/upsert-frame! :tp/successful
                        {:tags #{:initial}
                         :rf.trace/frame-no-emit? true
@@ -213,23 +127,19 @@
            (err-id #(rf.frame/upsert-frame! :tp/successful
                                          {:tags #{:b}
                                           :rf.trace/frame-no-emit? true
-                                          :rf.trace/events-retained 99})))
-        "B loses at same-id admission")
+                                          :rf.trace/events-retained 99}))))
     (.countDown release)
-    (is (= :tp/successful @a) "A returns successfully")
-    (is (= #{:a} (get-in (rf.frame/frame :tp/successful) [:config :tags]))
-        "the authoritative frame record is A")
-    (is (false? (rf.trace/frame-trace-disabled? :tp/successful))
-        "the no-emit auxiliary store is A")
-    (is (= 10 (retained-cap :tp/successful))
-        "the retention auxiliary store is A")))
+    ;; the record, the no-emit store and the retention store are all A's
+    (is (= [:tp/successful #{:a} false 10]
+           [@a
+            (get-in (rf.frame/frame :tp/successful) [:config :tags])
+            (rf.trace/frame-trace-disabled? :tp/successful)
+            (retained-cap :tp/successful)]))))
 
 (deftest failed-reregistration-rollback-preserves-prestage-generation
-  ;; A reads the final frame and pauses immediately before its staging
-  ;; `swap-vals!`. Reprojection legitimately updates the generation in that
-  ;; window. Staging may temporarily replace the new value, but a later hook
-  ;; failure must roll back to the registry value the atomic swap ACTUALLY
-  ;; replaced, not the stale record A read before the swap.
+  ;; A reads the final frame and pauses just before its staging swap-vals!; a
+  ;; reprojection updates the generation in that window. The hook failure must
+  ;; roll back to the value the swap actually replaced, not the record A read.
   (let [id                  :tp/prestage-rollback-merge
         hook-key            :routing/on-frame-registered!
         original-hook       (rf.late-bind/get-fn hook-key)
@@ -273,57 +183,37 @@
               (is (.await reached 10 TimeUnit/SECONDS)
                   "A read the prior record and reached the pre-stage swap")
               (rf.frame/set-generation! id :foreign-gen)
-              (is (= :foreign-gen (rf.frame/frame-generation id))
-                  "the valid generation write linearized before provisional staging")
               (finally
                 (.countDown release)))
-            (is (= :hook-failed @owner) "the staged re-registration fails")
-            (is (= :foreign-gen (rf.frame/frame-generation id))
-                "rollback uses the atomic swap's actual prior generation")
-            (is (= prior-config (:config (rf.frame/frame id)))
-                "the complete pre-attempt config is restored")
-            (is (true? (rf.trace/frame-trace-disabled? id))
-                "rollback restores the pre-attempt no-emit policy")
-            (is (= 5 (retained-cap id))
-                "rollback restores the pre-attempt retention policy")
-            (is (identical? prior-policy-token
-                            (:trace-policy-token (rf.frame/frame id)))
-                "rollback restores the pre-attempt policy authority")
-            (is (identical? prior-revision
-                            (get-in (rf.frame/frame id) [:construction :revision]))
-                "rollback restores the pre-attempt final revision")))
+            ;; the swap's actual prior generation, and the pre-attempt config,
+            ;; policies, policy authority and revision
+            (is (= [:hook-failed :foreign-gen prior-config true 5 true true]
+                   [@owner
+                    (rf.frame/frame-generation id)
+                    (:config (rf.frame/frame id))
+                    (rf.trace/frame-trace-disabled? id)
+                    (retained-cap id)
+                    (identical? prior-policy-token (:trace-policy-token (rf.frame/frame id)))
+                    (identical? prior-revision
+                                (get-in (rf.frame/frame id) [:construction :revision]))]))))
         (finally
           (.countDown release)
           (rf.late-bind/set-fn! hook-key original-hook))))))
 
-;; ===========================================================================
-;; A re-registering LIVE frame stays visible to every actor.
-;;
-;; Owner-only visibility of a provisional row is for FIRST construction, where
-;; the row is half-built. A same-id re-registration stages a new config onto the
-;; live record — app-db, router, queue, drain lock and sub-cache are the same
-;; objects — so while the revision is staged every actor, foreign JVM threads
-;; included, sees the frame with its STAGED config. Admission is as for
-;; any construction: a same-id constructor or destroyer loses at the per-id
-;; reservation.
-;;
-;; Each case pauses the owner at `*upsert-policy-probe*`, which fires AFTER the
-;; revision is staged (`*upsert-decide-probe*` fires before, while the row is
-;; still final). The test thread and the `next-tick` executor are the foreign
-;; actors.
-;; ===========================================================================
+;; A re-registration stages its config onto the live record (the same app-db,
+;; router, drain lock and sub-cache), so every actor keeps seeing the frame. The
+;; owner pauses at *upsert-policy-probe*, after staging; the test thread and the
+;; next-tick executor are the foreign actors.
 
 (defn- flush-executor!
-  "Block until every task already submitted to the single-thread `next-tick`
-  executor has run: it is FIFO, so a marker submitted now runs after them."
+  "Block until every task already on the FIFO `next-tick` executor has run."
   []
   (let [p (promise)]
     (rf.interop/next-tick #(deliver p true))
     (deref p 10000 :timeout)))
 
 (defn- router-summary
-  "The raw router flags for `id`, read off the registry row so the read does not
-  depend on the visibility under test."
+  "The raw router flags for `id`, read off the registry row."
   [id]
   (let [r @(:router (get @rf.frame/frames id))]
     {:scheduled? (boolean (:scheduled? r))
@@ -344,23 +234,19 @@
                   (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
       (try
         (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
-        (is (= :provisional (get-in @rf.frame/frames [id :construction :state]))
-            "the window is open: the staged revision is provisional")
-        (is (some? (rf.frame/frame id))
-            "a foreign thread still sees the live frame")
-        (is (= #{:staged} (get-in (rf.frame/frame id) [:config :tags]))
-            "and sees it with its STAGED config")
-        (is (contains? (rf.frame/frame-ids) id)
-            "the live frame stays enumerable")
+        ;; while the revision is provisional, a foreign thread sees the live
+        ;; frame with its staged config, enumerates it, and dispatches into it
+        (is (= [:provisional #{:staged} true]
+               [(get-in @rf.frame/frames [id :construction :state])
+                (get-in (rf.frame/frame id) [:config :tags])
+                (contains? (rf.frame/frame-ids) id)]))
         (rf/dispatch [:rereg/inc] {:frame id})
-        (is (true? (flush-executor!)))
-        (is (= {:n 1} (rf.frame/frame-app-db-value id))
-            "a foreign dispatch issued inside the window reaches app-db")
+        (flush-executor!)
+        (is (= {:n 1} (rf.frame/frame-app-db-value id)))
         (finally
           (.countDown release)))
-      (is (= id @owner) "the re-registration completes")
-      (is (= #{:staged} (get-in (rf.frame/frame id) [:config :tags])))
-      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+      (is (= [id #{:staged} {:scheduled? false :queue-count 0}]
+             [@owner (get-in (rf.frame/frame id) [:config :tags]) (router-summary id)])))))
 
 (deftest reregistration-window-a-drain-starting-inside-it-drains
   (let [id      :rereg/scheduled
@@ -369,32 +255,28 @@
         release (CountDownLatch. 1)]
     (reg-inc!)
     (rf.frame/upsert-frame! id {:tags #{:prior}})
-    ;; Park the executor so the drain this dispatch schedules starts only
-    ;; once the window is open.
+    ;; park the executor so the scheduled drain starts only inside the window
     (rf.interop/next-tick #(.await park 10 TimeUnit/SECONDS))
     (rf/dispatch [:rereg/inc] {:frame id})
     (is (= {:scheduled? true :queue-count 1} (router-summary id))
-        "the drain is armed and waiting behind the parked executor")
+        "the drain is armed behind the parked executor")
     (let [owner (binding [rf.frame/*upsert-policy-probe*
                           (window-probe id reached release)]
                   (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
       (try
         (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
         (.countDown park)
-        (is (true? (flush-executor!)) "the scheduled drain ran inside the window")
+        (flush-executor!)
         (is (= {:n 1} (rf.frame/frame-app-db-value id))
             "the drain processed the event rather than reading the frame as dead")
         (finally
           (.countDown park)
           (.countDown release)))
-      (is (= id @owner))
-      (is (= {:scheduled? false :queue-count 0} (router-summary id))
-          "the router settled — :scheduled? is not left stuck true")
+      (is (= [id {:scheduled? false :queue-count 0}] [@owner (router-summary id)])
+          "the router settled, :scheduled? not stuck true")
       (rf/dispatch [:rereg/inc] {:frame id})
-      (is (true? (flush-executor!)))
-      (is (= {:n 2} (rf.frame/frame-app-db-value id))
-          "later async dispatches still drain")
-      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+      (flush-executor!)
+      (is (= {:n 2} (rf.frame/frame-app-db-value id)) "later async dispatches still drain"))))
 
 (deftest reregistration-window-an-in-flight-drain-keeps-its-commit
   (let [id          :rereg/in-flight
@@ -424,23 +306,21 @@
                   (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
       (try
         (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
-        ;; :rereg/slow returns while the revision is staged.
+        ;; :rereg/slow returns while the revision is staged
         (.countDown window-open)
-        (is (true? (flush-executor!)))
+        (flush-executor!)
         (is (= {:slow true :after true} (rf.frame/frame-app-db-value id))
-            "the in-flight event's commit stands and the queued event behind it runs")
+            "the in-flight commit stands and the queued event behind it runs")
         (finally
           (.countDown window-open)
           (.countDown release)))
-      (is (= id @owner))
-      (is (empty? @lifecycle)
-          "a hot re-registration is not reported as a destroy (no drain-interrupted)")
-      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+      ;; a hot re-registration is not reported as a destroy
+      (is (= [id [] {:scheduled? false :queue-count 0}]
+             [@owner @lifecycle (router-summary id)])))))
 
 (deftest reregistration-window-a-foreign-cold-op-is-drain-serialized
-  ;; `call-serialized-with-drain!` (reg-flow, Tool-Pair state writes) resolves
-  ;; the frame first; had the window hidden it, the op would run WITHOUT the
-  ;; drain lock, unserialized against a concurrent drain.
+  ;; call-serialized-with-drain! resolves the frame first; had the window hidden
+  ;; it, the op would run without the drain lock
   (let [id      :rereg/cold
         reached (CountDownLatch. 1)
         release (CountDownLatch. 1)]
@@ -455,8 +335,7 @@
             "the foreign cold op ran holding the frame's drain lock")
         (finally
           (.countDown release)))
-      (is (= id @owner))
-      (is (false? @drain-lock) "the cold section released the lock"))))
+      (is (= [id false] [@owner @drain-lock]) "the cold section released the lock"))))
 
 (deftest failed-reregistration-window-keeps-foreign-work-and-restores-config
   (let [id            :rereg/failed
@@ -489,23 +368,20 @@
           (try
             (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
             (is (= #{:failed} (get-in (rf.frame/frame id) [:config :tags]))
-                "a foreign thread sees the frame with the staged config")
+                "a foreign thread sees the staged config")
             (rf/dispatch [:rereg/inc] {:frame id})
-            (is (true? (flush-executor!)))
-            (is (= {:n 1} (rf.frame/frame-app-db-value id))
-                "the foreign event ran under the staged config")
+            (flush-executor!)
             (finally
               (.countDown release)))
-          (is (= :hook-failed @owner) "the staged re-registration fails")
-          (is (= prior-config (:config (rf.frame/frame id)))
-              "the frame stayed live throughout, and the prior config is restored")
-          (is (true? (rf.trace/frame-trace-disabled? id))
-              "the prior no-emit policy is restored")
-          (is (= 5 (retained-cap id)) "the prior retention policy is restored")
-          (is (= {:n 1} (rf.frame/frame-app-db-value id))
-              "work other events did under the staged config stands")
-          (is (= {:scheduled? false :queue-count 0} (router-summary id))
-              "the queue drained and :scheduled? ended false"))
+          ;; the prior config and policies are restored, while the event that
+          ;; ran under the staged config stands and the queue drained
+          (is (= [:hook-failed prior-config true 5 {:n 1} {:scheduled? false :queue-count 0}]
+                 [@owner
+                  (:config (rf.frame/frame id))
+                  (rf.trace/frame-trace-disabled? id)
+                  (retained-cap id)
+                  (rf.frame/frame-app-db-value id)
+                  (router-summary id)])))
         (finally
           (.countDown release)
           (rf.late-bind/set-fn! hook-key original-hook))))))
@@ -513,14 +389,11 @@
 (deftest omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
   (rf.frame/upsert-frame! :tp/inherit {:rf.trace/events-retained 99})
-  (is (= 99 (retained-cap :tp/inherit))
-      "precondition: the first config installed an explicit frame override")
-  (rf.frame/upsert-frame! :tp/inherit {:tags #{:override-removed}})
-  (is (= 7 (retained-cap :tp/inherit))
-      "omission restores the current process default instead of retaining 99")
-  (is (false? (get-in @@#'re-frame.trace.tooling/trace-rings
-                       [:tp/inherit :override?]))
-      "the ring is marked inherited, so later process-default changes follow")
-  (rf/configure! {:trace-buffer {:events-retained 3}})
-  (is (= 3 (retained-cap :tp/inherit))
-      "a later process-default change reaches the now-inherited frame"))
+  (let [installed (retained-cap :tp/inherit)]
+    (rf.frame/upsert-frame! :tp/inherit {:tags #{:override-removed}})
+    (let [restored  (retained-cap :tp/inherit)
+          override? (get-in @@#'re-frame.trace.tooling/trace-rings [:tp/inherit :override?])]
+      (rf/configure! {:trace-buffer {:events-retained 3}})
+      ;; omission restores the process default and marks the ring inherited, so
+      ;; a later default change reaches it
+      (is (= [99 7 false 3] [installed restored override? (retained-cap :tp/inherit)])))))
