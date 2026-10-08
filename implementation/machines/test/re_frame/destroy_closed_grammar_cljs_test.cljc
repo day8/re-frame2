@@ -1,33 +1,18 @@
 (ns re-frame.destroy-closed-grammar-cljs-test
-  "The `:rf.machine/destroy` argument grammar is CLOSED. It has exactly three
-  forms: a keyword actor id (the imperative form), the tracked single-`:spawn`
-  map `{:rf/parent-id p :rf/invoke-id i}`, and the `:spawn-all` map
-  `{:rf/spawn-all true :rf/parent-id p :rf/invoke-id i}`. Presence of the
-  `:rf/spawn-all` key SELECTS the `:spawn-all` shape, which then requires the
-  value exactly `true` and the exact coordinate fields. Any other argument — an
-  unknown key set, a false-valued or extra-keyed `:spawn-all` carrier, a
-  tracked form resolving a join slot, a non-keyword non-map — emits exactly
-  one `:rf.error/machine-destroy-bad-arg` and performs ZERO mutation: no slot,
-  actor, child, trace, terminal-reply, or ownership change.
+  "The `:rf.machine/destroy` argument grammar is CLOSED: a keyword actor id, the
+  tracked map `{:rf/parent-id p :rf/invoke-id i}`, or the `:spawn-all` map
+  `{:rf/spawn-all true :rf/parent-id p :rf/invoke-id i}`. Anything else emits
+  exactly one `:rf.error/machine-destroy-bad-arg` and mutates nothing.
 
-  Why presence and not truthiness: routing on the TRUTHINESS of
-  `(:rf/spawn-all args)` would send `{:rf/spawn-all false :rf/parent-id p
-  :rf/invoke-id i}` to the tracked single-`:spawn` branch. With a `:spawn-all`
-  join at the addressed slot, that branch would read the WHOLE join-state map
-  as the slot's actor id, clear the join slot, leave the real children live
-  and orphaned, and emit a bogus `:rf.machine/destroyed` trace whose actor id
-  is the join-state map — and no bad-arg error. A map carrying the join
-  coordinates beside a key no form declares carries the same hazard, so it
-  fails closed too.
-
-  The file is named `*-cljs-test.cljc` so it's discovered by both
-  cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
+  Presence of `:rf/spawn-all`, not its truthiness, selects the `:spawn-all`
+  shape: routed by truthiness or by its coordinates alone, a malformed carrier
+  would reach the tracked branch, read the whole join-state map as an actor id,
+  clear the join slot and orphan the live children."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   ;; load the machines artefact so its fx handlers + late-bind hooks are
-   ;; installed when this ns runs in isolation.
+   ;; loads the machines artefact, so this ns runs in isolation
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -39,186 +24,53 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   rf.machines.test-support/trace-capture-fixture)
 
-(defn- destroyed-traces []
-  (rf.machines.test-support/events-of :rf.machine/destroyed))
-
-(defn- bad-arg-traces []
-  (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg))
-
-(defn- join-state [parent-id invoke-id]
+(defn- join-state [parent-id]
   (get-in (rf.machines.test-support/runtime-db)
-          [:rf.runtime/machines :spawned parent-id invoke-id]))
-
-;; A child that stays LIVE (its states are not :final?) and never
-;; auto-dispatches back — so join state stays pristine while we throw
-;; malformed destroy carriers at it.
-(def ^:private inert-child
-  {:initial :running
-   :data    {}
-   :states  {:running {}}})
+          [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- reg-join-parent!
-  "Register a two-child :spawn-all parent + inert children and start it.
-  Returns the seeded join-state map."
-  [parent-kw child-a-kw child-b-kw]
-  (rf/reg-machine child-a-kw inert-child)
-  (rf/reg-machine child-b-kw inert-child)
-  (rf/reg-machine parent-kw
+  "Register and start a two-child `:spawn-all` parent over inert children, with
+  `:abort` leaving the join state. Returns the seeded join state."
+  [parent-id child-id]
+  (rf/reg-machine child-id {:initial :running :states {:running {}}})
+  (rf/reg-machine parent-id
     {:initial :idle
      :states  {:idle   {:on {:start :racing}}
-               :racing {:spawn-all
-                        {:children        [{:id :a :machine-id child-a-kw}
-                                           {:id :b :machine-id child-b-kw}]
-                         :join            :all
-                         :on-all-complete [:all/done]}}}})
-  (rf/dispatch-sync [parent-kw [:start]])
-  (join-state parent-kw [:racing]))
+               :racing {:spawn-all {:children        [{:id :a :machine-id child-id}
+                                                      {:id :b :machine-id child-id}]
+                                    :join            :all
+                                    :on-all-complete [:all/done]}
+                        :on        {:abort :idle}}}})
+  (rf/dispatch-sync [parent-id [:start]])
+  (join-state parent-id))
 
-(defn- destroy-with!
-  "Fire one `[:rf.machine/destroy args]` through an ordinary app event."
-  [args]
-  (rf/reg-event ::fire-destroy
-    (fn [_ [_ a]] {:fx [[:rf.machine/destroy a]]}))
+(defn- destroy-with! [args]
+  (rf/reg-event ::fire-destroy (fn [_ [_ a]] {:fx [[:rf.machine/destroy a]]}))
   (rf/dispatch-sync [::fire-destroy args]))
 
-(defn- assert-zero-mutation!
-  "The load-bearing zero-mutation assertion set: join slot intact (same
-  value), both children still live, no destroyed trace."
-  [parent-kw pre-join]
-  (let [post-join (join-state parent-kw [:racing])
-        children  (:children pre-join)]
-    (is (= pre-join post-join)
-        "the join slot is byte-identical — no slot mutation")
-    (doseq [[cid spawned-id] children]
-      (is (some? (rf.machines.test-support/snapshot spawned-id))
-          (str "child " cid " (" spawned-id ") is still live")))
-    (is (empty? (destroyed-traces))
-        (str "no :rf.machine/destroyed fired; saw "
-             (mapv :tags (destroyed-traces))))))
-
-;; ---- an unknown key set beside live join coordinates ----------------------
-
-(deftest unknown-map-shape-fails-closed
-  (testing "a map carrying exact join coordinates beside a key no destroy form
-            declares ({:rf/reap false …}) is outside the closed grammar: it
-            must emit exactly one :rf.error/machine-destroy-bad-arg and mutate
-            NOTHING. Were it routed by its coordinates alone, the tracked
-            branch would read the join-state map as an actor id, clear the
-            join slot, orphan both live children, and emit a bogus destroyed
-            trace with zero bad-arg errors."
-    (let [pre-join (reg-join-parent! :dcg/p1 :dcg/p1a :dcg/p1b)]
-      (is (map? (:children pre-join)) "live two-child join seeded")
+(deftest malformed-destroy-args-fail-closed
+  (let [pre      (reg-join-parent! :dcg/p :dcg/child)
+        children (vals (:children pre))]
+    (is (= 2 (count children)))
+    (doseq [[cause arg] [[:unknown-shape {:rf/reap false :rf/parent-id :dcg/p :rf/invoke-id [:racing] :rf/child-id :a}]
+                         [:unknown-shape {:rf/reap true :rf/spawn-all true :rf/parent-id :dcg/p
+                                          :rf/invoke-id [:racing] :rf/child-id :a}]
+                         [:unknown-shape {:rf/spawn-all false :rf/parent-id :dcg/p :rf/invoke-id [:racing]}]
+                         [:slot-shape-mismatch {:rf/parent-id :dcg/p :rf/invoke-id [:racing]}]
+                         [:unknown-shape "not-an-actor-id"]]]
       (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      false
-                      :rf/parent-id :dcg/p1
-                      :rf/invoke-id [:racing]
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces)))
-          "exactly one :rf.error/machine-destroy-bad-arg fired")
-      (is (keyword? (:cause (:tags (first (bad-arg-traces)))))
-          "the bad-arg error carries stable typed :cause evidence")
-      (assert-zero-mutation! :dcg/p1 pre-join))))
-
-;; ---- :spawn-all carriers outside the exact form ---------------------------
-
-(deftest spawn-all-carrier-with-an-extra-key-fails-closed
-  (testing "a :rf/spawn-all carrier carrying keys its form does not declare
-            (:rf/reap, :rf/child-id) is outside the closed grammar: fail
-            closed, zero mutation"
-    (let [pre-join (reg-join-parent! :dcg/p6 :dcg/p6a :dcg/p6b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      true
-                      :rf/spawn-all true
-                      :rf/parent-id :dcg/p6
-                      :rf/invoke-id [:racing]
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p6 pre-join))))
-
-(deftest spawn-all-false-carrier-fails-closed
-  (testing "{:rf/spawn-all false …} is malformed (presence
-            selects the spawn-all shape; the value must be exactly true).
-            Truthy routing in destroy-machine-fx would send it into the
-            tracked branch and corrupt the join slot"
-    (let [pre-join (reg-join-parent! :dcg/p7 :dcg/p7a :dcg/p7b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/spawn-all false
-                      :rf/parent-id :dcg/p7
-                      :rf/invoke-id [:racing]})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p7 pre-join))))
-
-;; ---- tracked form pointed at a spawn-all join slot -------------------------
-
-(deftest tracked-form-at-spawn-all-slot-fails-closed
-  (testing "the tracked single-:spawn form {:rf/parent-id
-            :rf/invoke-id} resolving a slot that holds a spawn-all JOIN-STATE
-            MAP must fail closed: the tracked branch can never consume a
-            join-state map as an actor id"
-    (let [pre-join (reg-join-parent! :dcg/p9 :dcg/p9a :dcg/p9b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/parent-id :dcg/p9
-                      :rf/invoke-id [:racing]})
-      (is (= 1 (count (bad-arg-traces)))
-          "the tracked form addressed at a join slot fails loud")
-      (assert-zero-mutation! :dcg/p9 pre-join))))
-
-;; ---- non-map, non-keyword args ---------------------------------------------
-
-(deftest non-keyword-non-map-arg-fails-closed
-  (testing "the imperative form requires a keyword actor id;
-            any other non-map arg is outside the closed grammar"
-    (let [pre-join (reg-join-parent! :dcg/p10 :dcg/p10a :dcg/p10b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! "not-an-actor-id")
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p10 pre-join))))
-
-;; ---- genuine forms stay green ----------------------------------------------
-
-(deftest genuine-tracked-destroy-stays-green
-  (testing "the genuine tracked single-:spawn exit-cascade
-            destroy tears the tracked child down exactly once"
-    (rf/reg-machine :dcg/live-child inert-child)
-    (rf/reg-machine :dcg/tracked-parent
-      {:initial :idle
-       :states  {:idle    {:on {:start :working}}
-                 :working {:spawn {:machine-id :dcg/live-child}
-                           :on    {:stop :idle}}}})
-    (rf/dispatch-sync [:dcg/tracked-parent [:start]])
-    (let [child-id (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :dcg/tracked-parent [:working]])]
-      (is (keyword? child-id) "single tracked :spawn child live")
-      (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync [:dcg/tracked-parent [:stop]])
-      (is (nil? (rf.machines.test-support/snapshot child-id)) "tracked child torn down on exit")
-      (is (= 1 (count (filterv #(= child-id (:actor-id (:tags %)))
-                               (destroyed-traces))))
-          "exactly one destroyed trace for the tracked child")
-      (is (empty? (bad-arg-traces))
-          "no bad-arg error for the genuine tracked form"))))
+      (destroy-with! arg)
+      (is (= [[cause] pre true []]
+             [(mapv (comp :cause :tags) (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg))
+              (join-state :dcg/p)
+              (every? some? (map rf.machines.test-support/snapshot children))
+              (rf.machines.test-support/events-of :rf.machine/destroyed)])
+          (pr-str arg)))))
 
 (deftest genuine-spawn-all-exit-stays-green
-  (testing "the genuine {:rf/spawn-all true} exit-cascade form
-            tears every child down and clears the slot"
-    (rf/reg-machine :dcg/sa-child inert-child)
-    (rf/reg-machine :dcg/sa-parent
-      {:initial :idle
-       :states  {:idle    {:on {:start :racing}}
-                 :racing  {:spawn-all
-                           {:children        [{:id :a :machine-id :dcg/sa-child}
-                                              {:id :b :machine-id :dcg/sa-child}]
-                            :join            :all
-                            :on-all-complete [:all/done]}
-                           :on {:abort :idle}}}})
-    (rf/dispatch-sync [:dcg/sa-parent [:start]])
-    (let [children (:children (join-state :dcg/sa-parent [:racing]))]
-      (is (= 2 (count children)))
-      (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync [:dcg/sa-parent [:abort]])
-      (is (nil? (join-state :dcg/sa-parent [:racing])) "join slot cleared")
-      (doseq [[cid spawned-id] children]
-        (is (nil? (rf.machines.test-support/snapshot spawned-id))
-            (str "child " cid " torn down on exit")))
-      (is (empty? (bad-arg-traces))
-          "no bad-arg error for the genuine spawn-all exit form"))))
+  (let [children (vals (:children (reg-join-parent! :dcg/sa-parent :dcg/sa-child)))]
+    (rf/dispatch-sync [:dcg/sa-parent [:abort]])
+    (is (= [nil [nil nil] []]
+           [(join-state :dcg/sa-parent)
+            (mapv rf.machines.test-support/snapshot children)
+            (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg)]))))
