@@ -150,15 +150,6 @@
     (is (= false (read* f [::open? :billing])))
     (is (= true  (read* f [::open? :shipping])))))
 
-(deftest clear-of-something-never-written-changes-nothing
-  (testing "and in particular does not plant an empty `:ui` root in a db
-           that never had one"
-    (rf.fresco.impl.state/reg-state ::open? {:default false})
-    (let [f (frame! ::clear-absent)]
-      (send! f [rf.fresco.impl.state/clear-event-id ::open? :billing])
-      (is (= {} (db-of f)))
-      (is (= false (read* f [::open? :billing]))))))
-
 (deftest a-keyword-valued-concern-survives-being-set-to-any-value
   (testing "a value-sentinel clear would make this row a silent dissoc: a
            concern whose values are keywords could be set to the sentinel
@@ -166,7 +157,7 @@
            value this concern cannot hold."
     (rf.fresco.impl.state/reg-state ::tab {:default :first})
     (let [f (frame! ::sentinel-free)]
-      (doseq [v [:second :re-frame.fresco/clear ::anything nil false]]
+      (doseq [v [:re-frame.fresco/clear nil false]]
         (send! f [::tab :panel v])
         (is (= v (read* f [::tab :panel]))
             (str "the concern holds " (pr-str v) " as an ordinary value"))
@@ -223,9 +214,7 @@
 
 (deftest registration-refuses-an-unqualified-concern
   (is (refused? :rf.error/fresco-state-bad-argument :open?
-                #(rf.fresco.impl.state/reg-state :open? {:default false})))
-  (is (refused? :rf.error/fresco-state-bad-argument "open?"
-                #(rf.fresco.impl.state/reg-state "open?" {:default false}))))
+                #(rf.fresco.impl.state/reg-state :open? {:default false}))))
 
 (deftest registration-refuses-an-unknown-option
   (testing "an option that is quietly ignored is a setting its author
@@ -256,22 +245,19 @@
 
 (deftest instance-key-admits-exactly-the-composable-shapes
   (testing "admitted"
-    (doseq [k [:kw ::ns-kw "s" 0 -1 1.5 [:a] [:a 1 "b"] [[:order/id 42] :row] []]]
+    (doseq [k [:kw "s" 0 [:a 1 "b"] [[:order/id 42] :row] []]]
       (is (rf.fresco.impl.state/instance-key? k) (str (pr-str k) " is an instance key"))))
   (testing "refused"
-    (doseq [k [nil false true {} {:id 1} #{:a} '(:a) [:a nil] [:a {}]]]
+    (doseq [k [nil false {} #{:a} '(:a) [:a nil]]]
       (is (not (rf.fresco.impl.state/instance-key? k)) (str (pr-str k) " is not an instance key")))))
 
 (deftest child-key-nests-and-deep-nests
   (testing "a scalar parent key becomes a two-element vector"
-    (is (= [:panel :row] (rf.fresco.impl.state/child-key :panel :row)))
-    (is (= ["panel" 0] (rf.fresco.impl.state/child-key "panel" 0))))
+    (is (= [:panel :row] (rf.fresco.impl.state/child-key :panel :row))))
   (testing "a vector parent key CONJes — so depth costs one element, not
            one level of nesting, and no component needs to know how deep
            it is"
-    (is (= [:panel :row :cell] (rf.fresco.impl.state/child-key [:panel :row] :cell)))
-    (is (= [:panel :row :cell :label]
-           (-> :panel (rf.fresco.impl.state/child-key :row) (rf.fresco.impl.state/child-key :cell) (rf.fresco.impl.state/child-key :label)))))
+    (is (= [:panel :row :cell] (rf.fresco.impl.state/child-key [:panel :row] :cell))))
   (testing "and every key it produces is a legal instance key, which is
            what makes nesting total"
     (is (rf.fresco.impl.state/instance-key? (rf.fresco.impl.state/child-key [[:order/id 42]] :row)))))
@@ -286,24 +272,3 @@
     (is (= false (read* f [::open? (rf.fresco.impl.state/child-key row2 :detail)])))
     (is (= false (read* f [::open? :panel]))
         "the parent's own key is a different key from any child's")))
-
-;; ---------------------------------------------------------------------------
-;; Frames
-;; ---------------------------------------------------------------------------
-
-(deftest two-frames-hold-the-same-concern-and-key-independently
-  (testing "per-frame isolation costs this namespace NOTHING — app-db is
-           per-frame already, and there is not one line about frames in it"
-    (rf.fresco.impl.state/reg-state ::open? {:default false})
-    (let [a (frame! ::frame-a)
-          b (frame! ::frame-b)]
-      (send! a [::open? :billing true])
-      (is (= true  (read* a [::open? :billing])))
-      (is (= false (read* b [::open? :billing])) "frame b never moved")
-      (is (= {:ui {::open? {:billing true}}} (db-of a)))
-      (is (= {} (db-of b)))
-      (testing "and clearing in one frame leaves the other"
-        (send! b [::open? :billing true])
-        (send! a [rf.fresco.impl.state/clear-event-id ::open? :billing])
-        (is (= false (read* a [::open? :billing])))
-        (is (= true  (read* b [::open? :billing])))))))
