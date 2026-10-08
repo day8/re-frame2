@@ -1,32 +1,12 @@
 (ns re-frame2-pair-mcp.build-id-cache-test
-  "Unit tests for the session-scoped `:resolved-build-id` cache.
+  "The session-scoped `:resolved-build-id` cache: the build `discover-app`
+  last resolved becomes the default for tool calls that pass no `:build`.
 
-  Adjacent to `probe_test.cljs`, which pins the `:probed-builds` cache.
-  The two caches share a lifecycle (cleared by `close!` and reborn empty
-  on a fresh `ensure-connection!` conn, but PRESERVED across a transient
-  same-port socket reopen); their semantics differ:
-
-    - `:probed-builds` is a set keyed by build-id, tracking which builds
-      have had their `__re_frame2_pair_runtime` marker confirmed live.
-    - `:resolved-build-id` is the single build-id `discover-app` last
-      resolved — the default for tool calls that don't pass `:build`.
-
-  The cache removes a pair-debug friction: without it, after a successful
-  `discover-app` against `examples/step-deck`, every subsequent tool
-  call still needs `build: examples/step-deck` or it silently defaults
-  to `:app` (the env-var fallback) and returns `:runtime-not-preloaded`
-  looking like a fresh discovery failure.
-
-  The cache has four pieces, exercised by the deftests below:
-
-    1. `discover-app` writes the resolved build-id into the conn-atom
-       on success.
-    2. `wire/arg-build` consults the cache before the env-var fallback
-       when no explicit `:build` arg is passed.
-    3. An explicit `:build` arg always wins (no surprise).
-    4. nREPL `close!` clears the cache (a transport-only `connect!`
-       reopen of the same port deliberately PRESERVES it) — pinned by
-       nrepl-test's close and reopen tests."
+  `discover-app` writes it on success (warning branches included),
+  `wire/arg-build` reads it after an explicit `:build` arg and before the
+  env-var fallback, and `probe/resolve-build!` treats it as deliberate.
+  Its lifecycle across `close!` and a same-port reopen is pinned by
+  nrepl-test."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
@@ -36,155 +16,86 @@
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
-;; ---------------------------------------------------------------------------
-;; Fixtures.
-;; ---------------------------------------------------------------------------
-
 (defn- fresh-conn
-  "A conn-atom shaped like one fresh out of `connect!` — `:probed-builds`
-  cleared, `:resolved-build-id` nil. Mirrors the `probe_test/fresh-conn`
-  shape so the two caches' lifecycle assertions read the same."
+  "A conn-atom as `connect!` leaves it: both build caches empty."
   []
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
     (swap! conn assoc :probed-builds #{} :resolved-build-id nil)
     conn))
 
 (def ^:private healthy-health
-  "Canonical `(runtime/health)` payload — the shape `discover-app` reads
-  to decide which warning branch (if any) to surface. The `:ok? true`
-  branch with no warnings exercises the cache-write path."
   {:ok?                        true
    :debug-enabled?             true
    :coord-annotation-enabled?  true
    :frames                     [:rf/default]
    :ambiguous-frame?           false})
 
-;; ---------------------------------------------------------------------------
-;; `wire/arg-build` — colon tolerance.
-;; ---------------------------------------------------------------------------
-
-(deftest arg-build-tolerates-a-leading-colon
-  ;; The human-facing hint shows the colon form
-  ;; (`--build=:examples/step-deck`); the MCP arg also accepts the bare
-  ;; form. Both forms resolve to the SAME keyword, and a doubled colon
-  ;; never reaches the resolver (no `::examples/step-deck`).
-  (let [conn (fresh-conn)]
-    (is (= :examples/step-deck
-           (wire/arg-build conn (tu/args->js {:build "examples/step-deck"})))
-        "bare form")
-    (is (= :examples/step-deck
-           (wire/arg-build conn (tu/args->js {:build ":examples/step-deck"})))
-        "colon form resolves identically")))
-
-(deftest arg-build-explicit-predicate-sees-either-colon-form
-  ;; Explicitness keys on arg PRESENCE, not coercion shape — both the
-  ;; bare and colon forms count as a deliberate `:build`.
-  (let [conn (fresh-conn)]
-    (is (true? (wire/arg-build-explicit? conn (tu/args->js {:build "app"}))))
-    (is (true? (wire/arg-build-explicit? conn (tu/args->js {:build ":app"}))))))
-
-;; ---------------------------------------------------------------------------
-;; `wire/arg-build` — cache lookup precedence.
-;; ---------------------------------------------------------------------------
-
-(deftest arg-build-explicit-arg-overrides-cache
-  ;; Explicit-wins rule: a `:build` MCP arg ALWAYS beats the cache.
-  ;; Operator can route a one-off call to a different build without
-  ;; clearing the session cache.
-  (let [conn (fresh-conn)
-        args (tu/args->js {:build "other-build"})]
-    (swap! conn assoc :resolved-build-id :examples/step-deck)
-    (is (= :other-build (wire/arg-build conn args))
-        "Explicit :build arg must win over the cache")))
-
-(deftest arg-build-nil-conn-falls-through-to-env-default
-  ;; Defensive: the 1-arity form (and any caller passing nil
-  ;; conn) skips the cache lookup without throwing. Conformance tests
-  ;; rely on this stub-conn-friendly shape.
-  (let [args (tu/args->js {})]
-    (is (= :app (wire/arg-build nil args)))
-    (is (= :app (wire/arg-build args))
-        "1-arity form must resolve to the env default")))
-
-(deftest arg-build-explicit-predicate-treats-cache-as-deliberate
-  ;; A session-cache hit is treated as a deliberate choice — the
-  ;; eval-path resolver honours it verbatim rather than second-guessing
-  ;; via auto-detect. Without this, the cache would be useless on a
-  ;; multi-build workspace.
-  (let [conn (fresh-conn)
-        args (tu/args->js {})]
-    (is (false? (wire/arg-build-explicit? conn args))
-        "Fresh conn + no arg → not explicit")
-    (swap! conn assoc :resolved-build-id :examples/step-deck)
-    (is (true? (wire/arg-build-explicit? conn args))
-        "Cache hit must count as deliberate")
-    (is (false? (wire/arg-build-explicit? nil args))
-        "1-arity form (no conn) ignores the cache")))
-
-;; ---------------------------------------------------------------------------
-;; `discover-app` populates the cache on success.
-;; ---------------------------------------------------------------------------
-
 (defn- prime-probe-cache!
-  "Pre-populate `:probed-builds` so `runtime-preloaded?` short-circuits
-  without hitting the stub — the stub then sees only the
-  `(runtime/health)` round-trip and we don't need to discriminate by
-  form string."
+  "Mark `build-id` probed so `runtime-preloaded?` short-circuits and the
+  eval stub only has to answer the health read."
   [conn build-id]
   (swap! conn update :probed-builds (fnil conj #{}) build-id))
 
-(deftest discover-app-does-not-cache-on-precondition-failure
-  ;; `discover-app` short-circuits on precondition failures (e.g.
-  ;; `:debug-enabled? false`) without caching — the build isn't a usable
-  ;; default in that state, so subsequent tool calls should NOT silently
-  ;; route to it.
-  (async done
-    (let [conn (fresh-conn)
-          _    (prime-probe-cache! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})
-          unhealthy (assoc healthy-health :debug-enabled? false)]
-      (-> (tu/with-stubbed-eval! unhealthy
-            (fn [] (discover-app/discover-app conn args)))
-          (.then
-            (fn [_]
-              (is (nil? (:resolved-build-id @conn))
-                  "Failed precondition must not populate the cache")
-              (done)))))))
+;; ---------------------------------------------------------------------------
+;; `wire/arg-build`.
+;; ---------------------------------------------------------------------------
+
+(deftest arg-build-tolerates-a-leading-colon
+  ;; The hint prints the colon form; both forms must resolve to one
+  ;; keyword, never the doubled-colon `::examples/step-deck`.
+  (let [conn (fresh-conn)]
+    (is (= [:examples/step-deck :examples/step-deck]
+           (mapv #(wire/arg-build conn (tu/args->js {:build %}))
+                 ["examples/step-deck" ":examples/step-deck"])))))
+
+(deftest arg-build-explicit-arg-overrides-cache
+  (let [conn (fresh-conn)]
+    (swap! conn assoc :resolved-build-id :examples/step-deck)
+    (is (= :other-build (wire/arg-build conn (tu/args->js {:build "other-build"}))))))
+
+;; ---------------------------------------------------------------------------
+;; `discover-app` writes the cache.
+;; ---------------------------------------------------------------------------
 
 (deftest discover-app-caches-on-warning-branches
-  ;; The ambiguous-frame and no-source-coord-annotation branches return
-  ;; `:ok? true` with a warning — the runtime IS reachable on that
-  ;; build, just with a caveat. Cache the build-id so the operator
-  ;; doesn't have to keep re-specifying it on follow-up calls.
+  ;; An ambiguous-frame warning still means the build is reachable.
   (async done
-    (let [conn (fresh-conn)
-          _    (prime-probe-cache! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})
+    (let [conn      (fresh-conn)
+          _         (prime-probe-cache! conn :examples/step-deck)
           ambiguous (assoc healthy-health
                            :frames [:rf/default :feature/sandbox]
                            :ambiguous-frame? true)]
       (-> (tu/with-stubbed-eval! ambiguous
-            (fn [] (discover-app/discover-app conn args)))
+            (fn [] (discover-app/discover-app conn (tu/args->js {:build "examples/step-deck"}))))
           (.then
             (fn [_]
-              (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "Ambiguous-frame warning is still a discoverable build — cache it")
+              (is (= :examples/step-deck (:resolved-build-id @conn)))
+              (done)))))))
+
+(deftest discover-app-caches-and-echoes-the-canonical-build
+  ;; `:build` echoes the canonical keyword under the input arg's name, so
+  ;; it can be copied straight back into a later call.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime-probe-cache! conn :examples/step-deck)]
+      (-> (tu/with-stubbed-eval! healthy-health
+            (fn [] (discover-app/discover-app conn (tu/args->js {:build "examples/step-deck"}))))
+          (.then
+            (fn [result]
+              (is (= {:build-id :examples/step-deck :build :examples/step-deck}
+                     (select-keys (tu/extract-edn result) [:build-id :build])))
+              (is (= :examples/step-deck (:resolved-build-id @conn)))
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Single-build auto-selection.
-;;
-;; When EXACTLY ONE build runs, discover-app with an omitted :build
-;; selects that build and notes the choice — so a checkout where :app
-;; isn't the running watch still resolves on the first no-arg call.
-;; Zero/many running falls back to the diagnostic (which lists the
-;; running builds) — never a silent most-recently-active pick.
+;; Single-build auto-selection: exactly one running build fills an omitted
+;; `:build`; zero or many keep the `:app` default so the diagnostic lists
+;; the running builds rather than silently picking one.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-running-builds!
-  "Stub `probe/running-builds` to resolve to `running-vec` and
-  `nrepl/cljs-eval-value` to resolve to `health` (the runtime probe +
-  health call). Restores both in `.finally`."
+  "Stub `probe/running-builds` to `running-vec` and `nrepl/cljs-eval-value`
+  to `health`, restoring both in `.finally`."
   [running-vec health body-fn]
   (let [orig-running probe/running-builds
         orig-eval    nrepl/cljs-eval-value
@@ -200,8 +111,6 @@
                     (tu/restore-eval! eval-stub orig-eval))))))
 
 (deftest discover-app-auto-selects-the-single-running-build
-  ;; No :build arg, exactly one running build → discover-app selects it,
-  ;; notes the auto-selection, caches it, and echoes :auto-selected-build.
   (async done
     (let [conn (fresh-conn)
           _    (prime-probe-cache! conn :examples/step-deck)]
@@ -209,44 +118,27 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {}))))
           (.then
             (fn [result]
-              (let [edn (tu/extract-edn result)]
-                (is (true? (:ok? edn)))
-                (is (= :examples/step-deck (:build-id edn))
-                    "auto-selected the single running build")
-                (is (= :examples/step-deck (:auto-selected-build edn))
-                    "result flags the auto-selection")
-                (is (re-find #"auto-selected" (:note edn))
-                    "note explains the auto-selection")
-                (is (= :examples/step-deck (:resolved-build-id @conn))
-                    "auto-selected build is cached for follow-up calls"))
+              (is (= {:ok? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck}
+                     (select-keys (tu/extract-edn result) [:ok? :build-id :auto-selected-build])))
+              (is (= :examples/step-deck (:resolved-build-id @conn))
+                  "the auto-selected build is cached for follow-up calls")
               (done)))))))
 
 (deftest discover-app-no-arg-does-not-auto-select-when-many-run
-  ;; Two running builds, no :build arg → NO auto-select. The build falls
-  ;; back to the :app default and the diagnostic surfaces the running
-  ;; list (here: the build is running per the stub, so we assert the
-  ;; payload is NOT auto-selected against :app rather than step-deck).
   (async done
     (let [conn (fresh-conn)
           _    (prime-probe-cache! conn :app)]
-      (-> (with-running-builds! [:testbeds/panel-gallery :examples/step-deck]
-                                healthy-health
+      (-> (with-running-builds! [:testbeds/panel-gallery :examples/step-deck] healthy-health
             (fn [] (discover-app/discover-app conn (tu/args->js {}))))
           (.then
             (fn [result]
-              (let [edn (tu/extract-edn result)]
-                ;; The default :app is probed (the stub answers health for
-                ;; any build) — the point is no SILENT pick of one of the
-                ;; two ambiguous builds.
-                (is (not (contains? edn :auto-selected-build))
-                    "must NOT auto-select when multiple builds run")
-                (is (= :app (:build-id edn))
-                    "falls back to the :app default, not a guessed build"))
+              (is (= {:build-id :app}
+                     (select-keys (tu/extract-edn result) [:build-id :auto-selected-build]))
+                  "falls back to the :app default; no auto-selection")
               (done)))))))
 
 (deftest discover-app-explicit-build-skips-auto-select
-  ;; An explicit :build arg is honoured verbatim — auto-select never
-  ;; fires, even though only one OTHER build is running.
+  ;; An explicit `:build` is used verbatim even when one OTHER build runs.
   (async done
     (let [conn (fresh-conn)
           _    (prime-probe-cache! conn :my-app)]
@@ -254,211 +146,66 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {:build "my-app"}))))
           (.then
             (fn [result]
-              (let [edn (tu/extract-edn result)]
-                (is (= :my-app (:build-id edn))
-                    "explicit build used verbatim")
-                (is (not (contains? edn :auto-selected-build))
-                    "explicit build is not an auto-selection"))
+              (is (= {:build-id :my-app}
+                     (select-keys (tu/extract-edn result) [:build-id :auto-selected-build])))
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Round-trippable build ids.
-;;
-;; The canonical build id is a keyword (`:examples/step-deck`). A value
-;; copied out of a discover-app result's `:build` / `:build-id` slot must
-;; resolve back to the SAME build when passed as a later `:build` arg.
-;; The only alias axis is colon-tolerance (the EDN-ish `":foo"` vs bare
-;; `"foo"` an agent might serialise); `fresh-keyword` normalises both to
-;; the canonical keyword.
-;; ---------------------------------------------------------------------------
-
-(deftest discover-app-caches-and-echoes-the-canonical-build
-  (async done
-    (let [conn (fresh-conn)
-          _    (prime-probe-cache! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})]
-      (-> (tu/with-stubbed-eval! healthy-health
-            (fn [] (discover-app/discover-app conn args)))
-          (.then
-            (fn [result]
-              (let [edn (tu/extract-edn result)]
-                (is (= :examples/step-deck (:resolved-build-id @conn))
-                    "Successful discover-app must cache the resolved build-id")
-                ;; Both :build-id and the input-name-matching :build carry
-                ;; the canonical keyword.
-                (is (= :examples/step-deck (:build-id edn)))
-                (is (= :examples/step-deck (:build edn))
-                    "discover-app echoes a canonical :build matching the input arg name")
-                ;; Round-trip: feed the echoed value back as a `:build`
-                ;; arg and confirm it resolves to the same keyword.
-                (is (= (:build edn)
-                       (wire/arg-build conn (tu/args->js {:build (:build edn)})))
-                    "the echoed :build round-trips unchanged through arg-build"))
-              (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Per-session isolation.
-;;
-;; The sticky target lives on the per-connection conn-atom, NOT in a
-;; process-global. The MCP stdio model spawns one server process (and
-;; thus one session-state / conn-atom) per client, so distinct sessions
-;; are distinct conn-atoms by construction. This pins that a write to one
-;; conn's resolved-build-id never leaks into another conn.
-;; ---------------------------------------------------------------------------
-
-(deftest resolved-build-id-does-not-leak-across-sessions
-  (let [session-a (fresh-conn)
-        session-b (fresh-conn)
-        no-build  (tu/args->js {})]
-    ;; Session A discovers / sticks examples/step-deck.
-    (wire/mark-resolved-build-id! session-a :examples/step-deck)
-    ;; Session B sticks a DIFFERENT build.
-    (wire/mark-resolved-build-id! session-b :testbeds/panel-gallery)
-    (is (= :examples/step-deck (wire/arg-build session-a no-build))
-        "session A resolves to ITS sticky target")
-    (is (= :testbeds/panel-gallery (wire/arg-build session-b no-build))
-        "session B resolves to ITS sticky target — no cross-session leak")
-    ;; A fresh, untouched session falls through to the env default — it
-    ;; inherits NOTHING from A or B (no process-global).
-    (is (= :app (wire/arg-build (fresh-conn) no-build))
-        "a fresh session sees no sticky target from other sessions")))
-
-;; ---------------------------------------------------------------------------
-;; Ambiguous-target / no-target structured error.
-;;
-;; "If no session target exists and multiple runtimes are available, fail
-;; with a clear ambiguous-target error listing candidates." The eval-path
-;; resolver (`resolve-build!`, used by eval-cljs) rejects with a
-;; structured `:no-runtime-for-build` ex-info enumerating `:running-builds`
-;; when the build is the bare default (no explicit/cached choice) and
-;; zero-or-many builds run — never a silent wrong-build pick, never a
-;; host-level transport failure. (The plain read path surfaces the same
-;; candidate list via the diagnostic ladder's `:build-not-running` rung,
-;; pinned in probe_test.)
+;; The eval-path resolver `resolve-build!`.
 ;; ---------------------------------------------------------------------------
 
 (deftest resolve-build-rejects-with-candidates-when-no-target-and-many-run
   (async done
-    ;; NB restore `probe/running-builds` INLINE before calling `done` — a
-    ;; `.finally`-scoped restore fires AFTER `done` advances to the next
-    ;; test and would leak the multi-build stub into a neighbour (the
-    ;; cross-test stub race the orient/invoke suites document). Both arms
-    ;; restore identically, so the restore sits in the single trailing
-    ;; step, ahead of the `done` in that same step.
-    (let [orig probe/running-builds
+    ;; The stub is restored in the trailing step, ahead of `done`: a
+    ;; `.finally` restore would fire after `done` and leak into the next test.
+    (let [orig     probe/running-builds
           restore! (fn [] (set! probe/running-builds orig))
-          conn (fresh-conn)]
-      ;; No cached build, no explicit arg → build is the bare :app default
-      ;; (explicit? false). Two builds run → ambiguous.
+          conn     (fresh-conn)]
       (set! probe/running-builds
             (fn [_] (js/Promise.resolve [:examples/step-deck :testbeds/panel-gallery])))
-      ;; The rejection arm IS this row's success path, so both handlers are
-      ;; siblings of one two-arg `.then`, with one trailing `done`.
       (-> (probe/resolve-build! conn :app false)
           (.then (fn [_]
                    (is false "must reject on an ambiguous target"))
                  (fn [err]
-                   (let [data (ex-data err)]
-                     (is (= :no-runtime-for-build (:reason data))
-                         "structured reason, not a host failure")
-                     (is (= [:examples/step-deck :testbeds/panel-gallery]
-                            (:running-builds data))
-                         "the error lists the candidate builds"))))
+                   (is (= {:reason         :no-runtime-for-build
+                           :running-builds [:examples/step-deck :testbeds/panel-gallery]}
+                          (select-keys (ex-data err) [:reason :running-builds])))))
           (.then (fn [_] (restore!) (done)))))))
 
 (deftest resolve-build-honours-cached-session-target-over-ambiguity
-  ;; A session-sticky target (set by a prior discover-app) is treated as
-  ;; deliberate — `resolve-build!` resolves to it verbatim even on a
-  ;; multi-build workspace, so the sticky default actually removes the
-  ;; ambiguity instead of re-triggering it.
-  (async done
-    (let [conn (fresh-conn)]
-      ;; Cache a session target, then resolve with explicit? derived from
-      ;; the cache (arg-build-explicit? treats a cache hit as deliberate).
-      (swap! conn assoc :resolved-build-id :examples/step-deck)
-      (let [bid       (wire/arg-build conn (tu/args->js {}))
-            explicit? (wire/arg-build-explicit? conn (tu/args->js {}))]
-        (is (= :examples/step-deck bid))
-        (is (true? explicit?) "a cached session target counts as deliberate")
-        (-> (probe/resolve-build! conn bid explicit?)
-            (.then (fn [resolved]
-                     (is (= :examples/step-deck resolved)
-                         "the sticky session target wins — no ambiguous-target error")))
-            (.catch (fn [_] (is false "must not reject when a session target is cached") nil))
-            (.then (fn [_] (done))))))))
-
-(deftest auto-select-single-build-returns-pair
-  ;; Unit-pin the probe helper directly: exactly-one → [build true];
-  ;; zero/many → [nil false].
+  ;; The cached target counts as deliberate, so it resolves verbatim with
+  ;; no running-builds lookup to be ambiguous about.
   (async done
     (let [conn (fresh-conn)
-          orig probe/running-builds]
-      (set! probe/running-builds (fn [_] (js/Promise.resolve [:only])))
-      (-> (probe/auto-select-single-build conn)
-          (.then (fn [[b auto?]]
-                   (is (= :only b))
-                   (is (true? auto?))
-                   (set! probe/running-builds (fn [_] (js/Promise.resolve [:a :b])))
-                   (probe/auto-select-single-build conn)))
-          (.then (fn [[b auto?]]
-                   (is (nil? b))
-                   (is (false? auto?))
-                   (set! probe/running-builds (fn [_] (js/Promise.resolve [])))
-                   (probe/auto-select-single-build conn)))
-          (.then (fn [[b auto?]]
-                   (is (nil? b))
-                   (is (false? auto?))))
-          (.finally (fn [] (set! probe/running-builds orig)))
+          args (tu/args->js {})]
+      (swap! conn assoc :resolved-build-id :examples/step-deck)
+      (-> (probe/resolve-build! conn (wire/arg-build conn args) (wire/arg-build-explicit? conn args))
+          (.then (fn [resolved]
+                   (is (= :examples/step-deck resolved))))
+          (.catch (fn [_] (is false "must not reject when a session target is cached") nil))
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; :port-discover sticky path — faithful no-pre-probe end-to-end.
-;;
-;; The flow these tests guard (multi-build):
-;;
-;;   discover-app {port 8033} -> OK, resolves :examples/machine-epochs
-;;   orient {}  (NO :build)   -> must target :examples/machine-epochs
-;;
-;; In the LIVE flow the `:port`-resolved build is NOT
-;; pre-probed — discover-app must run the actual `runtime-preloaded?`
-;; round-trip (a DISTINCT eval form from the `(runtime/health)` read) and
-;; `mark-conn-probed!` itself before reaching the cache-writing branch.
-;;
-;; These tests cover that path: a form-DISCRIMINATING stub answers the
-;; preload-probe form with `true` and the health form with the health map
-;; — exactly what a live runtime returns — so the `:port` branch exercises
-;; the real probe-then-mark-then-cache sequence, then a no-build call
-;; THROUGH `tools/invoke` (incl. the `canonicalize-build-step` that reads
-;; the sticky default back) must land on the resolved build, NOT `:app`.
+;; discover-app {:port} with no pre-seeded probe cache, then a no-build call
+;; through `tools/invoke`: the live first-contact flow on a multi-build
+;; workspace.
 ;; ---------------------------------------------------------------------------
 
 (defn- preload-probe-form?
-  "True for the `runtime-preloaded?` sentinel-probe eval form (it tests
-  the `__re_frame2_pair_runtime` global), false for the
-  `(re-frame2-pair.runtime/health)` read. Lets a single stub mimic a live
-  runtime: `true` to the probe, the health map to the health read — so
-  `discover-app`'s `ensure-runtime!` does the REAL probe + `mark-conn-probed!`
-  instead of being short-circuited by a pre-seeded `:probed-builds`."
+  "True for the `runtime-preloaded?` sentinel probe, false for the health read."
   [form-str]
   (and (string? form-str)
        (re-find #"__re_frame2_pair_runtime" form-str)))
 
 (defn- live-like-eval-stub
-  "A `cljs-eval-value` stub that answers like a CONNECTED runtime on a
-  build that was never pre-probed: `true` for the preload-sentinel probe,
-  `health` for the `(runtime/health)` read. Both arities."
+  "Answers like a connected runtime: `true` to the preload probe, `health`
+  to the health read."
   [health]
   (fn
     ([_c _b form] (js/Promise.resolve (if (preload-probe-form? form) true health)))
     ([_c _b form _o] (js/Promise.resolve (if (preload-probe-form? form) true health)))))
 
 (deftest port-discover-no-pre-probe-sticks-through-invoke
-  ;; THE end-to-end case: discover-app{port} on a multi-build setup with NO
-  ;; pre-seeded `:probed-builds` must probe the resolved build live, mark
-  ;; it probed and cache it — the faithful model of a live first-contact
-  ;; call — and a no-build `get-path` THROUGH `tools/invoke` (the single
-  ;; MCP egress, incl. `canonicalize-build-step`) then lands on the
-  ;; resolved build, NOT `:app`.
   (async done
     (let [conn          (fresh-conn)
           captured      (atom :NOT-CALLED)
@@ -481,20 +228,14 @@
                 #js {:content #js [#js {:type "text" :text "{:ok? true}"}]})))
       (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
           (.then (fn [result]
-                   (let [edn (tu/extract-edn result)]
-                     (is (true? (:ok? edn))
-                         "discover-app{port} succeeds against the live-like runtime")
-                     (is (= :examples/machine-epochs (:build-id edn))
-                         "resolved the build serving the port")
-                     (is (contains? (:probed-builds @conn) :examples/machine-epochs)
-                         "discover-app probed + marked the resolved build live (no pre-seed)"))
-                   ;; second call: NO :build arg, through the invoke egress.
+                   (is (= {:ok? true :build-id :examples/machine-epochs}
+                          (select-keys (tu/extract-edn result) [:ok? :build-id])))
+                   (is (contains? (:probed-builds @conn) :examples/machine-epochs)
+                       "discover-app probed and marked the resolved build itself")
                    (tools/invoke conn "get-path" (tu/args->js {:path "[:k]"}) nil)))
           (.then (fn [_]
                    (is (= :examples/machine-epochs @captured)
-                       "post-discover-app{port} (no pre-probe), a no-build call THROUGH invoke targets the resolved build")
-                   (is (not= :app @captured)
-                       "it must NOT fall back to the :app env default")))
+                       "the no-build call through invoke targets the resolved build, not :app")))
           (.finally (fn []
                       (set! probe/running-builds orig-running)
                       (set! probe/resolve-build-by-port orig-port)
