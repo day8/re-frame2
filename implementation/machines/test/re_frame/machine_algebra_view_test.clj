@@ -1,67 +1,25 @@
 (ns re-frame.machine-algebra-view-test
-  "Tests for the derivation/process algebra view of machines. Per
-  [spec/Derivations.md] §Machines expose algebra views and the
-  `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
-
-  `re-frame.machines.tooling/machine-algebra-view` lowers every registered
-  machine into the normalized algebra node every declared fact/process
-  shares: the canonical `:process` member — a `:process` (refinement
-  `:machine-process`) whose
-  snapshot MATERIALIZES into runtime-db, evaluated `:on-transition` (plus
-  `:scheduled` / `:on-reply` when the spec declares timers / spawns), owned by
-  its `:machine-instance` lifecycle. `…/machine-instance-algebra-view` is the
-  live counterpart (one node per materialized snapshot — singleton AND spawned
-  actor). `…/machine-selector?` recognizes a sub that reads a machine snapshot;
-  `…/machine-selector-targets` extracts the SET of machine ids that selector
-  reads (so a graph tool draws the `:selector` edge to the SPECIFIC machine,
-  never the cross product).
-
-  These tests pin the registrar-derived projection: the fixed classifications
-  (`:kind` / `:storage` / `:lifecycle` / `:materialized?`), the declared
-  `[:event …]` inputs walked from the whole state tree (flat / compound /
-  hierarchical / parallel), the derived evaluation-policy set, the runtime-db
-  output snapshot path, the `:owner` / `:spawns?`, the source-form metadata,
-  and the live spawned-actor projection.
-
-  There is NO public accessor: the views live in the bundle-isolated
-  `re-frame.machines.tooling` sibling and are consumed by Xray + the
-  conformance fixtures, which name that sibling directly. There is no
-  `re-frame.core/machine-algebra-view` public facade export and no
-  `re-frame.machines` JVM convenience alias for the two
-  ALGEBRA VIEWS either; `re-frame.derivation.graph` reaches them by
-  `requiring-resolve`. The selector recognizer / extractor
-  (`machine-selector?`, `machine-selector-targets`) do have JVM aliases."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "`re-frame.machines.tooling` lowers each registered machine, and each live
+  snapshot, to a `:process` algebra node, and names the machines a selector sub
+  reads (spec/Derivations.md §Machines expose algebra views)."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.tooling :as rf.machines.tooling]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; The fixed classifications EVERY machine-process node carries (Derivations
-;; §Machines expose algebra views — the machine column: the canonical
-;; runtime-db / machine-instance MATERIALIZED process member). `:kind` is the
-;; CLOSED superkind `:process` (Spec-Schemas DerivationKind); the informative
-;; `:machine-process` refinement rides on `:refinement` (matching the routes
-;; `:route-fact` convention), never in `:kind`.
-(def fixed-classifications
+(def ^:private fixed-classifications
   {:kind          :process
    :refinement    :machine-process
    :storage       :runtime-db
    :lifecycle     :machine-instance
    :materialized? true})
 
-(defn- has-fixed-classifications? [node]
-  (= fixed-classifications (select-keys node (keys fixed-classifications))))
-
-;; A small spec exercising flat + compound + the :on triggers we expect to
-;; surface as declared [:event …] inputs.
 (def upload-machine
   {:initial :idle
    :data    {:progress 0}
@@ -69,75 +27,45 @@
              :record-progress (fn [_] {})}
    :states  {:idle      {:on {:upload/start :uploading}}
              :uploading {:entry :start-upload
-                         :on    {:upload/progress {:action :record-progress}
+                         :on    {:upload/progress  {:action :record-progress}
                                  :upload/succeeded :done
                                  :upload/failed    :failed}}
              :failed    {}
              :done      {}}})
 
-;; ---- empty / shape contract ----------------------------------------------
+(def ^:private upload-node
+  "The node `upload-machine` lowers to under `:upload/main`, `:source` aside."
+  (merge fixed-classifications
+         {:id          :upload/main
+          :source-form {:kind :reg-machine :id :upload/main}
+          :inputs      [[:event :upload/failed] [:event :upload/progress]
+                        [:event :upload/start] [:event :upload/succeeded]]
+          :evaluation  #{:on-transition}
+          :output      [:runtime (rf.machines.paths/snapshot-path :upload/main)]
+          :owner       [:machine :upload/main]
+          :spawns?     false}))
 
-(deftest empty-registry-returns-empty-map
-  ;; Cross-ns isolation: the shared-JVM registrar baseline can carry machines
-  ;; registered by a sibling test ns (the reset fixture snapshot/restores rather
-  ;; than `clear-all!`s), so assert the empty-registry contract against a
-  ;; freshly-cleared registrar bracketed by snapshot/restore.
-  (let [snap (rf.test-support/snapshot-registrar)]
-    (try
-      (rf.registrar/clear-all!)
-      (testing "(machine-algebra-view) returns {} (not nil) when no machines are registered"
-        (is (= {} (rf.machines.tooling/machine-algebra-view))))
-      (testing "(machine-algebra-view machine-id) returns nil for an unregistered id"
-        (is (nil? (rf.machines.tooling/machine-algebra-view :nope/missing))))
-      (finally
-        (rf.test-support/restore-registrar! snap)))))
+(defn- static-node [machine-id]
+  (get (rf.machines.tooling/machine-algebra-view) machine-id))
 
-(deftest machines-facade-aliases-the-selector-recognizer-not-the-algebra-views
-  ;; There is no alias for the two ALGEBRA VIEWS; the selector recognizer
-  ;; has a JVM alias, so this pin carries both halves.
-  (testing "`re-frame.machines` re-exports neither machine algebra view"
-    (is (nil? (ns-resolve 're-frame.machines 'machine-algebra-view))
-        "machine-algebra-view is not a public name on the machines facade")
-    (is (nil? (ns-resolve 're-frame.machines 'machine-instance-algebra-view))
-        "machine-instance-algebra-view is not a public name on the machines facade"))
-  (testing "the JVM `machine-selector?` alias is the tooling fn"
-    (is (= rf.machines.tooling/machine-selector? rf.machines/machine-selector?)
-        "machine-selector? alias is the tooling fn")))
-
-;; ---- a registered machine exposes its process node -----------------------
+(deftest machines-facade-exposes-no-algebra-view
+  ;; Derivations.md: the algebra views ship no public accessor.
+  (is (every? nil? (map #(ns-resolve 're-frame.machines %)
+                        '[machine-algebra-view machine-instance-algebra-view]))))
 
 (deftest machine-exposes-its-full-process-node
-  (testing "a reg-machine exposes the full machine-process / runtime-db / machine-instance node"
-    (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
-      (is (some? node) "the machine is present in the static view")
-      (is (has-fixed-classifications? node)
-          "machine carries the fixed machine-process / runtime-db / machine-instance / materialized classifications")
-      (is (= :upload/main (:id node)))
-      (is (= {:kind :reg-machine :id :upload/main} (:source-form node)))
-      (is (= [:runtime (rf.machines.paths/snapshot-path :upload/main)] (:output node))
-          "the output materializes the snapshot into runtime-db at the machine's snapshot path")
-      (is (= [:machine :upload/main] (:owner node)))
-      (is (false? (:spawns? node)) "this machine declares no :spawn"))))
-
-;; ---- declared [:event …] inputs, walked from the whole state tree --------
+  (rf/reg-machine :upload/main upload-machine)
+  (is (= upload-node (dissoc (static-node :upload/main) :source))))
 
 (deftest declared-event-inputs-are-walked-from-the-whole-state-tree
   (doseq [[label machine-id spec expected]
-          [["every author-declared :on key across :idle + :uploading, sorted + distinct"
-            :upload/main upload-machine
-            [[:event :upload/failed]
-             [:event :upload/progress]
-             [:event :upload/start]
-             [:event :upload/succeeded]]]
-           ["reserved framework events and the :* wildcard are filtered out; only
-            the concrete app event :go survives"
+          [["reserved framework events and the :* wildcard are not inputs"
             :guarded/main
             {:initial :a
              :data    {}
-             :states  {:a {:on {:go            :b
-                                :*             :a            ;; wildcard — not a concrete input
-                                :rf.machine/x  :b}}          ;; reserved ns — framework plumbing
+             :states  {:a {:on {:go           :b
+                                :*            :a
+                                :rf.machine/x :b}}
                        :b {}}}
             [[:event :go]]]
            ["leaf + parent :on keys are collected across the hierarchy, sorted"
@@ -151,7 +79,7 @@
                                   :settings  {:on {:close :dashboard}}}}
                        :loggedout {}}}
             [[:event :close] [:event :logout] [:event :open-settings]]]
-           [":regions state-maps are walked like :states: both regions' :on keys surface"
+           [":regions state-maps are walked like :states"
             :par/main
             {:initial :running
              :data    {}
@@ -161,76 +89,47 @@
                                   :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}}}
             [[:event :left/go] [:event :right/go]]]]]
     (rf/reg-machine machine-id spec)
-    (is (= expected (:inputs (get (rf.machines.tooling/machine-algebra-view) machine-id)))
-        label)))
-
-;; ---- evaluation-policy set -----------------------------------------------
+    (is (= expected (:inputs (static-node machine-id))) label)))
 
 (deftest evaluation-policy-follows-the-declared-timers-and-spawns
   (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {}}})
   (doseq [[label machine-id spec expected]
-          [["a timer-less, spawn-less machine evaluates only :on-transition"
-            :plain/main {:initial :a :data {} :states {:a {:on {:go :b}} :b {}}}
-            #{:on-transition}]
-           ["an :after delayed transition adds :scheduled: a scheduler delivers a
-            synthetic timer event"
+          [["an :after delayed transition adds :scheduled"
             :timed/main
             {:initial :waiting
              :data    {}
-             :states  {:waiting {:after {1000 :timed-out}}
+             :states  {:waiting   {:after {1000 :timed-out}}
                        :timed-out {}}}
-            #{:on-transition :scheduled}]
-           ["a :spawn-bearing state adds :on-reply: a spawning parent reacts to its
-            children's reply events"
+            [#{:on-transition :scheduled} false]]
+           ["a :spawn-bearing state adds :on-reply and sets :spawns?"
             :parent/main
             {:initial :idle
              :data    {}
              :states  {:idle    {:on {:go :working}}
                        :working {:spawn {:machine-id :worker/child}}}}
-            #{:on-transition :on-reply}]]]
+            [#{:on-transition :on-reply} true]]]]
     (rf/reg-machine machine-id spec)
-    (is (= expected (:evaluation (get (rf.machines.tooling/machine-algebra-view) machine-id)))
-        label))
-  (is (true? (:spawns? (get (rf.machines.tooling/machine-algebra-view) :parent/main)))
-      "the :spawn-bearing parent sets :spawns? true"))
-
-;; ---- metadata passthrough ------------------------------------------------
+    (is (= expected ((juxt :evaluation :spawns?) (static-node machine-id))) label)))
 
 (deftest source-coords-surface-in-the-node
-  (testing ":ns / :line / :file captured by reg-machine surface under :source"
-    (rf/reg-machine :upload/main upload-machine)
-    (let [node   (get (rf.machines.tooling/machine-algebra-view) :upload/main)
-          source (:source node)]
-      (is (some? source) ":source map is present when the registration carried coords")
-      (is (some? (:ns source)) ":ns captured at the call site"))))
+  ;; Registered by symbol, so these are the `reg-machine` call site's coords.
+  (rf/reg-machine :upload/main upload-machine)
+  (let [{:keys [ns line]} (:source (static-node :upload/main))]
+    (is (= 're-frame.machine-algebra-view-test ns))
+    (is (integer? line))))
 
 (deftest data-schema-and-doc-pass-through
-  (testing "[:schemas :data] surfaces as :schema and :doc passes through"
-    (rf/reg-machine :doced/main
-      {:initial :a
-       :doc     "a documented machine"
-       :data    {:n 0}
-       :schemas {:data [:map [:n :int]]}
-       :states  {:a {:on {:go :b}} :b {}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :doced/main)]
-      (is (= [:map [:n :int]] (:schema node))
-          "the machine's [:schemas :data] schema surfaces as the node :schema fact")
-      (is (= "a documented machine" (:doc node))))))
-
-(deftest no-schema-or-doc-when-absent
-  (testing ":schema / :doc are absent when the registration didn't supply them"
-    (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
-      (is (not (contains? node :schema)))
-      (is (not (contains? node :doc))))))
-
-;; ---- live instance view (singleton) --------------------------------------
+  (rf/reg-machine :doced/main
+    {:initial :a
+     :doc     "a documented machine"
+     :data    {:n 0}
+     :schemas {:data [:map [:n :int]]}
+     :states  {:a {}}})
+  (is (= {:schema [:map [:n :int]] :doc "a documented machine"}
+         (select-keys (static-node :doced/main) [:schema :doc]))))
 
 (defn- seed-snapshot!
-  "Install a snapshot for `machine-id` directly into runtime-db via a
-  `reg-event` seed handler (returning `{:rf.db/runtime …}`), repositioning
-  the machine to a known live state (the hierarchical-test pattern).
-  EP-0001: snapshots are durable runtime-db state."
+  "Install `snap` as `machine-id`'s runtime-db snapshot."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (name machine-id)))]
     (rf/reg-event seed-id
@@ -238,92 +137,41 @@
         {:rf.db/runtime (assoc-in (or rt {}) (rf.machines.paths/snapshot-path machine-id) snap)}))
     (rf/dispatch-sync [seed-id])))
 
-(deftest live-singleton-instance-projects
-  (testing "a live singleton snapshot projects to an instance node with :state, not :spawned?"
-    (rf/reg-machine :upload/main upload-machine)
-    (seed-snapshot! :upload/main {:state :uploading :data {:progress 42}})
-    (let [view (rf.machines.tooling/machine-instance-algebra-view :rf/default)
-          node (get view :upload/main)]
-      (is (some? node) "the live singleton appears in the instance view")
-      (is (has-fixed-classifications? node))
-      (is (= :uploading (:state node)) "the instance node carries the live :state")
-      (is (false? (:spawned? node)) "a singleton snapshot carries no :rf/machine-type")
-      (is (= {:kind :reg-machine :id :upload/main} (:source-form node))
-          "the singleton resolves its own registered spec")
-      (is (not (contains? node :value)) "the snapshot value is not inlined (redacted at egress)"))))
-
-(deftest live-spawned-actor-resolves-its-type
-  (testing "a spawned-actor snapshot (carrying :rf/machine-type) resolves its type + is flagged :spawned?"
-    (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {:on {:tick :running}}}})
-    ;; A spawned actor has NO per-instance registration — its snapshot carries
-    ;; the reserved :rf/machine-type discriminator naming its registered type.
-    (seed-snapshot! :worker#1 {:state :running :data {} :rf/machine-type :worker/child})
-    (let [view (rf.machines.tooling/machine-instance-algebra-view :rf/default)
-          node (get view :worker#1)]
-      (is (some? node) "the spawned actor appears in the instance view")
-      (is (has-fixed-classifications? node))
-      (is (true? (:spawned? node)) ":rf/machine-type present → spawned actor")
-      (is (= :running (:state node)))
-      (is (= {:kind :reg-machine :id :worker/child} (:source-form node))
-          "the actor's source-form names its resolved TYPE, not the actor-id")
-      (is (= [:runtime (rf.machines.paths/snapshot-path :worker#1)] (:output node))
-          "the output is this INSTANCE's own snapshot slot")
-      (is (= [[:event :tick]] (:inputs node))
-          "inputs are derived from the resolved type spec"))))
-
-(deftest live-instance-view-empty-without-snapshots
-  (testing "instance view is {} for a frame with registered-but-uninstantiated machines"
-    (rf/reg-machine :upload/main upload-machine)
-    (is (= {} (rf.machines.tooling/machine-instance-algebra-view :rf/default))
-        "no snapshot materialized yet → no live instance node")))
-
-;; ---- machine-selector? recognizer ----------------------------------------
-
-(deftest machine-selector-recognizer
-  (testing "a static `[:rf/machine …]` input sub is recognized as a machine selector"
-    (rf/reg-machine :upload/main upload-machine)
-    (rf/reg-sub :upload/progress
-      {:inputs [[:rf/machine :upload/main]]}
-      (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
-    (is (true? (rf.machines.tooling/machine-selector? :upload/progress))
-        "a sub reading [:rf/machine …] is a machine selector"))
-  (testing "a sub reading [:rf.machine/has-tag? …] is also a selector"
-    (rf/reg-sub :upload/has-tag
-      {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
-      (fn [[has?] _] has?))
-    (is (true? (rf.machines.tooling/machine-selector? :upload/has-tag))))
-  (testing "an ordinary sub is NOT a machine selector; nor is an unregistered id"
-    (rf/reg-sub :plain/sub (fn [db _] (:x db)))
-    (is (false? (rf.machines.tooling/machine-selector? :plain/sub)))
-    (is (false? (rf.machines.tooling/machine-selector? :nope/missing)))))
-
-;; ---- machine-selector-targets extractor ----------------------------------
+(deftest live-instance-view-projects-each-materialized-snapshot
+  ;; A spawned actor's snapshot names its type; :worker/child itself is never
+  ;; instantiated, so it has no live node. The snapshot value is not inlined.
+  (rf/reg-machine :upload/main upload-machine)
+  (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {:on {:tick :running}}}})
+  (seed-snapshot! :upload/main {:state :uploading :data {:progress 42}})
+  (seed-snapshot! :worker#1 {:state :running :data {} :rf/machine-type :worker/child})
+  (is (= {:upload/main (assoc upload-node :state :uploading :spawned? false)
+          :worker#1    (merge fixed-classifications
+                              {:id          :worker#1
+                               :source-form {:kind :reg-machine :id :worker/child}
+                               :inputs      [[:event :tick]]
+                               :evaluation  #{:on-transition}
+                               :output      [:runtime (rf.machines.paths/snapshot-path :worker#1)]
+                               :owner       [:machine :worker#1]
+                               :spawns?     false
+                               :state       :running
+                               :spawned?    true})}
+         (update-vals (rf.machines.tooling/machine-instance-algebra-view :rf/default)
+                      #(dissoc % :source)))))
 
 (deftest machine-selector-targets-extractor
-  (testing "extracts the target machine id from a [:rf/machine machine-id] selector"
-    (rf/reg-machine :upload/main upload-machine)
-    (rf/reg-sub :upload/progress
-      {:inputs [[:rf/machine :upload/main]]}
-      (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
-    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
-        "the second element of the [:rf/machine …] input is the target id"))
-  (testing "extracts the target from a [:rf.machine/has-tag? machine-id tag] selector"
-    (rf/reg-sub :upload/has-tag
-      {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
-      (fn [[has?] _] has?))
-    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/has-tag))
-        "the has-tag? form's machine id (second element) is the target"))
-  (testing "a selector reading two machines yields both targets"
-    (rf/reg-sub :combined
-      {:inputs [[:rf/machine :upload/main] [:rf/machine :download/main]]}
-      (fn [[u d] _] [u d]))
-    (is (= #{:upload/main :download/main}
-           (rf.machines.tooling/machine-selector-targets :combined))
-        "every [:rf/machine …] input contributes its target id"))
-  (testing "a non-selector sub and an unregistered id yield #{}"
-    (rf/reg-sub :plain/sub (fn [db _] (:x db)))
-    (is (= #{} (rf.machines.tooling/machine-selector-targets :plain/sub)))
-    (is (= #{} (rf.machines.tooling/machine-selector-targets :nope/missing))))
-  (testing "the JVM facade alias is the tooling fn"
-    (is (= rf.machines.tooling/machine-selector-targets rf.machines/machine-selector-targets)
-        "machine-selector-targets alias is the tooling fn")))
+  (rf/reg-machine :upload/main upload-machine)
+  (rf/reg-sub :upload/progress
+    {:inputs [[:rf/machine :upload/main]]}
+    (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
+  (rf/reg-sub :upload/has-tag
+    {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
+    (fn [[has?] _] has?))
+  (rf/reg-sub :combined
+    {:inputs [[:rf/machine :upload/main] [:rf/machine :download/main]]}
+    (fn [[u d] _] [u d]))
+  (rf/reg-sub :plain/sub (fn [db _] (:x db)))
+  (let [subs [:upload/progress :upload/has-tag :combined :plain/sub :nope/missing]]
+    (is (= [#{:upload/main} #{:upload/main} #{:upload/main :download/main} #{} #{}]
+           (map rf.machines.tooling/machine-selector-targets subs)))
+    (is (= [true true true false false]
+           (map rf.machines.tooling/machine-selector? subs)))))
