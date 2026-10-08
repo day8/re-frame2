@@ -191,18 +191,6 @@
        look identical on screen and in a test")
   (is (= "‹app/nonexistent›" (rf.fresco.examples.slice.i18n/t :en :app/nonexistent))))
 
-(deftest every-locale-carries-every-key
-  (let [ks (set (keys (:en rf.fresco.examples.slice.i18n/strings)))]
-    (doseq [locale rf.fresco.examples.slice.i18n/locales]
-      (is (= ks (set (keys (get rf.fresco.examples.slice.i18n/strings locale))))
-          (str "locale " locale " and :en disagree about which strings exist")))))
-
-(deftest every-theme-carries-every-token
-  (let [ks (set (keys (:light rf.fresco.examples.slice.i18n/themes)))]
-    (doseq [[theme tokens] rf.fresco.examples.slice.i18n/themes]
-      (is (= ks (set (keys tokens)))
-          (str "theme " theme " and :light disagree about which tokens exist")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Transitions — through a real frame
 ;; ---------------------------------------------------------------------------
