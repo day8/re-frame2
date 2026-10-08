@@ -786,11 +786,10 @@ instead of per-tool hash strategies.
 
 **Scope**. The cache saves wire bytes, not the nREPL round-
 trip — the tool still runs server-side and the result is
-built locally. The byte saving is the one the bead targets.
-Saving the round-trip too needs a server-side hash precheck
-(precompute `(hash app-db)` in the runtime, ship the hash
-first, only ship the body on miss) — out of scope for
-rf2-3rt1f, filed as a follow-on bead.
+built locally. Saving the round-trip too needs a server-side hash precheck
+(ship a cheap runtime hash first, run the tool only on a
+miss) — see *Precheck eligibility* below for why no tool
+takes it.
 
 **Precheck eligibility (rf2-36xod follow-on; rf2-3ljsa; rf2-ww877w;
 rf2-ajhwbm)**. The precheck landed:
