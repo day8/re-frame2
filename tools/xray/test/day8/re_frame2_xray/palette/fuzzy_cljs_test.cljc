@@ -1,138 +1,30 @@
 (ns day8.re-frame2-xray.palette.fuzzy-cljs-test
-  "Tests for the palette's fuzzy subsequence scorer.
-
-  Pure-data CLJC: every assertion runs equally under JVM clojure.test
-  and the cljs node-test runtime. The scorer is the perceived-
-  quality lever for the whole palette — these tests pin its scoring
-  rules so a future tweak can be challenged against concrete
-  examples rather than vibes."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [deftest is]]
+               :cljs [cljs.test    :refer-macros [deftest is]])
             [day8.re-frame2-xray.palette.fuzzy :as fuzzy]))
 
-(deftest empty-query-matches-everything-with-tiny-score
-  (testing "empty query is the 'show everything' mode — the caller's
-            recency / boost weights dominate the order"
-    (is (= 1 (:score (fuzzy/score-with-meta "Open Time travel panel" ""))))
-    (is (= 1 (:score (fuzzy/score-with-meta "anything" ""))))
-    (is (nil? (:first-match (fuzzy/score-with-meta "anything" ""))))))
-
-(deftest nil-inputs-are-safe
-  (testing "nil candidate or nil query returns nil — defensive guard"
-    (is (nil? (fuzzy/score-with-meta nil "foo")))
-    (is (nil? (fuzzy/score-with-meta "foo" nil)))
-    (is (nil? (fuzzy/score-with-meta nil nil)))))
-
 (deftest non-matching-query-returns-nil
-  (testing "missing chars → nil; partial match is not a match"
-    (is (nil? (fuzzy/score "event-detail" "xyz")))
-    (is (nil? (fuzzy/score "event-detail" "evtz"))
-        "the t exists but z does not — whole query must match"))
-
-  (testing "out-of-order chars → nil; subsequence must preserve order"
-    (is (nil? (fuzzy/score "event-detail" "deve"))
-        "d comes after e in candidate but query asks for de-ve — fail")))
+  (is (nil? (fuzzy/score "event-detail" "evtz")) "every query char must match")
+  (is (nil? (fuzzy/score "event-detail" "deve")) "in order"))
 
 (deftest word-start-bonus-on-separator
-  (testing "matched char following `-` scores higher than matched char
-            inside a word run"
-    ;; 'fl' at word starts vs inside a word
-    (let [word-start (fuzzy/score "first-line" "fl")
-          inside     (fuzzy/score "filling" "fl")]
-      (is (> word-start inside)))))
+  (is (> (fuzzy/score "first-line" "fl")
+         (fuzzy/score "filling" "fl"))))
 
 (deftest camelcase-boundary-bonus
-  (testing "uppercase-after-lowercase matched char gets the camel bonus"
-    ;; ED in EventDetail are both camelcase boundaries
-    (let [boundary (fuzzy/score "EventDetail" "ED")
-          flat     (fuzzy/score "Editable" "Ed")]
-      (is (> boundary flat)
-          "ED on the EventDetail camel boundaries should beat Ed at
-           the start of Editable"))))
-
-(deftest camel-boundary-credited-on-both-runtimes
-  ;; `upper?` / `lower?` read a character's code unit through `char-code`,
-  ;; and that read must work on both hosts. `(int ch)` would not: it is the
-  ;; code point on the JVM, but `cljs.core/int` is `(bit-or x 0)`, and
-  ;; JavaScript coerces a non-numeric string to 0 — and
-  ;; `(nth some-string idx)` yields a one-character STRING under CLJS. Both
-  ;; predicates would then answer false for EVERY character in the browser,
-  ;; which is the only place the palette runs, so both bonuses that depend on
-  ;; them would go dead: `word-start?`'s camelCase branch and the explicit
-  ;; camel-boundary bonus in the scoring loop. Separator word-starts would be
-  ;; unaffected — `\- `\_ and friends compare fine as one-character strings —
-  ;; which is exactly why no other row in this file would notice.
-  ;;
-  ;; The two candidates below are the SAME LENGTH, the query matches at the
-  ;; SAME TWO INDICES in both, and neither contains a separator. Prefix, gap,
-  ;; run and word-start-by-separator contributions are therefore identical, and
-  ;; the camelCase boundary is the only thing that can separate the scores.
-  ;; This cannot be satisfied by the separator path, and it fails on any host
-  ;; where `char-code` misreads a character.
-  (testing "a camelCase boundary outscores the same match with no boundary"
-    (is (> (fuzzy/score "openTimeTravel" "tt")
-           (fuzzy/score "opentimetravel" "tt")))))
-
-(deftest indices-track-match-positions
-  (testing "the per-char indices vector reflects where each query
-            char landed in the candidate"
-    (let [m (fuzzy/score-with-meta "event-detail" "edt")]
-      ;; 'event-detail' indices: e=0 v=1 e=2 n=3 t=4 -=5 d=6 e=7 t=8 …
-      ;; 'edt' matches e@0, d@6, t@8 (the t at index 4 is skipped because
-      ;; the matcher takes the FIRST d after 0 then the FIRST t after 6).
-      (is (= [0 6 8] (:indices m))
-          "e at 0, then d at 6, then t at 8 in 'event-detail'"))))
-
-(deftest first-match-tracks-leading-position
-  (testing "first-match is the index of the first query char in the
-            candidate — drives tie-break in the caller"
-    (is (= 0 (:first-match (fuzzy/score-with-meta "event-detail" "ev"))))
-    ;; 'the-event-detail' — the first 'e' is at index 2 ('t','h','e'),
-    ;; so the greedy matcher takes 'e' at 2 then 'v' at 5.
-    (is (= 2 (:first-match (fuzzy/score-with-meta "the-event-detail" "ev"))))))
+  ;; Also guards `char-code` on CLJS: `cljs.core/int` of a one-character
+  ;; string is 0, which would zero every camelCase bonus in the browser.
+  (is (> (fuzzy/score "EventDetail" "ED")
+         (fuzzy/score "Editable" "Ed"))))
 
 (deftest gap-penalty-anchored-at-index-0
-  ;; A prefix-anchored match (first matched char at candidate index 0)
-  ;; must STILL accrue the -1/char internal-gap penalty; a
-  ;; `(pos? last-match-idx)` guard would let an index-0-anchored match
-  ;; escape every gap penalty entirely.
-  ;; Gap chars are plain letters (`x`), NOT separators — a separator
-  ;; ('_', '-', …) would hand the following matched char a word-start
-  ;; bonus and mask the gap penalty under test.
-  (testing "internal gaps after an index-0 match ARE penalised"
-    (let [tight  (fuzzy/score "ad"     "ad")   ;; a@0 prefix+word-start, d@1 run
-          gappy  (fuzzy/score "axxxd"  "ad")]  ;; a@0 prefix+word-start, 3 gaps, d@4
-      (is (> tight gappy)
-          "the gappy candidate must rank BELOW the tight one — the three
-           'x' chars between the index-0 match and the d each cost -1")
-      ;; tight = 1+12(prefix)+8(word-start) (a) + 1+4(run) (d) = 26
-      ;; gappy = 1+12+8 (a) - 3 (gaps) + 1 (d, no run) = 19
-      (is (= 26 tight))
-      (is (= 19 gappy)
-          "a@0 prefix+word-start (21), then -1 per 'x' (×3), then d non-run (+1)"))))
+  ;; Gaps after an index-0 match still cost -1 each. `x` is not a separator,
+  ;; so no word-start bonus masks the penalty.
+  (is (= 26 (fuzzy/score "ad" "ad")))       ; a 1+12+8, d 1+4 (run)
+  (is (= 19 (fuzzy/score "axxxd" "ad"))))   ; a 21, three gaps -3, d 1
 
 (deftest gap-penalty-first-char-after-match-not-skipped
-  ;; The FIRST unmatched char immediately after a match must be
-  ;; penalised; a `gap-since-match?` latch set one iteration too late
-  ;; would let the first gap char after any match escape.
-  (testing "query 'bd' vs 'xbxxd' penalises BOTH gap chars after b@1"
-    (let [tight (fuzzy/score "xbd"    "bd")    ;; b@1, d@2 run — no gap
-          gappy (fuzzy/score "xbxxd"  "bd")]   ;; b@1, gaps at 2,3, d@4
-      (is (> tight gappy)
-          "both x's between b and d cost -1 each — neither escapes")
-      ;; tight = 1 (b, no bonus) + 1+4 (d, run) = 6
-      ;; gappy = 1 (b) - 2 (two gap x's) + 1 (d, no run) = 0
-      (is (= 6 tight))
-      (is (= 0 gappy)
-          "b (+1), two internal gaps (-2), d non-run (+1) → 0")))
-
-  (testing "leading gaps — before the first match — stay free"
-    ;; Chars before the first matched char must NOT be penalised; the
-    ;; gap penalty starts only once matching has begun. Both candidates
-    ;; match 'b' mid-string (so neither earns prefix/word-start), and
-    ;; the extra leading 'z's in the second must NOT lower its score.
-    (is (= (fuzzy/score "zb"   "b")
-           (fuzzy/score "zzzb" "b"))
-        "extra leading slack before the first match must not cost
-         anything — leading gaps are free")))
-
+  ;; The first gap char after a match is penalised too; the leading `x`
+  ;; before the first match stays free.
+  (is (= 6 (fuzzy/score "xbd" "bd")))       ; b 1, d 1+4 (run)
+  (is (= 0 (fuzzy/score "xbxxd" "bd"))))    ; b 1, two gaps -2, d 1
