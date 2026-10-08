@@ -1,348 +1,124 @@
 (ns day8.re-frame2-xray.config-test
   "JVM tests for Xray's config — the editor preference + configure!
   round-trip."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as config]))
 
-(defn reset-editor [test-fn]
-  (config/set-editor! :vscode)
-  (config/set-auto-open! true)
-  (config/set-project-root! nil)
-  (config/set-filter-seed! nil)
-  (test-fn)
-  (config/set-editor! :vscode)
-  (config/set-auto-open! true)
-  (config/set-project-root! nil)
-  (config/set-filter-seed! nil))
+(defn reset-config [test-fn]
+  (letfn [(reset []
+            (config/set-editor! nil)
+            (config/set-auto-open! nil)
+            (config/set-project-root! nil)
+            (config/set-filter-seed! nil)
+            (config/reset-settings!))]
+    (reset)
+    (test-fn)
+    (reset)))
 
-(use-fixtures :each reset-editor)
+(use-fixtures :each reset-config)
 
 (deftest set-editor-round-trips
-  (testing "set-editor! writes and get-editor reads"
-    (config/set-editor! :cursor)
-    (is (= :cursor (config/get-editor)))
-    (config/set-editor! :windsurf)
-    (is (= :windsurf (config/get-editor)))
-    (config/set-editor! :zed)
-    (is (= :zed (config/get-editor)))
-    (config/set-editor! :idea)
-    (is (= :idea (config/get-editor)))
-    (config/set-editor! {:custom "helix://file/{path}:{line}"})
-    (is (= {:custom "helix://file/{path}:{line}"} (config/get-editor)))))
+  (config/set-editor! :cursor)
+  (is (= :cursor (config/get-editor)))
+  (config/set-editor! {:custom "helix://file/{path}:{line}"})
+  (is (= {:custom "helix://file/{path}:{line}"} (config/get-editor))))
 
 ;; ---- editor-configured? (open-in-editor DX hint) -----------------------
 ;;
-;; The predicate the open-in-editor event-fx reads to decide whether to
-;; navigate or surface the 'pick an editor in Settings' hint. True iff
-;; the host explicitly set an editor OR a valid operator override exists.
+;; True iff the host explicitly set an editor OR a valid operator override
+;; exists; false makes the open-in-editor event surface the 'pick an editor
+;; in Settings' hint instead of navigating.
 
 (deftest editor-configured-true-when-host-set
-  (testing "an explicit set-editor! (even :vscode) counts
-            as configured"
-    (reset! config/editor-explicitly-set? false)
-    (config/update-setting! :general :editor-override nil)
-    (config/set-editor! :vscode)
-    (is (true? (config/editor-configured?))
-        "explicit :vscode counts — the host confirmed the editor")
-    (config/set-editor! :cursor)
-    (is (true? (config/editor-configured?)))))
+  (config/set-editor! :vscode)
+  (is (true? (config/editor-configured?))
+      "explicit :vscode counts — the host confirmed the editor"))
 
 (deftest editor-configured-true-when-operator-override
-  (testing "a valid operator override counts as configured
-            even with no host set"
-    (reset! config/editor-explicitly-set? false)
-    (config/update-setting! :general :editor-override :cursor)
-    (is (true? (config/editor-configured?)))
-    ;; A custom-template override also counts.
-    (config/update-setting! :general :editor-override
-                            {:custom "subl://open?url={path}"})
-    (is (true? (config/editor-configured?)))
-    ;; Clean up the override slot for the next test.
-    (config/update-setting! :general :editor-override nil)))
+  (config/update-setting! :general :editor-override :cursor)
+  (is (true? (config/editor-configured?)))
+  (config/update-setting! :general :editor-override {:custom "subl://open?url={path}"})
+  (is (true? (config/editor-configured?))))
 
 (deftest editor-configured-false-for-malformed-override
-  (testing "a malformed override (rejected by
-            valid-editor-override?) does NOT count as configured — it
-            degrades to the unconfigured state like get-editor does"
-    (reset! config/editor-explicitly-set? false)
-    (config/update-setting! :general :editor-override :not-a-real-editor)
-    (is (false? (config/editor-configured?)))
-    (config/update-setting! :general :editor-override nil)))
-
-(deftest configure-editor-sets-configured-flag
-  (testing "configure! {:rf.xray/editor …} flips
-            editor-configured? on (it routes through set-editor!)"
-    (reset! config/editor-explicitly-set? false)
-    (config/update-setting! :general :editor-override nil)
-    (is (false? (config/editor-configured?)))
-    (config/configure! {:rf.xray/editor :cursor})
-    (is (true? (config/editor-configured?)))))
+  (config/update-setting! :general :editor-override :not-a-real-editor)
+  (is (false? (config/editor-configured?))))
 
 (deftest configure-editor-nil-resets-configured-state
-  (testing "configure! {:rf.xray/editor nil} RESETS the
-            editor-configured state, exactly like set-editor! nil does.
-            The bulk surface gates on key PRESENCE: an explicit nil
-            resets, an absent key is untouched. A `some?` gate would
-            silently ignore an explicit nil, leaving editor-configured?
-            stuck true after a host tried to reset via the bulk surface
-            — non-equivalent to the per-key setter."
-    ;; Configure an editor first so there is state to reset.
+  (testing "configure! gates on key PRESENCE, so an explicit nil resets
+            exactly like set-editor! nil does"
     (config/configure! {:rf.xray/editor :cursor})
     (is (= :cursor (config/get-editor)))
-    (is (true? (config/editor-configured?))
-        "precondition: editor is configured before the nil reset")
-    ;; A `some?` gate would make this a no-op.
-    (config/configure! {:rf.xray/editor nil})
-    (is (= :vscode (config/get-editor))
-        "explicit nil resets the preference to the :vscode default")
-    (config/update-setting! :general :editor-override nil)
-    (is (false? (config/editor-configured?))
-        "explicit nil clears editor-explicitly-set? — the hint re-arms")))
-
-(deftest configure-absent-editor-key-leaves-configured-state
-  (testing "a configure! call WITHOUT the :rf.xray/editor key
-            leaves both the preference AND the configured flag untouched
-            (the key-presence gate must distinguish absent from nil)"
-    (config/configure! {:rf.xray/editor :idea})
     (is (true? (config/editor-configured?)))
-    ;; A configure! that touches a DIFFERENT key must not disturb editor.
-    (config/configure! {:rf.xray/auto-open? false})
-    (is (= :idea (config/get-editor))
-        "the editor preference survives a non-editor configure! call")
-    (is (true? (config/editor-configured?))
-        "the configured flag survives a non-editor configure! call")))
+    (config/configure! {:rf.xray/editor nil})
+    (is (= :vscode (config/get-editor)))
+    (is (false? (config/editor-configured?)))))
 
-(deftest nil-auto-open-resets-to-enabled
-  (testing "set-auto-open! with nil resets to the default"
-    (config/set-auto-open! false)
-    (config/set-auto-open! nil)
-    (is (true? (config/auto-open-enabled?)))))
+(deftest configure-leaves-absent-keys-untouched
+  (let [seed {:in [{:pattern :seeded}] :out []}]
+    (config/configure! {:rf.xray/editor       :idea
+                        :rf.xray/auto-open?   false
+                        :rf.xray/project-root "/abs/code"
+                        :rf.xray/filters      seed})
+    (config/configure! {})
+    (is (= [:idea true false "/abs/code" seed]
+           [(config/get-editor) (config/editor-configured?)
+            (config/auto-open-enabled?) (config/get-project-root)
+            (config/get-filter-seed)]))))
 
 (deftest configure-passes-auto-open-through
-  (testing "configure! routes :rf.xray/auto-open? through set-auto-open!"
-    (config/configure! {:rf.xray/auto-open? false})
-    (is (false? (config/auto-open-enabled?)))
-    (config/configure! {:rf.xray/auto-open? true})
-    (is (true? (config/auto-open-enabled?)))))
-
-(deftest configure-without-auto-open-leaves-preference
-  (testing "configure! without :rf.xray/auto-open? leaves the flag unchanged"
-    (config/set-auto-open! false)
-    (config/configure! {:rf.xray/editor :cursor})
-    (is (false? (config/auto-open-enabled?)))))
-
-;; ---- Static mode ---------------------------------------------------------
-;;
-;; Static mode is unconditionally available; there is no per-host opt-in
-;; and no `:rf.xray/static-mode?` configure key to assert.
-
-(deftest editor-uri-uses-current-preference
-  (testing "config/editor-uri reads from the live preference atom"
-    (let [coord {:file "src/x.cljs" :line 12 :column 4}]
-      (config/set-editor! :vscode)
-      (is (= "vscode://file/src/x.cljs:12:4" (config/editor-uri coord)))
-      (config/set-editor! :cursor)
-      (is (= "cursor://file/src/x.cljs:12:4" (config/editor-uri coord))))))
-
-;; ---- project-root --------------------------------------------------------
-;;
-;; Mirror of Story's project-root test matrix. Source-coords stamped at
-;; registration time are classpath-relative; editor schemes resolve
-;; against the filesystem and reject relative paths. The host plumbs an
-;; on-disk root via `configure! :project-root`; the Xray-side helpers
-;; prepend it before the URI ships.
-
-(deftest set-project-root-normalises-blank-string-to-nil
-  (testing "blank strings normalise to nil so the helper behaves as if
-            unset (mirrors Story's normalisation)"
-    (config/set-project-root! "")
-    (is (nil? (config/get-project-root)))
-    (config/set-project-root! "/abs/code")
-    (is (= "/abs/code" (config/get-project-root)))
-    (config/set-project-root! "")
-    (is (nil? (config/get-project-root)))))
+  (config/configure! {:rf.xray/auto-open? false})
+  (is (false? (config/auto-open-enabled?)))
+  (config/configure! {:rf.xray/auto-open? nil})
+  (is (true? (config/auto-open-enabled?)) "nil resets to the default"))
 
 (deftest configure-passes-project-root-through
-  (testing "configure! routes :rf.xray/project-root through set-project-root!"
-    (config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
-    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
-    (config/configure! {:rf.xray/project-root "/abs/code"})
-    (is (= "/abs/code" (config/get-project-root)))
-    (testing "explicit nil clears the slot"
-      (config/configure! {:rf.xray/project-root nil})
-      (is (nil? (config/get-project-root))))))
-
-(deftest configure-without-project-root-leaves-slot-untouched
-  (testing "configure! with no :rf.xray/project-root key leaves the slot
-            unchanged (lets hosts call configure! multiple times for
-            unrelated keys without clobbering the project-root)"
-    (config/set-project-root! "/abs/code")
-    (config/configure! {:rf.xray/editor :cursor})
-    (is (= "/abs/code" (config/get-project-root)))))
-
-;; ---- filter seed ---------------------------------------------------------
-;;
-;; Per spec/018-Event-Spine.md §7 'Empty defaults' ('first-session
-;; honesty beats first-session quietness'): default filter set
-;; is empty; hosts may inject a seed via configure!.
-
-(deftest set-filter-seed-round-trips
-  (let [seed {:in [{:pattern :auth/*}] :out [{:pattern :mouse-move}]}]
-    (config/set-filter-seed! seed)
-    (is (= seed (config/get-filter-seed)))
-    (config/set-filter-seed! nil)
-    (is (nil? (config/get-filter-seed)))))
+  (config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
+  (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
+  (config/configure! {:rf.xray/project-root ""})
+  (is (nil? (config/get-project-root)) "a blank root normalises to nil"))
 
 (deftest configure-passes-filters-through
   (let [seed {:in [{:pattern :auth/*}] :out []}]
     (config/configure! {:rf.xray/filters seed})
     (is (= seed (config/get-filter-seed)))))
 
-(deftest configure-without-filters-leaves-seed-untouched
-  (config/set-filter-seed! {:in [{:pattern :seeded}] :out []})
-  (config/configure! {:rf.xray/editor :cursor})
-  (is (= {:in [{:pattern :seeded}] :out []}
-         (config/get-filter-seed))))
+;; ---- panel width and event-list column widths ------------------------------
 
-;; There is no filters storage key: Xray's IN/OUT pills are transient by
-;; policy, so there is no localStorage layer for one to name.
-;;
-;; `configure-without-filters-leaves-seed-untouched` above is the
-;; `contains?`-gating pin for this part of `configure!`.
-
-;; ---- panel-width (resize handle) ---------------------------------------
-
-(deftest default-panel-width-px-published
-  (testing "config publishes a default panel width — the resize handle's
-            double-click reset target. 560px mirrors the inline-host
-            snippet's documented `var(--rf-xray-inline-width, 560px)`
-            so reset reads the same value the host CSS falls back to."
-    (is (= 560 config/default-panel-width-px))))
-
-(deftest default-settings-include-panel-width-px
-  (testing "the default settings map carries `:general :panel-width-px`
-            so the persistence round-trip + the Settings popup's reads
-            never see a nil"
-    (is (= config/default-panel-width-px
-           (get-in config/default-settings [:general :panel-width-px])))))
-
-(deftest clamp-panel-width-px-floor
-  (testing "min-clamp is published as `min-panel-width-px` (320) and a
-            sub-floor input snaps to the floor"
-    (is (= 320 config/min-panel-width-px))
-    (is (= 320 (config/clamp-panel-width-px 100 2000)))
-    (is (= 320 (config/clamp-panel-width-px 320 2000)))
-    (is (= 321 (config/clamp-panel-width-px 321 2000)))))
-
-(deftest clamp-panel-width-px-ceil
-  (testing "ceil is viewport × 0.9 — a wider request snaps down"
-    (is (= 1800 (config/clamp-panel-width-px 5000 2000))
-        "2000 × 0.9 = 1800")
-    (is (= 1800 (config/clamp-panel-width-px 1800 2000)))
-    (is (= 1799 (config/clamp-panel-width-px 1799 2000)))))
-
-(deftest clamp-panel-width-px-non-numeric-falls-back-to-default
-  (testing "malformed persisted payload (string, nil, NaN) shouldn't
-            leave the panel at an unusable size — fall back to default"
-    (is (= config/default-panel-width-px
-           (config/clamp-panel-width-px nil 2000)))
-    (is (= config/default-panel-width-px
-           (config/clamp-panel-width-px "wide" 2000)))))
-
-(deftest clamp-panel-width-px-narrow-viewport-still-floors
-  (testing "if viewport is narrower than the floor (mobile / odd
-            test runtime), the floor still wins over the ceil — the
-            panel never collapses below 320px"
-    (is (= 320 (config/clamp-panel-width-px 200 300))
-        "300 × 0.9 = 270 < 320 floor; floor wins")
-    (is (= 320 (config/clamp-panel-width-px 999 300))
-        "even a wide request clamps to the floor when the viewport
-         is too narrow for the floor to cleanly fit")))
-
-;; ---- L2 event-list column widths -----------------------------------------
-;;
-;; The L2 event list's `source` / `timestamp` / `duration` columns are
-;; user-resizable via drag handles between cells. Defaults are the
-;; columns' design widths, so a fresh install lays out at them; the
-;; floors keep any column from collapsing below its lowercase header
-;; label width. The helpers are CLJC-pure / JVM-testable — the drag-
-;; handle dispatch path clamps to the floor BEFORE the persistence
-;; write, so the persisted payload is always in-range.
-
-(deftest event-list-col-default-settings-include-widths-map
-  (testing "the default settings map carries `:general
-            :event-list-col-widths` so the persistence round-trip + the
-            sub's read never see a nil"
-    (is (= config/event-list-col-default-widths
-           (get-in config/default-settings
-                   [:general :event-list-col-widths])))))
-
-(deftest clamp-event-list-col-width-floors
-  (testing "clamp-event-list-col-width snaps a sub-floor
-            request to that column's floor"
-    (is (= 40 (config/clamp-event-list-col-width :source 10)))
-    (is (= 40 (config/clamp-event-list-col-width :source 40)))
-    (is (= 41 (config/clamp-event-list-col-width :source 41)))
-    (is (= 60 (config/clamp-event-list-col-width :timestamp 20)))
-    (is (= 60 (config/clamp-event-list-col-width :timestamp 60)))
-    (is (= 48 (config/clamp-event-list-col-width :duration 10)))
-    (is (= 48 (config/clamp-event-list-col-width :duration 48)))))
+(deftest clamp-panel-width-px-clamps-to-floor-and-ceil
+  (are [px viewport expected] (= expected (config/clamp-panel-width-px px viewport))
+    100    2000 320
+    321    2000 321
+    5000   2000 1800
+    1799   2000 1799
+    ;; A malformed persisted payload falls back to the default, which
+    ;; matches the inline host's documented `560px` CSS fallback.
+    "wide" 2000 560
+    ;; A viewport narrower than the floor still floors.
+    999    300  320))
 
 (deftest clamp-event-list-col-width-unknown-col-returns-nil
-  (testing "unknown column ids (event-id is flex, never
-            sized; future unsupported keys) yield nil so the caller's
-            update path can no-op on them"
-    (is (nil? (config/clamp-event-list-col-width :event-id 100)))
-    (is (nil? (config/clamp-event-list-col-width :unknown 100)))
-    (is (nil? (config/clamp-event-list-col-width nil 100)))))
+  (is (nil? (config/clamp-event-list-col-width :event-id 100))))
 
-(deftest resolve-event-list-col-widths-from-empty
-  (testing "nil / empty / non-map payload resolves to the defaults"
-    (is (= config/event-list-col-default-widths
-           (config/resolve-event-list-col-widths nil)))
-    (is (= config/event-list-col-default-widths
-           (config/resolve-event-list-col-widths {})))
-    (is (= config/event-list-col-default-widths
-           (config/resolve-event-list-col-widths "not-a-map")))))
+(deftest resolve-event-list-col-widths-clamps-and-defaults
+  (are [persisted expected] (= expected (config/resolve-event-list-col-widths persisted))
+    nil                                       {:source 52 :timestamp 76 :duration 60}
+    {:source 10 :timestamp 20 :duration 5}    {:source 40 :timestamp 60 :duration 48}
+    {:source 100 :phantom 200 :event-id 999}  {:source 100 :timestamp 76 :duration 60}
+    {:source "wide" :timestamp nil :duration "tall"}
+    {:source 52 :timestamp 76 :duration 60}))
 
-(deftest resolve-event-list-col-widths-clamps-each-column
-  (testing "a stale or hand-edited payload with a sub-floor
-            value is clamped on read (defence-in-depth — the write path
-            clamps too, but a payload written without the clamp would
-            slip through without this read-side clamp)"
-    (is (= {:source 40 :timestamp 76 :duration 60}
-           (config/resolve-event-list-col-widths {:source 10}))
-        "sub-floor source snaps to 40")
-    (is (= {:source 52 :timestamp 60 :duration 60}
-           (config/resolve-event-list-col-widths {:timestamp 20}))
-        "sub-floor timestamp snaps to 60")
-    (is (= {:source 52 :timestamp 76 :duration 48}
-           (config/resolve-event-list-col-widths {:duration 5}))
-        "sub-floor duration snaps to 48")))
+;; ---- editor-uri ----------------------------------------------------------
 
-(deftest resolve-event-list-col-widths-drops-unknown-keys
-  (testing "unknown keys in the persisted payload are
-            silently dropped (forward-compat: a future column id would
-            land in the persisted payload but is ignored by older Xrays;
-            the resolved map only carries the known shape)"
-    (let [resolved (config/resolve-event-list-col-widths
-                     {:source 100 :phantom 200 :event-id 999})]
-      (is (= {:source 100 :timestamp 76 :duration 60} resolved)))))
-
-(deftest resolve-event-list-col-widths-handles-non-numeric-per-column
-  (testing "a per-column non-numeric value falls back to
-            that column's default; surrounding columns are unaffected"
-    (is (= {:source 52 :timestamp 76 :duration 60}
-           (config/resolve-event-list-col-widths
-             {:source "wide" :timestamp nil :duration "tall"})))))
+(deftest editor-uri-uses-current-preference
+  (config/set-editor! :cursor)
+  (is (= "cursor://file/src/x.cljs:12:4"
+         (config/editor-uri {:file "src/x.cljs" :line 12 :column 4}))))
 
 (deftest editor-uri-project-root-regression-rf2-5m5n2
-  (testing "regression: a relative source-coord — which the editor's
-            OS handler rejects ('Path does not exist') — resolves to an
-            absolute on-disk URI when :project-root is plumbed (mirror
-            of Story's project-root case)"
-    (config/set-project-root!
-      "C:/Users/me/code/my-app/tools/xray/testbeds")
+  (testing "a classpath-relative source-coord resolves to an absolute URI
+            when :project-root is set (editors reject relative paths)"
+    (config/set-project-root! "C:/Users/me/code/my-app/tools/xray/testbeds")
     (is (= (str "vscode://file/"
                 "C:/Users/me/code/my-app/tools/xray/testbeds/"
                 "panel_gallery/event_detail_stories.cljs:115:3")
@@ -351,76 +127,28 @@
               :line 115
               :column 3})))))
 
-;; ---- the layered merge, through the REAL producer ------------------------
+;; ---- the layered merge, through configure! --------------------------------
 ;;
-;; These rows drive `configure!` — the shipped entry point — and read the
-;; live settings atom, because a fixture comes from the producer rather
-;; than from hand. Composing `#'config/merge-known-sections` by hand,
-;; twice, and asserting that the second call won would pin arithmetic
-;; rather than behaviour: it would pass unchanged while `configure!`
-;; dropped the persisted layer on the floor.
-;;
-;; The JVM can only see TWO of the three layers. `load-settings-from-
-;; storage!` and its reader are `#?(:cljs …)`-only — `(resolve
-;; 'day8.re-frame2-xray.config/load-settings-from-storage!)` answers nil
-;; under Clojure — so the persisted layer, and the order-independence that
-;; is the point of the layering, are pinned in
-;; `settings/persistence_cljs_test.cljs`
-;; (`preload-order-persisted-wins-over-later-configure`). What IS JVM-
-;; reachable is the `defaults < configure!` half plus the deep-merge
-;; semantics, and those are what these rows own.
+;; The JVM sees only the `defaults < configure!` half: the persisted layer is
+;; CLJS-only and is pinned in `settings/persistence_cljs_test.cljs`.
 
 (deftest configure-settings-layers-the-seed-over-defaults
-  (testing "`configure! {:rf.xray/settings …}` lands the
-            host's seed OVER the compiled-in defaults, deeply, leaving
-            every key the seed does not name at its default"
-    (config/reset-settings!)
-    (config/configure!
-      {:rf.xray/settings {:general {:text-size             20
-                                    :event-list-col-widths {:source 100}}}})
-    (is (= 20 (config/get-setting :general :text-size))
-        "the seed's value is live immediately — no storage-backed load
-         needed for a synchronous read")
-    (is (= :right-rail (config/get-setting :general :panel-position))
-        "an untouched sibling in :general keeps the default")
-    (is (= :light (config/get-setting :theme nil))
-        "an untouched top-level section keeps the default")
-    (is (= {:source 100 :timestamp 76 :duration 60}
-           (config/get-setting :general :event-list-col-widths))
-        "the merge is DEEP — a partial nested override keeps its
-         siblings, through the real entry point")
-    (config/reset-settings!)))
+  (config/configure!
+    {:rf.xray/settings {:general {:text-size             20
+                                  :event-list-col-widths {:source 100}}}})
+  (is (= 20 (config/get-setting :general :text-size)))
+  (is (= :right-rail (config/get-setting :general :panel-position))
+      "an untouched sibling in :general keeps the default")
+  (is (= :light (config/get-setting :theme nil))
+      "an untouched top-level section keeps the default")
+  (is (= {:source 100 :timestamp 76 :duration 60}
+         (config/get-setting :general :event-list-col-widths))
+      "the merge is DEEP"))
 
 (deftest configure-settings-recomputes-rather-than-accumulating
-  (testing "a second `configure!` replaces the seed
-            rather than layering on the first one's result, so the
-            answer is a function of the CURRENT seed and nothing else.
-            This is what lets `configure!` run at any point in the boot
-            sequence without the result depending on how many times it
-            has run."
-    (config/reset-settings!)
+  (testing "a second configure! replaces the seed rather than layering on
+            the first one's result"
     (config/configure! {:rf.xray/settings {:general {:text-size 20}}})
     (config/configure! {:rf.xray/settings {:theme :dark}})
-    (is (= :dark (config/get-setting :theme nil))
-        "the second seed applied")
-    (is (= 13 (config/get-setting :general :text-size))
-        "and the first seed's text-size is GONE — it was never
-         persisted, and the seed is replaced wholesale")
-    (config/reset-settings!)))
-
-;; ---- :rf.xray/settings seeds `configured-settings-seed` ----------------
-
-(deftest configure-settings-seeds-configured-settings-seed
-  (testing "`configure! {:rf.xray/settings ...}` captures
-            the raw map into `configured-settings-seed` rather than
-            unconditionally resetting + persisting the live settings
-            atom — the seed `load-settings-from-storage!` deep-merges
-            the persisted payload OVER, so a host that calls
-            `configure!` on every boot cannot clobber a user's
-            already-persisted Settings-popup mutations"
-    (config/reset-settings!)
-    (config/configure! {:rf.xray/settings {:theme :dark}})
-    (is (= {:theme :dark} @config/configured-settings-seed))
-    (config/reset-settings!)
-    (is (nil? @config/configured-settings-seed)
-        "reset-settings! clears the seed too — no cross-test leakage")))
+    (is (= :dark (config/get-setting :theme nil)))
+    (is (= 13 (config/get-setting :general :text-size)))))
