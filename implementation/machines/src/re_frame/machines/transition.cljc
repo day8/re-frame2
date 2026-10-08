@@ -2764,33 +2764,6 @@
   [node]
   (true? (:final? node)))
 
-(defn final-on-leaf?
-  "Per Spec 005 §Final states: true iff the state at the LEAF
-  of `state` declares `:final? true`. Finality is a pure recompute from
-  the post-transition `:state` — it is NOT stamped onto the snapshot
-  (there is no `:rf/finished?` slot; per Spec 005 §Persistence posture the
-  pure `machine-transition` surface stays free of runtime-only
-  bookkeeping).
-
-  This answers \"is the active leaf final?\" — NOT \"does the whole machine
-  finish?\". Per the done-state / `:on-done` signal
-  the two questions diverge: a `:final?` leaf that is a DIRECT CHILD of the
-  machine root is whole-machine finality (auto-destroy / spawning parent's
-  `:on-done`); a `:final?` leaf EMBEDDED inside a compound signals only that
-  the enclosing compound is DONE (an in-machine `done.state.<compound>`
-  raise an enclosing transition can take — the machine keeps running). The
-  lifecycle-handler boundary uses `top-level-final?` (not this fn) to gate
-  whole-machine auto-destroy; this fn is the building block.
-
-  Note: parallel-region machines compose finality across regions — the
-  parent is `:final?` only when EVERY region's active leaf is `:final?`.
-  This fn answers the per-state question; the parallel-region union is
-  computed by the orchestrator (`re-frame.machines.parallel` /
-  `re-frame.machines.lifecycle-fx.finalize`)."
-  [machine state]
-  (let [node (node-at machine (state-path state))]
-    (final-state-node? node)))
-
 (defn top-level-final?
   "Per Spec 005 §Final states §Embedded vs top-level:
   true iff `state`'s active leaf is `:final?` AND it is a DIRECT CHILD of the
@@ -2798,7 +2771,7 @@
   finality the lifecycle-handler boundary gates auto-destroy / spawning-
   parent `:on-done` on.
 
-  The distinction from `final-on-leaf?` is the D7 reconciliation: entering a
+  The length-1 test is the D7 reconciliation: entering a
   top-level `:final?` leaf still terminates the actor (singleton auto-destroy,
   or child → parent `:on-done`); entering a `:final?` leaf NESTED inside a
   compound instead signals `done.state.<compound>` (a transitionable in-
@@ -2806,7 +2779,12 @@
   running. For a region of a parallel machine the region body is the root, so
   this is computed against the region's in-region path; the parallel parent's
   whole-machine finality is `all-regions-final?` (in
-  `re-frame.machines.lifecycle-fx.finalize`)."
+  `re-frame.machines.lifecycle-fx.finalize`).
+
+  Finality is a pure recompute from the post-transition `:state` — it is NOT
+  stamped onto the snapshot (there is no `:rf/finished?` slot; per Spec 005
+  §Persistence posture the pure `machine-transition` surface stays free of
+  runtime-only bookkeeping)."
   [machine state]
   (let [path (state-path state)]
     (and (= 1 (count path))

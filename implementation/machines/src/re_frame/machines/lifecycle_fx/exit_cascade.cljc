@@ -8,12 +8,12 @@
   `:entry` / `:exit`: a final state's `:exit` runs from the auto-
   destroy teardown, same ordering convention.
 
-  Centralises the four destroy entry-points — explicit
-  `:rf.machine/destroy`, declarative-`:spawn` exit-cascade destroy,
-  `:spawn-all` per-child teardown, and final-state auto-destroy —
-  so every destroy path runs through `run-child-exit!` and the
-  active configuration's `:exit` actions fire before the snapshot
-  is torn down.
+  Serves the destroy entry-points that tear a live actor down by address —
+  explicit `:rf.machine/destroy`, declarative-`:spawn` exit-cascade
+  destroy, and `:spawn-all` per-child teardown — so each fires the active
+  configuration's `:exit` actions before the snapshot is torn down.
+  Final-state auto-destroy (`finalize-machine`) runs the same pure cascade
+  (`run-active-exit-cascade`) itself, over the snapshot it already holds.
 
   The pure exit cascade (path resolution + action collection) lives in
   `re-frame.machines.parallel/run-active-exit-cascade` (which dispatches
@@ -25,11 +25,9 @@
        per-instance registrar entry); a singleton's spec comes from its
        registered handler,
     3. runs the pure cascade,
-    4. writes the post-cascade snapshot back to runtime-db so any caller
-       reading the snapshot AFTER `:exit` (e.g. `finalize-machine`'s
-       `:on-done` projection — though that read happens before this
-       runs, the write here is for tools observing the snapshot
-       between `:exit` and teardown),
+    4. writes the post-cascade snapshot back to runtime-db, so what runs
+       after the cascade — the fx it emits (step 5) and the teardown steps
+       that still read the snapshot — sees the `:exit`-time `:data` writes,
     5. fires the cascade's fx vector through `re-frame.fx/do-fx` so
        `:exit`-time side effects (HTTP requests, dispatches, logs)
        actually run,

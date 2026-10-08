@@ -620,9 +620,9 @@
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
-      ;; / `:exit` (005:2138) the `:exit` action reads the actor's final
-      ;; snapshot before the auto-destroy clears it, so a consumer observing the
-      ;; db between `:exit` and `:rf.machine/destroyed` sees the live snapshot.
+      ;; / `:exit` the `:exit` action reads the actor's final snapshot before
+      ;; the auto-destroy clears it, and so do the fx it emits, which run before
+      ;; the teardown.
       ;; This mirrors `finalize-machine`'s order (exit cascade → teardown →
       ;; destroyed) so both destroy entry-points share one ordering convention.
       (teardown-live-actor!
