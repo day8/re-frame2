@@ -1,32 +1,20 @@
 (ns re-frame.transition-geometry-terminology-jvm-test
   "Terminology guard for the targetless-vs-explicit-target transition geometry.
 
-  The executable `internal?` flag is EXACTLY the targetless / no-cascade case
-  (`compute-transition-geometry` in `re-frame.machines.transition`), and the
-  four active-path geometries are pinned behaviourally by
-  `machine_active_path_geometry_test.clj` plus the
-  `machine_property_cljs_test.cljc` invariants. What those tiers cannot see is
-  the PROSE drifting into a mixed vocabulary: Spec 005 §Self-transitions,
-  `docs/machines/concepts.md`, or the transition-runtime docstrings calling a
+  The runtime `internal?` flag is EXACTLY the targetless / no-cascade case
+  (`compute-transition-geometry` in `re-frame.machines.transition`); the
+  geometries themselves are pinned behaviourally by
+  `machine_active_path_geometry_test.clj`. What those tests cannot see is the
+  PROSE drifting into a mixed vocabulary: Spec 005 §Self-transitions,
+  `docs/machines/concepts.md` or the transition-runtime docstrings calling a
   targeted self / ancestor transition `internal` would conflate XState's
-  non-reentering LABEL with re-frame2's structural runtime `internal?` flag —
-  which is targetless-only. The same drift licenses the overclaim that ONLY
-  targetless transitions are observable no-ops, although a leaf self-target
-  without `:reenter?` has no descendants to resolve and is action-only too.
+  non-reentering LABEL with re-frame2's targetless-only runtime flag, and
+  license the overclaim that ONLY targetless transitions are observable
+  no-ops (a leaf self-target without `:reenter?` is action-only too).
 
-  So this namespace guards the disambiguated vocabulary in two directions,
-  precisely (the prose legitimately uses the very words the drift
-  uses — `internal?` for the targetless case, XState's `internal` as an
-  explicitly-labelled parity term):
-
-  - the two conflated meanings + the leaf no-op overclaim stay ABSENT, and
-  - the load-bearing disambiguation (the runtime `internal?` flag reserved for
-    targetless; XState's `internal` labelled a parity term; the empty-
-    descendant leaf case stated by the declaring-state relationship) stays
-    PRESENT.
-
-  `guard-has-teeth` proves both halves: every reverted sentence is caught,
-  every shipped sentence is not."
+  So the conflations and the overclaim stay ABSENT, and the disambiguation
+  stays PRESENT. `guard-has-teeth` proves both halves: every reverted sentence
+  is caught, every shipped sentence is not."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -44,11 +32,9 @@
 
 (defn- section-slice
   "Substring of `text` from the first line matching `start-re` up to (but not
-  including) the next line matching `boundary-re`, or EOF. Lets the guard scan
-  exactly the §Self-transitions surface this guard owns, so the careful
-  `internal by default` uses in OTHER sections (the drain-semantics /
-  pitfalls / lessons summaries that reserve `internal no-op` for targetless and
-  attribute the label to XState) are out of scope for this guard."
+  including) the next line matching `boundary-re`, or EOF — so the guard scans
+  only the §Self-transitions surface it owns, not other sections' careful uses
+  of the same words."
   [text start-re boundary-re]
   (let [lines (vec (str/split-lines text))
         start (first (keep-indexed (fn [i l] (when (re-find start-re l) i)) lines))]
@@ -61,11 +47,8 @@
                   (count lines))]
       (str/join "\n" (subvec lines start end)))))
 
-;; ---------------------------------------------------------------------------
-;; The three prose surfaces, sliced to exactly the terminology section.
-
 (def ^:private spec-self
-  ;; Spec 005 §Self-transitions — up to the next H3 (§Guards).
+  ;; Spec 005 §Self-transitions — up to the next H3.
   (delay (section-slice (slurp-rel "spec/005-StateMachines.md")
                         #"^### Self-transitions" #"^### ")))
 
@@ -75,54 +58,35 @@
                         #"^## Self-transitions and wildcards" #"^## ")))
 
 (def ^:private transition-src
-  ;; The transition runtime, whole file: the `internal?` classification prose
-  ;; lives in `target-path` + `compute-transition-geometry`.
+  ;; The `internal?` prose lives in `target-path` + `compute-transition-geometry`.
   (delay (slurp-rel "implementation/machines/src/re_frame/machines/transition.cljc")))
 
-;; ---------------------------------------------------------------------------
-;; FORBIDDEN — the conflations + the leaf no-op overclaim. Each pattern is
-;; anchored on the phrasing that carries the WRONG claim, never on a bare
-;; keyword, so the corrected prose's legitimate uses of the same words stay
-;; clear of it. `guard-has-teeth` proves both halves.
-
+;; FORBIDDEN — each pattern is anchored on the phrasing that carries the WRONG
+;; claim, never on a bare keyword, so the shipped prose's legitimate uses of
+;; the same words (the negations `guard-has-teeth` lists) stay clear of it.
 (def ^:private forbidden-claims
-  [;; 1. An EXPLICIT target described as re-frame2's runtime `internal?`
-   ;;    (dropping the load-bearing NEVER). The negation `is NEVER internal`
-   ;;    is legitimate and must NOT trip: the pattern requires `is internal`
-   ;;    adjacency, so `is never internal` (a word between) is clear.
+  [;; `is internal` adjacency, so `is NEVER internal` is clear.
    ["an explicit target is called `internal?`"
     #"(?i)explicit\s+target\s+is\s+(?:an?\s+|the\s+)?internal\b"]
 
-   ;; 2. A self / ancestor target asserted to BE the runtime `internal?`
-   ;;    no-op / flag (the structural conflation). The shipped callout says
-   ;;    the opposite — `is not internal?` — which cannot match (it needs
-   ;;    `is the internal? no-op/flag`).
+   ;; Needs `is the internal? no-op/flag`, so `is not internal?` is clear.
    ["a self/ancestor target is the runtime `internal?` no-op"
     #"(?i)(?:self|ancestor)[^.\n]{0,40}target[^.\n]{0,20}\bis\s+(?:an?\s+|the\s+)?`?internal\??`?\s+(?:no-op|flag)"]
 
-   ;; 3. The leaf no-op overclaim: ONLY targetless transitions are no-ops.
-   ;;    A leaf self-target without `:reenter?` is action-only too, so this
-   ;;    over-generalises. The shipped negation reads `targetless is the only
-   ;;    action-only geometry` (targetless BEFORE only, and `geometry` not
-   ;;    `no-op`), so it stays clear.
+   ;; `targetless is the only action-only geometry` (targetless BEFORE only)
+   ;; is clear.
    ["only targetless transitions are observable no-ops"
     #"(?i)only\s+targetless\s+transitions?\s+(?:are|is)\b[^.\n]{0,40}no-ops?"]
 
-   ;; 4. The structural-identity overclaim: a targeted leaf IS / EQUALS a
-   ;;    targetless transition. It COINCIDES in visible effect, but the
-   ;;    distinction is the declaring-state relationship, not leaf-ness. The
-   ;;    shipped prose says `is not because a targeted leaf is internal?` and
-   ;;    `the same as a targetless transition` (neither is an identity claim).
+   ;; A targeted leaf COINCIDES with targetless in visible effect; it is not
+   ;; the same geometry.
    ["a targeted leaf is identified with targetless"
     #"(?i)targeted\s+leaf\s+(?:is|equals|==)\s+(?:a\s+|the\s+)?targetless"]])
 
-;; ---------------------------------------------------------------------------
-;; REQUIRED — the disambiguation itself. Absence = the prose
-;; lost the distinction, which is the revert this guard exists to catch.
-
+;; REQUIRED — the disambiguation itself; absence is the revert this guard
+;; exists to catch.
 (def ^:private required-terms
-  [;; Spec 005 §Self-transitions
-   ["spec: `internal?` labelled the runtime flag"
+  [["spec: `internal?` labelled the runtime flag"
     spec-self #"(?i)`internal\?`\s*\(runtime flag\)"]
    ["spec: XState's term labelled a parity term"
     spec-self #"(?i)xstate parity term"]
@@ -131,23 +95,13 @@
    ["spec: the empty-descendant leaf case is stated"
     spec-self #"(?i)empty-descendant leaf"]
 
-   ;; docs/machines/concepts.md
-   ;;
-   ;; The guide teaches the three self-transition shapes as a table that
-   ;; never says `internal` at all, so the conflation cannot arise in its
-   ;; prose, and the FORBIDDEN half still scans this same slice, so
-   ;; introducing it fails. Its two pins hold the distinction itself —
-   ;; targetless is the action-only geometry, and a targeted self on a
-   ;; COMPOUND is not a no-op because it re-resolves descendants. The
-   ;; normative statement of the disambiguation is Spec 005
-   ;; §Self-transitions, which carries all four of its pins below, including
-   ;; the `internal?`/XState-parity labels.
+   ;; The guide's self-transition table never says `internal`, so it pins the
+   ;; distinction itself; the FORBIDDEN half still scans the same slice.
    ["concepts: targetless is the action-only shape"
     concepts-self #"(?is)\(targetless\).{0,60}?action only"]
    ["concepts: a targeted self on a compound re-resolves descendants"
     concepts-self #"(?is)compound\s+re-resolves\s+descendants"]
 
-   ;; transition.cljc runtime prose
    ["impl: `compute-transition-geometry` keeps `explicit target is NEVER internal`"
     transition-src #"(?i)explicit\s+target\s+is\s+never\s+internal"]
    ["impl: `target-path` labels XState `internal` a parity label, not the flag"
@@ -166,8 +120,6 @@
   (->> required-terms
        (remove (fn [[_ src pattern]] (re-find pattern @src)))
        (mapv first)))
-
-;; ---------------------------------------------------------------------------
 
 (deftest transition-geometry-prose-keeps-the-disambiguated-vocabulary
   (testing "the conflations + leaf overclaim stay absent from every surface"
@@ -190,16 +142,12 @@
 (deftest guard-has-teeth
   (testing "every reverted claim is caught"
     (doseq [[claim sentence]
-            [;; the runtime-flag conflation in a code comment
-             ["an explicit target is called `internal?`"
+            [["an explicit target is called `internal?`"
               ";; An EXPLICIT target is internal (targetless or not)."]
-             ;; a self/ancestor target asserted to BE the runtime flag
              ["a self/ancestor target is the runtime `internal?` no-op"
               "A self / ancestor `:target` is the `internal?` no-op by default."]
-             ;; the leaf no-op overclaim
              ["only targetless transitions are observable no-ops"
               "Only targetless transitions are observable configuration no-ops."]
-             ;; the structural-identity overclaim
              ["a targeted leaf is identified with targetless"
               "At a leaf, a targeted leaf is targetless — the two are one geometry."]]]
       (is (= [claim] (forbidden-hits sentence))
@@ -207,21 +155,15 @@
 
   (testing "the shipped prose's legitimate uses of the same words are not caught"
     (doseq [sentence
-            [;; targetless legitimately IS the internal? no-op
-             "Targetless — the runtime `internal?` no-op. This is the only geometry the runtime flags `internal?`."
-             ;; the load-bearing negation compute-transition-geometry keeps
+            ["Targetless — the runtime `internal?` no-op. This is the only geometry the runtime flags `internal?`."
              ";; the ONLY internal (true configuration no-op) case. An EXPLICIT target is NEVER internal:"
-             ;; a self/ancestor target is XState-`internal` but NOT the runtime flag
              "So a self / ancestor target is \"internal\" in XState's vocabulary yet is not `internal?` in re-frame2's runtime."
-             ;; the shipped leaf sentence — coincidence, not identity, not `internal?`
              "a self-target declared on a leaf has no descendants to re-resolve, so its visible effect collapses to action-only — the same as a targetless transition, but by the empty-descendant coincidence, not because a targeted leaf is `internal?` (it is not) and not because targetless is the only action-only geometry."
-             ;; the reserve sentence
              "Reserve `internal?` for the targetless case; describe an explicit self / ancestor target operationally."]]
       (is (= [] (forbidden-hits sentence))
           (str "the guard fired on legitimate shipped prose: " sentence))))
 
   (testing "a surface stripped of the disambiguation is caught by the required half"
-    ;; Deleting a required term from a surface must fail.
     (is (seq (->> required-terms
                   (remove (fn [[_ _ pattern]]
                             (re-find pattern "Self-transitions are internal by default.")))
