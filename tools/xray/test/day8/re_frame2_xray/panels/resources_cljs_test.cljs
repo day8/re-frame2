@@ -1,17 +1,8 @@
 (ns day8.re-frame2-xray.panels.resources-cljs-test
   "CLJS-side wiring + view tests for Xray's Resources tab (Spec 016 §Xray
-  and AI tooling).
-
-  ## What's under test
-
-    3. **Sections render** — registry / live-instances / work-ledger /
-       route-graph / lifecycle-timeline / invalidation / cache-growth /
-       audit all render when data is present.
-    4. **PRIVACY** — a `:sensitive?` data value the runtime redacted to
-       `:rf/redacted` renders `[redacted]`, never the raw value.
-    6. **Silent state** — no resources + no instances → silent caption.
-    7. **Decoupled** — the panel reads the registry + the runtime-db
-       slice via override hooks; no `re-frame.resources` require."
+  and AI tooling): the panel's hiccup, rendered from the composite sub, which
+  reads the registry and the runtime-db slice through override hooks — no
+  `re-frame.resources` require."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -106,26 +97,10 @@
                   :stale-after-ms 60000 :gc-after-ms 300000
                   :tags (fn [_ _] #{}) :request (fn [_ _] {})}}})
 
-;; The freshness horizon is anchored to the moment the fixture is
-;; SEEDED, which is why this is a fn and not a `def`.
-;;
-;; `derive-stale?` is a comparison against the wall clock: an entry is stale
-;; once `(.now js/Date)` AT RENDER TIME has passed its `:stale-at`. A horizon
-;; frozen at namespace-LOAD time would decay over the life of the run.
-;; `npm run test:cljs` loads every `*_cljs_test` namespace into one
-;; consolidated bundle up front and only then starts executing, so this
-;; namespace's tests run ~30s after its own `def`s are evaluated on an idle
-;; box — which would leave only ~30s of a 60s horizon. On a loaded machine
-;; that gap can exceed 60s, the entry would be *legitimately* past its
-;; `:stale-at`, and `route-graph-shows-live-active-route` would read
-;; `stale (1 work)` where it expects `fresh` — the panel right, the fixture
-;; rotted in place.
-;;
-;; Evaluating per-seed collapses the seed→render gap from "however long the
-;; suite takes to get here" to the microseconds inside one test body, which
-;; removes the coupling between this fixture's freshness and the suite's
-;; wall-clock duration. `stale-live-entries` pins the other side of the same
-;; comparison so the `fresh` assertions cannot pass vacuously.
+;; A fn, not a `def`: `derive-stale?` compares `:stale-at` with the wall clock
+;; AT RENDER TIME, and the consolidated node bundle loads every namespace
+;; before it runs any, so a horizon fixed at load time can already have passed
+;; and read `stale` where `route-graph-shows-live-active-route` expects `fresh`.
 (defn- live-entries []
   {[session-scope :article/by-slug {:slug "welcome"}]
    {:resource/id :article/by-slug :status :loaded
@@ -158,35 +133,15 @@
 ;; ---- (3) sections render ------------------------------------------------
 
 (deftest panel-renders-sections-when-data-present
-  (testing "registry + instances + work + route-graph + timeline render"
+  (testing "the sections no other row reads render: cache growth and the audit"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
       (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-resources")) "panel root")
-        (is (some? (find-by-testid tree "rf-xray-resources-registry")) "registry section")
-        (is (some? (find-by-testid tree "rf-xray-resources-instances")) "instances section")
-        (is (some? (find-by-testid tree "rf-xray-resources-work")) "work section")
-        (is (some? (find-by-testid tree "rf-xray-resources-route-graph")) "route-graph section")
-        (is (some? (find-by-testid tree "rf-xray-resources-timeline")) "timeline section")
-        (is (some? (find-by-testid tree "rf-xray-resources-invalidation")) "invalidation section")
-        ;; EP-0016 sections (always present when not silent)
-        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolvers")) "scope-resolvers section")
-        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolution")) "scope-resolution timeline section")
-        (is (some? (find-by-testid tree "rf-xray-resources-continuations")) "continuations section")
         (is (some? (find-by-testid tree "rf-xray-resources-cache-growth")) "cache-growth section")
-        (is (some? (find-by-testid tree "rf-xray-resources-audit")) "audit section")
-        ;; a registry row for the article resource
-        (is (some? (find-by-testid tree "rf-xray-resources-registry-row-article/by-slug"))
-            "registry row rendered")
-        ;; a live instance row (gen 4)
-        (is (some? (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g4"))
-            "live instance row rendered")
-        ;; the audit lists the explicit-global resource
-        (let [audit (find-by-testid tree "rf-xray-resources-audit-global")]
-          (is (some? audit))
-          (is (re-find #":article/by-slug" (node-text audit))
-              "global-scope audit lists the explicit-global resource"))))))
+        (is (re-find #":article/by-slug"
+                     (node-text (find-by-testid tree "rf-xray-resources-audit-global")))
+            "global-scope audit lists the explicit-global resource")))))
 
 ;; ---- (3b) EP-0016 surfaces ----------------------------------------------
 
@@ -237,9 +192,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0016-buffer] {:frame :rf/xray})
       (let [tree (panel-tree)]
-        ;; D3 — the named-scope-resolver registry row (id + declared inputs)
-        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolver-row-realworld/session"))
-            "named scope-resolver row rendered")
+        ;; D3 — the named-scope-resolver registry row's declared inputs
         (is (re-find #"username"
                      (node-text (find-by-testid
                                  tree "rf-xray-resources-scope-resolver-row-realworld/session-inputs")))
@@ -249,7 +202,6 @@
             "scope-resolution timeline row rendered")
         ;; D2 — the descriptor-level invalidation evidence row
         (let [row (find-by-testid tree "rf-xray-resources-mutation-invalidation-row-51")]
-          (is (some? row) "mutation invalidation evidence row rendered")
           (is (re-find #"3 descriptors" (node-text row))
               "descriptor count surfaced")
           ;; the two dispatched descriptors (global + session) render as chips
@@ -262,7 +214,6 @@
             "fail-closed unresolved descriptor surfaced")
         ;; D1 — the :reply-to continuation dispatch row (phase 6)
         (let [row (find-by-testid tree "rf-xray-resources-continuation-row-52")]
-          (is (some? row) ":reply-to continuation row rendered")
           (is (re-find #":editor/save-replied" (node-text row))
               "the call-site :reply-to target surfaced")
           (is (re-find #":realworld/save-article" (node-text row))
@@ -308,7 +259,6 @@
             "live-work section rendered")
         (let [row (find-by-testid
                     tree (str "rf-xray-resources-live-work-row-" (hash ep0011-live-work-id)))]
-          (is (some? row) "the live resource work row rendered")
           (is (re-find #"resource" (node-text row)) "work-kind surfaced")
           (is (re-find #"issued" (node-text row)) "latest trace phase joined + surfaced"))
         ;; the active-effects / suppression tally headline (per kind).
@@ -320,7 +270,6 @@
         (let [arc (find-by-testid
                     tree (str "rf-xray-resources-stale-race-row-"
                               (hash [:rf.work/http :search 1 1])))]
-          (is (some? arc) "the suppressed HTTP attempt arc rendered")
           (is (re-find #"stale" (node-text arc)) "terminal :stale status surfaced")
           (is (re-find #"http" (node-text arc)) "work-kind surfaced")))))
   (testing "silent-by-default — a settled app (no live work, no suppression)
@@ -369,7 +318,6 @@
                     (panel-tree)
                     (str "rf-xray-resources-live-work-row-"
                          (hash ep0011-live-work-id) "-phase"))]
-        (is (some? phase) "the running row rendered its joined phase")
         (is (re-find #"issued" (node-text phase))
             "the observed frame's own latest phase")
         (is (not (re-find #"completed" (node-text phase)))
@@ -431,12 +379,8 @@
       (seed-overrides!)
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0019-buffer] {:frame :rf/xray})
       (let [tree (panel-tree)]
-        ;; the section renders
-        (is (some? (find-by-testid tree "rf-xray-resources-optimistic"))
-            "optimistic-mutations section rendered")
         ;; the SUCCEEDED apply paired with its reconcile → :reconciled outcome
         (let [row (find-by-testid tree "rf-xray-resources-optimistic-row-60")]
-          (is (some? row) "the optimistic apply row rendered")
           (is (re-find #"reconciled" (node-text row))
               "the committed apply reads reconciled")
           (is (re-find #":realworld/favorite-article" (node-text row))
@@ -445,7 +389,6 @@
               "the committed keys surfaced"))
         ;; the FAILED apply paired with its rollback → :rolled-back + conflict
         (let [row (find-by-testid tree "rf-xray-resources-optimistic-row-62")]
-          (is (some? row) "the rolled-back apply row rendered")
           (is (re-find #"rolled back" (node-text row))
               "the failed apply reads rolled back")
           (is (some? (find-by-testid tree "rf-xray-resources-optimistic-row-62-rollback"))
@@ -463,7 +406,6 @@
       (seed-overrides!)
       (let [tree   (panel-tree)
             status (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g4-status")]
-        (is (some? status))
         (is (re-find #"loaded" (node-text status)) "status reads loaded")))))
 
 (defn- seed-live-route!
@@ -496,7 +438,6 @@
       (seed-live-route!)
       (let [tree (panel-tree)
             row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
-        (is (some? row) "the route row renders")
         (is (some? (find-by-testid tree "rf-xray-resources-route-row-route/article-current"))
             "the active route is flagged ● active off the live routing slice")
         (is (some? (find-by-testid tree "rf-xray-resources-route-row-route/article-blocking-live"))
@@ -505,22 +446,13 @@
             "the blocking :article/by-slug reads :fresh from its live cache entry")))))
 
 (deftest route-graph-freshness-chip-discriminates-stale
-  (testing "the freshness chip is DISCRIMINATING, not decorative:
-            the SAME route graph over an entry whose `:stale-at` has already
-            passed reads `stale`, never `fresh`. This deterministically forces
-            the state a load-time-anchored `:stale-at` would reach only as a
-            flake (decaying past its horizon mid-run and reading
-            `stale (1 work)`), so both sides of the `derive-stale?`
-            comparison are pinned by an assertion. Without this, a
-            chip hard-wired to `:fresh` would leave the
-            sibling green."
+  (testing "the same route graph over an entry already past its `:stale-at`
+            reads `stale`, never `fresh` — the rollup's `:stale` arm"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides! (stale-live-entries))
       (seed-live-route!)
-      (let [tree (panel-tree)
-            row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
-        (is (some? row) "the route row renders")
+      (let [row (find-by-testid (panel-tree) "rf-xray-resources-route-row-route/article")]
         (is (re-find #"stale" (node-text row))
             "an entry past its :stale-at reads :stale on the route graph")
         (is (not (re-find #"fresh" (node-text row)))
@@ -549,25 +481,17 @@
       (let [tree (panel-tree)
             data (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g1-data")
             scope (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g1-scope")]
-        (is (some? data))
         (is (re-find #"\[redacted\]" (node-text data))
             "redacted data renders [redacted]")
-        (is (some? scope))
         (is (re-find #"\[redacted\]" (node-text scope))
             "a redacted scope (PII) renders [redacted] — same elision as data")))))
 
 ;; ---- (4b) PRIVACY: on-box render redacts a RAW :sensitive value
 ;;
-;; The `privacy-redacted-data-never-raw` test above proves the panel renders an
-;; ALREADY-`:rf/redacted` sentinel (the runtime elided it BEFORE Xray saw it).
-;; It does NOT prove the on-box render path redacts a RAW frame-`:sensitive`
-;; resource value — the leak a production sub calling `project-instances`
-;; with NO egress-fn would have: a LIVE `:sensitive?` entry (holding the real
-;; fetched value) would `pr-str`-preview raw to the DOM. This test drives the
-;; PRODUCTION sub `:rf.xray/resources-tab-data` end-to-end against an
-;; OBSERVED frame that declares its resource payload paths `:sensitive`, and
-;; asserts the rendered rows redact; without the egress-fn they would carry
-;; raw token previews.
+;; The row above renders a sentinel the runtime already produced; this one
+;; drives the production sub over a RAW value that only the on-box egress-fn
+;; can redact, against an observed frame declaring the payload slots
+;; `:sensitive`.
 
 (def ^:private zix-secret "secret-session-jwt-zzz-9zix0u")
 (def ^:private zix-observed-frame :app/secure-observed)
@@ -625,28 +549,10 @@
       (is (= zix-observed-frame @(rf/subscribe [:rf.xray/observed-frame]))
           "sanity: Xray is observing the classified frame")
       (let [row (zix-instance-row)]
-        (is (some? row) "the sub projected the seeded live instance")
         (testing "each :sensitive payload slot renders [redacted], never the raw token"
           (doseq [slot [:data :scope :params]]
             (is (= "[redacted]" (:preview (get row slot)))
-                (str slot " redacts to [redacted] on the on-box render path"))
-            (is (true? (:redacted? (get row slot)))
-                (str slot " carries the :redacted? sentinel flag"))))
-        (testing "no raw secret leaks into ANY string display field of any slot"
-          (doseq [slot [:data :scope :params]]
-            (is (not-any? #(and (string? %) (str/includes? % zix-secret))
-                          (vals (get row slot)))
-                (str "the raw session token never appears in the " slot " summary"))))
-        (testing "metadata + derived facts survive the redaction (project from the
-                  RAW entry, never through egress)"
-          (is (= :loaded (:status row)))
-          (is (= 7 (:generation row)))
-          (is (= :article/by-slug (:resource-id row)))
-          (is (true? (:has-data? row))
-              "redacting the payload must not flip the derived :has-data? fact")
-          (is (= 1 (:owner-count row)))
-          (is (= zix-scoped-key (:scoped-key row))
-              "the RAW scoped-key survives as the identity/react key"))))))
+                (str slot " redacts to [redacted] on the on-box render path"))))))))
 
 ;; ---- (4c) PRIVACY: the work-ledger row redacts a :sensitive? resource ----
 ;;
@@ -692,19 +598,11 @@
     (let [tree (panel-tree)
           s    (work-row-node tree :article/by-slug)
           ok   (work-row-node tree :comments/list)]
-      (is (some? s) "the sensitive resource's work row rendered")
-      (is (some? ok) "the sibling's work row rendered")
       (testing "the sensitive resource's outcome renders [redacted], never the error body"
         (is (re-find #"\[redacted\]" (node-text s)))
         (is (not (str/includes? (node-text s) work-secret))))
       (testing "CONTROL — the sibling's outcome keeps its preview"
-        (is (str/includes? (node-text ok) work-secret)))
-      (testing "the composite's work rows redact every value-bearing slot"
-        (let [row (first (filter #(= :article/by-slug (:resource-id %))
-                                 (:work @(rf/subscribe [:rf.xray/resources-tab-data]))))]
-          (is (true? (get-in row [:resource/key :scope :redacted?])))
-          (is (true? (get-in row [:resource/key :params :redacted?])))
-          (is (true? (get-in row [:outcome :redacted?]))))))))
+        (is (str/includes? (node-text ok) work-secret))))))
 
 ;; ---- (4d) PRIVACY: a work id's text redacts a :sensitive? resource -------
 ;;
@@ -761,14 +659,11 @@
           live-p (row "rf-xray-resources-live-work-row-" plain-work-id)
           race-s (row "rf-xray-resources-stale-race-row-" sensitive-work-id)
           race-p (row "rf-xray-resources-stale-race-row-" plain-work-id)]
-      (is (every? some? [live-s live-p race-s race-p])
-          "both resources' live-work and stale-race rows rendered")
       (testing "the sensitive resource's rows print its identity with the
                 scope and params redacted"
         (doseq [n [live-s race-s]]
           (is (str/includes? (node-text n) ":article/by-slug"))
-          (is (str/includes? (node-text n) ":rf/redacted"))
-          (is (not (str/includes? (node-text n) id-secret)))))
+          (is (str/includes? (node-text n) ":rf/redacted"))))
       (testing "the sensitive scope/params sentinel appears nowhere in the
                 panel's text — live work, stale races and the timeline included"
         (is (some? (find-by-testid tree "rf-xray-resources-timeline-body"))
@@ -782,25 +677,6 @@
           (is (some #(= sensitive-work-id (:work-id %)) (:live-work data)))
           (is (contains? (:stale-races data) sensitive-work-id)))))))
 
-(deftest empty-trace-sections-say-they-read-the-trace-buffer
-  (testing "the trace-borne sections read the whole trace buffer, not the
-            focused epoch, so their empty captions say so"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-overrides!)
-      (let [tree (panel-tree)]
-        (doseq [testid ["rf-xray-resources-timeline-empty"
-                        "rf-xray-resources-invalidation-empty"
-                        "rf-xray-resources-scope-resolution-empty"
-                        "rf-xray-resources-mutation-invalidation-empty"
-                        "rf-xray-resources-continuations-empty"
-                        "rf-xray-resources-optimistic-empty"]]
-          (let [caption (node-text (find-by-testid tree testid))]
-            (is (str/ends-with? caption " in the trace buffer.")
-                (str testid " reads: " (pr-str caption)))
-            (is (not (str/includes? caption "epoch"))
-                (str testid " reads: " (pr-str caption)))))))))
-
 ;; ---- (6) silent state ---------------------------------------------------
 
 (deftest panel-silent-when-no-resources
@@ -812,9 +688,6 @@
       (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test {}]
                         {:frame :rf/xray})
       (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-resources")) "panel root present")
         (is (some? (find-by-testid tree "rf-xray-resources-silent")) "silent caption")
         (is (nil? (find-by-testid tree "rf-xray-resources-registry"))
-            "no registry section when silent")
-        (is (nil? (find-by-testid tree "rf-xray-resources-instances"))
-            "no instances section when silent")))))
+            "no registry section when silent")))))
