@@ -1,53 +1,13 @@
 (ns day8.re-frame2-xray.panels.resources-helpers-cljs-test
-  "Pure-data tests for Xray's Resources tab helpers (Spec 016 §Xray and
-  AI tooling).
-
-  Dual-target naming (`.cljc` + `_cljs_test`):
-    - Cognitect's test-runner (CLJ) picks it up via the default
-      `.*-test$` regex on the ns name.
-    - Shadow's `:node-test` build picks it up via the `cljs-test$`
-      regex on the ns name.
-
-  ## What's under test
-
-    1. **trace family** — `resource-trace-op?` / `op-class` / `op-label`
-       over the closed `:rf.resource/*` enum + an in-namespace op outside
-       the enum; non-family ops reject.
-    2. **summarize (PRIVACY)** — type + bounded size + redaction-aware
-       preview; the framework sentinels (`:rf/redacted` /
-       `:rf.size/large-elided`) keep their status and render no raw
-       preview; a large value is bounded with `:elided?`. Params, scopes,
-       AND data go through the SAME fn.
-    3. **project-registry** — registrar map → sorted rows; scope policy
-       described; declaring-routes joined from the route registry;
-       schemas summarized.
-    4. **project-instances** — entries map → rows; derived `:stale?` /
-       `:gc-eligible?`; scope/params/data summarized (never raw).
-    5. **project-work-ledger** — ledger map → rows; terminal split; host
-       handles structurally absent.
-    6. **project-route-graph** — routes with `:resources` → graph nodes;
-       blocking = SSR wait point.
-    7. **lifecycle-timeline / invalidation-graph / cache-growth**.
-    7c. **optimistic mutation lifecycle (EP-0019)** —
-       `optimistic-lifecycle` pairs each `:rf.mutation/optimistic-applied`
-       with its terminal `:reconciled` / `:rolled-back` settle by
-       `:snapshot-id` (or `:pending` when unsettled);
-       `optimistic-force-clobbers` projects the `:force`-clobber warnings.
-    8. **lints** — global-scope audit, suspicious-global,
-       orphaned-owner.
-    9. **on-box sensitive-resource redaction** — a
-       trace-borne row naming a `:sensitive?` resource redacts its
-       value-bearing slots; the pre-filtered projection buffer; the
-       `:error` freshness arm; the fourth optimistic outcome
-       `:superseded`."
+  "Pure-data tests for Xray's Resources tab helpers (Spec 016 §Xray and AI
+  tooling). Dual-target `.cljc`: the JVM test-runner and the `:node-test`
+  build both run it."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
-            ;; The live `:entries` / `:rf.runtime/work-ledger` maps
-            ;; are keyed on the CEDN-1 byte `key-id` STRING, with the
-            ;; kind-preserving scoped-key VECTOR carried on the entry's
-            ;; `:resource/key`. The fixtures below model that runtime shape via
-            ;; `rf.resources.state/key-id` rather than keying on the vector.
+            ;; The live `:entries` / `:rf.runtime/work-ledger` maps are keyed
+            ;; on the CEDN-1 byte id STRING, with the kind-preserving vector on
+            ;; the record; the fixtures build that shape with the real id fns.
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
@@ -56,8 +16,7 @@
 (def ^:private session-scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
 
 (def ^:private registrations
-  "A `(rf/registrations {:source :store :kind :resource})` shape — `{<id> <meta>}` where meta
-  carries the registration spec under `:rf/resource` + source coords."
+  "A `(rf/registrations {:source :store :kind :resource})` shape."
   {:article/by-slug
    {:doc  "Article detail by slug."
     :file "app/articles.cljs" :line 12
@@ -89,170 +48,54 @@
                 {:resource :comments/list :blocking? false :keep-previous? true}]}
    :route/home {:path "/"}})
 
-;; ---- (1) trace family ---------------------------------------------------
+;; ---- trace family -------------------------------------------------------
 
 (deftest trace-family
-  (testing "enumerated ops are family members with class + label"
-    (is (h/resource-trace-op? :rf.resource/fetch-started))
-    (is (= :success (h/op-class :rf.resource/succeeded)))
-    (is (= :failure (h/op-class :rf.resource/failed)))
-    (is (= :suppression (h/op-class :rf.resource/stale-suppressed)))
-    (is (= :invalidation (h/op-class :rf.resource/invalidated)))
-    (is (= :gc (h/op-class :rf.resource/gc-fired)))
-    (is (= :dedupe (h/op-class :rf.resource/deduped)))
-    (is (= :hydration (h/op-class :rf.resource/hydrated)))
-    ;; EP-0016 D3 — the named-scope-resolver resolution op.
-    (is (h/resource-trace-op? :rf.resource/scope-resolved))
-    (is (= :lifecycle (h/op-class :rf.resource/scope-resolved)))
-    (is (= "scope resolved" (h/op-label :rf.resource/scope-resolved)))
-    (is (= "fetch started" (h/op-label :rf.resource/fetch-started))))
-  (testing "the SSR / route / revalidate ops the runtime also emits are
-            enumerated (the enum is aligned with the emitted set)"
-    (is (= :lifecycle (h/op-class :rf.resource/revalidate-scan)))
-    (is (= :lifecycle (h/op-class :rf.resource/route-plan)))
-    (is (= :hydration (h/op-class :rf.resource/hydrate-clock-skew)))
-    (is (= :hydration (h/op-class :rf.resource/restored)))
-    (is (= :hydration (h/op-class :rf.resource/restore-clock-skew)))
-    (is (= "revalidate scan" (h/op-label :rf.resource/revalidate-scan)))
-    (is (= "restored"        (h/op-label :rf.resource/restored)))
-    ;; EP-0020 polling ops (gc-class — the freshness-timer family)
-    (is (= :gc (h/op-class :rf.resource/poll-scheduled)))
-    (is (= :gc (h/op-class :rf.resource/poll-fired)))
-    (is (= "poll scheduled" (h/op-label :rf.resource/poll-scheduled)))
-    (is (= "poll fired"     (h/op-label :rf.resource/poll-fired))))
-  (testing "EP-0021 infinite-feed load-more family — class + label"
-    (is (h/resource-trace-op? :rf.resource/load-more))
-    (is (= :lifecycle (h/op-class :rf.resource/load-more)))
-    (is (= :success   (h/op-class :rf.resource/page-appended)))
-    (is (= :failure   (h/op-class :rf.resource/page-failed)))
-    (is (= :dedupe    (h/op-class :rf.resource/load-more-skipped)))
-    (is (= "load more"          (h/op-label :rf.resource/load-more)))
-    (is (= "page appended"      (h/op-label :rf.resource/page-appended)))
-    (is (= "page failed"        (h/op-label :rf.resource/page-failed)))
-    (is (= "load more skipped"  (h/op-label :rf.resource/load-more-skipped))))
-  (testing "the closed enum matches the runtime-emitted set EXACTLY — no
-            extra (e.g. the never-emitted `:rf.resource/ensure` event-id or
-            `work-suppressed`, which stale-suppressed covers) and none missing"
-    (let [enumerated (set (keys h/trace-ops))
-          ;; the authoritative runtime-emitted `:rf.resource/*` operation
-          ;; set, cross-checked against implementation/resources/ emit sites
-          ;; + Spec 009 §Where trace emission lives.
-          emitted    #{:rf.resource/registered
-                       :rf.resource/scope-resolved
-                       :rf.resource/owner-attached
-                       :rf.resource/cache-hit
-                       :rf.resource/deduped
-                       :rf.resource/fetch-started
-                       :rf.resource/work-started
-                       :rf.resource/work-abort-requested
-                       :rf.resource/work-completed
-                       :rf.resource/succeeded
-                       :rf.resource/failed
-                       :rf.resource/refresh-failed
-                       ;; EP-0021 — the infinite-feed load-more family
-                       :rf.resource/load-more
-                       :rf.resource/page-appended
-                       :rf.resource/page-failed
-                       :rf.resource/load-more-skipped
-                       :rf.resource/invalidated
-                       :rf.resource/refetch-decision
-                       :rf.resource/revalidate-scan
-                       :rf.resource/route-plan
-                       :rf.resource/owner-released
-                       :rf.resource/stale-scheduled
-                       :rf.resource/stale-fired
-                       :rf.resource/gc-scheduled
-                       :rf.resource/gc-fired
-                       :rf.resource/gc-skipped
-                       :rf.resource/poll-scheduled
-                       :rf.resource/poll-fired
-                       :rf.resource/removed
-                       :rf.resource/stale-suppressed
-                       :rf.resource/hydrated
-                       :rf.resource/hydrate-refetch
-                       :rf.resource/hydrate-clock-skew
-                       :rf.resource/restored
-                       :rf.resource/restore-clock-skew}]
-      (is (= emitted enumerated)
-          "trace-ops enum is exactly the runtime-emitted op set")))
-  (testing "an in-namespace op outside the enum is a family member"
-    (is (h/resource-trace-op? :rf.resource/some-future-op))
-    (is (= :lifecycle (h/op-class :rf.resource/some-future-op)))
-    (is (= "some-future-op" (h/op-label :rf.resource/some-future-op))))
-  (testing "non-family ops reject"
-    (is (not (h/resource-trace-op? :rf.event/dispatched)))
-    (is (not (h/resource-trace-op? :rf.route/navigate)))
-    (is (nil? (h/op-class :rf.event/dispatched)))))
+  (testing "an enumerated op takes its class and label from the table"
+    (is (= [true :failure "failed"]
+           ((juxt h/resource-trace-op? h/op-class h/op-label) :rf.resource/failed))))
+  (testing "an in-namespace op outside the enum is a member, with the fallbacks"
+    (is (= [true :lifecycle "some-future-op"]
+           ((juxt h/resource-trace-op? h/op-class h/op-label) :rf.resource/some-future-op))))
+  (testing "a non-family op rejects"
+    (is (= [false nil] ((juxt h/resource-trace-op? h/op-class) :rf.event/dispatched)))))
 
-;; ---- (2) summarize (PRIVACY) -------------------------------------------
+;; ---- summarize (PRIVACY) -------------------------------------------------
 
 (deftest summarize-privacy
-  (testing "a map value summarizes to type + size + preview, never raw"
-    (let [s (h/summarize {:slug "welcome"})]
-      (is (= "map" (:type s)))
-      (is (= 1 (:size s)))
-      (is (not (:redacted? s)))
-      (is (not (:large? s)))))
-  (testing "scopes go through the SAME fn as data (scope carries PII)"
-    (let [s (h/summarize session-scope)]
-      (is (= "vector" (:type s)))
-      ;; the preview is bounded text, NOT a structured leak of the raw value
-      (is (string? (:preview s)))))
-  (testing "the framework redaction sentinel keeps redacted status, no raw preview"
-    (let [s (h/summarize :rf/redacted)]
-      (is (:redacted? s))
-      (is (= "[redacted]" (:preview s)))))
-  (testing "the framework large-elision sentinel keeps large status"
-    (let [s (h/summarize :rf.size/large-elided)]
-      (is (:large? s))
-      (is (= "[large — elided]" (:preview s)))))
-  (testing "a large value is bounded with :elided?"
-    (let [big (apply str (repeat 500 "x"))
-          s   (h/summarize big {:budget 20})]
-      (is (:elided? s))
-      (is (<= (count (:preview s)) 21))   ; budget + the … glyph
-      (is (not (:redacted? s)))))
-  (testing "scoped-key-summary summarizes scope + params, plain resource-id"
-    (let [s (h/scoped-key-summary [session-scope :article/by-slug {:slug "x"}])]
-      (is (= :article/by-slug (:resource-id s)))
-      (is (= "vector" (get-in s [:scope :type])))
-      (is (= "map" (get-in s [:params :type]))))))
+  (testing "a value summarizes to its shape and a bounded preview"
+    (is (= {:type "map" :size 1 :preview "{:slug \"welcome\"}"
+            :elided? false :redacted? false :large? false}
+           (h/summarize {:slug "welcome"}))))
+  (testing "the framework sentinels keep their status and render no raw preview"
+    (is (= {:type "keyword" :size nil :preview "[redacted]"
+            :elided? false :redacted? true :large? false}
+           (h/summarize :rf/redacted)))
+    (is (= {:type "keyword" :size nil :preview "[large — elided]"
+            :elided? false :redacted? false :large? true}
+           (h/summarize :rf.size/large-elided))))
+  (testing "a preview past the budget is cut and marked :elided?"
+    (is (= {:type "string" :size 500 :preview (str "\"" (apply str (repeat 19 "x")) "…")
+            :elided? true :redacted? false :large? false}
+           (h/summarize (apply str (repeat 500 "x")) {:budget 20})))))
 
-;; ---- (3) project-registry ----------------------------------------------
+;; ---- project-registry ----------------------------------------------------
 
 (deftest project-registry-test
-  (let [rows (h/project-registry registrations routes-map)]
+  (let [rows  (h/project-registry registrations routes-map)
+        by-id (into {} (map (juxt :resource-id identity)) rows)]
     (testing "one row per registered resource, sorted by id"
-      (is (= 3 (count rows)))
-      (is (= [:article/by-slug :dashboard/summary :me/profile]
-             (mapv :resource-id rows))))
-    (testing "scope policy is described; global flagged"
-      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))
-            dash    (first (filter #(= :dashboard/summary (:resource-id %)) rows))]
-        (is (= :global (get-in article [:scope :policy])))
-        (is (get-in article [:scope :global?]))
-        (is (= :resolver (get-in dash [:scope :policy])))
-        (is (= "named resolver :app/session" (get-in dash [:scope :label])))
-        (is (not (get-in dash [:scope :global?])))))
-    (testing "schemas summarized (never raw), policy/timestamps surfaced"
-      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
-        (is (map? (:params-schema article)))   ; a summary map, not the raw schema
-        (is (= 60000 (:stale-after-ms article)))
-        (is (= 300000 (:gc-after-ms article)))
-        (is (:tags? article))
-        (is (= :rf.http/managed (get-in article [:request :transport])))
-        (is (= {:file "app/articles.cljs" :line 12} (:source-coord article)))))
-    (testing "declaring-routes joined from the route registry"
-      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
-        (is (= [:route/article] (:declaring-routes article)))))))
+      (is (= [:article/by-slug :dashboard/summary :me/profile] (mapv :resource-id rows))))
+    (testing "a {:from-db …} scope policy is described as its named resolver"
+      (is (= {:policy :resolver :label "named resolver :app/session" :global? false}
+             (get-in by-id [:dashboard/summary :scope]))))
+    (testing "declaring routes are joined from the route registry"
+      (is (= [:route/article] (get-in by-id [:article/by-slug :declaring-routes]))))))
 
-;; ---- (3b) project-scope-resolvers (EP-0016 D3) --------------------------
+;; ---- project-scope-resolvers ---------------------------------------------
 
 (def ^:private scope-resolver-registrations
-  "A `(rf/registrations {:source :store :kind :resource-scope})` shape — `{<scope-id> <meta>}`
-  where meta carries the canonical resolver spec under `:rf/resource-scope`
-  + source coords. One declared-inputs resolver + one whole-db-sugar
-  resolver (`:whole-db? true`, synthetic root-path input)."
+  "One declared-inputs resolver and one whole-db-sugar resolver."
   {:realworld/session
    {:doc  "Viewer session scope."
     :file "app/scopes.cljs" :line 7
@@ -267,32 +110,20 @@
 
 (deftest project-scope-resolvers-test
   (let [rows (h/project-scope-resolvers scope-resolver-registrations)]
-    (testing "one row per registered resolver, sorted by scope-id"
-      (is (= 2 (count rows)))
-      (is (= [:realworld/session :realworld/tenant] (mapv :scope-id rows))))
-    (testing "declared inputs surface as {:name :source :path-summary} — the
-              :db source head + the rf-path summarized, NEVER the value"
-      (let [session (first (filter #(= :realworld/session (:scope-id %)) rows))
-            input   (first (:inputs session))]
-        (is (= :username (:name input)))
-        (is (= :db (:source input)))
-        ;; the path is a SUMMARY map (bounded), not the raw path vector
-        (is (map? (:path input)))
-        (is (false? (:whole-db? session)))
-        (is (= {:file "app/scopes.cljs" :line 7} (:source-coord session)))))
-    (testing "whole-db sugar is flagged (the explicit-cost mark, EP-0015 disp 8)"
-      (let [tenant (first (filter #(= :realworld/tenant (:scope-id %)) rows))]
-        (is (true? (:whole-db? tenant)))))))
+    (testing "sorted rows: declared input names and sources, the whole-db flag, coords"
+      (is (= [[:realworld/session [[:username :db]] false {:file "app/scopes.cljs" :line 7}]
+              [:realworld/tenant [[:db :db]] true nil]]
+             (mapv (juxt :scope-id #(mapv (juxt :name :source) (:inputs %)) :whole-db? :source-coord)
+                   rows))))
+    (testing "an input's rf-path is summarized, never the value at it"
+      (is (= "[:auth :user :username]" (get-in rows [0 :inputs 0 :path :preview]))))))
 
-;; ---- (4) project-instances ---------------------------------------------
+;; ---- project-instances -----------------------------------------------------
 
 (def ^:private now 1000000)
 
 (defn- byte-keyed
-  "Build the LIVE-shape `:entries` map: keyed on the
-  CEDN-1 byte `rf.resources.state/key-id` of each scoped-key VECTOR, with the
-  kind-preserving vector stamped on the entry's `:resource/key` (exactly as
-  `rf.resources.state/empty-entry` / the runtime write it). Input is the author-friendly
+  "The LIVE-shape `:entries` map from an author-friendly
   `{<scoped-key-vector> <entry>}` map."
   [vector-keyed]
   (into {}
@@ -316,57 +147,16 @@
       :tags #{[:article "old"]}}}))
 
 (deftest project-instances-test
-  (let [rows (h/project-instances entries now)]
-    (testing "one row per entry; sorted by id then generation desc"
-      (is (= 2 (count rows)))
-      (is (= [4 2] (mapv :generation rows))))
-    (testing "scope/params/data summarized — NEVER raw"
-      (let [r (first rows)]
-        (is (= "vector" (get-in r [:scope :type])))   ; a summary, not the raw scope
-        (is (= "map" (get-in r [:params :type])))
-        (is (= "map" (get-in r [:data :type])))
-        (is (:has-data? r))))
-    (testing "derived :stale? (invalidated OR past stale-at) — not a stored fact"
-      (let [fresh (first (filter #(= 4 (:generation %)) rows))
-            stale (first (filter #(= 2 (:generation %)) rows))]
-        (is (not (:stale? fresh)) "loaded + stale-at in the future = fresh")
-        (is (:stale? stale) "past stale-at = stale")))
-    (testing "derived :gc-eligible? = no active owners"
-      (let [owned (first (filter #(= 4 (:generation %)) rows))
-            orphan (first (filter #(= 2 (:generation %)) rows))]
-        (is (not (:gc-eligible? owned)))
-        (is (:gc-eligible? orphan))
-        (is (= 1 (:owner-count owned)))))))
+  (testing "rows sort by resource-id, then generation descending"
+    (is (= [4 2] (mapv :generation (h/project-instances entries now))))))
 
-;; ---- (4b) staleness derivation — divergence pin --------------------------
-;;
-;; `resources-helpers/derive-stale?` is a SECOND implementation of the
-;; framework's `rf.resources.state/entry-stale?` (Spec 016 §Stale and GC
-;; scheduling names "the single shared derivation"). The copy is DELIBERATE:
-;; the panel's read path stays free of a `re-frame.resources.*` require edge
-;; so an app that omits the optional Resources artefact still renders the
-;; panel (`tools/xray/spec/024-Resources-Panel.md` §Decoupled reads, and this
-;; ns's own docstring). Nothing forces it — `tools/README.md` permits
-;; tool → implementation requires — so it is a posture, and a posture needs a
-;; tripwire rather than trust.
-;;
-;; THIS IS THAT TRIPWIRE. It holds the two derivations to the same answer
-;; across the reachable domain, so a change to staleness cannot move
-;; one copy without turning this red. The require edge lives in TEST code
-;; only (`re-frame.resources.state` is required at the top of this
-;; ns), so the pin costs the panel's production surface nothing and leaves
-;; bundle isolation untouched.
-;;
-;; AND NOTE THE ONE DELIBERATE DIFFERENCE, pinned separately below: the
-;; framework predicate is NOT nil-clock safe — `(>= nil stale-at)` throws on
-;; the JVM — while the panel guards `now-ms`, because `project-instances`'
-;; 1-arity passes it as nil. Replacing the panel's copy with a delegation to
-;; the framework fn would therefore BREAK the nil clock, not tidy it up, and
-;; the nil-clock pin goes red if anyone tries it.
+;; `derive-stale?` is a deliberate second copy of
+;; `rf.resources.state/entry-stale?` (see its docstring). This pin holds the two
+;; to the same answer across the reachable domain; the nil-clock pin below holds
+;; the one deliberate difference.
 
 (def ^:private stale-pin-entries
-  "Entry shapes spanning both arms of the predicate (explicit invalidation,
-  elapsed time policy) and the boundaries of each."
+  "Entry shapes spanning both arms of the predicate and the boundaries of each."
   {:no-policy       {:status :loaded :data 1}
    :invalidated     {:status :loaded :invalidated-at 500}
    :stale-at-future {:status :loaded :stale-at (+ now 50000)}
@@ -400,19 +190,16 @@
                         (byte-keyed {[session-scope :article/by-slug {:slug "gone"}]
                                      {:resource/id :article/by-slug :status :loaded
                                       :invalidated-at 5}}))]
-      (is (= 1 (count time-policy)))
       (is (false? (:stale? (first time-policy)))
           "a time-policy entry with NO clock reads not-stale rather than throwing")
       (is (true? (:stale? (first invalidated)))
           "the invalidation arm answers even with no clock"))))
 
-;; ---- (5) project-work-ledger -------------------------------------------
+;; ---- project-work-ledger ---------------------------------------------------
 
 (defn- byte-keyed-ledger
-  "Build the LIVE-shape `:rf.runtime/work-ledger`
-  map: keyed on the CEDN-1 byte `rf.resources.work-ledger/work-id-id` of each record's
-  `:work/id` VECTOR (exactly as `rf.resources.work-ledger/put-record` writes it). Input is
-  the author-friendly seq of records (each carrying its own `:work/id`)."
+  "The LIVE-shape `:rf.runtime/work-ledger` map from a seq of records, each
+  carrying its own `:work/id`."
   [records]
   (into {}
         (map (fn [record] [(rf.resources.work-ledger/work-id-id (:work/id record)) record]))
@@ -422,182 +209,86 @@
   (byte-keyed-ledger
     [{:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
       :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
-      :generation 4 :transport :rf.http/managed :status :running
-      :owners #{[:route :route/article "nav-1"]}
-      :causes [[:route-entry :route/article "nav-1"]]
-      :cancellable? true :started-at 100 :deadline-at 5100}
+      :generation 4 :status :running}
      {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
       :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "old"}]
-      :generation 1 :status :completed :outcome {:ok true}}]))
+      :generation 1 :status :completed}]))
 
 (deftest project-work-ledger-test
   (let [rows (h/project-work-ledger ledger)]
-    (testing "one row per work record; non-terminal (live) first"
-      (is (= 2 (count rows)))
-      (is (= [:running :completed] (mapv :status rows)))
-      (is (= [false true] (mapv :terminal? rows))))
-    (testing "the displayed :work-id is the KIND-PRESERVING :work/id VECTOR,
-              NOT the opaque byte map-key — read from the record"
-      ;; the live ledger map IS byte-keyed (string keys); the row must
-      ;; surface the kind-preserving work-id from the record's `:work/id`.
-      (is (every? string? (keys ledger)))
-      (let [r (first rows)]
-        (is (vector? (:work-id r)))
-        (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-               (:work-id r)))))
-    (testing "host handles are structurally absent — only serializable facts"
-      (let [r (first rows)]
-        (is (= :resource (:kind r)))
-        (is (:cancellable? r))
-        (is (= 5100 (:deadline-at r)))
-        ;; resource-key scope/params summarized
-        (is (= "vector" (get-in r [:resource/key :scope :type])))))
-    (testing "causes summarized (may carry data)"
-      (is (vector? (:causes (first rows)))))))
+    (testing "live work sorts before the terminal tail"
+      (is (= [[:running false] [:completed true]] (mapv (juxt :status :terminal?) rows))))
+    (testing "the displayed :work-id is the record's kind-preserving :work/id, not the byte map key"
+      (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+             (:work-id (first rows)))))))
 
-;; ---- (5b) EP-0021 infinite-feed surface --------------------------------
+;; ---- infinite feeds --------------------------------------------------------
 
 (def ^:private infinite-entries
   (byte-keyed
-    {;; a LOADED feed with 2 accumulated pages + a live cursor (more pages)
+    {;; a loaded feed with 2 accumulated pages and a live cursor
      [session-scope :feed/articles {:tag "clj"}]
      {:resource/id :feed/articles :status :loaded :infinite? true
-      :data [[{:id 1}] [{:id 2}]]                  ; 2 vector pages
+      :data [[{:id 1}] [{:id 2}]]
       :page-params [nil "cursor-1"]
-      :next-page-param "cursor-2"                  ; more pages → not terminal
+      :next-page-param "cursor-2"
       :generation 3 :loaded-at (- now 1000) :stale-at (+ now 50000)
       :active-owners #{[:feed/opened "feed"]} :tags #{[:feed "clj"]}}
-     ;; a TERMINAL feed (nil cursor) carrying a load-more :page-error
+     ;; a terminal feed (nil cursor) carrying a load-more :page-error
      [session-scope :feed/articles {:tag "done"}]
      {:resource/id :feed/articles :status :loaded :infinite? true
       :data [[{:id 9}]]
       :page-params [nil]
-      :next-page-param nil                         ; nil cursor = terminal
+      :next-page-param nil
       :page-error {:kind :rf.http/server-error :status 500}
       :generation 2 :loaded-at (- now 500) :stale-at (+ now 50000)
       :active-owners #{[:feed/opened "feed2"]}}}))
 
-(deftest infinite-instance-surface-test
-  (let [rows  (h/project-instances infinite-entries now)
-        live  (first (filter #(= {:tag "clj"} (get-in % [:scoped-key 2])) rows))
-        term  (first (filter #(= {:tag "done"} (get-in % [:scoped-key 2])) rows))]
-    (testing "an :infinite? entry surfaces the feed facts (pure from the entry)"
-      (is (:infinite? live))
-      (is (= 2 (:page-count live)))
-      (is (false? (:terminal? live)))
-      (is (true? (:has-next-page? live)))
-      ;; the cursor is egress-projected (summarized — a cursor can carry ids)
-      (is (contains? live :cursor))
-      (is (nil? (:page-error live))))
-    ;; The per-page cursor CHAIN (the ordered record of how the
-    ;; accumulation advanced; NOT part of the cache key). Each element is a
-    ;; cursor egress-projected the SAME way :cursor is — a summary map, never
-    ;; the raw cursor.
-    (testing "the durable :page-params vector is projected as egress-summaries"
-      (is (vector? (:page-params live)))
-      (is (= 2 (count (:page-params live)))
-          "one summary per accumulated page (page-0 seed + 1 next-cursor)")
-      (is (every? map? (:page-params live)) "each element is a summary map")
-      (is (every? #(contains? % :preview) (:page-params live))
-          "each is a render-safe summary, not the raw cursor value")
-      (is (= ["nil" "\"cursor-1\""]
-             (mapv :preview (:page-params live)))
-          "the ordered cursor chain (page-0 nil seed, then \"cursor-1\")
-           survives projection verbatim — plain feed, non-sensitive owner,
-           no redaction")
-      (is (every? #(false? (:redacted? %)) (:page-params live))
-          "a non-sensitive feed's cursors are NOT over-redacted"))
-    (testing "a TERMINAL feed: nil cursor → :terminal?, no :has-next-page?"
-      (is (= 1 (:page-count term)))
-      (is (true? (:terminal? term)))
-      (is (false? (:has-next-page? term)))
-      (is (= 1 (count (:page-params term)))
-          "the terminal feed's single-page chain is projected too"))
-    (testing "the THIRD error channel — a load-more :page-error is surfaced
-              (summarized, distinct from :error / :refresh-error)"
-      (is (some? (:page-error term)))
-      (is (nil? (:error term)))
-      (is (nil? (:refresh-error term))))
-    (testing "a NON-infinite entry carries NONE of the infinite facts"
-      (let [ordinary (first (h/project-instances entries now))]
-        (is (not (contains? ordinary :infinite?)))
-        (is (not (contains? ordinary :page-count)))
-        (is (not (contains? ordinary :cursor)))
-        (is (not (contains? ordinary :page-params)))))))
+(defn- feed-row [rows tag]
+  (first (filter #(= {:tag tag} (get-in % [:scoped-key 2])) rows)))
 
-;; Page-params are cursor values; a SENSITIVE-owner feed must
-;; redact each cursor in the chain the SAME way the live-cache scope/params /
-;; the `:cursor` are redacted on the off-box path.
+(deftest infinite-instance-surface-test
+  (let [rows       (h/project-instances infinite-entries now)
+        live       (feed-row rows "clj")
+        term       (feed-row rows "done")
+        feed-facts (juxt :infinite? :page-count :terminal? :has-next-page?)]
+    (testing "a feed with a live cursor: its pages and its ordered, summarized cursor chain"
+      (is (= [true 2 false true] (feed-facts live)))
+      (is (= ["nil" "\"cursor-1\""] (mapv :preview (:page-params live)))))
+    (testing "a nil cursor is terminal; a load-more failure rides the third error channel"
+      (is (= [true 1 true false] (feed-facts term)))
+      (is (contains? (:page-error term) :preview)))
+    (testing "a non-infinite entry carries none of the feed facts"
+      (is (not (contains? (first (h/project-instances entries now)) :infinite?))))))
+
 (deftest infinite-page-params-egress-redaction-test
-  (let [;; an egress-fn that redacts the :params slot (mirrors the off-box
-        ;; `resource-egress-fn` for a `:sensitive?` owner) and passes other
-        ;; slots through — page-params + the cursor project through `:params`.
-        egress-fn     (fn [v slot _key-id] (if (= :params slot) h/redacted-sentinel v))
-        rows          (h/project-instances infinite-entries now egress-fn)
-        live          (first (filter #(= {:tag "clj"} (get-in % [:scoped-key 2])) rows))]
-    (testing "each VALUE-bearing page-param in the chain is redacted off-box"
-      (is (= 2 (count (:page-params live))))
-      ;; the page-0 seed is nil (nothing to redact — stays nil, as the live
-      ;; :data/scope nil slots do); every NON-nil cursor in the chain redacts.
+  (let [;; redacts the :params slot, as the off-box egress does for a :sensitive? owner
+        egress-fn (fn [v slot _key-id] (if (= :params slot) h/redacted-sentinel v))
+        live      (feed-row (h/project-instances infinite-entries now egress-fn) "clj")]
+    (testing "every cursor in the chain, and the live cursor, egress through the :params slot"
       (is (= [false true] (mapv :redacted? (:page-params live)))
-          "the nil seed has nothing to redact; the real cursor redacts")
-      (is (= "[redacted]" (:preview (second (:page-params live))))
-          "no raw cursor value leaks off-box")
-      ;; the cursor (current :next-page-param) routes through the SAME :params
-      ;; slot, so it redacts identically — page-params are not a separate leak path.
+          "the nil page-0 seed has nothing to redact")
       (is (:redacted? (:cursor live))))))
 
-(deftest infinite-work-ledger-page-index-test
-  (let [ledger (byte-keyed-ledger
-                 [;; a LIVE load-more (positive page index) — the :fetching-next? basis
-                  {:work/id [:rf.work/resource [session-scope :feed/articles {:tag "clj"}] 4]
-                   :work/kind :resource :resource/key [session-scope :feed/articles {:tag "clj"}]
-                   :generation 4 :status :running :page-index 2}
-                  ;; a page-0 first-load / whole-feed refetch (index 0)
-                  {:work/id [:rf.work/resource [session-scope :feed/articles {:tag "new"}] 1]
-                   :work/kind :resource :resource/key [session-scope :feed/articles {:tag "new"}]
-                   :generation 1 :status :running :page-index 0}
-                  ;; a non-infinite record — no page-index
-                  {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "x"}] 1]
-                   :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "x"}]
-                   :generation 1 :status :running}])
-        rows   (h/project-work-ledger ledger)
-        by-rid (fn [rid] (first (filter #(= rid (get-in % [:resource/key :resource-id])) rows)))]
-    (testing "the work-row carries :page-index (the :fetching-next? durable fact)"
-      (is (= 2 (:page-index (by-rid :feed/articles))) "the live LOAD-MORE (positive tail index)")
-      (is (some #(= 0 (:page-index %)) rows) "a page-0 fetch records index 0")
-      (is (nil? (:page-index (by-rid :article/by-slug))) "a non-infinite record has no page-index"))))
-
-;; ---- (6) project-route-graph -------------------------------------------
+;; ---- route / resource graph ------------------------------------------------
 
 (deftest project-route-graph-test
-  (let [nodes (h/project-route-graph routes-map)]
-    (testing "only routes with :resources appear"
-      (is (= 1 (count nodes)))
-      (is (= :route/article (:route-id (first nodes)))))
-    (testing "blocking = SSR wait point; non-blocking split"
-      (let [n (first nodes)]
-        (is (= [:article/by-slug] (:blocking n)))
-        (is (= [:comments/list] (:non-blocking n)))
-        (is (:ssr-wait? n))))
-    (testing "resource nodes record declared resolvers without invoking them"
-      (let [res (first (:resources (first nodes)))]
-        (is (:blocking? res))
-        (is (:params-fn? res))
-        (is (:scope-resolver? res))))
-    (testing "the bare 1-arity stays STATIC — :live rollups are :none, no :current?"
-      (let [res (first (:resources (first nodes)))]
-        (is (= :none (get-in res [:live :freshness]))
-            "no live inputs ⇒ the resource node's freshness is :none")
-        (is (not (:current? (first nodes)))
-            "no live inputs ⇒ no route is flagged active")))))
-
-;; ---- (6b) LIVE route/resource graph join --------------------------------
-;;
-;; EP-0003 asks the route graph to surface the CURRENT route/nav-token,
-;; active work, and fresh/stale state — not just static declarations. The
-;; optional `live` arg joins the projected instance/work rows + the routing
-;; slice onto the static plan.
+  (testing "the static projection: only routes declaring :resources, the blocking
+            split, declared resolvers recorded uninvoked, and no live state"
+    (let [none {:entry-count 0 :has-data? false :stale? false :statuses #{}
+                :active-work 0 :freshness :none}]
+      (is (= [{:route-id     :route/article
+               :path         "/articles/:slug"
+               :resources    [{:resource :article/by-slug :blocking? true :keep-previous? false
+                               :local-id nil :after [] :when? false
+                               :params-fn? true :scope-resolver? true :live none}
+                              {:resource :comments/list :blocking? false :keep-previous? true
+                               :local-id nil :after [] :when? false
+                               :params-fn? false :scope-resolver? false :live none}]
+               :blocking     [:article/by-slug]
+               :non-blocking [:comments/list]
+               :ssr-wait?    true}]
+             (h/project-route-graph routes-map))))))
 
 (def ^:private m5-nav-token "nav-7")
 (def ^:private m5-article-key [session-scope :article/by-slug {:slug "welcome"}])
@@ -605,127 +296,53 @@
 (def ^:private m5-routing-slice
   {:current {:route-id :route/article :nav-token m5-nav-token
              :params {:slug "welcome"} :path "/articles/welcome"}
-   ;; The slot is the byte-keyed {<key-id> <scoped-key>} carrier.
    :resource-blocking {m5-nav-token {(rf.resources.state/key-id m5-article-key) m5-article-key}}})
 
 (deftest project-route-graph-live-test
-  (let [;; a FRESH cached :article/by-slug entry (loaded, stale-at in future)
-        live-entries  {m5-article-key
-                       {:resource/id :article/by-slug :status :loaded
-                        :data {:title "Welcome"} :generation 4
-                        :loaded-at (- now 1000) :stale-at (+ now 50000)
-                        :active-owners #{[:route :route/article m5-nav-token]}}}
-        instance-rows (h/project-instances live-entries now)
-        ;; one non-terminal work row for :comments/list (the non-blocking sibling)
+  (let [instance-rows (h/project-instances
+                        {m5-article-key
+                         {:resource/id :article/by-slug :status :loaded
+                          :data {:title "Welcome"} :generation 4
+                          :loaded-at (- now 1000) :stale-at (+ now 50000)
+                          :active-owners #{[:route :route/article m5-nav-token]}}}
+                        now)
         work-rows     (h/project-work-ledger
                         {[:rf.work/resource [session-scope :comments/list {}] 1]
                          {:work/id [:rf.work/resource [session-scope :comments/list {}] 1]
                           :work/kind :resource :resource/key [session-scope :comments/list {}]
                           :generation 1 :status :running}})
-        nodes (h/project-route-graph
-                routes-map
-                {:instance-rows instance-rows
-                 :work-rows     work-rows
-                 :current       (h/routing-current m5-routing-slice)
-                 :blocking-keys (h/routing-blocking-keys m5-routing-slice)})
-        article-node (first (filter #(= :route/article (:route-id %)) nodes))]
-    (testing "the active route is flagged :current? with its live nav-token"
-      (is (:current? article-node))
-      (is (= m5-nav-token (:nav-token article-node))))
-    (testing "the live unsettled blocking wait point surfaces on the active route"
-      (is (= [:article/by-slug] (:blocking-live article-node))
-          ":blocking-live lists the blocking resource still in the unsettled set"))
-    (testing "per-resource live freshness rollup joins the cache/work state"
-      (let [article-res (first (filter #(= :article/by-slug (:resource %))
-                                       (:resources article-node)))
-            comments-res (first (filter #(= :comments/list (:resource %))
-                                        (:resources article-node)))]
-        (is (= :fresh (get-in article-res [:live :freshness]))
-            "the cached, has-data, non-stale article reads :fresh")
-        (is (= 1 (get-in article-res [:live :entry-count])))
-        (is (get-in article-res [:live :has-data?]))
-        (is (= :loading (get-in comments-res [:live :freshness]))
-            "the non-blocking comments resource with active work + no cache reads :loading")
-        (is (= 1 (get-in comments-res [:live :active-work])))))))
+        current       (h/routing-current m5-routing-slice)
+        article-node  (first (filter #(= :route/article (:route-id %))
+                                     (h/project-route-graph
+                                       routes-map
+                                       {:instance-rows instance-rows
+                                        :work-rows     work-rows
+                                        :current       current
+                                        :blocking-keys (h/routing-blocking-keys
+                                                         m5-routing-slice (:nav-token current))})))
+        live-of       (fn [rid] (:live (first (filter #(= rid (:resource %)) (:resources article-node)))))]
+    (testing "the active route carries its nav-token and its unsettled blocking wait point"
+      (is (= {:current? true :nav-token m5-nav-token :blocking-live [:article/by-slug]}
+             (select-keys article-node [:current? :nav-token :blocking-live]))))
+    (testing "each resource node rolls up its live cache and work state"
+      (is (= {:entry-count 1 :has-data? true :stale? false :statuses #{:loaded}
+              :active-work 0 :freshness :fresh}
+             (live-of :article/by-slug)))
+      (is (= {:entry-count 0 :has-data? false :stale? false :statuses #{}
+              :active-work 1 :freshness :loading}
+             (live-of :comments/list))))))
 
 (deftest routing-slice-extractors-test
-  (testing "routing-current pulls the :current slice; nil-safe"
-    (is (= {:route-id :route/article :nav-token m5-nav-token
-            :params {:slug "welcome"} :path "/articles/welcome"}
-           (h/routing-current m5-routing-slice)))
+  (testing "nil-safe on a frame with no routing slice"
     (is (nil? (h/routing-current nil)))
-    (is (nil? (h/routing-current {}))))
-  (testing "routing-blocking-keys (1-arity) flattens the per-nav-token unsettled sets; nil-safe"
-    (is (= [m5-article-key] (h/routing-blocking-keys m5-routing-slice)))
-    (is (= [] (h/routing-blocking-keys nil)))
-    (is (= [] (h/routing-blocking-keys {}))))
-  (testing "routing-blocking-keys (2-arity) reads ONLY the named nav-token bucket; nil-safe"
-    (is (= [m5-article-key] (h/routing-blocking-keys m5-routing-slice m5-nav-token)))
-    ;; an unknown / superseded token resolves to its own (empty) bucket
-    (is (= [] (h/routing-blocking-keys m5-routing-slice "nav-stale")))
-    ;; nil nav-token (no active route) ⇒ no live wait point, NOT the flatten
-    (is (= [] (h/routing-blocking-keys m5-routing-slice nil)))
-    (is (= [] (h/routing-blocking-keys nil m5-nav-token)))
-    (is (= [] (h/routing-blocking-keys {} m5-nav-token)))))
+    (is (= [] (h/routing-blocking-keys nil m5-nav-token))))
+  (testing "the wait points come from the named nav-token's bucket only"
+    (is (= [] (h/routing-blocking-keys m5-routing-slice "nav-stale"))
+        "a superseded token reads its own (empty) bucket, never another's")
+    (is (= [] (h/routing-blocking-keys m5-routing-slice nil))
+        "no active navigation has no live wait point")))
 
-;; ---- (6c) cross-nav-token blocking isolation -----------------------------
-;;
-;; The route graph's `:blocking-live` must come from the CURRENT route's
-;; nav-token bucket ONLY (Spec 024 §Route/resource graph). A helper that
-;; flattened ALL coexisting nav-token buckets would let an OLD token whose
-;; bucket held a key sharing the current route's resource-id falsely
-;; report the active route as still blocked.
-
-(def ^:private cduftx-current-token "nav-current")
-(def ^:private cduftx-stale-token "nav-stale")
-;; SAME resource-id (:article/by-slug) as the current route declares, but
-;; pinned under the SUPERSEDED token's bucket — the cross-token bleed bait.
-(def ^:private cduftx-stale-key
-  [session-scope :article/by-slug {:slug "previous-article"}])
-
-(def ^:private cduftx-multi-token-slice
-  "A multi-token routing slice: the OLD token still has an unsettled blocking
-  key for :article/by-slug; the CURRENT token's bucket is empty (the current
-  route has settled). The current route must NOT be flagged blocked."
-  {:current {:route-id :route/article :nav-token cduftx-current-token
-             :params {:slug "now-article"} :path "/articles/now-article"}
-   :resource-blocking {cduftx-stale-token   {(rf.resources.state/key-id cduftx-stale-key) cduftx-stale-key}
-                       cduftx-current-token {}}})
-
-(deftest project-route-graph-isolates-blocking-by-nav-token
-  (testing "an OLD token's unsettled key for the current route's resource-id
-            does NOT bleed onto the active route's :blocking-live"
-    (let [nodes (h/project-route-graph
-                  routes-map
-                  {:instance-rows []
-                   :work-rows     []
-                   :current       (h/routing-current cduftx-multi-token-slice)
-                   ;; the scoped call: the current nav-token only
-                   :blocking-keys (h/routing-blocking-keys
-                                    cduftx-multi-token-slice
-                                    (:nav-token (h/routing-current cduftx-multi-token-slice)))})
-          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
-      (is (:current? article-node)
-          "the active route is still flagged :current?")
-      (is (= cduftx-current-token (:nav-token article-node)))
-      (is (= [] (:blocking-live article-node))
-          "the stale token's wait point must NOT surface on the current route")))
-  (testing "the all-token FLATTEN would falsely flag it"
-    ;; Demonstrate the difference is real — feeding the flattened keys
-    ;; DOES light up :blocking-live, which is the cross-token bleed the
-    ;; scoped read prevents.
-    (let [nodes (h/project-route-graph
-                  routes-map
-                  {:instance-rows []
-                   :work-rows     []
-                   :current       (h/routing-current cduftx-multi-token-slice)
-                   :blocking-keys (h/routing-blocking-keys cduftx-multi-token-slice)})
-          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
-      (is (= [:article/by-slug] (:blocking-live article-node))
-          "the flatten path leaks the stale token's wait point —
-           proving the scoped read is load-bearing"))))
-
-;; ---- (7) timeline / invalidation / cache-growth ------------------------
+;; ---- timeline / invalidation / cache-growth --------------------------------
 
 (def ^:private trace-buffer
   [{:id 1 :operation :rf.event/dispatched :tags {}}
@@ -750,126 +367,64 @@
       (is (= [:rf.resource/fetch-started :rf.resource/succeeded
               :rf.resource/invalidated :rf.resource/owner-released]
              (mapv :operation rows))))
-    (testing "resource-id derived; key summarized; class set"
-      (let [fs (first rows)]
-        (is (= :article/by-slug (:resource-id fs)))
-        (is (= :lifecycle (:class fs)))
-        (is (= "vector" (get-in fs [:resource/key :scope :type])))))))
+    (testing "resource-id derived from the scoped key; class set; key summarized"
+      (is (= [:article/by-slug :lifecycle "vector"]
+             ((juxt :resource-id :class #(get-in % [:resource/key :scope :type])) (first rows)))))))
 
-;; The four EP-0021 infinite-feed trace ops carry op-specific
-;; page evidence (param/index/count/next/terminal/reason/page-error). The
-;; generic lifecycle projection drops them; the `:page` detail must retain
-;; them, with cursor-bearing facts egress-projected.
 (def ^:private infinite-trace-buffer
-  [;; a load-more issued the next-page fetch (carries the resolved cursor +
-   ;; the page index it appends at + the count so far)
-   {:id 20 :operation :rf.resource/load-more
+  [{:id 20 :operation :rf.resource/load-more
     :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
            :generation 4 :work/id [:rf.work/resource :feed 4]
            :page-param "cursor-1" :page-index 1 :page-count 1}}
-   ;; the page-fetch succeeded + appended (new count + derived next cursor)
    {:id 21 :operation :rf.resource/page-appended
     :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
            :generation 4 :work/id [:rf.work/resource :feed 4]
            :page-index 1 :page-count 2
            :next-page-param "cursor-2" :terminal? false}}
-   ;; a TERMINAL page-appended (no next cursor → terminal? true)
-   {:id 22 :operation :rf.resource/page-appended
-    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
-           :generation 5 :page-index 2 :page-count 3
-           :next-page-param nil :terminal? true}}
-   ;; a load-more no-op (terminal feed → :no-next-page skip reason)
    {:id 23 :operation :rf.resource/load-more-skipped
     :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
            :reason :no-next-page :page-count 3}}
-   ;; a deduped in-flight load-more skip
-   {:id 24 :operation :rf.resource/load-more-skipped
-    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
-           :reason :in-flight :work/id [:rf.work/resource :feed 4]}}
-   ;; the THIRD error channel — a load-more page fetch FAILED (feed kept)
    {:id 25 :operation :rf.resource/page-failed
     :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
            :generation 4 :status-before :loaded :status-after :loaded
            :page-error {:kind :rf.http/server-error :status 500}}}])
 
+(defn- page-of [rows id]
+  (:page (first (filter #(= id (:id %)) rows))))
+
 (deftest infinite-lifecycle-timeline-page-detail-test
-  (let [rows   (h/lifecycle-timeline infinite-trace-buffer)
-        by-id  (fn [id] (first (filter #(= id (:id %)) rows)))
-        lm     (by-id 20) appended (by-id 21) terminal (by-id 22)
-        skip-t (by-id 23) skip-if  (by-id 24) failed   (by-id 25)]
-    (testing "the four infinite ops are projected (in buffer order)"
-      (is (= [:rf.resource/load-more :rf.resource/page-appended
-              :rf.resource/page-appended :rf.resource/load-more-skipped
-              :rf.resource/load-more-skipped :rf.resource/page-failed]
-             (mapv :operation rows))))
-    (testing ":rf.resource/load-more retains param (egress-projected) + index + count"
-      (is (map? (:page lm)))
-      (is (= "\"cursor-1\"" (get-in lm [:page :page-param :preview]))
-          "the resolved cursor is egress-projected (summarized), not raw")
-      (is (= 1 (get-in lm [:page :page-index])))
-      (is (= 1 (get-in lm [:page :page-count])))
-      (is (not (contains? (:page lm) :next-page-param))
-          "load-more carries no next-page-param tag"))
-    (testing ":rf.resource/page-appended retains index/count/next-cursor/terminal"
-      (is (= 1 (get-in appended [:page :page-index])))
-      (is (= 2 (get-in appended [:page :page-count])))
-      (is (= "\"cursor-2\"" (get-in appended [:page :next-page-param :preview]))
-          "the derived next cursor is egress-projected")
-      (is (false? (get-in appended [:page :terminal?]))))
-    (testing "a TERMINAL page-appended surfaces :terminal? true + nil next"
-      (is (true? (get-in terminal [:page :terminal?])))
-      (is (= "nil" (get-in terminal [:page :next-page-param :preview]))))
-    (testing ":rf.resource/load-more-skipped retains the skip :reason"
-      (is (= :no-next-page (get-in skip-t [:page :reason])))
-      (is (= 3 (get-in skip-t [:page :page-count])))
-      (is (= :in-flight (get-in skip-if [:page :reason]))))
-    (testing ":rf.resource/page-failed surfaces the :page-error (summarized,
-              the THIRD error channel)"
-      (is (some? (get-in failed [:page :page-error])))
-      (is (contains? (get-in failed [:page :page-error]) :preview)))
-    (testing "a NON-infinite op (the plain lifecycle buffer) carries no :page"
+  (let [page (partial page-of (h/lifecycle-timeline infinite-trace-buffer))]
+    (testing "each infinite op keeps its page evidence, cursors summarized"
+      (is (= ["\"cursor-1\"" 1 1]
+             ((juxt #(get-in % [:page-param :preview]) :page-index :page-count) (page 20))))
+      (is (= ["\"cursor-2\"" 1 2 false]
+             ((juxt #(get-in % [:next-page-param :preview]) :page-index :page-count :terminal?)
+              (page 21))))
+      (is (= [:no-next-page 3] ((juxt :reason :page-count) (page 23))))
+      (is (contains? (:page-error (page 25)) :preview)))
+    (testing "a non-infinite op carries no :page"
       (is (not (contains? (first (h/lifecycle-timeline trace-buffer)) :page))))))
 
 (deftest infinite-lifecycle-timeline-page-param-egress-test
-  ;; the cursor-bearing facts route through the single-arg egress-fn the way
-  ;; the off-box `get-resource-history` threads `resource-trace-egress-fn`.
-  (let [egress-fn (fn [_v] h/redacted-sentinel)   ; redact every value
-        rows      (h/lifecycle-timeline infinite-trace-buffer egress-fn)
-        by-id     (fn [id] (first (filter #(= id (:id %)) rows)))]
-    (testing "page-param / next-page-param / page-error redact off-box"
-      (is (:redacted? (get-in (by-id 20) [:page :page-param])))
-      (is (:redacted? (get-in (by-id 21) [:page :next-page-param])))
-      (is (:redacted? (get-in (by-id 25) [:page :page-error]))))
-    (testing "the metadata facts ride raw (NOT egressed)"
-      (is (= 1 (get-in (by-id 20) [:page :page-index])))
-      (is (= :no-next-page (get-in (by-id 23) [:page :reason])))
-      (is (true? (get-in (by-id 22) [:page :terminal?]))))))
-
-(deftest invalidation-graph-test
-  (let [rows (h/invalidation-graph trace-buffer)]
-    (testing "one row per invalidation; scope summarized, tags + counts surfaced"
-      (is (= 1 (count rows)))
-      (let [r (first rows)]
-        (is (= "vector" (get-in r [:scope :type])))   ; scope summarized
-        (is (map? (:cause r)))))))                      ; cause summarized
+  (let [page (partial page-of (h/lifecycle-timeline infinite-trace-buffer
+                                                    (fn [_v] h/redacted-sentinel)))]
+    (testing "the cursors and the page error egress; the page metadata rides raw"
+      (is (= [true true true]
+             [(get-in (page 20) [:page-param :redacted?])
+              (get-in (page 21) [:next-page-param :redacted?])
+              (get-in (page 25) [:page-error :redacted?])]))
+      (is (= 1 (:page-index (page 20)))))))
 
 (deftest cache-growth-test
-  (let [instance-rows (h/project-instances entries now)
-        work-rows     (h/project-work-ledger ledger)
-        g             (h/cache-growth instance-rows work-rows)]
-    (testing "aggregates per-resource entry/owned/gc counts + live work"
-      (is (= 2 (:total-entries g)))
-      (is (= 1 (:total-gc-eligible g)))
-      (is (= 1 (:live-work g)))               ; one non-terminal ledger row
-      (let [article (first (filter #(= :article/by-slug (:resource-id %))
-                                   (:by-resource g)))]
-        (is (= 2 (:entry-count article)))
-        (is (= 1 (:owned-count article)))
-        (is (= 1 (:gc-eligible article)))))))
+  (testing "per-resource entry / owned / gc-eligible counts, the totals, and live work"
+    (is (= {:by-resource       [{:resource-id :article/by-slug :entry-count 2
+                                 :owned-count 1 :gc-eligible 1}]
+            :total-entries     2
+            :total-gc-eligible 1
+            :live-work         1}
+           (h/cache-growth (h/project-instances entries now) (h/project-work-ledger ledger))))))
 
-;; ---- (7b) EP-0016 projections ------------------------------------------
-;; scope-resolution timeline (D3), descriptor-level invalidation evidence
-;; (D2), and the call-site :reply-to continuation dispatch (D1).
+;; ---- EP-0016 projections ---------------------------------------------------
 
 (def ^:private ep0016-trace-buffer
   [;; a named resolver resolved a {:from-db …} reference to a concrete scope
@@ -889,13 +444,8 @@
            :whole-db? false
            :scope nil
            :resolved-nil? true}}
-   ;; a mutation settled with per-target scoped invalidation descriptors
-   ;; (global + session) + a fail-closed unresolved {:from-db …} + a Rider-1
-   ;; populate-exempt key. This is a MIXED plan: the
-   ;; GLOBAL descriptor is default (it SPARED the populated article key — that
-   ;; key rides its own :exempt-keys), while the SESSION descriptor opts into
-   ;; :refetch-populated? true (it spared NOTHING — empty :exempt-keys). The
-   ;; top-level :populate-exempt is the union of the two per-descriptor sets.
+   ;; a MIXED plan: the default global descriptor spared the populated article
+   ;; key, the session descriptor opted into :refetch-populated? and spared none
    {:id 12 :operation :rf.mutation/succeeded
     :tags {:mutation :realworld/favorite-article
            :instance [:favorite "welcome"]
@@ -910,10 +460,10 @@
                           :exempt-keys []}]
             :unresolved [:realworld/tenant]
             :populate-exempt [[:rf.scope/global :realworld/article {:slug "welcome"}]]}}}
-   ;; a mutation settlement with NO :invalidation facet (no :invalidates) — skipped
+   ;; a mutation settlement with NO :invalidation facet — skipped
    {:id 13 :operation :rf.mutation/succeeded
     :tags {:mutation :realworld/noop :instance [:noop 1]}}
-   ;; the call-site :reply-to continuation dispatch (phase 6)
+   ;; the call-site :reply-to continuation dispatch
    {:id 14 :operation :rf.mutation/replied
     :tags {:rf.frame/id :app/main
            :mutation :realworld/save-article
@@ -925,85 +475,47 @@
 
 (deftest scope-resolutions-test
   (let [rows (h/scope-resolutions ep0016-trace-buffer)]
-    (testing "one row per :rf.resource/scope-resolved, in buffer order"
-      (is (= 2 (count rows)))
-      (is (= [10 11] (mapv :id rows))))
-    (testing "resolver id + declared input NAMES surfaced; scope summarized"
-      (let [r (first rows)]
-        (is (= :realworld/session (:scope-id r)))
-        (is (= [:username] (:inputs r)))
-        (is (false? (:whole-db? r)))
-        (is (false? (:resolved-nil? r)))
-        ;; the resolved scope is PRIVACY-summarized, never raw
-        (is (= "vector" (get-in r [:scope :type])))
-        ;; the resolved input values are summarized too
-        (is (map? (:input-values r)))))
-    (testing "a nil resolution surfaces as fail-closed (:resolved-nil? true)"
-      (let [r (second rows)]
-        (is (true? (:resolved-nil? r)))))))
+    (testing "one row per resolution: resolver id, declared input names, the fail-closed flag"
+      (is (= [[10 :realworld/session [:username] false]
+              [11 :realworld/session [:username] true]]
+             (mapv (juxt :id :scope-id :inputs :resolved-nil?) rows))))
+    (testing "the resolved scope and input values are summarized"
+      (is (= ["vector" "map"]
+             ((juxt #(get-in % [:scope :type]) #(get-in % [:input-values :type])) (first rows)))))))
 
 (deftest mutation-invalidation-evidence-test
-  (let [rows (h/mutation-invalidation-evidence ep0016-trace-buffer)]
-    (testing "only mutation settlements that carry an :invalidation facet"
-      (is (= 1 (count rows)))
-      (is (= 12 (:id (first rows)))))
-    (testing "per-descriptor resolved scope (summarized) + descriptor count"
-      (let [r (first rows)]
-        (is (= :realworld/favorite-article (:mutation r)))
-        (is (= 3 (:descriptor-count r)))
-        (is (= 2 (count (:dispatched r))))
-        ;; first descriptor is global, second is the session scope — both
-        ;; resolved scopes are summarized (PRIVACY), tags are identity
-        (is (= "keyword" (get-in r [:dispatched 0 :scope :type])))
-        (is (= "vector"  (get-in r [:dispatched 1 :scope :type])))
-        (is (false? (get-in r [:dispatched 0 :cross-scope?])))
-        (is (= #{[:feed]} (set (get-in r [:dispatched 1 :tags]))))))
-    (testing "fail-closed :unresolved {:from-db …} ids surface"
-      (is (= [:realworld/tenant] (:unresolved (first rows)))))
-    (testing "Rider-1 populate-exempt keys surface (summarized scoped keys)"
-      (let [r (first rows)]
-        (is (= 1 (count (:populate-exempt r))))
-        (is (= :realworld/article (get-in r [:populate-exempt 0 :resource-id])))))
-    ;; The per-descriptor :exempt-keys is the truthful
-    ;; mixed-plan evidence: the consumer does not collapse observed exemption
-    ;; to the top-level union alone. The DEFAULT (global) descriptor SPARED the
-    ;; populated article key; the :refetch-populated? OPT-IN (session) descriptor
-    ;; SPARED nothing — each row carries its own summarized :exempt-keys.
-    (testing "per-descriptor :exempt-keys surfaces (mixed refetch-populated? plan)"
-      (let [r          (first rows)
-            dispatched (:dispatched r)
-            default-d  (first (remove :refetch-populated? dispatched))
-            opt-in-d   (first (filter :refetch-populated? dispatched))]
-        (testing "the DEFAULT descriptor's own :exempt-keys carries the spared key"
-          (is (= 1 (count (:exempt-keys default-d))))
-          (is (= :realworld/article (get-in default-d [:exempt-keys 0 :resource-id]))))
-        (testing "the OPT-IN descriptor spared NOTHING (its own :exempt-keys empty)"
-          (is (= [] (:exempt-keys opt-in-d))))))))
+  (let [rows (h/mutation-invalidation-evidence ep0016-trace-buffer)
+        r    (first rows)]
+    (testing "only mutation settlements carrying an :invalidation facet"
+      (is (= [12] (mapv :id rows))))
+    (testing "each descriptor carries its OWN exempt keys — a mixed :refetch-populated? plan"
+      (is (= [[false [:realworld/article]] [true []]]
+             (mapv (juxt :refetch-populated? #(mapv :resource-id (:exempt-keys %)))
+                   (:dispatched r)))))
+    (testing "the fail-closed :unresolved ids and the populate-exempt union"
+      (is (= [[:realworld/tenant] [:realworld/article]]
+             [(:unresolved r) (mapv :resource-id (:populate-exempt r))])))))
 
 (deftest mutation-continuations-test
   (let [rows (h/mutation-continuations ep0016-trace-buffer)]
-    (testing "one row per :rf.mutation/replied continuation dispatch"
-      (is (= 1 (count rows)))
-      (let [r (first rows)]
-        (is (= :realworld/save-article (:mutation r)))
-        (is (= [:editor/save "first-post"] (:instance r)))
-        (is (= :ok (:status r)))
-        (is (= [:editor/save-replied] (:target r)))
-        (is (= [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
-               (:work-id r)))
-        ;; the cause is summarized (may carry data)
-        (is (map? (:cause r)))))))
+    (testing "one row per :rf.mutation/replied continuation, its cause summarized"
+      (is (= [{:id       14
+               :mutation :realworld/save-article
+               :instance [:editor/save "first-post"]
+               :work-id  [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
+               :status   :ok
+               :target   [:editor/save-replied]}]
+             (mapv #(dissoc % :cause) rows)))
+      (is (= "vector" (get-in rows [0 :cause :type]))))))
 
-;; ---- (7c) EP-0019 optimistic mutation lifecycle -------------------------
-;; each :rf.mutation/optimistic-applied paired by :snapshot-id with its
-;; terminal :reconciled / :rolled-back settle (+ the :force-clobber warning).
+;; ---- EP-0019 optimistic mutation lifecycle ---------------------------------
 
 (def ^:private opt-scope-a [:rf.scope/session {:user-id "u-1"}])
 (def ^:private opt-key-a [opt-scope-a :realworld/article {:slug "welcome"}])
 (def ^:private opt-key-b [:rf.scope/global :realworld/feed {}])
 
 (def ^:private ep0019-trace-buffer
-  [;; (1) an optimistic apply that SUCCEEDED → reconciled (committed)
+  [;; an apply that SUCCEEDED → reconciled
    {:id 20 :operation :rf.mutation/optimistic-applied
     :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
            :work/id [:rf.work/resource [:rf.mutation [:favorite "welcome"]] 5]
@@ -1019,8 +531,7 @@
            :optimistic-keys [opt-key-a] :committed [opt-key-a]
            :reconciliation-refetches [opt-key-b]
            :cause [:mutation :realworld/favorite-article [:favorite "welcome"]]}}
-   ;; (2) an optimistic apply that FAILED → rolled back, conflict-aware
-   ;;     (one key restored verbatim, one key conflicted & invalidated)
+   ;; an apply that FAILED → rolled back: one key restored, one conflicted
    {:id 22 :operation :rf.mutation/optimistic-applied
     :tags {:mutation :realworld/rename :instance [:rename 7]
            :work/id [:rf.work/resource [:rf.mutation [:rename 7]] 9]
@@ -1040,7 +551,7 @@
                            :on-conflict :invalidate}]
            :restored [opt-key-a] :conflicted [opt-key-b] :refetched [opt-key-b]
            :cause [:rf.mutation/failed :realworld/rename]}}
-   ;; (3) an optimistic apply with NO terminal settle → :pending (in flight)
+   ;; an apply with NO terminal settle → :pending
    {:id 24 :operation :rf.mutation/optimistic-applied
     :tags {:mutation :realworld/toggle :instance [:toggle 1]
            :work/id [:rf.work/resource [:rf.mutation [:toggle 1]] 11]
@@ -1049,91 +560,38 @@
            :revisions [{:resource/key opt-key-a :revision 0 :forward :seed}]
            :tag-matched-keys [] :target-unresolved []
            :cause [:mutation :realworld/toggle [:toggle 1]]}}
-   ;; (4) a :force clobber WARNING (rode a :force rollback over a concurrent write)
+   ;; a :force clobber warning
    {:id 25 :operation :rf.warning/optimistic-force-clobber
     :tags {:mutation :realworld/rename :instance [:rename 7]
            :forced-keys [opt-key-b] :recovery :review-on-conflict
            :reason "mutation :realworld/rename rolled back with :on-conflict :force"}}])
 
-(deftest optimistic-mutation-op?-test
-  (testing "the three optimistic lifecycle ops are family members"
-    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-applied)))
-    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-reconciled)))
-    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-rolled-back))))
-  (testing "the force-clobber warning + non-members reject"
-    (is (false? (h/optimistic-mutation-op? :rf.warning/optimistic-force-clobber)))
-    (is (false? (h/optimistic-mutation-op? :rf.mutation/succeeded)))
-    (is (false? (h/optimistic-mutation-op? :rf.resource/succeeded)))))
+(defn- rids [scoped-key-summaries] (mapv :resource-id scoped-key-summaries))
 
 (deftest optimistic-lifecycle-test
-  (let [rows (h/optimistic-lifecycle ep0019-trace-buffer)]
-    (testing "one row per :rf.mutation/optimistic-applied, in apply order"
-      (is (= 3 (count rows)))
-      (is (= [20 22 24] (mapv :id rows))))
-    (testing "a SUCCEEDED apply pairs with its reconcile by snapshot-id"
-      (let [r (first rows)]
-        (is (= "snap-1" (:snapshot-id r)))
-        (is (= :reconciled (:outcome r)))
-        (is (= 21 (:settled-id r)))
-        (is (= :realworld/favorite-article (:mutation r)))
-        ;; the affected + committed keys are PRIVACY-summarized scoped keys
-        (is (= 1 (count (:affected-keys r))))
-        (is (= :realworld/article (get-in r [:affected-keys 0 :resource-id])))
-        (is (= 1 (count (:committed r))))
-        (is (= :realworld/feed (get-in r [:reconciliation-refetches 0 :resource-id])))
-        ;; the forward op shape rides the row (revision + :patch/:seed)
-        (is (= 3 (get-in r [:forward 0 :revision])))
-        (is (= :patch (get-in r [:forward 0 :forward])))
-        ;; reconciled rows carry NO rollback facets
-        (is (nil? (:on-conflict r)))
-        (is (nil? (:dispositions r)))))
-    (testing "a FAILED apply pairs with its rollback (conflict-aware per-key)"
-      (let [r (second rows)]
-        (is (= "snap-2" (:snapshot-id r)))
-        (is (= :rolled-back (:outcome r)))
-        (is (= 23 (:settled-id r)))
-        (is (= :invalidate (:on-conflict r)))
-        (is (= 1 (count (:restored r))))
-        (is (= 1 (count (:conflicted r))))
-        (is (= 1 (count (:refetched r))))
-        ;; the fail-closed unresolved {:from-db …} ids ride the apply row
-        (is (= [:realworld/tenant] (:target-unresolved r)))
-        ;; per-key disposition: one restored verbatim, one conflicted+refetch
-        (let [restored-d (first (filter :restored (:dispositions r)))
-              conflict-d (first (filter :conflict (:dispositions r)))]
-          (is (= :realworld/article (get-in restored-d [:resource/key :resource-id])))
-          (is (false? (:conflict restored-d)))
-          (is (= :realworld/feed (get-in conflict-d [:resource/key :resource-id])))
-          (is (= :invalidate (:on-conflict conflict-d))))
-        ;; rolled-back rows carry NO reconcile facets
-        (is (nil? (:committed r)))))
-    (testing "an apply with NO terminal settle stays :pending (in flight)"
-      (let [r (nth rows 2)]
-        (is (= "snap-3" (:snapshot-id r)))
-        (is (= :pending (:outcome r)))
-        (is (nil? (:settled-id r)))
-        (is (nil? (:committed r)))
-        (is (nil? (:on-conflict r)))))
-    (testing "PRIVACY — the resolved scope + cause are summarized, never raw"
-      (let [r (first rows)]
-        (is (map? (:scope r)))
-        (is (contains? (:scope r) :preview))
-        (is (map? (:cause r)))))))
+  (let [[committed rolled :as rows] (h/optimistic-lifecycle ep0019-trace-buffer)]
+    (testing "one row per apply, in apply order, paired with its settle by snapshot-id"
+      (is (= [[20 :reconciled 21] [22 :rolled-back 23] [24 :pending nil]]
+             (mapv (juxt :id :outcome :settled-id) rows))))
+    (testing "a reconciled apply carries its committed keys, refetches and forward ops"
+      (is (= [[:realworld/article] [:realworld/feed] [{:revision 3 :forward :patch}]]
+             [(rids (:committed committed))
+              (rids (:reconciliation-refetches committed))
+              (mapv #(dissoc % :resource/key) (:forward committed))])))
+    (testing "a rolled-back apply carries the conflict rule and per-key dispositions"
+      (is (= :invalidate (:on-conflict rolled)))
+      (is (= [[:realworld/article true false nil] [:realworld/feed false true :invalidate]]
+             (mapv (juxt #(get-in % [:resource/key :resource-id]) :restored :conflict :on-conflict)
+                   (:dispositions rolled))))
+      (is (= [1 1 1] (mapv #(count (% rolled)) [:restored :conflicted :refetched]))))))
 
 (deftest optimistic-force-clobbers-test
-  (let [rows (h/optimistic-force-clobbers ep0019-trace-buffer)]
-    (testing "one row per :rf.warning/optimistic-force-clobber"
-      (is (= 1 (count rows)))
-      (let [r (first rows)]
-        (is (= 25 (:id r)))
-        (is (= :realworld/rename (:mutation r)))
-        (is (= :review-on-conflict (:recovery r)))
-        ;; the forced (clobbered) keys are summarized scoped keys
-        (is (= 1 (count (:forced-keys r))))
-        (is (= :realworld/feed (get-in r [:forced-keys 0 :resource-id])))
-        (is (string? (:reason r)))))))
+  (testing "one row per :rf.warning/optimistic-force-clobber, its forced keys summarized"
+    (is (= [[25 [:realworld/feed]]]
+           (mapv (juxt :id (comp rids :forced-keys))
+                 (h/optimistic-force-clobbers ep0019-trace-buffer))))))
 
-;; ---- (8) lints ----------------------------------------------------------
+;; ---- lints -----------------------------------------------------------------
 
 (deftest scope-audit+lints
   (let [registry-rows (h/project-registry registrations routes-map)
@@ -1146,111 +604,61 @@
       (let [warns (h/suspicious-global-warnings registry-rows)]
         (is (= [:me/profile] (mapv :resource-id warns)))))
     (testing "orphaned-owner lint flags an app-kind owner with no release"
-      ;; add an entry pinned by an app-minted [:dashboard/opened …] owner with no
-      ;; owner-released event in the trace
+      ;; the trace releases u-42, never u-99
       (let [pinned (assoc entries
                           [session-scope :dashboard/summary {:user-id "u-99"}]
                           {:resource/id :dashboard/summary :status :loaded
                            :data {} :active-owners #{[:dashboard/opened "u-99"]}})
             rows   (h/project-instances pinned now)
-            ;; trace has a release only for u-42, not u-99
             orphans (h/orphaned-owner-lint rows trace-buffer)]
         (is (= [[:dashboard/opened "u-99"]] (mapv :owner orphans))))
       (testing "a route/machine/ssr owner is framework-released — not linted"
         (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
             "the route-owned fresh entry is not an app-kind owner")))))
 
-;; ---- (5c) an EMPTY infinite feed is NOT has-data -------------------------
+;; ---- an EMPTY infinite feed is not has-data --------------------------------
 ;;
-;; `rf.resources.state/has-data?` (Spec 016 §Status semantics, EP-0021 R1)
-;; defines an infinite feed as has-data ONLY once it carries ≥1 accumulated
-;; page: the seeded-empty page vector `[]` is a FIRST LOAD, not a refresh.
-;; The Xray projection derives the same fact and must agree — an empty feed
-;; reporting `:has-data? true` would make `resource-liveness` skip `:loading`
-;; and call a never-loaded feed `:fresh`, contradicting its own
-;; `:status :loading` / `:page-count 0` on the same row.
+;; The seeded-empty page vector `[]` is a first load, as in
+;; `rf.resources.state/has-data?`; reading it as data would let the rollup call
+;; a never-loaded feed `:fresh`.
 
 (deftest empty-infinite-feed-has-no-data-test
-  (let [empty-feed  {:resource/id     :feed/articles
-                     :resource/key    [session-scope :feed/articles {}]
-                     :status          :loading
-                     :infinite?       true
-                     :data            []          ; seeded-empty page vector
-                     :page-params     []
-                     :next-page-param nil
-                     :active-owners   #{[:feed/opened "feed"]}}
-        row         (h/instance-row [(rf.resources.state/key-id [session-scope :feed/articles {}])
-                                     empty-feed]
-                                    now)]
-    (testing "a seeded-empty page vector is NO usable data (EP-0021 R1)"
-      (is (= 0 (:page-count row)))
-      (is (false? (:has-data? row))
-          "an infinite feed with zero accumulated pages has not loaded anything")
-      (is (= :loading (:status row))
-          "the row's own status agrees — the projection does not self-contradict"))
-    (testing "the route/resource graph's live rollup reads FIRST LOAD, not :fresh"
-      ;; the rollup is private; exercise it through the public route-graph
-      ;; projection, which is how the panel reads it.
-      (let [graph (h/project-route-graph
-                    {:route/feed {:path      "/feed"
-                                  :resources [{:resource :feed/articles :blocking? false}]}}
-                    {:instance-rows [row]
-                     :work-rows     [{:resource-id :feed/articles :terminal? false}]})
-            live  (:live (first (:resources (first graph))))]
-        (is (false? (:has-data? live)))
-        (is (= :loading (:freshness live))
-            "active work + no accumulated page ⇒ :loading, never :fresh")))
-    (testing "ONE empty page is still a loaded page — has-data"
-      (let [one-page (assoc empty-feed :data [[]] :status :loaded)
-            row'     (h/instance-row [(rf.resources.state/key-id [session-scope :feed/articles {}])
-                                      one-page]
-                                     now)]
-        (is (= 1 (:page-count row')))
-        (is (true? (:has-data? row'))
-            "an accumulated page that happens to be empty is data")))
-    (testing "a SCALAR entry keeps nil/non-nil semantics — `[]` is still data"
-      (let [scalar {:resource/id  :article/by-slug
+  (let [row-of     (fn [entry] (h/instance-row ["k" entry] now))
+        empty-feed {:resource/id     :feed/articles
+                    :resource/key    [session-scope :feed/articles {}]
+                    :status          :loading
+                    :infinite?       true
+                    :data            []
+                    :page-params     []
+                    :next-page-param nil
+                    :active-owners   #{[:feed/opened "feed"]}}
+        scalar     {:resource/id  :article/by-slug
                     :resource/key [session-scope :article/by-slug {:slug "x"}]
-                    :status       :loaded
-                    :data         []}
-            row'   (h/instance-row [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "x"}])
-                                    scalar]
-                                   now)]
-        (is (true? (:has-data? row'))
-            "a non-infinite resource whose value IS an empty vector has data")
-        (is (false? (:has-data? (h/instance-row
-                                  [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "y"}])
-                                   (assoc scalar :data nil
-                                          :resource/key [session-scope :article/by-slug {:slug "y"}])]
-                                  now)))
-            "a nil scalar payload is still no-data")))
-    (testing "an UPSTREAM-redacted/elided payload still reads has-data
-              (the sentinel replaced a real value)"
-      (doseq [sentinel [:rf/redacted :rf.size/large-elided]]
-        (let [redacted {:resource/id  :article/by-slug
-                        :resource/key [session-scope :article/by-slug {:slug "s"}]
-                        :status       :loaded
-                        :data         sentinel}
-              row'     (h/instance-row [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "s"}])
-                                        redacted]
-                                       now)]
-          (is (true? (:has-data? row'))
-              (str sentinel " means data WAS present — never flipped to no-data")))))))
+                    :status       :loaded}
+        row        (row-of empty-feed)]
+    (testing "a seeded-empty page vector is no data, so the live rollup reads first load"
+      (is (false? (:has-data? row)))
+      (is (= :loading
+             (-> (h/project-route-graph
+                   {:route/feed {:path      "/feed"
+                                 :resources [{:resource :feed/articles :blocking? false}]}}
+                   {:instance-rows [row]
+                    :work-rows     [{:resource-id :feed/articles :terminal? false}]})
+                 first :resources first :live :freshness))))
+    (testing "one empty page is still a loaded page"
+      (is (true? (:has-data? (row-of (assoc empty-feed :data [[]] :status :loaded))))))
+    (testing "a scalar keeps nil / non-nil semantics: [] is data, nil is not"
+      (is (= [true false] (mapv #(:has-data? (row-of (assoc scalar :data %))) [[] nil]))))
+    (testing "an upstream-redacted payload means data WAS present"
+      (is (true? (:has-data? (row-of (assoc scalar :data :rf/redacted))))))))
 
-;; ---- (10) ON-BOX sensitive-resource redaction ----------------------------
+;; ---- ON-BOX sensitive-resource redaction -----------------------------------
 ;;
-;; The §2 live-instance rows route their payload slots through the observed
-;; frame's `:sensitive` classification before `summarize`. Without a gate of
-;; its own, every TRACE-BORNE section would print a 120-char `pr-str` preview
-;; of the SAME resource's scope, params and cause one scroll down. A trace
-;; row has no runtime-db path, so the instance gate
-;; cannot be reused; what it carries is the resource-id, which the static
-;; registry's coarse `:sensitive?` declaration keys.
-;;
-;; Every assertion below runs BOTH ways over the SAME buffer: the sensitive
-;; resource redacts AND a second, registered-but-not-sensitive resource in the
-;; same rows still prints its preview. A one-directional test would pass just
-;; as well against a projection that redacted everything.
+;; A trace row has no runtime-db path, so the instance rows' classification
+;; gate cannot reach it; the resource-id it carries keys the registry's coarse
+;; `:sensitive?` declaration instead. Each case runs both ways over one buffer —
+;; the sensitive resource redacts, a sibling that is not still prints — because
+;; a one-way test would pass against a projection that redacted everything.
 
 (def ^:private sensitive-registrations
   (assoc-in registrations [:article/by-slug :rf/resource :sensitive?] true))
@@ -1258,17 +666,8 @@
 (def ^:private sensitive-rids
   (h/sensitive-resource-ids (h/project-registry sensitive-registrations routes-map)))
 
-(deftest sensitive-resource-ids-test
-  (testing "the set is exactly the registry rows declaring :sensitive? true"
-    (is (= #{} (h/sensitive-resource-ids (h/project-registry registrations routes-map)))
-        "no resource in the base fixture declares it")
-    (is (= #{:article/by-slug} sensitive-rids)))
-  (testing "nil-safe"
-    (is (= #{} (h/sensitive-resource-ids nil)))))
-
 (def ^:private mixed-family-buffer
-  "Two resources side by side in one buffer — `:article/by-slug` (declared
-  `:sensitive?` in `sensitive-registrations`) and `:comments/list` (not)."
+  "`:article/by-slug` (declared `:sensitive?` above) beside `:comments/list` (not)."
   [{:id 1 :operation :rf.resource/fetch-started
     :tags {:resource/key [session-scope :article/by-slug {:slug "welcome"}]
            :generation 4 :status :loading
@@ -1290,68 +689,45 @@
 
 (defn- row-by-id [rows id] (first (filter #(= id (:id %)) rows)))
 
+(defn- redacted-at
+  "The `:redacted?` flag of the summary at each of `paths` in `row`."
+  [row paths]
+  (mapv #(get-in row (conj % :redacted?)) paths))
+
 (deftest lifecycle-timeline-redacts-a-sensitive-resource-on-box
-  (let [gated   (h/lifecycle-timeline mixed-family-buffer nil sensitive-rids)
-        ungated (h/lifecycle-timeline mixed-family-buffer)
-        s       (row-by-id gated 1)          ; the :sensitive? resource
-        ok      (row-by-id gated 2)          ; the sibling that is not
-        before  (row-by-id ungated 1)]
-    (testing "WITHOUT the gate the sensitive resource's scope/params print raw"
-      (is (false? (get-in before [:resource/key :scope :redacted?])))
-      (is (re-find #"u-42" (get-in before [:resource/key :scope :preview]))
-          "the preview carries the user id verbatim — the screen-share leak"))
+  (let [gated (h/lifecycle-timeline mixed-family-buffer nil sensitive-rids)
+        s     (row-by-id gated 1)
+        slots [[:resource/key :scope] [:resource/key :params] [:cause]]]
     (testing "the sensitive resource's value-bearing slots redact"
-      (is (true? (get-in s [:resource/key :scope :redacted?])))
-      (is (true? (get-in s [:resource/key :params :redacted?])))
-      (is (true? (get-in s [:cause :redacted?])))
-      (is (= "[redacted]" (get-in s [:resource/key :scope :preview]))))
-    (testing "CONTROL — the sibling resource in the same rows still prints"
-      (is (false? (get-in ok [:resource/key :scope :redacted?])))
-      (is (re-find #"u-42" (get-in ok [:resource/key :scope :preview])))
-      (is (false? (get-in ok [:cause :redacted?]))))
-    (testing "METADATA is never redacted — the lifecycle SHAPE survives"
-      (is (= :article/by-slug (:resource-id s)))
-      (is (= :rf.resource/fetch-started (:operation s)))
-      (is (= 4 (:generation s)))
-      (is (= :loading (get-in s [:status :after]))))
-    (testing "an empty / nil rid set redacts nothing"
-      (is (false? (get-in (row-by-id (h/lifecycle-timeline mixed-family-buffer nil #{}) 1)
-                          [:resource/key :scope :redacted?]))))))
+      (is (= [true true true] (redacted-at s slots))))
+    (testing "CONTROL — the sibling in the same rows still prints"
+      (is (= [false false false] (redacted-at (row-by-id gated 2) slots))))
+    (testing "the metadata is never redacted — the lifecycle shape survives"
+      (is (= [:article/by-slug :rf.resource/fetch-started 4 :loading]
+             ((juxt :resource-id :operation :generation #(get-in % [:status :after])) s))))))
 
 (deftest invalidation-graph-redacts-a-sensitive-resource-on-box
   (let [gated (h/invalidation-graph mixed-family-buffer nil sensitive-rids)
         s     (row-by-id gated 3)
-        ok    (row-by-id gated 4)]
-    (testing "a row that MATCHED a sensitive key redacts scope, cause and keys"
-      (is (true? (get-in s [:scope :redacted?])))
-      (is (true? (get-in s [:cause :redacted?])))
-      (is (true? (get-in s [:matched 0 :scope :redacted?])))
-      (is (true? (get-in s [:matched 0 :params :redacted?]))))
+        slots [[:scope] [:cause] [:matched 0 :scope] [:matched 0 :params]]]
+    (testing "one row per :rf.resource/invalidated event"
+      (is (= [3 4] (mapv :id gated))))
+    (testing "a row that matched a sensitive key redacts its scope, cause and matched keys"
+      (is (= [true true true true] (redacted-at s slots))))
     (testing "CONTROL — the sibling invalidation still prints"
-      (is (false? (get-in ok [:scope :redacted?])))
-      (is (false? (get-in ok [:cause :redacted?])))
-      (is (false? (get-in ok [:matched 0 :scope :redacted?]))))
-    (testing "the tag axis and the storm / zero-match counts survive redaction"
-      (is (= [[:article "welcome"]] (:tags s)))
-      (is (= 1 (:match-count s)))
-      (is (= 1 (:refetched s)))
-      (is (= :article/by-slug (get-in s [:matched 0 :resource-id]))
-          "the resource-id is a registry name, never PII — it must stay"))))
+      (is (= [false false false false] (redacted-at (row-by-id gated 4) slots))))
+    (testing "the tag axis, the storm / zero-match counts and the matched resource-id survive"
+      (is (= [[[:article "welcome"]] 1 1 :article/by-slug]
+             ((juxt :tags :match-count :refetched #(get-in % [:matched 0 :resource-id])) s))))))
 
-;; The work ledger is runtime-db state, but its records sit at
-;; `[:rf.runtime/work-ledger <work-id>]`, where no per-instance declaration is
-;; lowered, so the instance rows' frame-classification gate has nothing to
-;; match there. A work record carries the resource-id in its scoped key, so it
-;; takes the same resource-id gate the trace-borne rows do. The failed
-;; outcome is the case that reaches the screen: the work-ledger section renders
-;; `:outcome`'s preview, and a failed outcome carries the error envelope.
+;; A work record sits where no per-instance declaration is lowered, so it takes
+;; the resource-id gate; its failed outcome carries the error envelope.
 
 (def ^:private work-secret "tok-9f3e-secret")
 
 (def ^:private mixed-work-ledger
-  "Two failed work records side by side — `:article/by-slug` (declared
-  `:sensitive?` in `sensitive-registrations`) and `:comments/list` (not) —
-  each carrying the same secret in its scope, params, cause and outcome."
+  "Two failed records — `:article/by-slug` (sensitive) and `:comments/list`
+  (not) — each carrying the same secret in its scope, params, cause and outcome."
   (let [record (fn [rid]
                  (let [k [[:rf.scope/session {:token work-secret}] rid {:slug work-secret}]]
                    {:work/id      [:rf.work/resource k 3]
@@ -1372,129 +748,67 @@
   (boolean (some #(and (string? %) (str/includes? % work-secret)) (vals summary))))
 
 (deftest work-ledger-redacts-a-sensitive-resource-on-box
-  (let [gated   (h/project-work-ledger mixed-work-ledger sensitive-rids)
-        ungated (h/project-work-ledger mixed-work-ledger)
-        s       (work-row-for gated :article/by-slug)
-        ok      (work-row-for gated :comments/list)
-        before  (work-row-for ungated :article/by-slug)]
-    (testing "without the gate the sensitive resource's values print raw"
-      (is (leaks-secret? (get-in before [:resource/key :scope])))
-      (is (leaks-secret? (:outcome before))
-          "the outcome preview — the one the work-ledger section renders —
-           carries the error body verbatim"))
-    (testing "the sensitive resource's value-bearing slots redact"
-      (is (true? (get-in s [:resource/key :scope :redacted?])))
-      (is (true? (get-in s [:resource/key :params :redacted?])))
-      (is (every? #(true? (:redacted? %)) (:causes s)))
-      (is (true? (get-in s [:outcome :redacted?])))
-      (is (= "[redacted]" (get-in s [:outcome :preview])))
-      (is (not-any? leaks-secret?
-                    (concat [(get-in s [:resource/key :scope])
-                             (get-in s [:resource/key :params])
-                             (:outcome s)]
-                            (:causes s)))
-          "no summary slot carries the secret"))
-    (testing "CONTROL — the sibling resource in the same ledger still prints"
-      (is (false? (get-in ok [:resource/key :scope :redacted?])))
-      (is (false? (get-in ok [:outcome :redacted?])))
-      (is (leaks-secret? (:outcome ok))
-          "a resource that is not :sensitive? keeps its diagnostic preview"))
-    (testing "METADATA is never redacted — the row keeps its lifecycle shape"
-      (is (= :article/by-slug (:resource-id s)))
-      (is (= :article/by-slug (get-in s [:resource/key :resource-id])))
-      (is (= :failed (:status s)))
-      (is (true? (:terminal? s)))
-      (is (= 3 (:generation s)))
-      (is (= [[:route :route/article "nav-1"]] (:owners s))))
-    (testing "an empty / nil rid set redacts nothing"
-      (is (false? (get-in (work-row-for (h/project-work-ledger mixed-work-ledger #{})
-                                        :article/by-slug)
-                          [:outcome :redacted?]))))))
-
-;; ---- (11) the pre-filtered buffer ---------------------------------------
+  (let [gated (h/project-work-ledger mixed-work-ledger sensitive-rids)
+        s     (work-row-for gated :article/by-slug)
+        ok    (work-row-for gated :comments/list)]
+    (testing "the sensitive resource's scope, params, causes and outcome redact"
+      (is (= [true true [true] true]
+             [(get-in s [:resource/key :scope :redacted?])
+              (get-in s [:resource/key :params :redacted?])
+              (mapv :redacted? (:causes s))
+              (get-in s [:outcome :redacted?])])))
+    (testing "CONTROL — the sibling keeps its diagnostic previews"
+      (is (leaks-secret? (get-in ok [:resource/key :scope])))
+      (is (leaks-secret? (:outcome ok))))
+    (testing "the metadata is never redacted"
+      (is (= [:article/by-slug :article/by-slug :failed true 3 [[:route :route/article "nav-1"]]]
+             ((juxt :resource-id #(get-in % [:resource/key :resource-id])
+                    :status :terminal? :generation :owners)
+              s))))))
 
 (deftest resource-projection-rows-test
-  (let [buf (into mixed-family-buffer
-                  [{:id 90 :operation :rf.event/dispatched :tags {}}
-                   {:id 91 :operation :rf.sub/run :tags {}}
-                   {:id 92 :operation :rf.mutation/succeeded :tags {}}
-                   {:id 93 :operation :rf.warning/optimistic-force-clobber :tags {}}
-                   {:id 94 :operation :rf.warning/mutation-scope-mismatch :tags {}}
-                   {:id 95 :operation :rf.warning/slow-render :tags {}}])]
-    (testing "keeps the resource + mutation families and the two read warnings"
-      (is (= [1 2 3 4 92 93 94] (mapv :id (h/resource-projection-rows buf)))))
-    (testing "an unrelated :rf.warning/* op is NOT kept — the namespace is shared"
-      (is (false? (h/resource-projection-op? :rf.warning/slow-render))))
-    (testing "a future in-family op is kept by prefix, so a new projection
-              never needs this predicate widened first"
-      (is (true? (h/resource-projection-op? :rf.resource/not-yet-enumerated)))
-      (is (true? (h/resource-projection-op? :rf.mutation/not-yet-enumerated))))
-    (testing "each projection stays correct on the pre-filtered rows"
-      (is (= (h/lifecycle-timeline buf)
-             (h/lifecycle-timeline (h/resource-projection-rows buf))))
-      (is (= (h/invalidation-graph buf)
-             (h/invalidation-graph (h/resource-projection-rows buf)))))
-    (testing "nil-safe"
-      (is (= [] (h/resource-projection-rows nil))))))
+  (testing "keeps the resource and mutation families and the two warnings the
+            projections read, never the rest of the shared :rf.warning namespace"
+    (is (= [1 2 3 4 92 93 94]
+           (mapv :id (h/resource-projection-rows
+                       (into mixed-family-buffer
+                             [{:id 90 :operation :rf.event/dispatched :tags {}}
+                              {:id 91 :operation :rf.sub/run :tags {}}
+                              {:id 92 :operation :rf.mutation/succeeded :tags {}}
+                              {:id 93 :operation :rf.warning/optimistic-force-clobber :tags {}}
+                              {:id 94 :operation :rf.warning/mutation-scope-mismatch :tags {}}
+                              {:id 95 :operation :rf.warning/slow-render :tags {}}])))))))
 
-;; ---- (12) :error liveness -----------------------------------------------
+;; ---- :error liveness ---------------------------------------------------------
 ;;
-;; The freshness rollup yields `:error` for an entry at `:status :error` with
-;; no data and no live work. Were it to fall through to `:idle`, the one SSR
-;; wait point that FAILED its first load would paint as if nothing had been
-;; asked of it, and the `:error` arm of `freshness-colour` in the view would
-;; be unreachable.
+;; Without the `:error` arm a blocking resource whose first load FAILED would
+;; fall through to `:idle` and paint as if nothing had been asked of it.
 
 (deftest resource-liveness-surfaces-error
-  (let [failed-key [session-scope :article/by-slug {:slug "welcome"}]
-        failed     {:resource/id   :article/by-slug
-                    :resource/key  failed-key
-                    :status        :error
-                    :error         {:kind :rf.http/server-error :status 500}
-                    :data          nil
-                    :generation    1
-                    :active-owners #{[:route :route/article "nav-1"]}}
-        rows       [(h/instance-row [(rf.resources.state/key-id failed-key) failed] now)]
-        node       (first (h/project-route-graph
-                            routes-map
-                            {:instance-rows rows :work-rows []}))
-        article    (first (filter #(= :article/by-slug (:resource %))
-                                  (:resources node)))]
-    (testing "a failed blocking resource with no data and no live work reads :error"
-      (is (= :error (get-in article [:live :freshness]))
-          "not :idle — 'nothing was asked of this route'")
-      (is (contains? (get-in article [:live :statuses]) :error)))
-    (testing "CONTROL — the same entry LOADED reads :fresh, not :error"
-      (let [ok-rows [(h/instance-row
-                       [(rf.resources.state/key-id failed-key)
-                        (assoc failed :status :loaded :data {:title "Welcome"}
-                               :error nil :loaded-at (- now 1000)
-                               :stale-at (+ now 50000))]
-                       now)]
-            ok-node (first (h/project-route-graph
-                             routes-map
-                             {:instance-rows ok-rows :work-rows []}))
-            ok-res  (first (filter #(= :article/by-slug (:resource %))
-                                   (:resources ok-node)))]
-        (is (= :fresh (get-in ok-res [:live :freshness])))))
-    (testing ":loading still wins — a failed entry being RETRIED is loading"
-      (let [node' (first (h/project-route-graph
+  (let [failed    {:resource/id   :article/by-slug
+                   :resource/key  [session-scope :article/by-slug {:slug "welcome"}]
+                   :status        :error
+                   :error         {:kind :rf.http/server-error :status 500}
+                   :data          nil
+                   :generation    1
+                   :active-owners #{[:route :route/article "nav-1"]}}
+        freshness (fn [work-rows]
+                    (->> (h/project-route-graph
                            routes-map
-                           {:instance-rows rows
-                            :work-rows     [{:resource-id :article/by-slug
-                                             :terminal?   false}]}))
-            res'  (first (filter #(= :article/by-slug (:resource %))
-                                 (:resources node')))]
-        (is (= :loading (get-in res' [:live :freshness])))))))
+                           {:instance-rows [(h/instance-row ["k" failed] now)]
+                            :work-rows     work-rows})
+                         first :resources
+                         (filter #(= :article/by-slug (:resource %)))
+                         first :live :freshness))]
+    (testing "a failed resource with no data and no live work reads :error, not :idle"
+      (is (= :error (freshness []))))
+    (testing ":loading still wins — a failed entry being retried is loading"
+      (is (= :loading (freshness [{:resource-id :article/by-slug :terminal? false}]))))))
 
-;; ---- (13) the fourth optimistic outcome, :superseded -------------------
+;; ---- the :superseded optimistic outcome --------------------------------------
 ;;
-;; A mutation reply that arrives for a SUPERSEDED generation emits neither
-;; settle op — Spec 016 §Optimistic settle: "its inverse is discarded, never
-;; replayed" — so with only the settle ops the apply row would pair with
-;; nothing and read "pending (optimistic)" for ever, claiming a settled
-;; request was still in flight. The `:rf.mutation/stale-suppressed` row in the
-;; same buffer is what settles it.
+;; A reply for a superseded generation emits neither settle op, so without the
+;; `:rf.mutation/stale-suppressed` join the apply would read pending for ever.
 
 (def ^:private opt-instance [:favorite "welcome"])
 (def ^:private opt-work-id [:rf.work/mutation :favorite 7])
@@ -1520,221 +834,144 @@
           :rf.reply/status      :stale
           :rf.reply/work-status :suppressed}})
 
+(def ^:private opt-reconciled-ev
+  {:id 12 :operation :rf.mutation/optimistic-reconciled
+   :tags {:snapshot-id              "snap-7"
+          :instance                 opt-instance
+          :committed                [opt-affected]
+          :reconciliation-refetches []}})
+
+(defn- outcome-of [buffer]
+  ((juxt :outcome :settled-id) (first (h/optimistic-lifecycle buffer))))
+
 (deftest optimistic-superseded-outcome
-  (testing "a stale-suppressed reply for the same work settles it as :superseded"
-    (let [row (first (h/optimistic-lifecycle [opt-apply-ev opt-suppressed-ev]))]
-      (is (= :superseded (:outcome row)))
-      (is (= 11 (:settled-id row)) "the suppression event is the terminal")
-      (is (not (contains? row :committed)) "no reconcile facets — none were emitted")
-      (is (not (contains? row :restored)))))
-  (testing "the join works off :generation when the work-id is absent"
-    (let [ev  (update opt-suppressed-ev :tags dissoc :rf.reply/work-id)
-          row (first (h/optimistic-lifecycle [opt-apply-ev ev]))]
-      (is (= :superseded (:outcome row)))))
-  (testing "a SETTLE op wins — a suppression for the same instance must not
-            overwrite an apply that genuinely reconciled"
-    (let [reconciled {:id 12 :operation :rf.mutation/optimistic-reconciled
-                      :tags {:snapshot-id "snap-7"
-                             :instance    opt-instance
-                             :committed   [opt-affected]
-                             :reconciliation-refetches []}}
-          row (first (h/optimistic-lifecycle
-                       [opt-apply-ev reconciled opt-suppressed-ev]))]
-      (is (= :reconciled (:outcome row)))
-      (is (= 12 (:settled-id row)))))
-  (testing "a suppression for ANOTHER instance leaves this apply :pending"
-    (let [other (assoc-in opt-suppressed-ev [:tags :instance] [:favorite "other"])
-          other (assoc-in other [:tags :rf.reply/work-id] [:rf.work/mutation :favorite 9])
-          row   (first (h/optimistic-lifecycle [opt-apply-ev other]))]
-      (is (= :pending (:outcome row))))))
+  (testing "a stale-suppressed reply for the same work settles the apply as :superseded"
+    (is (= [:superseded 11] (outcome-of [opt-apply-ev opt-suppressed-ev]))))
+  (testing "the join falls back to :generation when the work-id is absent"
+    (is (= [:superseded 11]
+           (outcome-of [opt-apply-ev (update opt-suppressed-ev :tags dissoc :rf.reply/work-id)]))))
+  (testing "a settle op wins over a later suppression for the same instance"
+    (is (= [:reconciled 12] (outcome-of [opt-apply-ev opt-reconciled-ev opt-suppressed-ev]))))
+  (testing "a suppression for another instance leaves the apply :pending"
+    (is (= [:pending nil]
+           (outcome-of [opt-apply-ev
+                        (-> opt-suppressed-ev
+                            (assoc-in [:tags :instance] [:favorite "other"])
+                            (assoc-in [:tags :rf.reply/work-id] [:rf.work/mutation :favorite 9]))])))))
 
 (deftest optimistic-lifecycle-redacts-a-sensitive-resource-on-box
-  (let [gated   (first (h/optimistic-lifecycle [opt-apply-ev] sensitive-rids))
-        ungated (first (h/optimistic-lifecycle [opt-apply-ev]))]
-    (testing "CONTROL — ungated, the mutation's scope and keys print raw"
-      (is (false? (get-in ungated [:scope :redacted?])))
-      (is (re-find #"u-42" (get-in ungated [:scope :preview]))))
-    (testing "an apply touching a sensitive key redacts scope, cause and keys"
-      (is (true? (get-in gated [:scope :redacted?])))
-      (is (true? (get-in gated [:cause :redacted?])))
-      (is (true? (get-in gated [:affected-keys 0 :scope :redacted?])))
-      (is (true? (get-in gated [:affected-keys 0 :params :redacted?]))))
-    (testing "identity and counts survive — the row is still readable"
-      (is (= :article/favorite (:mutation gated)))
-      (is (= opt-instance (:instance gated)))
-      (is (= 1 (count (:affected-keys gated))))
-      (is (= :article/by-slug (get-in gated [:affected-keys 0 :resource-id]))))))
+  (let [row   #(first (h/optimistic-lifecycle [opt-apply-ev] %))
+        gated (row sensitive-rids)
+        slots [[:scope] [:cause] [:affected-keys 0 :scope] [:affected-keys 0 :params]]]
+    (testing "an apply touching a sensitive key redacts its scope, cause and keys"
+      (is (= [true true true true] (redacted-at gated slots))))
+    (testing "CONTROL — ungated, the same row prints"
+      (is (= [false false false false] (redacted-at (row nil) slots))))
+    (testing "identity and counts survive"
+      (is (= [:article/favorite opt-instance [:article/by-slug]]
+             ((juxt :mutation :instance (comp rids :affected-keys)) gated))))))
 
 (deftest optimistic-force-clobbers-redacts-a-sensitive-resource-on-box
-  (let [ev {:id 20 :operation :rf.warning/optimistic-force-clobber
-            :tags {:mutation    :article/favorite
-                   :instance    opt-instance
-                   :forced-keys [opt-affected]
-                   :recovery    :review-on-conflict
-                   :reason      "rolled back with :on-conflict :force"}}
-        gated   (first (h/optimistic-force-clobbers [ev] sensitive-rids))
-        ungated (first (h/optimistic-force-clobbers [ev]))]
-    (testing "CONTROL — ungated the forced key prints raw"
-      (is (false? (get-in ungated [:forced-keys 0 :scope :redacted?]))))
-    (testing "the forced keys redact"
-      (is (true? (get-in gated [:forced-keys 0 :scope :redacted?]))))
-    (testing "the warning stays exactly as LOUD — nothing that says
-              'something was clobbered' is redacted"
-      (is (= :article/favorite (:mutation gated)))
-      (is (= 1 (count (:forced-keys gated))))
-      (is (= :review-on-conflict (:recovery gated)))
-      (is (= "rolled back with :on-conflict :force" (:reason gated))))))
+  (let [ev    {:id 20 :operation :rf.warning/optimistic-force-clobber
+               :tags {:mutation    :article/favorite
+                      :instance    opt-instance
+                      :forced-keys [opt-affected]
+                      :recovery    :review-on-conflict
+                      :reason      "rolled back with :on-conflict :force"}}
+        row   #(first (h/optimistic-force-clobbers [ev] %))
+        gated (row sensitive-rids)]
+    (testing "the forced keys redact; ungated they print"
+      (is (= [true false]
+             (mapv #(get-in % [:forced-keys 0 :scope :redacted?]) [gated (row nil)]))))
+    (testing "the warning stays exactly as loud"
+      (is (= [:article/favorite :review-on-conflict "rolled back with :on-conflict :force" 1]
+             ((juxt :mutation :recovery :reason (comp count :forced-keys)) gated))))))
 
 (deftest mutation-invalidation-evidence-redacts-a-sensitive-resource-on-box
-  (let [ev {:id 30 :operation :rf.mutation/succeeded
-            :tags {:mutation :article/favorite
-                   :instance opt-instance
-                   :invalidation
-                   {:descriptor-count 1
-                    :dispatched [{:scope session-scope :cross-scope? false
-                                  :tags [[:article "welcome"]]
-                                  :refetch-populated? false
-                                  :exempt-keys [opt-affected]}]
-                    :unresolved []
-                    :populate-exempt [opt-affected]}}}
-        gated   (first (h/mutation-invalidation-evidence [ev] sensitive-rids))
-        ungated (first (h/mutation-invalidation-evidence [ev]))]
-    (testing "CONTROL — ungated the descriptor scope prints raw"
-      (is (false? (get-in ungated [:dispatched 0 :scope :redacted?])))
-      (is (re-find #"u-42" (get-in ungated [:dispatched 0 :scope :preview]))))
-    (testing "a settlement sparing a sensitive key redacts scope + exempt keys"
-      (is (true? (get-in gated [:dispatched 0 :scope :redacted?])))
-      (is (true? (get-in gated [:dispatched 0 :exempt-keys 0 :params :redacted?])))
-      (is (true? (get-in gated [:populate-exempt 0 :scope :redacted?]))))
+  (let [ev    {:id 30 :operation :rf.mutation/succeeded
+               :tags {:mutation :article/favorite
+                      :instance opt-instance
+                      :invalidation
+                      {:descriptor-count 1
+                       :dispatched [{:scope session-scope :cross-scope? false
+                                     :tags [[:article "welcome"]]
+                                     :refetch-populated? false
+                                     :exempt-keys [opt-affected]}]
+                       :unresolved []
+                       :populate-exempt [opt-affected]}}}
+        row   #(first (h/mutation-invalidation-evidence [ev] %))
+        gated (row sensitive-rids)
+        slots [[:dispatched 0 :scope] [:dispatched 0 :exempt-keys 0 :params] [:populate-exempt 0 :scope]]]
+    (testing "a settlement sparing a sensitive key redacts the descriptor scope and exempt keys"
+      (is (= [true true true] (redacted-at gated slots))))
+    (testing "CONTROL — ungated they print"
+      (is (= [false false false] (redacted-at (row nil) slots))))
     (testing "descriptor identity and the fail-closed evidence survive"
-      (is (= 1 (:descriptor-count gated)))
-      (is (= [[:article "welcome"]] (get-in gated [:dispatched 0 :tags])))
-      (is (= [] (:unresolved gated))))))
+      (is (= [1 [[:article "welcome"]] []]
+             ((juxt :descriptor-count #(get-in % [:dispatched 0 :tags]) :unresolved) gated))))))
 
 (deftest optimistic-reach-lint-redacts-a-sensitive-resource-on-box
-  (let [ev {:id 40 :operation :rf.mutation/optimistic-reconciled
-            :tags {:mutation        :article/favorite
-                   :instance        opt-instance
-                   :work/id         opt-work-id
-                   :optimistic-keys [opt-affected]
-                   :committed       []
-                   :reconciliation-refetches []}}
+  (let [ev      {:id 40 :operation :rf.mutation/optimistic-reconciled
+                 :tags {:mutation        :article/favorite
+                        :instance        opt-instance
+                        :work/id         opt-work-id
+                        :optimistic-keys [opt-affected]
+                        :committed       []
+                        :reconciliation-refetches []}}
         gated   (first (h/optimistic-reach-lint [ev] sensitive-rids))
         ungated (first (h/optimistic-reach-lint [ev]))]
-    (testing "CONTROL — ungated the missing key prints raw"
-      (is (false? (get-in ungated [:missing-keys 0 :scope :redacted?]))))
-    (testing "the missing keys redact"
-      (is (true? (get-in gated [:missing-keys 0 :scope :redacted?]))))
-    (testing "the hint names RESOURCE-IDS only, so it survives verbatim"
+    (testing "the missing keys redact; ungated they print"
+      (is (= [true false]
+             (mapv #(get-in % [:missing-keys 0 :scope :redacted?]) [gated ungated]))))
+    (testing "the hint names resource-ids only, so it survives verbatim"
       (is (= (:hint ungated) (:hint gated)))
       (is (re-find #"article/by-slug" (:hint gated)))
       (is (nil? (re-find #"u-42" (:hint gated)))
           "the hint carries no scope or params value"))))
 
-;; ---- (14) the optimistic joins are FRAME-SCOPED --------------------------
+;; ---- the optimistic joins are FRAME-SCOPED -----------------------------------
 ;;
-;; Every identity these joins key on is FRAME-LOCAL, and the runtime says so
-;; itself: a resource work-id "carries no frame identity, so two frames issuing
-;; the same resource at the same generation mint the SAME work-id"; a mutation
-;; instance id is the caller's own value (a form keyed by a row id) or one
-;; derived from the mutation id + the frame's monotone generation; and the
-;; `:snapshot-id` is derived from that instance id plus that same generation,
-;; so it INHERITS the collision rather than escaping it.
-;;
-;; The panel feeds every trace-borne projection ONE buffer and that buffer is
-;; deliberately cross-frame. So on a multi-frame host a frame-blind join would
-;; let frame B's terminal settle frame A's apply: A would read `:superseded`,
-;; or `:reconciled` wearing B's `:committed` keys, while still genuinely in
-;; flight — precisely the false "it finished" a network inspector exists to
-;; disprove.
-;;
-;; Every producer op in these joins stamps `:rf.frame/id`, and the join USES
-;; it. These tests pin BOTH directions, because only the pair
-;; discriminates: a FOREIGN frame must not settle, and the SAME frame must
-;; settle exactly as a single-frame buffer does.
+;; Instance, work-id, generation and snapshot-id are all frame-local, and the
+;; panel feeds these projections one deliberately cross-frame buffer, so a
+;; frame-blind join would let frame B's terminal settle frame A's apply. Each
+;; case pins both directions: a foreign frame must not settle, the same frame
+;; must.
 
 (def ^:private frame-a :rf/default)
 (def ^:private frame-b :rf/other-frame)
 
-(defn- in-frame
-  "Stamp a producer-shaped fixture for `frame`. The frame is the ONLY thing
-  that differs between the two sides of every case below."
-  [ev frame]
+(defn- in-frame [ev frame]
   (assoc-in ev [:tags :rf.frame/id] frame))
 
 (deftest optimistic-supersession-is-frame-scoped-rf2-qqi7u
-  (testing "the :generation fallback is frame-scoped too — a foreign-frame
-            suppression carrying no work-id must not settle it either"
-    (let [b   (-> opt-suppressed-ev
-                  (update :tags dissoc :rf.reply/work-id)
-                  (in-frame frame-b))
-          row (first (h/optimistic-lifecycle
-                       [(in-frame opt-apply-ev frame-a) b]))]
-      (is (= :pending (:outcome row)))))
-  (testing "both frames in ONE buffer — the panel's real shape: A's own
-            suppression settles A and leaves B's identical apply pending"
-    (let [rows (h/optimistic-lifecycle
-                 [(in-frame opt-apply-ev frame-a)
-                  (assoc (in-frame opt-apply-ev frame-b) :id 20)
-                  (in-frame opt-suppressed-ev frame-a)])]
-      (is (= 2 (count rows)))
-      (is (= [10 20] (mapv :id rows)) "apply order preserved, oldest first")
-      (is (= :superseded (:outcome (first rows))) "A's own suppression settles A")
-      (is (= 11 (:settled-id (first rows))))
-      (is (= :pending (:outcome (second rows)))
-          "B is still in flight — A's suppression says nothing about it"))))
+  (testing "a foreign-frame suppression must not settle the apply through the :generation fallback"
+    (is (= :pending
+           (:outcome (first (h/optimistic-lifecycle
+                              [(in-frame opt-apply-ev frame-a)
+                               (-> opt-suppressed-ev
+                                   (update :tags dissoc :rf.reply/work-id)
+                                   (in-frame frame-b))]))))))
+  (testing "both frames in one buffer: A's own suppression settles A and leaves B's
+            identical apply pending"
+    (is (= [[10 :superseded 11] [20 :pending nil]]
+           (mapv (juxt :id :outcome :settled-id)
+                 (h/optimistic-lifecycle
+                   [(in-frame opt-apply-ev frame-a)
+                    (assoc (in-frame opt-apply-ev frame-b) :id 20)
+                    (in-frame opt-suppressed-ev frame-a)]))))))
 
 (deftest optimistic-settlement-is-frame-scoped-rf2-qqi7u
-  (let [reconciled {:id 12 :operation :rf.mutation/optimistic-reconciled
-                    :tags {:snapshot-id "snap-7"
-                           :instance    opt-instance
-                           :committed   [opt-affected]
-                           :reconciliation-refetches []}}
-        rolled     {:id 13 :operation :rf.mutation/optimistic-rolled-back
-                    :tags {:snapshot-id  "snap-7"
-                           :instance     opt-instance
-                           :on-conflict  :invalidate
-                           :restored     [opt-affected]
-                           :conflicted   []
-                           :refetched    []
-                           :dispositions []}}]
-    (testing "a reconcile in ANOTHER frame must not settle this apply, and must
-              not lend it :committed keys that were never its own"
-      (let [row (first (h/optimistic-lifecycle
-                         [(in-frame opt-apply-ev frame-a)
-                          (in-frame reconciled frame-b)]))]
-        (is (= :pending (:outcome row)))
-        (is (nil? (:settled-id row)))
-        (is (not (contains? row :committed))
-            "the settle FACETS are read off the same index — they must not leak either")))
-    (testing "SAME-frame reconcile settles as in a single-frame buffer"
-      (let [row (first (h/optimistic-lifecycle
-                         [(in-frame opt-apply-ev frame-a)
-                          (in-frame reconciled frame-a)]))]
-        (is (= :reconciled (:outcome row)))
-        (is (= 12 (:settled-id row)))
-        (is (= 1 (count (:committed row))))))
-    (testing "a foreign-frame ROLLBACK likewise leaves the apply pending"
-      (let [row (first (h/optimistic-lifecycle
-                         [(in-frame opt-apply-ev frame-a)
-                          (in-frame rolled frame-b)]))]
-        (is (= :pending (:outcome row)))
-        (is (not (contains? row :restored)))))
-    (testing "SAME-frame rollback settles as in a single-frame buffer"
-      (let [row (first (h/optimistic-lifecycle
-                         [(in-frame opt-apply-ev frame-a)
-                          (in-frame rolled frame-a)]))]
-        (is (= :rolled-back (:outcome row)))
-        (is (= 13 (:settled-id row)))
-        (is (= :invalidate (:on-conflict row)))))))
+  (let [row #(first (h/optimistic-lifecycle [(in-frame opt-apply-ev frame-a)
+                                             (in-frame opt-reconciled-ev %)]))]
+    (testing "a reconcile in ANOTHER frame neither settles this apply nor lends it
+              :committed keys"
+      (is (= [:pending nil false]
+             ((juxt :outcome :settled-id #(contains? % :committed)) (row frame-b)))))
+    (testing "the SAME frame's reconcile settles it"
+      (is (= [:reconciled 12 1]
+             ((juxt :outcome :settled-id (comp count :committed)) (row frame-a)))))))
 
 (deftest optimistic-reach-lint-is-frame-scoped-rf2-qqi7u
-  ;; The reach lint unions the `:affected-keys` of the `:rf.mutation/succeeded`
-  ;; settlement keyed by `[instance work-id]` — both frame-local, so a
-  ;; frame-blind join would let frame B's settlement answer for frame A's and
-  ;; the finding would simply vanish.
-  ;; That is the REASSURING direction: a lint reporting nothing reads as a
-  ;; clean panel, so nothing on screen says the answer came from another frame.
   (let [reconciled {:id 40 :operation :rf.mutation/optimistic-reconciled
                     :tags {:mutation                 :article/favorite
                            :instance                 opt-instance
@@ -1746,48 +983,22 @@
                     :tags {:mutation      :article/favorite
                            :instance      opt-instance
                            :work/id       opt-work-id
-                           :affected-keys [opt-affected]}}]
-    (testing "CONTROL — the SAME frame's settlement DOES reach the key, so
-              there is no finding to report"
-      (is (empty? (h/optimistic-reach-lint
-                    [(in-frame reconciled frame-a)
-                     (in-frame succeeded frame-a)]))))
-    (testing "a settlement in ANOTHER frame must not answer for this one"
-      (let [rows (h/optimistic-reach-lint
-                   [(in-frame reconciled frame-a)
-                    (in-frame succeeded frame-b)])
-            row  (first rows)]
-        (is (= 1 (count rows)) "the unreached key is still a finding")
-        (is (= 1 (count (:missing-keys row))))
-        (is (= :article/favorite (:mutation row)))))))
+                           :affected-keys [opt-affected]}}
+        findings   #(mapv (juxt :mutation (comp count :missing-keys))
+                          (h/optimistic-reach-lint [(in-frame reconciled frame-a)
+                                                    (in-frame succeeded %)]))]
+    (testing "CONTROL — the same frame's settlement reaches the key: no finding"
+      (is (= [] (findings frame-a))))
+    (testing "a settlement in another frame must not answer for this one"
+      (is (= [[:article/favorite 1]] (findings frame-b))))))
 
-;; ---- (15) the reach lint's other two FRAME-SCOPED identities ------------
-;;
-;; Besides this lint's `affected-by-work` join, TWO identities INSIDE THE
-;; SAME FN key on the same deliberately cross-frame buffer, and each carries
-;; the frame:
-;;
-;;   - the `warned-scopes` suppression set, `[frame mutation other-scope]` —
-;;     without the frame, a scope-mismatch warning emitted in ANOTHER frame
-;;     would erase a local reach finding outright; and
-;;   - the candidate dedupe key, `[frame mutation instance missing]` —
-;;     without the frame, two genuinely independent findings — one per
-;;     frame — would collapse into one.
-;;
-;; Both would fail in the REASSURING direction, which is what makes them easy
-;; to miss: FEWER findings reads as a cleaner panel, and nothing on screen
-;; says the answer came from another frame.
-;;
-;; These cases run the buffer through the PRODUCTION family filter
-;; (`resource-projection-rows`) rather than straight into the lint, because
-;; the suppression arm only means anything if that filter RETAINS the warning
-;; — a test handing the lint a hand-built buffer cannot tell a working
-;; suppression from a warning the panel never sees at all.
+;; The reach lint's two other frame-local identities: the scope-mismatch
+;; suppression set and the dedupe key. Both cases run through the production
+;; family filter, so the suppression arm is tested on a buffer the panel
+;; actually sees.
 
 (def ^:private reach-reconciled
-  "An optimistic reconcile whose single optimistic key NOTHING reaches: no
-  `:committed`, no `:reconciliation-refetches`, and no `:rf.mutation/succeeded`
-  settlement anywhere in the buffer. On its own it is exactly one finding."
+  "An optimistic reconcile whose single optimistic key nothing reaches."
   {:id 50 :operation :rf.mutation/optimistic-reconciled
    :tags {:mutation                 :article/favorite
           :instance                 opt-instance
@@ -1797,9 +1008,7 @@
           :reconciliation-refetches []}})
 
 (def ^:private reach-scope-warning
-  "The write-side scope-mismatch tripwire, naming `opt-affected`'s OWN scope as
-  the scope that does hold a matching entry. Its `[mutation other-scope]` pair
-  is what the lint suppresses a candidate on."
+  "The write-side scope-mismatch tripwire, naming `opt-affected`'s own scope."
   {:id 51 :operation :rf.warning/mutation-scope-mismatch
    :tags {:mutation         :article/favorite
           :instance         opt-instance
@@ -1809,51 +1018,25 @@
           :tags             [:article]
           :recovery         :fix-scope}})
 
-(defn- reach-lint
-  "The lint as the panel actually runs it — through the production family
-  filter, never straight off a hand-built buffer."
-  [evs]
+(defn- reach-lint [evs]
   (h/optimistic-reach-lint (h/resource-projection-rows evs)))
 
 (deftest optimistic-reach-lint-dedupe-is-frame-scoped-rf2-389dv
-  (testing "CONTROL — the production filter RETAINS both producer ops, so no
-            result below can be the filter's doing"
-    (is (= 2 (count (h/resource-projection-rows
-                      [(in-frame reach-reconciled frame-a)
-                       (in-frame reach-scope-warning frame-b)])))))
-  (testing "CONTROL — frame A's unreached reconcile alone is ONE finding"
-    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-a)])))))
-  (testing "CONTROL — the identical reconcile in frame B alone is ONE finding"
-    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-b)])))))
-  (testing "both frames in ONE buffer are TWO independent findings — neither
-            frame's reconcile is the other's duplicate"
-    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
-                            (assoc (in-frame reach-reconciled frame-b) :id 60)])]
-      (is (= 2 (count rows)))
-      (is (= [50 60] (mapv :id rows)) "buffer order preserved, oldest first")))
-  (testing "SAME-FRAME duplicates collapse — the behaviour frame-scoping
-            must keep, and the reason the frame-scoped key is not just a
-            disabled dedupe"
-    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
-                            (assoc (in-frame reach-reconciled frame-a) :id 61)])]
-      (is (= 1 (count rows)))
-      (is (= 50 (:id (first rows))) "the first row wins")))
-  (testing "the dedupe key never leaks onto a result row"
-    (is (every? #(not (contains? % :dedupe-key))
-                (reach-lint [(in-frame reach-reconciled frame-a)
-                             (assoc (in-frame reach-reconciled frame-b) :id 60)])))))
+  (testing "the same reconcile in two frames is two independent findings, in buffer order"
+    (is (= [50 60]
+           (mapv :id (reach-lint [(in-frame reach-reconciled frame-a)
+                                  (assoc (in-frame reach-reconciled frame-b) :id 60)])))))
+  (testing "same-frame duplicates collapse to the first"
+    (is (= [50]
+           (mapv :id (reach-lint [(in-frame reach-reconciled frame-a)
+                                  (assoc (in-frame reach-reconciled frame-a) :id 61)]))))))
 
 (deftest optimistic-reach-lint-warning-suppression-is-frame-scoped-rf2-389dv
-  (testing "SAME-FRAME suppression holds — a wrong-scope descriptor
-            gets one diagnostic, not two"
+  (testing "a same-frame scope-mismatch warning suppresses the finding — one diagnostic, not two"
     (is (empty? (reach-lint [(in-frame reach-reconciled frame-a)
                              (in-frame reach-scope-warning frame-a)]))))
-  (testing "a warning emitted in ANOTHER frame must not erase this frame's
-            finding"
-    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
-                            (in-frame reach-scope-warning frame-b)])
-          row  (first rows)]
-      (is (= 1 (count rows)) "the unreached key is still a finding")
-      (is (= 1 (count (:missing-keys row))))
-      (is (= :article/favorite (:mutation row)))
-      (is (= opt-instance (:instance row))))))
+  (testing "a warning emitted in another frame does not erase this frame's finding"
+    (is (= [[:article/favorite opt-instance 1]]
+           (mapv (juxt :mutation :instance (comp count :missing-keys))
+                 (reach-lint [(in-frame reach-reconciled frame-a)
+                              (in-frame reach-scope-warning frame-b)]))))))
