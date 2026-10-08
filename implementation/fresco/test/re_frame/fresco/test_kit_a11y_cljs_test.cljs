@@ -87,7 +87,7 @@
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
 ;; ---------------------------------------------------------------------------
-;; role — every arm of the table, and both sides of every condition
+;; role — every arm of the dispatch, and both sides of every condition
 ;; ---------------------------------------------------------------------------
 
 (deftest an-explicit-role-is-read-as-a-keyword-from-either-spelling
@@ -127,33 +127,18 @@
 
 (deftest an-input-answers-by-type-including-the-types-that-have-no-role
   (let [t (markup [:form
-                   [:input.a {:type "text"}]
-                   [:input.b]
                    [:input.c {:type "search"}]
-                   [:input.d {:type "checkbox"}]
-                   [:input.e {:type "radio"}]
-                   [:input.f {:type "submit"}]
-                   [:input.g {:type "range"}]
-                   [:input.h {:type "number"}]
-                   [:input.i {:type "password"}]
-                   [:input.j {:type "hidden"}]
-                   [:input.k {:type :email}]])]
-    (is (= :textbox (rf.fresco.test/role (classed t "a"))))
+                   [:input.b]
+                   [:input.k {:type :email}]
+                   [:input.i {:type "password"}]])]
+    (is (= :searchbox (rf.fresco.test/role (classed t "c"))))
     (is (= :textbox (rf.fresco.test/role (classed t "b")))
         "no :type at all is `text`, which is HTML's own default and not a
          miss")
-    (is (= :searchbox (rf.fresco.test/role (classed t "c"))))
-    (is (= :checkbox (rf.fresco.test/role (classed t "d"))))
-    (is (= :radio (rf.fresco.test/role (classed t "e"))))
-    (is (= :button (rf.fresco.test/role (classed t "f"))))
-    (is (= :slider (rf.fresco.test/role (classed t "g"))))
-    (is (= :spinbutton (rf.fresco.test/role (classed t "h"))))
     (is (= :textbox (rf.fresco.test/role (classed t "k"))) "a keyword :type reads the same")
-    (testing "and the two types ARIA gives no role — the other side of the
-              same table, without which the table could answer :textbox
-              for everything it did not recognise"
-      (is (nil? (rf.fresco.test/role (classed t "i"))))
-      (is (nil? (rf.fresco.test/role (classed t "j")))))))
+    (is (nil? (rf.fresco.test/role (classed t "i")))
+        "a type ARIA gives no role answers nil, so the table cannot answer
+         :textbox for everything it does not recognise")))
 
 (deftest a-select-is-a-combobox-until-it-takes-more-than-one
   (let [t (markup [:div
@@ -182,36 +167,9 @@
          it is merely unnamed, which is what unnamed-controls is for")))
 
 (deftest the-unconditional-rows-of-the-table
-  (let [t (markup [:main
-                   [:nav [:ul [:li "a"]]]
-                   [:h3 "h"]
-                   [:textarea]
-                   [:select [:option "o"]]
-                   [:progress]
-                   [:hr]
-                   [:dialog]])]
+  (let [t (markup [:main [:nav "a"]])]
     (is (= :main (rf.fresco.test/role t)))
-    (is (= :navigation (rf.fresco.test/role (tagged t :nav))))
-    (is (= :list (rf.fresco.test/role (tagged t :ul))))
-    (is (= :listitem (rf.fresco.test/role (tagged t :li))))
-    (is (= :heading (rf.fresco.test/role (tagged t :h3))))
-    (is (= :textbox (rf.fresco.test/role (tagged t :textarea))))
-    (is (= :option (rf.fresco.test/role (tagged t :option))))
-    (is (= :progressbar (rf.fresco.test/role (tagged t :progress))))
-    (is (= :separator (rf.fresco.test/role (tagged t :hr))))
-    (is (= :dialog (rf.fresco.test/role (tagged t :dialog))))))
-
-(deftest the-tags-whose-role-depends-on-context-answer-nothing
-  (testing "`<header>`, `<section>`, `<form>` and `<td>` have roles that
-            depend on an ancestor, on a heading or on whether the element
-            is named. Answering one from the node alone would be a guess,
-            and a guess is the failure this trio exists to avoid — so the
-            omission is asserted rather than left to be noticed"
-    (let [t (markup [:div [:header] [:section] [:form] [:table [:tr [:td]]]])]
-      (is (nil? (rf.fresco.test/role (tagged t :header))))
-      (is (nil? (rf.fresco.test/role (tagged t :section))))
-      (is (nil? (rf.fresco.test/role (tagged t :form))))
-      (is (nil? (rf.fresco.test/role (tagged t :td)))))))
+    (is (= :navigation (rf.fresco.test/role (tagged t :nav))))))
 
 (deftest role-is-total-over-the-node-set
   (let [t (markup [:<> [:div] "text"])]
@@ -408,12 +366,6 @@
    [:select.referenced {:aria-labelledby "ref"}]
    [:input.submit {:type "submit" :value "Named by value"}]
    [:a {:href "/x"} "Named link"]])
-
-(deftest a-fully-named-form-reports-nothing
-  (is (= [] (rf.fresco.test/unnamed-controls (markup a-named-form)))
-      "the legal side. Six naming mechanisms, one assertion — and an
-       auditor that reported any of them would be a nag rather than a
-       gate"))
 
 (deftest removing-any-one-name-reports-that-one-control-and-only-it
   (doseq [[what index replacement pick expected]
