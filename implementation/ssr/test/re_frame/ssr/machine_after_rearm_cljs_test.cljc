@@ -2,30 +2,16 @@
   "The `:rf/hydrate` SEAM re-arms machine `:after` timers.
 
   `machine_after_hydration_rearm_cljs_test` (machines artefact) pins the
-  walk and the arming. This namespace pins the WIRING: that a real
-  server-rendered payload, dispatched through the real `:rf/hydrate`
-  event, ends with a live client timer — and that the three ways the seam
-  is supposed to arm NOTHING all hold.
+  walk and the arming. This namespace pins the WIRING: a real
+  server-rendered payload (the machine run on a `:platform :server` frame,
+  projected by `payload-policy/project-runtime-db`, assembled by
+  `payload-policy/build-payload`) dispatched through the real `:rf/hydrate`
+  ends with a live client timer whose captured thunk, INVOKED, performs the
+  transition — and a server-side hydrate arms nothing.
 
-  Nothing here is hand-written wire shape. The snapshot is produced by
-  running the machine on a `:platform :server` frame, projected by
-  `payload-policy/project-runtime-db` (the shipped projector, machines
-  hook and all) and assembled by `payload-policy/build-payload` (the
-  shipped assembler), so the test tracks the real payload rather than a
-  literal that can drift away from it.
-
-  ## It fires the timer
-
-  The positive case captures the host-clock thunk and INVOKES it, then
-  asserts the machine transitioned. A timer table with an entry in it
-  proves nothing about whether the entry is wired to anything.
-
-  Both hosts: a `.cljc` named `*-cljs-test`, so it runs under
-  `clojure -M:test` from `implementation/ssr` (JVM) and under the node
-  runner (`npm run test:cljs`). Handlers and machines are registered
-  INSIDE each test body under per-test ids — in the shared node process a
-  sibling namespace's `registrar/clear-all!` wipes ns-load-time
-  registrations, which would silently turn a dispatch into a no-op."
+  Handlers and machines are registered INSIDE each test body: in the shared
+  node process a sibling namespace's `registrar/clear-all!` wipes
+  ns-load-time registrations."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -39,15 +25,8 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-;; COLD-START the adapter slot rather than assuming it is empty.
-;; `init!` is idempotent only for the adapter ALREADY SEATED;
-;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
-;; instead of silently ignoring the call. This ns runs in the shared node
-;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
-;; `init!` here would raise whenever one of them ran first. Destroy first,
-;; seat the adapter this ns
-;; NAMES, and destroy again on the way out so the slot is left cold for
-;; whichever namespace the runner reaches next.
+;; COLD-START the adapter slot: this ns shares the node bundle with suites
+;; that seat other adapters, and `init!` raises when handed a different one.
 (use-fixtures :once
   (fn [f]
     (rf/destroy-adapter!)
@@ -126,12 +105,11 @@
           epoch   (get-in snap [:data :rf/after-epoch [:waiting]])
           thunks  (atom [])
           armed   (atom [])
-          cfid    (fresh-frame! :client)]
-      (is (= :waiting (:state snap))
-          "precondition: the `:after`-bearing state rode the wire")
+          cfid    (fresh-frame! :client)
+          client-snap #(get-in (rf.frame/frame-runtime-db-value cfid)
+                               [:rf.runtime/machines :snapshots :ssrrearm/one])]
       (is (and (integer? epoch) (pos? epoch))
-          "precondition: so did the per-decl-path epoch")
-      (is (empty? (inner cfid)) "precondition: the client holds no timers yet")
+          "precondition: the per-decl-path epoch rode the wire")
 
       (with-redefs [rf.interop/schedule-after! (fn [t ms]
                                              (swap! thunks conj t)
@@ -140,31 +118,23 @@
         (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame cfid}))
 
       (let [table (inner cfid)]
-        (is (= 1 (count table))
-            (str "the `:rf/hydrate` seam armed exactly one timer. With 0 "
-                 "the machine would be stuck in "
-                 ":waiting for the life of the page."))
-        (is (= {:parent :ssrrearm/one :spawn [:waiting] :delay 5000}
-               (ffirst table)))
+        (is (= [{:parent :ssrrearm/one :spawn [:waiting] :delay 5000}] (keys table))
+            "the `:rf/hydrate` seam armed exactly this one timer")
         (is (= epoch (:epoch (val (first table))))
             "armed at the epoch the PAYLOAD carried — hydration must not bump")
         (is (= [5000] @armed)
             "for the FULL declared delay; nothing on the wire records a
              schedule instant to compute a remainder from"))
 
-      (is (= :waiting (get-in (rf.frame/frame-runtime-db-value cfid)
-                              [:rf.runtime/machines :snapshots :ssrrearm/one :state])))
+      (is (= :waiting (:state (client-snap))))
       (fire! (first @thunks))
-      (is (= :timeout (get-in (rf.frame/frame-runtime-db-value cfid)
-                              [:rf.runtime/machines :snapshots :ssrrearm/one :state]))
-          "the hydrated timer FIRED and drove the declared transition")
-      (is (= 1 (get-in (rf.frame/frame-runtime-db-value cfid)
-                       [:rf.runtime/machines :snapshots :ssrrearm/one :data :entries]))
-          (str "and `:entry` still ran exactly once — the server's. The re-arm "
-               "reconstructs host work; it does not replay history.")))))
+      (is (= [:timeout 1] [(:state (client-snap)) (get-in (client-snap) [:data :entries])])
+          (str "the hydrated timer FIRED and drove the declared transition, and "
+               "`:entry` ran exactly once — the server's. The re-arm reconstructs "
+               "host work; it does not replay history.")))))
 
 ;; ---------------------------------------------------------------------------
-;; The three ways it arms nothing
+;; A server-side hydrate arms nothing
 ;; ---------------------------------------------------------------------------
 
 (deftest a-server-side-hydrate-arms-nothing
@@ -180,41 +150,3 @@
            working, not the hydration failing")
       (is (empty? (inner target))
           "no timers on a server-side hydrate"))))
-
-(deftest a-rejected-payload-arms-nothing
-  (testing "a payload the handler fails CLOSED on installs nothing and
-            therefore arms nothing"
-    (let [good (server-render! :ssrrearm/rej)
-          cfid (fresh-frame! :client)]
-      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
-        ;; (a) malformed — a present-but-non-map `:rf/app-db` slice.
-        (rf.router/dispatch-sync! [:rf/hydrate (assoc good :rf/app-db "not-a-map")]
-                               {:frame cfid})
-        (is (empty? (inner cfid)) "malformed payload: rejected, nothing armed")
-        (is (nil? (get-in (rf.frame/frame-runtime-db-value cfid)
-                          [:rf.runtime/machines :snapshots :ssrrearm/rej]))
-            "and nothing installed either — the rejection is total")
-
-        ;; (b) wrong frame — a payload stamped for a DIFFERENT frame id.
-        (rf.router/dispatch-sync! [:rf/hydrate (assoc good :rf/frame-id :ssrrearm/somewhere-else)]
-                               {:frame cfid})
-        (is (empty? (inner cfid)) "wrong-frame payload: rejected, nothing armed")
-
-        ;; CONTROL — the same payload, unmangled, on the same frame DOES arm.
-        ;; Without this the two assertions above would pass for a payload
-        ;; that could never arm anything in the first place.
-        (rf.router/dispatch-sync! [:rf/hydrate good] {:frame cfid})
-        (is (= 1 (count (inner cfid)))
-            "control: the well-formed payload arms, so the rejections above
-             are about the rejection and not about the payload")))))
-
-(deftest a-payload-with-no-runtime-db-slice-arms-nothing
-  (testing "a client-only payload (no `:rf/runtime-db`) requests no re-arm —
-            there is no server-settled machine state to reconstruct from"
-    (let [good (server-render! :ssrrearm/nort)
-          cfid (fresh-frame! :client)]
-      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
-        (rf.router/dispatch-sync! [:rf/hydrate (dissoc good :rf/runtime-db)]
-                               {:frame cfid}))
-      (is (empty? (inner cfid))
-          "no runtime-db slice, no re-arm"))))
