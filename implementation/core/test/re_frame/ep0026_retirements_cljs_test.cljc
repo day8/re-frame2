@@ -13,10 +13,14 @@
 (deftest each-retired-image-key-fails-loud
   (is (= (for [k [:include-ns :exclude-ns :replace :replace-standard :rf.image/requires]]
            {:rf.error/id :rf.error/invalid-image :retired-key k})
-         (for [[k v] [[:include-ns ["docs.counter.v2"]]
+         (for [[k v] [;; the spelling is now :select-ns :include / :exclude
+                      [:include-ns ["docs.counter.v2"]]
                       [:exclude-ns ["docs.counter.dev.**"]]
+                      ;; composition resolves by image order
                       [:replace {[:event :counter/inc] {:ns "docs.counter.v3"}}]
+                      ;; standards are protected, with no public opt-in
                       [:replace-standard {[:interceptor :rf.interceptor/path] {:standard true}}]
+                      ;; images declare no host capabilities
                       [:rf.image/requires #{:rf.capability/http}]]]
            (try (rf.image/image {:id :x k v}) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
