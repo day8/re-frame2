@@ -1,58 +1,16 @@
 (ns re-frame.frame-destroy-generation-provenance-cljs-test
-  "`destroy-frame!` RELEASES the destroyed frame's
-  generation-provenance row.
+  "`destroy-frame!` releases the frame's generation-provenance row in
+  `re-frame.live-frame`: the descriptor pool its current generation resolved
+  against (nil for the live store, the caller's pool for the 2-arity). Every
+  public `make-frame` writes one, so a row left behind leaks one key per frame,
+  and on the 2-arity the caller's whole pool. The per-request SSR recipe makes
+  and destroys a fresh frame per request.
 
-  `re-frame.live-frame` keeps one private process-global row per frame naming
-  which descriptor pool that frame's CURRENT generation was resolved against:
-  `nil` for the live source store (`make-frame`'s 1-arity — the ordinary case),
-  a real descriptors value for an explicit pool (the 2-arity). Every successful
-  public `make-frame` writes one, and `reproject-live-frame!` threads the same
-  pool back on every re-resolution.
-
-  A row left standing once `destroy-frame!` has released the frame record and
-  its other frame-keyed side tables would mean destroying N never-reused ids
-  leaves N permanent keys — and on the 2-arity, the caller's whole explicit
-  descriptor-pool object graph would stay reachable through them. Spec 002
-  §Destroy makes `destroy-frame!` the single normative teardown boundary every
-  frame-scoped table hangs its cleanup off, so such residue would be a contract
-  violation as well as a leak. Nor is it harmless dev-process memory: the
-  write is unconditional in the PUBLIC constructor, and the documented
-  per-request SSR recipe mints a fresh gensym id, constructs, renders and
-  destroys in a `finally` — one retained row per request served, for the life
-  of the server. The Fresco frame-ops row has the same shape one layer up.
-
-  The release is `live-frame/release-frame-generation-pool!`, published as
-  `:live-frame/on-frame-destroyed!` and invoked from `destroy-frame!`'s step-6
-  auxiliary-cleanup pass beside its siblings.
-
-  Every case below starts from a COMPLETE late-bind registry, so none of them
-  can see whether that publication survives a hot reload of the producing
-  namespace — see `live_frame_teardown_hook_reload_jvm_test`, which constructs
-  the discriminating state (once-flag latched, this one key missing).
-
-  ## Why each case asserts PRESENCE before it asserts absence
-
-  A leak is an ABSENCE, and \"the key is gone after teardown\" passes trivially
-  against a build where `make-frame` never wrote the key at all — a different
-  bug, and one this file would then certify as working. So every case here proves
-  the row was THERE while the frame was live before it proves it is gone after,
-  and the churn case pins the exact count in both directions rather than
-  probing one selected key.
-
-  `contains?` — never `get` — is the presence probe, and that is load-bearing
-  rather than stylistic: an ordinary 1-arity frame's recorded pool IS `nil`, so
-  `(get pool id)` returns `nil` both for a live ordinary frame and for a frame
-  that was never created. The one probe that can tell those apart is key
-  membership. (Informationally the two are identical to the row's only READER,
-  `reproject-live-frame!` — which is the argument that releasing the row is
-  safe, not an argument that the release is unobservable.)
-
-  `.cljc` ending `-cljs-test` so it rides `npm run test:cljs` (the `:node-test`
-  build's `cljs-test$` ns-regexp) AND `clojure -M:test` (cognitect-test-runner's
-  `-test$`) — the row and its release are host-neutral, so both lanes run every
-  case."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  Each case shows the row was present while the frame lived before showing it
+  is gone, so a `make-frame` that stopped recording cannot pass. Presence is
+  key membership: an ordinary frame's recorded pool is nil."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core       :as rf]
             [re-frame.frame      :as rf.frame]
             [re-frame.image      :as rf.image]
@@ -60,16 +18,10 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; The runtime fixture installs the plain-atom adapter and resets `rf.frame/frames`
-;; between cases. It deliberately does NOT touch the provenance table — these
-;; cases capture their own baseline and assert against it, which is also what
-;; makes the churn case's exact-count assertion honest in a shared test bundle.
+;; the fixture leaves the provenance table alone, so each case takes its own
+;; baseline
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---------------------------------------------------------------------------
-;; Helpers
-;; ---------------------------------------------------------------------------
 
 (defn- provenance
   "The private generation-provenance table, as a plain map."
@@ -77,8 +29,7 @@
   (deref @#'rf.live-frame/frame-generation-pool))
 
 (defn- row?
-  "Does the table carry a row for `id`? Key MEMBERSHIP — see the ns docstring
-  for why `get` cannot answer this for an ordinary 1-arity frame."
+  "Does the table carry a row for `id`?"
   [id]
   (contains? (provenance) id))
 
@@ -87,72 +38,37 @@
   (contains? (set (rf.frame/frame-ids)) id))
 
 (defn- reg-desc
-  "A synthetic REGISTERED descriptor authored in `provenance-ns` (mirrors the
-  source-store output shape the selector consumes)."
+  "A synthetic registered descriptor authored in `provenance-ns`."
   [provenance-ns kind id impl]
   {:rf.provenance/ns provenance-ns
    :kind             kind
    :id               id
    :handler-fn       impl})
 
-;; ---------------------------------------------------------------------------
-;; The explicit-pool (2-arity) row, across two same-id incarnations
-;; ---------------------------------------------------------------------------
-
 (deftest destroy-frame-releases-explicit-pool-provenance-across-incarnations-rf2-cq0yi
-  (testing "the 2-arity records the caller's EXACT descriptor pool — the
-            object graph a leaked row would keep reachable — and teardown
-            releases it.
-            Two same-id incarnations with DISTINCT pool objects also pin that
-            the release is incarnation-correct: a STALE exact-value destroy of A
-            must not strip successor B's row."
-    (let [id     :cq0yi-explicit/main
-          pool-a [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::a)]
-          pool-b [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::b)]
-          img    (rf.image/image {:id        :cq0yi-explicit/img
-                               :select-ns {:include ["cq0yi-explicit.core"]}})
-          a      (rf/make-frame {:id id :images [img]} pool-a)]
-      (testing "control: A's live row is A's exact pool"
-        (is (identical? pool-a (get (provenance) id))))
+  ;; two same-id incarnations with distinct pools: a stale destroy of A must not
+  ;; strip successor B's row
+  (let [id     :cq0yi-explicit/main
+        pool-a [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::a)]
+        pool-b [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::b)]
+        img    (rf.image/image {:id        :cq0yi-explicit/img
+                                :select-ns {:include ["cq0yi-explicit.core"]}})
+        a      (rf/make-frame {:id id :images [img]} pool-a)]
+    (is (identical? pool-a (get (provenance) id)) "control: A's row is A's exact pool")
+    (rf/destroy-frame! a)
+    (is (= [false false] [(row? id) (live? id)]) "destroying A releases its row")
+    (let [b (rf/make-frame {:id id :images [img]} pool-b)]
       (rf/destroy-frame! a)
-      (testing "destroying A releases A's row"
-        (is (not (row? id)))
-        (is (not (live? id))))
-      (let [b (rf/make-frame {:id id :images [img]} pool-b)]
-        (testing "control: constructing B installs B's OWN pool under the reused id"
-          (is (identical? pool-b (get (provenance) id))))
-        (testing "a STALE exact-value destroy of A no-ops against successor B —
-                  it fails its incarnation claim before the cleanup walk, so it
-                  strips nothing"
-          (rf/destroy-frame! a)
-          (is (live? id) "B is still live")
-          (is (identical? pool-b (get (provenance) id)) "B's row is intact"))
-        (rf/destroy-frame! b)
-        (testing "destroying B releases B's row"
-          (is (not (live? id)))
-          (is (not (row? id))))))))
-
-;; ---------------------------------------------------------------------------
-;; Churn — the SSR-per-request shape
-;; ---------------------------------------------------------------------------
+      (is (= [true true] [(live? id) (identical? pool-b (get (provenance) id))])
+          "a stale destroy of A leaves B live with its own row")
+      (rf/destroy-frame! b)
+      (is (= [false false] [(row? id) (live? id)])))))
 
 (deftest destroy-frame-returns-provenance-table-to-baseline-under-churn-rf2-cq0yi
-  (testing "the failure mode is unbounded GROWTH, not one stale key, so
-            the churn case pins the whole table's cardinality in both directions
-            rather than probing a selected id. 100 fresh anonymous frames is the
-            documented per-request SSR shape (a fresh id, construct, render,
-            destroy in a `finally`) — a leak would leave 100 permanent rows and
-            the after-destroy count would equal the after-create count."
-    (let [n        100
-          baseline (count (provenance))
-          frames   (vec (repeatedly n #(rf/make-frame {})))]
-      (testing "NON-VACUITY control — the table GREW by exactly the live set, so
-                the baseline restored below is a release of 100 real rows and
-                not a `make-frame` that quietly stopped recording"
-        (is (= (+ baseline n) (count (provenance)))
-            "one new row per frame, all keys distinct"))
-      (doseq [f frames]
-        (rf/destroy-frame! f))
-      (testing "every row is released, exactly back to the captured baseline"
-        (is (= baseline (count (provenance)))
-            "a leak would read (baseline + 100)")))))
+  ;; the failure is unbounded growth, so the whole table's size is pinned both ways
+  (let [n        100
+        baseline (count (provenance))
+        frames   (vec (repeatedly n #(rf/make-frame {})))]
+    (is (= (+ baseline n) (count (provenance))) "control: one row per live frame")
+    (run! rf/destroy-frame! frames)
+    (is (= baseline (count (provenance))))))
