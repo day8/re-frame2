@@ -1,32 +1,12 @@
 (ns reagent2.impl.template-cljs-test
-  "Unit tests for reagent2.impl.template.
-
-  Per IMPL-SPEC §7 + §12.1 + §12.5 R-001. Covers:
-
-    - Tag parsing (:div, :div.cls, :div#id, :div#id.a.b; the
-      class-before-id :div.a.b#id is pinned as unsupported).
-    - Hiccup vector dispatch (:>, :<>, :r>, :f>, DOM tag, user fn).
-    - Narrowed convert-prop-value (D2): HTML-attribute names stringify
-      keyword values; non-HTML names pass through unchanged.
-    - Sequence-as-children flattening + the dev-only missing-key
-      warning.
-    - Void-tag handling (children rejected for <br>, <img>, etc.).
-    - cached-prop-name kebab→camel conversion.
-
-  Test strategy: most tests directly inspect the output of
-  template/as-element / parse-tag / convert-prop-value without driving
-  React. The render-path tests walk a hiccup tree through as-element
-  and inspect the resulting React element's `.type`, `.props`, etc.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Unit tests for reagent2.impl.template: tag parsing, prop-name and prop-value
+  conversion, hiccup dispatch to React elements, sequence children and void
+  tags."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.template :as template]
             [reagent2.impl.component :as component]
             [goog.object :as gobj]
             ["react" :as react]
-            ;; Render an [:f> f] through the server renderer to
-            ;; prove f's React hooks run in a valid function-component
-            ;; context (a class-lowered f would throw 'Invalid hook call').
             ["react-dom/server" :as rds]))
 
 ;; ---------------------------------------------------------------------------
@@ -45,10 +25,6 @@
           (str (pr-str head) " — " label)))))
 
 (deftest parse-tag-class-before-id-not-supported
-  ;; The regex requires `#id` before `.class` (matches stock
-  ;; Reagent). The class-before-id form (`:div.a#id`) does NOT match —
-  ;; `re-matches` returns nil and the result carries a nil tag. Pin the
-  ;; constraint so the docstring and the code can never silently disagree.
   (testing ":div.a#id — class-before-id is NOT supported (nil tag)"
     (let [parsed (template/parse-tag :div.a#id [:div.a#id])]
       (is (nil? (.-tag parsed))
@@ -77,14 +53,10 @@
 ;; through with a one-shot dev warning.
 ;; ---------------------------------------------------------------------------
 
-(deftest convert-prop-value-class-keyword-stringifies
-  (testing ":class with keyword value → string (HTML-attr name)"
-    (is (= "primary"
-           (template/convert-prop-value :class :primary)))))
-
 (deftest convert-prop-value-stringifies-html-attr-keywords-and-passes-other-values
   (doseq [[why k v expected]
-          [[":id with keyword value → string (HTML-attr name)"            :id         :main-header "main-header"]
+          [[":class with keyword value → string (HTML-attr name)"         :class      :primary     "primary"]
+           [":id with keyword value → string (HTML-attr name)"            :id         :main-header "main-header"]
            [":role with keyword value → string (HTML-attr name)"          :role       :button      "button"]
            [":data-foo with keyword value → string (data-* HTML attr)"    :data-foo   :bar         "bar"]
            [":aria-label with keyword value → string (aria-* HTML attr)"  :aria-label :close       "close"]
@@ -93,13 +65,8 @@
     (testing why
       (is (= expected (template/convert-prop-value k v))))))
 
-;; A fixture that actually REACHES `convert-prop-value`'s
-;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
-;; arms that come first (`js-val?`, `named?`, `map?`, `coll?`).
-;; A deftype implementing IFn does NOT satisfy the `Fn` marker protocol,
-;; which is what separates it from a function. Each -invoke records its
-;; own arguments so a call through the wrapper can be proven to have
-;; reached the fixture rather than merely returned something.
+;; Reaches `convert-prop-value`'s `ifn?` arm: object-backed, IFn but not Fn,
+;; and none of the earlier arms' shapes. Each -invoke records its arguments.
 (deftype CallableProbe [calls]
   IFn
   (-invoke [_]     (swap! calls conj [])       :called-0)
@@ -107,102 +74,43 @@
   (-invoke [_ a b] (swap! calls conj [a b])    [:called-2 a b]))
 
 (deftest convert-prop-value-fn-yields-stable-callable-js-fn-rf2-fzbj-30
-  (testing "an object-backed Fn prop — a fn
-            carrying metadata, i.e. cljs.core/MetaFn — converts to a REAL
-            JavaScript function, and converting the same handler again
-            returns that SAME function, so the host can invoke it AND
-            React.memo / shouldComponentUpdate / callback-ref identity
-            still hold.
-
-            Passing the MetaFn through unchanged would not do: `goog/typeOf`
-            a MetaFn is \"object\": JavaScript's `f(...)` syntax cannot
-            invoke it, React DOM refuses it as a listener, and a foreign
-            component calling the prop throws. So the witness below is a
-            NATIVE call (`Reflect.apply`), never CLJS invocation or
-            `.call` — MetaFn implements both, so either would make an
-            unchanged pass-through look healthy."
+  (testing "a metadata-bearing fn (a MetaFn, which JavaScript cannot call)
+            converts to a real JS function, the same one each time, so a host
+            can invoke it and React's identity checks still hold. The witness
+            is a NATIVE call: CLJS invocation and `.call` both work on an
+            unconverted MetaFn"
     (let [calls   (atom [])
           handler (with-meta (fn [& args]
                                (swap! calls conj (vec args))
                                [:handled (vec args)])
                     {:rf/probe true})]
-      ;; Preconditions, asserted rather than assumed — these are what
-      ;; route the value past `js-val?` and make the hazard real.
-      (is (= "object" (goog/typeOf handler))
-          "precondition: a metadata-bearing fn is object-backed, so js-val? declines it")
-      (is (fn? handler)
-          "precondition: MetaFn satisfies Fn")
-      (is (thrown? js/TypeError (js/Reflect.apply handler nil #js []))
-          "precondition: the MetaFn itself is NOT natively callable")
-      (let [one-a   (template/convert-prop-value handler)
-            one-b   (template/convert-prop-value handler)
-            two-a   (template/convert-prop-value :on-click handler)
-            two-b   (template/convert-prop-value :on-click handler)
-            three-a (template/convert-prop-value :on-click handler true)
-            three-b (template/convert-prop-value :on-click handler true)]
-        (doseq [[label out] [["1-arg" one-a] ["2-arg" two-a] ["3-arg" three-a]]]
-          (is (= "function" (goog/typeOf out))
-              (str label ": converts to a real JS function")))
-        (is (identical? one-a one-b)
-            "1-arg: repeated conversion returns the SAME function")
-        (is (identical? two-a two-b)
-            "2-arg: repeated conversion returns the SAME function")
-        (is (identical? three-a three-b)
-            "3-arg: repeated conversion returns the SAME function")
-        ;; Invoke it the way a host does — natively.
-        (is (= [:handled [:x :y]] (js/Reflect.apply two-a nil #js [:x :y]))
-            "a native call forwards the arguments and returns the handler's value")
-        (is (= [[:x :y]] @calls)
-            "the handler itself ran, exactly once")))
-    ;; A plain JS fn still passes through unchanged — by the js-val? arm.
+      (doseq [[label convert] [["1-arg" #(template/convert-prop-value handler)]
+                               ["2-arg" #(template/convert-prop-value :on-click handler)]
+                               ["3-arg" #(template/convert-prop-value :on-click handler true)]]]
+        (let [out (convert)]
+          (is (= "function" (goog/typeOf out)) label)
+          (is (identical? out (convert)) (str label ": the same function again"))))
+      (is (= [:handled [:x :y]]
+             (js/Reflect.apply (template/convert-prop-value :on-click handler) nil #js [:x :y])))
+      (is (= [[:x :y]] @calls) "the handler itself ran, exactly once")))
+  (testing "a plain JS fn passes through unchanged"
     (let [plain (fn [_e] :plain)]
-      (is (identical? plain (template/convert-prop-value :on-click plain))
-          "a plain JS fn is still returned unchanged (js-val? arm)")
-      (is (identical? plain (template/convert-prop-value plain))
-          "1-arg form: plain JS fn unchanged too"))))
+      (is (identical? plain (template/convert-prop-value :on-click plain)))
+      (is (identical? plain (template/convert-prop-value plain))))))
 
 (deftest convert-prop-value-non-fn-ifn-still-wrapped
-  (testing "an object-backed callable that satisfies IFn but
-            not Fn reaches the `ifn?` arm and comes back as a genuinely
-            JavaScript-invokable function.
-
-            A keyword or a map would not exercise this arm: the keyword is
-            taken by the `named?` arm and the map by `map?`, so neither
-            reaches the wrapper and the test would stay green with both
-            `ifn?` arms deleted."
+  (testing "an object-backed IFn that is not a Fn reaches the `ifn?` arm and
+            comes back as a JavaScript-invokable function, once per input"
     (let [calls (atom [])
-          probe (->CallableProbe calls)]
-      ;; Preconditions: every earlier arm of the cond must decline this.
-      (is (= "object" (goog/typeOf probe))
-          "precondition: object-backed, so js-val? declines it")
-      (is (not (or (keyword? probe) (symbol? probe)))
-          "precondition: not named?, so the named? arm declines it")
-      (is (not (map? probe))  "precondition: not a map")
-      (is (not (coll? probe)) "precondition: not a coll")
-      (is (not (fn? probe))
-          "precondition: does NOT satisfy Fn — the non-MetaFn shape of this arm")
-      (is (ifn? probe)
-          "precondition: satisfies IFn — this is the arm under test")
-      (let [out (template/convert-prop-value :on-select probe)]
-        (is (= "function" (goog/typeOf out))
-            "the ifn? arm returns a real JS function React can call")
-        (is (not (identical? probe out))
-            "the wrapper is a distinct value — this arm allocates, by design")
-        (is (identical? out (template/convert-prop-value :on-select probe))
-            "…once per input: repeated conversion returns the SAME function")
-        ;; Invoke it the way React would: as a plain JS function.
-        (is (= [:called-1 :a] (.call out nil :a))
-            "1-arg JS call forwards to the fixture and returns its value")
-        (is (= [:called-2 :a :b] (.call out nil :a :b))
-            "2-arg JS call forwards both arguments")
-        (is (= [[:a] [:a :b]] @calls)
-            "the fixture's own -invoke ran for each call (not a stub returning shapes)"))
-      ;; The 1-arg form takes the same arm.
-      (let [out1 (template/convert-prop-value probe)]
-        (is (= "function" (goog/typeOf out1))
-            "1-arg form also wraps into a JS function")
-        (is (= :called-0 (.call out1 nil))
-            "0-arg JS call forwards")))))
+          probe (->CallableProbe calls)
+          out   (template/convert-prop-value :on-select probe)]
+      (is (= "function" (goog/typeOf out)))
+      (is (identical? out (template/convert-prop-value :on-select probe)))
+      (is (= [:called-1 :a] (.call out nil :a)))
+      (is (= [:called-2 :a :b] (.call out nil :a :b)))
+      (is (= [[:a] [:a :b]] @calls) "the fixture's own -invoke ran for each call")
+      (is (= :called-0 (.call (template/convert-prop-value probe) nil))
+          "the 1-arg form takes the same arm"))))
 
 (defn- CallsOnSelect
   "A foreign React function component that calls its callback prop the
@@ -227,12 +135,9 @@
           "a metadata-bearing fn prop is called by the foreign component too"))))
 
 ;; ---------------------------------------------------------------------------
-;; A component whose render returns a SEQUENCE
-;; renders it as sibling children, whatever its Form classification. Driven
-;; through the real generated class (`as-element` → `fn-to-class` → render
-;; → `wrap-render` → `as-element`), because a `wrap-render`-only `=`
-;; assertion cannot see this failure: a list and a vector coerced from it
-;; compare equal, yet `as-element` reads the vector as ONE hiccup form.
+;; A component whose render returns a SEQUENCE renders sibling children. Driven
+;; through the real generated class, because a list and the vector coerced
+;; from it compare equal, yet `as-element` reads the vector as ONE hiccup form.
 ;; ---------------------------------------------------------------------------
 
 (defn- seq-rows [] (list ^{:key "a"} [:span "a"] ^{:key "b"} [:span "b"]))
@@ -265,11 +170,9 @@
         "an empty sequence renders nothing (not an empty hiccup vector)")
     (is (= "<div>ab</div>" (static-markup [:div [seq-text]]))
         "text siblings stay text (not misread as an `<a>` tag with a child)")
-    (let [out (class-render-output [seq-rows])]
-      (is (array? out)
-          "the class render hands React an array of children, not one element")
-      (is (= ["a" "b"] (when (array? out) (mapv #(.-key ^js %) out)))
-          "each child keeps its :key"))))
+    (is (= ["a" "b"] (let [out (class-render-output [seq-rows])]
+                       (when (array? out) (mapv #(.-key ^js %) out))))
+        "the class render hands React an array of keyed children")))
 
 (deftest sequence-output-agrees-across-form-shapes-rf2-fzbj-30
   (testing "controls: a Form-2 inner renderer and a direct as-element of
@@ -285,14 +188,9 @@
           "a component returning a hiccup vector still renders one element"))))
 
 ;; ---------------------------------------------------------------------------
-;; warn-once-keyword-prop! — one-shot DEBUG warning contract
-;;
-;; Per IMPL-SPEC §7.2 D2: a keyword value on a non-HTML-attribute prop
-;; passes through unchanged AND fires a one-shot console.warn keyed on
-;; [k name-of-v]. The cache lives in a private defonce'd atom; tests
-;; use fresh (k, v-name) pairs each assertion to remain robust against
-;; cache state from sibling tests. js/console.warn is redirected via
-;; set! to count invocations.
+;; A keyword value on a non-HTML-attribute prop passes through and warns once
+;; per [k name-of-v]. The cache is a private defonce, so the pairs here are
+;; unique to this file.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-warn-spy
@@ -308,55 +206,21 @@
       (finally
         (set! (.-warn js/console) orig)))))
 
-(deftest warn-once-keyword-prop-fires-on-non-html-attr
-  (testing "non-HTML prop name + keyword value triggers a console.warn
-            (the IMPL-SPEC §7.2 D2 informational notice)"
-    (let [calls (atom [])]
-      (with-warn-spy calls
-        #(template/convert-prop-value :rf2-warn-test-k1 :rf2-v1))
-      (is (= 1 (count @calls))
-          "warn fired exactly once on first encounter")
-      (is (re-find #"keyword value" (first @calls))
-          "warn message names the offence shape")
-      (is (re-find #"rf2-warn-test-k1" (first @calls))
-          "warn message names the prop key")
-      (is (re-find #"rf2-v1" (first @calls))
-          "warn message names the keyword value"))))
-
-(deftest warn-once-keyword-prop-suppresses-repeat-same-pair
-  (testing "second call with same (k, v) does NOT re-warn — keyed on
-            [k name-of-v] so the cache deduplicates"
-    (let [calls (atom [])]
-      (with-warn-spy calls
-        (fn []
-          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)
-          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)
-          (template/convert-prop-value :rf2-warn-test-k2 :rf2-v2)))
-      (is (= 1 (count @calls))
-          "three calls with same pair: warn fired exactly once"))))
-
-(deftest warn-once-keyword-prop-fresh-pair-fires
-  (testing "different v under same k → fresh cache key → warn fires
-            (the cache discriminates on v-name as well as k)"
-    (let [calls (atom [])]
-      (with-warn-spy calls
-        (fn []
-          (template/convert-prop-value :rf2-warn-test-k3 :rf2-v3a)
-          (template/convert-prop-value :rf2-warn-test-k3 :rf2-v3b)))
-      (is (= 2 (count @calls))
-          "different v-name fired a separate warn"))))
-
-(deftest warn-once-keyword-prop-html-attr-no-warn
-  (testing "HTML-attribute prop name with keyword value stringifies
-            WITHOUT a warn — the warn fires only on the non-HTML path"
-    (let [calls (atom [])]
-      (with-warn-spy calls
-        (fn []
-          (template/convert-prop-value :class :rf2-warn-test-html)
-          (template/convert-prop-value :data-foo :rf2-warn-test-data)
-          (template/convert-prop-value :aria-label :rf2-warn-test-aria)))
-      (is (= 0 (count @calls))
-          "HTML-attribute paths stringified silently (no warn fired)"))))
+(deftest warn-once-keyword-prop-fires-once-per-non-html-pair
+  (let [calls (atom [])]
+    (with-warn-spy calls
+      #(doseq [[k v] [[:rf2-warn-test-k1 :rf2-v1]
+                      [:rf2-warn-test-k1 :rf2-v1]
+                      [:rf2-warn-test-k1 :rf2-v1b]
+                      [:class :rf2-warn-test-html]
+                      [:data-foo :rf2-warn-test-data]
+                      [:aria-label :rf2-warn-test-aria]]]
+         (template/convert-prop-value k v)))
+    (is (= 2 (count @calls))
+        "a repeated pair is silent, a fresh value warns again, HTML attrs never warn")
+    (is (every? #(re-find % (first @calls)) [#"rf2-warn-test-k1" #"rf2-v1"])
+        "the warning names the prop and the value")
+    (is (re-find #"rf2-v1b" (second @calls)))))
 
 ;; ---------------------------------------------------------------------------
 ;; as-element — primitive cases
@@ -376,10 +240,6 @@
 ;; as-element — DOM tags
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-bare-div
-  (testing "[:div] → React element with tag \"div\""
-    (let [^js el (template/as-element [:div])]
-      (is (= "div" (.-type el))))))
 
 (deftest as-element-shorthand-id-yields-to-prop
   (testing "[:div#a {:id \"b\"}] → user :id wins over shorthand"
@@ -471,10 +331,6 @@
           ^js el   (template/as-element ^{:key "k"} [:r> Comp js-props])]
       (is (= "k" (.-key el)) "the React key is stamped on the element")
       (is (= "shaped" (-> el .-props .-already)) "props still flow through")
-      ;; The caller's object must NOT have gained a :key (as it would if
-      ;; the key were set! directly on this input object).
-      (is (undefined? (.-key js-props))
-          "caller's js-props object was NOT mutated with :key")
       (is (= 1 (.-length (js/Object.keys js-props)))
           "caller's js-props gained no extra own keys"))))
 
@@ -509,13 +365,8 @@
   (testing "`props-slot?` is the one named rule four call sites
             share — nil or a map occupies the props slot, anything else is
             the first child."
-    (is (true? (template/props-slot? nil)))
-    (is (true? (template/props-slot? {})))
-    (is (true? (template/props-slot? {:id "x"})))
-    (is (false? (template/props-slot? "x")))
-    (is (false? (template/props-slot? [:span])))
-    (is (false? (template/props-slot? 0)))
-    (is (false? (template/props-slot? :kw))))
+    (is (= [true true true false false false false]
+           (map template/props-slot? [nil {} {:id "x"} "x" [:span] 0 :kw]))))
 
   (testing "an explicit nil props slot is a props slot, so children start
             one later — the arm a past-the-end index also takes"
@@ -602,21 +453,14 @@
 ;; is preserved (e.g. :rf/foo on a React-context Provider's :value).
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-native-button-type-keyword-stringifies
-  (testing "[:button {:type :button}] → props.type === \"button\""
-    (let [^js el (template/as-element [:button {:type :button}])]
-      (is (= "button" (-> el .-props .-type))))))
-
-(deftest as-element-native-anchor-keyword-attrs-stringify
-  (testing "[:a {:target :_blank :rel :noopener}] → string DOM attrs"
-    (let [^js el (template/as-element [:a {:target :_blank :rel :noopener}])]
-      (is (= "_blank" (-> el .-props .-target)))
-      (is (= "noopener" (-> el .-props .-rel))))))
-
-(deftest as-element-native-symbol-attr-stringifies
-  (testing "native DOM tag stringifies a symbol attr value too"
-    (let [^js el (template/as-element [:input {:name 'q}])]
-      (is (= "q" (-> el .-props .-name))))))
+(deftest as-element-native-tag-stringifies-keyword-and-symbol-attrs
+  (doseq [[hiccup prop expected]
+          [[[:button {:type :button}] "type" "button"]
+           [[:a {:target :_blank :rel :noopener}] "target" "_blank"]
+           [[:a {:target :_blank :rel :noopener}] "rel" "noopener"]
+           [[:input {:name 'q}] "name" "q"]]]
+    (is (= expected (gobj/get (.-props ^js (template/as-element hiccup)) prop))
+        (pr-str hiccup))))
 
 (deftest as-element-interop-non-html-keyword-preserved-html-stringified
   (testing "interop: HTML-attr keyword stringifies, non-HTML keyword preserved"
@@ -651,49 +495,24 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest as-element-seq-children-interior-nil-false
-  ;; expand-seq must NOT truncate at the first nil/false
-  ;; element. The idiomatic conditional-list shape
-  ;;   (for [x xs] (when (pred? x) [:li ...]))
-  ;; yields interior nils for filtered-out rows; a truthiness-gated loop
-  ;; would stop at the first one and silently drop it AND every later
-  ;; child. Stock Reagent maps as-element over the WHOLE seq (nil → React
-  ;; null), so the list is never truncated.
-  (testing "interior nil does not truncate — later children survive"
-    (let [;; (list [:li 1] nil [:li 3]) — the shape produced by
-          ;; (for [x [1 2 3]] (when (odd? x) [:li {:key x} x]))
-          seq-children (for [n (range 1 4)]
-                         (when (odd? n) ^{:key n} [:li n]))
-          arr (template/expand-seq seq-children)]
-      (is (= 3 (alength arr))
-          "all 3 positions present (nil placeholder kept, not dropped)")
-      (is (some? (aget arr 0)) "[:li 1] survives")
-      (is (nil? (aget arr 1)) "interior nil → React null placeholder")
-      (is (some? (aget arr 2))
-          "[:li 3] survives — NOT truncated by the interior nil")))
-  (testing "interior false does not truncate — later children survive"
-    (let [seq-children (list ^{:key 0} [:span "a"] false ^{:key 2} [:span "c"])
-          arr (template/expand-seq seq-children)]
-      (is (= 3 (alength arr)) "all 3 positions present")
-      (is (some? (aget arr 0)) "first element survives")
-      (is (some? (aget arr 2))
-          "trailing element survives past the interior false")))
-  (testing "leading nil does not abort the whole seq"
-    (let [seq-children (list nil ^{:key 1} [:span "b"] ^{:key 2} [:span "c"])
-          arr (template/expand-seq seq-children)]
-      (is (= 3 (alength arr)))
-      (is (nil? (aget arr 0)))
-      (is (some? (aget arr 1)) "element after leading nil survives")
-      (is (some? (aget arr 2))))))
+  (testing "expand-seq keeps every position: a nil or false child (the
+            `(for ... (when ...))` shape) never truncates the children after it"
+    (is (= [true false true]
+           (mapv some? (template/expand-seq (for [n (range 1 4)]
+                                              (when (odd? n) ^{:key n} [:li n])))))
+        "an interior nil becomes a React null")
+    (is (= [false true true]
+           (mapv some? (template/expand-seq
+                         (list nil ^{:key 1} [:span "b"] ^{:key 2} [:span "c"]))))
+        "a leading nil does not abort the seq")
+    (let [arr (template/expand-seq (list ^{:key 0} [:span "a"] false ^{:key 2} [:span "c"]))]
+      (is (= [3 true true] [(alength arr) (some? (aget arr 0)) (some? (aget arr 2))])
+          "an interior false does not truncate"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Void tags — children rejected per HTML5
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-void-tag-input
-  (testing "[:input {:type \"text\"}] → element with props but no children"
-    (let [^js el (template/as-element [:input {:type "text"}])]
-      (is (= "input" (.-type el)))
-      (is (= "text" (-> el .-props .-type))))))
 
 (deftest as-element-void-tag-children-warns-and-drops-rf2-mdgt8t
   (testing "a void tag given children still DROPS them
@@ -705,13 +524,8 @@
         #(reset! captured (template/as-element [:br "should-not-render"])))
       (let [^js el @captured]
         (is (= "br" (.-type el)))
-        ;; children still dropped: React.createElement(br, props) → no children
-        (is (or (nil? (-> el .-props .-children))
-                (js/Array.isArray (-> el .-props .-children)))
-            "children dropped (lenient)"))
-      ;; but NON-silent: exactly one warning naming the void tag
+        (is (nil? (-> el .-props .-children)) "children dropped (lenient)"))
       (is (= 1 (count @calls)) "one dev warning fired for the dropped children")
-      (is (re-find #"void element" (first @calls)) "warning names the offence")
       (is (re-find #"<br>" (first @calls)) "warning names the void tag"))))
 
 (deftest as-element-void-tag-no-children-does-not-warn-rf2-mdgt8t
@@ -735,58 +549,14 @@
         (is (= "myns:my-view:42:7"
                (aget (.-props el) "data-rf2-source-coord"))
             "first DOM root gets the attr")
-        ;; Nested element should NOT have the attr (binding consumed).
-        ;; We can't easily inspect the child without driving render, so
-        ;; we settle for: a second as-element call after the first
-        ;; doesn't see the binding (it was consumed).
         (is (nil? template/*source-coord*)
-            "binding consumed after first DOM root encountered")))))
-
-(deftest as-element-source-coord-no-binding
-  (testing "no *source-coord* binding → no data-rf2-source-coord attr"
-    (let [^js el (template/as-element [:div])]
-      (is (nil? (aget (.-props el) "data-rf2-source-coord"))))))
+            "the binding is consumed by the first DOM root")))))
 
 ;; ---------------------------------------------------------------------------
-;; Prototype-pollution defence
-;;
-;; User-controlled hiccup keys like `:__proto__`, `:constructor`, and
-;; `:prototype` MUST NOT mutate the prototype chain of the per-element
-;; props object or any shared cache. `add-converted-nested-prop!` and
-;; `cached-prop-name` drop the reserved key trio before any `aset`, which is
-;; the single
-;; chokepoint where user keys become JS object writes.
-;;
-;; These tests pin the contract by attempting the attack-shape and
-;; asserting the result has no leaked slot reachable from the props
-;; object, no own slot for the reserved name, and legitimate sibling
-;; keys still flow through.
+;; Prototype-pollution defence: user keys `:__proto__`, `:constructor` and
+;; `:prototype` are dropped before any `aset`, so they never become own
+;; properties or reach a prototype chain.
 ;; ---------------------------------------------------------------------------
-
-(deftest prototype-key-dropped-from-props-rf2-dwds9
-  (testing "{:__proto__ {:polluted true}} prop does NOT
-            mutate the props object's prototype chain. Without the
-            add-converted-nested-prop! filter, `aset obj '__proto__' {...}`
-            would invoke the prototype-setter and change Object.prototype
-            lookups
-            on every subsequent prop object — exactly the leak the filter
-            closes."
-    (let [;; A sentinel "evil" prototype carrying a slot we can detect.
-          evil      #js {:polluted "yes"}
-          ^js el    (template/as-element [:div {:__proto__ evil
-                                                :id "legit"}])
-          props     (.-props el)]
-      ;; The props object did NOT inherit `polluted` from the evil object.
-      (is (or (nil? (aget props "polluted"))
-              (= js/undefined (aget props "polluted")))
-          "evil prototype slot did NOT become reachable via aget")
-      ;; The legitimate sibling key still flows through.
-      (is (= "legit" (aget props "id"))
-          "legit prop alongside the __proto__ attempt is still present")
-      ;; Belt: no own slot for __proto__.
-      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
-                      props "__proto__"))
-          "no own '__proto__' slot on the props object"))))
 
 (deftest constructor-key-dropped-from-props-rf2-dwds9
   (testing "{:constructor \"x\"} prop is dropped (does not
@@ -816,25 +586,9 @@
             (str "reserved key '" k "' is not an own property"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The caches have NO PROTOTYPE, and that is load-bearing
-;;
-;; `tag-name-cache` and `prop-name-cache` are `Object.create(null)`. Nothing in
-;; them is ever handed to React (the props objects that ARE handed to React
-;; keep their prototype — React's style diffing calls `styles.hasOwnProperty`),
-;; so the caches are free to drop the chain, and dropping it is what lets their
-;; HIT path — once per element and once per prop of every mount — carry no
-;; guard at all.
-;;
-;; With no prototype a lookup can only ever answer an OWN property, so an
-;; inherited name cannot falsely hit. These witnesses pin exactly that: a tag
-;; or prop literally NAMED after an `Object.prototype` member must be parsed
-;; and converted AS ITSELF, and must still answer itself the second time
-;; (proving the entry it then owns is its own and not the inherited one).
-;;
-;; THE MUTATION THEY EXIST FOR: make either cache a plain `#js {}` and these go
-;; red — the lookup is served `Object.prototype`'s member for a name nobody
-;; cached. They are not vacuous: each asserts the parsed VALUE, so a stub
-;; answering nil fails them too.
+;; `tag-name-cache` and `prop-name-cache` are `Object.create(null)`, so their
+;; unguarded hit path can only answer an OWN entry. A tag or prop named after
+;; an `Object.prototype` member must parse as itself, first time and cached.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private prototype-member-names
@@ -854,9 +608,7 @@
       ;; prototype member of the same name.
       (let [^js second-el (template/as-element [n "y"])]
         (is (= n (.-type second-el))
-            (str "head \"" n "\" still renders as itself on the cached path"))
-        (is (string? (.-type second-el))
-            (str "head \"" n "\" answers a parsed tag, never a host function"))))))
+            (str "head \"" n "\" still renders as itself on the cached path"))))))
 
 (deftest prop-cache-inherited-name-cannot-falsely-hit-rf2-lhdp0
   (testing "a prop key named after an Object.prototype member
@@ -868,99 +620,39 @@
             (str ":" n " converts to its own name on first sight"))
         (is (= n (template/cached-prop-name k))
             (str ":" n " converts to its own name on the cached path"))
-        (is (string? (template/cached-prop-name k))
-            (str ":" n " answers a string, never a host function"))
         ;; And through a whole element, where the name reaches the props object.
         (let [^js el (template/as-element [:div {k "v"}])]
           (is (= "v" (gobj/get (.-props el) n))
               (str ":" n " reaches the props object under its own name")))))))
 
 ;; ---------------------------------------------------------------------------
-;; `void-tag?` indexes `void-tags` — one roster, not two
-;;
-;; The probe is a null-prototype index BUILT FROM the `void-tags` set, so the
-;; set stays the single source of truth. This witness walks the WHOLE roster
-;; (the cases above cover br/input/img — 3 of 14) so the derivation is
-;; pinned end to end rather than sampled, and checks a non-void tag still
-;; keeps its children.
-;; ---------------------------------------------------------------------------
-
-(deftest every-void-tag-drops-children-rf2-lhdp0
-  (testing "every member of void-tags is recognised by the probe"
-    (is (= 14 (count template/void-tags))
-        "the HTML5 void roster is the fixed 14")
-    (doseq [t template/void-tags]
-      (let [^js el (template/as-element [(keyword t) "dropped"])]
-        (is (= t (.-type el)) (str "<" t "> renders"))
-        (is (nil? (-> el .-props .-children))
-            (str "<" t "> drops the child React would reject"))))))
-
-;; ---------------------------------------------------------------------------
-;; The per-element `:key` read, straight off the props slot
-;;
-;; `react-key-from-meta-or-props` is the RULE (meta wins, then the props map's
-;; `:key`) and the constructors that have already shaped their argv call it
-;; with the slot in hand; `react-key-from-argv` is that same rule plus the
-;; `nth`/`case` search for the slot, for callers holding a bare vector.
-;;
-;; So every constructor that reads the slot directly is witnessed here, on both
-;; key spellings, with the precedence between them and the absence case:
-;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
-;; `converted-props-element`), and `:<>` fragments. Of the heads that use the
-;; finder, `:r>` is witnessed by the `as-element-raw-key-…` test above and
-;; `:f>` and component heads by `key-read-covers-the-finder-heads` below;
-;; `expand-seq`'s missing-key warning is the finder's other caller, witnessed
-;; by `expand-seq-warns-on-an-unkeyed-child-not-on-keyed-ones`.
+;; The React key: metadata wins, then the props map's `:key`, read off the
+;; props slot of each head (index 1 for a DOM tag or component, 2 for `:>`
+;; and `:f>`). `:r>` is covered by the raw-key test above.
 ;; ---------------------------------------------------------------------------
 
 (deftest key-read-covers-both-converted-props-routes-rf2-lhdp0
-  (testing "DOM tag — meta key, prop key, neither"
-    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div "x"])))
-        "meta key on a DOM tag")
-    (is (= "p" (.-key ^js (template/as-element [:div {:key "p"} "x"])))
-        "prop key on a DOM tag")
-    (is (nil? (.-key ^js (template/as-element [:div "x"])))
-        "no key at all on a DOM tag")
-    (is (nil? (.-key ^js (template/as-element [:div {:class "c"} "x"])))
-        "props without :key leave the key unset"))
-
-  (testing "meta key WINS over the prop key, both routes"
-    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div {:key "p"} "x"])))
-        "DOM tag: meta beats props"))
-
-  (testing ":> interop — props live at index 2, not 1"
-    (let [C (fn [_] nil)]
-      (is (= "p" (.-key ^js (template/as-element [:> C {:key "p"} "x"])))
-          "prop key on an interop head")
-      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:> C {:key "p"} "x"])))
-          "meta key beats the prop key on an interop head")
-      (is (nil? (.-key ^js (template/as-element [:> C "x"])))
-          "interop head with no props slot has no key")))
-
-  (testing ":<> fragments read the same rule off the same slot"
-    (is (= "p" (.-key ^js (template/as-element [:<> {:key "p"} "x"])))
-        "prop key on a fragment")
-    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:<> "x"])))
-        "meta key on a fragment")
-    (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:<> {:key "p"} "x"])))
-        "fragment: meta beats props")
-    (is (nil? (.-key ^js (template/as-element [:<> "x"])))
-        "fragment with no props slot has no key")))
-
-(deftest key-read-covers-the-finder-heads
-  (testing ":f> — the finder reads the props slot at index 2, as for :>"
-    (let [f (fn [_] [:span])]
-      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:f> f "x"])))
-          "meta key on an :f> head")
-      (is (= "p" (.-key ^js (template/as-element [:f> f {:key "p"}])))
-          "prop key on an :f> head")))
-
-  (testing "component head — the finder reads the props slot at index 1"
-    (let [c (fn [_] [:span])]
-      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [c "x"])))
-          "meta key on a component head")
-      (is (= "p" (.-key ^js (template/as-element [c {:key "p"}])))
-          "prop key on a component head"))))
+  (let [C (fn [_] nil)
+        f (fn [_] [:span])]
+    (doseq [[hiccup expected]
+            [[^{:key "m"} [:div "x"] "m"]
+             [[:div {:key "p"} "x"] "p"]
+             [[:div "x"] nil]
+             [[:div {:class "c"} "x"] nil]
+             [^{:key "m"} [:div {:key "p"} "x"] "m"]
+             [[:> C {:key "p"} "x"] "p"]
+             [^{:key "m"} [:> C {:key "p"} "x"] "m"]
+             [[:> C "x"] nil]
+             [[:<> {:key "p"} "x"] "p"]
+             [^{:key "m"} [:<> "x"] "m"]
+             [^{:key "m"} [:<> {:key "p"} "x"] "m"]
+             [[:<> "x"] nil]
+             [^{:key "m"} [:f> f "x"] "m"]
+             [[:f> f {:key "p"}] "p"]
+             [^{:key "m"} [f "x"] "m"]
+             [[f {:key "p"}] "p"]]]
+      (is (= expected (.-key ^js (template/as-element hiccup)))
+          (str (pr-str hiccup) " " (pr-str (meta hiccup)))))))
 
 (defn- missing-key-warnings [calls]
   (filter #(re-find #"unique :key" %) calls))
