@@ -7,9 +7,7 @@ This document is the **v1.1 design pass** for re-frame2's event-processing pipel
 It is **non-normative** for v1: the v1 runtime ships the existing drain loop owned by
 [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics).
 This file specifies the *shape* a v1.1 router would take and the reference primitives that
-accompany it. A small scaffold ships at `implementation/core/src/re_frame/router_transducer.cljc`
-with CLJS/CLJ unit-test coverage so the design can be exercised in the REPL — the runtime
-does **not** consume it yet.
+accompany it. Nothing implements it: the runtime is the drain loop.
 
 The doc has four sections:
 
@@ -263,11 +261,10 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 
 ## 5. Implementation roadmap
 
-**Phase 1 — scaffold.**
+**Phase 1 — primitives.**
 
-- `implementation/core/src/re_frame/router_transducer.cljc` — pure functions: the
-  `frame-transducer-factory` stub, the three reducing-fn presets, the manual-driver shape.
-  No wiring into the live runtime. CLJS/CLJ-unit-test-covered.
+- Pure functions in core: `frame-transducer-factory`, the three reducing-fn presets, the
+  manual-driver shape. Unit-tested on both hosts, with no wiring into the live runtime.
 
 **Phase 2 — v1.1 additive.**
 
@@ -307,5 +304,3 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 - [005-StateMachines](005-StateMachines.md) — `:always` drains motivating `batch-rf`.
 - [011-SSR](011-SSR.md) — frame-per-request + loader fan-in motivating `manual-driver`.
 - [009-Instrumentation](009-Instrumentation.md) — trace-emission sites become the transducer's xform boundaries.
-- `implementation/core/src/re_frame/router_transducer.cljc` — Phase-1 reference scaffold.
-- `implementation/core/test/re_frame/router_transducer_cljs_test.cljc` — scaffold unit tests.
