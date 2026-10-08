@@ -1,33 +1,17 @@
 (ns re-frame.resources-prior-value-reregistration-cljs-test
   "A held resource or mutation read sub's value, prior and current, keeps the
   classification it was computed under when its owner is re-registered
-  without its declaration.
-
-  The read-sub egress projector reads the owner spec as it stands now, so on
-  that alone the re-registered owner's empty declaration would ship data
-  loaded under the old one raw. A value also takes the claims the elision
-  registry holds in the inputs it was computed from — the prior inputs for
-  `:rf.sub/prev-value`, the live runtime-db for `:rf.sub/value` — unioned
-  with the current spec's: the entry's or instance's `:data` claims, and each
-  carried scoped key's `:resource/key` claims.
-
-  Two boundaries are pinned here so a change to either is visible: the
-  registry never holds a coarse `:sensitive?` root claim, and it holds the
-  lowered claims only until the next resource commit reconciles it against
-  the current registrations.
-
-  Every scenario runs re-registered and unchanged, the unchanged run as the
-  control. For a resource's prior data across a remove and a mutation's prior
-  result across a clear, the unchanged control is the read-sub egress suite's
-  load/refetch/evict and success/clear tests.
-
-  Every assertion read off the trace bus sits inside a
-  `(when rf.interop/debug-enabled? …)` arm: `trace/emit!` is dev
-  instrumentation, and the negative census assertions would pass vacuously
-  with no trace to read.
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex, Shadow's `:node-test` build via the `cljs-test$` regex."
+  without its declaration: besides the current owner spec, a value takes the
+  elision-registry claims held in the inputs it was computed from (the prior
+  inputs for `:rf.sub/prev-value`, the live runtime-db for `:rf.sub/value`).
+  Two boundaries are pinned: the registry never holds a coarse `:sensitive?`
+  root claim, and it holds the lowered claims only until the next resource
+  commit reconciles it against the current registrations. Each scenario runs
+  re-registered and unchanged, the unchanged run its control (for prior data
+  across a remove and a prior result across a clear, the controls are the
+  read-sub egress suite's). Trace-bus assertions sit inside
+  `(when rf.interop/debug-enabled? …)`, since the negative census would pass
+  vacuously with no trace to read."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -158,13 +142,12 @@
         [loaded window] (remove-profile {:sensitive [[:data :ssn]]} re-registered)]
     (is (= ssn-1 (get-in loaded [data-q :ssn])) "the in-process read stays raw")
     (when rf.interop/debug-enabled?
-      (let [state (last-run-tags state-q window)
-            data  (last-run-tags data-q window)]
-        (is (= :idle (get-in state [:rf.sub/value :status])) "the entry is gone")
-        (is (= {:name "Ann" :ssn redacted} (get-in state [:rf.sub/prev-value :data])))
-        (is (= {:name "Ann" :ssn redacted} (:rf.sub/prev-value data))))
-      (is (seq (sub-runs window)))
-      (is (not (carries? ssn-1 (sub-runs window)))))))
+      (let [state (last-run-tags state-q window)]
+        (is (= [:idle {:name "Ann" :ssn redacted} {:name "Ann" :ssn redacted} true false]
+               [(get-in state [:rf.sub/value :status]) (get-in state [:rf.sub/prev-value :data])
+                (:rf.sub/prev-value (last-run-tags data-q window))
+                (boolean (seq (sub-runs window))) (carries? ssn-1 (sub-runs window))])
+            "the entry is gone, and its prior data stays redacted in every run")))))
 
 (deftest a-re-registered-resources-prior-data-keeps-its-declaration-across-a-remove
   (testing "the owner is re-registered without its declaration before the remove"
@@ -198,13 +181,12 @@
                      (read!)))]
     (is (= token (get-in settled [result-q :token])) "the in-process read stays raw")
     (when rf.interop/debug-enabled?
-      (let [state  (last-run-tags state-q window)
-            result (last-run-tags result-q window)]
-        (is (= :idle (get-in state [:rf.sub/value :status])) "the instance is gone")
-        (is (= {:token redacted :ok true} (get-in state [:rf.sub/prev-value :result])))
-        (is (= {:token redacted :ok true} (:rf.sub/prev-value result))))
-      (is (seq (sub-runs window)))
-      (is (not (carries? token (sub-runs window)))))))
+      (let [state (last-run-tags state-q window)]
+        (is (= [:idle {:token redacted :ok true} {:token redacted :ok true} true false]
+               [(get-in state [:rf.sub/value :status]) (get-in state [:rf.sub/prev-value :result])
+                (:rf.sub/prev-value (last-run-tags result-q window))
+                (boolean (seq (sub-runs window))) (carries? token (sub-runs window))])
+            "the instance is gone, and its prior result stays redacted in every run")))))
 
 (deftest a-re-registered-mutations-prior-result-keeps-its-declaration-across-a-clear
   (testing "the owner is re-registered without its declaration before the clear"
@@ -237,18 +219,16 @@
                    (fn []
                      (reply! {:ssn ssn-2 :page 2})
                      (read!)))]
-      (is (:previous? kept) "control: the new key shows the prior key's data")
-      (is (= ssn-1 (get-in kept [:previous-data :ssn])) "the in-process read stays raw")
+      (is (= [true ssn-1] [(:previous? kept) (get-in kept [:previous-data :ssn])])
+          "the new key shows the prior key's data, raw in process")
       (when rf.interop/debug-enabled?
         (let [tags (last-run-tags state-q window)
               prev (:rf.sub/prev-value tags)]
-          (is (false? (get-in tags [:rf.sub/value :previous?])) "the new key has loaded")
-          (is (= redacted (get-in prev [:previous-data :ssn])))
-          (is (= 1 (get-in prev [:previous-data :page])) "an undeclared data slot rides")
-          (is (= redacted (get-in prev [:previous-key 2 :acct])))
-          (is (= 1 (get-in prev [:previous-key 2 :page])) "an undeclared param rides"))
-        (is (not (carries? acct (prev-values window))))
-        (is (not (carries? ssn-1 (prev-values window))))))))
+          (is (= [false {:ssn redacted :page 1} {:acct redacted :page 1} false false]
+                 [(get-in tags [:rf.sub/value :previous?]) (select-keys (:previous-data prev) [:ssn :page])
+                  (select-keys (get-in prev [:previous-key 2]) [:acct :page])
+                  (carries? acct (prev-values window)) (carries? ssn-1 (prev-values window))])
+              "once the new key loads, the prior previous-projection keeps its data and key claims, siblings riding"))))))
 
 (deftest control-an-unchanged-resources-prior-previous-projection-stays-redacted
   (assert-prior-previous-projection-redacted nil))
@@ -309,10 +289,9 @@
         [live window] (recompute-profile re-registered (fn []))]
     (is (= ssn-1 (get-in live [data-q :ssn])) "the in-process read stays raw")
     (when rf.interop/debug-enabled?
-      (is (= {:name "Ann" :ssn redacted} (:rf.sub/value (last-run-tags data-q window))))
-      (is (= {:name "Ann" :ssn redacted}
-             (get-in (last-run-tags state-q window) [:rf.sub/value :data])))
-      (is (not (carries? ssn-1 (sub-runs window)))))))
+      (is (= [{:name "Ann" :ssn redacted} {:name "Ann" :ssn redacted} false]
+             [(:rf.sub/value (last-run-tags data-q window))
+              (get-in (last-run-tags state-q window) [:rf.sub/value :data]) (carries? ssn-1 (sub-runs window))])))))
 
 (deftest control-an-unchanged-resources-live-data-stays-redacted-on-a-recompute
   (assert-live-profile-redacted nil))
