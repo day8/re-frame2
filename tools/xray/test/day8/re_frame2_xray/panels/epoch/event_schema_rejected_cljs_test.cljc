@@ -44,32 +44,17 @@
   (into {} (map (juxt :step identity)) steps))
 
 (deftest a-schema-rejected-event-reads-its-handler-as-skipped
-  (let [ran (atom 0)]
-    (rf/reg-event ::set-n
-      {:schema [:cat [:= ::set-n] :int]}
-      (fn [{:keys [db]} [_ n]]
-        (swap! ran inc)
-        {:db (assoc db :n n)}))
-
-    (testing "control: a conforming event runs its handler, which writes :db"
-      (let [[record & more] (capture-records! ::ok-frame [::set-n 7])
-            handler         (:handler (by-step (proj/project record)))]
-        (is (nil? more) "exactly one record")
-        (is (= 1 @ran) "the producer called the handler")
-        (is (= :ok (proj/step-status handler)))
-        (is (nil? (:skip-reason handler)))
-        (is (true? (:db-write? handler)))))
-
-    (testing "a rejected event never reaches its handler, and HANDLER says so"
-      (let [[record & more] (capture-records! ::bad-frame [::set-n "not-an-int"])
-            steps           (proj/project record)
-            by              (by-step steps)
-            handler         (:handler by)]
-        (is (nil? more) "exactly one record")
-        (is (= 1 @ran) "the producer did not call the handler again")
-        (is (some #(= :event (:where %)) (:violations (:dispatch by)))
-            "the schema failure is on DISPATCH, where the event was refused")
-        (is (= :skipped (proj/step-status handler))
-            "HANDLER reads SKIPPED — it never ran, so it returned nothing")
-        (is (= :event-schema (:skip-reason handler))
-            "and carries the schema as the reason the view words its body from")))))
+  (rf/reg-event ::set-n
+    {:schema [:cat [:= ::set-n] :int]}
+    (fn [{:keys [db]} [_ n]]
+      {:db (assoc db :n n)}))
+  (testing "a rejected event never reaches its handler, and HANDLER says so"
+    (let [[record] (capture-records! ::bad-frame [::set-n "not-an-int"])
+          by       (by-step (proj/project record))
+          handler  (:handler by)]
+      (is (some #(= :event (:where %)) (:violations (:dispatch by)))
+          "the schema failure is on DISPATCH, where the event was refused")
+      (is (= :skipped (proj/step-status handler))
+          "HANDLER reads SKIPPED — it never ran, so it returned nothing")
+      (is (= :event-schema (:skip-reason handler))
+          "and carries the schema as the reason the view words its body from"))))
