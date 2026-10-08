@@ -1,305 +1,117 @@
 (ns re-frame.framework-zero-ownership-diagnostics-test
-  "EP-0001 cross-subsystem conformance sweep: the FRAMEWORK must never trip
-  its OWN runtime-db ownership diagnostics.
+  "The framework never trips its OWN runtime-db ownership diagnostics. Real
+  flows of every runtime-db-writing subsystem (Spec 002 §Write authority) —
+  routing, machines, elision, SSR hydration — run while the trace stream is
+  recorded. A framework writer that tripped a diagnostic would teach users
+  the warning is noise.
 
-  Without a test asserting that the framework does not trip its own EP-0001
-  ownership diagnostics, an authority gap in any one subsystem would ship
-  unnoticed; THIS namespace is the cross-subsystem sweep. It exercises a representative set of real
-  framework flows across EVERY runtime-db-writing subsystem Spec 002 §Write
-  authority names — routing, machines, elision, and SSR hydration — while
-  recording the trace stream, and asserts that NONE of the three runtime-db
-  ownership diagnostics fire from framework-registered handlers:
+  It lives here because only the ssr `:test` alias pulls in routing,
+  machines and ssr together, and `tf/reset-runtime` reloads their ns-load
+  registrations between tests.
 
-    - `:rf.warning/app-handler-runtime-effect` — a handler returned the
-      reserved `:rf.db/runtime` effect without framework-write authority
-      (the diagnostic a routing event lacking that authority would trip
-      on every navigation).
-    - `:rf.error/legacy-runtime-root` — a handler returned a `:db` value
-      carrying the reserved `:rf/runtime` app-db root.
-    - `:rf.error/effect-map-shape` — a malformed effect-map shape.
-
-  Why this matters:
-  `:rf.db/runtime` is reserved BY CONVENTION for framework / runtime-
-  extension code, surfaced through a dev diagnostic rather than enforced.
-  The diagnostic only retains teaching value if the framework itself never
-  fires it. A framework subsystem that trips its own ownership diagnostic
-  trains users that the warning is noise (a routing trip would pollute the
-  Xray Issues lens on every navigation). This sweep is the guard that keeps
-  every runtime-db writer quiet.
-
-  ## Home + fixture
-
-  This lives in the SSR artefact's test tree because the SSR `:test` alias
-  is the only one whose dep fan-out pulls in core + schemas + flows +
-  routing + machines together (see ssr/deps.edn), and `tf/reset-runtime`
-  is the only fixture that reloads routing / ssr / machines so all three
-  subsystems' ns-load registrations resurrect between tests against the
-  plain-atom-shaped SSR adapter. That single home lets one sweep cover
-  every runtime-db-writing subsystem.
-
-  ## Flows covered
-
-    1. `:rf.route/navigate`             — programmatic navigation.
-    2. `:rf.route/handle-url-change`    — URL-driven nav (cause `:link`).
-    3. `:rf.route/handle-url-change`    — popstate / initial / SSR URL feed.
-    4. can-leave pending-nav protocol   — `:rf.route/url-requested` /
-       `:rf.route/cancel` / `:rf.route/continue`.
-    5. `:on-match` route commit         — the loader runs fire-and-forget;
-       the navigation commit writes the route slice via `:rf.db/runtime`.
-    6. machine lifecycle                — reg + first-dispatch bootstrap,
-       declarative `:spawn`, explicit `[:rf.machine/destroy …]`.
-    7. elision classification install   — frame-owned declaration install
-       into `[:rf.runtime/elision …]`.
-    8. SSR `:rf/hydrate`                — runtime-db partition install.
-
-  The control deftest at the bottom proves the recorder + diagnostic are
-  LIVE in this fixture: an ordinary (non-framework) app handler returning
-  `:rf.db/runtime` DOES fire the warning, so the framework-quiet assertions
-  above are not vacuously empty.
-
-  ## Posture split
-
-  This namespace is the sharpest instance of the vacuous-pass trap the
-  production-gate lane exists to close, and the split has to be read with
-  that in mind. Every `(is (empty? @diags) …)` above is a NEGATIVE assertion
-  over the trace ring. The three ownership diagnostics are emitted through
-  `trace/emit-error!` / the warning bus, gated on `interop/debug-enabled?`
-  and read once at namespace-load time — so under `-Dre-frame.debug=false`
-  the ring is empty for EVERY input, and `empty?` is satisfied without the
-  framework having demonstrated anything at all. The control deftest is
-  precisely the assertion that fails first in that posture, which is the
-  system telling the truth: with the recorder dead, the sweep is vacuous.
-
-  So all five `empty?` assertions sit inside
-  `(when interop/debug-enabled? …)` arms. They are correct dev-posture
-  coverage; they simply do not claim to have run under a gate that makes
-  them unfalsifiable.
-
-  What remains outside the arms is production-real and substantial: every
-  deftest pins the runtime-db WRITE its flow performs — the route
-  slice after navigate / transitioned / handle-url-change / on-match, the
-  pending-navigation slot through the can-leave protocol, the machine
-  snapshots through bootstrap / spawn / destroy, the elision declarations,
-  the `:rf/hydrate` app-db replacement and server-hash. Those are the flows
-  themselves and they run in the lane.
-
-  The control deftest carries a PRODUCTION witness rather than being
-  guarded away wholesale (which would report green for a deftest that
-  executed nothing). `:rf.db/runtime` is reserved BY CONVENTION and surfaced
-  through a dev diagnostic rather than ENFORCED — so in production the
-  sneaky write LANDS. That is the policy's production face, and the control
-  asserts it in both postures."
+  The diagnostics are dev-only, so each `empty?` sits in a `debug-enabled?`
+  arm, where it would otherwise pass vacuously. Each test also pins the
+  runtime-db write its flow performed, which proves the flow ran and holds in
+  both postures. The last test is the control: an ordinary app handler DOES
+  trip the warning, and its write still lands."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.elision :as rf.elision]
-            ;; The routing / ssr / machines subsystem namespaces are loaded
-            ;; (and re-installed between tests) by `tf/reset-runtime`, so
-            ;; their `:rf.route/*` / `:rf/hydrate` / machine-lifecycle event
-            ;; + fx registrations are live without an explicit require here.
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
-
 (def ^:private ownership-diagnostics
-  "The three EP-0001 runtime-db ownership diagnostics. A FRAMEWORK-
-  registered handler must never trip any of them."
   #{:rf.warning/app-handler-runtime-effect
     :rf.error/legacy-runtime-root
     :rf.error/effect-map-shape})
 
-(defn- record-ownership-diagnostics!
-  "Register a trace listener under `listener-id` that captures every
-  trace event whose `:operation` is one of the three EP-0001 runtime-db
-  ownership diagnostics (whether emitted as a `:warning` or an `:error`).
-  Returns the capture atom. Matching on `:operation` alone catches all
-  three regardless of `:op-type`."
-  [listener-id]
+(defn- record-ownership-diagnostics! [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! :trace
-      listener-id
+    (rf/register-listener! :trace listener-id
       (fn [ev]
         (when (contains? ownership-diagnostics (:operation ev))
           (swap! a conj ev))))
     a))
 
+(defn- runtime-at [path]
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) path))
+
+(defn- current-route []
+  (runtime-at [:rf.runtime/routing :current :route-id]))
+
 (defn- stub-push-url! []
-  (rf.fx/reg-fx :rf.nav/push-url
-             {:platforms #{:server :client}}
-             (fn [_ _] nil)))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
-(defn- diagnostic-ids
-  "The `:operation` ids captured, for readable failure messages."
-  [warns]
-  (mapv :operation @warns))
-
-;; ===========================================================================
-;; Routing — every navigation event is a framework-authority writer
-;; ===========================================================================
+(defn- assert-no-diagnostic! [diags]
+  (when rf.interop/debug-enabled?
+    (is (empty? @diags) (str "got " (mapv :operation @diags)))))
 
 (deftest routing-flows-fire-no-ownership-diagnostic
-  (testing "navigate / transitioned / handle-url-change / settle / can-leave stay silent"
+  (testing "navigate / handle-url-change (link and popstate) / an :on-match commit"
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-route :route/search  {} "/search")
-    ;; `:on-match` route → the loader runs fire-and-forget; the navigation
-    ;; commit writes the route slice (including `:transition`) into the
-    ;; runtime-db via `:rf.db/runtime` (EP-0037 R1: no settle event).
     (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded  {:on-match [[:load/noop]]} "/loaded")
     (stub-push-url!)
     (let [diags (record-ownership-diagnostics! ::routing)]
-      ;; (1) :rf.route/navigate — programmatic navigation.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
-      (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/routing :current :route-id]))
-          ":rf.route/navigate wrote the route slice (:rf.db/runtime applied)")
-
-      ;; (2) :rf.route/handle-url-change — URL-driven nav (cause :link).
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=widgets" {:rf.route/cause :link}])
-      (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                   [:rf.runtime/routing :current :route-id]))
-          ":rf.route/handle-url-change wrote the route slice")
-
-      ;; (3) :rf.route/handle-url-change — popstate / initial / SSR feed.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :route-id]))
-          ":rf.route/handle-url-change wrote the route slice")
-
-      ;; (5) an :on-match route — loader runs fire-and-forget; the commit writes the slice.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/loaded" {:rf.route/cause :link}])
-      (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                   [:rf.runtime/routing :current :route-id]))
-          "the :on-match route settled onto the slice")
-
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous
-      ;; under the gate: the diagnostic ring is empty for every input there.
-      ;; The four route-slice writes above are the posture-independent half.
-      (when rf.interop/debug-enabled?
-        (is (empty? @diags)
-            (str "routing navigation events are framework-authority writers — "
-                 "no ownership diagnostic; got " (diagnostic-ids diags)))))))
+      (is (= [:route/article :route/search :route/home :route/loaded]
+             (for [ev [[:rf.route/navigate {:to :route/article :params {:id "intro"}}]
+                       [:rf.route/handle-url-change "/search?q=widgets" {:rf.route/cause :link}]
+                       [:rf.route/handle-url-change "/"]
+                       [:rf.route/handle-url-change "/loaded" {:rf.route/cause :link}]]]
+               (do (rf/dispatch-sync ev) (current-route)))))
+      (assert-no-diagnostic! diags))))
 
 (deftest can-leave-pending-nav-fires-no-ownership-diagnostic
-  (testing "the pending-nav protocol (url-requested / cancel / continue) stays silent"
+  (testing "url-requested / cancel / continue"
     (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+                  {:params [:map [:id :string]] :can-leave :editor/can-leave?}
+                  "/editor/articles/:id")
     (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty
-                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
+    (rf/reg-sub :editor/can-leave? (fn [db _] (not (get-in db [:editor :dirty?]))))
     (stub-push-url!)
-    (let [diags (record-ownership-diagnostics! ::can-leave)]
-      ;; Land on the guarded route, dirty it, attempt to leave → blocked
-      ;; (`:rf.route/url-requested` writes the pending slot via `:rf.db/runtime`).
+    (let [diags   (record-ownership-diagnostics! ::can-leave)
+          pending #(runtime-at [:rf.runtime/routing :pending-navigation])]
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :pending-navigation]))
-          ":rf.route/url-requested wrote the pending-navigation slot")
-      ;; CANCEL clears the slot (a :rf.db/runtime write).
-      (rf/dispatch-sync [:rf.route/cancel "pn-1"])
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :pending-navigation]))
-          ":rf.route/cancel cleared the pending slot")
-      ;; Re-block, then CONTINUE (a :rf.db/runtime write + completion).
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (rf/dispatch-sync [:rf.route/continue "pn-2"])
-      (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :route-id]))
-          ":rf.route/continue completed the navigation")
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous
-      ;; under the gate; the pending-slot writes above are the residue.
-      (when rf.interop/debug-enabled?
-        (is (empty? @diags)
-            (str "url-requested / cancel / continue are framework-authority "
-                 "writers — no ownership diagnostic; got " (diagnostic-ids diags)))))))
-
-;; ===========================================================================
-;; Machines — :rf/machine? implies framework-write authority
-;; ===========================================================================
+      (is (= [true nil :route/cart]
+             [(do (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}]) (some? (pending)))
+              (do (rf/dispatch-sync [:rf.route/cancel "pn-1"]) (pending))
+              (do (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+                  (rf/dispatch-sync [:rf.route/continue "pn-2"])
+                  (current-route))])
+          "blocked, cancelled, then continued")
+      (assert-no-diagnostic! diags))))
 
 (deftest machine-lifecycle-fires-no-ownership-diagnostic
-  (testing "reg + first-dispatch bootstrap, declarative :spawn, explicit destroy stay silent"
-    ;; A standalone child whose snapshot is written to runtime-db on its
-    ;; first dispatch (bootstrap cascade). A parent that spawns the child
-    ;; declaratively on entry, and tears it down via an explicit
-    ;; `[:rf.machine/destroy …]` fx — exercising the spawn + destroy
-    ;; lifecycle fxs that write `[:rf.runtime/machines …]` via :rf.db/runtime.
-    (rf/reg-machine :zod/child
-                    {:initial :running
-                     :data    {}
-                     :states  {:running {}}})
+  (testing "first-dispatch bootstrap, declarative :spawn, explicit destroy"
+    (rf/reg-machine :zod/child {:initial :running :data {} :states {:running {}}})
     (rf/reg-machine :zod/parent
                     {:initial :idle
                      :data    {}
-                     :states
-                     {:idle    {:on {:start :working}}
-                      :working {:spawn {:machine-id :zod/child}
-                                :on    {:kill   :tearing
-                                        :done   :idle}}
-                      :tearing {:entry (fn [_] {:fx [[:rf.machine/destroy :zod/child]]})
-                                :on    {:done :idle}}}})
-    (let [diags (record-ownership-diagnostics! ::machines)]
-      ;; (a) singleton bootstrap: first dispatch synthesises + commits the
-      ;; snapshot into runtime-db.
-      (rf/dispatch-sync [:zod/child [:rf.machine/noop]])
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/machines :snapshots :zod/child]))
-          "machine bootstrap committed a snapshot to runtime-db")
-
-      ;; (b) declarative :spawn — parent enters :working, spawn fx allocates
-      ;; the child actor into runtime-db.
-      (rf/dispatch-sync [:zod/parent [:start]])
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/machines :snapshots :zod/parent]))
-          "the parent machine committed its snapshot to runtime-db")
-
-      ;; (c) explicit destroy — the destroy fx clears the actor from runtime-db.
-      (rf/dispatch-sync [:zod/parent [:kill]])
-
-      ;; SEMANTIC, posture-independent: the explicit destroy's own
-      ;; witness, so it does not rest on the vacuous `empty?` alone. The
-      ;; parent's `:tearing` entry fires
-      ;; `[:rf.machine/destroy :zod/child]`, so the child's snapshot must be
-      ;; gone from runtime-db while the parent's remains.
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/machines :snapshots :zod/child]))
-          "the explicit destroy fx cleared the child actor from runtime-db")
-
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous
-      ;; under the gate.
-      (when rf.interop/debug-enabled?
-        (is (empty? @diags)
-            (str "machine reg / dispatch / spawn / destroy are framework-"
-                 "authority writers (via :rf/machine?) — no ownership "
-                 "diagnostic; got " (diagnostic-ids diags)))))))
-
-;; ===========================================================================
-;; Elision — frame-owned classification install goes through privileged
-;; frame-state helpers
-;; ===========================================================================
+                     :states  {:idle    {:on {:start :working}}
+                               :working {:spawn {:machine-id :zod/child}
+                                         :on    {:kill :tearing :done :idle}}
+                               :tearing {:entry (fn [_] {:fx [[:rf.machine/destroy :zod/child]]})
+                                         :on    {:done :idle}}}})
+    (let [diags    (record-ownership-diagnostics! ::machines)
+          snapshot #(runtime-at [:rf.runtime/machines :snapshots %])]
+      (is (= [true true nil]
+             [(do (rf/dispatch-sync [:zod/child [:rf.machine/noop]]) (some? (snapshot :zod/child)))
+              (do (rf/dispatch-sync [:zod/parent [:start]]) (some? (snapshot :zod/parent)))
+              (do (rf/dispatch-sync [:zod/parent [:kill]]) (snapshot :zod/child))])
+          "bootstrap and spawn commit snapshots; the explicit destroy clears the child's")
+      (assert-no-diagnostic! diags))))
 
 (deftest elision-population-fires-no-ownership-diagnostic
-  (testing "commit-plane classification effects stay silent"
-    ;; EP-0025: durable app-db egress classification rides the commit-plane
-    ;; classification effects — a `reg-event` returns `:sensitive` / `:large`
-    ;; alongside `:db`, and the router folds them into the SAME atomic frame-
-    ;; state commit (a privileged runtime-db partition write, NOT an app-
-    ;; visible `:rf.db/runtime` effect — see
-    ;; `router/commit-frame-effects!`). So classifying a path from a handler
-    ;; writes `[:rf.runtime/elision …]` WITHOUT tripping any ownership
-    ;; diagnostic. This guards against a future change that routes the
-    ;; classification write through the app-visible runtime-db effect path.
-    ;; (The frame container — `:rf/default` — already exists via
-    ;; `tf/reset-runtime`.)
+  (testing "commit-plane classification effects write `[:rf.runtime/elision …]`
+            through the privileged frame-state commit, not the app-visible
+            runtime-db effect"
     (let [diags (record-ownership-diagnostics! ::elision)]
       (rf/reg-event :test/classify-profile
                     (fn [{:keys [db]} _]
@@ -307,84 +119,32 @@
                        :large     [[:profile :avatar]]
                        :sensitive [[:profile :ssn]]}))
       (rf/dispatch-sync [:test/classify-profile])
-      (is (seq (rf.elision/declarations :rf/default))
-          "the :large path was classified into the elision registry")
-      (is (seq (rf.elision/sensitive-declarations :rf/default))
-          "the :sensitive path was classified into the elision registry")
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/elision]))
-          "the commit-plane effect wrote its declaration registry into runtime-db")
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous
-      ;; under the gate; the three elision-registry pins above are the
-      ;; posture-independent half.
-      (when rf.interop/debug-enabled?
-        (is (empty? @diags)
-            (str "commit-plane classification effects write runtime-db through "
-                 "the privileged frame-state commit — no ownership diagnostic; got "
-                 (diagnostic-ids diags)))))))
-
-;; ===========================================================================
-;; SSR hydrate — :rf/hydrate is stamped :rf/framework-authority? true
-;; ===========================================================================
+      (is (every? seq [(rf.elision/declarations :rf/default)
+                       (rf.elision/sensitive-declarations :rf/default)
+                       (runtime-at [:rf.runtime/elision])]))
+      (assert-no-diagnostic! diags))))
 
 (deftest ssr-hydrate-fires-no-ownership-diagnostic
-  (testing ":rf/hydrate installs the runtime-db partition without tripping the diagnostic"
-    ;; The :rf/hydrate handler returns BOTH `:db` (the server app-db slice)
-    ;; AND `:rf.db/runtime` (the hydration metadata + server-settled
-    ;; runtime-db slice). It is stamped `{:rf/framework-authority? true}` at
-    ;; registration, so it writes the reserved partition in-bounds.
-    (let [diags (record-ownership-diagnostics! ::ssr)
-          payload {:rf/version     1
-                   :rf/frame-id    :rf/default
-                   :rf/app-db      {:greeting "hello from server"}
-                   :rf/runtime-db  {:rf.runtime/machines {:snapshots {}}}
-                   :rf/render-hash "deadbeef"}]
-      (rf/dispatch-sync [:rf/hydrate payload])
-      (is (= "hello from server" (:greeting (rf/app-db-value :rf/default)))
-          ":rf/hydrate replaced app-db with the server slice")
-      (is (= "deadbeef" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/ssr :hydration :server-hash]))
-          ":rf/hydrate stashed the server-hash into the runtime-db partition")
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous
-      ;; under the gate; the app-db replacement + server-hash pins above are
-      ;; the posture-independent half.
-      (when rf.interop/debug-enabled?
-        (is (empty? @diags)
-            (str ":rf/hydrate is a framework-authority writer "
-                 "(:rf/framework-authority? true) — no ownership diagnostic; got "
-                 (diagnostic-ids diags)))))))
-
-;; ===========================================================================
-;; Control — an ordinary app handler DOES fire the diagnostic
-;; ===========================================================================
+  (testing "`:rf/hydrate` writes both partitions under framework authority"
+    (let [diags (record-ownership-diagnostics! ::ssr)]
+      (rf/dispatch-sync [:rf/hydrate {:rf/version     1
+                                      :rf/frame-id    :rf/default
+                                      :rf/app-db      {:greeting "hello from server"}
+                                      :rf/runtime-db  {:rf.runtime/machines {:snapshots {}}}
+                                      :rf/render-hash "deadbeef"}])
+      (is (= ["hello from server" "deadbeef"]
+             [(:greeting (rf/app-db-value :rf/default))
+              (runtime-at [:rf.runtime/ssr :hydration :server-hash])]))
+      (assert-no-diagnostic! diags))))
 
 (deftest ordinary-app-handler-returning-runtime-db-still-warns
-  (testing "a non-framework handler returning :rf.db/runtime DOES fire the diagnostic"
-    ;; Proves the recorder + diagnostic are live in this fixture — every
-    ;; framework-quiet assertion above is therefore meaningful, not
-    ;; vacuously empty.
+  (testing "the control: the recorder and the diagnostic are live"
     (rf/reg-event :app/sneaky-runtime-write
-                     (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
+                  (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [diags (record-ownership-diagnostics! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
-
-      ;; SEMANTIC, posture-independent, and the reason this deftest is
-      ;; not simply guarded away: `:rf.db/runtime` is reserved BY
-      ;; CONVENTION and surfaced through a DIAGNOSTIC, not enforced. So the
-      ;; write LANDS — in dev, noisily; in production, silently. That is the
-      ;; policy's production face. Were the warning turned into a
-      ;; rejection, this is where it would surface.
-      (is (= :hijacked (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/routing :current :route-id]))
-          "the diagnostic is advisory, not enforcement — the app handler's
-           :rf.db/runtime write reaches runtime-db in both postures")
-
-      ;; Dev-instrumentation arm (see ns docstring). This is the
-      ;; CONTROL for the five `empty?` assertions above, and it is the one
-      ;; that goes red first under the gate — correctly, because with the
-      ;; diagnostic elided there is nothing for a control to control.
+      (is (= :hijacked (current-route))
+          "the diagnostic is advisory, not enforcement: the write lands in both postures")
       (when rf.interop/debug-enabled?
-        (is (= [:rf.warning/app-handler-runtime-effect] (diagnostic-ids diags))
-            "a non-framework handler writing :rf.db/runtime trips exactly the warning")
-        (is (= :app/sneaky-runtime-write (-> @diags first :tags :rf.trace/event-id))
-            "the diagnostic names the offending app event-id")))))
+        (is (= [[:rf.warning/app-handler-runtime-effect :app/sneaky-runtime-write]]
+               (map (juxt :operation (comp :rf.trace/event-id :tags)) @diags)))))))
