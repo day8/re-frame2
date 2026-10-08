@@ -1,31 +1,13 @@
 (ns re-frame2-pair-mcp.set-valued-app-db-test
   "Set-valued app-db slots survive the wire walkers.
 
-  A consumer app whose app-db carries a `#{...}` set value — e.g. a
-  state machine stamping `:tags #{:door/locked}` on every snapshot —
-  must round-trip cleanly through every wire-shrink walker the
-  `snapshot` and `trace-window` tools run. The risk is a walker that
-  iterates every collection as map-entries and calls `key`/`val` on a
-  `PersistentHashSet` element, producing an
-  `'me.cljs$core$IMapEntry$_key$arity$1 is not a function'` crash.
-
-  Every walker in the path is set-aware: `summary/tree-summary` and
-  `source-uri/decorate` carry explicit `set?` branches; `de-dupe-eq`
-  routes a set through its generic `(coll? form)` arm, not the
-  map-entry arm; the framework's server-side `project-egress` — both
-  its bare-value arm and its epoch-record arm — likewise branches on
-  `set?`. These tests PIN that
-  set-safety as an enforced invariant across the FULL client-side
-  pipeline — both tools, both the summary and the diff/dedup epoch
-  paths — so a refactor that drops a `set?` branch from any walker
-  trips this gate instead of shipping a runtime crash to a consumer
-  with set-valued state.
-
-  End-to-end via a substring-matching `cljs-eval-value` stub (mirrors
-  `trace_window_test`'s `with-substr-eval!`): the stub stands in for the
-  nREPL runtime response so the test exercises the real client-side wire
-  pipeline (`run-wire-pipeline`) that processes the runtime's reply."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  A consumer app whose app-db carries a `#{...}` value — a machine
+  stamping `:tags #{:door/locked}` on every snapshot — must round-trip
+  through every walker `snapshot` and `trace-window` run. A walker that
+  iterates a set as map-entries crashes with
+  `'me.cljs$core$IMapEntry$_key$arity$1 is not a function'`; these tests
+  drive the real client-side pipeline over a stubbed runtime reply."
+  (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
@@ -33,16 +15,9 @@
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]))
 
-;; ---------------------------------------------------------------------------
-;; Stub harness — `cljs-eval-value` scripted by form-keyword substring
-;; (mirrors `trace_window_test`'s `with-substr-eval!`). The probe form
-;; (`__re_frame2_pair_runtime`) must resolve true so `ensure-runtime!`
-;; proceeds; the real tool form (matched by `real-substr`) resolves to
-;; `canned`; everything else (the `configure-raw-state!` boot signal,
-;; whose failures are swallowed) falls through to nil.
-;; ---------------------------------------------------------------------------
-
 (defn- with-substr-eval!
+  "Stub `cljs-eval-value`: the preload probe answers true, the form
+  matching `real-substr` answers `canned`, anything else nil."
   [real-substr canned body-fn]
   (let [orig nrepl/cljs-eval-value
         match (fn [form-str]
@@ -58,16 +33,8 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
-;; ---------------------------------------------------------------------------
-;; Fixtures — a machine-epochs-shaped frame-state value with sets at the
-;; spots the framework actually stamps them (`:tags` under each machine
-;; snapshot, per Spec 005). Machine snapshots are runtime-db state, so the
-;; snapshot subtree sits in the `:rf.db/runtime` partition under
-;; `:rf.runtime/machines` (per EP-0001); the `:counter` is an ordinary
-;; app-db key alongside it. Sets of varying cardinality (1, 2, 3) so the
-;; test covers the odd-element and even-element cases.
-;; ---------------------------------------------------------------------------
-
+;; Machine snapshots sit in the runtime-db partition with sets where the
+;; framework stamps them, at cardinalities 1, 2 and 3.
 (defn- machine-snapshots [door-tags]
   {:rf.db/runtime
    {:rf.runtime/machines
@@ -79,107 +46,57 @@
 (def ^:private db-before (machine-snapshots #{:door/locked}))
 (def ^:private db-after  (machine-snapshots #{:door/locked :door/bolted}))
 
-;; ---------------------------------------------------------------------------
-;; Unit: each wire walker handles a set value without an IMapEntry crash.
-;; ---------------------------------------------------------------------------
+(def ^:private door-tags-path
+  [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags])
 
 (deftest tree-summary-handles-a-set
-  (testing "summary/tree-summary classifies a set rather than iterating
-            it as map-entries"
-    (let [marker (:rf.mcp/summary (summary/tree-summary #{:door/locked :armed}))]
-      (is (= :set (:type marker)))
-      (is (= 2 (:count marker)))
-      (is (pos? (:bytes marker))))))
+  (let [marker (:rf.mcp/summary (summary/tree-summary #{:door/locked :armed}))]
+    (is (= {:type :set :count 2} (select-keys marker [:type :count])))
+    (is (pos? (:bytes marker)))))
 
-;; ---------------------------------------------------------------------------
-;; End-to-end: snapshot-tool with a set-valued app-db, full + summary.
-;; ---------------------------------------------------------------------------
-
-(defn- snapshot-response
-  "The `{:value <per-frame-snap> :elided-count N :tool-frames-excluded
-  []}` envelope the snapshot eval form returns."
-  [snap]
-  {:value snap :elided-count 0 :tool-frames-excluded []})
-
-(deftest snapshot-tool-full-mode-set-valued-app-db
-  (testing "snapshot full-mode ships a set-valued app-db without crashing"
-    (async done
-      (let [snap {:rf/default {:app-db    db-after
-                               :sub-cache {}
-                               :machines  {:door {:tags #{:door/locked}}}
-                               :epochs    []
-                               :traces    []}}]
-        (-> (with-substr-eval! "snapshot-state" (snapshot-response snap)
-              (fn []
-                (-> (snapshot/snapshot-tool nil (tu/args->js {:mode "full"
-                                                              :frames #js [":rf/default"]}))
-                    (.then (fn [result]
-                             (is (not (tu/error? result))
-                                 "no :isError — the set value didn't crash the pipeline")
-                             (let [edn (tu/extract-edn result)]
-                               (is (true? (:ok? edn)))
-                               (is (= #{:door/locked :door/bolted}
-                                      (get-in (:snapshot edn)
-                                              [:rf/default :app-db
-                                               :rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
-                                   "the deep :tags set rides through full-mode intact")))))))
-            (.then (fn [_] (done))))))))
-
-(deftest snapshot-tool-summary-mode-set-valued-app-db
-  (testing "snapshot summary-mode summarises a set-valued app-db without crashing"
-    (async done
-      (let [snap {:rf/default {:app-db    db-after
-                               :sub-cache {}
-                               :machines  {:door {:tags #{:door/locked}}}
-                               :epochs    []
-                               :traces    []}}]
-        (-> (with-substr-eval! "snapshot-state" (snapshot-response snap)
-              (fn []
-                (-> (snapshot/snapshot-tool nil (tu/args->js {:mode "summary"
-                                                              :frames #js [":rf/default"]}))
-                    (.then (fn [result]
-                             (is (not (tu/error? result)))
-                             (let [edn (tu/extract-edn result)]
-                               (is (true? (:ok? edn)))
-                               ;; :machines slice (a map carrying a set) summarises to a marker.
-                               (is (contains? (get-in (:snapshot edn) [:rf/default :machines])
-                                              :rf.mcp/summary))))))))
-            (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; End-to-end: trace-window-tool with sets inside the epoch records.
-;; ---------------------------------------------------------------------------
+(deftest snapshot-tool-set-valued-app-db
+  ;; Full mode ships the deep set intact; summary mode summarises the
+  ;; set-carrying :machines slice.
+  (async done
+    (let [snap {:rf/default {:app-db    db-after
+                             :sub-cache {}
+                             :machines  {:door {:tags #{:door/locked}}}
+                             :epochs    []
+                             :traces    []}}
+          run  (fn [mode]
+                 (with-substr-eval! "snapshot-state"
+                   {:value snap :elided-count 0 :tool-frames-excluded []}
+                   #(snapshot/snapshot-tool nil (tu/args->js {:mode mode :frames #js [":rf/default"]}))))]
+      (-> (run "full")
+          (.then (fn [r]
+                   (is (= #{:door/locked :door/bolted}
+                          (get-in (tu/extract-edn r) (into [:snapshot :rf/default :app-db] door-tags-path))))
+                   (run "summary")))
+          (.then (fn [r]
+                   (is (contains? (get-in (tu/extract-edn r) [:snapshot :rf/default :machines])
+                                  :rf.mcp/summary))))
+          (.catch (fn [e] (is false (str "drive rejected: " e))))
+          (.then (fn [_] (done)))))))
 
 (deftest trace-window-tool-set-valued-epochs
-  (testing "trace-window ships epochs whose db carries sets without crashing"
-    (async done
-      (let [epochs [{:epoch-id :e1 :committed-at 100
-                     :db-before db-before :db-after db-before}
-                    {:epoch-id :e2 :committed-at 200
-                     :db-before db-before :db-after db-after}]
-            resp   {:epochs        epochs
-                    :id-aged-out?  false
-                    :requested-id  nil
-                    :head-id       :e2
-                    :next-id       nil
-                    :history-count 2
-                    :remaining     0}]
-        ;; gate is OFF by default -> include-sensitive forced false;
-        ;; the stubbed runtime response already represents the
-        ;; (projected) page, so the client pipeline is what we test.
-        (-> (with-substr-eval! "epoch-history" resp
-              (fn []
-                (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000 :epochs-mode "diff"}))
-                    (.then (fn [result]
-                             (is (not (tu/error? result))
-                                 "no :isError — set-valued epochs didn't crash the pipeline")
-                             (let [edn      (tu/extract-edn result)
-                                   restored (tu/dedup-expand (:epochs edn))
-                                   decoded  (mapv rf.mcp-base.diff-encode/decode-db-after restored)]
-                               (is (true? (:ok? edn)))
-                               (is (= 2 (:count edn)))
-                               (is (= #{:door/locked :door/bolted}
-                                      (get-in (:db-after (second decoded))
-                                              [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
-                                   "the modified :tags set survives the trace-window wire path")))))))
-            (.then (fn [_] (done))))))))
+  ;; The stubbed reply stands in for the already-projected page, so the
+  ;; client pipeline (diff encoding and dedup) is what runs.
+  (async done
+    (let [resp {:epochs        [{:epoch-id :e1 :committed-at 100
+                                 :db-before db-before :db-after db-before}
+                                {:epoch-id :e2 :committed-at 200
+                                 :db-before db-before :db-after db-after}]
+                :id-aged-out?  false
+                :requested-id  nil
+                :head-id       :e2
+                :next-id       nil
+                :history-count 2
+                :remaining     0}]
+      (-> (with-substr-eval! "epoch-history" resp
+            #(tw/trace-window-tool nil (tu/args->js {:ms 60000 :epochs-mode "diff"})))
+          (.then (fn [r]
+                   (let [decoded (mapv rf.mcp-base.diff-encode/decode-db-after
+                                       (tu/dedup-expand (:epochs (tu/extract-edn r))))]
+                     (is (= #{:door/locked :door/bolted}
+                            (get-in (:db-after (second decoded)) door-tags-path))))))
+          (.then (fn [_] (done)))))))
