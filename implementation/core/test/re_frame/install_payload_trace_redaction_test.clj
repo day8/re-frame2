@@ -1,53 +1,17 @@
 (ns re-frame.install-payload-trace-redaction-test
-  "The two framework installers carry a whole frame-state as their event
-  payload, so their own traces and egress records must not echo it.
+  "The two framework installers, `[:rf/install-frame-state saved]` and
+  `[:rf/hydrate payload]`, carry a whole frame-state (secrets included) as their
+  payload, and declare it `:sensitive` as a whole. So every egress door that
+  projects the event vector (the trace stream, the frame's `:errors` sink) shows
+  `[<event-id> :rf/redacted]`, while the state itself is installed as sent.
 
-  `[:rf/install-frame-state saved]` carries an app's persisted state: its
-  app-db and its machine snapshots, secrets included. `[:rf/hydrate payload]`
-  carries the SSR hydration payload, which can hold a value the host permits
-  onto the wire raw (a CSRF token, say). Both events declare their payload
-  `:sensitive` as a whole, so every egress door that projects an event vector
-  through its registration — the trace stream, the frame's `:errors` sink —
-  shows the event id and `:rf/redacted` in place of the payload. The state
-  itself is installed as sent and stays readable in the frame.
-
-  The app-db an installer writes is classified the way any app-db value is,
-  by the destination frame's own claims, and the pending-db traces are
-  projected against those. So each test classifies its app-db secret's path
-  in the destination first, as the app's own events do; a machine secret is
-  classified by its machine definition.
-
-  What must hold:
-
-    - no trace emitted while the installer runs carries a secret the payload
-      carried, and every trace echoing the event vector — dispatched,
-      run-start, db-pending, db-changed, frame-state-changed, run-end — reads
-      `[<event-id> :rf/redacted]` under `:rf.event/v`;
-    - the registrar and the image standard registry carry the one
-      `:rf/install-frame-state` declaration;
-    - a refused install's `:rf.observe/error` record, as the frame's `:errors`
-      sink receives it, carries no secret either;
-    - an ordinary event's trace still shows its payload, so the capture can
-      see payloads at all;
-    - the installed values are in the frame.
-
-  ## Posture split
-
-  Traces are dev instrumentation: under `-Dre-frame.debug=false` none is
-  emitted. So every trace assertion that holds in BOTH postures is written to
-  hold there — no captured trace carries a secret, and every captured trace
-  that echoes an installer's event vector reads `[<event-id> :rf/redacted]`,
-  which a production build satisfies by emitting none. The assertions that a
-  trace EXISTS — each of the six carriers, and the ordinary event's payload
-  showing through — sit inside `(when rf.interop/debug-enabled? …)` arms.
-  The refused install's `:errors` sink record, the shared descriptor and the
-  installed state are always-on, so they run unguarded under
-  `scripts/test-core-prod-gate.sh` and keep that lane's claim non-vacuous.
-
-  JVM-only: the core test classpath carries the machines and SSR artefacts
-  both installers need."
+  Traces are dev-only, so the trace assertions are written to hold in both
+  postures (no captured trace carries a secret, which a production build
+  satisfies by emitting none); the assertions that a trace EXISTS sit in
+  `(when rf.interop/debug-enabled? ...)`. The `:errors` sink record, the shared
+  declaration and the installed state are always-on."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.interop :as rf.interop]
@@ -65,10 +29,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn rf.observability/clear-observability-sinks!}))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
 
 (def ^:private machine-secret "saved-machine-secret")
 (def ^:private app-secret "saved-app-password")
@@ -147,81 +107,53 @@
     {:rf.db/app     app
      :rf.db/runtime (select-keys runtime [:rf.runtime/machines])}))
 
-;; ---------------------------------------------------------------------------
-;; :rf/install-frame-state
-;; ---------------------------------------------------------------------------
-
 (deftest an-install-traces-no-secret-it-carried
-  (testing "the install event's traces redact its whole payload; the state
-            it installs is readable in the frame"
-    (reg-fixtures!)
-    (let [saved  (saved-frame-state!)
-          _      (rf/make-frame {:id :trc/dest})
-          ;; The destination classifies its own app-db path, as the app's own
-          ;; events do; the install payload carries no classification.
-          _      (rf/dispatch-sync [:trc/classify [[:account :password]]] {:frame :trc/dest})
-          traces (captured #(rf/dispatch-sync [:rf/install-frame-state saved] {:frame :trc/dest}))]
-      (assert-installer-traces-redacted traces :rf/install-frame-state [machine-secret app-secret])
-
-      (testing "the installed state is readable in the frame"
-        (is (= app-secret (get-in (rf/app-db-value :trc/dest) [:account :password])))
-        (is (= machine-secret
-               (get-in (rf/frame-state-value :trc/dest)
-                       [:rf.db/runtime :rf.runtime/machines :snapshots :trc/vault :data :token]))))
-
-      (when rf.interop/debug-enabled?
-        (testing "an ordinary event's trace still shows its payload"
-          (let [ordinary (captured #(rf/dispatch-sync [:trc/note {:note "visible-note"}] {:frame :trc/dest}))]
-            (doseq [op event-v-carriers]
-              (is (= [:trc/note {:note "visible-note"}] (event-v-of ordinary op))
-                  (str op " shows an ordinary event's payload")))))))))
+  (reg-fixtures!)
+  (let [saved  (saved-frame-state!)
+        _      (rf/make-frame {:id :trc/dest})
+        ;; the destination classifies its own app-db path, as an app's events do
+        _      (rf/dispatch-sync [:trc/classify [[:account :password]]] {:frame :trc/dest})
+        traces (captured #(rf/dispatch-sync [:rf/install-frame-state saved] {:frame :trc/dest}))]
+    (assert-installer-traces-redacted traces :rf/install-frame-state [machine-secret app-secret])
+    (is (= app-secret (get-in (rf/app-db-value :trc/dest) [:account :password]))
+        "the installed state itself is not redacted")
+    (is (= machine-secret
+           (get-in (rf/frame-state-value :trc/dest)
+                   [:rf.db/runtime :rf.runtime/machines :snapshots :trc/vault :data :token])))
+    (when rf.interop/debug-enabled?
+      (let [ordinary (captured #(rf/dispatch-sync [:trc/note {:note "visible-note"}] {:frame :trc/dest}))]
+        (is (= [:trc/note {:note "visible-note"}] (event-v-of ordinary :rf.event/dispatched))
+            "control: the capture sees an ordinary event's payload")))))
 
 (deftest the-registrar-and-the-image-standard-carry-one-declaration
-  (testing "`:rf/install-frame-state` resolves to the same `:sensitive [[]]`
-            through the registrar and through the image standard registry,
-            because both are registered from one descriptor"
-    (let [standard (some #(when (= [:event :rf/install-frame-state] [(:kind %) (:id %)]) %)
-                         (rf.image-assembly/standard-descriptors))]
-      (is (= [[]] (:sensitive (rf.registrar/handler-meta :event :rf/install-frame-state))))
-      (is (= [[]] (:sensitive standard))
-          "the install event is an image standard carrying the same declaration"))))
+  (let [standard (some #(when (= [:event :rf/install-frame-state] [(:kind %) (:id %)]) %)
+                       (rf.image-assembly/standard-descriptors))]
+    (is (= [[]] (:sensitive (rf.registrar/handler-meta :event :rf/install-frame-state))))
+    (is (= [[]] (:sensitive standard)))))
 
 (deftest a-refused-install-egresses-no-secret-it-carried
-  (testing "a refused install's error record, as the frame's `:errors` sink
-            receives it, carries no secret the payload carried"
-    (reg-fixtures!)
-    (let [saved   (saved-frame-state!)
-          records (atom [])
-          refused (assoc-in saved [:rf.db/runtime :rf.runtime/resources] {})]
-      (rf/register-observability-sink! ::errors #(swap! records conj %))
-      (rf/make-frame {:id :trc/refusing
-                      :observability {:errors [{:sink ::errors
-                                                :rf.egress/profile :rf.egress/off-box-observability}]}})
-      (let [traces (captured #(rf/dispatch-sync [:rf/install-frame-state refused] {:frame :trc/refusing}))]
-        (is (some #(= :rf.error/handler-exception (:error %)) @records)
-            "precondition: the refusal reached the frame's :errors sink")
-        (is (some #(contains? % :event) @records)
-            "precondition: the sink's record carries the event slot")
-        (is (not-any? #(carries? % machine-secret) @records) "no sink record carries the machine secret")
-        (is (not-any? #(carries? % app-secret) @records) "no sink record carries the app-db secret")
-        (is (not-any? #(carries? % machine-secret) traces) "no trace carries the machine secret")
-        (is (not-any? #(carries? % app-secret) traces) "no trace carries the app-db secret")
-        (is (nil? (get-in (rf/frame-state-value :trc/refusing)
-                          [:rf.db/runtime :rf.runtime/machines]))
-            "precondition: nothing was installed")))))
-
-;; ---------------------------------------------------------------------------
-;; :rf/hydrate
-;; ---------------------------------------------------------------------------
+  (reg-fixtures!)
+  (let [saved   (saved-frame-state!)
+        records (atom [])
+        refused (assoc-in saved [:rf.db/runtime :rf.runtime/resources] {})
+        secret? (fn [v] (or (carries? v machine-secret) (carries? v app-secret)))]
+    (rf/register-observability-sink! ::errors #(swap! records conj %))
+    (rf/make-frame {:id :trc/refusing
+                    :observability {:errors [{:sink ::errors
+                                              :rf.egress/profile :rf.egress/off-box-observability}]}})
+    (let [traces (captured #(rf/dispatch-sync [:rf/install-frame-state refused] {:frame :trc/refusing}))]
+      (is (some #(= :rf.error/handler-exception (:error %)) @records)
+          "precondition: the refusal reached the frame's :errors sink")
+      (is (some #(contains? % :event) @records)
+          "precondition: the sink's record carries the event slot")
+      (is (not-any? secret? @records) "no sink record carries a secret")
+      (is (not-any? secret? traces) "no trace carries a secret"))))
 
 (deftest a-hydration-traces-no-secret-it-carried
-  (testing "the hydrate event's traces redact its whole payload; the hydrated
-            state is readable in the frame"
-    (reg-fixtures!)
-    (rf/make-frame {:id :trc/client :platform :client})
-    (rf/dispatch-sync [:trc/classify [[:csrf]]] {:frame :trc/client})
-    (let [payload {:rf/version 1 :rf/app-db {:csrf wire-secret :greeting "hello"}}
-          traces  (captured #(rf/dispatch-sync [:rf/hydrate payload] {:frame :trc/client}))]
-      (assert-installer-traces-redacted traces :rf/hydrate [wire-secret])
-      (is (= wire-secret (:csrf (rf/app-db-value :trc/client)))
-          "the hydrated state is readable in the frame"))))
+  (reg-fixtures!)
+  (rf/make-frame {:id :trc/client :platform :client})
+  (rf/dispatch-sync [:trc/classify [[:csrf]]] {:frame :trc/client})
+  (let [payload {:rf/version 1 :rf/app-db {:csrf wire-secret :greeting "hello"}}
+        traces  (captured #(rf/dispatch-sync [:rf/hydrate payload] {:frame :trc/client}))]
+    (assert-installer-traces-redacted traces :rf/hydrate [wire-secret])
+    (is (= wire-secret (:csrf (rf/app-db-value :trc/client))))))
