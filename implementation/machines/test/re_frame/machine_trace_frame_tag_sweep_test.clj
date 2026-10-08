@@ -1,388 +1,124 @@
 (ns re-frame.machine-trace-frame-tag-sweep-test
-  "Every `:rf.machine/*` and `:rf.error/machine-*` trace event MUST carry
-  the `:frame` tag so `re-frame.epoch.capture/capture-event!` admits it into
-  the cascade's `:trace-events` buffer. Without the tag the trace is dropped
-  silently — fans out to direct listeners but never reaches the
-  epoch-history slot the Xray Machine Inspector reads from.
-
-  This test file is the sister to `re_frame.transition_frame_tag_test`
-  (which locks `:rf.machine/transition` at registration.cljc) and sweeps the
-  remaining ~13 emit sites across:
-
-    - finalize.cljc — :on-done callback throw (machine-action-exception)
-    - join.cljc — spawn-all resolution traces (any-failed, all-completed,
-      some-completed, cancelled-on-join-resolution, late-completion,
-      bad-child-id)
-    - timer.cljc — wall-clock fx-layer traces (machine-bad-after-delay,
-      cancelled (the unified cancellation event with its :reason closed
-      set), scheduled-from-watcher, after-fn-threw, after-sub-threw,
-      after-watch-failed)
-    - transition.cljc — pure-engine traces (guard-evaluated, action-ran
-      success+error, timer/scheduled, timer/skipped-on-server,
-      timer/fired, timer/stale-after, raise-depth-exceeded,
-      always-depth-exceeded)
-
-  The test rationale mirrors the sister test's: this lives in the machines
-  artefact (which doesn't depend on epoch) so the contract is exercised even
-  when the epoch artefact isn't on the test classpath. A future regression
-  that drops `:frame` from any of these sites fails here first (clear cause)
-  before the upstack epoch / Xray gates notice the absent trace events."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Machine traces emitted inside a run carry the dispatching frame under
+  `[:tags :frame]`: epoch capture admits only frame-tagged events into a
+  cascade's `:trace-events`, which is what the Xray Machine Inspector reads.
+  One test per place an emit site takes its frame from."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- helpers ---------------------------------------------------------------
-
-(defn- record-traces!
-  "Register a trace listener for the duration of `body-fn`, returning
-  the captured trace vec. Routed through the shared
-  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
-  [body-fn]
+(defn- frames-by-op
+  "`{op [frame ...]}`: the `[:tags :frame]` of every trace `drive!` emits whose
+  `:operation` is in `ops`."
+  [ops drive!]
   (rf.machines.test-support/with-trace-capture seen
-    (body-fn)
-    @seen))
+    (drive!)
+    (update-vals (group-by :operation (filter #(ops (:operation %)) @seen))
+                 #(mapv (comp :frame :tags) %))))
 
-(defn- of-op [evs op]
-  (filterv #(= op (:operation %)) evs))
+(defn- spawned-id [parent path]
+  (get-in (rf.machines.test-support/runtime-db) (into [:rf.runtime/machines :spawned parent] path)))
 
-(defn- first-of-op [evs op]
-  (first (of-op evs op)))
-
-(defn- frame-tag [ev]
-  (get-in ev [:tags :frame]))
-
-;; ---- transition.cljc :rf.machine/guard-evaluated --------------------------
-
-(deftest guard-evaluated-tag-carries-frame
-  (testing ":rf.machine/guard-evaluated carries `:frame` tag so epoch-capture
-   admits it (`(:rf/frame machine)` resolved in evaluate-guard)"
-    (rf/reg-machine
-      :ko8jb/guard
-      {:initial :idle
-       :guards  {:always-pass (fn [_] true)}
-       :states  {:idle  {:on {:go [{:guard :always-pass :target :done}]}}
-                 :done  {}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/guard [:go]])))
-          ev    (first-of-op traces :rf.machine/guard-evaluated)]
-      (is (some? ev) "one :rf.machine/guard-evaluated fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag is the dispatching frame's id"))))
-
-;; ---- transition.cljc :rf.machine/action-ran (success path) ----------------
-
-(deftest action-ran-success-tag-carries-frame
-  (testing ":rf.machine/action-ran (success outcome) carries `:frame` tag
-   (`(:rf/frame machine)` resolved in run-action)"
-    (rf/reg-machine
-      :ko8jb/action
-      {:initial :idle
-       :actions {:noop (fn [_] nil)}
-       :states  {:idle {:on {:go {:target :done :action :noop}}}
-                 :done {}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/action [:go]])))
-          ev    (first-of-op traces :rf.machine/action-ran)]
-      (is (some? ev) "one :rf.machine/action-ran fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped on success outcome"))))
-
-;; ---- transition.cljc :rf.machine/action-ran (error path) ------------------
-
-(deftest action-ran-error-tag-carries-frame
-  (testing ":rf.machine/action-ran (action-threw outcome) carries `:frame`
-   tag — exception path must remain observable through epoch capture"
-    (rf/reg-machine
-      :ko8jb/action-throws
-      {:initial :idle
-       :actions {:bang (fn [_] (throw (ex-info "boom" {})))}
-       :states  {:idle {:on {:go {:target :done :action :bang}}}
-                 :done {}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/action-throws [:go]])))
-          rans   (of-op traces :rf.machine/action-ran)
-          err    (first (filter #(= :rf.error/action-threw
-                                    (get-in % [:tags :outcome]))
-                                rans))]
-      (is (some? err) ":rf.machine/action-ran with action-threw outcome fired")
-      (is (= :rf/default (frame-tag err))
-          ":frame tag stamped on error outcome"))))
-
-;; ---- transition.cljc :rf.machine.timer/scheduled --------------------------
-
-(deftest timer-scheduled-tag-carries-frame
-  (testing ":rf.machine.timer/scheduled (build-after-fx) carries `:frame`
-   tag (`(:rf/frame machine)` resolved in build-after-fx)"
-    (rf/reg-machine
-      :ko8jb/sched
-      {:initial :idle
-       :states  {:idle    {:on {:go :loading}}
-                 :loading {:after {5000 :ready}}
-                 :ready   {}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/sched [:go]])))
-          ev    (first-of-op traces :rf.machine.timer/scheduled)]
-      (is (some? ev) ":rf.machine.timer/scheduled fired on entry")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped"))))
-
-;; ---- transition.cljc :rf.machine.timer/fired ------------------------------
-
-(deftest timer-fired-tag-carries-frame
-  (testing ":rf.machine.timer/fired (emit-pick-traces!) carries `:frame`
-   tag (`(:rf/frame machine)` plumbed into emit-pick-traces!)"
-    (rf/reg-machine
-      :ko8jb/fire
-      {:initial :idle
-       :data    {}
-       :states  {:idle    {:on {:go :loading}}
-                 :loading {:after {5000 :done}
-                           :on    {:bail :idle}}
-                 :done    {}}})
-    (let [traces
-          (record-traces!
-            (fn []
-              (rf/dispatch-sync [:ko8jb/fire [:go]])
-              (let [epoch (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                  [:rf.runtime/machines :snapshots :ko8jb/fire :data :rf/after-epoch [:loading]])]
-                (rf/dispatch-sync
-                  [:ko8jb/fire
-                   [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]]))))
-          ev (first (filter #(true? (:fired? (:tags %)))
-                            (of-op traces :rf.machine.timer/fired)))]
-      (is (some? ev) ":rf.machine.timer/fired (fired? true) emitted")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped on the fired? true trace"))))
-
-;; ---- transition.cljc :rf.machine.timer/stale-after ------------------------
-
-(deftest timer-stale-after-tag-carries-frame
-  (testing ":rf.machine.timer/stale-after (emit-pick-traces!) carries `:frame`
-   tag — stale-after fires when an in-flight timer's epoch no longer
-   matches the snapshot's"
-    (rf/reg-machine
-      :ko8jb/stale
-      {:initial :loading
-       :data    {}
-       :states  {:loading {:after {5000 :timeout}
-                           :on    {:cancel :idle}}
-                 :idle    {}
-                 :timeout {}}})
-    (let [traces
-          (record-traces!
-            (fn []
-              ;; First dispatch :cancel which exits :loading and bumps the
-              ;; after-epoch. A subsequent synthetic after-elapsed with the
-              ;; pre-cancel epoch is stale.
-              (rf/dispatch-sync [:ko8jb/stale [:cancel]])
-              (rf/dispatch-sync
-                [:ko8jb/stale
-                 [:rf.machine.timer/after-elapsed 5000 0 [:loading]]])))
-          ev (first-of-op traces :rf.machine.timer/stale-after)]
-      (is (some? ev) ":rf.machine.timer/stale-after fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped"))))
-
-;; ---- transition.cljc :rf.error/machine-raise-depth-exceeded ---------------
+(deftest engine-traces-carry-frame
+  (rf/reg-machine :ft/engine
+    {:initial :idle
+     :guards  {:ok (fn [_] true)}
+     :actions {:noop (fn [_] nil)}
+     :states  {:idle    {:on {:go [{:guard :ok :target :loading :action :noop}]}}
+               :loading {:after {5000 :done}}
+               :done    {}}})
+  (is (= {:rf.machine/guard-evaluated   [:rf/default]
+          :rf.machine/action-ran        [:rf/default]
+          :rf.machine.timer/scheduled   [:rf/default]
+          :rf.machine.timer/stale-after [:rf/default]}
+         (frames-by-op #{:rf.machine/guard-evaluated :rf.machine/action-ran
+                         :rf.machine.timer/scheduled :rf.machine.timer/stale-after}
+                       (fn []
+                         (rf/dispatch-sync [:ft/engine [:go]])
+                         ;; epoch 0 predates the arm, so this elapse is stale
+                         (rf/dispatch-sync
+                           [:ft/engine [:rf.machine.timer/after-elapsed 5000 0 [:loading]]]))))))
 
 (deftest raise-depth-exceeded-tag-carries-frame
-  (testing ":rf.error/machine-raise-depth-exceeded carries `:frame` tag
-   (`(:rf/frame machine)` resolved in drain-raises)"
-    ;; An action that emits a fanned-out batch of :raise fx's — N raises
-    ;; in a single :fx vector — feeds the same drain-raises loop N
-    ;; iterations. With :raise-depth-limit 3 and 5 raises in one batch
-    ;; the loop trips the bound and emits the error trace.
-    (rf/reg-machine
-      :ko8jb/raise-loop
-      {:initial :idle
-       :raise-depth-limit 3
-       :actions {:fan-out
-                 (fn [_]
-                   {:fx [[:raise [:noop]]
-                         [:raise [:noop]]
-                         [:raise [:noop]]
-                         [:raise [:noop]]
-                         [:raise [:noop]]]})}
-       :states  {:idle {:on {:start {:target :running :action :fan-out}
-                             :noop  :idle}}
-                 :running {:on {:noop :idle}}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/raise-loop [:start]])))
-          ev    (first-of-op traces :rf.error/machine-raise-depth-exceeded)]
-      (is (some? ev) ":rf.error/machine-raise-depth-exceeded fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped on the depth-exceeded error"))))
-
-;; ---- transition.cljc :rf.error/machine-always-depth-exceeded --------------
+  ;; Five raises from one action against a raise-depth limit of 3.
+  (rf/reg-machine :ft/raise-loop
+    {:initial :idle
+     :raise-depth-limit 3
+     :actions {:fan-out (fn [_] {:fx (vec (repeat 5 [:raise [:noop]]))})}
+     :states  {:idle    {:on {:start {:target :running :action :fan-out}
+                              :noop  :idle}}
+               :running {:on {:noop :idle}}}})
+  (is (= {:rf.error/machine-raise-depth-exceeded [:rf/default]}
+         (frames-by-op #{:rf.error/machine-raise-depth-exceeded}
+                       #(rf/dispatch-sync [:ft/raise-loop [:start]])))))
 
 (deftest always-depth-exceeded-tag-carries-frame
-  (testing ":rf.error/machine-always-depth-exceeded carries `:frame` tag
-   (`(:rf/frame machine)` resolved in machine-transition-single)"
-    ;; Mirrors the always-depth conformance shape: an outer
-    ;; `:go` transition lands in `:a`; `:a` and `:b` ping-pong via
-    ;; always-true `:always` guards until the depth limit trips.
-    (rf/reg-machine
-      :ko8jb/always-loop
-      {:initial :start
-       :always-depth-limit 5
-       :guards  {:p? (fn [_] true)}
-       :states  {:start {:on {:go :a}}
-                 :a     {:always [{:guard :p? :target :b}]}
-                 :b     {:always [{:guard :p? :target :a}]}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/always-loop [:go]])))
-          ev    (first-of-op traces :rf.error/machine-always-depth-exceeded)]
-      (is (some? ev) ":rf.error/machine-always-depth-exceeded fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped on the always-depth error"))))
-
-;; ---- finalize.cljc :rf.error/machine-action-exception (on-done throw) ----
+  ;; `:a` and `:b` ping-pong on always-true `:always` guards past the limit.
+  (rf/reg-machine :ft/always-loop
+    {:initial :start
+     :always-depth-limit 5
+     :guards  {:p? (fn [_] true)}
+     :states  {:start {:on {:go :a}}
+               :a     {:always [{:guard :p? :target :b}]}
+               :b     {:always [{:guard :p? :target :a}]}}})
+  (is (= {:rf.error/machine-always-depth-exceeded [:rf/default]}
+         (frames-by-op #{:rf.error/machine-always-depth-exceeded}
+                       #(rf/dispatch-sync [:ft/always-loop [:go]])))))
 
 (deftest on-done-throw-tag-carries-frame
-  (testing ":rf.error/machine-action-exception (on-done callback threw)
-   carries `:frame` tag (`frame-id` IS in scope at the throw
-   catch in finalize-machine)"
-    (rf/reg-machine
-      :ko8jb/child-od
-      {:initial :running
-       :data    {}
-       :states  {:running {:on    {:finish :done}}
-                 :done    {:final?     true
-                           :output-key :payload}}})
-    (rf/reg-machine
-      :ko8jb/parent-od
-      {:initial :idle
-       :data    {}
-       :states  {:idle    {:on {:start :working}}
-                 :working {:spawn {:machine-id :ko8jb/child-od
-                                    :on-done (fn [_]
-                                                  (throw (ex-info "boom" {})))}}}})
-    (let [traces (record-traces!
-                   (fn []
-                     ;; Boot parent → :working, which spawns the child.
-                     (rf/dispatch-sync [:ko8jb/parent-od [:start]])
-                     ;; Drive the child to :final?, triggering parent's
-                     ;; :on-done — which throws.
-                     (let [child-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                            [:rf.runtime/machines :spawned :ko8jb/parent-od
-                                             [:working]])]
-                       (rf/dispatch-sync [child-id [:finish]]))))
-          ev    (first (filter
-                         #(= :rf.machine.spawn/on-done (get-in % [:tags :action-id]))
-                         (of-op traces :rf.error/machine-action-exception)))]
-      (is (some? ev)
-          ":rf.error/machine-action-exception with :action-id :rf.machine.spawn/on-done fired")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped on the on-done-throw error"))))
+  (rf/reg-machine :ft/child-od
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :ft/parent-od
+    {:initial :idle
+     :states  {:idle    {:on {:start :working}}
+               :working {:spawn {:machine-id :ft/child-od
+                                 :on-done    (fn [_] (throw (ex-info "boom" {})))}}}})
+  (is (= {:rf.error/machine-action-exception [:rf/default]}
+         (frames-by-op #{:rf.error/machine-action-exception}
+                       (fn []
+                         (rf/dispatch-sync [:ft/parent-od [:start]])
+                         (rf/dispatch-sync [(spawned-id :ft/parent-od [[:working]]) [:finish]]))))))
 
-;; ---- join.cljc :rf.machine.spawn-all/all-completed -----------------------
-
-(defn- mk-child-spec
-  "Return a child spec that COMPLETES by reaching a `:final?` state, carrying
-  its own :id (seeded from :start [:set-id <id>]) out through `:output-key`.
-  It names no parent and dispatches nothing."
-  []
-  {:initial :running
-   :data    {:id nil}
-   :actions {:record-id
-             (fn [{data :data ev :event}]
-               {:data (assoc data :id (second ev))})}
-   :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done}
-                            :fail   {:target :failed}}}
-             :done    {:final? true :output-key :id}
-             :failed  {:final? true :error? true :output-key :id}}})
-
-(deftest spawn-all-all-completed-tag-carries-frame
-  (testing ":rf.machine.spawn-all/all-completed carries `:frame` tag
-   (frame-id plumbed into emit-resolution-traces!)"
-    (let [child  (mk-child-spec)
-          parent {:initial :idle
-                  :states  {:idle      {:on {:start :hydrating}}
-                            :hydrating
-                            {:spawn-all
-                             {:children        [{:id :a :machine-id :ko8jb/ca-a
-                                                  :start [:set-id :a]}
-                                                 {:id :b :machine-id :ko8jb/ca-b
-                                                  :start [:set-id :b]}]
-                              :join            :all
-                              :on-all-complete [:hydrate/done]}
-                             :on    {:hydrate/done :ready}}
-                            :ready     {}}}]
-      (rf/reg-machine :ko8jb/ca-a child)
-      (rf/reg-machine :ko8jb/ca-b child)
-      (rf/reg-machine :ko8jb/parent-all parent)
-      (let [traces
-            (record-traces!
-              (fn []
-                (rf/dispatch-sync [:ko8jb/parent-all [:start]])
-                (let [ids (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                  [:rf.runtime/machines :spawned :ko8jb/parent-all
-                                   [:hydrating] :children])]
-                  (rf/dispatch-sync [(:a ids) [:go]])
-                  (rf/dispatch-sync [(:b ids) [:go]]))))
-            ev (first-of-op traces :rf.machine.spawn-all/all-completed)]
-        (is (some? ev) ":rf.machine.spawn-all/all-completed fired")
-        (is (= :rf/default (frame-tag ev))
-            ":frame tag stamped on join resolution trace")))))
-
-;; ---- join.cljc :rf.error/machine-spawn-all-bad-child-id ------------------
-
-(deftest spawn-all-bad-child-id-tag-carries-frame
-  (testing ":rf.error/machine-spawn-all-bad-child-id carries `:frame` tag
-   (`(:rf/frame machine)` resolved at interceptor entry)"
-    (let [child  (mk-child-spec)
-          parent {:initial :idle
-                  :states  {:idle      {:on {:start :hydrating}}
-                            :hydrating
-                            {:spawn-all
-                             {:children        [{:id :a :machine-id :ko8jb/cbc
-                                                  :start [:set-id :a]}]
-                              :join            :all
-                              :on-all-complete [:hydrate/done]}
-                             :on    {:hydrate/done :ready}}
-                            :ready     {}}}]
-      (rf/reg-machine :ko8jb/cbc child)
-      (rf/reg-machine :ko8jb/parent-bc parent)
-      (let [traces
-            (record-traces!
-              (fn []
-                (rf/dispatch-sync [:ko8jb/parent-bc [:start]])
-                ;; Inject a forged child-id the join-state never knew about,
-                ;; on the reserved completion carrier the runtime mints —
-                ;; triggers :rf.error/machine-spawn-all-bad-child-id.
-                (rf/dispatch-sync
-                  [:ko8jb/parent-bc
-                   [:rf.machine.spawn/done [:hydrating]
-                    {:child-id :forged/never-spawned
-                     :attempt  0
-                     :result   nil
-                     :error?   false}]])))
-            ev (first-of-op traces :rf.error/machine-spawn-all-bad-child-id)]
-        (is (some? ev) ":rf.error/machine-spawn-all-bad-child-id fired")
-        (is (= :rf/default (frame-tag ev))
-            ":frame tag stamped on bad-child-id error")))))
-
-;; ---- timer.cljc :rf.error/machine-bad-after-delay -------------------------
+(deftest spawn-all-join-traces-carry-frame
+  (rf/reg-machine :ft/join-child
+    {:initial :running
+     :states  {:running {:on {:go :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :ft/join-parent
+    {:initial :idle
+     :states  {:idle      {:on {:start :hydrating}}
+               :hydrating {:spawn-all {:children        [{:id :a :machine-id :ft/join-child}]
+                                       :join            :all
+                                       :on-all-complete [:hydrate/done]}
+                           :on        {:hydrate/done :ready}}
+               :ready     {}}})
+  (is (= {:rf.error/machine-spawn-all-bad-child-id [:rf/default]
+          :rf.machine.spawn-all/all-completed      [:rf/default]}
+         (frames-by-op #{:rf.error/machine-spawn-all-bad-child-id
+                         :rf.machine.spawn-all/all-completed}
+                       (fn []
+                         (rf/dispatch-sync [:ft/join-parent [:start]])
+                         ;; a completion for a child the join never spawned
+                         (rf/dispatch-sync
+                           [:ft/join-parent
+                            [:rf.machine.spawn/done [:hydrating]
+                             {:child-id :forged/never-spawned :attempt 0 :result nil :error? false}]])
+                         (rf/dispatch-sync
+                           [(spawned-id :ft/join-parent [[:hydrating] :children :a]) [:go]]))))))
 
 (deftest timer-bad-after-delay-tag-carries-frame
-  (testing ":rf.error/machine-bad-after-delay (timer fx layer) carries
-   `:frame` tag (frame-id is the first param of
-   schedule-after-timer!). Triggered by a delay fn that returns nil
-   (no positive ms resolution)."
-    (rf/reg-machine
-      :ko8jb/no-clock
-      {:initial :idle
-       :states  {:idle    {:on {:go :loading}}
-                 :loading {:after {(fn [_snap] nil) :done}}
-                 :done    {}}})
-    (let [traces (record-traces!
-                   (fn [] (rf/dispatch-sync [:ko8jb/no-clock [:go]])))
-          ev    (first-of-op traces :rf.error/machine-bad-after-delay)]
-      (is (some? ev) ":rf.error/machine-bad-after-delay fired from fx layer")
-      (is (= :rf/default (frame-tag ev))
-          ":frame tag stamped"))))
+  (rf/reg-machine :ft/no-delay
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:after {(fn [_] nil) :done}}
+               :done    {}}})
+  (is (= {:rf.error/machine-bad-after-delay [:rf/default]}
+         (frames-by-op #{:rf.error/machine-bad-after-delay}
+                       #(rf/dispatch-sync [:ft/no-delay [:go]])))))
