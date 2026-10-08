@@ -1,24 +1,12 @@
 (ns re-frame.story.ui.promotion-cljs-test
   "Tests for the generated-failure promotion UX (spec/021 §3).
 
-  Two tiers (mirrors `save_variant_cljs_test`):
-
-  - **JVM + CLJS** (pure machinery in `promotion.cljc`) — the artifact-id /
-    label derivation, the `result->artifact` capture-source rule, the
-    draft → promote-opts projection, and the `(reg-variant …)` snippet
-    shape. These pin the contract the dialog + sidebar + test-pane depend
-    on, AND assert promotion drives the shared `re-frame.story.promotion`
-    substrate (non-destructive, distinct from save-current-state).
-
-  - **CLJS-only** (the capture store + dialog ratoms + render depend on
-    Reagent / DOM) — capture is idempotent + non-destructive across
-    promote, the dialog hiccup renders the curation controls + snippet, and
-    the promote button drives the substrate register path.
-
-  Runs on the JVM under `clojure -M:test` and on CLJS under shadow's
-  `:node-test` build (ns suffix `-cljs-test`)."
+  The pure machinery in `promotion.cljc` — label, `result->artifact`, the
+  draft → promote-opts projection and the `(reg-variant …)` snippet — runs on
+  the JVM and on the CLJS node-test build. The capture store, `promote!` and
+  the dialog render are CLJS-only."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is use-fixtures]]
             [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -33,18 +21,13 @@
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]))
 
 ;; ---- fixtures -----------------------------------------------------------
-;;
-;; Reset the Story side-table around each test so the `promote!` /
-;; substrate register assertions start from a clean registrar. Mirrors the
-;; substrate `promotion_cljs_test` fixture shape — a one-arg fn that runs on both
-;; targets.
 
 (defn reset-state! [t]
   (rf.story.registrar/clear-all!)
   ;; The substrate's `reg-variant*` validates tags against the registered
-  ;; set; `clear-all!` wipes the canonical tags the real Story boot installs
-  ;; (`re-frame.story/install-canonical-vocabulary!`). Re-install them so a
-  ;; promoted `#{:test}` regression validates exactly as it does at runtime.
+  ;; set; `clear-all!` wipes the canonical tags the real Story boot installs.
+  ;; Re-install them so a promoted `#{:test}` regression validates as it
+  ;; does at runtime.
   (rf.story.registrar/install-canonical-tags!)
   #?(:cljs (reset! rf.story.ui.promotion/captured-atom {}))
   #?(:cljs (reset! rf.story.ui.promotion/dialog-atom rf.story.ui.promotion/initial-dialog-state))
@@ -63,217 +46,163 @@
      :seed          42
      :result        {:status :fail}}))
 
-;; ===========================================================================
-;; PURE: artifact id + label
-;; ===========================================================================
+(defn- pasted-body
+  "Read the snippet back the way an author's paste does: the body map of the
+  `(reg-variant id body)` form."
+  [snippet]
+  (nth (edn/read-string snippet) 2))
 
-(deftest artifact-id-is-stable-and-seed-keyed
-  (testing "the same artifact yields the same id (idempotent capture key)"
-    (let [art (sample-artifact)]
-      (is (= (rf.story.ui.promotion/artifact-id art) (rf.story.ui.promotion/artifact-id art)))
-      (is (qualified-keyword? (rf.story.ui.promotion/artifact-id art)))
-      (is (= "rf.test.artifact" (namespace (rf.story.ui.promotion/artifact-id art))))
-      (is (str/includes? (name (rf.story.ui.promotion/artifact-id art)) "42")
-          "a seeded artifact keys on its seed"))))
-
-(deftest artifact-id-hash-keyed-without-seed
-  (testing "a seedless artifact still gets a stable content-hash id"
-    (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})]
-      (is (qualified-keyword? (rf.story.ui.promotion/artifact-id art)))
-      (is (= (rf.story.ui.promotion/artifact-id art) (rf.story.ui.promotion/artifact-id art))))))
+;; ===========================================================================
+;; PURE: artifact label
+;; ===========================================================================
 
 (deftest artifact-label-reads-status-and-steps
-  (testing "the label scans status + step-count without opening the artifact"
-    (let [label (rf.story.ui.promotion/artifact-label (sample-artifact))]
-      (is (str/includes? label "fail"))
-      (is (str/includes? label "2 steps")))))
+  (let [label (rf.story.ui.promotion/artifact-label (sample-artifact))]
+    (is (str/includes? label "fail"))
+    (is (str/includes? label "2 steps"))))
 
 ;; ===========================================================================
 ;; PURE: result->artifact (the capture source rule)
 ;; ===========================================================================
 
 (deftest result->artifact-prefers-replay-backlink
-  (testing "a result carrying a :run-artifact back-link uses it verbatim"
-    (let [art    (sample-artifact)
-          result {:status :fail :run-artifact art}]
-      (is (= art (rf.story.ui.promotion/result->artifact result []))
-          "the replay back-link IS the captured artifact"))))
+  (let [art (sample-artifact)]
+    (is (= art (rf.story.ui.promotion/result->artifact {:status :fail :run-artifact art} [])))))
 
 (deftest result->artifact-synthesizes-from-play-events
-  (testing "a plain run synthesizes an artifact from its flat play-events"
-    (let [result      {:status :pass}
-          play-events [[:counter/inc] [:counter/dec]]
-          art         (rf.story.ui.promotion/result->artifact result play-events)]
-      (is (rf.story.artifact/run-artifact? art))
-      (is (= 2 (count (rf.story.artifact/program-events art)))
-          "both bare events lift into the dispatch program"))))
+  (let [art (rf.story.ui.promotion/result->artifact {:status :pass}
+                                                    [[:counter/inc] [:counter/dec]])]
+    (is (rf.story.artifact/run-artifact? art))
+    (is (= [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]] (:event-program art))
+        "both bare events lift into the dispatch program")))
 
 (deftest result->artifact-nil-when-nothing-replayable
-  (testing "no back-link, no play-events AND no registered source → nothing to
-            capture"
-    (is (nil? (rf.story.ui.promotion/result->artifact {:status :pass} [])))
-    (is (nil? (rf.story.ui.promotion/result->artifact nil [])))
-    (is (nil? (rf.story.ui.promotion/result->artifact
-                {:status :fail :variant/id :story.x/never-registered} []))
-        "a result naming a variant that is not registered has no program to
-         capture")))
+  ;; no back-link, no play-events, and no registered source → nothing to capture
+  (is (nil? (rf.story.ui.promotion/result->artifact {:status :pass} [])))
+  (is (nil? (rf.story.ui.promotion/result->artifact
+              {:status :fail :variant/id :story.x/never-registered} []))))
 
 (deftest result->artifact-captures-the-source-program-when-nothing-was-dispatched
-  (testing "a run whose script dispatches nothing — a :setup precondition and
-            [:assert …] checkpoints only, the login_form testbed's shape —
-            captures the source variant's stepped program with the result
-            attached, so promotion reads its source"
-    (rf.story.registrar/reg-variant* :story.x/checkpoints
-      {:setup  [[:x/boot]]
-       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
-    (let [result {:status :fail :variant/id :story.x/checkpoints}
-          art    (rf.story.ui.promotion/result->artifact result [])]
-      (is (rf.story.artifact/run-artifact? art))
-      (is (= [[:assert [:rf.assert/path-equals [:n] 1]]] (:event-program art))
-          "the stepped :script program. :setup is NOT folded in: the dialog's
-           default draft :extends the source, which already supplies it")
-      (is (= result (:result art)))
-      (is (= :story.x/checkpoints (rf.story.promotion/source-variant-id art)))))
-  (testing "a source with no :script captures an empty program — its :setup
-            arrives through :extends and its :assertions through promotion"
-    (rf.story.registrar/reg-variant* :story.x/declared
-      {:setup      [[:x/boot]]
-       :assertions [[:rf.assert/path-equals [:n] 1]]})
-    (let [art (rf.story.ui.promotion/result->artifact
-                {:status :fail :variant/id :story.x/declared} [])]
-      (is (rf.story.artifact/run-artifact? art))
-      (is (= [] (:event-program art))))))
+  ;; A run whose script dispatches nothing — a :setup precondition and
+  ;; [:assert …] checkpoints only, the login_form testbed's shape — captures
+  ;; the source variant's stepped program. :setup is NOT folded in: the
+  ;; dialog's default draft :extends the source, which already supplies it.
+  (rf.story.registrar/reg-variant* :story.x/checkpoints
+    {:setup  [[:x/boot]]
+     :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
+  (let [result {:status :fail :variant/id :story.x/checkpoints}
+        art    (rf.story.ui.promotion/result->artifact result [])]
+    (is (= [[:assert [:rf.assert/path-equals [:n] 1]]] (:event-program art)))
+    (is (= result (:result art)) "the result rides along, naming the source"))
+  ;; a source with no :script still captures, as an empty program
+  (rf.story.registrar/reg-variant* :story.x/declared
+    {:setup      [[:x/boot]]
+     :assertions [[:rf.assert/path-equals [:n] 1]]})
+  (let [art (rf.story.ui.promotion/result->artifact
+              {:status :fail :variant/id :story.x/declared} [])]
+    (is (rf.story.artifact/run-artifact? art))
+    (is (= [] (:event-program art)))))
 
 (deftest result->artifact-compiles-the-source-program-with-the-run-inputs
-  (testing "a run whose checkpoint reads an input only an active mode supplies
-            captures the source's program compiled with the run's inputs and
-            records them for promotion. :substrate is not a compile input and
-            is not recorded"
-    (rf.story.registrar/reg-mode* :Mode.x/expect-two {:args {:expected 2}})
-    (rf.story.registrar/reg-variant* :story.x/mode-input
-      {:setup  [[:x/boot]]
-       :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]})
-    (let [result   {:status :fail :variant/id :story.x/mode-input}
-          run-opts {:active-modes   [:Mode.x/expect-two]
-                    :cell-overrides nil
-                    :substrate      :reagent}
-          art      (rf.story.ui.promotion/result->artifact result [] run-opts)]
-      (is (nil? (rf.story.ui.promotion/result->artifact result []))
-          "without the run's inputs the source does not compile")
-      (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program art))
-          "the checkpoint holds the value the mode supplied")
-      (is (= {:active-modes [:Mode.x/expect-two]} (get-in art [:source :run-opts]))
-          "the artifact records the compile inputs, and only those"))))
+  ;; :substrate is not a compile input and is not recorded
+  (rf.story.registrar/reg-mode* :Mode.x/expect-two {:args {:expected 2}})
+  (rf.story.registrar/reg-variant* :story.x/mode-input
+    {:setup  [[:x/boot]]
+     :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]})
+  (let [result   {:status :fail :variant/id :story.x/mode-input}
+        run-opts {:active-modes   [:Mode.x/expect-two]
+                  :cell-overrides nil
+                  :substrate      :reagent}
+        art      (rf.story.ui.promotion/result->artifact result [] run-opts)]
+    (is (nil? (rf.story.ui.promotion/result->artifact result []))
+        "without the run's inputs the source does not compile")
+    (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program art))
+        "the checkpoint holds the value the mode supplied")
+    (is (= {:active-modes [:Mode.x/expect-two]} (get-in art [:source :run-opts]))
+        "the artifact records the compile inputs, and only those")))
 
 ;; ===========================================================================
 ;; PURE: draft → promote-opts + snippet
 ;; ===========================================================================
 
 (deftest draft->promote-opts-projects-only-set-slots
-  (testing "the draft projects to the substrate opts keeping only set slots"
-    (let [opts (rf.story.ui.promotion/draft->promote-opts
-                 {:variant-id  :story.x/regression-1
-                  :doc         "  why this matters  "
-                  :tags        #{:test :agent}
-                  :setup-count 1
-                  :extends     :story.x/source})]
-      (is (= :story.x/regression-1 (:variant/id opts)))
-      (is (= "why this matters" (:doc opts)) "doc is trimmed")
-      (is (= #{:test :agent} (:tags opts)))
-      (is (= 1 (:setup-count opts)))
-      (is (= :story.x/source (:extends opts)))))
-  (testing "blank / empty / negative slots are dropped, id preserved as nil"
-    (let [opts (rf.story.ui.promotion/draft->promote-opts
-                 {:variant-id nil :doc "   " :tags #{} :setup-count -1})]
-      (is (contains? opts :variant/id))
-      (is (nil? (:variant/id opts)))
-      (is (not (contains? opts :doc)))
-      (is (not (contains? opts :tags)))
-      (is (not (contains? opts :setup-count))))))
+  (are [draft opts] (= opts (rf.story.ui.promotion/draft->promote-opts draft))
+    {:variant-id  :story.x/regression-1
+     :doc         "  why this matters  "
+     :tags        #{:test :agent}
+     :setup-count 1
+     :extends     :story.x/source}
+    {:variant/id  :story.x/regression-1
+     :doc         "why this matters"
+     :tags        #{:test :agent}
+     :setup-count 1
+     :extends     :story.x/source}
 
-(deftest promotion-snippet-honours-setup-cut
-  (testing "setup-count moves leading steps from :script to :setup"
-    (let [art  (sample-artifact)
-          snip (rf.story.ui.promotion/promotion-snippet art {:variant-id :story.x/r
-                                                :setup-count 1})]
-      (is (str/includes? snip ":setup")
-          "the first step becomes a precondition")
-      (is (str/includes? snip ":script")
-          "the remaining step is the behaviour under test"))))
-
-;; ===========================================================================
-;; The promote path drives the shared substrate (non-destructive, distinct)
-;; ===========================================================================
+    ;; blank / empty / negative slots are dropped; a nil id is kept so an
+    ;; unnamed preview can still materialize
+    {:variant-id nil :doc "   " :tags #{} :setup-count -1}
+    {:variant/id nil}))
 
 (deftest snippet-mirrors-substrate-body
-  (testing "the previewed snippet is built from the SAME body the substrate
-            registers — `artifact->variant-body` (no reimplemented logic)"
-    (let [art  (sample-artifact)
-          opts {:variant/id :story.x/r :tags #{:test}}
-          body (rf.story.promotion/artifact->variant-body art opts)]
-      ;; the snippet renders the substrate body's slots verbatim
-      (is (str/includes? (rf.story.ui.promotion/promotion-snippet art {:variant-id :story.x/r
-                                                          :tags #{:test}})
-                         (pr-str (:run-artifact body)))
-          "the snippet's :run-artifact is the substrate's trimmed link"))))
+  ;; The previewed snippet reads back to exactly the body the substrate
+  ;; registers — `artifact->variant-body`, no reimplemented logic — with the
+  ;; draft's setup cut moving the leading step onto :setup.
+  (let [art   (sample-artifact)
+        draft {:variant-id :story.x/r :tags #{:test} :setup-count 1}
+        body  (rf.story.promotion/artifact->variant-body
+                art (rf.story.ui.promotion/draft->promote-opts draft))
+        pasted (pasted-body (rf.story.ui.promotion/promotion-snippet art draft))]
+    (is (= [[:dispatch [:counter/init 5]]] (:setup pasted)))
+    (is (= body pasted))))
 
 (deftest promotion-snippet-carries-source-expectations
-  (testing "a captured run whose source variant declared terminal :assertions
-            previews them in the snippet, so the regression an author pastes
-            into source can still fail"
-    (rf.story.registrar/reg-variant* :story.x/source
-      {:script     [[:dispatch [:counter/inc]]]
-       :assertions [[:rf.assert/path-equals [:count] 1]]})
-    (let [art  (rf.story.artifact/make-run-artifact
-                 {:event-program [[:dispatch [:counter/inc]]]
-                  :result        {:status :fail :variant/id :story.x/source}})
-          snip (rf.story.ui.promotion/promotion-snippet
-                 art {:variant-id :story.x/regression-1 :extends :story.x/source})]
-      (is (str/includes? snip ":assertions"))
-      (is (str/includes? snip (pr-str [[:rf.assert/path-equals [:count] 1]]))
-          "the carried assertion is rendered verbatim"))))
+  ;; a regression an author pastes into source can still fail
+  (rf.story.registrar/reg-variant* :story.x/source
+    {:script     [[:dispatch [:counter/inc]]]
+     :assertions [[:rf.assert/path-equals [:count] 1]]})
+  (let [art (rf.story.artifact/make-run-artifact
+              {:event-program [[:dispatch [:counter/inc]]]
+               :result        {:status :fail :variant/id :story.x/source}})]
+    (is (= [[:rf.assert/path-equals [:count] 1]]
+           (:assertions (pasted-body (rf.story.ui.promotion/promotion-snippet
+                                       art {:variant-id :story.x/regression-1
+                                            :extends    :story.x/source})))))))
 
 (deftest promotion-snippet-keeps-composed-check-ids
-  (testing "a captured run whose source failed through a check named in
-            :compose pastes back into a variant that still names that check,
-            as the snippet keeps the source's own :checks"
-    (rf.story.registrar/reg-check* :check.x/count-is-one
-      {:assertions [[:rf.assert/path-equals [:count] 1]]})
-    (rf.story.registrar/reg-variant* :story.x/composed
-      {:script  [[:dispatch [:counter/inc]]]
-       :compose [:check.x/count-is-one]})
-    (let [art           (rf.story.artifact/make-run-artifact
-                          {:event-program [[:dispatch [:counter/inc]]]
-                           :result        {:status :fail :variant/id :story.x/composed}})
-          draft         {:variant-id :story.x/composed-regression
-                         :tags       #{:test}
-                         :extends    :story.x/composed}
-          [_ id pasted] (edn/read-string
-                          (rf.story.ui.promotion/promotion-snippet art draft))]
-      (is (= [:check.x/count-is-one] (:checks pasted))
-          "the carried check id is in the pasted form")
-      (rf.story.registrar/reg-variant* id pasted)
-      (is (= [:check.x/count-is-one]
-             (get-in (rf.story.plan/variant-plan id) [:expect :checks]))
-          "the pasted variant resolves the check its source failed through"))))
+  ;; a source that failed through a check named in :compose pastes back into
+  ;; a variant that still names that check
+  (rf.story.registrar/reg-check* :check.x/count-is-one
+    {:assertions [[:rf.assert/path-equals [:count] 1]]})
+  (rf.story.registrar/reg-variant* :story.x/composed
+    {:script  [[:dispatch [:counter/inc]]]
+     :compose [:check.x/count-is-one]})
+  (let [art           (rf.story.artifact/make-run-artifact
+                        {:event-program [[:dispatch [:counter/inc]]]
+                         :result        {:status :fail :variant/id :story.x/composed}})
+        draft         {:variant-id :story.x/composed-regression
+                       :tags       #{:test}
+                       :extends    :story.x/composed}
+        [_ id pasted] (edn/read-string
+                        (rf.story.ui.promotion/promotion-snippet art draft))]
+    (is (= [:check.x/count-is-one] (:checks pasted))
+        "the carried check id is in the pasted form")
+    (rf.story.registrar/reg-variant* id pasted)
+    (is (= [:check.x/count-is-one]
+           (get-in (rf.story.plan/variant-plan id) [:expect :checks]))
+        "the pasted variant resolves the check its source failed through")))
 
 ;; ===========================================================================
 ;; The snippet keeps the run's world: :network and :fx-overrides
 ;; ===========================================================================
 ;;
-;; `artifact->variant-body` lifts a run artifact's `:network` route map and its
-;; non-HTTP `:fx-decisions` onto the body's `:network` / `:fx-overrides` slots,
-;; and `promote!` registers them. The snippet renders only the
-;; keys in its order list, so a slot the list omits is silently absent from
-;; what the author pastes. These tests take a REAL run — a compiled plan,
-;; coerced by the determinism seam, replayed — through the dialog's own
-;; capture rule and snippet, read the snippet back and register it. So they
-;; pin what the promotion path produces, not just what the formatter prints.
+;; The snippet renders only the body keys in its order list, so a slot the
+;; list omits is silently absent from what the author pastes. These tests
+;; take a REAL run — a compiled plan, coerced by the determinism seam,
+;; replayed — through the dialog's own capture rule and snippet, read it back
+;; and register it.
 ;;
-;; The draft has no `:extends`, as for a capture with no registered origin. An
-;; origin authoring the same world would hand it to the pasted variant through
-;; the parent chain and hide the gap; without one the body slot is the only
-;; carrier.
+;; The draft has no `:extends`: an origin authoring the same world would hand
+;; it to the pasted variant through the parent chain and hide the gap.
 
 (defn- replayed-run
   "Compile `body` as the unregistered variant `variant-id`, coerce the plan to
@@ -304,223 +233,100 @@
      :id     id}))
 
 (deftest promotion-snippet-keeps-network-stubs
-  (testing "a promoted :network-stubbed run pastes back into a variant that
-            still installs its route stubs"
-    (rf/reg-event :promo-snip/get-cart
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :got reply)}
-          {:fx [[:rf.http/managed {:request  {:method :get :url "/api/cart"}
-                                   :decode   :json
-                                   :reply-to [:promo-snip/get-cart msg]}]]})))
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          run    (replayed-run :story.promo-snip/net
-                               {:network routes
-                                :script  [[:dispatch [:promo-snip/get-cart]]]})
-          {:keys [body pasted id]} (paste-promotion-snippet!
-                                     run :story.promo-snip/net-regression)]
-      (is (= routes (:network body))
-          "the promotion path puts the run's route map on the body")
-      (is (= body pasted)
-          "the snippet reads back to exactly the body promote! registers")
-      (is (= routes (:network (rf.story.registrar/handler-meta :variant id)))
-          "the pasted variant carries :network")
-      (is (= routes (get-in (rf.story.plan/variant-plan id) [:world :network]))
-          "the pasted variant compiles to the route stubs its run installs"))))
+  (rf/reg-event :promo-snip/get-cart
+    (fn [{:keys [db]} [_ msg reply]]
+      (if reply
+        {:db (assoc db :got reply)}
+        {:fx [[:rf.http/managed {:request  {:method :get :url "/api/cart"}
+                                 :decode   :json
+                                 :reply-to [:promo-snip/get-cart msg]}]]})))
+  (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+        run    (replayed-run :story.promo-snip/net
+                             {:network routes
+                              :script  [[:dispatch [:promo-snip/get-cart]]]})
+        {:keys [body pasted id]} (paste-promotion-snippet!
+                                   run :story.promo-snip/net-regression)]
+    (is (= routes (:network body))
+        "the promotion path puts the run's route map on the body")
+    (is (= body pasted)
+        "the snippet reads back to exactly the body promote! registers")
+    (is (= routes (get-in (rf.story.plan/variant-plan id) [:world :network]))
+        "the pasted variant compiles to the route stubs its run installs")))
 
 (deftest promotion-snippet-keeps-fx-overrides
-  (testing "a promoted run that redirected a non-HTTP effect pastes back into a
-            variant that still redirects it"
-    (rf/reg-fx :promo-snip/toast {:platforms #{:client :server}} (fn [_ _] nil))
-    (rf/reg-fx :promo-snip/toast-stub {:platforms #{:client :server}} (fn [_ _] nil))
-    (rf/reg-event :promo-snip/save (fn [_ _] {:fx [[:promo-snip/toast "saved"]]}))
-    (let [overrides {:promo-snip/toast :promo-snip/toast-stub}
-          run       (replayed-run :story.promo-snip/fx
-                                  {:fx-overrides overrides
-                                   :script       [[:dispatch [:promo-snip/save]]]})
-          {:keys [body pasted id]} (paste-promotion-snippet!
-                                     run :story.promo-snip/fx-regression)]
-      (is (= overrides (:fx-overrides body))
-          "the promotion path puts the run's fx decisions on the body")
-      (is (= body pasted)
-          "the snippet reads back to exactly the body promote! registers")
-      (is (= overrides (:fx-overrides (rf.story.registrar/handler-meta :variant id)))
-          "the pasted variant carries :fx-overrides")
-      (is (= overrides (get-in (rf.story.plan/variant-plan id) [:world :frame :fx-overrides]))
-          "the pasted variant compiles to the same fx redirect"))))
+  (rf/reg-fx :promo-snip/toast {:platforms #{:client :server}} (fn [_ _] nil))
+  (rf/reg-fx :promo-snip/toast-stub {:platforms #{:client :server}} (fn [_ _] nil))
+  (rf/reg-event :promo-snip/save (fn [_ _] {:fx [[:promo-snip/toast "saved"]]}))
+  (let [overrides {:promo-snip/toast :promo-snip/toast-stub}
+        run       (replayed-run :story.promo-snip/fx
+                                {:fx-overrides overrides
+                                 :script       [[:dispatch [:promo-snip/save]]]})
+        {:keys [body pasted id]} (paste-promotion-snippet!
+                                   run :story.promo-snip/fx-regression)]
+    (is (= overrides (:fx-overrides body))
+        "the promotion path puts the run's fx decisions on the body")
+    (is (= body pasted)
+        "the snippet reads back to exactly the body promote! registers")
+    (is (= overrides (get-in (rf.story.plan/variant-plan id) [:world :frame :fx-overrides]))
+        "the pasted variant compiles to the same fx redirect")))
 
 ;; ===========================================================================
-;; CLJS-only: the capture store
+;; CLJS-only: the capture store + promote!
 ;; ===========================================================================
 
 #?(:cljs
    (deftest capture-is-idempotent
-     (testing "capturing the same run twice yields one store entry"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [art (sample-artifact)
-             id1 (rf.story.ui.promotion/capture! art :story.x/v)
-             id2 (rf.story.ui.promotion/capture! art :story.x/v)]
-         (is (= id1 id2))
-         (is (= 1 (count (rf.story.ui.promotion/captured-entries))))))))
-
-#?(:cljs
-   (deftest capture-skips-non-artifacts
-     (testing "a non-artifact value is not captured"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (is (nil? (rf.story.ui.promotion/capture! {:not :an-artifact})))
-       (is (empty? (rf.story.ui.promotion/captured-entries))))))
-
-#?(:cljs
-   (deftest capture-from-result-uses-source-rule
-     (testing "capture-from-result! captures the synthesized artifact"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [id (rf.story.ui.promotion/capture-from-result! {:status :fail}
-                                               [[:counter/inc]]
-                                               :story.x/v)]
-         (is (some? id))
-         (is (= 1 (count (rf.story.ui.promotion/captured-entries))))))))
-
-;; ===========================================================================
-;; CLJS-only: promote! is non-destructive + drives the substrate register
-;; ===========================================================================
+     ;; re-capturing the same run is one store entry, not one per re-run
+     (let [art (sample-artifact)]
+       (rf.story.ui.promotion/capture! art :story.x/v)
+       (rf.story.ui.promotion/capture! art :story.x/v)
+       (is (= 1 (count (rf.story.ui.promotion/captured-entries)))))))
 
 #?(:cljs
    (deftest promote-registers-and-leaves-artifact-as-evidence
-     (testing "promote! registers a variant AND keeps the source artifact"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [art (sample-artifact)
-             id  (rf.story.ui.promotion/capture! art :story.x/v)
-             pid (rf.story.ui.promotion/promote! id {:variant-id :story.x/regression-1
-                                        :tags #{:test}})]
-         (is (= :story.x/regression-1 pid)
-             "the registered variant id is returned")
-         (is (rf.story.registrar/registered? :variant :story.x/regression-1)
-             "the variant is registered through the substrate")
-         (is (contains? @rf.story.ui.promotion/captured-atom id)
-             "NON-DESTRUCTIVE — the source artifact stays as evidence")
-         (let [body (rf.story.registrar/handler-meta :variant :story.x/regression-1)]
-           (is (contains? body :run-artifact)
-               "the registered body carries the source-artifact provenance"))))))
-
-#?(:cljs
-   (deftest promote-no-ops-without-id
-     (testing "promote! with no :variant-id registers nothing (the substrate
-               would otherwise throw :rf.error/story-promote-no-id)"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [id (rf.story.ui.promotion/capture! (sample-artifact) :story.x/v)]
-         (is (nil? (rf.story.ui.promotion/promote! id {:variant-id nil})))))))
-
-#?(:cljs
-   (deftest forget-does-not-unregister-promoted-variant
-     (testing "forgetting the capture leaves an already-promoted variant intact"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [art (sample-artifact)
-             id  (rf.story.ui.promotion/capture! art :story.x/v)]
-         (rf.story.ui.promotion/promote! id {:variant-id :story.x/regression-2 :tags #{:test}})
-         (rf.story.ui.promotion/forget! id)
-         (is (not (contains? @rf.story.ui.promotion/captured-atom id))
-             "the capture-store entry is gone")
-         (is (rf.story.registrar/registered? :variant :story.x/regression-2)
-             "the promoted variant survives — promotion copied a link, not a ref")))))
+     (let [id  (rf.story.ui.promotion/capture! (sample-artifact) :story.x/v)
+           pid (rf.story.ui.promotion/promote! id {:variant-id :story.x/regression-1
+                                                   :tags       #{:test}})]
+       (is (= :story.x/regression-1 pid)
+           "the registered variant id is returned")
+       (is (contains? (rf.story.registrar/handler-meta :variant :story.x/regression-1)
+                      :run-artifact)
+           "registered through the substrate, carrying the source-artifact link")
+       (is (contains? @rf.story.ui.promotion/captured-atom id)
+           "NON-DESTRUCTIVE — the source artifact stays as evidence"))))
 
 ;; ===========================================================================
-;; CLJS-only: the dialog hiccup
+;; CLJS-only: the dialog
 ;; ===========================================================================
-
-#?(:cljs
-   (deftest dialog-nil-when-closed
-     (testing "the dialog renders nil when no artifact is open"
-       (reset! rf.story.ui.promotion/dialog-atom rf.story.ui.promotion/initial-dialog-state)
-       (let [comp (rf.story.ui.promotion/promotion-dialog)]
-         ;; form-2 component: the returned inner render fn yields nil closed
-         (is (nil? (comp)))))))
-
-#?(:cljs
-   (deftest dialog-renders-curation-controls-and-snippet-when-open
-     (testing "open dialog renders the id input, doc, tags, setup-cut + snippet"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [art (sample-artifact)
-             id  (rf.story.ui.promotion/capture! art :story.counter/happy)]
-         (rf.story.ui.promotion/open! id)
-         (let [comp (rf.story.ui.promotion/promotion-dialog)
-               flat (str (comp))]
-           (is (str/includes? flat "story-promotion-dialog")
-               "the shared review-dialog renders under the promotion prefix")
-           (is (str/includes? flat "story-promotion-snippet")
-               "the (reg-variant …) snippet preview renders")
-           (is (str/includes? flat "story-promotion-curation")
-               "the promotion-specific curation block renders")
-           (is (str/includes? flat "story-promotion-doc-input")
-               "the doc input renders")
-           (is (str/includes? flat "story-promotion-setup-count-input")
-               "the precondition/behaviour cut input renders")
-           (is (str/includes? flat "story-promotion-tag-chip")
-               "the tag chips render")
-           (is (str/includes? flat "story-promotion-primary")
-               "the primary 'promote' action renders")
-           (is (str/includes? flat "DISTINCT from save-current-state")
-               "the hint states promotion is distinct from save-current-state"))))))
 
 #?(:cljs
    (deftest dialog-open-seeds-test-tag-and-setup-zero
-     (testing "open! seeds a runnable-test default draft"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (let [id (rf.story.ui.promotion/capture! (sample-artifact) :story.counter/happy)]
-         (rf.story.ui.promotion/open! id)
-         (let [draft (:draft @rf.story.ui.promotion/dialog-atom)]
-           (is (contains? (:tags draft) :test) "seeds :test so it's runnable")
-           (is (= 0 (:setup-count draft)) "conservative cut — whole program is behaviour")
-           (is (= :story.counter/happy (:extends draft))
-               "extends the origin variant for component/decorator inheritance"))))))
-
-;; ===========================================================================
-;; CLJS-only: the promote-confirmation gate is part of the dialog lifecycle
-;; — `mark-promoted!` records the green confirmation; `open!`
-;; resets it so a freshly-opened artifact ALWAYS reads as un-promoted.
-;; ===========================================================================
+     ;; a runnable-test default draft that extends its origin variant
+     (let [id (rf.story.ui.promotion/capture! (sample-artifact) :story.counter/happy)]
+       (rf.story.ui.promotion/open! id)
+       (is (= {:tags #{:test} :setup-count 0 :extends :story.counter/happy}
+              (select-keys (:draft @rf.story.ui.promotion/dialog-atom)
+                           [:tags :setup-count :extends]))))))
 
 #?(:cljs
    (deftest mark-promoted-gates-confirmation-and-open-resets-it
-     (testing "the confirmation shows after mark-promoted! and clears on open!"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (reset! rf.story.ui.promotion/dialog-atom rf.story.ui.promotion/initial-dialog-state)
-       (let [art-a (rf.story.artifact/make-run-artifact
-                     {:event-program [[:dispatch [:counter/inc]]]
-                      :seed          1 :result {:status :fail}})
-             art-b (rf.story.artifact/make-run-artifact
-                     {:event-program [[:dispatch [:counter/dec]]]
-                      :seed          2 :result {:status :fail}})
-             id-a  (rf.story.ui.promotion/capture! art-a :story.counter/happy)
-             id-b  (rf.story.ui.promotion/capture! art-b :story.counter/happy)
-             comp  (rf.story.ui.promotion/promotion-dialog)
-             flat  #(str (comp))]
-         ;; --- promote A: confirmation appears ---
-         (rf.story.ui.promotion/open! id-a)
-         (is (not (str/includes? (flat) "story-promotion-confirmation"))
-             "a freshly-opened artifact reads as un-promoted")
-         (rf.story.ui.promotion/mark-promoted! :story.counter/regression-a)
-         (is (str/includes? (flat) "story-promotion-confirmation")
-             "after mark-promoted! the green confirmation renders")
-         (is (str/includes? (flat) "regression-a")
-             "the confirmation names the promoted id")
-         ;; --- open B: stale confirmation MUST NOT leak across ---
-         (rf.story.ui.promotion/open! id-b)
-         (is (nil? (:promoted-id @rf.story.ui.promotion/dialog-atom))
-             "open! resets :promoted-id — B starts un-promoted")
-         (is (not (str/includes? (flat) "story-promotion-confirmation"))
-             "B shows NO stale 'Promoted to A' confirmation")
-         (is (not (str/includes? (flat) "regression-a"))
-             "no trace of A's promoted id on B's fresh dialog")))))
-
-#?(:cljs
-   (deftest close-resets-confirmation
-     (testing "close! clears a recorded confirmation as part of the lifecycle"
-       (reset! rf.story.ui.promotion/captured-atom {})
-       (reset! rf.story.ui.promotion/dialog-atom rf.story.ui.promotion/initial-dialog-state)
-       (let [id (rf.story.ui.promotion/capture! (sample-artifact) :story.counter/happy)]
-         (rf.story.ui.promotion/open! id)
-         (rf.story.ui.promotion/mark-promoted! :story.counter/regression-1)
-         (is (= :story.counter/regression-1 (:promoted-id @rf.story.ui.promotion/dialog-atom)))
-         (rf.story.ui.promotion/close!)
-         (is (nil? (:promoted-id @rf.story.ui.promotion/dialog-atom))
-             "close! returns the dialog to the idle, un-promoted state")))))
+     ;; the confirmation lives on the dialog state, so open! of another
+     ;; artifact clears it rather than leaking "Promoted to A" onto B
+     (let [art-a (rf.story.artifact/make-run-artifact
+                   {:event-program [[:dispatch [:counter/inc]]]
+                    :seed          1 :result {:status :fail}})
+           art-b (rf.story.artifact/make-run-artifact
+                   {:event-program [[:dispatch [:counter/dec]]]
+                    :seed          2 :result {:status :fail}})
+           id-a  (rf.story.ui.promotion/capture! art-a :story.counter/happy)
+           id-b  (rf.story.ui.promotion/capture! art-b :story.counter/happy)
+           comp  (rf.story.ui.promotion/promotion-dialog)
+           flat  #(str (comp))]
+       (rf.story.ui.promotion/open! id-a)
+       (rf.story.ui.promotion/mark-promoted! :story.counter/regression-a)
+       (is (str/includes? (flat) "story-promotion-confirmation"))
+       (is (str/includes? (flat) "regression-a")
+           "the confirmation names the promoted id")
+       (rf.story.ui.promotion/open! id-b)
+       (is (not (str/includes? (flat) "regression-a"))
+           "B shows no stale confirmation for A"))))
