@@ -51,21 +51,13 @@
        :guards  {:one? (fn [{d :data}] (= 1 (:n d)))
                  :two? (fn [{d :data}] (= 2 (:n d)))}
        :actions {:a0 (fn [_] nil)
-                 :a1 (fn [_] nil)
                  :a2 (fn [_] nil)}
        :states  {:idle {:on {:go [{:guard :one? :target :done :action :a0}
                                   {:guard :two? :target :done :action :a2}]}}
                  :done {}}})
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:slot/cand-on [:go]])))
-          slot (action-ran-slot evs :a2)]
-      (is (some? slot) ":a2 (the second candidate) fired")
-      (is (= :on (:slot slot)))
-      (is (= :go (:event-key slot)))
-      (is (= [:idle] (:decl-path slot)))
-      (is (= 1 (:candidate-idx slot))
-          "the matched candidate is index 1, NOT 0")
-      (is (false? (:root? slot))))))
+    (let [evs (record-traces! (fn [] (rf/dispatch-sync [:slot/cand-on [:go]])))]
+      (is (= [:on :go [:idle] 1 false]
+             ((juxt :slot :event-key :decl-path :candidate-idx :root?) (action-ran-slot evs :a2)))))))
 
 (deftest single-map-on-is-index-free
   (testing "a single-map `:on` (index-free, matching the macro's bare-slot
@@ -75,61 +67,42 @@
        :actions {:do-go (fn [_] nil)}
        :states  {:idle {:on {:go {:target :done :action :do-go}}}
                  :done {}}})
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:slot/single-on [:go]])))
-          slot (action-ran-slot evs :do-go)]
-      (is (= :on (:slot slot)))
-      (is (= :go (:event-key slot)))
-      (is (nil? (:candidate-idx slot))
-          "single-map :on is index-free (bare-slot keying)"))))
+    (let [evs (record-traces! (fn [] (rf/dispatch-sync [:slot/single-on [:go]])))]
+      (is (= [:on :go nil]
+             ((juxt :slot :event-key :candidate-idx) (action-ran-slot evs :do-go)))))))
 
 ;; ---- (2) :always nonzero candidate -------------------------------------
 
 (deftest always-nonzero-candidate-carries-index
-  (testing "an inline `:always` `:action` on a multi-candidate VECTOR
-            stamps the matched nonzero candidate index"
-    (rf/reg-machine :slot/always
-      {:initial :a
-       :data    {:pick 1}
-       :guards  {:p0? (fn [{d :data}] (= 0 (:pick d)))
-                 :p1? (fn [{d :data}] (= 1 (:pick d)))}
-       :actions {:a0 (fn [_] nil)
-                 :a1 (fn [_] nil)}
-       :states  {:a {:on {:go {:target :b}}}
-                 :b {:always [{:guard :p0? :target :c :action :a0}
-                              {:guard :p1? :target :c :action :a1}]}
-                 :c {}}})
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:slot/always [:go]])))
-          slot (action-ran-slot evs :a1)]
-      (is (some? slot) ":a1 (the second :always candidate) fired")
-      (is (= :always (:slot slot)))
-      (is (= [:b] (:decl-path slot)))
-      (is (= 1 (:candidate-idx slot))
-          "the matched :always candidate is index 1"))))
+  (rf/reg-machine :slot/always
+    {:initial :a
+     :data    {:pick 1}
+     :guards  {:p0? (fn [{d :data}] (= 0 (:pick d)))
+               :p1? (fn [{d :data}] (= 1 (:pick d)))}
+     :actions {:a0 (fn [_] nil)
+               :a1 (fn [_] nil)}
+     :states  {:a {:on {:go {:target :b}}}
+               :b {:always [{:guard :p0? :target :c :action :a0}
+                            {:guard :p1? :target :c :action :a1}]}
+               :c {}}})
+  (let [evs (record-traces! (fn [] (rf/dispatch-sync [:slot/always [:go]])))]
+    (is (= [:always [:b] 1]
+           ((juxt :slot :decl-path :candidate-idx) (action-ran-slot evs :a1))))))
 
 ;; ---- (3) :after action — the exact delay-key ---------------------------
 
 (deftest after-action-carries-delay-key
-  (testing "an inline `:after` `:action` stamps the EXACT delay-key on its
-            action-ran trace (the delay-key the reconstruct path could not
-            name)"
-    (rf/reg-machine :slot/after
-      {:initial :loading
-       :actions {:do-timeout (fn [_] nil)}
-       :states  {:loading {:after {1000 {:target :done :action :do-timeout}}}
-                 :done    {}}})
-    (let [_    (rf/dispatch-sync [:slot/after [:rf.machine/start]])
-          evs  (record-traces!
-                 (fn []
-                   (rf/dispatch-sync
-                     [:slot/after [:rf.machine.timer/after-elapsed 1000 1 [:loading]]])))
-          slot (action-ran-slot evs :do-timeout)]
-      (is (some? slot) ":do-timeout fired")
-      (is (= :after (:slot slot)))
-      (is (= 1000 (:delay-key slot))
-          "the discriminator names the exact :after delay-key")
-      (is (= [:loading] (:decl-path slot))))))
+  (rf/reg-machine :slot/after
+    {:initial :loading
+     :actions {:do-timeout (fn [_] nil)}
+     :states  {:loading {:after {1000 {:target :done :action :do-timeout}}}
+               :done    {}}})
+  (rf/dispatch-sync [:slot/after [:rf.machine/start]])
+  (let [evs (record-traces!
+              (fn [] (rf/dispatch-sync
+                       [:slot/after [:rf.machine.timer/after-elapsed 1000 1 [:loading]]])))]
+    (is (= [:after 1000 [:loading]]
+           ((juxt :slot :delay-key :decl-path) (action-ran-slot evs :do-timeout))))))
 
 ;; ---- (4) root :on fallback — decl-path [] / :root? true ----------------
 
@@ -140,40 +113,28 @@
     (rf/reg-machine :slot/root-on
       {:initial :auth
        :actions {:do-logout (fn [_] nil)}
-       ;; Root-level :on — every descendant inherits it; no state-node
-       ;; handles :logout, so the leaf→root walk falls to the root.
        :on      {:logout {:target :idle :action :do-logout}}
        :states  {:auth {}
                  :idle {}}})
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:slot/root-on [:logout]])))
-          slot (action-ran-slot evs :do-logout)]
-      (is (some? slot) ":do-logout fired from the root :on fallback")
-      (is (= :on (:slot slot)))
-      (is (= :logout (:event-key slot)))
-      (is (= [] (:decl-path slot))
-          "root :on has an empty decl-path (outside :states)")
-      (is (true? (:root? slot))))))
+    (let [evs (record-traces! (fn [] (rf/dispatch-sync [:slot/root-on [:logout]])))]
+      (is (= [:on :logout [] true]
+             ((juxt :slot :event-key :decl-path :root?) (action-ran-slot evs :do-logout)))))))
 
 ;; ---- boundary actions carry NO discriminator ---------------------------
 
 (deftest boundary-actions-carry-no-slot
-  (testing "`:exit` / `:entry` boundary actions are NOT transition actions —
-            they carry no `:transition-slot` (the reconstruct-from-phase
-            path handles them via :source-state / :target-state)"
+  (testing "`:exit` / `:entry` boundary actions carry no `:transition-slot`;
+            the transition `:action` does"
     (rf/reg-machine :slot/boundary
       {:initial :idle
-       :actions {:exit-idle (fn [_] nil)
+       :actions {:exit-idle  (fn [_] nil)
                  :enter-done (fn [_] nil)
-                 :do-go     (fn [_] nil)}
+                 :do-go      (fn [_] nil)}
        :states  {:idle {:exit :exit-idle
                         :on   {:go {:target :done :action :do-go}}}
                  :done {:entry :enter-done}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:slot/boundary [:go]])))]
-      (is (nil? (action-ran-slot evs :exit-idle))
-          ":exit action carries no :transition-slot")
-      (is (nil? (action-ran-slot evs :enter-done))
-          ":entry action carries no :transition-slot")
-      (is (some? (action-ran-slot evs :do-go))
-          "but the transition :action DOES carry the discriminator"))))
+    (let [evs (record-traces! (fn [] (rf/dispatch-sync [:slot/boundary [:go]])))]
+      (is (= [nil nil true]
+             [(action-ran-slot evs :exit-idle)
+              (action-ran-slot evs :enter-done)
+              (some? (action-ran-slot evs :do-go))])))))
