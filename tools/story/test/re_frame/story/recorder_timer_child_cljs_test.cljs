@@ -1,31 +1,24 @@
 (ns re-frame.story.recorder-timer-child-cljs-test
-  "A recorded `:dispatch-later` child runs ONCE when the
-  recording is replayed in the browser runtime.
+  "A recorded `:dispatch-later` child runs ONCE when the recording is
+  replayed in the browser runtime, and the replay waits its whole delay.
 
-  The recorder does not capture a child its root's handler
-  dispatched, keyed on the `:rf.trace/parent-dispatch-id` tag, because
-  replaying the root re-dispatches the child. A `:dispatch-later` child is
-  re-armed by the replayed root in exactly the same way, but in CLJS its
-  timer fires from a host callback outside any handler scope, so it carries
-  no parent id. On the JVM `set-timeout!` wraps the callback in `bound-fn`,
-  so there the child does carry one and is already skipped.
+  The recorder does not capture a child its root's handler dispatched,
+  keyed on the `:rf.trace/parent-dispatch-id` tag, because replaying the
+  root re-dispatches the child. A `:dispatch-later` child is re-armed by
+  the replayed root the same way, but in CLJS its timer fires from a host
+  callback outside any handler scope, so it carries no parent id. On the
+  JVM `set-timeout!` wraps the callback in `bound-fn`, so there the child
+  does carry one and is already skipped. So this is CLJS-only by
+  construction.
 
-  So this is CLJS-only by construction: the JVM lane cannot reach the
-  missing tag. It drives the REAL recorder (the trace listener over a live
-  variant frame), lets the timer fire while recording, exports the
-  recording the way the save dialog does (auto-assert on, against the
-  recording's seed db), replays it as a registered variant, and counts the
-  child handler's runs.
-
-  The second test adds an unrelated dispatch between the root and the child,
-  under the export's 50ms wait threshold. Its gap folds out of the script,
-  but on replay it runs straight after the root that re-armed the timer, so
-  the child's wait must still cover the whole delay from there, not only
-  the time since that dispatch.
-
-  The measured gap between the root and the child can land a millisecond
-  under the delay, so the recorded marker carries the delay itself and the
-  export never waits less than it.
+  The test drives the REAL recorder over a live variant frame, with an
+  unrelated dispatch between the root and the child under the export's
+  50ms wait threshold. That dispatch's gap folds out of the script, but on
+  replay it runs straight after the root that re-armed the timer, so the
+  child's wait must cover the whole delay from the root, not only the time
+  since that dispatch. The measured gap can land a millisecond under the
+  delay, so the recorded marker carries the delay itself and the export
+  never waits less than it.
 
   Named `-cljs-test` (not `-dom-cljs-test`), so the `:node-test` build
   selects it; nothing here needs a DOM."
@@ -99,66 +92,6 @@
              (rf.story.recorder/clear!))})
 
 (defn- after-ms [ms f] (js/setTimeout f ms))
-
-(deftest recorded-dispatch-later-child-runs-once-on-replay
-  (testing "replaying a root re-arms its :dispatch-later timer, so
-            the recording must not also carry the timer's child as a step of
-            its own — and it must still wait for that timer, or the export's
-            auto-assert, which runs straight after the root, reads the db
-            before the child has fired"
-    (async done
-      (rf.story/reg-variant source-id {})
-      (-> (rf.story/run-variant source-id)
-          (rf.story.async/then
-            (fn [_]
-              (rf.story.recorder/install-trace-listener!)
-              (rf.story.recorder/start-recording! source-id)
-              (rf/dispatch-sync [:tbik1/root] {:frame source-id})
-              (after-ms settle-ms
-                (fn []
-                  (rf.story.recorder/stop-recording!)
-                  (let [entries  (rf.story.recorder/recorded-entries)
-                        final-db (rf/app-db-value source-id)
-                        seed-db  (:seed-db (rf.story.recorder/current-state))
-                        body     (rf.story.recorder.play-export/recording->script-body
-                                   entries
-                                   {:auto-assert? true
-                                    :seed-db      seed-db
-                                    :final-db     final-db})]
-                    (is (= {:roots 1 :children 1}
-                           (select-keys final-db [:roots :children]))
-                        "control: the recorded session ran the timer child once")
-                    (is (= 1 @child-runs)
-                        "control: one child run while recording")
-                    (is (= [{:kind :event/timer-child :ms later-ms}]
-                           (->> entries
-                                (filter #(= :event/timer-child (:kind %)))
-                                (mapv #(select-keys % [:kind :ms]))))
-                        "the recorder marks the fired child with its scheduled delay")
-                    (is (some #(and (= :wait (first %)) (>= (second %) later-ms))
-                              (:script body))
-                        (str "the script waits the timer's whole delay; script "
-                             (pr-str (:script body))))
-                    (is (some #(= [:assert-db [:children] 1] %) (:script body))
-                        "control: the export auto-asserts the child's effect")
-                    (reset! child-runs 0)
-                    (rf.story/reg-variant replay-id {:extends source-id
-                                                     :script  body})
-                    (-> (rf.story/run replay-id)
-                        (rf.story.async/then
-                          (fn [result]
-                            (after-ms settle-ms
-                              (fn []
-                                (is (= 1 @child-runs)
-                                    (str "the replay ran the :dispatch-later child "
-                                         @child-runs " time(s); script "
-                                         (pr-str (:script body))))
-                                (is (= :pass (:status result))
-                                    (str "the replay's auto-assert passes; script "
-                                         (pr-str (:script body))))
-                                (rf.story/destroy-variant! replay-id)
-                                (rf.story/destroy-variant! source-id)
-                                (done)))))))))))))))
 
 (defn- recorded-t
   "The recorded `:t` of the dispatch entry for `event-id`, or nil."
