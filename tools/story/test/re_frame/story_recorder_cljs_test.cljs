@@ -1,17 +1,10 @@
 (ns re-frame.story-recorder-cljs-test
-  "CLJS-side tests for the Test Codegen recorder.
-
-  Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The recorder's pure predicates and state transitions carry no reader
-  conditional and are covered on the JVM by
-  `re-frame.story-recorder-test`. This ns keeps the paths that do
-  differ by platform running under CLJS — the `now-ms*` clock and
-  `start-recording!` behind `append` and the start/stop cycle — and
-  round-trips the snippet generator through the CLJS reader.
-
-  Browser-only behaviour (Reagent mirror, modal dialog) lives in the
-  CLJS-only `re-frame.story.ui.recorder` ns, which
-  `re-frame.story.ui.recorder-cljs-test` covers."
+  "CLJS tests for the Test Codegen recorder's platform-dependent paths — the
+  `now-ms*` clock and `start-recording!` behind `append` and the start/stop
+  cycle — and the snippet read back through the CLJS reader. The pure
+  predicates and transitions are covered on the JVM by
+  `re-frame.story-recorder-test`; the Reagent mirror and modal by
+  `re-frame.story.ui.recorder-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [cljs.reader :as edn]
             [clojure.string :as str]
@@ -47,14 +40,6 @@
   (is (= [[:counter/inc] [:counter/dec]]
          (rf.story.recorder/recorded-events))))
 
-(deftest toggle!-flips
-  (rf.story.recorder/toggle! :story.x/y)
-  (is (rf.story.recorder/recording?))
-  (rf.story.recorder/toggle! :story.x/y)
-  (is (not (rf.story.recorder/recording?))))
-
-;; ---- gen-play-snippet ----------------------------------------------------
-
 ;; ---- mid-recording assertion insertion ----------------------------------
 
 (deftest insert-assertion!-interleaves-with-recorded-events
@@ -71,48 +56,11 @@
           [:rf.assert/no-warnings]]
          (rf.story.recorder/recorded-events))))
 
-(defn- extract-play-script-vector
-  "Pull the inner `:script` vector substring out of the rendered snippet
-  by walking balanced brackets after the public `:script` body's inner
-  `:script` token. The recorder emits the PUBLIC `:script` slot with a
-  `{:auto-run? ... :script [...]}` body."
-  [snippet]
-  (let [start (str/index-of snippet ":script")
-        after (subs snippet start)
-        open  (str/index-of after "[")
-        end   (loop [i (inc open) depth 1]
-                (cond
-                  (>= i (count after)) nil
-                  (zero? depth) i
-                  :else (let [c (.charAt after i)]
-                          (case c
-                            "[" (recur (inc i) (inc depth))
-                            "]" (recur (inc i) (dec depth))
-                            (recur (inc i) depth)))))]
-    (subs after open end)))
-
-(defn- unwrap-dispatch-sync-steps
-  "Project the parsed `:script` vector back to the bare event-vector
-  list. Each step is `[:dispatch-sync <event-vec>]`."
-  [script-vec]
-  (mapv second script-vec))
-
 (deftest gen-play-snippet-roundtrips
-  (testing "the rendered public :script body vector reads back as
-            [:dispatch-sync <event>] steps that unwrap to the original
-            events (the recorder emits the public :script slot, and
-            gen-play-snippet wraps each captured event as a :dispatch-sync
-            step)"
-    (let [events     [[:counter/inc] [:auth/login {:id 1}]]
-          snip       (rf.story.recorder/gen-play-snippet events {:variant-id :story.x/y})
-          script-str (extract-play-script-vector snip)
-          script-vec (edn/read-string script-str)]
-      (is (some? script-str) "extractor found a :script vector substring")
-      (is (not (str/includes? snip ":play-script"))
-          "the snippet never emits a :play-script slot")
-      (is (every? #(and (vector? %)
-                        (= :dispatch-sync (first %)))
-                  script-vec)
-          "every step is a [:dispatch-sync <event-vec>] form")
-      (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "unwrapping :dispatch-sync round-trips to the original events"))))
+  (testing "the snippet reads back through the CLJS reader with the public
+            :script slot, each event wrapped as a [:dispatch-sync <event>] step"
+    (let [events [[:counter/inc] [:auth/login {:id 1}]]
+          snip   (rf.story.recorder/gen-play-snippet events {:variant-id :story.x/y})
+          steps  (-> (edn/read-string snip) (nth 2) :script :script)]
+      (is (not (str/includes? snip ":play-script")))
+      (is (= (mapv #(vector :dispatch-sync %) events) steps)))))
