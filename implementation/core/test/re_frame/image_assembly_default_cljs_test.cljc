@@ -11,7 +11,6 @@
   it, so authored registrations survive."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
-            [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.source-store   :as rf.source-store]))
 
