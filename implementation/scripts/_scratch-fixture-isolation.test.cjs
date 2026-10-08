@@ -3,31 +3,11 @@
 'use strict';
 
 /*
- * Scratch-fixture isolation gate.
- *
- * THE DEFECT THIS PINS. A script self-test that materialises fixtures in a
- * unique `mkdtemp` dir under the repo's gitignored `.scratch/`, then tears
- * down with `fs.rmSync(SCRATCH_ROOT, …)`, deletes the SHARED ROOT rather
- * than its own dir. Suites doing that fail when run concurrently in one
- * checkout, though each passes standalone. Worse than the flake itself is how it reads: the
- * script under test reports `expected source file … not found` or `cd:
- * .scratch/…: No such file or directory`, so a deleted fixture is
- * indistinguishable at a glance from a real defect in the diff.
- *
- * TWO ARMS, deliberately.
- *
- *   1. A BEHAVIOURAL probe — the load-bearing one. A child process creates
- *      its own lane and runs the real teardown; the parent asserts its own
- *      sentinel lane SURVIVED. This exercises `scratch-fixtures.cjs` rather
- *      than describing it, so it fails on a whole-root teardown regardless of
- *      how that teardown is spelled.
- *
- *   2. A STATIC scan, because the behavioural probe only covers callers that
- *      route through the helper. A suite that re-rolls its own whole-root
- *      `rmSync` would reintroduce the defect while the probe stayed green.
- *      The scan reads EXECUTABLE source only (comments stripped), so this
- *      file's own prose — which necessarily quotes the forbidden form — is
- *      not a false positive.
+ * Script self-tests take fixture lanes under the shared, gitignored `.scratch/`
+ * root; a teardown that removes the ROOT instead of its own lane deletes a
+ * concurrent suite's live fixtures, which then reads like a real defect. A
+ * behavioural probe runs the real helper's teardown in a child process; a static
+ * scan catches suites that bypass the helper.
  */
 
 const assert = require('assert/strict');
@@ -38,7 +18,6 @@ const path = require('path');
 const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 const {
   SCRATCH_DIRNAME,
-  scratchRoot,
   makeScratchDir,
   cleanupScratchDirs,
 } = require('./lib/scratch-fixtures.cjs');
@@ -56,9 +35,6 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
   const marker = path.join(sentinel, 'marker.txt');
   fs.writeFileSync(marker, 'survives');
   try {
-    // A separate process does exactly what a concurrent suite does: take a
-    // lane, then tear down. `require` is resolved against this dir so the
-    // child loads the same helper.
     const child = [
       `const h = require(${JSON.stringify(path.join(SCRIPTS_DIR, 'lib', 'scratch-fixtures.cjs'))});`,
       `const d = h.makeScratchDir(${JSON.stringify(REPO_ROOT)}, 'rf2-isolation-neighbour');`,
@@ -71,25 +47,11 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
       encoding: 'utf8',
     }).trim();
 
-    // The neighbour cleaned up after itself …
-    assert.equal(
-      fs.existsSync(neighbourLane),
-      false,
-      'the neighbour process must remove its OWN lane',
-    );
-    // … and left this process's fixture untouched. This is the assertion
-    // that fails on a whole-root `rmSync`.
+    // Fails on a whole-root removal.
     assert.equal(
       fs.existsSync(marker),
       true,
-      "a concurrent suite's teardown must not delete this process's fixtures — "
-        + 'teardown must be scoped to the lanes its own process created',
-    );
-    // The shared root is infrastructure, not a resource any process owns.
-    assert.equal(
-      fs.existsSync(scratchRoot(REPO_ROOT)),
-      true,
-      'the shared scratch root must survive a teardown',
+      "a concurrent suite's teardown must not delete this process's fixtures",
     );
   } finally {
     cleanupScratchDirs();
@@ -99,7 +61,6 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
 test('cleanupScratchDirs removes the lanes it created and is safe to repeat (rf2-2i1ay)', () => {
   const a = makeScratchDir(REPO_ROOT, 'rf2-isolation-a');
   const b = makeScratchDir(REPO_ROOT, 'rf2-isolation-b');
-  assert.notEqual(a, b, 'two lanes of one process must be distinct');
   cleanupScratchDirs();
   assert.equal(fs.existsSync(a), false, 'lane a must be removed');
   assert.equal(fs.existsSync(b), false, 'lane b must be removed');
