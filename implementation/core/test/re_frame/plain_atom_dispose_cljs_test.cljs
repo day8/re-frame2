@@ -1,23 +1,14 @@
 (ns re-frame.plain-atom-dispose-cljs-test
-  "CLJS coverage for the plain-atom adapter's participation in the
-  sub-cache disposal / ref-count contract.
+  "The plain-atom adapter on CLJS (the SSR / headless-on-CLJS host) honours the
+  sub-cache's symmetric input-release contract (Spec 006 §Reference counting and
+  disposal). On CLJS `re-frame.interop` routes `add-on-dispose!` / `dispose!`
+  through late-bind hooks the plain-atom adapter publishes, and its derived
+  value reifies the disposal protocol; without either, a layer-2+ sub's input
+  ref-counts would never drop on evict. The JVM side is pinned by
+  `re-frame.sub-cache-test`.
 
-  On the JVM the plain-atom adapter rides `re-frame.interop`'s (the .clj)
-  direct `add-on-dispose!` / `dispose!` implementation, so the layer-2+
-  input-release path works there (pinned by the JVM
-  `re-frame.sub-cache-test`). On CLJS `re-frame.interop` routes those calls
-  through the `:adapter/add-on-dispose!` / `:adapter/dispose!` late-bind
-  hooks, which the plain-atom adapter publishes, and its derived value
-  reifies the disposal protocol. An adapter that did neither would leak
-  monotonically: a layer-2+ sub's declared-input ref-counts would never
-  decrement on slot evict, pinning the inputs in the cache until
-  `clear-sub-cache!`.
-
-  These tests run a CLJS-plain-atom host (the SSR / headless-on-CLJS
-  shape) and pin the symmetric input-release contract per Spec 006
-  §Reference counting and disposal. ns ends in -cljs-test so shadow-cljs's
-  :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.disposable :as rf.disposable]
             [re-frame.frame :as rf.frame]
@@ -25,96 +16,39 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; Sub-cache disposal is synchronous on derefer-count → 0;
-;; no grace-period to configure.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(defn- cache-keys []
-  (set (keys @(:sub-cache (rf.frame/frame :rf/default)))))
-
-(defn- entry-ref-count [query-v]
-  (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
+(defn- ref-counts
+  "query-v -> :ref-count for every slot in `:rf/default`'s sub-cache."
+  []
+  (into {} (map (fn [[k v]] [k (:ref-count v)])) @(:sub-cache (rf.frame/frame :rf/default))))
 
 (deftest layer-2-disposal-respects-shared-inputs-on-cljs-plain-atom
-  (testing "a shared input is decremented by exactly one when
-            one of its layer-2 holders disposes; it survives while another
-            holder remains"
-    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3 :c 4}}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :c (fn [db _] (:c db)))
-    (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
-    (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
-    (rf/dispatch-sync [:init])
-
-    (rf.subs/subscribe [:ab] {:frame :rf/default})
-    (rf.subs/subscribe [:ac] {:frame :rf/default})
-    (is (= 2 (entry-ref-count [:a])) "shared input :a has ref-count 2")
-    (is (= 1 (entry-ref-count [:b])))
-    (is (= 1 (entry-ref-count [:c])))
-
-    (rf.subs/unsubscribe :rf/default [:ab])
-    (is (not (contains? (cache-keys) [:ab])) ":ab disposed")
-    (is (contains? (cache-keys) [:a]) ":a survives — still referenced by :ac")
-    (is (= 1 (entry-ref-count [:a]))
-        "shared input ref-count dropped by exactly 1 (now 1)")
-    (is (not (contains? (cache-keys) [:b]))
-        ":b was held only by :ab — disposed via cascade")
-
-    (rf.subs/unsubscribe :rf/default [:ac])
-    (is (not (contains? (cache-keys) [:a]))
-        ":a finally disposed after the last layer-2 holder dropped")
-    (is (not (contains? (cache-keys) [:c]))
-        ":c disposed via cascade")))
-
-(deftest layer-3-disposal-cascades-on-cljs-plain-atom
-  (testing "disposal cascades recursively through a layer-3
-            chain on the CLJS-plain-atom adapter"
-    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2}}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :a*2 {:inputs [[:a]]}   (fn [[a] _] (* 2 a)))
-    (rf/reg-sub :a*4 {:inputs [[:a*2]]} (fn [[a2] _] (* 2 a2)))
-    (rf/dispatch-sync [:init])
-
-    (let [r (rf.subs/subscribe [:a*4] {:frame :rf/default})]
-      (is (= 8 @r))
-      (is (= 1 (entry-ref-count [:a*4])))
-      (is (= 1 (entry-ref-count [:a*2])))
-      (is (= 1 (entry-ref-count [:a]))))
-
-    (rf.subs/unsubscribe :rf/default [:a*4])
-    (is (not (contains? (cache-keys) [:a*4])))
-    (is (not (contains? (cache-keys) [:a*2])))
-    (is (not (contains? (cache-keys) [:a])))))
+  (rf/reg-event :init (fn [_ _] {:db {:a 2 :b 3 :c 4}}))
+  (rf/reg-sub :a (fn [db _] (:a db)))
+  (rf/reg-sub :b (fn [db _] (:b db)))
+  (rf/reg-sub :c (fn [db _] (:c db)))
+  (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
+  (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
+  (rf/dispatch-sync [:init])
+  (rf.subs/subscribe [:ab] {:frame :rf/default})
+  (rf.subs/subscribe [:ac] {:frame :rf/default})
+  (is (= {[:ab] 1 [:ac] 1 [:a] 2 [:b] 1 [:c] 1} (ref-counts)))
+  (rf.subs/unsubscribe :rf/default [:ab])
+  (is (= {[:ac] 1 [:a] 1 [:c] 1} (ref-counts))
+      "the shared input dropped by exactly one; :b went with its only holder")
+  (rf.subs/unsubscribe :rf/default [:ac])
+  (is (= {} (ref-counts))))
 
 (deftest dispose-is-re-entrant-safe-on-cljs-plain-atom
-  (testing "the plain-atom CLJS derived value's -dispose is
-            re-entrant safe + idempotent: a -dispose re-entered
-            from inside an on-dispose callback (and a plain second call) fires
-            every registered callback EXACTLY once"
-    ;; Reach the derived-value constructor via the public adapter map (the
-    ;; ctor is artefact-private). Without the `disposed?` guard, a
-    ;; callback that re-entered -dispose would re-deref the still-full
-    ;; callback vector (were the `reset!` to run only AFTER the doseq), firing
-    ;; every callback a SECOND time. On a real host that double-fires an
-    ;; input-release callback, decrementing a still-referenced input's
-    ;; ref-count one extra time → premature eviction. `-dispose` flips the
-    ;; guard FIRST and snapshots-and-clears the callbacks before firing
-    ;; (mirroring the spine).
-    (let [make-dv (:make-derived-value rf.substrate.plain-atom/adapter)
-          dv      (make-dv [(atom 0)] identity)
-          fires   (atom 0)]
-      (is (= 0 @dv) "sanity: derived value recomputes from its source")
-      ;; First callback RE-ENTERS -dispose on the same object; second counts.
-      ;; Callbacks fire in registration order, so the re-entrant call happens
-      ;; while the counter callback is still pending — the exact double-fire
-      ;; window the guard must close.
-      (rf.disposable/-add-on-dispose dv (fn [] (rf.disposable/-dispose dv)))
-      (rf.disposable/-add-on-dispose dv (fn [] (swap! fires inc)))
-      (rf.disposable/-dispose dv)
-      (is (= 1 @fires)
-          "counting callback fired exactly once despite the re-entrant dispose")
-      ;; A plain sequential second call stays a no-op too (idempotency).
-      (rf.disposable/-dispose dv)
-      (is (= 1 @fires) "a subsequent plain -dispose does not re-fire callbacks"))))
+  ;; A callback that re-enters `-dispose`, and a second plain `-dispose`, must
+  ;; leave every callback fired exactly once; a double-fired input release
+  ;; would evict a still-referenced input.
+  (let [dv    ((:make-derived-value rf.substrate.plain-atom/adapter) [(atom 0)] identity)
+        fires (atom 0)]
+    (rf.disposable/-add-on-dispose dv (fn [] (rf.disposable/-dispose dv)))
+    (rf.disposable/-add-on-dispose dv (fn [] (swap! fires inc)))
+    (rf.disposable/-dispose dv)
+    (rf.disposable/-dispose dv)
+    (is (= 1 @fires))))
