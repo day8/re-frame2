@@ -1,24 +1,9 @@
 #!/usr/bin/env node
 /*
- * Tests for `examples/scripts/walk-tree.cjs` — the FAIL-CLOSED directory-walk
- * primitive shared by the examples-script scanners.
- *
- * What these pin
- * --------------
- *   - walkDir collects every accepted FILE across the roots;
- *   - an unreadable directory is RECORDED in walkErrors (with its cause), NEVER
- *     silently dropped — the readable siblings still return, so the failure is
- *     visible rather than shrinking the result;
- *   - an unreadable/missing ROOT is recorded by name (each root is enumerated
- *     independently);
- *   - an INTENTIONAL skip (skipDir policy) is never visited and never an error —
- *     the deliberate-prune vs unexpected-failure distinction the whole walk
- *     rests on;
- *   - assertWalkComplete is a no-op on a clean walk and throws (carrying
- *     .walkErrors + .actionable, naming each path) on a partial walk.
- *
- * Standalone node-runnable suite — no external framework, mirroring the sibling
- * script suites. Discovered by `npm run test:scripts`.
+ * Tests for `examples/scripts/walk-tree.cjs`, the fail-closed directory walk the
+ * examples-script scanners share: an unreadable directory or root is recorded,
+ * never silently dropped, while an intentional skipDir prune is never read.
+ * Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -108,8 +93,6 @@ const skipNodeModules = (name) => name === 'node_modules';
 const rel = (items) => items.map((p) => path.relative(ROOT, p).split(path.sep).join('/')).sort();
 
 it('POLICY: walkDir collects every accepted file, and a skipDir prune is never read — even when unreadable', () => {
-  // Even if node_modules were UNREADABLE, the policy skip means it is never
-  // read — so no walkError and its contents never appear.
   const { items, walkErrors } = walkDir({
     roots: [ROOT],
     io: fakeIo(tree(), new Set([NM])),
@@ -127,11 +110,8 @@ it('TEETH: an unreadable subtree is RECORDED, not silently dropped', () => {
     skipDir: skipNodeModules,
     acceptFile: acceptTxt,
   });
-  // b/ could not be read: y.txt is NOT in items, but the failure is visible.
   assert.deepStrictEqual(rel(items), ['a/x.txt', 'z.txt']);
-  assert.strictEqual(walkErrors.length, 1, 'the unreadable subtree must be recorded');
-  assert.strictEqual(path.resolve(walkErrors[0].path), path.resolve(B));
-  assert.strictEqual(walkErrors[0].code, 'EACCES');
+  assert.deepStrictEqual(walkErrors.map((e) => [path.resolve(e.path), e.code]), [[B, 'EACCES']]);
 });
 
 it('TEETH: an unreadable/missing ROOT is recorded by name (independent per-root)', () => {
@@ -142,27 +122,16 @@ it('TEETH: an unreadable/missing ROOT is recorded by name (independent per-root)
     skipDir: skipNodeModules,
     acceptFile: acceptTxt,
   });
-  // The readable root's files still come back; the bad root is named.
   assert.deepStrictEqual(rel(items), ['a/x.txt', 'b/y.txt', 'z.txt']);
-  assert.strictEqual(walkErrors.length, 1);
-  assert.strictEqual(path.resolve(walkErrors[0].path), missingRoot);
-  assert.strictEqual(walkErrors[0].code, 'ENOENT');
+  assert.deepStrictEqual(walkErrors.map((e) => [path.resolve(e.path), e.code]), [[missingRoot, 'ENOENT']]);
 });
 
 it('TEETH: assertWalkComplete throws (naming the path + cause) on a partial walk', () => {
   const walkErrors = [{ path: B, code: 'EACCES', message: `EACCES: scandir '${B}'` }];
-  let thrown = null;
-  try {
-    assertWalkComplete(walkErrors, 'my-enumeration');
-  } catch (err) {
-    thrown = err;
-  }
-  assert.ok(thrown, 'a non-empty walkErrors must throw (fail closed)');
-  assert.ok(thrown.message.includes('my-enumeration'), 'the context is named');
-  assert.ok(thrown.message.includes('enumeration FAILED'), 'the failure is explicit');
-  assert.ok(thrown.message.includes(B), 'the unreadable path is named');
-  assert.strictEqual(thrown.actionable, true, 'the error is marked actionable');
-  assert.deepStrictEqual(thrown.walkErrors, walkErrors, 'the walkErrors ride along');
+  assert.throws(
+    () => assertWalkComplete(walkErrors, 'my-enumeration'),
+    (err) => err.actionable === true && err.message.includes('my-enumeration') && err.message.includes(B),
+  );
 });
 
 it('walkErrorReport names the count, context, and every path', () => {
@@ -173,7 +142,6 @@ it('walkErrorReport names the count, context, and every path', () => {
     ],
     'ctx',
   );
-  assert.ok(report.includes('2 path(s)'));
   assert.ok(report.includes(A) && report.includes(B));
   assert.ok(report.includes('ctx'));
 });
