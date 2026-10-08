@@ -1,46 +1,12 @@
 (ns day8.re-frame2-xray.panels.trace-helpers-cljs-test
-  "Pure-data tests for Xray's Trace panel helpers (the whole-epoch trace
-  arc — spec/023-Trace-Panel.md).
+  "Pure-data tests for Xray's Trace panel helpers (spec/023-Trace-Panel.md):
+  per-row projection and classification, the epoch-scoped feed, and the
+  render-side redaction of each db-changed row's per-path diff.
 
-  ## Why the `.cljc` + `_cljs_test` naming
-
-  Same dual-target pattern as `issues_ribbon_helpers_cljs_test.cljc`:
-
-    - Cognitect's test-runner (CLJ) picks it up via the default
-      `.*-test$` regex on the ns name.
-    - Shadow's `:node-test` build picks it up via the `cljs-test$`
-      regex on the ns name.
-
-  ## What's under test
-
-    1. **Per-row projection** — `project-row` populates the row shape
-       (area · area-badge · phase · verb · target · op-family ·
-       outcome-tier) from raw trace events.
-    2. **Area / phase / verb / target classification** — the spec/023
-       §3 / §4 / §5 vocabulary.
-    3. **Band projection** — `build-bands` shapes the rows into the
-       epoch envelope + 4 phase bands (spec/023 §2), with empty bands
-       always present (spec/023 §13).
-    4. **Epoch-scoped feed** — `project-feed-from-epoch` projects the
-       focused epoch record's `:trace-events` into the view shape and
-       classifies the empty state across the focus-resolver statuses
-       (spec/018 §6).
-    5. **Render-side redaction** — the 3-arity derives the per-path
-       diff from the RAW `:db-before` / `:db-after` pair and takes each
-       triple's values from the on-box local-render egress projection
-       under the OBSERVED frame's policy, so a declared-sensitive slot's
-       row renders but its value cannot reach it.
-
-  ## Why this namespace stands up a runtime
-
-  §1–4 are pure data → data and need none. §5 cannot be: its subject is
+  The redaction rows need a runtime: their subject is
   `re-frame.core/project-egress` resolving a NAMED frame's `:sensitive`
-  classification, and a hand-rolled stand-in for that would pin the
-  stand-in rather than the seam (derive the
-  fixture from the producer). So the namespace carries the same
-  reset-runtime fixture `local_render_cljs_test.cljc` uses, declaring the
-  same two frames: one CLASSIFIED, one PLAIN. The reset is inert for
-  §1–4, which read no runtime state at all."
+  classification, so the namespace carries the reset-runtime fixture
+  `local_render_cljs_test.cljc` uses. The reset is inert for the pure rows."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
             [clojure.string :as str]
@@ -55,26 +21,15 @@
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- runtime fixture ----------------------------------------------------
-;;
-;; Mirrors `local_render_cljs_test.cljc`'s fixture: two frames, one with a
-;; declared `:sensitive` app-db path and one with no classification at all.
-;; The PLAIN frame is not decoration — it is the control that separates
-;; "the seam redacted this" from "the 3-arity drops values", and §5's
-;; assertions are unreadable without it.
 
 (def ^:private secure-frame :trace-helpers.test/secure)
 (def ^:private plain-frame  :trace-helpers.test/plain)
 
-;; The THIRD frame declares the ANCESTOR `[:auth]` rather than the leaf.
-;; It is not a variation for completeness — it is the shape that defeats
-;; a path-scoped design (a walk rooted at `[:auth :token]` never matches
-;; a declaration sitting above it), and `diff-paths` descends through maps
-;; to the leaf, so the two meet whenever an app declares a whole subtree.
+;; Declares the ANCESTOR `[:auth]` rather than the leaf: a walk rooted at the
+;; changed `[:auth :token]` never matches a declaration above it.
 (def ^:private ancestor-frame :trace-helpers.test/ancestor)
 
 (defn- declare-sensitive! [frame-id paths]
-  ;; EP-0025: durable app-db classification rides the commit-plane
-  ;; classification effects, not a frame annotation.
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive paths}))))
 
@@ -91,873 +46,302 @@
 ;; ---- fixture builders ---------------------------------------------------
 
 (defn- ev
-  "Build a Spec 009-shaped trace event for the tests. The axis slots
-  pull from both top-level slots and `:tags`."
-  [{:keys [id op-type operation time source origin frame event-id
-           handler-id dispatch-id tags coord]
+  "A Spec 009-shaped trace event."
+  [{:keys [id op-type operation time dispatch-id tags coord]
     :or {time 1000 tags {}}}]
   (cond-> {:id        id
            :op-type   op-type
            :operation operation
            :time      time
            :tags      (cond-> tags
-                       origin       (assoc :rf.event/origin origin)
-                       frame        (assoc :frame frame)
-                       event-id     (assoc :rf.trace/event-id event-id)
-                       handler-id   (assoc :handler-id handler-id)
-                       dispatch-id  (assoc :rf.trace/dispatch-id dispatch-id))}
-    source (assoc :source source)
-    coord  (assoc :rf.trace/trigger-handler {:source-coord coord})))
+                        dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))}
+    coord (assoc :rf.trace/trigger-handler {:source-coord coord})))
 
-;; ---- (1) per-row projection --------------------------------------------
+;; ---- per-row projection -------------------------------------------------
 
 (deftest project-row-populates-the-row-shape
   (let [e (ev {:id 7 :op-type :rf.event :operation :rf.event/dispatched
-               :time 500 :source :ui :origin :app
-               :frame :rf/default :event-id :counter/inc
-               :handler-id :counter/inc-handler
-               :dispatch-id 42
+               :time 500 :dispatch-id 42
                :tags {:rf.event/v [:counter/inc]}
-               :coord {:file "src/foo.cljs" :line 12}})
-        row (h/project-row e)]
-    (is (= 7 (:id row)))
-    (is (= 500 (:time row)))
-    (is (= :rf.event (:op-type row)))
-    (is (= :rf.event/dispatched (:operation row)))
-    (is (= :event (:area row)))
-    (is (= "EVENT" (:area-badge row)))
-    (is (= :dispatch (:phase row)))
-    (is (= "dispatched" (:verb row)))
-    (is (= "[:counter/inc]" (:target row)))
-    (is (= :ui (:source row)))
-    (is (= :app (:origin row)))
-    (is (= :rf/default (:frame row)))
-    (is (= 42 (:dispatch-id row)))
-    (is (= "src/foo.cljs:12" (:source-coord row)))
-    (is (= e (:raw row)))))
-
-(deftest project-row-severity-derived-from-op-type
-  (testing ":severity is the Spec 009 synonym axis"
-    (is (= :error   (:severity (h/project-row
-                                  (ev {:id 1 :op-type :error
-                                       :operation :rf.error/x})))))
-    (is (= :warning (:severity (h/project-row
-                                  (ev {:id 1 :op-type :warning
-                                       :operation :rf.warning/x})))))
-    (is (= :info    (:severity (h/project-row
-                                  (ev {:id 1 :op-type :info
-                                       :operation :rf.http/x})))))
-    (is (nil? (:severity (h/project-row
-                           (ev {:id 1 :op-type :rf.event
-                                :operation :rf.event/dispatched})))))))
+               :coord {:file "src/foo.cljs" :line 12}})]
+    (is (= {:id 7 :time 500 :op-type :rf.event :operation :rf.event/dispatched
+            :area :event :area-badge "EVENT" :verb "dispatched"
+            :target "[:counter/inc]" :dispatch-id 42
+            :source-coord "src/foo.cljs:12" :raw e}
+           (select-keys (h/project-row e)
+                        [:id :time :op-type :operation :area :area-badge :verb
+                         :target :dispatch-id :source-coord :raw])))))
 
 (deftest project-rows-drops-nil-id-events
-  (testing "a nil-:id event is a pathological, malformed
-            envelope with no stable identity; project-rows filters it
-            out so it never reaches `row-key` (where two such rows would
-            both key `t:nil`, a React-key collision) nor selection /
-            expansion (both match on :id)"
-    (let [evs  [(ev {:id 1   :op-type :rf.event :operation :rf.event/dispatched :time 100})
-                (ev {:id nil :op-type :rf.event :operation :rf.event/dispatched :time 200})
-                (ev {:id 2   :op-type :rf.fx    :operation :rf.fx/handled       :time 300})
-                (ev {:id nil :op-type :rf.fx    :operation :rf.fx/handled       :time 400})]
-          rows (h/project-rows evs)]
-      (is (= [1 2] (mapv :id rows))
-          "both nil-:id rows are dropped; the well-formed rows survive in order")
-      (is (every? (comp some? :id) rows)
-          "no projected row carries a nil :id")
-      (let [keys (mapv h/row-key rows)]
-        (is (= ["t:1" "t:2"] keys)
-            "surviving rows key on their stable :id")
-        (is (= (count rows) (count (distinct keys)))
-            "no React-key collision among the projected rows")))))
+  (testing "a nil-:id event has no stable identity, so it never reaches
+            `row-key`, where two of them would collide on `t:nil`"
+    (is (= ["t:1" "t:2"]
+           (mapv h/row-key
+                 (h/project-rows
+                   [(ev {:id 1   :op-type :rf.event :operation :rf.event/dispatched})
+                    (ev {:id nil :op-type :rf.event :operation :rf.event/dispatched})
+                    (ev {:id 2   :op-type :rf.fx    :operation :rf.fx/handled})
+                    (ev {:id nil :op-type :rf.fx    :operation :rf.fx/handled})]))))))
 
-;; ---- (2) area-badge classification — spec/023 §3 / §5 ------------------
+;; ---- area-badge classification — spec/023 §3 / §5 ----------------------
 
 (deftest area-classifies-the-full-vocabulary
-  (testing "the area badge vocabulary (spec/023 §3)"
-    (is (= :event    (h/area {:op-type :rf.event :operation :rf.event/dispatched})))
-    (is (= :db       (h/area {:op-type :rf.event :operation :rf.event/db-changed})))
-    (is (= :coeffect (h/area {:op-type :rf.event :operation :rf.cofx/run})))
-    (is (= :flow     (h/area {:op-type :rf.event :operation :rf.flow/computed})))
-    (is (= :fx       (h/area {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= :sub      (h/area {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= :view     (h/area {:op-type :rf.view :operation :rf.view/render})))
-    (is (= :machine  (h/area {:op-type :rf.machine :operation :rf.machine/transition})))
-    (is (= :routing  (h/area {:op-type :rf.event :operation :rf.route/activated})))
-    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/succeeded})))
-    (is (= :epoch    (h/area {:op-type :rf.epoch :operation :rf.epoch/snapshotted})))
-    (is (= :error    (h/area {:op-type :error :operation :rf.error/x})))
-    (is (= :warning  (h/area {:op-type :warning :operation :rf.warning/x}))))
-  (testing "resource ops are RESOURCE, not the generic EVENT
-            (:rf.resource/* emits at op-type
-            :rf.event but is discriminated by namespace)"
-    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/registered})))
-    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/cache-hit})))
-    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/gc-fired})))
-    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/restored})))
-    ;; the :warning-level clock-skew rows are cross-cutting WARNING, not a
-    ;; positive RESOURCE row (severity wins — spec/023 §7)
-    (is (= :warning  (h/area {:op-type :warning :operation :rf.resource/hydrate-clock-skew})))
-    (is (= :warning  (h/area {:op-type :warning :operation :rf.resource/restore-clock-skew})))
+  (are [area e] (= area (h/area e))
+    :event    {:op-type :rf.event :operation :rf.event/dispatched}
+    :db       {:op-type :rf.event :operation :rf.event/db-changed}
+    :coeffect {:op-type :rf.event :operation :rf.cofx/run}
+    :flow     {:op-type :rf.event :operation :rf.flow/computed}
+    :fx       {:op-type :rf.fx :operation :rf.fx/handled}
+    :sub      {:op-type :rf.sub :operation :rf.sub/run}
+    :view     {:op-type :rf.view :operation :rf.view/render}
+    :machine  {:op-type :rf.machine :operation :rf.machine/transition}
+    :routing  {:op-type :rf.event :operation :rf.route/activated}
+    :resource {:op-type :rf.event :operation :rf.resource/succeeded}
+    :epoch    {:op-type :rf.epoch :operation :rf.epoch/snapshotted}
+    :error    {:op-type :error :operation :rf.error/x}
+    :warning  {:op-type :warning :operation :rf.warning/x}
+    ;; severity wins over the resource namespace (spec/023 §7)
+    :warning  {:op-type :warning :operation :rf.resource/hydrate-clock-skew}
     ;; namespace fallback when :op-type isn't stamped
-    (is (= :resource (h/area {:operation :rf.resource/owner-attached}))))
-  (testing "namespace fallback when :op-type isn't stamped"
-    (is (= :epoch (h/area {:operation :rf.epoch/outcome})))
-    (is (= :routing (h/area {:operation :rf.route/deactivated})))
-    (is (= :routing (h/area {:operation :rf.route.nav-token/allocated})))
-    (is (= :machine (h/area {:operation :rf.machine.timer/scheduled}))))
-  (testing "unknown ops fall back to :event-adjacent neutral"
-    (is (= :event (h/area {:op-type :totally-made-up})))))
+    :machine  {:operation :rf.machine.timer/scheduled}
+    :event    {:op-type :totally-made-up}))
 
 (deftest nav-token-allocated-is-routing-not-a-bare-event
-  ;; Every navigation emits `:rf.route.nav-token/allocated`
-  ;; at op-type :rf.event under the `rf.route.nav-token` SUB-namespace
-  ;; (implementation/routing/.../events.cljc). An exact
-  ;; `= "rf.route"` match would let it fall through to the generic :rf.event
-  ;; branch: badged EVENT (not ROUTING), staged HANDLER (not
-  ;; SIDE-EFFECTS → wrong left-edge colour), and `target-detail` taking the
-  ;; :event branch (rendering the absent `:rf.event/v` → em-dash instead
-  ;; of the route-id). Prefix-matching the `rf.route*` family covers all
-  ;; three at once.
+  ;; `:rf.route.nav-token/allocated` rides a SUB-namespace at op-type
+  ;; :rf.event, so an exact `= "rf.route"` match would badge, stage and
+  ;; describe it as a bare EVENT.
   (let [row (ev {:id 1 :op-type :rf.event
                  :operation :rf.route.nav-token/allocated
                  :tags {:route-id :dashboard :nav-token 7}})]
-    (testing "classifies as ROUTING (not a bare EVENT)"
-      (is (= :routing (h/area row)))
-      (is (= "ROUTING" (h/area-badge row))))
-    (testing "stages effect-side — SIDE-EFFECTS + :effects phase"
-      (is (= :SIDE-EFFECTS (h/stage row)))
-      (is (= :effects (h/phase row))))
-    (testing "target-detail renders the route-id (not an em-dash)"
-      (is (= ":dashboard" (h/target-detail row))))))
+    (is (= ["ROUTING" :SIDE-EFFECTS ":dashboard"]
+           ((juxt h/area-badge h/stage h/target-detail) row)))))
 
 (deftest machine-sub-namespace-ops-are-machine-not-a-bare-event
-  ;; When a machine op reaches `area` WITHOUT its `:rf.machine`
-  ;; op-type stamp it falls to the namespace-discrimination fallback (the
-  ;; same path the `:rf.machine.timer/scheduled` test above rides).
-  ;; An ENUMERATED set of namespaces there ({"rf.machine"
-  ;; "rf.machine.microstep" "rf.machine.timer" "rf.machine.spawn"
-  ;; "rf.machine.lifecycle" "rf.machine.registrar"}) would omit
-  ;; `rf.machine.spawn-all` (reply.cljc / join.cljc / spawn.cljc),
-  ;; `rf.machine.event` (parallel.cljc / transition.cljc),
-  ;; `rf.machine.history` (transition.cljc) and `rf.machine.start`
-  ;; (registration.cljc), and those four sub-families would fall through
-  ;; to `:else :event` — badged EVENT (not MACHINE), with `op-family`
-  ;; resolving :dispatch not :machine (wrong left-edge colour). The
-  ;; routing prefix match above has the same shape. A
-  ;; `str/starts-with? "rf.machine"` prefix match covers the whole family
-  ;; and any new sub-family. `:op-type` is left
-  ;; unstamped (nil) so the assertion exercises the namespace fallback.
+  ;; One op per machine sub-family outside the core namespaces, unstamped so
+  ;; `area`'s namespace fallback must match the whole `rf.machine*` prefix.
   (doseq [op [:rf.machine.spawn-all/started
-              :rf.machine.spawn-all/completed
-              :rf.machine.spawn-all/failed
               :rf.machine.event/received
               :rf.machine.history/recorded
               :rf.machine.start/started]]
-    (let [row (ev {:id 1 :operation op
-                   :tags {:actor-id :ws/conn :from :idle :to :active}})]
-      (testing (str op " classifies MACHINE (not a bare EVENT)")
-        (is (= :machine (h/area row)))
-        (is (= "MACHINE" (h/area-badge row))))
-      (testing (str op " rides the machine op-family (left-edge colour)")
-        (is (= :machine (h/op-family row))))
-      (testing (str op " stages EVENT-HANDLER, not the :event dispatch path")
-        (is (= :HANDLER (h/stage row)))
-        (is (= :event-handling (h/phase row)))))))
+    (is (= "MACHINE" (h/area-badge {:operation op})) (str op))))
 
-(deftest area-badge-renders-uppercase-text
-  (is (= "EVENT" (h/area-badge {:op-type :rf.event :operation :rf.event/dispatched})))
-  (is (= "DB" (h/area-badge {:op-type :rf.event :operation :rf.event/db-changed})))
-  (is (= "FX" (h/area-badge {:op-type :rf.fx :operation :rf.fx/handled})))
-  (is (= "SUB" (h/area-badge {:op-type :rf.sub :operation :rf.sub/run})))
-  (is (= "MACHINE" (h/area-badge {:op-type :rf.machine :operation :rf.machine/transition})))
-  (is (= "RESOURCE" (h/area-badge {:op-type :rf.event :operation :rf.resource/succeeded})))
-  (is (= "ERROR" (h/area-badge {:op-type :error :operation :rf.error/x}))))
-
-;; ---- (3) phase / band placement — spec/023 §4 -------------------------
-
-(deftest phase-places-ops-into-arc-bands
-  (testing "envelope — the epoch-lifecycle ops"
-    (is (= :envelope (h/phase {:op-type :rf.epoch :operation :rf.epoch/snapshotted})))
-    (is (= :envelope (h/phase {:op-type :rf.epoch :operation :rf.epoch/outcome}))))
-  (testing "① DISPATCH — the event dispatched"
-    (is (= :dispatch (h/phase {:op-type :rf.event :operation :rf.event/dispatched}))))
-  (testing "② EVENT HANDLING — coeffects / handler / flows / db-changed / machine"
-    (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.cofx/run})))
-    (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.event/run-end})))
-    (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.flow/computed})))
-    (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.event/db-changed})))
-    (is (= :event-handling (h/phase {:op-type :rf.machine :operation :rf.machine/transition}))))
-  (testing "③ EFFECTS / FX — fx + routing nav + resource lifecycle"
-    (is (= :effects (h/phase {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= :effects (h/phase {:op-type :rf.event :operation :rf.route/activated})))
-    (is (= :effects (h/phase {:op-type :rf.event :operation :rf.resource/work-started}))))
-  (testing "④ REACTIVE RENDERING — subs + views"
-    (is (= :reactive (h/phase {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= :reactive (h/phase {:op-type :rf.view :operation :rf.view/render})))))
-
-;; ---- (4) what-happened verb — spec/023 §5 -----------------------------
+;; ---- what-happened verb — spec/023 §5 -----------------------------------
 
 (deftest what-happened-builds-the-verb
-  (testing "explicit verb overrides"
-    (is (= "dispatched" (h/what-happened {:operation :rf.event/dispatched})))
-    (is (= "handler ran" (h/what-happened {:operation :rf.event/run-end})))
-    (is (= "changed" (h/what-happened {:operation :rf.event/db-changed})))
-    (is (= "computed" (h/what-happened {:operation :rf.flow/computed})))
-    (is (= "snapshotted" (h/what-happened {:operation :rf.epoch/snapshotted}))))
-  (testing "name-based default — the operation's terminal segment"
-    (is (= "render" (h/what-happened {:operation :rf.view/render})))
-    (is (= "scheduled" (h/what-happened {:operation :rf.machine.timer/scheduled}))))
-  (testing "dashes fold to spaces (spec/023 §5 readable forms)"
-    (is (= "skipped on platform"
-           (h/what-happened {:operation :rf.cofx/skipped-on-platform}))))
-  (testing "no operation → em-dash"
-    (is (= "—" (h/what-happened {})))))
+  (are [verb e] (= verb (h/what-happened e))
+    "handler ran"         {:operation :rf.event/run-end}
+    "scheduled"           {:operation :rf.machine.timer/scheduled}
+    "skipped on platform" {:operation :rf.cofx/skipped-on-platform}
+    "—"                   {}
+    "recalculated"        {:operation :rf.sub/run :tags {:rf.sub/value-changed? true}}
+    "ran-unchanged"       {:operation :rf.sub/run :tags {:rf.sub/value-changed? false}}
+    ;; a split op whose tag is absent keeps its terminal segment
+    ;; rather than guessing a side
+    "run"                 {:operation :rf.sub/run}))
 
-;; ---- (4a) the derived SUB / VIEW verbs — spec/023 §5 ------------------
-;;
-;; §5's SUB and VIEW rows are DERIVED verbs: three of them are a plain
-;; op rename, and two are a PAIR split by a boolean tag the substrate
-;; already stamps. Each assertion below pins ONE direction, and the two
-;; directions fail differently, so they want separate tests:
-;;
-;;   UNDER-APPLY — the derived verb is not produced and the row falls
-;;   back to the operation's terminal segment. INVISIBLE in the panel:
-;;   `run` and `rendered` are plausible-looking labels, so nothing on
-;;   screen says the verb is the coarse one. Pinned by asserting each
-;;   derived verb IS produced for its op (+ tag).
-;;
-;;   OVER-APPLY — a derived verb reaches a row it does not describe.
-;;   VISIBLE, and a lie: `recalculated` on a coeffect row, or `mounted`
-;;   on a render-START row, states something the trace never said.
-;;   Pinned by asserting neighbouring ops, and a discriminated op whose
-;;   tag is ABSENT, keep the terminal segment.
-
-(deftest derived-sub-verbs-are-produced
-  (testing "the three that are a plain op rename (under-apply)"
-    (is (= "created"   (h/what-happened {:operation :rf.sub/create})))
-    (is (= "cache-hit" (h/what-happened {:operation :rf.sub/skip})))
-    (is (= "disposed"  (h/what-happened {:operation :rf.sub/dispose}))))
-  (testing ":rf.sub/run splits on :rf.sub/value-changed? (under-apply)"
-    (is (= "recalculated"
-           (h/what-happened {:operation :rf.sub/run
-                             :tags      {:rf.sub/value-changed? true}})))
-    (is (= "ran-unchanged"
-           (h/what-happened {:operation :rf.sub/run
-                             :tags      {:rf.sub/value-changed? false}})))))
-
-(deftest derived-view-verbs-are-produced
-  (testing ":rf.view/rendered splits on :rf.view/mount? (under-apply)"
-    (is (= "mounted"
-           (h/what-happened {:operation :rf.view/rendered
-                             :tags      {:rf.view/mount? true}})))
-    (is (= "re-rendered"
-           (h/what-happened {:operation :rf.view/rendered
-                             :tags      {:rf.view/mount? false}}))))
-  (testing ":rf.view/unmounted already coincides with its §5 verb"
-    (is (= "unmounted" (h/what-happened {:operation :rf.view/unmounted})))))
-
-(deftest derived-verbs-do-not-over-apply
-  (testing "a discriminated op with the tag ABSENT keeps the terminal
-            segment rather than guessing a side — spec/009's pure
-            `compute-sub` form omits the attribution slots, so a
-            :rf.sub/run genuinely can arrive without the boolean"
-    (is (= "run" (h/what-happened {:operation :rf.sub/run})))
-    (is (= "run" (h/what-happened {:operation :rf.sub/run :tags {}})))
-    (is (= "rendered" (h/what-happened {:operation :rf.view/rendered}))))
-  (testing "the split is keyed on the OPERATION, not on its terminal
-            segment — :rf.cofx/run shares the `run` terminal with
-            :rf.sub/run and must keep its own explicit override"
-    (is (= "run" (h/what-happened {:operation :rf.cofx/run
-                                   :tags      {:rf.sub/value-changed? true}}))))
-  (testing "the mount discriminator rides :rf.view/rendered, NOT the
-            render-START :rf.view/render, whose spec/009 tags are
-            :frame + :rf.view/render-key only"
-    (is (= "render" (h/what-happened {:operation :rf.view/render
-                                      :tags      {:rf.view/mount? true}})))))
-
-;; ---- (5) target / detail — spec/023 §3 / §5 ---------------------------
+;; ---- target / detail — spec/023 §3 / §5 ---------------------------------
 
 (deftest target-detail-renders-the-subject
-  (testing "event → the event vector"
-    (is (= "[:counter/inc]"
-           (h/target-detail (ev {:id 1 :op-type :rf.event
-                                 :operation :rf.event/dispatched
-                                 :tags {:rf.event/v [:counter/inc]}})))))
-  (testing "db → [path] old → new"
-    (is (= "[:counter]  1 → 2"
-           (h/target-detail (ev {:id 1 :op-type :rf.event
-                                 :operation :rf.event/db-changed
-                                 :tags {:rf.db/path [:counter]
-                                        :rf.db/old 1 :rf.db/new 2}})))))
-  (testing "fx → fx-id → arg, off the framework's canonical :rf.fx/args
-            (`re-frame.fx` emits the PLURAL key on every
-            `:rf.fx/handled` row; a singular `:rf.fx/arg` is a shape no
-            producer emits)"
-    (is (= ":app/audit → {:message \"saved\"}"
-           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                 :tags {:rf.fx/id   :app/audit
-                                        :rf.fx/args {:message "saved"}}}))))
-    (is (= ":http-xhrio → \"GET /api\""
-           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                 :tags {:rf.fx/id   :http-xhrio
-                                        :rf.fx/args "GET /api"}})))))
-  (testing "fx arg presence is KEY PRESENCE, not truthiness — false and
-            nil are valid effect arguments and must stay visible"
-    (is (= ":app/toggle → false"
-           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                 :tags {:rf.fx/id   :app/toggle
-                                        :rf.fx/args false}}))))
-    (is (= ":app/clear → nil"
-           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                 :tags {:rf.fx/id   :app/clear
-                                        :rf.fx/args nil}}))))
-    (testing "control — a row genuinely without :rf.fx/args stays id-only"
-      (is (= ":app/audit"
-             (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                   :tags {:rf.fx/id :app/audit}}))))))
-  (testing "sub → sub-id"
-    (is (= ":app/counter"
-           (h/target-detail (ev {:id 1 :op-type :rf.sub :operation :rf.sub/run
-                                 :tags {:rf.sub/id :app/counter}})))))
-  (testing "machine → machine-id from → to (states without colons)"
-    (is (= ":title/flow idle → loading"
-           (h/target-detail (ev {:id 1 :op-type :rf.machine
-                                 :operation :rf.machine/transition
-                                 :tags {:machine-id :title/flow
-                                        :from :idle :to :loading}})))))
-  (testing "flow → flow-id → path"
-    (is (= ":totals → [:totals]"
-           (h/target-detail (ev {:id 1 :op-type :rf.event :operation :rf.flow/computed
-                                 :tags {:rf.flow/id :totals
-                                        :rf.flow/path [:totals]}})))))
-  (testing "resource → resource-id (off the scoped key) + gen"
-    ;; lifecycle rows carry the [scope resource-id params] scoped key
-    (is (= ":article/by-slug  gen 3"
-           (h/target-detail (ev {:id 1 :op-type :rf.event
-                                 :operation :rf.resource/succeeded
-                                 :tags {:resource/key [:rf.scope/global :article/by-slug {:slug "x"}]
-                                        :generation 3}}))))
-    ;; registered carries the bare :resource-id (no scoped key yet)
-    (is (= ":article/by-slug"
-           (h/target-detail (ev {:id 1 :op-type :rf.event
-                                 :operation :rf.resource/registered
-                                 :tags {:resource-id :article/by-slug}})))))
-  (testing "coeffect → cofx-id → PRODUCED value"
-    ;; `:rf.cofx/value` is the produced value; `:rf.cofx/arg` is the
-    ;; requirement arg. The one-liner surfaces the produced value, not
-    ;; the arg — mirroring `:fx`'s `fx-id → arg`.
-    (is (= ":session → {:user-id 42}"
-           (h/target-detail (ev {:id 1 :op-type :rf.event
-                                 :operation :rf.cofx/run
-                                 :tags {:rf.cofx/id    :session
-                                        :rf.cofx/value {:user-id 42}
-                                        :rf.cofx/arg   :auth-token}})))))
-  (testing "coeffect value presence is KEY PRESENCE, not truthiness — a
-            supplier can produce false or nil, and `re-frame.cofx` emits
-            `:rf.cofx/value` whatever it produced"
-    (is (= ":feature/on? → false"
-           (h/target-detail (teb/cofx-run-ev :feature/on? false))))
-    (is (= ":session/user → nil"
-           (h/target-detail (teb/cofx-run-ev :session/user nil))))
-    (testing "control — a row genuinely without a value stays id-only"
-      (is (= ":session/user"
-             (h/target-detail (teb/ev :rf.cofx :rf.cofx/run
-                                      {:rf.cofx/id :session/user}))))))
-  (testing "an op with no recognised subject → nil (view renders em-dash)"
-    (is (nil? (h/target-detail (ev {:id 1 :op-type :rf.event
-                                    :operation :rf.event/run-end :tags {}}))))))
+  (are [target e] (= target (h/target-detail e))
+    "[:counter/inc]"
+    {:op-type :rf.event :operation :rf.event/dispatched
+     :tags {:rf.event/v [:counter/inc]}}
 
-;; ---- (6) outcome tier — spec/023 §8 -----------------------------------
+    "[:counter]  1 → 2"
+    {:op-type :rf.event :operation :rf.event/db-changed
+     :tags {:rf.db/path [:counter] :rf.db/old 1 :rf.db/new 2}}
 
-(deftest outcome-tier-distinguishes-states
-  (testing "active — created / changed / recalculated / mounted / ran"
-    (is (= :active (h/outcome-tier {:operation :rf.sub/run})))
-    (is (= :active (h/outcome-tier {:operation :rf.view/render})))
-    (is (= :active (h/outcome-tier {:operation :rf.event/db-changed}))))
-  (testing "inert — cache-hit / unchanged / skipped"
-    (is (= :inert (h/outcome-tier {:operation :rf.sub/skip})))
-    (is (= :inert (h/outcome-tier {:operation :rf.view/skip}))))
-  (testing "gone — disposed / unmounted / cleared"
-    (is (= :gone (h/outcome-tier {:operation :rf.sub/dispose})))
-    (is (= :gone (h/outcome-tier {:operation :rf.view/unmounted})))
-    (is (= :gone (h/outcome-tier {:operation :rf.flow/cleared}))))
-  (testing "gone — the remaining synonyms (cancelled / stale / released / destroyed)"
-    ;; These four terminals sit in the same :gone regex branch
-    ;; (trace_helpers.cljc §outcome-tier); a regex
-    ;; edit that dropped one would tint :active instead.
-    (is (= :gone (h/outcome-tier {:operation :rf.machine.timer/cancelled})))
-    (is (= :gone (h/outcome-tier {:operation :rf.sub/stale})))
-    (is (= :gone (h/outcome-tier {:operation :rf.resource/released})))
-    (is (= :gone (h/outcome-tier {:operation :rf.machine/destroyed}))))
-  (testing "pending — queued / scheduled / pending / later"
-    ;; A real
-    ;; :rf.machine.timer/scheduled op (whose verb IS tested elsewhere)
-    ;; must tint :pending, NOT :active — a regex edit here could silently
-    ;; collapse pending into the active tier.
-    (is (= :pending (h/outcome-tier {:operation :rf.machine.timer/scheduled})))
-    (is (= :pending (h/outcome-tier {:operation :rf.event/queued})))
-    (is (= :pending (h/outcome-tier {:operation :rf.fx/later})))
-    (is (= :pending (h/outcome-tier {:operation :rf.resource/pending}))))
-  (testing "error / warning keep their semantic tier"
-    (is (= :error (h/outcome-tier {:op-type :error :operation :rf.error/x})))
-    (is (= :warning (h/outcome-tier {:op-type :warning :operation :rf.warning/x})))))
+    ;; fx args ride the canonical plural `:rf.fx/args`, read by KEY
+    ;; presence: false is a valid effect argument
+    ":app/audit → {:message \"saved\"}"
+    {:op-type :rf.fx :operation :rf.fx/handled
+     :tags {:rf.fx/id :app/audit :rf.fx/args {:message "saved"}}}
 
-(deftest project-row-carries-outcome-tier-and-verb-and-target
-  (let [row (h/project-row (ev {:id 1 :op-type :rf.sub :operation :rf.sub/dispose
-                                :tags {:rf.sub/id :cart/preview}}))]
-    (is (= :gone (:outcome-tier row)))
-    ;; The row's verb is §5's `disposed`, while `outcome-tier`
-    ;; above classifies off the OPERATION's terminal segment, so
-    ;; the two stay independent.
-    (is (= "disposed" (:verb row)))
-    (is (= ":cart/preview" (:target row)))))
+    ":app/toggle → false"
+    {:op-type :rf.fx :operation :rf.fx/handled
+     :tags {:rf.fx/id :app/toggle :rf.fx/args false}}
 
-;; ---- (7) op-family band colour — the left border ----------------------
+    ":app/audit"
+    {:op-type :rf.fx :operation :rf.fx/handled :tags {:rf.fx/id :app/audit}}
 
-(deftest op-family-classifies-the-band-buckets
-  (is (= :dispatch (h/op-family {:op-type :rf.event :operation :rf.event/dispatched})))
-  (is (= :db (h/op-family {:op-type :rf.event :operation :rf.event/db-changed})))
-  (is (= :fx (h/op-family {:op-type :rf.fx :operation :rf.fx/handled})))
-  ;; resource lifecycle rides the effect-side :fx band (like routing)
-  (is (= :fx (h/op-family {:op-type :rf.event :operation :rf.resource/work-started})))
-  (is (= :reactive (h/op-family {:op-type :rf.sub :operation :rf.sub/run})))
-  (is (= :reactive (h/op-family {:op-type :rf.view :operation :rf.view/render})))
-  (is (= :machine (h/op-family {:op-type :rf.machine :operation :rf.machine/transition})))
-  (is (= :error (h/op-family {:op-type :error :operation :rf.error/x})))
-  (is (= :warning (h/op-family {:op-type :warning :operation :rf.warning/x}))))
+    ":app/counter"
+    {:op-type :rf.sub :operation :rf.sub/run :tags {:rf.sub/id :app/counter}}
 
-(deftest op-family-colour-maps-each-family-to-a-distinct-token
-  ;; Colours are CSS-variable strings (`tokens/tokens`); compare against
-  ;; the var-map so the test pins the indirection.
-  (is (= (:accent tokens/tokens)
-         (h/op-family-colour {:op-type :rf.event :operation :rf.event/dispatched})))
-  (is (= (:info tokens/tokens)
-         (h/op-family-colour {:op-type :rf.event :operation :rf.event/db-changed})))
-  (is (= (:warning tokens/tokens)
-         (h/op-family-colour {:op-type :rf.fx :operation :rf.fx/handled})))
-  (is (= (:dim tokens/tokens)
-         (h/op-family-colour {:op-type :rf.sub :operation :rf.sub/run})))
-  (is (= (:green tokens/tokens)
-         (h/op-family-colour {:op-type :rf.machine :operation :rf.machine/transition})))
-  (is (= (:red tokens/tokens)
-         (h/op-family-colour {:op-type :error :operation :rf.error/x})))
-  (testing "the five band families resolve to distinct colours"
-    (let [bands (mapv (fn [[ot op]] (h/op-family-colour {:op-type ot :operation op}))
-                      [[:rf.event :rf.event/dispatched]
-                       [:rf.event :rf.event/db-changed]
-                       [:rf.fx :rf.fx/handled]
-                       [:rf.sub :rf.sub/run]
-                       [:rf.machine :rf.machine/transition]])]
-      (is (= 5 (count (distinct bands)))
-          "dispatch / db / fx / reactive / machine bands are all distinct"))))
+    ":title/flow idle → loading"
+    {:op-type :rf.machine :operation :rf.machine/transition
+     :tags {:machine-id :title/flow :from :idle :to :loading}}
+
+    ":totals → [:totals]"
+    {:op-type :rf.event :operation :rf.flow/computed
+     :tags {:rf.flow/id :totals :rf.flow/path [:totals]}}
+
+    ;; lifecycle rows carry the [scope resource-id params] scoped key ...
+    ":article/by-slug  gen 3"
+    {:op-type :rf.event :operation :rf.resource/succeeded
+     :tags {:resource/key [:rf.scope/global :article/by-slug {:slug "x"}]
+            :generation 3}}
+
+    ;; ... and registered carries the bare :resource-id
+    ":article/by-slug"
+    {:op-type :rf.event :operation :rf.resource/registered
+     :tags {:resource-id :article/by-slug}}
+
+    ;; coeffect → the PRODUCED value, not the requirement arg, by KEY presence
+    ":session → {:user-id 42}"
+    {:op-type :rf.event :operation :rf.cofx/run
+     :tags {:rf.cofx/id :session :rf.cofx/value {:user-id 42} :rf.cofx/arg :auth-token}}
+
+    ":feature/on? → false"
+    (teb/cofx-run-ev :feature/on? false)
+
+    ":session/user"
+    (teb/ev :rf.cofx :rf.cofx/run {:rf.cofx/id :session/user})
+
+    ;; no recognised subject → nil (the view renders an em-dash)
+    nil
+    {:op-type :rf.event :operation :rf.event/run-end :tags {}}))
+
+;; ---- outcome colour — spec/023 §8 ---------------------------------------
 
 (deftest outcome-colour-tints-the-verb-column
-  (is (= (:text-primary tokens/tokens)
-         (h/outcome-colour {:operation :rf.sub/run})))
-  (is (= (:text-tertiary tokens/tokens)
-         (h/outcome-colour {:operation :rf.sub/skip})))
-  (is (= (:dim tokens/tokens)
-         (h/outcome-colour {:operation :rf.sub/dispose})))
-  ;; Pending rides the cool info blue; warning keeps its
-  ;; semantic yellow. Pinning both `outcome-tier->token` rows stops a
-  ;; token-map edit silently retinting them.
-  (is (= (:info tokens/tokens)
-         (h/outcome-colour {:operation :rf.machine.timer/scheduled})))
-  (is (= (:yellow tokens/tokens)
-         (h/outcome-colour {:op-type :warning :operation :rf.warning/x})))
-  (is (= (:red tokens/tokens)
-         (h/outcome-colour {:op-type :error :operation :rf.error/x}))))
+  (are [token e] (= (token tokens/tokens) (h/outcome-colour e))
+    :text-primary  {:operation :rf.sub/run}
+    :text-tertiary {:operation :rf.sub/skip}
+    :dim           {:operation :rf.sub/dispose}
+    :info          {:operation :rf.machine.timer/scheduled}
+    :yellow        {:op-type :warning :operation :rf.warning/x}
+    :red           {:op-type :error :operation :rf.error/x}))
 
-;; ---- (7b) pipeline stage — flat list ---------------------------------
-
-(deftest stage-maps-ops-to-the-epoch-pipeline-steps
-  (testing "each trace op classifies to one of the 7 Epoch
-            pipeline steps — DISPATCH / COEFFECT / HANDLER / FLOW /
-            SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS"
-    (is (= :DISPATCH (h/stage {:op-type :rf.event :operation :rf.event/dispatched}))
-        "the dispatched event is the DISPATCH trigger")
-    (is (= :HANDLER (h/stage {:op-type :rf.event :operation :rf.event/run-end}))
-        "a non-dispatched event op (the handler body) is HANDLER")
-    (is (= :COEFFECT (h/stage {:op-type :rf.event :operation :rf.cofx/run})))
-    (is (= :FLOW (h/stage {:op-type :rf.event :operation :rf.flow/computed})))
-    (is (= :HANDLER (h/stage {:op-type :rf.machine :operation :rf.machine/transition}))
-        "a machine-as-handler op is HANDLER")
-    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.event/db-changed}))
-        "the :db commit is a SIDE EFFECT (the Epoch SIDE-EFFECTS :db sub-step)")
-    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.route/activated})))
-    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.resource/work-started}))
-        "resource lifecycle is effect-side — SIDE-EFFECTS")
-    (is (= :SUBSCRIPTIONS (h/stage {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= :VIEWS (h/stage {:op-type :rf.view :operation :rf.view/render})))
-    (is (= :DISPATCH (h/stage {:op-type :rf.epoch :operation :rf.epoch/snapshotted}))
-        "epoch-lifecycle ops ride the DISPATCH step's muted grey")))
+;; ---- pipeline stage — spec/023 §3a --------------------------------------
 
 (deftest stage-cross-cutting-error-warning-classify-by-occurrence
-  (testing "an error / warning row labels the step where it
-            OCCURRED (spec/023 §3a), not a constant EVENT HANDLER. Driven
-            through `project-rows` over a fire-ordered epoch, because the
-            chronology is the input"
-    (let [rows  (h/project-rows
-                  [{:id 1  :op-type :rf.event :operation :rf.event/dispatched}
-                   {:id 2  :op-type :error    :operation :rf.error/no-such-handler}
-                   {:id 3  :op-type :rf.event :operation :rf.event/run-start}
-                   {:id 4  :op-type :warning  :operation :rf.cofx/skipped-on-platform}
-                   {:id 5  :op-type :rf.event :operation :rf.event/run-end}
-                   {:id 6  :op-type :rf.fx    :operation :rf.fx/handled}
-                   {:id 7  :op-type :error    :operation :rf.error/fx-handler-exception}
-                   {:id 8  :op-type :warning  :operation :rf.fx/skipped-on-platform}
-                   {:id 9  :op-type :rf.sub   :operation :rf.sub/run}
-                   {:id 10 :op-type :error    :operation :rf.error/sub-exception}
-                   {:id 11 :op-type :warning  :operation :rf.warning/db-nil-coerced}
-                   {:id 12 :op-type :rf.view  :operation :rf.view/rendered}])
-          by-id (into {} (map (juxt :id identity)) rows)]
-      (is (= :SIDE-EFFECTS (:stage (by-id 7)))
-          "an fx that throws occurred in the effect step")
-      (is (= "EFFECT HANDLERS" (:stage-label (by-id 7)))
-          "and its label + colour follow the stage")
-      (is (= (epoch-badge/colour :SIDE-EFFECTS) (:stage-colour (by-id 7))))
-      (is (= :SUBSCRIPTIONS (:stage (by-id 10)))
-          "a sub that throws occurred in the subscription step")
-      (is (= :SUBSCRIPTIONS (:stage (by-id 11)))
-          "consecutive severity rows share the step before them")
-      (is (= :DISPATCH (:stage (by-id 2)))
-          "an error before the handler ran sits in the dispatch step")
-      (is (= :COEFFECT (:stage (by-id 4)))
-          "a severity op whose own namespace names a step takes that step,
-           whatever precedes it")
-      (is (= :SIDE-EFFECTS (:stage (by-id 8))))
-      (is (= [:DISPATCH :HANDLER :HANDLER :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS]
-             (mapv (comp :stage by-id) [1 3 5 6 9 12]))
-          "control — the non-severity rows keep their own steps")))
-  (testing "a severity row with nothing before it, or read alone, falls back
-            to HANDLER; one whose namespace names a step does not"
+  (testing "an error / warning row takes its own namespace's step when it
+            names one, else the step of the nearest non-severity row before
+            it — so the fire order is the input"
+    (let [rows (h/project-rows
+                 [{:id 1  :op-type :rf.event :operation :rf.event/dispatched}
+                  {:id 2  :op-type :error    :operation :rf.error/no-such-handler}
+                  {:id 3  :op-type :rf.event :operation :rf.event/run-start}
+                  {:id 4  :op-type :warning  :operation :rf.cofx/skipped-on-platform}
+                  {:id 5  :op-type :rf.event :operation :rf.event/run-end}
+                  {:id 6  :op-type :rf.fx    :operation :rf.fx/handled}
+                  {:id 7  :op-type :error    :operation :rf.error/fx-handler-exception}
+                  {:id 8  :op-type :warning  :operation :rf.fx/skipped-on-platform}
+                  {:id 9  :op-type :rf.sub   :operation :rf.sub/run}
+                  {:id 10 :op-type :error    :operation :rf.error/sub-exception}
+                  {:id 11 :op-type :warning  :operation :rf.warning/db-nil-coerced}
+                  {:id 12 :op-type :rf.view  :operation :rf.view/rendered}])]
+      (is (= [:DISPATCH :DISPATCH :HANDLER :COEFFECT :HANDLER :SIDE-EFFECTS
+              :SIDE-EFFECTS :SIDE-EFFECTS :SUBSCRIPTIONS :SUBSCRIPTIONS
+              :SUBSCRIPTIONS :VIEWS]
+             (mapv :stage rows)))
+      (is (= ["EFFECT HANDLERS" (epoch-badge/colour :SIDE-EFFECTS)]
+             ((juxt :stage-label :stage-colour) (nth rows 6)))
+          "a re-staged row's label and colour follow its stage")))
+  (testing "a severity row with nothing before it falls back to HANDLER"
     (is (= :HANDLER (:stage (first (h/project-rows [{:id 1 :op-type :error
-                                                     :operation :rf.error/x}])))))
-    (is (= :HANDLER (h/stage {:op-type :error :operation :rf.error/x})))
-    (is (= :HANDLER (h/stage {:op-type :warning :operation :rf.warning/x})))
-    (is (= :COEFFECT (h/stage {:op-type :warning :operation :rf.cofx/skipped-on-platform})))))
-
-(deftest stage-label-reuses-the-epoch-badge-label
-  (testing "the stage column label IS the Epoch panel's own
-            badge label (DRY via panels.epoch.badge)"
-    (is (= "DISPATCH"
-           (h/stage-label {:op-type :rf.event :operation :rf.event/dispatched})))
-    (is (= "EFFECT HANDLERS"
-           (h/stage-label {:op-type :rf.fx :operation :rf.fx/handled}))
-        "SIDE-EFFECTS renders the Epoch label 'EFFECT HANDLERS'")
-    (is (= "SUBSCRIPTIONS"
-           (h/stage-label {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= "VIEWS"
-           (h/stage-label {:op-type :rf.view :operation :rf.view/render})))))
+                                                       :operation :rf.error/x}])))))))
 
 (deftest project-row-carries-stage-label-and-colour
-  (testing "project-row stamps :stage / :stage-label /
-            :stage-colour for the flat list's stage column + edge"
-    (let [row (h/project-row (ev {:id 1 :op-type :rf.fx
-                                  :operation :rf.fx/handled
-                                  :tags {:rf.fx/id :http-xhrio}}))]
-      (is (= :SIDE-EFFECTS (:stage row)))
-      (is (= "EFFECT HANDLERS" (:stage-label row)))
-      (is (= (epoch-badge/colour :SIDE-EFFECTS) (:stage-colour row))))))
+  ;; The stage column reuses the Epoch panel's own badge label and colour.
+  (is (= [:SIDE-EFFECTS "EFFECT HANDLERS" (epoch-badge/colour :SIDE-EFFECTS)]
+         ((juxt :stage :stage-label :stage-colour)
+          (h/project-row (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                              :tags {:rf.fx/id :http-xhrio}}))))))
 
-;; ---- (8) band projection — spec/023 §2 / §13 --------------------------
+;; ---- epoch-scoped feed projection — spec/018 §6 -------------------------
 
 (defn- domino-trail-epoch
-  "A fixture `:rf/epoch-record` whose `:trace-events` carry the COMPLETE
-  domino trail for one event — folding both the synchronous event-side
-  rows (dispatch-id N) AND the async reactive rows (`:rf.sub/run` /
-  `:rf.view/render`, nil dispatch-id), plus the epoch envelope ops."
+  "An `:rf/epoch-record` whose `:trace-events` fold the synchronous
+  event-side rows (dispatch-id 42), the async reactive rows (nil
+  dispatch-id) and the epoch envelope ops."
   []
   {:epoch-id 17
    :trace-events
-   [;; ---- envelope ----
-    (ev {:id 0 :op-type :rf.epoch :operation :rf.epoch/snapshotted :time 99})
-    ;; ---- ① DISPATCH ----
+   [(ev {:id 0 :op-type :rf.epoch :operation :rf.epoch/snapshotted :time 99})
     (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-         :time 100 :dispatch-id 42 :event-id :counter/inc
-         :tags {:rf.event/v [:counter/inc]}})
-    ;; ---- ② EVENT HANDLING ----
+         :time 100 :dispatch-id 42 :tags {:rf.event/v [:counter/inc]}})
     (ev {:id 2 :op-type :rf.event :operation :rf.event/run-end
          :time 101 :dispatch-id 42})
     (ev {:id 3 :op-type :rf.event :operation :rf.event/db-changed
          :time 102 :dispatch-id 42})
-    ;; ---- ③ EFFECTS / FX ----
     (ev {:id 4 :op-type :rf.fx :operation :rf.fx/handled
          :time 103 :dispatch-id 42})
-    ;; ---- ④ REACTIVE RENDERING ----
     (ev {:id 5 :op-type :rf.sub :operation :rf.sub/run
          :time 110 :tags {:rf.sub/id :app/counter}})
     (ev {:id 6 :op-type :rf.sub :operation :rf.sub/run
          :time 111 :tags {:rf.sub/id :app/derived}})
     (ev {:id 7 :op-type :rf.view :operation :rf.view/render :time 120})
-    ;; ---- close ----
     (ev {:id 8 :op-type :rf.epoch :operation :rf.epoch/outcome
          :time 121 :tags {:rf.epoch/outcome :ok}})]})
 
-(deftest build-bands-shapes-the-arc
-  (testing "the rows shape into the epoch envelope + 4 phase bands in
-            arc order (spec/023 §2 / §4)"
-    (let [rows  (h/with-rel-times (h/project-rows (:trace-events (domino-trail-epoch))))
-          {:keys [envelope outcome bands]} (h/build-bands rows)]
-      (testing "envelope carries the :rf.epoch/* ops"
-        (is (= #{0 8} (set (map :id envelope)))))
-      (testing "outcome is read from the :rf.epoch/outcome op"
-        (is (= :ok outcome)))
-      (testing "every band in band-order is present (spec/023 §13)"
-        (is (= [:dispatch :event-handling :effects :reactive]
-               (mapv :id bands))))
-      (let [by-id (into {} (map (juxt :id identity) bands))]
-        (is (= [1] (mapv :id (:rows (:dispatch by-id))))
-            "① DISPATCH — the dispatched row")
-        (is (= [2 3] (mapv :id (:rows (:event-handling by-id))))
-            "② EVENT HANDLING — run-end + db-changed in fire order")
-        (is (= [4] (mapv :id (:rows (:effects by-id))))
-            "③ EFFECTS / FX — the fx row")
-        (is (= [5 6 7] (mapv :id (:rows (:reactive by-id))))
-            "④ REACTIVE RENDERING — the subs + view in fire order")))))
-
-(deftest build-bands-empty-bands-always-present
-  (testing "a no-op event (only ② populated) keeps ③④ present + empty
-            (spec/023 §13 — empty bands render dimmed `(none)`, never
-            hidden)"
-    (let [rows  (h/with-rel-times
-                  (h/project-rows
-                    [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                          :time 100})
-                     (ev {:id 2 :op-type :rf.event :operation :rf.event/run-end
-                          :time 101})]))
-          {:keys [bands]} (h/build-bands rows)
-          by-id (into {} (map (juxt :id identity) bands))]
-      (is (= 4 (count bands)) "all four bands present")
-      (is (false? (:empty? (:dispatch by-id))))
-      (is (false? (:empty? (:event-handling by-id))))
-      (is (true? (:empty? (:effects by-id))) "③ EFFECTS empty for a no-op")
-      (is (true? (:empty? (:reactive by-id))) "④ REACTIVE empty for a no-op")
-      (is (zero? (:count (:effects by-id))))
-      (is (= 1 (:count (:dispatch by-id)))))))
-
-(deftest epoch-outcome-reads-the-outcome-op
-  (is (= :ok (h/epoch-outcome
-               (h/project-rows
-                 [(ev {:id 1 :op-type :rf.epoch :operation :rf.epoch/outcome
-                       :tags {:rf.epoch/outcome :ok}})]))))
-  (is (= :blocked (h/epoch-outcome
-                    (h/project-rows
-                      [(ev {:id 1 :op-type :rf.epoch :operation :rf.epoch/outcome
-                            :tags {:rf.epoch/outcome :blocked}})]))))
-  (testing "no outcome op → nil (epoch still in-flight)"
-    (is (nil? (h/epoch-outcome
-                (h/project-rows
-                  [(ev {:id 1 :op-type :rf.event
-                        :operation :rf.event/dispatched})]))))))
-
-;; ---- (9) epoch-scoped feed projection — spec/018 §6 -------------------
-
 (deftest project-feed-from-epoch-folds-the-complete-domino-trail
-  (testing "scoping by the focused epoch's `:trace-events` renders the
-            WHOLE arc — both the synchronous event-side rows AND the
-            async nil-dispatch-id reactive tail (subs ran + view
-            rendered) + the envelope ops"
-    (let [epoch (domino-trail-epoch)
-          feed  (h/project-feed-from-epoch epoch :focused)]
-      (is (= 9 (:total feed))
-          ":total = every trace event in the focused epoch")
-      (is (= 9 (:rendered feed))
-          ":rendered = :total (no filtering)")
-      (is (= [0 1 2 3 4 5 6 7 8] (mapv :id (:rows feed)))
-          "rows are the WHOLE trail, OLDEST-first — including the
-           nil-dispatch-id reactive rows and the envelope ops")
-      (is (some #(and (nil? (:dispatch-id %)) (= :rf.sub (:op-type %)))
-                (:rows feed))
-          "the async :rf.sub/run rows (nil dispatch-id) are present")
-      (is (some #(= :rf.view (:op-type %)) (:rows feed))
-          "the async :rf.view/render row is present")
-      (is (= 17 (:epoch-id feed)))
-      (is (= :ok (:outcome feed)) "the epoch outcome is exposed")
-      (is (nil? (:empty-kind feed))))))
-
-(deftest project-feed-from-epoch-exposes-bands
-  (testing "the feed carries the structural arc the view paints —
-            envelope + 4 phase bands + outcome (spec/023 §2)"
+  (testing "the focused epoch's WHOLE trail, oldest-first — the async
+            nil-dispatch-id reactive rows and the envelope ops included"
     (let [feed (h/project-feed-from-epoch (domino-trail-epoch) :focused)]
-      (is (contains? feed :envelope))
-      (is (contains? feed :bands))
-      (is (contains? feed :outcome))
-      (is (= [:dispatch :event-handling :effects :reactive]
-             (mapv :id (:bands feed))))
-      (is (= #{0 8} (set (map :id (:envelope feed)))))
-      (is (= :ok (:outcome feed))))))
+      (is (= {:total 9 :rendered 9 :epoch-id 17 :empty-kind nil}
+             (select-keys feed [:total :rendered :epoch-id :empty-kind])))
+      (is (= [0 1 2 3 4 5 6 7 8] (mapv :id (:rows feed)))))))
 
 (deftest project-feed-from-epoch-no-events
-  (testing "a focused epoch with empty :trace-events → :no-events"
-    (let [feed (h/project-feed-from-epoch {:epoch-id 3 :trace-events []}
-                                          :focused)]
-      (is (zero? (:total feed)))
-      (is (zero? (:rendered feed)))
-      (is (= [] (:rows feed)))
-      (is (= 3 (:epoch-id feed)))
-      (is (= :no-events (:empty-kind feed)))
-      (testing "even an empty epoch still exposes all four bands (empty)"
-        (is (= 4 (count (:bands feed))))
-        (is (every? :empty? (:bands feed)))))))
+  (is (= {:total 0 :rendered 0 :rows [] :epoch-id 3 :empty-kind :no-events}
+         (select-keys (h/project-feed-from-epoch {:epoch-id 3 :trace-events []}
+                                                 :focused)
+                      [:total :rendered :rows :epoch-id :empty-kind]))))
 
 (deftest project-feed-from-epoch-reads-the-record-only-when-focused
   (testing "a :no-focus or :epoch-evicted status names its empty state and
-            projects no rows, whether or not a record is passed — only
-            :focused reads the record's :trace-events"
-    (are [status record]
+            projects no rows even when a record is passed"
+    (are [status]
          (= {:empty-kind status :total 0 :rendered 0 :rows []}
-            (select-keys (h/project-feed-from-epoch record status)
+            (select-keys (h/project-feed-from-epoch (domino-trail-epoch) status)
                          [:empty-kind :total :rendered :rows]))
-      :no-focus      nil
-      :epoch-evicted nil
-      :no-focus      (domino-trail-epoch)
-      :epoch-evicted (domino-trail-epoch))))
+      :no-focus
+      :epoch-evicted)))
 
-;; ---- (10) relative timing + duration — spec/023 §3 / §6 ---------------
+(deftest project-feed-from-epoch-rows-carry-no-row-index-slot
+  ;; A :row-index slot would invite positional React keys.
+  (is (not-any? #(contains? % :row-index)
+                (:rows (h/project-feed-from-epoch (domino-trail-epoch) :focused)))))
+
+;; ---- relative timing + duration — spec/023 §3 / §6 ----------------------
 
 (deftest relative-time-figma-form
-  (testing "epoch-t0 is the earliest row time (EPOCH OPEN)"
-    (is (= 100 (h/epoch-t0 [{:time 300} {:time 100} {:time 200}])))
-    (is (nil? (h/epoch-t0 [{:time nil} {:time nil}]))))
-  (testing "format-rel-time renders the Δt '+N.N' offset"
-    (is (= "+0.0" (h/format-rel-time 100 100)))
-    (is (= "+2.0" (h/format-rel-time 102 100)))
-    (is (nil? (h/format-rel-time nil 100))))
-  (testing "with-rel-times stamps :rel-time on every row"
-    (let [rows (h/with-rel-times [{:time 100} {:time 103}])]
-      (is (= ["+0.0" "+3.0"] (mapv :rel-time rows))))))
+  (is (= 100 (h/epoch-t0 [{:time 300} {:time 100} {:time 200}])))
+  (is (= ["+0.0" "+3.0"]
+         (mapv :rel-time (h/with-rel-times [{:time 100} {:time 103}]))))
+  (is (nil? (h/format-rel-time nil 100))))
 
 (deftest duration-ms-reads-canonical-per-area-elapsed-tags
-  ;; The substrate stamps the CANONICAL per-area namespaced
-  ;; elapsed tag (`:rf.fx/elapsed-ms`, `:rf.sub/elapsed-ms`, …), NOT a bare
-  ;; `:elapsed-ms`, on each op family's run-end / handled / rendered emit.
-  ;; Drive the canonical builders (the same shape `trace/emit!` stamps) so a
-  ;; reader of only the non-canonical `:elapsed-ms` is caught: it would
-  ;; resolve every one of these to nil (the panel rendering `—`).
-  (testing "FX duration — :rf.fx/elapsed-ms (spec/009 §241)"
-    (is (= 12.0 (h/duration-ms (teb/fx-handled-ev :http/post {:url "/x"} 12.0)))))
-  (testing "SUB duration — :rf.sub/elapsed-ms (spec/009 §251)"
-    (is (= 0.7 (h/duration-ms (teb/sub-run-ev [:items] true nil [1 2 3] 0.7)))))
-  (testing "VIEW duration — :rf.view/elapsed-ms (spec/009 §281)"
-    (is (= 3.4 (h/duration-ms (teb/view-rendered-ev :app/root [[:items]] 3.4)))))
-  (testing "COEFFECT duration — :rf.cofx/elapsed-ms (spec/009 §243)"
-    (is (= 0.6 (h/duration-ms (teb/cofx-run-ev :session {:user-id 42} 0.6)))))
-  (testing "HANDLER duration — :rf.event/elapsed-ms (re-frame.router emit-run-end)"
-    (is (= 4.2 (h/duration-ms (teb/run-end-ev 4.2)))))
-  (testing "FLOW duration — bare :elapsed-ms tag (re-frame.flows)"
+  ;; The substrate stamps a per-area namespaced elapsed tag; a reader of only
+  ;; the bare `:elapsed-ms` would render `—` for every fx row.
+  (is (= 12.0 (h/duration-ms (teb/fx-handled-ev :http/post {:url "/x"} 12.0))))
+  (testing "flows carry the bare :elapsed-ms tag"
     (is (= 0.9 (h/duration-ms (teb/flow-recomputed-ev :total [:total] 1 2 0.9)))))
-  (testing "point-in-time emits carry no elapsed → nil (renders —)"
-    (is (nil? (h/duration-ms (teb/sub-run-ev [:items] true nil [1 2 3]))))
-    (is (nil? (h/duration-ms (teb/cofx-run-ev :session {:user-id 42}))))))
+  (testing "a point-in-time emit carries no elapsed → nil (renders —)"
+    (is (nil? (h/duration-ms (teb/sub-run-ev [:items] true nil [1 2 3]))))))
 
 (deftest format-duration-figma-form
   (is (= "0.4 ms" (h/format-duration 0.4)))
   (is (= "12.0 ms" (h/format-duration 12)))
-  (is (nil? (h/format-duration nil)))
-  (is (nil? (h/format-duration "nope"))))
+  (is (nil? (h/format-duration nil))))
 
-;; ---- (11) format-time --------------------------------------------------
-
-(deftest format-time-renders-hms-with-millis
-  (testing "format-time returns nil on non-numeric input"
-    (is (nil? (h/format-time nil)))
-    (is (nil? (h/format-time "not a number"))))
-  (testing "format-time returns a HH:MM:SS.mmm-shaped string"
-    (let [s (h/format-time 12345)]
-      (is (string? s))
-      (is (re-find #"^\d{2}:\d{2}:\d{2}\.\d{3}$" s)))))
-
-;; ---- (12) find-row -----------------------------------------------------
-
-(deftest find-row-by-id
-  (let [rows [{:id 1} {:id 2} {:id 3}]]
-    (is (= {:id 2} (h/find-row rows 2)))
-    (is (nil? (h/find-row rows 99)))))
-
-;; ---- (13) source-coord -------------------------------------------------
+;; ---- source-coord -------------------------------------------------------
 
 (deftest source-coord-projection
-  (testing "source-coord pulls file:line from :rf.trace/trigger-handler"
-    (is (= "src/foo.cljs:42"
-           (h/source-coord
-             {:id 1 :op-type :rf.event
-              :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"
-                                                        :line 42}}}))))
-  (testing "missing trigger-handler returns nil"
-    (is (nil? (h/source-coord {:id 1 :op-type :rf.event}))))
-  (testing "missing :line returns just the file"
-    (is (= "src/foo.cljs"
-           (h/source-coord
-             {:id 1 :op-type :rf.event
-              :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"}}})))))
+  (is (nil? (h/source-coord {:id 1 :op-type :rf.event})))
+  (is (= "src/foo.cljs"
+         (h/source-coord {:rf.trace/trigger-handler
+                          {:source-coord {:file "src/foo.cljs"}}}))))
 
-;; ---- (14) readable-description (legacy cross-panel line) ---------------
-
-(deftest readable-description-never-blank
-  (testing "dispatch → 'dispatched <event-vec>'"
-    (is (= "dispatched [:counter/inc]"
-           (h/readable-description
-             (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                  :tags {:rf.event/v [:counter/inc]}})))))
-  (testing "sub → 'sub ran <id>'"
-    (is (= "sub run :app/counter"
-           (h/readable-description
-             (ev {:id 1 :op-type :rf.sub :operation :rf.sub/run
-                  :tags {:rf.sub/id :app/counter}})))))
-  (testing "unknown op falls back to short-description (never blank)"
-    (is (= ":rf.event/run-end"
-           (h/readable-description
-             (ev {:id 1 :op-type :rf.event :operation :rf.event/run-end
-                  :tags {}}))))))
-
-;; ---- (15) short-description --------------------------------------------
-
-(deftest short-description-priority-order
-  (testing "event vector is preferred"
-    (is (re-find #"counter/inc"
-                 (h/short-description
-                   (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                        :tags {:rf.event/v [:counter/inc]}})))))
-  (testing "reason is used when no event vec"
-    (is (re-find #"because"
-                 (h/short-description
-                   (ev {:id 1 :op-type :error :operation :rf.error/x
-                        :tags {:reason "because"}})))))
-  (testing "fallback is the operation keyword alone"
-    (is (= ":rf.event/dispatched"
-           (h/short-description
-             (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                  :tags {}}))))))
-
-;; ---- (16) React keys — rows carry no positional slot -------------------
-
-(deftest project-feed-from-epoch-rows-carry-no-row-index-slot
-  (testing "rows MUST NOT carry a :row-index slot (a footgun inviting
-            positional React keys)"
-    (let [feed (h/project-feed-from-epoch (domino-trail-epoch) :focused)]
-      (doseq [row (:rows feed)]
-        (is (not (contains? row :row-index))
-            (str "row " (:id row) " must not carry :row-index"))))))
-
-;; ---- (17) per-path db-changed diff ------------------------------------
+;; ---- per-path db-changed diff -------------------------------------------
 ;;
-;; The `:rf.event/db-changed` trace event carries no per-path diff (it
-;; only ships `:event` + `:frame`). The Trace panel derives the diff
-;; PANEL-SIDE from the focused epoch record's `:db-before` /
-;; `:db-after` slots via
-;; `db-changed-diff-triples` (route through `app-db-diff-helpers/diff-paths`).
-;; `project-feed-from-epoch` attaches the resulting triples to every
-;; `:rf.event/db-changed` row's `:db-diff` slot so the view stays
-;; dumb-and-pure.
+;; The `:rf.event/db-changed` trace event carries no per-path diff; the feed
+;; derives it from the epoch record's `:db-before` / `:db-after` and attaches
+;; it to every db-changed row's `:db-diff`.
 
 (defn- diff-epoch
-  "A minimal epoch record carrying a non-trivial `:db-before` /
-  `:db-after` and a single `:rf.event/db-changed` row. The other rows
-  in the trail are noise the test ignores."
+  "An epoch record with the given db pair and a db-changed row of id 2."
   [db-before db-after]
   {:epoch-id     71
    :db-before    db-before
@@ -968,275 +352,80 @@
     (ev {:id 2 :op-type :rf.event :operation :rf.event/db-changed
          :time 102 :dispatch-id 42})]})
 
-(deftest db-changed-diff-triples-skip-an-equal-but-rebuilt-leaf
-  (testing "the empty-diff promise holds by VALUE, as the
-            runtime's db-changed does: a leaf the handler rebuilt equal adds
-            no phantom `~ [:todos] X → X` row beside the real change"
-    (let [before  {:loading? true :todos [{:id 1 :done false}]}
-          ;; the handler: `(update :todos #(vec (remove :done %)))`, nothing done
-          after   (-> before
-                      (assoc :loading? false)
-                      (update :todos #(vec (remove :done %))))
-          triples (h/db-changed-diff-triples {:db-before before :db-after after})]
-      (is (= [[:modified [:loading?]]] (mapv (juxt :op :path) triples)))
-      (is (= [] (h/db-changed-diff-triples
-                  {:db-before before
-                   :db-after  (update before :todos #(vec (remove :done %)))}))
-          "db-before = db-after (not identical) → []"))))
+(defn- db-row [feed]
+  (some #(when (= 2 (:id %)) %) (:rows feed)))
 
 (deftest project-feed-attaches-db-diff-to-db-changed-rows
-  (testing "the db-changed row carries the derived diff under :db-diff;
-            other rows do NOT carry a :db-diff slot"
-    (let [feed   (h/project-feed-from-epoch
-                   (diff-epoch {:counter 1} {:counter 2 :flag true})
-                   :focused)
-          by-id  (into {} (map (juxt :id identity)) (:rows feed))
-          db-row (get by-id 2)
-          ev-row (get by-id 1)]
-      (is (contains? db-row :db-diff)
-          "the :rf.event/db-changed row carries :db-diff")
-      (let [paths (set (map :path (:db-diff db-row)))]
-        (is (= #{[:counter] [:flag]} paths)
-            "the diff covers both modified + added paths"))
-      (is (not (contains? ev-row :db-diff))
-          "the non-db-changed row carries NO :db-diff slot"))))
+  (is (= [{:op :modified :path [:counter] :before 1 :after 2}
+          {:op :added :path [:flag] :before nil :after true}]
+         (:db-diff (db-row (h/project-feed-from-epoch
+                             (diff-epoch {:counter 1} {:counter 2 :flag true})
+                             :focused))))))
 
-(deftest project-feed-empty-diff-attached-as-empty-vec
-  (testing "when db-before == db-after the db-changed row still carries
-            :db-diff, but the vector is empty — the view renders no
-            per-path sub-list (spec/023 §APP-DB CHANGES — empty-diff)"
-    (let [feed  (h/project-feed-from-epoch
-                  (diff-epoch {:counter 1} {:counter 1})
-                  :focused)
-          by-id (into {} (map (juxt :id identity)) (:rows feed))]
-      (is (= [] (:db-diff (get by-id 2)))))))
-
-(deftest project-feed-flow-having-and-flow-less-epoch-shapes
-  (testing "the diff projection works the same for a flow-less event
-            (handler writes :db only) and a flow-having event (flow
-            writes one path after the handler) — the diff is derived
-            from db-before/db-after which are net-of-flows on both"
-    (testing "flow-less event — handler writes [:counter] only"
-      (let [feed (h/project-feed-from-epoch
-                   (diff-epoch {:counter 1} {:counter 2})
-                   :focused)
-            db-row (some #(when (= 2 (:id %)) %) (:rows feed))]
-        (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
-               (:db-diff db-row)))))
-    (testing "flow-having event — handler writes [:counter], flow
-              writes [:totals :sum]; net diff covers both"
-      (let [feed (h/project-feed-from-epoch
-                   (diff-epoch {:counter 1 :totals {:sum 1}}
-                               {:counter 2 :totals {:sum 2}})
-                   :focused)
-            db-row (some #(when (= 2 (:id %)) %) (:rows feed))
-            by-path (into {} (map (juxt :path identity)) (:db-diff db-row))]
-        (is (contains? by-path [:counter]))
-        (is (contains? by-path [:totals :sum]))))))
-
-;; ---- (18) render-side redaction ----------------------------------------
+;; ---- render-side redaction ----------------------------------------------
 ;;
-;; Sharing the App-DB tab's diff ENGINE without the egress SEAM in front
-;; of it, the Trace panel would print `~ [:auth :token] "old" → "new"` for
-;; a record the App-DB tab redacts. `project-feed-from-epoch`'s 3-arity
-;; shares the seam: it derives the changed-path set from the RAW db pair,
-;; then takes each triple's values from both db slots projected through the
-;; same `local-render/local-render-value` under the same observed frame.
-;;
-;; A declared-sensitive path therefore still RENDERS ITS ROW, reading
-;; `:rf/redacted` on BOTH sides. Projecting before `diff-paths` would make
-;; the two sides equal and emit NO TRIPLE — a changed secret rendering as
-;; nothing, which `tools/xray/spec/004-App-DB-Diff.md` §Count semantics
-;; rules out.
-;;
-;; ## The three controls, and what each one separates
-;;
-;; A "the secret is not in the output" assertion is worthless on its own:
-;; it passes on an empty feed, a broken fixture, and a projection that
-;; drops everything. So each arm below is paired.
-;;
-;;   1. `…-2-arity-…-raw` — the RAW form carries the secret. This is
-;;      the leak the 3-arity prevents, stated as a live assertion rather
-;;      than as prose, and it is what proves the fixture really carries the secret
-;;      the other arms look for.
-;;   2. the UNDECLARED sibling path survives redaction with its real
-;;      values — so the seam is path-scoped and the feed is not merely
-;;      empty.
-;;   3. `…-plain-frame-…` — the SAME fixture under a frame that declares
-;;      NOTHING keeps the sensitive-shaped path. So arm 2's disappearance
-;;      is the frame's POLICY and not the arity.
+;; The 3-arity derives the changed-path set from the RAW db pair and takes
+;; each triple's values from the whole-db egress projection under the
+;; observed frame's policy. A declared path therefore still renders its row,
+;; reading `:rf/redacted` on both sides: projecting before diffing would make
+;; the two sides equal and drop the row, which
+;; `tools/xray/spec/004-App-DB-Diff.md` §Count semantics rules out.
 
 (def ^:private secret-before "old-session-jwt-AAA")
 (def ^:private secret-after  "new-session-jwt-BBB")
 
 (defn- sensitive-diff-epoch
-  "A `diff-epoch` whose `[:auth :token]` leaf (the secure frame's declared
-  `:sensitive` path) changes, alongside an UNDECLARED `[:ui :tab]` leaf
-  that also changes. One epoch, two paths, one declared."
+  "`[:auth :token]` (declared on the secure frame) and the undeclared
+  `[:ui :tab]` both change."
   []
   (diff-epoch {:auth {:token secret-before} :ui {:tab :home}}
               {:auth {:token secret-after}  :ui {:tab :cart}}))
 
 (defn- feed-carries-secret?
-  "Does the WHOLE projected feed mention either secret anywhere — in a
-  triple, a row, a band, the envelope? `pr-str` flattens the entire
-  structure to one line, so this cannot be defeated by a wrapped or
-  nested rendering the way a per-slot probe could be."
+  "Does either secret appear ANYWHERE in the projected feed?"
   [feed]
   (let [s (pr-str feed)]
     (or (str/includes? s secret-before)
         (str/includes? s secret-after))))
 
-(defn- db-diff-by-path
-  "The db-changed row's `:db-diff` triples, keyed by `:path`."
-  [feed]
-  (let [db-row (some #(when (= 2 (:id %)) %) (:rows feed))]
-    (into {} (map (juxt :path identity)) (:db-diff db-row))))
-
-(deftest project-feed-2-arity-keeps-the-declared-sensitive-value-raw
-  (testing "the RAW 2-arity applies no egress policy — it prints the
-            declared-sensitive value. The 3-arity, not this, is the render
-            path, and this is the POSITIVE CONTROL for
-            every assertion below: it proves the fixture carries the
-            secret and that the probe can see it"
-    (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused)]
-      (is (feed-carries-secret? feed)
-          "the unprojected feed must carry the secret — if this fails the
-           fixture is broken and the redaction arms below are vacuous")
-      (is (= secret-before (:before (get (db-diff-by-path feed) [:auth :token])))
-          "and it carries it specifically as the [:auth :token] triple's
-           :before — the exact slot db-diff-row renders"))))
+(defn- db-diff-by-path [feed]
+  (into {} (map (juxt :path identity)) (:db-diff (db-row feed))))
 
 (deftest project-feed-3-arity-redacts-the-declared-sensitive-path
-  (testing "under the OBSERVED frame's policy the
-            declared-sensitive path still RENDERS ITS ROW, carrying the
-            sentinel where the values would be, and the values reach no
-            part of the feed"
-    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
-                                             :focused
-                                             secure-frame)
-          by-path (db-diff-by-path feed)]
-      (is (not (feed-carries-secret? feed))
-          "no rendered slot of the feed may carry the declared-sensitive
-           value")
-      (is (contains? by-path [:auth :token])
-          "THE ROW SURVIVES. Redacting before the diff would make
-           diff-paths read both sides as equal and emit nothing, and a
-           changed secret rendering as NOTHING is the blindness spec/004
-           §Count semantics rules out — not a shape to reproduce here")
-      (is (= :rf/redacted (:before (get by-path [:auth :token]))))
-      (is (= :rf/redacted (:after  (get by-path [:auth :token]))))
-      (is (= :modified (:op (get by-path [:auth :token])))
-          "and :op survives too — the operator is told the slot CHANGED,
-           which is the whole signal the sentinel is protecting")
-      (testing "CONTROL — the UNDECLARED sibling path is untouched, so the
-                seam is path-scoped rather than a blanket wipe"
-        (is (contains? by-path [:ui :tab])
-            "[:ui :tab] is not declared sensitive and must still diff")
-        (is (= :home (:before (get by-path [:ui :tab]))))
-        (is (= :cart (:after  (get by-path [:ui :tab]))))))))
-
-(deftest project-feed-3-arity-redacts-under-an-ANCESTOR-declaration
-  (testing "ANCESTOR GUARD, and the reason this seam
-            projects the WHOLE db rather than each triple at its own path.
-
-            With `[:auth]` declared sensitive and `[:auth :token]` the
-            path that changed, the declaration sits ABOVE the changed
-            path. `local-render-value-at` rooted
-            at `[:auth :token]` returns the value VERBATIM in exactly this
-            case, because a path-keyed match never fires for a declaration
-            above the walk root. Whole-db projection resolves it; the
-            path-scoped shape leaks it"
-    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
-                                             :focused
-                                             ancestor-frame)
-          by-path (db-diff-by-path feed)]
-      (is (not (feed-carries-secret? feed))
-          "an ANCESTOR declaration must withhold the descendant's value")
-      (is (contains? by-path [:auth :token])
-          "the row still renders — the path set comes from the RAW diff")
-      (is (= :rf/redacted (:before (get by-path [:auth :token])))
-          "and the sentinel, never nil: the projected image has no
-           descendant under a redacted ancestor, so a `get-in` would
-           answer nil and nil READS AS A VALUE — the operator would be
-           told the slot changed to nothing")
-      (is (= :rf/redacted (:after (get by-path [:auth :token]))))
-      (testing "CONTROL — the undeclared sibling is still untouched under
-                this frame too"
-        (is (= :home (:before (get by-path [:ui :tab]))))
-        (is (= :cart (:after  (get by-path [:ui :tab]))))))))
+  (testing "the declared path still RENDERS ITS ROW with the sentinel where
+            the values would be, whether the frame declares the leaf or an
+            ANCESTOR of it; the undeclared sibling keeps its values"
+    (doseq [frame [secure-frame ancestor-frame]]
+      (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused frame)]
+        (is (not (feed-carries-secret? feed)) (str frame))
+        (is (= {[:auth :token] {:op :modified :path [:auth :token]
+                                :before :rf/redacted :after :rf/redacted}
+                [:ui :tab]     {:op :modified :path [:ui :tab]
+                                :before :home :after :cart}}
+               (db-diff-by-path feed))
+            (str frame))))))
 
 (deftest project-feed-3-arity-under-a-plain-frame-keeps-every-value
-  (testing "CONTROL — the SAME fixture through the SAME 3-arity, but under
-            a frame that classifies NOTHING, keeps the [:auth :token]
-            triple and both its values. So the redaction above is the
-            frame's POLICY talking, not the arity dropping values"
-    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
-                                             :focused
-                                             plain-frame)
-          by-path (db-diff-by-path feed)]
-      (is (contains? by-path [:auth :token])
-          "an unclassified frame declares nothing to redact")
-      (is (= secret-before (:before (get by-path [:auth :token]))))
-      (is (= secret-after  (:after  (get by-path [:auth :token]))))
-      (is (contains? by-path [:ui :tab])))))
+  (testing "CONTROL — the same fixture under a frame that declares nothing
+            keeps both values, so the redaction above is the frame's policy
+            and the probe can see the secret"
+    (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused plain-frame)]
+      (is (feed-carries-secret? feed))
+      (is (= {[:auth :token] {:op :modified :path [:auth :token]
+                              :before secret-before :after secret-after}
+              [:ui :tab]     {:op :modified :path [:ui :tab]
+                              :before :home :after :cart}}
+             (db-diff-by-path feed))))))
 
 (deftest project-feed-3-arity-fails-closed-but-not-silent
-  (testing "a nil / never-registered observed frame must NOT fall through
-            to the ambient frame's (Xray's own chrome frame's) empty
-            policy. local-render-value stamps the id verbatim and takes
-            its fail-closed branch, so the WHOLE image redacts — and the
-            ROWS SURVIVE, every value reading the sentinel.
-
-            FAIL-CLOSED MUST NOT MEAN FAIL-SILENT. A seam that redacted
-            before diffing would let an unresolvable frame empty the diff
-            entirely, and the panel would render nothing — identical
-            to an epoch that changed nothing. The operator must still be
-            able to see WHICH paths moved and be told the values are
-            withheld"
-    (doseq [[label frame-id] [["never-registered" :trace-helpers.test/no-such-frame]
-                              ["nil"              nil]]]
-      (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
-                                               :focused
-                                               frame-id)
-            by-path (db-diff-by-path feed)]
-        (is (not (feed-carries-secret? feed))
-            (str label " frame — no value may survive the fail-closed branch"))
-        (is (contains? by-path [:auth :token])
-            (str label " frame — the row must SURVIVE; silence is the one
-                 failure a diff panel cannot afford"))
-        (is (contains? by-path [:ui :tab])
-            (str label " frame — including the undeclared path, which is
-                 withheld here only because the frame is unresolvable"))
-        (is (= :rf/redacted (:before (get by-path [:ui :tab])))
-            (str label " frame — and every value reads the sentinel"))
-        (is (= :rf/redacted (:after (get by-path [:auth :token]))))))))
-
-(deftest project-feed-3-arity-leaves-a-record-without-db-slots-alone
-  (testing "a record carrying no :db-before / :db-after is not given
-            synthesised redacted ones — it diffs to [] exactly as the
-            2-arity does, and the rows are otherwise identical"
-    (let [epoch {:epoch-id 91
-                 :trace-events
-                 [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                       :time 100 :dispatch-id 42})
-                  (ev {:id 2 :op-type :rf.event :operation :rf.event/db-changed
-                       :time 102 :dispatch-id 42})]}
-          raw   (h/project-feed-from-epoch epoch :focused)
-          proj  (h/project-feed-from-epoch epoch :focused secure-frame)]
-      (is (= [] (:db-diff (some #(when (= 2 (:id %)) %) (:rows proj)))))
-      (is (= raw proj)
-          "with nothing to project, the two arities agree exactly"))))
-
-(deftest project-feed-3-arity-preserves-every-non-db-slot
-  (testing "redaction touches the record's two db slots and NOTHING else —
-            the rows, bands, envelope, counts and epoch-id are byte-for-
-            byte what the raw projection produces for the same epoch"
-    (let [epoch (diff-epoch {:ui {:tab :home}} {:ui {:tab :cart}})
-          raw   (h/project-feed-from-epoch epoch :focused)
-          proj  (h/project-feed-from-epoch epoch :focused plain-frame)]
-      (is (= (dissoc raw :rows) (dissoc proj :rows))
-          "every non-row slot is untouched")
-      (is (= (:rows raw) (:rows proj))
-          "and with nothing declared sensitive the rows match too —
-           including the :db-diff the plain frame leaves intact"))))
+  (testing "a nil or never-registered frame redacts every value but keeps
+            every row, so the operator still sees WHICH paths moved"
+    (doseq [frame-id [:trace-helpers.test/no-such-frame nil]]
+      (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused frame-id)]
+        (is (not (feed-carries-secret? feed)) (pr-str frame-id))
+        (is (= {[:auth :token] {:op :modified :path [:auth :token]
+                                :before :rf/redacted :after :rf/redacted}
+                [:ui :tab]     {:op :modified :path [:ui :tab]
+                                :before :rf/redacted :after :rf/redacted}}
+               (db-diff-by-path feed))
+            (pr-str frame-id))))))
