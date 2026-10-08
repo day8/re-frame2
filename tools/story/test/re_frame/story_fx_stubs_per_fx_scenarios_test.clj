@@ -1,31 +1,12 @@
 (ns re-frame.story-fx-stubs-per-fx-scenarios-test
-  "Explicit per-fx regression net for `:rf.story/force-fx-stub`.
-  Pairs with `re-frame.story-fx-stubs-test`, which covers boot-time
-  registration, the ref-args expansion, the multi-decorator
-  `:overrides` map, the per-frame stub-call log and the `:http` row of
-  the spec/015 §force-fx-stub matrix; this namespace covers that
-  matrix's other canonical fx-ids — `:analytics`, `:websocket`,
-  `:navigation` — plus two scenarios the sibling suite does not
-  exercise directly:
-
-  - **stub-overriding-real**: a real `reg-fx` handler is
-    registered *and* the stub is installed via the decorator. The
-    real handler would throw if it ran; the stub captures the
-    payload. Asserts the stub takes precedence at the framework
-    `:fx-overrides` redirect.
-
-  - **stub-failure-mode**: the stub `:response` is a failure
-    payload (`{:status :error ...}`). The stub only logs the call;
-    the variant records the failure into app-db through its own
-    event; `:rf.assert/path-equals` against the failure path
-    passes; the shell does not crash and the lifecycle reaches
-    `:ready`.
-
-  Per spec/004 §force-fx-stub the code path is identical for every
-  fx-id keyword. The value of these tests is catching a change that
-  special-cases `:http`, the fx-id most other stub tests exercise."
+  "`:rf.story/force-fx-stub` over the spec/015 matrix's non-`:http` fx-ids,
+  over a registered real handler, and with a failure-shaped response. The
+  code path is the same for every fx-id; these catch a change that
+  special-cases `:http`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
+            ;; `:rf.assert/effect-emitted` reads the epoch tape.
+            [re-frame.epoch]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
             [re-frame.registrar        :as rf.registrar]
@@ -58,207 +39,55 @@
 
 (use-fixtures :each reset-all)
 
-;; ===========================================================================
-;; Per-fx scenarios (analytics / websocket / navigation)
-;;
-;; Each scenario registers an event that emits the fx-id under test, runs
-;; a variant with the matching `force-fx-stub`, then asserts:
-;;
-;;   1. The lifecycle reaches :ready (no crash).
-;;   2. The frame's :fx-overrides map carries the fx-id.
-;;   3. The stub-call log records exactly one entry with the original
-;;      payload and fx-id.
-;;   4. `observed-fx-ids` includes the fx-id.
-;;   5. `:rf.assert/effect-emitted` passes.
-;; ===========================================================================
-
-(defn- assert-stub-intercepted!
-  "Common assertion bundle shared by the per-fx scenarios.
-  Centralised so the scenarios stay byte-for-byte parallel —
-  the value of the per-fx net is exactly that we can't accidentally
-  special-case one fx-id, so the assertions for each must be
-  identical."
-  [variant-id fx-id expected-payload result]
-  (is (= :ready (:lifecycle result))
-      (str fx-id " — lifecycle reaches :ready (no crash)"))
-  (let [overrides (:fx-overrides (rf/frame-meta variant-id))]
-    (is (contains? overrides fx-id)
-        (str fx-id " — frame :fx-overrides carries the redirect")))
-  (let [log (rf.story.frames/stub-call-log-for variant-id)]
-    (is (= 1 (count log))
-        (str fx-id " — exactly one stub-call recorded"))
-    (is (= fx-id (:fx-id (first log)))
-        (str fx-id " — log entry carries the original fx-id"))
-    (is (= expected-payload (:payload (first log)))
-        (str fx-id " — log entry carries the original payload")))
-  (is (contains? (rf.story.fx-stubs/observed-fx-ids variant-id) fx-id)
-      (str fx-id " — observed-fx-ids surfaces the stubbed fx"))
-  (let [last-a (last (:assertions result))]
-    (is (true? (:passed? last-a))
-        (str fx-id " — :rf.assert/effect-emitted passes against the stub"))))
+(defn- stub-scenario!
+  "Register an event emitting `fx-id` with `payload`, run a variant stubbing
+  it, and assert the redirect: frame `:fx-overrides`, one logged call with the
+  original payload, `observed-fx-ids`, and every assertion passing."
+  [vid fx-id payload & {:keys [response extra-script]}]
+  (let [event (keyword "do" (str (name fx-id) "-emit"))]
+    (rf/reg-event event (fn [_ _] {:fx [[fx-id payload]]}))
+    (rf.story/reg-variant vid
+      {:decorators [[:rf.story/force-fx-stub fx-id (or response {:ack? true})]]
+       :setup      []
+       :script     (into [[:dispatch-sync [event]]
+                          [:dispatch-sync [:rf.assert/effect-emitted fx-id]]]
+                         extra-script)})
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
+      (is (= [:ready true [{:fx-id fx-id :payload payload}] true]
+             [(:lifecycle r)
+              (contains? (:fx-overrides (rf/frame-meta vid)) fx-id)
+              (mapv #(select-keys % [:fx-id :payload]) (rf.story.frames/stub-call-log-for vid))
+              (contains? (rf.story.fx-stubs/observed-fx-ids vid) fx-id)])
+          (str fx-id))
+      (is (every? :passed? (:assertions r)) (str fx-id))
+      (rf.story/destroy-variant! vid)
+      r)))
 
 (deftest analytics-fx-stub-scenario
-  (testing ":analytics fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event :do/analytics-emit
-      (fn [_ _] {:fx [[:analytics {:event "page-view" :path "/home"}]]}))
-    (rf.story/reg-variant :story.fxscen.analytics/v
-      {:decorators [[:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/analytics-emit]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.analytics/v) 5000)]
-      (assert-stub-intercepted! :story.fxscen.analytics/v :analytics
-                                {:event "page-view" :path "/home"} r))
-    (rf.story/destroy-variant! :story.fxscen.analytics/v)))
+  (stub-scenario! :story.fxscen.analytics/v :analytics {:event "page-view" :path "/home"}))
 
 (deftest websocket-fx-stub-scenario
-  (testing ":websocket fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event :do/websocket-emit
-      (fn [_ _] {:fx [[:websocket {:topic "live" :payload {:tick 1}}]]}))
-    (rf.story/reg-variant :story.fxscen.websocket/v
-      {:decorators [[:rf.story/force-fx-stub :websocket {:connected? true}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/websocket-emit]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :websocket]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.websocket/v) 5000)]
-      (assert-stub-intercepted! :story.fxscen.websocket/v :websocket
-                                {:topic "live" :payload {:tick 1}} r))
-    (rf.story/destroy-variant! :story.fxscen.websocket/v)))
+  (stub-scenario! :story.fxscen.websocket/v :websocket {:topic "live" :payload {:tick 1}}))
 
 (deftest navigation-fx-stub-scenario
-  (testing ":navigation fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event :do/navigation-emit
-      (fn [_ _] {:fx [[:navigation {:to "/dashboard" :replace? false}]]}))
-    (rf.story/reg-variant :story.fxscen.navigation/v
-      {:decorators [[:rf.story/force-fx-stub :navigation {:landed? true}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/navigation-emit]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :navigation]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.navigation/v) 5000)]
-      (assert-stub-intercepted! :story.fxscen.navigation/v :navigation
-                                {:to "/dashboard" :replace? false} r))
-    (rf.story/destroy-variant! :story.fxscen.navigation/v)))
-
-;; ===========================================================================
-;; stub-overriding-real
-;;
-;; Register a real `reg-fx` handler that would throw if invoked, install
-;; the stub via decorator, then dispatch the fx and assert the real
-;; handler did NOT run. The proof is in two channels:
-;;
-;;   1. A side-channel atom that the real handler would flip —
-;;      remains false after the run.
-;;   2. The stub-call log carries the payload — proving the redirect
-;;      actually happened.
-;; ===========================================================================
+  (stub-scenario! :story.fxscen.navigation/v :navigation {:to "/dashboard" :replace? false}))
 
 (deftest stub-overrides-real-handler
-  (testing "force-fx-stub takes precedence over a registered real fx handler"
-    (let [;; Side-channel atom the real handler would flip. If the stub
-          ;; didn't intercept, this would flip to true (or, if the
-          ;; ex/throw path won the race, the run-variant would surface
-          ;; the throw as a record-don't-throw assertion).
-          real-called? (atom false)]
-      (rf/reg-fx :http
-        (fn [payload]
-          (reset! real-called? true)
-          ;; A real :http handler would push a network request here;
-          ;; we throw instead so a missing-redirect regression fails
-          ;; loudly via the :events-phase exception projection too.
-          (throw (ex-info "real :http fx must NOT run under force-fx-stub"
-                          {:payload payload}))))
-      (rf/reg-event :do/http-call
-        (fn [_ _]
-          {:fx [[:http {:url "/should-not-hit-real" :method :get}]]}))
-      (rf.story/reg-variant :story.fxoverride/real
-        {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
-         :setup     []
-         :script [[:dispatch-sync [:do/http-call]]
-                      [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-      (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxoverride/real) 5000)]
-        (is (= :ready (:lifecycle r))
-            "lifecycle reaches :ready — the stub absorbed the call, the real
-             handler's throw never fired")
-        (is (false? @real-called?)
-            "real :http handler must NOT be invoked — the framework
-             :fx-overrides redirect routes the call to the stub event before
-             reg-fx dispatch")
-        (let [log (rf.story.frames/stub-call-log-for :story.fxoverride/real)]
-          (is (= 1 (count log)))
-          (is (= :http (:fx-id (first log)))
-              "the stub captured the redirected fx-id")
-          (is (= {:url "/should-not-hit-real" :method :get}
-                 (:payload (first log)))
-              "the stub captured the original payload"))
-        (is (true? (:passed? (last (:assertions r))))
-            ":rf.assert/effect-emitted passes against the stub"))
-      (rf.story/destroy-variant! :story.fxoverride/real))))
-
-;; ===========================================================================
-;; stub-failure-mode
-;;
-;; Install a stub whose :response represents a failure payload, and author
-;; the failure STATE separately, the way a variant must. The stub only
-;; absorbs the call and logs it (with its :response) in the per-frame
-;; stub-call log; it never delivers the response, and nothing here reads
-;; the log into app-db. `:record/failure` stands in for the app's own
-;; failure event: the script dispatches it, and it closes over the same
-;; literal payload. Asserts:
-;;
-;;   1. Lifecycle reaches :ready (no crash).
-;;   2. The authored failure state is in app-db.
-;;   3. The :rf.assert/path-equals against the failure path passes.
-;;
-;; A separately dispatched failure event tests the downstream state
-;; transition. It does not prove the request would have produced that
-;; reply.
-;; ===========================================================================
+  (testing "the stub takes precedence over a registered real fx handler"
+    (let [real-called? (atom false)]
+      (rf/reg-fx :http (fn [_] (reset! real-called? true)
+                         (throw (ex-info "real :http fx must not run under force-fx-stub" {}))))
+      (stub-scenario! :story.fxoverride/real :http {:url "/should-not-hit-real"})
+      (is (false? @real-called?)))))
 
 (deftest stub-failure-mode-records-without-crash
-  (testing "force-fx-stub with a failure response payload — variant
-            records the failure into app-db and assertions pass"
-    (let [failure-payload {:status :error :code 500 :body {:reason "server-down"}}]
-      ;; Event handler emits the :http fx, which the stub absorbs and
-      ;; logs. The failure state reaches app-db along [:http-result]
-      ;; through a separate event, `:record/failure`, that closes over
-      ;; `failure-payload`; nothing reads the stub-call log into app-db.
-      (rf/reg-event :do/http-emit-fail
-        (fn [_ _] {:fx [[:http {:url "/api/may-fail"}]]}))
-      ;; Record the failure marker into app-db so :rf.assert/path-equals
-      ;; can observe it. Mirrors the shape of an :on-failure event a
-      ;; library like re-frame-http-fx would dispatch off a failed
-      ;; managed-fx response.
-      (rf/reg-event :record/failure
-        (fn [{:keys [db]} _] {:db (assoc db :http-result failure-payload)}))
-      (rf.story/reg-variant :story.fxfail/v
-        {:decorators [[:rf.story/force-fx-stub :http failure-payload]]
-         :setup     []
-         :script [[:dispatch-sync [:do/http-emit-fail]]
-                      [:dispatch-sync [:record/failure]]
-                      [:dispatch-sync [:rf.assert/effect-emitted :http]]
-                      [:dispatch-sync [:rf.assert/path-equals [:http-result :status] :error]]
-                      [:dispatch-sync [:rf.assert/path-equals [:http-result :code]   500]]
-                      [:dispatch-sync [:rf.assert/path-equals [:http-result :body]
-                                             {:reason "server-down"}]]]})
-      (let [r       (rf.story.async/deref-blocking (rf.story/run-variant :story.fxfail/v) 5000)
-            asserts (:assertions r)]
-        (is (= :ready (:lifecycle r))
-            "lifecycle reaches :ready — failure-shaped response does NOT
-             crash the shell (record-don't-throw)")
-        (is (every? :passed? asserts)
-            "every play assertion passes — :rf.assert/effect-emitted +
-             the three :rf.assert/path-equals against the failure path")
-        (is (= 4 (count asserts))
-            "exactly four assertions recorded — :effect-emitted + three :path-equals")
-        ;; Belt-and-braces: pluck the recorded call off the stub log and
-        ;; confirm it carries the original fx-id and request payload,
-        ;; i.e. the framework's :fx-overrides redirect reached the stub.
-        (let [log (rf.story.frames/stub-call-log-for :story.fxfail/v)]
-          (is (= 1 (count log)))
-          (is (= :http (:fx-id (first log))))
-          (is (= {:url "/api/may-fail"} (:payload (first log)))
-              "stub log captures the original request payload; the failure
-               payload lives in the decorator's :response slot, not the log
-               (the log records what the variant emitted, not the canned
-               reply)")))
-      (rf.story/destroy-variant! :story.fxfail/v))))
+  (testing "a failure-shaped stub response does not crash the run; the
+            variant's own failure event records the state its assertions read"
+    (let [failure {:status :error :code 500 :body {:reason "server-down"}}]
+      (rf/reg-event :record/failure (fn [{:keys [db]} _] {:db (assoc db :http-result failure)}))
+      (is (= 2 (count (:assertions
+                        (stub-scenario! :story.fxfail/v :http {:url "/api/may-fail"}
+                                        :response failure
+                                        :extra-script [[:dispatch-sync [:record/failure]]
+                                                       [:dispatch-sync [:rf.assert/path-equals
+                                                                        [:http-result] failure]]]))))))))
