@@ -1,84 +1,24 @@
 (ns re-frame.ssr.hash-parity-cljs-test
-  "CLJS side of the render-tree-hash cross-runtime byte-identity parity
-  smoke.
-
-  Spec 011 §Hydration-mismatch detection pins the hash as byte-identical
-  between CLJS and JVM runtimes. The CLJS pipeline:
-  `goog.crypt`-less — uses a plain `TextEncoder` (UTF-8) + per-byte
-  `Math.imul` FNV-1a loop. The JVM pipeline:
-  `String.getBytes(StandardCharsets/UTF_8)` + long-multiply-then-mask
-  FNV-1a loop. Both MUST emit the same 8-hex string for the same input
-  render tree; this file locks the CLJS side to the literals the JVM
-  side pins.
-
-  Pattern mirrors `re-frame.schemas.digest-parity-cljs-test`
-  — both runtimes consume the SAME fixture map (loaded from a shared
-  `.cljc` fixtures namespace) and pin the SAME canonical literal. The
-  literal IS the cross-host byte-comparison point. The companion JVM
-  test lives at `re-frame.hash-parity-test` and pins the same literals
-  against the same fixtures.
-
-  Note on namespace: the file lives at `implementation/ssr/test/re_frame/ssr/`
-  and the ns suffix is `-cljs-test`, so the shadow-cljs `:node-test`
-  build's `cljs-test$` regex picks it up; it does not end
-  `-dom-cljs-test`, so the `:browser-test` build does not. The
-  hash-pipeline code is platform-neutral — no DOM, no React — so the
-  node-test gate is sufficient."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "CLJS side of the render-tree-hash cross-host parity pins (Spec 011
+  §Hydration-mismatch detection): the `TextEncoder` + `Math.imul` FNV-1a path
+  must reproduce the literals `re-frame.hash-parity-test` pins on the JVM, from
+  the same `.cljc` fixtures."
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.ssr.hash :as rf.ssr.hash]
-            [re-frame.ssr.hash-parity-fixtures :as rf.ssr.hash-parity-fixtures]))
-
-;; ---- pinned-literal vectors -----------------------------------------------
+            [re-frame.ssr.hash-parity-fixtures :as fixtures]))
 
 (deftest cljs-render-tree-hash-matches-canonical-literal
-  (testing "Per Spec 011 §Hydration-mismatch detection — every canonical
-            fixture hashes to its pinned 8-hex literal under the CLJS
-            pipeline. Byte-identity with the JVM-side literal locks
-            the cross-runtime invariant."
-    (doseq [{:keys [label input expected rationale]} rf.ssr.hash-parity-fixtures/all-fixtures]
-      (let [actual (rf.ssr.hash/render-tree-hash input)]
-        (is (= expected actual)
-            (str "CLJS render-tree-hash for fixture " (pr-str label)
-                 " — " rationale
-                 " — expected " (pr-str expected)
-                 ", got " (pr-str actual)
-                 " (canonical: " (pr-str (rf.ssr.hash/canonical-edn input)) ")"))))))
-
-;; ---- nil-pruning equivalence pairs ---------------------------------------
+  (doseq [{:keys [label input expected]} fixtures/all-fixtures]
+    (is (= expected (rf.ssr.hash/render-tree-hash input))
+        (str label " — canonical " (pr-str (rf.ssr.hash/canonical-edn input))))))
 
 (deftest cljs-render-tree-hash-prunes-nil-to-canonical-literal
-  (testing "Spec 011 — both the with-nil and without-nil
-            inputs MUST hash to the pinned literal under the CLJS
-            pipeline."
-    (doseq [{:keys [label input-with-nil input-without-nil expected rationale]}
-            rf.ssr.hash-parity-fixtures/nil-prune-pairs]
-      (let [h-with    (rf.ssr.hash/render-tree-hash input-with-nil)
-            h-without (rf.ssr.hash/render-tree-hash input-without-nil)]
-        (is (= expected h-without)
-            (str "CLJS no-nil canonical hash for " (pr-str label) " — "
-                 rationale " — expected " (pr-str expected)
-                 ", got " (pr-str h-without)))
-        (is (= expected h-with)
-            (str "CLJS with-nil hash MUST equal the no-nil canonical for "
-                 (pr-str label) " (pruning equivalence) — expected "
-                 (pr-str expected) ", got " (pr-str h-with)))))))
-
-;; ---- structural-invariant pairs ------------------------------------------
+  (doseq [{:keys [label input-with-nil input-without-nil expected]} fixtures/nil-prune-pairs]
+    (is (= expected (rf.ssr.hash/render-tree-hash input-without-nil)) label)
+    (is (= expected (rf.ssr.hash/render-tree-hash input-with-nil)) label)))
 
 (deftest cljs-render-tree-hash-honours-key-order-invariants
-  (testing "Spec 011 §Hydration-mismatch detection — attribute maps
-            emit in sorted-key order. Fixture pairs MUST produce
-            byte-identical hashes under the CLJS pipeline."
-    (doseq [{:keys [label input-a input-b rationale]} rf.ssr.hash-parity-fixtures/equality-pairs]
-      (let [ha (rf.ssr.hash/render-tree-hash input-a)
-            hb (rf.ssr.hash/render-tree-hash input-b)]
-        (is (= ha hb)
-            (str "CLJS key-order pair " (pr-str label) " — " rationale
-                 " — input-a → " (pr-str ha)
-                 ", input-b → " (pr-str hb)))))))
-
-;; ---- corpus distinctness ------------------------------------------------
-;;
-;; Checked once, on the JVM, by `re-frame.hash-parity-test`: the fixtures are
-;; one `.cljc` namespace with no reader conditionals, so both hosts read the
-;; same literals.
+  (doseq [{:keys [label input-a input-b]} fixtures/equality-pairs]
+    (is (= (rf.ssr.hash/render-tree-hash input-a)
+           (rf.ssr.hash/render-tree-hash input-b))
+        label)))
