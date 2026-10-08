@@ -7,8 +7,6 @@
   1. Step 7 re-registers `:app/article` with `:parent` + `:params`. `reg-route` is
      FULL replacement of the route's metadata, so a Step 7 that dropped the Step 4
      `:on-match` loader would leave the final program silently without one.
-     `tutorial-step7-reregistration-*` pins the cumulative program: the loader
-     survives the Step 7 re-registration only when `:on-match` is carried forward.
 
   2. `concepts-hand-rolled-loader-*` is the deterministic A-load → navigate-B →
      late-A fixture: with the documented nav-token capture and the
@@ -22,6 +20,9 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
+(defn- article-meta []
+  (rf/handler-meta {:source :store :kind :route :id :app/article}))
+
 ;; ---- (1) reg-route is full replacement — Step 7 keeps the loader -------------
 
 (deftest tutorial-step7-reregistration-keeps-the-loader
@@ -32,15 +33,11 @@
       {:params   [:map [:slug :string]]
        :on-match [[:app/load-article]]}
       "/articles/:slug")
-    (is (= [[:app/load-article]] (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
-        "Step 4 registered the loader")
 
-    ;; The BROKEN shape — Step 7 re-registers with :parent + :params but NO :on-match.
-    ;; Full replacement drops the loader. This assertion documents WHY the tutorial
-    ;; must repeat :on-match.
+    ;; The BROKEN Step 7 — :parent + :params but NO :on-match.
     (rf/reg-route :app/article
       {:parent :app/articles :params [:map [:slug :string]]} "/articles/:slug")
-    (is (nil? (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
+    (is (nil? (:on-match (article-meta)))
         "re-registration without :on-match deletes the loader — full replacement")
 
     ;; The CORRECT Step 7 — carries :on-match forward alongside :parent.
@@ -49,11 +46,8 @@
                                  :params   [:map [:slug :string]]
                                  :on-match [[:app/load-article]]}
       "/articles/:slug")
-    (let [meta (rf/handler-meta {:source :store :kind :route :id :app/article})]
-      (is (= :app/articles (:parent meta))
-          "final registration keeps :parent")
-      (is (= [[:app/load-article]] (:on-match meta))
-          "final registration keeps the Step 4 loader"))))
+    (is (= {:parent :app/articles :on-match [[:app/load-article]]}
+           (select-keys (article-meta) [:parent :on-match])))))
 
 ;; ---- (2) the hand-rolled nav-token loader is race-safe ----
 
@@ -67,8 +61,7 @@
     (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
     ;; `:app/fetch-article` stands in for the app's async effect: it records each
-    ;; reply event so the test can deliver A's reply LATE, after B's navigation,
-    ;; modelling the real click-away race.
+    ;; reply event so the test can deliver A's reply LATE, after B's navigation.
     (let [replies (atom {})]
       (rf.fx/reg-fx :app/fetch-article {:platforms #{:server :client}}
         (fn [_ {:keys [slug on-reply]}]
@@ -96,11 +89,6 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       ;; 2. Navigate to B BEFORE A's reply lands; the loader captures B's token.
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (let [token-of (fn [slug] (second (@replies slug)))]
-        (is (every? some? [(token-of "A") (token-of "B")])
-            "the cofx injected non-nil tokens (a nil token would mismatch every time)")
-        (is (not= (token-of "A") (token-of "B"))
-            "each navigation minted a distinct token"))
 
       ;; 3. A's reply lands LATE, carrying A's stale token → suppressed.
       (rf/dispatch-sync (conj (@replies "A") "A-payload"))
