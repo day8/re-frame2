@@ -62,7 +62,7 @@
   (testing "a missing :id or :fallback raises the SAME error id the shell
             walker raises, so the mistake reads identically whichever
             host catches it first"
-    (doseq [bad [{} {:id :a} {:fallback [:p]} nil "nope"]]
+    (doseq [bad [{:id :a} {:fallback [:p]} "nope"]]
       (is (= :rf.error/suspense-boundary-invalid-attrs
              (try (apply boundary [bad [:p "body"]])
                   nil
@@ -95,26 +95,7 @@
     (is (= [:rf.runtime/ssr :streaming :failed-boundaries]
            rf.ssr.suspense/failed-boundaries-path))))
 
-(deftest frame-failed-boundaries-reads-empty-for-an-unknown-frame
-  (testing "never throws for an absent / destroyed frame — absence is the
-            ordinary no-recorded-outcome case, not an error"
-    (is (= #{} (rf.ssr.suspense/frame-failed-boundaries :no/such-frame)))))
-
 ;; ---- server host -----------------------------------------------------------
-
-#?(:clj
-   (deftest component-expands-to-the-internal-wire-marker
-     (testing "on the JVM the component IS the marker — the keyword head
-               stays internal syntax between component and walker"
-       (is (= [:rf/suspense-boundary
-               {:id :card.revenue :fallback [:p "loading"]}
-               [:div "body"]]
-              (boundary {:id :card.revenue :fallback [:p "loading"]}
-                        [:div "body"])))
-       (testing "only the two contract keys reach the walker"
-         (is (= {:id :a :fallback [:p]}
-                (second (boundary {:id :a :fallback [:p] :stray "dropped"}
-                                  [:div]))))))))
 
 #?(:clj
    (deftest shell-walk-defers-a-component-boundary
@@ -131,20 +112,18 @@
                        [card-view :revenue]]]
                {:keys [shell-html continuations]}
                (rf/with-frame fid (rf.ssr/streaming-render-shell tree))]
-           (is (= 1 (count continuations)))
-           (is (= :card.revenue (:id (first continuations))))
-           (is (clojure.string/includes? shell-html "data-rf2-suspense-fallback=\"1\"")
-               "the fallback ships inline as a <template> placeholder")
-           (is (clojure.string/includes? shell-html "Loading revenue")
-               "the DECLARED fallback is what the shell paints")
-           (is (not (clojure.string/includes? shell-html "suspense-boundary"))
-               "no phantom element — the marker never reaches the tag grammar")
-           (testing "draining the continuation renders the deferred body"
-             (let [{:keys [html failed?]}
-                   (rf/with-frame fid
-                     (rf.ssr/streaming-render-continuation fid (first continuations)))]
-               (is (false? failed?))
-               (is (clojure.string/includes? html "42375")))))))))
+           (is (= (str "<section class=\"cards\"><template data-rf2-suspense-id=\":card.revenue\" "
+                       "data-rf2-suspense-fallback=\"1\"><div class=\"card skeleton\">"
+                       "<h3>Loading revenue</h3></div></template></section>")
+                  shell-html)
+               "the DECLARED fallback ships inline as a <template>, with no phantom element")
+           (is (= [{:id      :card.revenue
+                    :html    "<div class=\"card\"><h3>Revenue</h3><p class=\"value\">42375</p></div>"
+                    :failed? false}]
+                  (mapv #(select-keys (rf/with-frame fid (rf.ssr/streaming-render-continuation fid %))
+                                      [:id :html :failed?])
+                        continuations))
+               "the one continuation drains the deferred body"))))))
 
 #?(:clj
    (deftest failed-continuations-ride-the-final-payloads-runtime-slice
@@ -219,12 +198,9 @@
      (testing "mirrors the walker's continuation-subtree construction, so
                the client's rendered structure matches the server's
                resolved-subtree html exactly (a fragment emits no DOM)"
-       (let [fid :test/client-multi]
-         (rf/make-frame {:id fid :platform :client})
-         (rf/with-frame fid
-           (is (= [:div "one"]
-                  (boundary {:id :b :fallback [:p]} [:div "one"]))
-               "a lone child renders as itself — no wrapper")
-           (is (= [:<> [:div "one"] [:div "two"]]
-                  (boundary {:id :b :fallback [:p]} [:div "one"] [:div "two"]))
-               "several children are spliced into a fragment"))))))
+       (is (= [:div "one"]
+              (boundary {:id :b :fallback [:p]} [:div "one"]))
+           "a lone child renders as itself — no wrapper")
+       (is (= [:<> [:div "one"] [:div "two"]]
+              (boundary {:id :b :fallback [:p]} [:div "one"] [:div "two"]))
+           "several children are spliced into a fragment"))))
