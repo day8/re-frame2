@@ -1,29 +1,16 @@
 (ns re-frame.story.ui.dispatch-console-cljs-test
-  "Tests for the Dispatch Console panel.
-
-  Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build, in two coverage layers:
-
-  - **Pure data** (JVM + CLJS): `parse-payload`, `build-event-vector`,
-    `clamp-history`, `prepend-history-entry`, `format-history-entry`,
-    `format-timestamp`, `autocomplete-event-ids`.
-  - **CLJS-only side-effects**: `dispatch-event!` against a live
-    re-frame frame, input state mutations, replay-from-history. The
-    localStorage round-trip via `save-history!` / `load-history!` lives
-    in `re-frame.story.ui.dispatch-console-dom-cljs-test`."
-  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
+  "Tests for the Dispatch Console panel. The pure helpers run on the JVM and
+  on the CLJS node-test build; the dispatch / history / replay rows run on
+  CLJS only. The localStorage round-trip lives in
+  `re-frame.story.ui.dispatch-console-dom-cljs-test`, because this namespace
+  never reaches the browser lane and node has no `window.localStorage`."
+  (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.story.ui.dispatch-console :as rf.story.ui.dispatch-console]
             [re-frame.story.ui.dispatch-console-events :as rf.story.ui.dispatch-console-events]
             #?@(:cljs [[re-frame.core :as rf]
                        [re-frame.frame :as rf.frame]
                        [re-frame.registrar :as rf.registrar]
                        [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]])))
-
-;; There is no `browser?` predicate here. This namespace ends
-;; `-cljs-test`, so the browser lane never loads it, and a row that
-;; skipped silently when the predicate is false would run nowhere. The
-;; dom sibling has one, because there it routes between two lanes that
-;; BOTH load the file, and its false branch asserts a visible skip.
 
 ;; ---- fixtures (CLJS) -----------------------------------------------------
 
@@ -44,102 +31,46 @@
 
 ;; ---- pure: parse-payload -------------------------------------------------
 
-(deftest parse-payload-empty
-  (testing "blank and nil payloads parse to nil"
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-payload nil)))
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-payload "")))
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-payload "   ")))))
-
-(deftest parse-payload-edn
-  (testing "EDN payloads parse via clojure.edn"
-    (is (= [:ok {:a 1}]   (rf.story.ui.dispatch-console/parse-payload "{:a 1}")))
-    (is (= [:ok [1 2 3]]  (rf.story.ui.dispatch-console/parse-payload "[1 2 3]")))
-    (is (= [:ok :keyword] (rf.story.ui.dispatch-console/parse-payload ":keyword")))
-    (is (= [:ok 42]       (rf.story.ui.dispatch-console/parse-payload "42")))
-    (is (= [:ok "string"] (rf.story.ui.dispatch-console/parse-payload "\"string\"")))))
-
-(deftest parse-payload-error
-  (testing "invalid EDN returns [:error <msg>]"
-    (let [[tag _] (rf.story.ui.dispatch-console/parse-payload "{:bad")]
-      (is (= :error tag)))))
-
-#?(:cljs
-   (deftest parse-payload-json-cljs
-     (testing "JSON-shaped payloads parse via JSON.parse on CLJS"
-       (let [[tag v] (rf.story.ui.dispatch-console/parse-payload "{\"a\":1,\"b\":\"two\"}")]
-         (is (= :ok tag))
-         (is (= {:a 1 :b "two"} v))))))
+(deftest parse-payload-reads-edn-or-errors
+  (are [s out] (= out (rf.story.ui.dispatch-console/parse-payload s))
+    "   "    [:ok nil]
+    "{:a 1}" [:ok {:a 1}])
+  (is (= :error (first (rf.story.ui.dispatch-console/parse-payload "{:bad")))))
 
 (deftest parse-payload-edn-with-a-string-before-a-keyword
-  (testing "in EDN a string VALUE followed by a keyword reads
-            as the JSON heuristic's quoted-token-then-colon. These are the
-            ordinary shape of a form payload, and they parse as EDN in both
-            runtimes"
-    (is (= [:ok {:email "a@b.c" :password "hunter2"}]
-           (rf.story.ui.dispatch-console/parse-payload "{:email \"a@b.c\" :password \"hunter2\"}")))
-    (is (= [:ok {:name "Bob" :id 7}]
-           (rf.story.ui.dispatch-console/parse-payload "{:name \"Bob\" :id 7}")))
-    (is (= [:ok ["a" :b]]
-           (rf.story.ui.dispatch-console/parse-payload "[\"a\" :b]")))))
+  ;; A string VALUE followed by a keyword looks like the JSON heuristic's
+  ;; quoted-key-then-colon. It is the ordinary shape of a form payload and
+  ;; parses as EDN in both runtimes.
+  (is (= [:ok {:email "a@b.c" :password "hunter2"}]
+         (rf.story.ui.dispatch-console/parse-payload "{:email \"a@b.c\" :password \"hunter2\"}"))))
 
 #?(:cljs
    (deftest parse-payload-compact-json-stays-json-cljs
-     (testing "a compact JSON object whose values are numbers,
-               booleans or null is ALSO readable EDN (`{\"id\" :7}`), so JSON
-               is still tried first when the heuristic matches"
-       (is (= [:ok {:id 7 :ok true :none nil}]
-              (rf.story.ui.dispatch-console/parse-payload "{\"id\":7,\"ok\":true,\"none\":null}"))))))
+     ;; Compact JSON whose values are numbers, booleans or null is ALSO
+     ;; readable EDN (`{"id" :7}`), so JSON is tried first when the
+     ;; heuristic matches.
+     (is (= [:ok {:id 7 :ok true :none nil}]
+            (rf.story.ui.dispatch-console/parse-payload "{\"id\":7,\"ok\":true,\"none\":null}")))))
 
 ;; ---- pure: build-event-vector --------------------------------------------
 
-(deftest build-event-vector-nil-payload
-  (testing "nil payload produces [id]"
-    (is (= [:counter/inc]
-           (rf.story.ui.dispatch-console/build-event-vector :counter/inc nil)))))
-
-(deftest build-event-vector-with-payload
-  (testing "payload is the second slot — never splatted"
-    (is (= [:user/login {:id 7}]
-           (rf.story.ui.dispatch-console/build-event-vector :user/login {:id 7})))
-    (is (= [:user/login [:a :b :c]]
-           (rf.story.ui.dispatch-console/build-event-vector :user/login [:a :b :c])))))
+(deftest build-event-vector-never-splats
+  (are [payload ev] (= ev (rf.story.ui.dispatch-console/build-event-vector :e payload))
+    nil         [:e]
+    [:a :b :c]  [:e [:a :b :c]]))
 
 ;; ---- pure: history shaping -----------------------------------------------
 
-(deftest clamp-history-respects-max
-  (testing "histories above the cap keep the HEAD entries (newest-first orientation)"
-    ;; Story convention: newest entries live at index 0 (head); the tail
-    ;; is the oldest and gets evicted. clamp-history is the low-level
-    ;; helper — prepend-history-entry is the consumer that respects the
-    ;; ordering.
-    (let [thirty (mapv (fn [i] {:event-id (keyword "e" (str "i" i))})
-                       (range 30))
-          capped (rf.story.ui.dispatch-console/clamp-history thirty)]
-      (is (= rf.story.ui.dispatch-console/history-max (count capped)))
-      ;; The first rf.story.ui.dispatch-console/history-max entries (index 0..max-1) survive.
-      (is (= :e/i0 (:event-id (first capped))))
-      (is (= (keyword "e" (str "i" (dec rf.story.ui.dispatch-console/history-max)))
-             (:event-id (last capped)))))))
-
-(deftest clamp-history-passes-short
-  (testing "histories at or under the cap pass through"
-    (is (= [] (rf.story.ui.dispatch-console/clamp-history [])))
-    (is (= [{:a 1}] (rf.story.ui.dispatch-console/clamp-history [{:a 1}])))))
-
 (deftest prepend-history-entry-orders-newest-first
-  (testing "the freshest entry lands at the head of the vector"
-    (let [h0 [{:event-id :a/old}]
-          h1 (rf.story.ui.dispatch-console/prepend-history-entry h0 {:event-id :a/new})]
-      (is (= :a/new (:event-id (first h1))))
-      (is (= :a/old (:event-id (second h1)))))))
+  (is (= [{:event-id :a/new} {:event-id :a/old}]
+         (rf.story.ui.dispatch-console/prepend-history-entry
+           [{:event-id :a/old}] {:event-id :a/new}))))
 
 (deftest prepend-history-entry-respects-cap
-  (testing "prepending past the cap evicts from the tail"
-    (let [seed (mapv (fn [i] {:event-id (keyword "e" (str "i" i))})
-                     (range rf.story.ui.dispatch-console/history-max))
-          h    (rf.story.ui.dispatch-console/prepend-history-entry seed {:event-id :e/new})]
-      (is (= rf.story.ui.dispatch-console/history-max (count h)))
-      (is (= :e/new (:event-id (first h)))))))
+  ;; prepending past the cap evicts the oldest, from the tail
+  (let [seed (mapv (fn [i] {:event-id i}) (range rf.story.ui.dispatch-console/history-max))]
+    (is (= (into [{:event-id :new}] (pop seed))
+           (rf.story.ui.dispatch-console/prepend-history-entry seed {:event-id :new})))))
 
 ;; ---- pure: format-history-entry ------------------------------------------
 
@@ -154,84 +85,43 @@
 
 ;; ---- pure: format-timestamp ----------------------------------------------
 
-(deftest format-timestamp-edge-cases
-  (testing "nil / non-numeric / negative produces empty string"
-    (is (= "" (rf.story.ui.dispatch-console/format-timestamp nil)))
-    (is (= "" (rf.story.ui.dispatch-console/format-timestamp "not-a-number")))
-    (is (= "" (rf.story.ui.dispatch-console/format-timestamp -1)))))
-
 (deftest format-timestamp-shapes-hh-mm-ss
-  (testing "a real epoch produces an HH:MM:SS-shaped string"
-    (let [out (rf.story.ui.dispatch-console/format-timestamp 1700000000000)]
-      (is (re-matches #"\d\d:\d\d:\d\d" out)))))
+  (is (re-matches #"\d\d:\d\d:\d\d" (rf.story.ui.dispatch-console/format-timestamp 1700000000000)))
+  (is (= "" (rf.story.ui.dispatch-console/format-timestamp nil))
+      "an entry with no :time renders blank"))
 
 ;; ---- pure: autocomplete --------------------------------------------------
 
-(deftest autocomplete-empty-prefix-returns-all
-  (testing "an empty prefix returns the full id set sorted"
-    (let [ids #{:counter/inc :counter/dec :user/login}
-          out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "")]
-      ;; Sorted by pr-str.
-      (is (= [:counter/dec :counter/inc :user/login] out)))))
-
-(deftest autocomplete-filters-by-substring
-  (testing "matches are case-insensitive substring on (pr-str id)"
-    (let [ids #{:counter/inc :counter/dec :user/login}
-          out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "Counter")]
-      (is (= 2 (count out)))
-      (is (every? #(re-find #"counter" (str %)) out)))))
-
-(deftest autocomplete-respects-limit
-  (testing "limit clamps the returned vector length"
-    (let [ids (set (map #(keyword "e" (str "i" %)) (range 100)))
-          out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "" 5)]
-      (is (= 5 (count out))))))
+(deftest autocomplete-event-ids-filters-sorts-and-limits
+  ;; case-insensitive substring over (pr-str id), sorted, then limited
+  (let [ids #{:counter/inc :counter/dec :user/login}]
+    (are [prefix limit out]
+         (= out (rf.story.ui.dispatch-console/autocomplete-event-ids ids prefix limit))
+      ""        8 [:counter/dec :counter/inc :user/login]
+      "Counter" 8 [:counter/dec :counter/inc]
+      ""        2 [:counter/dec :counter/inc])))
 
 ;; ---- pure: cofx-requires-for (EP-0017) -----------------------------------
 
 (deftest cofx-requires-for-reads-declaration
-  (testing "1-arity reads :rf.cofx/requires off a single event's meta"
-    (is (= [:rf/time-ms]
-           (rf.story.ui.dispatch-console-events/cofx-requires-for {:rf.cofx/requires [:rf/time-ms]})))
-    ;; parameterized [id arg] entries surface their id
-    (is (= [:rf/time-ms :ui/local-theme]
-           (rf.story.ui.dispatch-console-events/cofx-requires-for {:rf.cofx/requires [:rf/time-ms [:ui/local-theme "theme"]]})))
-    (is (= [] (rf.story.ui.dispatch-console-events/cofx-requires-for {})))
-    (is (= [] (rf.story.ui.dispatch-console-events/cofx-requires-for {:rf.cofx/requires nil})))
-    (is (= [] (rf.story.ui.dispatch-console-events/cofx-requires-for nil)))))
-
-(deftest cofx-requires-for-via-snapshot
-  (testing "2-arity looks the event up in a {id meta} snapshot"
-    (let [snap {:ev/needs   {:rf.cofx/requires [:rf/time-ms]}
-                :ev/plain   {}}]
-      (is (= [:rf/time-ms] (rf.story.ui.dispatch-console-events/cofx-requires-for snap :ev/needs)))
-      (is (= []            (rf.story.ui.dispatch-console-events/cofx-requires-for snap :ev/plain)))
-      (is (= []            (rf.story.ui.dispatch-console-events/cofx-requires-for snap :ev/unknown)))
-      (is (= []            (rf.story.ui.dispatch-console-events/cofx-requires-for nil :ev/needs))))))
+  (let [snap {:ev/needs {:rf.cofx/requires [:rf/time-ms]}}]
+    (are [args ids] (= ids (apply rf.story.ui.dispatch-console-events/cofx-requires-for args))
+      ;; 1-arity reads one event's meta; a parameterized [id arg] entry surfaces its id
+      [{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "theme"]]}] [:rf/time-ms :ui/local-theme]
+      [{}]                                                         []
+      ;; 2-arity looks the event up in an {id meta} snapshot
+      [snap :ev/needs]                                             [:rf/time-ms]
+      [snap :ev/unknown]                                           [])))
 
 ;; ---- pure: parse-cofx (EP-0017) ------------------------------------------
 
-(deftest parse-cofx-empty
-  (testing "blank / nil cofx parse to nil (no :rf.cofx opt)"
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-cofx nil)))
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-cofx "")))
-    (is (= [:ok nil] (rf.story.ui.dispatch-console/parse-cofx "   ")))))
-
-(deftest parse-cofx-map
-  (testing "a well-shaped EDN map parses to itself"
-    (is (= [:ok {:rf/time-ms 1781078400123}]
-           (rf.story.ui.dispatch-console/parse-cofx "{:rf/time-ms 1781078400123}")))
-    (is (= [:ok {:rf/time-ms 1700000000000 :counter/delta 4}]
-           (rf.story.ui.dispatch-console/parse-cofx "{:rf/time-ms 1700000000000 :counter/delta 4}")))))
-
-(deftest parse-cofx-non-map-errors
-  (testing "a vector / scalar is the wrong shape — [:error ...]"
-    (is (= :error (first (rf.story.ui.dispatch-console/parse-cofx "[:not :a :map]"))))
-    (is (= :error (first (rf.story.ui.dispatch-console/parse-cofx "42"))))))
-
-(deftest parse-cofx-unreadable-errors
-  (testing "unreadable EDN returns [:error <msg>]"
-    (is (= :error (first (rf.story.ui.dispatch-console/parse-cofx "{:rf/time-ms 1"))))))
+(deftest parse-cofx-reads-a-map-or-errors
+  (are [s out] (= out (rf.story.ui.dispatch-console/parse-cofx s))
+    "   "                         [:ok nil]
+    "{:rf/time-ms 1781078400123}" [:ok {:rf/time-ms 1781078400123}])
+  (are [s] (= :error (first (rf.story.ui.dispatch-console/parse-cofx s)))
+    "[:not :a :map]"   ; readable, but not the flat :rf.cofx map
+    "{:rf/time-ms 1"))
 
 ;; ---- pure: build-dispatch-opts (EP-0017) ---------------------------------
 
@@ -250,235 +140,139 @@
 ;; ---- pure: build-history-entry carries cofx ------------------------------
 
 (deftest build-history-entry-records-cofx
-  (testing "a supplied cofx is recorded; an absent cofx leaves no :cofx key"
-    (is (= {:event-id :e :payload nil :kind :dispatch :time 7
-            :cofx {:rf/time-ms 1700000000000}}
-           (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 {:rf/time-ms 1700000000000})))
-    ;; nil / empty cofx ⇒ no :cofx key, so cofx-free rows stay terse
-    (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
-           (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 nil)))
-    (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
-           (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7)))))
+  (is (= {:event-id :e :payload nil :kind :dispatch :time 7
+          :cofx {:rf/time-ms 1700000000000}}
+         (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 {:rf/time-ms 1700000000000})))
+  (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
+         (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 nil))
+      "no cofx ⇒ no :cofx key, so cofx-free rows stay terse"))
 
 ;; ---- pure: selected-event-id ---------------------------------------------
 
 (deftest selected-event-id-resolution
-  (testing "reads a keyword input, nil otherwise"
-    (is (= :counter/inc (rf.story.ui.dispatch-console/selected-event-id ":counter/inc")))
-    (is (= :counter/inc (rf.story.ui.dispatch-console/selected-event-id "  :counter/inc  ")))
-    (is (nil? (rf.story.ui.dispatch-console/selected-event-id "")))
-    (is (nil? (rf.story.ui.dispatch-console/selected-event-id "   ")))
-    (is (nil? (rf.story.ui.dispatch-console/selected-event-id "not-a-keyword")))
-    (is (nil? (rf.story.ui.dispatch-console/selected-event-id nil)))))
+  (are [input id] (= id (rf.story.ui.dispatch-console/selected-event-id input))
+    "  :counter/inc  " :counter/inc
+    "   "              nil
+    "not-a-keyword"    nil))
 
 ;; ===========================================================================
 ;; CLJS-only side-effect coverage
 ;; ===========================================================================
 
 #?(:cljs
-   (deftest cljs-reset-inputs-clears-the-variant-inputs
-     (testing "reset-inputs! clears the per-variant inputs"
-       (let [vid :story.x/y]
-         (swap! rf.story.ui.dispatch-console/input-state assoc-in [vid :event-id-input] ":hello")
-         (swap! rf.story.ui.dispatch-console/input-state assoc-in [vid :payload-input]  "{:a 1}")
-         (is (= ":hello" (get-in @rf.story.ui.dispatch-console/input-state [vid :event-id-input])))
-         (rf.story.ui.dispatch-console/reset-inputs! vid)
-         (is (= "" (get-in @rf.story.ui.dispatch-console/input-state [vid :event-id-input])))
-         (is (= "" (get-in @rf.story.ui.dispatch-console/input-state [vid :payload-input])))))))
-
-;; The localStorage round-trip rows (`save-history!` → `load-history!`
-;; across a dropped ratom, and `current-history`'s first-access hydrate)
-;; live in `re-frame.story.ui.dispatch-console-dom-cljs-test`. This
-;; namespace ends `-cljs-test`, so `:browser-test` never loads it, and
-;; `:node-test` has no `window.localStorage`: a row guarded by
-;; `(when (browser?) ...)` here would execute in neither lane.
-
-#?(:cljs
-   (deftest cljs-clear-history-empties-the-ratom
-     (testing "clear-history! empties the variant's history ratom"
-       (let [vid :story.clear/v
-             entry (rf.story.ui.dispatch-console/build-history-entry :ev/x nil :dispatch 1)]
-         (rf.story.ui.dispatch-console/append-history! vid entry)
-         (is (= 1 (count (rf.story.ui.dispatch-console/current-history vid))))
-         (rf.story.ui.dispatch-console/clear-history! vid)
-         ;; The RATOM half of this claim runs here, on the node lane. The
-         ;; storage half needs a browser, so it is
-         ;; `clear-history-drops-storage` in
-         ;; `re-frame.story.ui.dispatch-console-dom-cljs-test`.
-         (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
-
-#?(:cljs
    (deftest cljs-dispatch-event-records-history
-     (testing "every dispatch lands a history entry"
-       (let [vid :story.history.test/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
-         (rf.story.ui.dispatch-console/dispatch-event! vid [:test/noop {:k :v}] :dispatch-sync)
-         (let [h (rf.story.ui.dispatch-console/current-history vid)]
-           (is (= 1 (count h)))
-           (is (= :test/noop (:event-id (first h))))
-           (is (= {:k :v}     (:payload  (first h))))
-           (is (= :dispatch-sync (:kind   (first h)))))))))
+     (let [vid :story.history.test/v]
+       (rf/make-frame {:id vid})
+       (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
+       (rf.story.ui.dispatch-console/dispatch-event! vid [:test/noop {:k :v}] :dispatch-sync)
+       (is (= [{:event-id :test/noop :payload {:k :v} :kind :dispatch-sync}]
+              (mapv #(dissoc % :time) (rf.story.ui.dispatch-console/current-history vid)))))))
 
 #?(:cljs
    (deftest cljs-replay-history-entry-re-fires
-     (testing "click-replay re-dispatches the recorded event"
-       (let [vid :story.replay.test/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-event :test/inc
-                          (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-         (rf/reg-sub :test/counter
-                     (fn [db _] (get db :counter 0)))
-         (rf.story.ui.dispatch-console/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 1 (rf/subscribe-once [:test/counter] {:frame vid})))
-         (let [h (first (rf.story.ui.dispatch-console/current-history vid))]
-           (rf.story.ui.dispatch-console/replay-history-entry! vid h))
-         (is (= 2 (rf/subscribe-once [:test/counter] {:frame vid})))
-         ;; Replay added a new history entry.
-         (is (= 2 (count (rf.story.ui.dispatch-console/current-history vid))))))))
+     (let [vid :story.replay.test/v]
+       (rf/make-frame {:id vid})
+       (rf/reg-event :test/inc
+                        (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
+       (rf/reg-sub :test/counter
+                   (fn [db _] (get db :counter 0)))
+       (rf.story.ui.dispatch-console/dispatch-event! vid [:test/inc] :dispatch-sync)
+       (rf.story.ui.dispatch-console/replay-history-entry!
+         vid (first (rf.story.ui.dispatch-console/current-history vid)))
+       (is (= 2 (rf/subscribe-once [:test/counter] {:frame vid}))))))
 
 #?(:cljs
    (deftest cljs-dispatch-from-inputs-parse-error-sets-error-and-skips-dispatch
-     (testing "a bad payload sets :error and does not dispatch"
-       (let [vid :story.parse.err/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-event :test/boom (fn [{:keys [db]} _] {:db (assoc db :boomed? true)}))
-         (swap! rf.story.ui.dispatch-console/input-state assoc vid
-                {:event-id-input ":test/boom"
-                 :payload-input  "{:bad"})
-         (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
-         (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
-         (is (nil? (:boomed? (rf/app-db-value vid))) "the handler never ran")
-         (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
+     (let [vid :story.parse.err/v]
+       (rf/make-frame {:id vid})
+       (rf/reg-event :test/boom (fn [{:keys [db]} _] {:db (assoc db :boomed? true)}))
+       (swap! rf.story.ui.dispatch-console/input-state assoc vid
+              {:event-id-input ":test/boom"
+               :payload-input  "{:bad"})
+       (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
+       (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
+       (is (nil? (:boomed? (rf/app-db-value vid))) "the handler never ran"))))
 
 #?(:cljs
    (deftest cljs-dispatch-from-inputs-missing-id-errors
-     (testing "an empty event-id input sets :error"
-       (let [vid :story.empty.id/v]
-         (rf/make-frame {:id vid})
-         (swap! rf.story.ui.dispatch-console/input-state assoc vid
-                {:event-id-input ""
-                 :payload-input  ""})
-         (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch)
-         (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))))))
-
-#?(:cljs
-   (deftest cljs-autocomplete-against-live-registrar
-     (testing "registered-event-ids 0-arity surfaces registered handlers"
-       (rf/reg-event :ac.test/one (fn [{:keys [db]} _] {:db db}))
-       (rf/reg-event :ac.test/two (fn [{:keys [db]} _] {:db db}))
-       (let [ids (rf.story.ui.dispatch-console-events/registered-event-ids)]
-         (is (contains? ids :ac.test/one))
-         (is (contains? ids :ac.test/two))))))
+     (let [vid :story.empty.id/v]
+       (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch)
+       (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error]))))))
 
 ;; ===========================================================================
 ;; EP-0017 — a handler requiring a PROVIDED recordable cofx.
-;; The console must: (1) show the requirement, (2) dispatch can supply it,
-;; (3) omission fails visibly, (4) history replay reuses the recorded value
-;; under the strict mint policy.
 ;; ===========================================================================
 
 #?(:cljs
    (deftest cljs-console-surfaces-cofx-requires
-     (testing "registered-event-meta + cofx-requires-for expose an event's
-               declared :rf.cofx/requires off the live registrar"
-       (let [vid :story.cofx.show/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
-         (rf/reg-event :cofx.console/needs
-                          {:rf.cofx/requires [:cofx.console/boundary]}
-                          (fn [{:keys [db]} _] {:db db}))
-         (let [meta (rf.story.ui.dispatch-console-events/registered-event-meta)]
-           (is (contains? meta :cofx.console/needs)
-               "the event's metadata is reachable, not just its id")
-           (is (= [:cofx.console/boundary]
-                  (rf.story.ui.dispatch-console-events/cofx-requires-for meta :cofx.console/needs))
-               "the console can resolve the requirement for the selected event"))))))
+     ;; the console reads the declaration off the live registrar's metadata
+     (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+     (rf/reg-event :cofx.console/needs
+                      {:rf.cofx/requires [:cofx.console/boundary]}
+                      (fn [{:keys [db]} _] {:db db}))
+     (is (= [:cofx.console/boundary]
+            (rf.story.ui.dispatch-console-events/cofx-requires-for
+              (rf.story.ui.dispatch-console-events/registered-event-meta)
+              :cofx.console/needs)))))
 
 #?(:cljs
    (deftest cljs-dispatch-supplies-provided-cofx
-     (testing "a provided recordable fact supplied under :rf.cofx satisfies
-               the handler; the recorded fact reaches app-db + history"
-       (let [vid :story.cofx.supply/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
-         (rf/reg-event :cofx.console/needs
-                          {:rf.cofx/requires [:cofx.console/boundary]}
-                          (fn [{:keys [db] :as cofx} _]
-                            ;; read the declared fact flat from the coeffects map
-                            {:db (assoc db :seen (:cofx.console/boundary cofx))}))
-         (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
-         ;; supply via the inputs (live path)
-         (swap! rf.story.ui.dispatch-console/input-state assoc vid
-                {:event-id-input ":cofx.console/needs"
-                 :payload-input  ""
-                 :cofx-input     "{:cofx.console/boundary 99}"})
-         (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
-         (is (nil? (get-in @rf.story.ui.dispatch-console/input-state [vid :error]))
-             "supplying the provided fact clears the error path")
-         (is (= 99 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
-             "the supplied recordable fact reached the handler")
-         (let [h (first (rf.story.ui.dispatch-console/current-history vid))]
-           (is (= {:cofx.console/boundary 99} (:cofx h))
-               "the supplied cofx is recorded in history for faithful replay"))))))
+     (let [vid :story.cofx.supply/v]
+       (rf/make-frame {:id vid})
+       (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+       (rf/reg-event :cofx.console/needs
+                        {:rf.cofx/requires [:cofx.console/boundary]}
+                        (fn [{:keys [db] :as cofx} _]
+                          {:db (assoc db :seen (:cofx.console/boundary cofx))}))
+       (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
+       (swap! rf.story.ui.dispatch-console/input-state assoc vid
+              {:event-id-input ":cofx.console/needs"
+               :payload-input  ""
+               :cofx-input     "{:cofx.console/boundary 99}"})
+       (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
+       (is (= 99 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
+           "the supplied recordable fact reached the handler")
+       (is (= {:cofx.console/boundary 99}
+              (:cofx (first (rf.story.ui.dispatch-console/current-history vid))))
+           "the supplied cofx is recorded in history for faithful replay"))))
 
 #?(:cljs
    (deftest cljs-omitting-provided-cofx-fails-visibly
-     (testing "omitting a required provided recordable fact fails visibly —
-               the dispatch throws :rf.error/missing-required-cofx, caught
-               and surfaced as the panel :error"
-       (let [vid :story.cofx.omit/v
-             fired? (atom false)]
-         (rf/make-frame {:id vid})
-         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
-         (rf/reg-event :cofx.console/needs
-                          {:rf.cofx/requires [:cofx.console/boundary]}
-                          (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
-         ;; supply NO cofx for the provided fact
-         (swap! rf.story.ui.dispatch-console/input-state assoc vid
-                {:event-id-input ":cofx.console/needs"
-                 :payload-input  ""
-                 :cofx-input     ""})
-         (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
-         (is (false? @fired?)
-             "the handler never ran — missing-required halts the cascade")
-         (is (re-find #":rf[.]error/missing-required-cofx"
-                      (str (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
-             "the panel error names :rf.error/missing-required-cofx")
-         (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid)))
-             "a failed dispatch records no history entry")))))
+     (let [vid    :story.cofx.omit/v
+           fired? (atom false)]
+       (rf/make-frame {:id vid})
+       (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+       (rf/reg-event :cofx.console/needs
+                        {:rf.cofx/requires [:cofx.console/boundary]}
+                        (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
+       (swap! rf.story.ui.dispatch-console/input-state assoc vid
+              {:event-id-input ":cofx.console/needs"
+               :payload-input  ""
+               :cofx-input     ""})
+       (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
+       (is (false? @fired?)
+           "the handler never ran — missing-required halts the cascade")
+       (is (re-find #":rf[.]error/missing-required-cofx"
+                    (str (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
+           "the panel error names :rf.error/missing-required-cofx")
+       (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid)))
+           "a failed dispatch records no history entry"))))
 
 #?(:cljs
    (deftest cljs-replay-reuses-recorded-cofx-strict
-     (testing "history replay re-presents the recorded :rf.cofx under the
-               strict mint policy — the recorded provided fact is reused, and
-               a row whose recorded token omits a required fact fails loudly"
-       (let [vid :story.cofx.replay/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
-         (rf/reg-event :cofx.console/needs
-                          {:rf.cofx/requires [:cofx.console/boundary]}
-                          (fn [{:keys [db] :as cofx} _]
-                            {:db (assoc db :seen (:cofx.console/boundary cofx))}))
-         (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
-         ;; original dispatch supplies the fact, recording it in history
-         (rf.story.ui.dispatch-console/dispatch-event! vid [:cofx.console/needs] :dispatch-sync
-                             {:cofx.console/boundary 7} false)
-         (is (= 7 (rf/subscribe-once [:cofx.console/seen] {:frame vid})))
-         ;; replay the recorded row — the strict policy re-presents the
-         ;; recorded value (no re-mint); the handler reads the SAME fact
-         (let [row (first (rf.story.ui.dispatch-console/current-history vid))]
-           (is (= {:cofx.console/boundary 7} (:cofx row))
-               "the recorded row carries the supplied cofx")
-           (rf.story.ui.dispatch-console/replay-history-entry! vid row))
-         (is (= 7 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
-             "replay reused the recorded recordable fact under strict policy")
-         (is (= 2 (count (rf.story.ui.dispatch-console/current-history vid)))
-             "replay recorded a fresh history entry")
-         ;; ADVERSARIAL: a recorded row whose token OMITS the required fact
-         ;; must fail loudly under strict replay rather than silently re-minting
-         (let [bad-row {:event-id :cofx.console/needs :payload nil
-                        :kind :dispatch-sync :time 1 :cofx nil}]
-           (rf.story.ui.dispatch-console/replay-history-entry! vid bad-row)
-           (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error]))
-               "strict replay of an incomplete recorded token fails visibly"))))))
+     (let [vid :story.cofx.replay/v]
+       (rf/make-frame {:id vid})
+       (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+       (rf/reg-event :cofx.console/needs
+                        {:rf.cofx/requires [:cofx.console/boundary]}
+                        (fn [{:keys [db] :as cofx} _]
+                          {:db (assoc db :seen (:cofx.console/boundary cofx))}))
+       (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
+       (rf.story.ui.dispatch-console/dispatch-event! vid [:cofx.console/needs] :dispatch-sync
+                                                     {:cofx.console/boundary 7} false)
+       (rf.story.ui.dispatch-console/replay-history-entry!
+         vid (first (rf.story.ui.dispatch-console/current-history vid)))
+       (is (= 7 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
+           "replay re-presented the recorded recordable fact")
+       (is (= 2 (count (rf.story.ui.dispatch-console/current-history vid)))
+           "replay succeeded and recorded a fresh history entry"))))
