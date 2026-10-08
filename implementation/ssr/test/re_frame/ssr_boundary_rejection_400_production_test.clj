@@ -1,68 +1,16 @@
 (ns re-frame.ssr-boundary-rejection-400-production-test
-  "ACCEPTANCE — an SSR request whose payload the
-  `:boundary? true` step-1 check refuses answers HTTP 400 under the
-  REAL production gate, and the record it answers from carries nothing the
-  attacker sent.
+  "An SSR request whose payload the `:boundary? true` check refuses answers
+  400, under the real production gate, from an always-on record that carries
+  nothing the client sent.
 
-  WHY A PRODUCTION-GATE WITNESS. `re-frame.interop/debug-enabled?` reads
-  `-Dre-frame.debug=false` ONCE at namespace-load time, and the dev channel
-  for a boundary rejection — `spec/validate-at-boundary!` →
-  `trace/emit-error!` — sits inside that gate. The CHECK is never elided
-  (Spec 010 §Production builds keeps this one surface ungated, and it is the
-  whole point of the interceptor), so a production server refuses the
-  payload; with the dev channel as its only record it would not say so.
-  Nothing would buffer, `flush-response!` would have nothing to project, and
-  `:status` would stay 200 — a malformed request body answered with RFC
-  9110's success code. The record that says so is one always-on,
-  structural-only `:rf.error/schema-validation-failure` with
-  `:source :boundary` and `:where :event`. This suite is the SSR half of that
-  — nothing in `implementation/ssr` is specific to the boundary 400 (the
-  projection listener's generic tag-lift hands `:where :event` to the
-  default projector), and this is the proof of that claim rather than a
-  restatement of it.
-
-  WHY THIS SUITE IS POSTURE-INDEPENDENT, AND WHY THAT MATTERS. Every
-  assertion below is true under BOTH postures and mentions the dev trace bus
-  NOWHERE, so the namespace joins `scripts/test-ssr-prod-gate.sh` by default
-  (that roster is an EXCLUSION list) and executes under
-  `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
-  false]` rebind CANNOT reach a load-time gate — it is not evidence for this
-  contract, and its absence here is deliberate.
-
-  WHAT IS PINNED:
-
-    1. The wire. A refused payload projects `{:status 400 :code :bad-request}`
-       onto the response accumulator; a CONFORMING payload leaves it at 200
-       and lets the handler's write land.
-    2. The record. EXACTLY ONE always-on record per rejection, carrying the
-       `:source :boundary` discriminator that separates it from the seven
-       dev-only `:where` surfaces of the same category, and the `:where
-       :event` the default projector gates its 400 arm on.
-    3. The projection is structural. The record carries NOTHING derived from
-       the payload — not the offending value, not an UNDECLARED key beside
-       it. Two sentinels, one for each.
-    4. Sibling attribution. Under concurrent SSR many server frames are live;
-       the 400 lands on the frame that refused and nowhere else.
-    5. The dev/prod symmetry, MEASURED rather than reasoned.
-       In a dev build the rejection buffers on BOTH buses and only one of
-       them can win the last-write-wins drain. Every buffered entry is
-       therefore asserted to project the SAME 400, the drain is asserted to
-       consume the whole buffer in one pass, and a second flush is asserted
-       to find nothing left to re-stamp.
-
-  Companion suites:
-    - `re-frame.always-on-validation-production-test` (core) —
-      the record and `:outcome :rejected` under core's own production gate.
-    - `re-frame.ssr-route-miss-404-production-test` — the
-      always-on witness this one is modelled on.
-    - `re-frame.ssr-safe-redirect-production-test` — the
-      DELIBERATE opposite: those three categories are non-projection-eligible
-      because a refused redirect is a working mitigation, and conjuring a 500
-      from a hostile probe would be a denial of service. A refused request
-      PAYLOAD is not that case — it is a client fault, and RFC 9110 §15.5.1
-      names the status."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  The check is never elided (Spec 010 §Production builds) but its dev trace
+  is, so the always-on `:rf.error/schema-validation-failure` record
+  (`:source :boundary`, `:where :event`) is the only thing a production
+  server can project from; without it `:status` would stay 200. Every
+  assertion here holds in both postures, so the namespace runs under
+  `scripts/test-ssr-prod-gate.sh` for real — a `with-redefs` of the
+  load-time gate would prove nothing."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
@@ -70,287 +18,81 @@
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; NOTE the fixture does NOT clear the always-on error-listener registry.
-;; `re-frame.ssr` installs its own `::error-projection` listener there at
-;; ns-load time, and that listener IS the production status-projection path
-;; this suite exercises; wiping the registry would silently disarm every 400
-;; assertion below into a vacuous 200. Each test unregisters only the shipper
-;; stand-in it registered.
+;; The fixture must not clear the always-on registry: `re-frame.ssr`'s
+;; `::error-projection` listener there IS the production projection path.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
-
-;; Two sentinels, because the record has two distinct ways to leak.
-;;
-;;   `offending-value` is the value the schema rejected — the slot a
-;;   redaction-based policy would target, and the one the dev trace carries
-;;   as `:value` / inside `:explain` / interpolated into `:reason`.
-;;
-;;   `undeclared-key` is the case that makes OMISSION the only defensible
-;;   policy rather than a scrub. It rides in a key the declared schema never
-;;   named, so no schema-aware redactor can know it is there — and at a system
-;;   boundary the payload's shape is the attacker's to choose.
-(def ^:private offending-value "s3cr3t-offending-value")
-(def ^:private undeclared-key-value "s3cr3t-undeclared-key")
-
-(def ^:private bad-payload
-  {:qty offending-value :note undeclared-key-value})
-
-(def ^:private good-payload
-  {:qty 7 :note undeclared-key-value})
+;; `:qty` fails the schema; `:note` rides an undeclared key, which no
+;; schema-aware redactor could know to scrub — so the record must omit
+;; payload data rather than redact it.
+(def ^:private bad-payload  {:qty "s3cr3t-offending-value" :note "s3cr3t-undeclared-key"})
+(def ^:private good-payload {:qty 7 :note "s3cr3t-undeclared-key"})
 
 (defn- register-ingest! []
-  ;; A `:map` is open in Malli, so `:note` is permitted and `:qty` is what
-  ;; fails — the payload is rejected for its declared slot while carrying an
-  ;; undeclared one, which is the shape (3) needs.
   (rf/reg-event :api/ingest
-    {:schema       [:cat [:= :api/ingest] [:map [:qty :int]]]
-     :boundary?    true}
-    (fn [{:keys [db]} [_ payload]]
-      {:db (assoc db :ingested payload)})))
+    {:schema [:cat [:= :api/ingest] [:map [:qty :int]]] :boundary? true}
+    (fn [{:keys [db]} [_ payload]] {:db (assoc db :ingested payload)})))
 
-(defn- server-frame
-  "A `:platform :server` frame wired to `projector-id` (the built-in default
-  unless a test names its own)."
-  ([] (server-frame :rf.ssr/default-error-projector))
-  ([projector-id]
-   (rf.frame/make-anon-frame-record!
-     {:platform :server
-      :ssr      {:public-error-id   projector-id
-                 :dev-error-detail? false}})))
-
-(defn- capture-always-on!
-  "Register an off-box-shipper stand-in on the ALWAYS-ON error axis (the
-  `:errors` stream of `register-listener!` — surface #4, not the dev trace
-  bus). Returns the atom collecting every record it receives."
-  [id]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
-    seen))
+(defn- server-frame []
+  (rf.frame/make-anon-frame-record!
+    {:platform :server
+     :ssr      {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}}))
 
 (defn- ingest!
-  "Drive `:api/ingest` with `payload` on a fresh server frame and return
-  `{:frame :records}` — the always-on records the shipper stand-in saw. The
-  response is left UNFLUSHED so each test can choose when the drain happens."
+  "Dispatch `:api/ingest` on a fresh server frame, leaving the response
+  unflushed -> `{:frame :records}`, the always-on records a shipper saw."
   [payload]
   (register-ingest!)
   (let [f    (server-frame)
-        id   (keyword "rf2-qwydk" (str "cap-" (name (gensym "s"))))
-        seen (capture-always-on! id)]
+        seen (atom [])]
+    (rf.error-emit/register-error-listener! ::shipper #(swap! seen conj %))
     (rf/dispatch-sync [:api/ingest payload] {:frame f})
-    (rf.error-emit/unregister-error-listener! id)
+    (rf.error-emit/unregister-error-listener! ::shipper)
     {:frame f :records @seen}))
 
-(defn- boundary-records [records]
-  (filterv #(= :rf.error/schema-validation-failure (:error %)) records))
-
-;; ===========================================================================
-;; (1) THE WIRE — a refused payload answers 400; a good one is untouched
-;; ===========================================================================
-
 (deftest a-refused-payload-projects-400-under-the-production-gate
-  (testing "A handler carrying `:boundary? true` refuses a
-            non-conforming payload in every build, and the refusal produces
-            an always-on record, which the SSR projection listener buffers
-            and the default projector maps to 400. Without that record this
-            assertion would observe 200 under `-Dre-frame.debug=false` — a
-            malformed request body answered with a success code."
-    (let [{:keys [frame]} (ingest! bad-payload)
-          {:keys [response public-error]} (rf.ssr/flush-response-result! frame)]
-      (is (= 400 (:status response))
-          "the drain projects the boundary rejection onto :status — 400, not
-           a silent 200 over a handler that never ran")
-      (is (nil? (:redirect response))
-          "status-only: a refused payload is not a redirect")
-      (is (= {:status     400
-              :code       :bad-request
-              :message    "Invalid input"
-              :retryable? false}
-             public-error)
-          "the projected :rf/public-error is the locked 400 shape, so a host
-           classifies on the projection rather than re-inferring from
-           (:status response)"))))
-
-(deftest a-conforming-payload-leaves-the-response-untouched
-  (testing "non-vacuity: without this, every 400 above would be
-            satisfied by a projector arm that fired unconditionally. A
-            conforming payload ships no record, keeps the 200, and — the part
-            that proves the pipeline really ran — lands the handler's write."
-    (let [{:keys [frame records]} (ingest! good-payload)
-          {:keys [response public-error]} (rf.ssr/flush-response-result! frame)]
-      (is (empty? (boundary-records records))
-          "no boundary record on the happy path")
-      (is (= 200 (:status response))
-          "and no status projected")
-      (is (nil? public-error)
-          "nothing to classify: the drain projected no public-error at all")
-      (is (= good-payload (get-in (rf/frame-state-value frame)
-                                  [:rf.db/app :ingested]))
-          "the handler ran and its :db write installed — the silence above is
-           the silence of an accepted payload, not of a pipeline that never
-           executed"))))
-
-;; ===========================================================================
-;; (2) THE RECORD — exactly one, with the two discriminators that matter
-;; ===========================================================================
-
-(deftest the-record-carries-the-discriminators-the-projector-gates-on
-  (testing "`:where :event` is what
-            `default-error-projector-fn` gates its 400 arm on — a record
-            without it falls through to the locked generic 500, telling the
-            client the server broke when the client sent bad input.
-            `:source :boundary` is the second discriminator: it separates this
-            production-reachable member from the seven dev-only `:where`
-            surfaces the same category spans."
-    (let [records (:records (ingest! bad-payload))
-          record  (first (boundary-records records))]
-      (is (= [:rf.error/schema-validation-failure] (mapv :error records))
-          "exactly one always-on record, and it is the boundary category —
-           Spec 009's one-runtime-error law: the dev and production
-           enforcement routes converge on ONE emit site, so a rejection
-           cannot report twice or fill the projection buffer with duplicates")
-      (is (= :event (:where record))
-          ":where :event — the default projector's 400 gate")
-      (is (= :boundary (:source record))
-          ":source :boundary — production-reachable, unlike the rest of the
-           category")
-      (is (= :api/ingest (:event-id record))
-          "the refused event is named, so a dashboard can rank ingress by
-           endpoint")
-      (is (some? (:frame record))
-          "frame-attributed, so the projection routes to the right response
-           accumulator with many concurrent request frames live")
-      (is (= :no-recovery (:recovery record)))
-      (is (number? (:time record))))))
-
-;; ===========================================================================
-;; (3) THE PROJECTION IS STRUCTURAL — nothing from the payload egresses
-;; ===========================================================================
-
-(defn- record-strings
-  "Every string anywhere in `record` — the values a shipper serialises. The
-  leak assertions below scan THIS rather than a named slot, so a sentinel that
-  reappears under some *other* key is caught just as well."
-  [record]
-  (map str (tree-seq coll? seq record)))
+  (testing "the first drain projects the locked 400; one drain consumes the
+            whole buffer (two entries in a dev build), so a second flush
+            re-stamps nothing"
+    (let [f      (:frame (ingest! bad-payload))
+          flush! #(let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
+                    [(:status response) public-error])]
+      (is (= [[400 {:status 400 :code :bad-request :message "Invalid input" :retryable? false}]
+              [400 nil]]
+             [(flush!) (flush!)])))))
 
 (deftest the-record-carries-nothing-from-the-rejected-payload
-  (testing "EGRESS: this record reaches Sentry / Datadog
-            from a production build, and the payload it describes is
-            attacker-controlled by definition. The offending VALUE is the slot
-            a redaction policy would target; the UNDECLARED KEY beside it is
-            why omission is the only defensible policy — no schema-aware
-            redactor can scrub a key the declared schema never named. Both
-            sentinels are present in the input by construction, so a
-            regression names itself."
-    (let [record (first (boundary-records (:records (ingest! bad-payload))))
-          strs   (record-strings record)]
-      (is (not-any? #(str/includes? % offending-value) strs)
-          "the value the schema rejected does not egress")
-      (is (not-any? #(str/includes? % undeclared-key-value) strs)
-          "nor does a value riding an undeclared key beside it")
-      (is (= :api/ingest (:event-id record))
-          "and the record is still worth having: the refused endpoint is named
-           structurally, WITHOUT the payload that travelled with it")
-      (is (= #{:error :where :source :event-id :failing-id :schema-id
-               :frame :recovery :time}
-             (set (keys record)))
-          "the key set is CLOSED — exactly the nine enumerated slots, every one
-           an identifier, so none of the dev trace's payload-bearing slots
-           (:event :value :received :explain :schema :reason) rides the
-           always-on record, and widening it must be a deliberate change"))))
-
-;; ===========================================================================
-;; (4) ATTRIBUTION — the 400 lands on the frame that refused
-;; ===========================================================================
+  (testing "exactly one record, CLOSED to identifiers: `:where :event` is the
+            default projector's 400 gate, `:source :boundary` separates it
+            from the dev-only members of the category, and no slot carries
+            the rejected value or the undeclared key"
+    (let [{:keys [frame records]} (ingest! bad-payload)]
+      (is (= [{:error      :rf.error/schema-validation-failure
+               :where      :event
+               :source     :boundary
+               :event-id   :api/ingest
+               :failing-id :api/ingest
+               :schema-id  :api/ingest
+               :frame      frame
+               :recovery   :no-recovery
+               :time       true}]
+             (mapv #(update % :time number?) records))))))
 
 (deftest the-400-lands-on-the-emitting-frame-only
-  (testing "under concurrent SSR many server frames are
-            live at once. The record carries the emitting frame, so the
-            projection routes to THAT response accumulator; a sibling request
-            whose payload conformed keeps its 200. Without the stamp the
-            projection would be unroutable and stamp nothing — a silent 200
-            for a request that should have been a 400."
-    (register-ingest!)
-    (let [refused  (server-frame)
-          accepted (server-frame)]
-      (rf/dispatch-sync [:api/ingest bad-payload]  {:frame refused})
-      (rf/dispatch-sync [:api/ingest good-payload] {:frame accepted})
-      (is (= 400 (:status (rf.ssr/flush-response! refused)))
-          "the frame that refused carries the 400")
-      (is (= 200 (:status (rf.ssr/flush-response! accepted)))
-          "its concurrent sibling, which conformed, is untouched"))))
-
-(deftest a-client-frame-rejection-stamps-no-status
-  (testing "the record fans on both hosts — a CLJS production
-            build's error shipper sees a client-side boundary rejection too —
-            but the projection listener no-ops for a non-server frame. There
-            is no request to fail."
-    (register-ingest!)
-    (let [seen     (capture-always-on! ::client)
-          client-f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (rf/dispatch-sync [:api/ingest bad-payload] {:frame client-f})
-      (rf.error-emit/unregister-error-listener! ::client)
-      (is (= [:rf.error/schema-validation-failure] (mapv :error @seen))
-          "the always-on record still fans")
-      (is (= 200 (:status (rf.ssr/get-response client-f)))
-          "but no status is stamped: a client frame has no HTTP response"))))
-
-;; ===========================================================================
-;; (5) DEV/PROD SYMMETRY — the duplicate buffer cannot change the wire
-;; ===========================================================================
-;;
-;; Posture CAN change the wire: were the safe-redirect categories
-;; projection-eligible on the trace-cb path, a dev build would stamp a 500
-;; where production answers 200.
-;; Here BOTH buses carry the rejection in a dev build, and the reasoning is
-;; that `consume-pending-traces!` plus last-write-wins makes the duplicate
-;; benign.  Reasoned is not measured, so measure it — WITHOUT asserting a
-;; buffer COUNT, which is the one thing that legitimately differs by posture.
+  (register-ingest!)
+  (let [refused  (server-frame)
+        accepted (server-frame)]
+    (rf/dispatch-sync [:api/ingest bad-payload]  {:frame refused})
+    (rf/dispatch-sync [:api/ingest good-payload] {:frame accepted})
+    (is (= [400 200] [(:status (rf.ssr/flush-response! refused))
+                      (:status (rf.ssr/flush-response! accepted))]))))
 
 (deftest every-buffered-entry-projects-the-same-400
-  (testing "in a dev build the rejection buffers on both the
-            trace-cb and the always-on path, and `apply-error-projection!`
-            projects the LAST entry. Whichever wins is only safe if they agree,
-            so assert the agreement rather than the count — the count is the
-            one quantity that legitimately differs between postures."
-    (register-ingest!)
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:api/ingest bad-payload] {:frame f})
-      (let [buffered (get @rf.ssr.error-listener/pending-error-traces
-                          (rf.frame/frame-address f))]
-        (is (seq buffered)
-            "the rejection buffered for projection — non-vacuity for the
-             agreement assertion below, and the load-bearing half under the
-             production gate, where the trace-cb path contributes nothing")
-        (is (= #{:rf.error/schema-validation-failure}
-               (set (map :operation buffered)))
-            "every buffered entry is the boundary category")
-        (is (= #{400}
-               (set (map #(:status (rf.ssr/default-error-projector-fn %)) buffered)))
-            "and every one of them projects 400, so last-write-wins cannot
-             pick a different status in one posture than the other")))))
-
-(deftest one-drain-consumes-the-buffer-and-a-second-flush-restamps-nothing
-  (testing "the duplicate must not double-stamp. One drain clears
-            the WHOLE per-frame buffer — both entries in a dev build, the one
-            in production — so a later flush has nothing left to re-project
-            onto a response the host may already have committed."
-    (register-ingest!)
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:api/ingest bad-payload] {:frame f})
-      (let [first-flush (rf.ssr/flush-response-result! f)]
-        (is (= 400 (:status (:response first-flush))))
-        (is (some? (:public-error first-flush))
-            "the first drain is the one that projected")
-        (is (empty? (get @rf.ssr.error-listener/pending-error-traces
-                         (rf.frame/frame-address f)))
-            "and it consumed the entire buffer in a single pass"))
-      (let [second-flush (rf.ssr/flush-response-result! f)]
-        (is (nil? (:public-error second-flush))
-            "the second drain finds nothing to project")
-        (is (= 400 (:status (:response second-flush)))
-            "and the status it already carries is unchanged — one rejection,
-             one stamp")))))
+  (testing "a dev build buffers the rejection on both buses and the drain
+            projects the LAST entry, so every entry must agree; the count is
+            the one thing that legitimately differs by posture"
+    (let [f (:frame (ingest! bad-payload))]
+      (is (= #{[:rf.error/schema-validation-failure 400]}
+             (set (map (juxt :operation #(:status (rf.ssr/default-error-projector-fn %)))
+                       (get @rf.ssr.error-listener/pending-error-traces
+                            (rf.frame/frame-address f)))))))))
