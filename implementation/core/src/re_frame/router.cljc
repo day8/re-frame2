@@ -574,7 +574,7 @@
   and per-call interceptor-override maps merge with per-call winning,
   same as `:fx-overrides`. The merged map is consumed by
   `apply-icpt-overrides` in `prepare-handler-ctx` to substitute
-  interceptors in the chain by `:id`."
+  interceptors in the chain by exact authored reference."
   [envelope frame-record]
   (let [frame-cfg            (:config frame-record)
         per-call-fx          (:fx-overrides envelope)
@@ -651,8 +651,7 @@
   `overrides`. Matching is by **canonical interceptor reference**
   (`rf.interceptor-registry/override-key-matches?`), not merely by `:id`:
 
-    - a bare-keyword key matches a bare-keyword authored ref OR an entry `:id`
-      (covers inline values + the resolver-stamped `:id`);
+    - a bare-keyword key matches only an entry authored as that keyword;
     - an `[id arg]` key matches ONLY the entry whose AUTHORED ref is `ref=` to
       that exact vector — so `{[:rf.interceptor/path [:cart]] nil}` removes
       only that exact reference, leaving a sibling `[:rf.interceptor/path
@@ -2427,8 +2426,8 @@
      (additive — §`:interceptors` — *add* interceptors).
   2. Walk the assembled chain and apply `:interceptor-overrides`
      (replace / remove by EXACT canonical reference per
-     §`:interceptor-overrides` — a bare keyword matches by ref/`:id`, an
-     `[id arg]` matches only the exact authored reference); `nil`-valued
+     §`:interceptor-overrides` — a bare keyword matches only that authored
+     keyword, an `[id arg]` only the exact authored reference); `nil`-valued
      overrides remove the matched interceptor from the chain.
 
   HOT PATH: fires on every dispatch. On the override-free path (no
