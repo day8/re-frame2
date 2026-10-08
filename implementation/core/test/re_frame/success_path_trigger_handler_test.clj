@@ -12,7 +12,7 @@
   `rf.registrar/register!` records it in the `error-coords-by-id` registry in
   both postures, so every case also asserts that registry (and the
   programmatic cases assert its absence beside a macro-path control)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.source-coords :as rf.source-coords]

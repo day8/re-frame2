@@ -9,8 +9,8 @@
   `make-frame` returns one runnable image-loaded frame VALUE; its generation
   lives on the frame's record in the one `rf.frame/frames` registry (EP-0024),
   so a frame value and its id resolve the same generation."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core           :as rf]
             [re-frame.events         :as rf.events]
             [re-frame.image          :as rf.image]

@@ -4,7 +4,7 @@
   `make-reset-runtime-fixture` and `destroy-frame!` — every late-bind reset
   hook fires the documented number of times, so a dropped row breaks here at
   the seam rather than as long-range cross-test pollution."
-  (:require [clojure.test :refer [deftest is testing use-fixtures report]]
+  (:require [clojure.test :refer [deftest is use-fixtures report]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.flows :as rf.flows]
