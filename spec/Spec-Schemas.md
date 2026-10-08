@@ -201,7 +201,7 @@ The **map member** — `{:rf/sub query-v :as fact-id}`, a machines-only sub-valu
 > **Layer:** Runtime
 > **Owner:** [002-Frames §Event context threads both partitions](002-Frames.md#event-context-threads-both-partitions) (event-context) + [002-Frames §The binary fx-handler signature](002-Frames.md#the-binary-fx-handler-signature) (fx-handler-ctx)
 > **Status:** v1-required
-> **Conformance:** `implementation/core/test/re_frame/event_context_coeffect_keys_test.clj` (event-context key set) + `spec/conformance/fixtures/cofx-*.edn` (event-context) + `implementation/core/test/re_frame/fx_test.cljc` (fx-handler-ctx `:frame`)
+> **Conformance:** `implementation/core/test/re_frame/event_context_coeffect_keys_test.clj` (event-context key set) + `spec/conformance/fixtures/cofx-*.edn` (event-context) + `implementation/core/test/re_frame/fx_test.clj` (fx-handler-ctx `:frame`)
 
 The single most-touched runtime shape in application code: the map a handler receives as its first argument. **There are two related-but-distinct shapes**, and they must not be conflated. Both share one invariant: **the frame value they carry is the frame *id* (a keyword), NEVER the live frame record** — handler-visible maps are portable data (replay-, SSR-, and headless-safe per [002 §Recordable coeffects](002-Frames.md#recordable-coeffects)); the do-fx layer resolves record-from-id at its own choke point (an O(1) registry lookup — the registry is the source of truth for live frames), so no host object ever rides in a map an application handler sees.
 
@@ -3513,7 +3513,7 @@ The normalized **algebra view** every declared fact / process lowers to — the 
 > **Layer:** Runtime
 > **Owner:** [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
 > **Status:** v1-required
-> **Conformance:** `implementation/core/test/re_frame/reply_test.cljc` (the `re-frame.reply` substrate — schema validity, the functor laws, and stale suppression)
+> **Conformance:** `implementation/core/test/re_frame/reply_cljs_test.cljc` (the `re-frame.reply` substrate — schema validity, the functor laws, and stale suppression)
 
 The canonical shape every managed *async* surface — HTTP ([014](014-HTTPRequests.md)), resources + mutations ([016](016-Resources.md)), machine async work ([005](005-StateMachines.md)), route loaders ([012](012-Routing.md)), and any future managed timer / background-job surface — completes through ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). One standard **reply map** delivered to one standard **reply target**. The shared `re-frame.reply` substrate (`implementation/core`) realises the pure core: target normalization, completion (append per `:delivery`), the reply-mapping functor law, this schema's validation, and the stale-suppression helper. The reply map is **data only** — it MUST NOT carry functions, promises, `AbortController`s, timer handles, DOM nodes, or any host resource (those live in a host-transient side-table keyed by `[frame-id work-id]`, never in durable reply data).
 
@@ -3537,7 +3537,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   ;; (the only always-required field); the per-status value/error conventions
   ;; are enforced by `re-frame.reply/validate-reply` (a closed-Malli :map
   ;; cannot express the cross-field conditionals, so the contract lives in
-  ;; the validator and is pinned by reply_test.cljc). Open map otherwise per
+  ;; the validator and is pinned by reply_cljs_test.cljc). Open map otherwise per
   ;; the catalogue convention — families add :meta and family-specific facts
   ;; additively. NO HOST HANDLES anywhere in the map (the data-only
   ;; invariant). Per [Managed-Effects §The reply map].
