@@ -535,18 +535,12 @@
              nil)))))))
 
 (defn chain-needs-resolution?
-  "True when `chain` carries at least one entry `resolve-chain` must act on —
-  an interceptor REFERENCE (resolved) OR a non-framework-default inline VALUE
-  (rejected `:rf.error/inline-interceptor-removed`). A hot-path predicate the
-  resolution seams use to skip the walk when a chain is nothing but the
-  framework's appended handler-wrapper (the common all-default shape — an event
-  with no authored chain). Reference-only (EP-0022): a
-  chain carrying ONLY the framework default needs no resolution; the moment it
-  carries a ref OR an inline value, `resolve-chain` must walk it (to
-  resolve the ref, or to reject the inline value loudly)."
+  "True when `chain` carries at least one interceptor REFERENCE for
+  `resolve-chain` to resolve. A hot-path predicate the resolution seams use to
+  skip the walk when a chain is nothing but the framework's appended
+  handler-wrapper (the common all-default shape — an event with no authored
+  chain). No stored chain holds any other inline value: `reg-event`,
+  `make-frame` and image assembly each reject one with
+  `:rf.error/inline-interceptor-removed` before it is stored."
   [chain]
-  (boolean (some (fn [entry]
-                   (and (not (rf.interceptor/framework-default-interceptor? entry))
-                        (or (interceptor-ref? entry)
-                            (interceptor-value? entry))))
-                 chain)))
+  (boolean (some interceptor-ref? chain)))
