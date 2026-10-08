@@ -181,7 +181,3 @@
   (app-fixture "kuky27k.")
   (is (nil? (reg-slot :route shared-route)))
   (is (= [] (src-rows-under "kuky27k."))))
-
-;; ===========================================================================
-;; 8. Guard — hiding an app twice does not duplicate or lose its rows
-;; ===========================================================================
