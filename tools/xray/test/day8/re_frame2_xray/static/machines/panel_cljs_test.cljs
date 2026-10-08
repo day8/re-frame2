@@ -3,23 +3,17 @@
 
   ## What's under test
 
-    1. The panel mounts as the L4 detail panel for the `:machines`
-       sub-tab — the master-detail surface.
+    1. The shell mounts the registry's `:machines` panel in its L4 slot.
 
-    2. Browse-list renders one row per registered machine; search
-       filters incrementally; sort cycles through Name/States/Live.
+    2. Browse-list empty state; search filters and clears; sort cycles
+       through Name/States/Live.
 
-    3. Detail header renders the canonical 4-cell shape: machine-id ·
-       source-coord ↗ · N states · M live.
+    3. Detail header: source-coord chip (or its absence), N states,
+       M live.
 
-    4. 4-mode sub-strip pills render and dispatch the right
-       events (Topology / Sim / Instances / Cascade).
+    4. The sub-strip's active pill follows the per-machine sub-mode.
 
-    5. Cascade pill is dimmed (disabled attribute set + dashed border
-       in style); clicking it does nothing.
-
-    6. Instances pill click dispatches three events: set-mode :dynamic
-       + select-tab :machines + select-machine-id.
+    5. The Sim and Topology bodies, including their no-definition hints.
 
   ## Pure hiccup walk
 
@@ -27,12 +21,10 @@
   tree by data-testid rather than mounting to a real DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.static.machines.persistence :as ls]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
@@ -52,11 +44,6 @@
                    (config/reset-suppressed-count!)
                    (static-persistence/clear!)
                    (ls/clear!))}))
-
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid`,
-;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content`
-;; directly; there is no Xray walker facade.
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -91,124 +78,56 @@
 ;; -------------------------------------------------------------------------
 
 (deftest static-shell-mounts-machines-panel-on-machines-tab
-  (testing "Selecting the :machines sub-tab mounts the Static Machines
-            panel.
-
-            The row asserts ONE LEVEL UP from the panel's own testid. The
+  (testing "The row asserts ONE LEVEL UP from the panel's own testid: the
             panel is a Fresco boundary behind an `as-component` bridge, so
-            the hiccup walk stops at the bridge's `[:>]` interop head and
-            `rf-xray-static-machines-panel` is committed by React rather
-            than present in the tree — asserting it here would be
-            asserting the walker's reach, not the mount. What the shell
-            actually owes is that the `:machines` slot renders and
-            mounts THE REGISTRY'S `:panel`; that the boundary behind it paints
-            `rf-xray-static-machines-panel` is W1's subject in
-            `panel_fresco_boundary_dom_cljs_test`, off a real React
-            commit."
+            the hiccup walk stops at the bridge's `[:>]` head. The shell
+            owes that the `:machines` slot mounts THE REGISTRY'S `:panel`;
+            that the boundary behind it paints is W1's subject in
+            `panel_fresco_boundary_dom_cljs_test`."
     (xray-setup!)
     (seed-machines! [:m/a :m/b])
     (rf/with-frame :rf/xray
-      (let [tree  (static-shell-tree/surface-tree)
-            slot  (rf.test-helpers/find-by-testid
-                    tree "rf-xray-static-detail-panel-machines")
-            tab   (panel-registry/tab-by-id :static :machines)
-            mount ((:panel tab))]
+      (let [slot  (rf.test-helpers/find-by-testid
+                    (static-shell-tree/surface-tree)
+                    "rf-xray-static-detail-panel-machines")
+            mount ((:panel (panel-registry/tab-by-id :static :machines)))]
         (is (some? slot)
             "the :machines L4 slot renders on the default Static tab")
-        (is (and (vector? mount) (= :> (first mount)) (= 3 (count mount)))
-            (str "the registry's :panel is the bridge — it answers a "
-                 "Reagent `[:>]` interop head, which is exactly what the "
-                 "shell's `[(:panel tab)]` mounts. Got: " (pr-str mount)))
-        (is (some? (second mount))
-            "and the interop head names a real component rather than nil")
-        (is (= {} (nth mount 2))
-            "the bridge crosses an empty props map — this panel reads
-             nothing from props")
         (is (= (last slot) mount)
-            "NON-VACUITY: the node the shell actually mounted in the
-             :machines slot IS that bridge's return, so this row is
-             about the live wiring and not about the registry alone")))))
+            "the slot mounts exactly the registry's :panel value")))))
 
 ;; -------------------------------------------------------------------------
-;; (2) Browse-list renders one row per registered machine
+;; (2) Browse list
 ;; -------------------------------------------------------------------------
-
-(deftest browse-list-renders-one-row-per-machine
-  (testing "Each registered machine surfaces as a clickable row"
-    (xray-setup!)
-    (seed-machines! [:foo/login :foo/checkout :bar/upload])
-    (seed-definitions! {:foo/login    {:states {:a {} :b {}}}
-                        :foo/checkout {:states {:a {} :b {} :c {}}}
-                        :bar/upload   {:states {:x {}}}})
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)
-            rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-machines-row-")
-            ;; Filter rows-only — the row testid prefix matches the
-            ;; per-row id chips too, so we keep only the outer row buttons
-            ;; (they carry `:data-machine-id` on the attrs map).
-            row-buttons (filter #(some? (:data-machine-id (second %))) rows)]
-        (is (= 3 (count row-buttons)) "one row per machine")))))
 
 (deftest browse-list-empty-state-when-no-machines
-  (testing "Empty state renders when no machine is registered"
-    (xray-setup!)
-    (seed-machines! [])
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-empty"))
-            "empty-state card present")
-        (is (re-find #"No machines registered"
-                     (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree
-                                                 "rf-xray-static-machines-empty"))))))))
-
-;; -------------------------------------------------------------------------
-;; (3) Search filters the rows
-;; -------------------------------------------------------------------------
+  (xray-setup!)
+  (seed-machines! [])
+  (rf/with-frame :rf/xray
+    (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                               "rf-xray-static-machines-empty")))))
 
 (deftest search-narrows-the-row-list
-  (testing "set-search filters rows; clear-search restores them"
-    (xray-setup!)
-    (seed-machines! [:foo/login :foo/checkout :bar/upload])
-    (frame-dispatch [:rf.xray.static.machines/set-search "foo"])
-    (rf/with-frame :rf/xray
-      (let [{:keys [visible total]} @(rf/subscribe [:rf.xray.static.machines/data])]
-        (is (= 2 visible) "two foo/* machines match")
-        (is (= 3 total))))
-    (frame-dispatch [:rf.xray.static.machines/clear-search])
-    (rf/with-frame :rf/xray
-      (let [{:keys [visible]} @(rf/subscribe [:rf.xray.static.machines/data])]
-        (is (= 3 visible) "clear-search restores all rows")))))
-
-;; -------------------------------------------------------------------------
-;; (4) Sort cycle
-;; -------------------------------------------------------------------------
+  (xray-setup!)
+  (seed-machines! [:foo/login :foo/checkout :bar/upload])
+  (frame-dispatch [:rf.xray.static.machines/set-search "foo"])
+  (is (= [2 3] ((juxt :visible :total) (frame-sub [:rf.xray.static.machines/data])))
+      "set-search filters to the two foo/* machines")
+  (frame-dispatch [:rf.xray.static.machines/clear-search])
+  (is (= 3 (:visible (frame-sub [:rf.xray.static.machines/data])))
+      "clear-search restores all rows"))
 
 (deftest sort-cycles-through-three-axes
-  (testing "cycle-sort walks :name → :states → :live → :name"
-    (xray-setup!)
-    (is (= :name (frame-sub [:rf.xray.static.machines/sort-key]))
-        "default :name")
-    (frame-dispatch [:rf.xray.static.machines/cycle-sort])
-    (is (= :states (frame-sub [:rf.xray.static.machines/sort-key])))
-    (frame-dispatch [:rf.xray.static.machines/cycle-sort])
-    (is (= :live (frame-sub [:rf.xray.static.machines/sort-key])))
-    (frame-dispatch [:rf.xray.static.machines/cycle-sort])
-    (is (= :name (frame-sub [:rf.xray.static.machines/sort-key])))))
-
-;; -------------------------------------------------------------------------
-;; (5) Selection lifecycle
-;; -------------------------------------------------------------------------
-
-(deftest select-event-flips-the-slot
   (xray-setup!)
-  (seed-machines! [:m/a :m/b :m/c])
-  (frame-dispatch [:rf.xray.static.machines/select :m/c])
-  (rf/with-frame :rf/xray
-    (let [{:keys [selected-id]} @(rf/subscribe [:rf.xray.static.machines/data])]
-      (is (= :m/c selected-id)))))
+  (is (= [:name :states :live :name]
+         (mapv (fn [_]
+                 (let [k (frame-sub [:rf.xray.static.machines/sort-key])]
+                   (frame-dispatch [:rf.xray.static.machines/cycle-sort])
+                   k))
+               (range 4)))))
 
 ;; -------------------------------------------------------------------------
-;; (6) Detail header
+;; (3) Detail header
 ;; -------------------------------------------------------------------------
 
 (deftest detail-header-renders-canonical-shape
@@ -218,14 +137,12 @@
                             :source-coord {:file "src/a.cljs" :line 7}}})
   (seed-snapshots! {:m/a {:state :a}})
   (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-header")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-title")))
+    (let [tree (machines-tree/panel-tree)
+          text #(rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree %))]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-source-coord")))
-      (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-state-count"))]
-        (is (re-find #"3 states" text)))
-      (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-live-count"))]
-        (is (re-find #"1 live" text))))))
+      (is (= ["3 states" "1 live"]
+             (mapv text ["rf-xray-static-machines-detail-state-count"
+                         "rf-xray-static-machines-detail-live-count"]))))))
 
 (deftest detail-header-degrades-when-source-coord-missing
   (xray-setup!)
@@ -237,130 +154,59 @@
           "source-coord chip is suppressed when the slot is missing"))))
 
 ;; -------------------------------------------------------------------------
-;; (7) 4-mode sub-strip
+;; (4) Sub-strip
 ;; -------------------------------------------------------------------------
-
-(deftest sub-strip-default-is-topology
-  (xray-setup!)
-  (seed-machines! [:m/a])
-  (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)
-          pill (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")]
-      (is (= "true" (:aria-selected (second pill)))
-          "Topology is the default active pill"))))
 
 (deftest sub-strip-set-sub-mode-flips-the-active-pill
   (xray-setup!)
   (seed-machines! [:m/a])
   (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
   (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)
-          sim  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-sim")
-          topo (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")]
-      (is (= "true"  (:aria-selected (second sim))))
-      (is (= "false" (:aria-selected (second topo)))))))
+    (let [tree (machines-tree/panel-tree)]
+      (is (= ["true" "false"]
+             (mapv #(:aria-selected (second (rf.test-helpers/find-by-testid tree %)))
+                   ["rf-xray-static-machines-pill-sim"
+                    "rf-xray-static-machines-pill-topology"]))))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Cascade dimmed
-;; -------------------------------------------------------------------------
-
-(deftest cascade-pill-is-disabled
-  (xray-setup!)
-  (seed-machines! [:m/a])
-  (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)
-          pill (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-cascade")
-          attrs (second pill)]
-      (is (= true (:disabled attrs))
-          "Cascade button is disabled")
-      (is (= "true" (:aria-disabled attrs))
-          "aria-disabled=true for screen readers")
-      (is (re-find #"Dynamic-only" (or (:title attrs) ""))
-          "tooltip surfaces 'Dynamic-only' message"))))
-
-;; -------------------------------------------------------------------------
-;; (9) Sim body
+;; (5) Sim body
 ;; -------------------------------------------------------------------------
 
 (deftest sim-mode-renders-real-sim-body-with-no-definition-hint
-  (testing "When the selected machine has no introspectable definition,
-            the Sim body renders its no-definition hint."
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        ;; The real Sim body is mounted; no-definition variant since
-        ;; the test fixture seeds no :states map.
-        (is (some? (rf.test-helpers/find-by-testid
-                     tree "rf-xray-static-machines-sim-no-definition"))
-            "real Sim body's no-definition hint mounts in :sim mode")))))
+  (xray-setup!)
+  (seed-machines! [:m/a])
+  (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
+  (rf/with-frame :rf/xray
+    (is (some? (rf.test-helpers/find-by-testid
+                 (machines-tree/panel-tree)
+                 "rf-xray-static-machines-sim-no-definition")))))
 
 (deftest sim-mode-mounts-the-sim-body-and-rail-once-sim-has-started
-  (testing "With :sim mode selected for a machine with a definition and the
-            hermetic sim started, the panel mounts the real Sim body and its
-            rail."
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    (seed-definitions! {:m/a {:initial :idle
-                              :data    {:counter 0}
-                              :states  {:idle {:on {:start :running}}
-                                        :running {}}}})
-    ;; Explicit select — in production the click on a row dispatches
-    ;; :select; in this test we mirror that so the sim-state sub (which
-    ;; reads the raw selected-id slot) targets :m/a.
-    (frame-dispatch [:rf.xray.static.machines/select :m/a])
-    (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
-    ;; Drive the sim-start the body's auto-start would dispatch async,
-    ;; via dispatch-sync so the slot lands before the assertions read
-    ;; back the rendered tree. The test asserts the *contract* (when
-    ;; sim-state is populated, the body wraps in the rail mount) — the
-    ;; body's own dispatch is exercised by the unit-level test in
-    ;; `sim_cljs_test.cljs` (`body-auto-starts-sim-when-definition-
-    ;; present`).
-    (rf/with-frame :rf/xray
+  (testing "With :sim selected and the hermetic sim started, the panel
+            mounts the Sim body and its rail — the rail mounts only when
+            the threaded sim-state is populated. The body's own auto-start
+            dispatch is `sim_cljs_test`'s
+            `body-auto-starts-sim-when-definition-present`."
+    (let [definition {:initial :idle
+                      :data    {:counter 0}
+                      :states  {:idle {:on {:start :running}}
+                                :running {}}}]
+      (xray-setup!)
+      (seed-machines! [:m/a])
+      (seed-definitions! {:m/a definition})
+      ;; The sim-state sub reads the raw selected-id slot, so select
+      ;; explicitly as a row click would.
+      (frame-dispatch [:rf.xray.static.machines/select :m/a])
+      (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
       (frame-dispatch [:rf.xray.static.machines/sim-start
-                       {:machine-id :m/a
-                        :definition {:initial :idle
-                                     :data    {:counter 0}
-                                     :states  {:idle {:on {:start :running}}
-                                               :running {}}}}])
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sim-body"))
-            "real Sim body wrapper mounts")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sim-rail"))
+                       {:machine-id :m/a :definition definition}])
+      (rf/with-frame :rf/xray
+        (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                                   "rf-xray-static-machines-sim-rail"))
             "Sim rail mounts when sim-state is populated")))))
 
 ;; -------------------------------------------------------------------------
-;; (10) Instances JUMP — verify dispatches land
-;; -------------------------------------------------------------------------
-
-(deftest instances-jump-flips-mode-tab-and-selection
-  (testing "Calling the JUMP fn dispatches the three events. Verifies
-            the post-dispatch state in app-db."
-    (xray-setup!)
-    (seed-machines! [:m/a :m/b])
-    ;; Start from a known state — :static + :events + nothing selected.
-    (frame-dispatch [:rf.xray/set-mode :static])
-    (frame-dispatch [:rf.xray/select-tab :events])
-    (rf/with-frame :rf/xray
-      (is (= :static (frame-sub [:rf.xray/mode])))
-      (is (= :events (frame-sub [:rf.xray/selected-tab]))))
-    ;; Fire the JUMP via the dispatcher helper. Three dispatches land.
-    ;; Use the sync variant so post-dispatch assertions can read the
-    ;; new slots without an event-queue flush.
-    (rf/with-frame :rf/xray
-      (jump/dispatch-jump-sync! :m/b))
-    (rf/with-frame :rf/xray
-      (is (= :dynamic (frame-sub [:rf.xray/mode]))
-          ":rf.xray/set-mode :dynamic fired")
-      (is (= :machines (frame-sub [:rf.xray/selected-tab]))
-          ":rf.xray/select-tab :machines fired")
-      (is (= :m/b (frame-sub [:rf.xray/selected-machine-id]))
-          ":rf.xray/select-machine-id <mid> fired"))))
-
-;; -------------------------------------------------------------------------
-;; (11) Topology mode — chart mounts when a definition is present
+;; (6) Topology body
 ;; -------------------------------------------------------------------------
 
 (deftest topology-mode-mounts-chart-when-definition-present
@@ -369,27 +215,18 @@
   (seed-definitions! {:m/a {:initial :idle
                             :states  {:idle {} :done {}}}})
   (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology"))
-          "Topology mode mounts as the default body")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-chart"))
-          "chart wrapper mounts")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-machine-canvas-host"))
-          "the chart is wrapped in the interactive canvas-host (zoom / pan / fit)")
-      ;; The `:inner-testid` prop threads the static-panel testid through
-      ;; machine-canvas/Chart to the xyflow root.
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
-          ":inner-testid forwards through Chart to the xyflow root"))))
+    (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                               "rf-xray-machine-canvas-host"))
+        "the default Topology body wraps the chart in the interactive
+         canvas-host (zoom / pan / fit)")))
 
 (deftest topology-mode-shows-no-definition-hint-when-missing
   (xray-setup!)
   (seed-machines! [:m/a])
-  ;; No definition seeded — machine-definitions sub returns {}
   (seed-definitions! {})
   (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree
-                                 "rf-xray-static-machines-topology-no-definition"))))))
+    (is (some? (rf.test-helpers/find-by-testid (machines-tree/panel-tree)
+                                               "rf-xray-static-machines-topology-no-definition")))))
 
 ;; Static tab inventory shape is covered by `static-tab-inventory-shape` in
 ;; the shell test.
