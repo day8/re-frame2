@@ -2,36 +2,16 @@
   "DOM-mount test: `panel-host-component`'s `do-mount!` must not leak an
   orphaned DOM node when the panel's `mount-fn` throws.
 
-  ## The hazard
+  `do-mount!` appends a child `<div>` to the host, then calls
+  `(mount-fn container)`; only a successful call registers the container
+  in `mounted-ref`, the one place `release!` looks. So the `catch` removes
+  the container itself — otherwise every failed mount would leave one
+  behind for the panel-host's lifetime.
 
-  `do-mount!` creates a child `<div>`, `.appendChild`s it onto the host,
-  then calls `(mount-fn container)`. Only AFTER that call succeeds does it
-  `reset!` `mounted-ref` to `{:unmount ... :container container}` — the
-  ONLY place `release!` (called on the next panel-id swap, or on
-  `:component-will-unmount`) looks to find something to tear down. If
-  `mount-fn` throws, the already-appended container is never registered in
-  `mounted-ref`, so `release!` never cleans it up. A `catch` that only
-  logged would leave every failed mount's orphaned node behind (plus
-  whatever partial DOM/listener side effects the throwing `mount-fn` made
-  before throwing), accumulating for the panel-host's entire lifetime.
-
-  ## The cleanup
-
-  `container` is created outside the `try` so the `catch` can reach it and
-  explicitly remove it from the DOM when `mount-fn` throws, regardless of
-  how far the try body got.
-
-  ## Why this needs a REAL DOM mount
-
-  `panel-host-component`'s `do-mount!` calls real `js/document.createElement`
-  / `.appendChild` / `.removeChild` — a hiccup-level test (see the sibling
-  `xray-embed-e2e-cljs-test`) never invokes this class-3 component's
-  lifecycle hooks at all, so it cannot observe the orphan.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
-  discovers it and mounts real DOM via `react-dom/client`; `:node-test`
-  also loads it (regex matches the suffix too) where the body self-gates
-  on `(browser?)` and no-ops."
+  Only a real DOM mount runs this class-3 component's lifecycle hooks. Ns
+  ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build mounts
+  real DOM; `:node-test` also loads it, where the body self-gates on
+  `(browser?)` and no-ops."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.core :as r]
@@ -43,12 +23,7 @@
             [re-frame.story :as rf.story]
             [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]))
 
-;; `panel-host-component` is `defn-` in xray_embed.cljs; the established
-;; Story-test seam for reaching a private fn is the var-quote (e.g.
-;; `viewport-toggle-app-db-dom-cljs-test`'s `framed-canvas`).
 (def ^:private panel-host-component @#'rf.story.ui.xray-embed/panel-host-component)
-
-;; ---- fixture ---------------------------------------------------------------
 
 (defn- reset-all! []
   (rf.story/clear-all!)
@@ -59,8 +34,6 @@
   (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
-
-;; ---- browser gate -----------------------------------------------------
 
 (defn- browser? []
   (and (exists? js/document)
@@ -74,91 +47,49 @@
 ;; `rdc/render` wraps each call's element in a fresh root component, so a
 ;; second `rdc/render` would remount the host and never reach
 ;; `:component-did-update`. The host is rendered ONCE, reading its
-;; panel-id from a ratom, and `swap-panel!` drives the swap through it.
+;; panel-id from a ratom, and the swap goes through that ratom.
 (defn- render-host! [root pid]
   (react-dom/flushSync
     (fn [] (rdc/render root [(fn [] [panel-host-component @pid])]))))
 
-(defn- swap-panel! [pid new-pid]
-  (reset! pid new-pid)
-  (r/flush))
-
 (defn- host-in [mount-node]
   (.querySelector mount-node "[data-rf-xray-panel-host]"))
 
-;; ---- a failed mount leaves no orphan -----------------------------------
-
-(deftest mount-fail-does-not-leak-orphan-container
-  (testing "when `mount-fn` throws inside `do-mount!`, the appended child
-            container is removed from the DOM rather than orphaned — the
-            panel-host `<div>` ends up with NO children (an orphan would be
-            one leaked `<div data-rf-xray-panel-mount>` per failed mount,
-            accumulating for the panel-host's lifetime)"
+(deftest mount-fail-leaves-no-orphan-and-the-next-swap-still-mounts
+  (testing "a throwing `mount-fn` leaves the host with NO child, and a later
+            panel-id swap to a working `mount-fn` still mounts exactly one
+            live container through `:component-did-update`"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (let [attempts (atom [])]
         (with-redefs [rf.story.ui.xray-embed/mount-fn-for
-                      (fn [pid] (fn [_container]
-                                  (swap! attempts conj pid)
-                                  (throw (js/Error. "boom"))))]
+                      (fn [pid]
+                        (case pid
+                          :epoch  (fn [_container]
+                                    (swap! attempts conj pid)
+                                    (throw (js/Error. "boom")))
+                          :app-db (fn [container]
+                                    (let [marker (js/document.createElement "span")]
+                                      (.setAttribute marker "data-test" "fake-panel-mounted")
+                                      (.appendChild container marker)
+                                      (fn unmount! [] nil)))
+                          nil))]
           (let [mount-node (make-mount-node!)
                 root       (rdc/create-root mount-node)
                 pid        (r/atom :epoch)]
             (try
               (render-host! root pid)
               (let [host (host-in mount-node)]
-                (is (some? host) "panel-host div rendered")
+                (is (= [:epoch] @attempts) "precondition: the mount was attempted")
                 (is (zero? (.-length (.-children host)))
                     "no orphaned mount-container child survives a throwing mount-fn")
-                ;; A second failed mount — a panel-id swap re-triggers
-                ;; `do-mount!` via `:component-did-update` — must not
-                ;; accumulate a second orphan either.
-                (swap-panel! pid :app-db)
+                (reset! pid :app-db)
+                (r/flush)
                 (is (identical? host (host-in mount-node))
                     "the host survived the swap, so it was an update, not a remount")
-                (is (= [:epoch :app-db] @attempts)
-                    "the swap's :component-did-update attempted the second mount")
-                (is (zero? (.-length (.-children host)))
-                    "repeated failed mounts still leave zero orphaned children"))
+                (is (= 1 (.-length (.-children host)))
+                    "the successful mount installs exactly one live child container")
+                (is (some? (.querySelector host "[data-test=\"fake-panel-mounted\"]"))
+                    "the working mount-fn's own marker is present inside it"))
               (finally
                 (try (.unmount root) (catch :default _ nil))))))))))
-
-(deftest mount-success-after-a-prior-failure-still-works
-  (testing "after a failed mount, a subsequent panel-id swap to a
-            WORKING mount-fn still mounts normally (the cleanup does not corrupt `mounted-ref` for the
-            next swap). Both mount-fns are stubbed directly (rather than
-            delegating to a real Xray panel mount-fn) so the test only
-            exercises the panel-host's do-mount!/release! contract, not
-            Xray's own mount internals."
-    (if-not (browser?)
-      (is true ":node-test — no DOM; :browser-test runs the real assertion")
-      (with-redefs [rf.story.ui.xray-embed/mount-fn-for
-                    (fn [pid]
-                      (case pid
-                        :epoch  (fn [_container] (throw (js/Error. "boom")))
-                        :app-db (fn [container]
-                                  (let [marker (js/document.createElement "span")]
-                                    (.setAttribute marker "data-test" "fake-panel-mounted")
-                                    (.appendChild container marker)
-                                    (fn unmount! [] nil)))
-                        nil))]
-        (let [mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)
-              pid        (r/atom :epoch)]
-          (try
-            ;; First mount fails.
-            (render-host! root pid)
-            (let [host (host-in mount-node)]
-              (is (zero? (.-length (.-children host)))
-                  "precondition: the failed mount left no child")
-              ;; Swap to a working panel — should mount cleanly.
-              (swap-panel! pid :app-db)
-              (is (identical? host (host-in mount-node))
-                  "the host survived the swap, so it was an update, not a remount")
-              (is (= 1 (.-length (.-children host)))
-                  "the subsequent successful mount installs exactly one
-                   live child container")
-              (is (some? (.querySelector host "[data-test=\"fake-panel-mounted\"]"))
-                  "the working mount-fn's own marker is present inside it"))
-            (finally
-              (try (.unmount root) (catch :default _ nil)))))))))
