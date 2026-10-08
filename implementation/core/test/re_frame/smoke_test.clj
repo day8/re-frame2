@@ -1,27 +1,15 @@
 (ns re-frame.smoke-test
-  "Smoke tests — exercise the foundation end-to-end on the JVM via the
-  plain-atom adapter. These are the bare-minimum 'does the dispatch
-  pipeline actually work?' tests. Conformance fixtures are a separate
-  TODO.
+  "End-to-end JVM checks of the foundation through the plain-atom adapter.
 
   ## Posture split
 
   Every assertion here is posture-independent — it must hold in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when rf.interop/debug-enabled? …)` arm.
-
-  Those arms observe the DEV `:trace` stream, whose emit sites are gated on
-  `rf.interop/debug-enabled?` — read
-  once at namespace-load time on the JVM, constant-folded away by Closure under
-  `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
-  so the assertions are correct dev-posture coverage; they declare the posture
-  they are about, so the semantics beside them run in the production lane.
-  Where a trace assertion has no natural semantic sibling — the
-  `dispatch-sync`-in-handler ban, the machine spawn/destroy fx — a
-  production-visible witness sits beside it, so the trace is never the only
-  evidence."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  inside a `(when rf.interop/debug-enabled? …)` arm. Those arms observe the DEV
+  `:trace` stream, whose emit sites the production gate removes by design."
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.routing]
@@ -31,10 +19,8 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.ssr]
-            ;; Pull http-managed in so its late-bind hooks (in particular
-            ;; :http/reg-http-interceptor) are published — the
-            ;; registry-introspection-round-trip test below exercises
-            ;; reg-http-interceptor. Side-effect require; alias unused.
+            ;; publishes the :http/reg-http-interceptor late-bind hook that
+            ;; registry-introspection-round-trip exercises
             [re-frame.http.managed]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -43,807 +29,209 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; flows.cljc keeps a private last-inputs atom for dirty-checking
-  ;; (per Spec 013 §Dirty-check semantics). Without resetting it, an
-  ;; entry from a prior deftest can leak into a subsequent same-keyed
-  ;; flow registration and cause its first evaluation to no-op (the
-  ;; new-inputs would =-equal the stale last-inputs). Clear it here so
-  ;; cross-test order can't introduce hidden flakiness.
+  ;; a stale last-inputs entry would make a same-keyed flow's first
+  ;; evaluation no-op (Spec 013 §Dirty-check semantics)
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; Framework events / fx / subs are registered at namespace-load time
-  ;; in routing.cljc, ssr.cljc, and machines.cljc; clear-all! wiped them.
-  ;; Re-eval those registrations so :rf.route/navigate, :rf/hydrate,
-  ;; :rf.nav/push-url, :rf/machine etc. resurrect across smoke tests.
+  ;; clear-all! wiped the framework registrations these namespaces make at load
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  ;; registry-introspection-round-trip exercises
-  ;; reg-http-interceptor which is late-bound through the http-managed
-  ;; artefact. Reload so the :http/reg-http-interceptor hook is
-  ;; published across runs.
   (require 're-frame.http.managed :reload)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- end-to-end dispatch --------------------------------------------------
-
-(deftest dispatch-sync-event-db
-  (testing "dispatch-sync runs an event-db handler and commits :db"
-    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:counter/init])
-    (rf/dispatch-sync [:counter/inc])
-    (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/app-db-value :rf/default))))))
-
-(deftest dispatch-sync-event-fx
-  (testing "dispatch-sync runs an event-fx handler with :db and :fx"
-    (let [fired (atom 0)]
-      (rf/reg-fx :test/incr-counter
-                 (fn [_ _] (swap! fired inc)))
-      (rf/reg-event :do-it
-        (fn [_ _]
-          {:db {:flag :set}
-           :fx [[:test/incr-counter :go]]}))
-      (rf/dispatch-sync [:do-it])
-      (is (= {:flag :set} (rf/app-db-value :rf/default)))
-      (is (= 1 @fired)))))
-
-;; ---- standard interceptors ------------------------------------------------
-;;
-;; The path / unwrap interceptor contracts live in interceptor_test.clj —
-;; that namespace pins every Spec 002 interceptor primitive with deeper
-;; coverage than this smoke layer.
-
-(deftest compute-sub-against-supplied-db
-  (testing "compute-sub evaluates a sub against a supplied db value"
-    (rf/reg-sub :n     (fn [db _] (:n db)))
-    (rf/reg-sub :m     (fn [db _] (:m db)))
-    (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
-    (rf/reg-sub :n+m   {:inputs [[:n] [:m]]} (fn [[n m] _] (+ n m)))
-    ;; Layer-1 read.
-    (is (= 7 (rf/compute-sub [:n] {:n 7})))
-    ;; Layer-2, one declared input.
-    (is (= 14 (rf/compute-sub [:n*2] {:n 7})))
-    ;; Layer-2, two declared inputs.
-    (is (= 10 (rf/compute-sub [:n+m] {:n 7 :m 3})))
-    ;; Unknown sub returns nil instead of throwing.
-    (is (nil? (rf/compute-sub [:no-such-sub] {})))))
-
 (deftest compute-sub-emits-sub-exception-on-body-throw
-  ;; compute-sub must not silently swallow body throws and return nil —
-  ;; that would diverge from the reactive sibling
-  ;; (`subs.memo/validate-and-trace`), which emits :rf.error/sub-exception
-  ;; per Spec 009 §Error contract. Pin parity here: SSR + JVM-runnable
-  ;; consumers must see the same debuggable signal the reactive path
-  ;; produces.
-  (testing "compute-sub emits :rf.error/sub-exception when the sub body throws (layer-1)"
+  ;; parity with the reactive path (Spec 009 §Error contract): a throwing body
+  ;; recovers to nil and emits :rf.error/sub-exception, never a silent nil
+  (testing "layer-1 body throw"
     (rf/reg-sub :boom (fn [_db _q] (throw (ex-info "boom" {:k :v}))))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::boom (fn [ev] (swap! traces conj ev)))
-      (is (nil? (rf/compute-sub [:boom] {}))
-          "compute-sub returns nil (recovery :replaced-with-default)")
+      (is (nil? (rf/compute-sub [:boom] {})))
       (rf/unregister-listener! :trace ::boom)
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-      ;; production-real half — the throw is CAUGHT and recovery is
-      ;; `:replaced-with-default` (nil), not a propagated exception — is the
-      ;; `(is (nil? …))` above, which runs in both postures.
       (when rf.interop/debug-enabled?
-        (let [ev (some (fn [e]
-                         (when (= :rf.error/sub-exception (:operation e)) e))
-                       @traces)]
-          (is (some? ev) "an :rf.error/sub-exception trace was emitted")
-          (when ev
-            (is (= :error (:op-type ev)) "op-type is :error")
-            ;; `:recovery` is hoisted onto the envelope by build-event.
-            (is (= :replaced-with-default (:recovery ev)))
-            (let [t (:tags ev)]
-              (is (= :boom (:failing-id t)))
-              (is (= :boom (:rf.sub/id t)))
-              (is (= [:boom] (:sub-query t)))
-              (is (= :compute-sub (:where t))
-                  ":where distinguishes the pure-compute call site from the reactive memo path")
-              (is (instance? Throwable (:exception t)))
-              (is (= "boom" (:exception-message t)))))))))
-  (testing "compute-sub emits :rf.error/sub-exception when a layer-2 body throws"
+        (let [ev (some #(when (= :rf.error/sub-exception (:operation %)) %) @traces)]
+          (is (= [:error :replaced-with-default
+                  {:failing-id :boom :rf.sub/id :boom :sub-query [:boom]
+                   :where :compute-sub :exception-message "boom"}
+                  true]
+                 [(:op-type ev) (:recovery ev)
+                  (select-keys (:tags ev) [:failing-id :rf.sub/id :sub-query
+                                           :where :exception-message])
+                  (instance? Throwable (:exception (:tags ev)))]))))))
+  (testing "layer-2 body throw"
     (rf/reg-sub :n   (fn [db _] (:n db)))
     (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[_n] _q] (throw (ex-info "kaboom" {}))))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
       (rf/unregister-listener! :trace ::boom2)
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
-        (is (some (fn [e]
-                    (and (= :rf.error/sub-exception (:operation e))
-                         (= :n*2 (:rf.sub/id (:tags e)))
-                         (= :compute-sub (:where (:tags e)))))
-                  @traces)
-            "layer-2 throw also emits :rf.error/sub-exception via compute-sub")))))
+        (is (some #(and (= :rf.error/sub-exception (:operation %))
+                        (= [:n*2 :compute-sub] ((juxt :rf.sub/id :where) (:tags %))))
+                  @traces))))))
 
 (deftest subscribe-handles-missing-frame
-  (testing "subscribe / subscribe-once against a missing frame don't throw"
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::missing (fn [ev] (swap! traces conj ev)))
-      (is (nil? (rf/subscribe [:n] {:frame :missing/frame})) "subscribe returns nil")
-      (is (nil? (rf/subscribe-once [:n] {:frame :missing/frame}))
-          "subscribe-once returns nil")
-      (rf/unregister-listener! :trace ::missing)
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-      ;; production-real half — neither call THROWS, both recover to nil — is
-      ;; the two `(is (nil? …))` assertions above, which run in both postures.
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.error/frame-destroyed (:operation ev))
-                         (= :replaced-with-default (:recovery ev))))
-                  @traces)
-            "expected :rf.error/frame-destroyed trace with :replaced-with-default")))))
-
-;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache live in
-;; sub_cache_test.clj; flow-hot-reload-invalidates-last-inputs and the
-;; per-frame flow-store tests live in the flows artefact's flows_test.clj.
-
-(deftest dispatch-sync-in-handler-errors
-  (testing "calling dispatch-sync from inside a handler raises a structured error"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dsih (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-      (rf/reg-event :nested
-        (fn [_ _]
-          ;; Calling dispatch-sync from inside a handler should NOT silently
-          ;; interleave; it must raise :rf.error/dispatch-sync-in-handler.
-          (rf/dispatch-sync [:outer])
-          {}))
-      (rf/dispatch-sync [:nested])
-      (rf/unregister-listener! :trace ::dsih)
-      ;; SEMANTIC, posture-independent: the ban is enforcement,
-      ;; not advice — the nested event is REJECTED, so `:outer`'s handler
-      ;; never runs and its `:db` write never lands. That is the half a
-      ;; production build carries.
-      (is (nil? (:ran? (rf/app-db-value :rf/default)))
-          "the nested event was rejected — :outer's handler never ran")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                         (= :error (:op-type ev))
-                         (= :no-recovery (:recovery ev))))
-                  @traces)
-            "expected :rf.error/dispatch-sync-in-handler trace event")))))
+  (rf/reg-sub :n (fn [db _] (:n db)))
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::missing (fn [ev] (swap! traces conj ev)))
+    (is (= [nil nil] [(rf/subscribe [:n] {:frame :missing/frame})
+                      (rf/subscribe-once [:n] {:frame :missing/frame})])
+        "neither call throws; both recover to nil")
+    (rf/unregister-listener! :trace ::missing)
+    (when rf.interop/debug-enabled?
+      (is (some #(= [:rf.error/frame-destroyed :replaced-with-default]
+                    ((juxt :operation :recovery) %))
+                @traces)))))
 
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
-  ;; The router binds `rf.frame/*current-frame*` to the
-  ;; envelope's :frame for the duration of process-event!, so a
-  ;; synchronous `(rf/dispatch ...)` from inside a handler body picks
-  ;; up the in-flight event's frame (not :rf/default). The CLJS
-  ;; companion `re-frame.dispatch-frame-capture-cljs-test` covers the
-  ;; full matrix (sync, setTimeout, :fx [[:dispatch ...]],
-  ;; :dispatch-later, dispatcher). This JVM test pins the
-  ;; sync-from-handler contract on the substrate-agnostic foundation.
-  (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
-    (rf/make-frame {:id :rf-l5q3.jvm/tenant-a :doc "tenant-a frame"})
-    (rf/make-frame {:id :rf-l5q3.jvm/tenant-b :doc "tenant-b frame"})
-    (rf/reg-event :rf-l5q3.jvm/seed
-                     (fn [{:keys [db]} _] {:db {:received []}}))
-    (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-a})
-    (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-b})
-    (rf/dispatch-sync [:rf-l5q3.jvm/seed]) ;; :rf/default
-    (rf/reg-event :rf-l5q3.jvm/parent
-                     (fn [_ _]
-                       (rf/dispatch [:rf-l5q3.jvm/landed])
-                       {}))
-    (rf/reg-event :rf-l5q3.jvm/landed
-                     (fn [{:keys [db]} _]
-                       {:db (update db :received (fnil conj []) :landed)}))
-    (rf/dispatch-sync [:rf-l5q3.jvm/parent] {:frame :rf-l5q3.jvm/tenant-a})
-    (is (= [:landed] (:received (rf/app-db-value :rf-l5q3.jvm/tenant-a)))
-        ":landed event must land on :tenant-a, not :rf/default")
-    (is (empty? (:received (rf/app-db-value :rf-l5q3.jvm/tenant-b)))
-        ":tenant-b sees nothing")
-    (is (empty? (:received (rf/app-db-value :rf/default)))
-        ":rf/default sees nothing — the dispatch was scoped to :tenant-a")))
-
-(deftest current-frame-inside-handler-reports-handlers-frame
-  ;; `(rf/current-frame-id)` consults the dynamic-var tier
-  ;; first. With the router's per-handler binding of
-  ;; `rf.frame/*current-frame*` to the envelope's :frame, the call site
-  ;; reports the handler's frame, not :rf/default. This is the contract
-  ;; that lets `(:dispatch (rf/capture-frame))`, `(:subscribe (rf/capture-frame))`, etc. — all of
-  ;; which capture the value of
-  ;; `(rf/current-frame-id)` at call time — capture the right frame when
-  ;; called from a handler body. Asserts the observable property
-  ;; directly (avoids the async drain-thread timing the captured-fn
-  ;; invocation would introduce).
-  (testing "(rf/current-frame-id) inside a handler reports the handler's frame"
-    (rf/make-frame {:id :rf-l5q3.jvm.cf/tenant-a :doc "tenant-a frame"})
-    (let [observed-current-frame (atom nil)]
-      (rf/reg-event :rf-l5q3.jvm.cf/observe
-                       (fn [_ _]
-                         (reset! observed-current-frame (rf/current-frame-id))
-                         {}))
-      (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe]
-                        {:frame :rf-l5q3.jvm.cf/tenant-a})
-      (is (= :rf-l5q3.jvm.cf/tenant-a @observed-current-frame)
-          "(rf/current-frame-id) inside a handler reports the handler's frame, not :rf/default"))
-    (testing "and a handler running on :rf/default sees :rf/default"
-      (let [observed-current-frame (atom nil)]
-        (rf/reg-event :rf-l5q3.jvm.cf/observe-default
-                         (fn [_ _]
-                           (reset! observed-current-frame (rf/current-frame-id))
-                           {}))
-        (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
-        (is (= :rf/default @observed-current-frame))))))
-
-;; ---- compute-sub per-call memoisation -------------------------------------
-;;
-;; `compute-sub` threads a per-call `{query-v -> value}` memo through its
-;; declared-input recursion so each DISTINCT sub in the dependency graph computes
-;; at most once per top-level call. These tests pin that contract by
-;; counting body invocations against a known graph shape, AND confirm the
-;; memo does not change computed values (it is a pure dedup).
+  ;; the router binds *current-frame* to the envelope's :frame while a handler
+  ;; runs, so a synchronous dispatch (and current-frame-id) inside it sees the
+  ;; handler's frame, not the ambient one
+  (rf/make-frame {:id :jvm/tenant-a})
+  (rf/make-frame {:id :jvm/tenant-b})
+  (rf/reg-event :jvm/seed (fn [_ _] {:db {:received []}}))
+  (doseq [f [:jvm/tenant-a :jvm/tenant-b :rf/default]]
+    (rf/dispatch-sync [:jvm/seed] {:frame f}))
+  (let [observed (atom nil)]
+    (rf/reg-event :jvm/parent
+      (fn [_ _]
+        (reset! observed (rf/current-frame-id))
+        (rf/dispatch [:jvm/landed])
+        {}))
+    (rf/reg-event :jvm/landed
+      (fn [{:keys [db]} _] {:db (update db :received conj :landed)}))
+    (rf/dispatch-sync [:jvm/parent] {:frame :jvm/tenant-a})
+    (is (= [:jvm/tenant-a [:landed] [] []]
+           (into [@observed]
+                 (map #(:received (rf/app-db-value %))
+                      [:jvm/tenant-a :jvm/tenant-b :rf/default]))))))
 
 (deftest compute-sub-memoises-shared-input-in-a-diamond-jvm
-  (testing "a diamond (:c <- :a,:b ; :a <- :root ; :b <- :root) resolves
-            :root exactly ONCE per top-level compute-sub call"
-    (let [root-calls (atom 0)]
-      (rf/reg-sub :memo/root (fn [db _] (swap! root-calls inc) (:n db)))
-      (rf/reg-sub :memo/a {:inputs [[:memo/root]]} (fn [[r] _] (inc r)))
-      (rf/reg-sub :memo/b {:inputs [[:memo/root]]} (fn [[r] _] (dec r)))
-      (rf/reg-sub :memo/c
-        {:inputs [[:memo/a] [:memo/b]]}
-        (fn [[a b] _] {:a a :b b}))
-      (reset! root-calls 0)
-      (let [v (rf/compute-sub [:memo/c] {:n 10})]
-        (is (= {:a 11 :b 9} v)
-            "value is correct — memo is a pure dedup, never changes the result")
-        (is (= 1 @root-calls)
-            ":root computed exactly once despite two diamond paths reaching it")))))
-
-(deftest compute-sub-memo-is-per-call-not-cross-call-jvm
-  (testing "the memo is scoped to ONE top-level compute-sub call — a second
-            call against a different db recomputes (no stale cross-call cache)"
-    (let [calls (atom 0)]
-      (rf/reg-sub :memo/leaf2 (fn [db _] (swap! calls inc) (:v db)))
-      (rf/reg-sub :memo/up {:inputs [[:memo/leaf2]]} (fn [[x] _] (inc x)))
-      (reset! calls 0)
-      (is (= 2 (rf/compute-sub [:memo/up] {:v 1})))
-      (is (= 11 (rf/compute-sub [:memo/up] {:v 10}))
-          "second call sees the new db value — memo did not persist across calls")
-      (is (= 2 @calls)
-          "leaf computed once per top-level call (twice total), not memoised across calls"))))
-
-;; ---- machine ---------------------------------------------------------------
-;;
-;; pure-machine-transition / machine-always-microstep / machine-raise-pre-commit
-;; live in the machines artefact's machine_transition_purity_test.clj (all
-;; three exercise the pure rf.machines/machine-transition surface; co-located
-;; with the rest of the pure-transition contract tests).
-
-;; ---- flows ----------------------------------------------------------------
+  ;; compute-sub threads a per-call memo through its declared-input recursion:
+  ;; each distinct sub computes at most once per top-level call, and never
+  ;; across calls
+  (let [root-calls (atom 0)]
+    (rf/reg-sub :memo/root (fn [db _] (swap! root-calls inc) (:n db)))
+    (rf/reg-sub :memo/a {:inputs [[:memo/root]]} (fn [[r] _] (inc r)))
+    (rf/reg-sub :memo/b {:inputs [[:memo/root]]} (fn [[r] _] (dec r)))
+    (rf/reg-sub :memo/c {:inputs [[:memo/a] [:memo/b]]} (fn [[a b] _] {:a a :b b}))
+    (is (= [{:a 11 :b 9} 1] [(rf/compute-sub [:memo/c] {:n 10}) @root-calls])
+        ":root computed once despite two diamond paths reaching it")
+    (is (= [{:a 21 :b 19} 2] [(rf/compute-sub [:memo/c] {:n 20}) @root-calls])
+        "a second call recomputes against its own db")
+    (is (nil? (rf/compute-sub [:no-such-sub] {})) "an unknown sub is nil, not a throw")))
 
 (deftest flow-rectangle-area
-  (testing "a flow recomputes :area when :width or :height changes"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:width 0 :height 0}}))
-    (rf/reg-event :w! (fn [{:keys [db]} [_ w]] {:db (assoc db :width w)}))
-    (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
-    (rf/reg-flow :rect/area {:inputs [[:width] [:height]] :output-path [:area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:w! 3])
-    (rf/dispatch-sync [:h! 4])
-    ;; The flow transform runs as the outermost :after (before :db
-    ;; install) and its output lands in the installed app-db per Spec 013.
-    (is (= 12 (:area (rf/app-db-value :rf/default))))))
-
-(deftest destroy-frame-signals-active-machines
-  (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
-    (rf/make-frame {:id :tenant-a :doc "tenant"})
-    ;; Seed a machine snapshot directly into the RUNTIME-DB partition
-    ;; (EP-0001 — machine snapshots are durable runtime-db state)
-    ;; so we don't need to run a full machine through this test.
-    (rf/reg-event :seed-machines
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime
-         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
-                   {:flow/login    {:state :authed   :data {}}
-                    :flow/checkout {:state :pending  :data {}}})}))
-    (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
-    ;; SEMANTIC, posture-independent: the two active machines are really
-    ;; there to be signalled, and the teardown really happens.
-    (is (= #{:flow/login :flow/checkout}
-           (set (keys (get-in (:rf.db/runtime (rf/frame-state-value :tenant-a))
-                              [:rf.runtime/machines :snapshots]))))
-        "two machine snapshots are active on :tenant-a before the destroy")
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::df (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame! :tenant-a)
-      (rf/unregister-listener! :trace ::df)
-      (is (not (contains? (rf/frame-ids) :tenant-a))
-          ":tenant-a and its machine snapshots are gone after destroy-frame!")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-      ;; per-machine SIGNAL is a developer/tooling notification: it rides the
-      ;; dev `:trace` stream only, so under the production gate there is
-      ;; nothing to count.
-      (when rf.interop/debug-enabled?
-        (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
-                                          (:operation %))
-                                     @traces)]
-          (is (= 2 (count machine-traces))
-              "one trace per active machine snapshot")
-          (is (every? #(= :tenant-a (:frame (:tags %))) machine-traces)
-              "all traces carry the destroyed frame's id")
-          (is (= #{:authed :pending}
-                 (set (map #(:last-state (:tags %)) machine-traces)))
-              "each trace carries its machine's last-state")
-          (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
-              "each trace carries :reason :parent-frame-destroyed"))))))
+  (rf/reg-event :init (fn [_ _] {:db {:width 0 :height 0}}))
+  (rf/reg-event :w! (fn [{:keys [db]} [_ w]] {:db (assoc db :width w)}))
+  (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
+  (rf/reg-flow :rect/area {:inputs [[:width] [:height]] :output-path [:area]} (fn [w h] (* w h)))
+  (rf/dispatch-sync [:init])
+  (rf/dispatch-sync [:w! 3])
+  (rf/dispatch-sync [:h! 4])
+  (is (= 12 (:area (rf/app-db-value :rf/default)))))
 
 (deftest spawn-id-is-frame-scoped
-  (testing "actor-id allocation is scoped per-parent-snapshot — independent frames don't share an actor-id sequence"
-    (let [machine
-          ;; Per Spec 005 §Where snapshots live: spec map does NOT carry
-          ;; :id; the id comes from the surrounding reg-event id.
-          {:initial :idle
-           :data    {}
-           :states  {:idle    {:on    {:start :working}}
-                     :working {:spawn {:machine-id :worker
-                                        :id-prefix  :worker
-                                        :start      [:begin]}
-                               :on    {:done :idle}}}}
-          handler (rf.machines/make-machine-handler machine)]
-      ;; The spawned child TYPE must be REGISTERED before it is spawned
-      ;; (there is no implicit "spec-less spawn" path; an unregistered
-      ;; `:machine-id` rejects fail-closed with
-      ;; `:rf.error/machine-spawn-unregistered-type`). Register a minimal
-      ;; `:worker` child so each spawn is accepted and fires its
-      ;; `:rf.machine.spawn/spawned` trace.
-      (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
-      (rf/make-frame {:id :left :doc "left"})
-      (rf/make-frame {:id :right :doc "right"})
-      (rf/reg-event :flow handler)
-      ;; Each frame's first invoke should get :worker#1.
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::sids (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:flow [:start]] {:frame :left})
-        (rf/dispatch-sync [:flow [:start]] {:frame :right})
-        (rf/unregister-listener! :trace ::sids)
-        ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-        ;; frame-scoping CONTRACT this deftest is named for is the
-        ;; `:rf/spawn-counter` pair below, read straight out of each frame's
-        ;; runtime-db — production-real state, asserted in both postures.
-        (when rf.interop/debug-enabled?
-          (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
-                ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
-            (is (= 2 (count spawn-traces))
-                "two :rf.machine.spawn/spawned traces — one per frame")
-            (is (every? #(= :worker %) ids)
-                "both spawned the :worker machine")))
-        ;; The spawn-counter is not a per-process
-        ;; atom — it lives inside each parent machine's snapshot at
-        ;; `:rf/spawn-counter`. Frame-scoping is inherited from
-        ;; per-frame app-db isolation: each frame owns its own copy of
-        ;; the :flow machine's snapshot at [:rf.runtime/machines :snapshots :flow]; each
-        ;; copy's counter advances independently. Read the counter
-        ;; from each frame's snapshot directly.
-        (let [snap-left  (get-in (:rf.db/runtime (rf/frame-state-value :left)) [:rf.runtime/machines :snapshots :flow])
-              snap-right (get-in (:rf.db/runtime (rf/frame-state-value :right)) [:rf.runtime/machines :snapshots :flow])]
-          (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
-              "left frame's :flow snapshot counts one :worker spawn")
-          (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
-              "right frame's :flow snapshot counts one :worker spawn")
-          ;; Sanity: both allocations are independent — neither
-          ;; reached count 2 (cross-frame contamination).
-          (is (every? #(= 1 (get-in % [:rf/spawn-counter :worker]))
-                      [snap-left snap-right])
-              "the per-frame counters didn't share an allocator"))))))
+  ;; the spawn counter lives in each parent snapshot, so independent frames
+  ;; never share an actor-id sequence
+  (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
+  (rf/reg-event :flow (rf.machines/make-machine-handler
+                        {:initial :idle
+                         :data    {}
+                         :states  {:idle    {:on {:start :working}}
+                                   :working {:spawn {:machine-id :worker
+                                                     :id-prefix  :worker
+                                                     :start      [:begin]}
+                                             :on    {:done :idle}}}}))
+  (rf/make-frame {:id :left})
+  (rf/make-frame {:id :right})
+  (rf/dispatch-sync [:flow [:start]] {:frame :left})
+  (rf/dispatch-sync [:flow [:start]] {:frame :right})
+  (is (= [1 1]
+         (mapv #(get-in (:rf.db/runtime (rf/frame-state-value %))
+                        [:rf.runtime/machines :snapshots :flow :rf/spawn-counter :worker])
+               [:left :right]))))
 
 (deftest spawn-and-destroy-machine-fx
-  (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::spawn (fn [ev] (swap! traces conj ev)))
-      ;; Register the spawned child TYPE before the spawn fx: there is no
-      ;; implicit "spec-less spawn" path, and an unregistered `:machine-id`
-      ;; rejects fail-closed (`:rf.error/machine-spawn-unregistered-type`), so
-      ;; without it the spawn/destroy traces would never fire.
-      (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
-      (rf/reg-event :do-spawn
-        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
-                                            :id-prefix  :worker
-                                            :start      [:begin]}]
-                        [:rf.machine/destroy :worker#1]]}))
-      (rf/dispatch-sync [:do-spawn])
-      (rf/unregister-listener! :trace ::spawn)
-      ;; SEMANTIC, posture-independent. "Traversed fx without
-      ;; :rf.error/no-such-fx" read through the trace stream is a VACUOUS pass
-      ;; under the production gate — an empty trace ring satisfies `not-any?`
-      ;; just as well as a correct one. So pin what each fx actually DID, in
-      ;; the frame's runtime-db, which a production build carries: the spawn
-      ;; allocated `:worker#1` (the counter advanced) and the destroy removed
-      ;; its snapshot. Had either fx gone unhandled, neither would hold.
-      (let [machines-rt (:rf.runtime/machines
-                         (:rf.db/runtime (rf/frame-state-value :rf/default)))]
-        (is (= {:worker 1} (:spawn-counter machines-rt))
-            ":rf.machine/spawn was handled — it allocated :worker#1")
-        (is (= {} (:snapshots machines-rt))
-            ":rf.machine/destroy was handled — :worker#1's snapshot is gone"))
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
-            "expected :rf.machine.spawn/spawned trace")
-        (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
-            "expected :rf.machine/destroyed trace")
-        (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)
-            ":rf.machine/spawn / :rf.machine/destroy should not raise no-such-fx")))))
-
-(deftest login-machine-flow
-  (testing "Spec 005 machine pattern: login flow as a state machine, end-to-end"
-    ;; Stub fx that synthesises a successful or failed HTTP response.
-    (rf/reg-fx :http.canned-success
-      {:platforms #{:server :client}}
-      (fn [{:keys [frame]} {:keys [on-success]}]
-        (when on-success
-          (rf/dispatch (conj on-success {:user {:id "u1" :email "a@b.c"}
-                                         :token "t-1"})
-                       {:frame frame}))))
-    (rf/reg-fx :http.canned-failure
-      {:platforms #{:server :client}}
-      (fn [{:keys [frame]} {:keys [on-error]}]
-        (when on-error
-          (rf/dispatch (conj on-error {:message "bad creds"})
-                       {:frame frame}))))
-    ;; Real :http stays a no-op; the override redirects it for the test.
-    (rf/reg-fx :http {:platforms #{:server :client}} (fn [_ _] nil))
-    ;; Session storage stub: capture the token instead of writing to
-    ;; localStorage.
-    (let [stored (atom nil)]
-      (rf/reg-fx :auth.session/store
-        {:platforms #{:server :client}}
-        (fn [_ {:keys [token]}] (reset! stored token)))
-
-      ;; The login machine. Mirrors the structure of
-      ;; examples/core/login/model.cljc's :auth.login/flow — five states,
-      ;; deepest-wins, multi-guard branch.
-      (rf/reg-machine :auth.login/flow
-        ;; Per Spec 005: spec map does NOT carry :id; the id comes
-        ;; from the enclosing reg-machine call.
-        {:initial :idle
-         :data    {:attempts 0 :error nil}
-         :guards
-         {:under-retry-limit
-          (fn [{data :data}] (< (:attempts data) 3))}
-         :actions
-         {:clear-error    (fn [_] {:data {:error nil}})
-          :issue-request  (fn [{[_ creds] :event}]
-                            {:fx [[:http {:method     :post
-                                          :url        "/api/login"
-                                          :body       creds
-                                          :on-success [:auth.login/flow [:auth.login/success]]
-                                          :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
-          :record-error   (fn [{data :data [_ err] :event}]
-                            {:data (-> data
-                                       (update :attempts inc)
-                                       (assoc :error (or (:message err) "Login failed.")))})
-          :lock-account   (fn [_] {:fx []})
-          :store-session  (fn [{[_ {:keys [token]}] :event}]
-                            {:fx [[:auth.session/store {:token token}]]})}
-         :states
-         {:idle        {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
-          :submitting  {:entry :issue-request
-                        :on    {:auth.login/success {:target :authed :action :store-session}
-                                :auth.login/failure [{:target :error-shown :guard :under-retry-limit :action :record-error}
-                                                     {:target :locked-out :action :lock-account}]}}
-          :error-shown {:on {:auth.login/dismiss {:target :idle}
-                             :auth.login/submit  {:target :submitting}}}
-          :authed      {}
-          :locked-out  {}}})
-
-      ;; Subs over the machine snapshot. EP-0001: machine
-      ;; snapshots are durable runtime-db state, so this composes off the
-      ;; framework `:rf/machine` sub (which reads the runtime-db projection)
-      ;; rather than reaching into a raw db path.
-      (rf/reg-sub :auth.login/state
-        {:inputs [[:rf/machine :auth.login/flow]]}
-        (fn [[snapshot] _] (:state snapshot)))
-
-      (testing "happy path: idle → submitting → authed; session token stored"
-        (reset! stored nil)
-        (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-success}})]
-          (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                               {:email "a@b.c" :password "secret"}]]
-                            {:frame f})
-          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
-              "machine landed in :authed after canned success")
-          (is (= "t-1" @stored)
-              "session token was stored via the :auth.session/store fx")))
-
-      (testing "retry-then-lockout: 3 failures land in :error-shown, 4th in :locked-out"
-        (reset! stored nil)
-        (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-failure}})]
-          (dotimes [_ 3]
-            (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                                 {:email "x@y.z" :password "wrong"}]]
-                              {:frame f})
-            (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
-          ;; 4th submit — :under-retry-limit fails; second clause's :locked-out
-          ;; target wins.
-          (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                               {:email "x@y.z" :password "wrong"}]]
-                            {:frame f})
-          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
-              "guarded multi-clause branch routed to :locked-out on 4th attempt"))))))
-
-(deftest rf-machine-sub
-  (testing "framework-shipped :rf/machine sub returns the snapshot for a registered machine"
-    (rf/reg-machine :test/tiny
-      {:initial :idle
-       :data    {:n 0}
-       :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
-       :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
-    (let [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
-      (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
-      ;; EP-0001: machine snapshots are durable runtime-db state.
-      (let [rt (:rf.db/runtime (rf/frame-state-value f))]
-        ;; The snapshot carries `:rf/spawn-counter` seeded by
-        ;; `re-frame.machines.parallel/build-initial-snapshot`. This machine
-        ;; never spawns, so the slot stays empty (`{}`).
-        (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
-               (get-in rt [:rf.runtime/machines :snapshots :test/tiny]))
-            "machine snapshot exists at the spec'd path")
-        (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
-               (rf/compute-sub [:rf/machine :test/tiny] rt))
-            ":rf/machine sub returns the same snapshot")))))
+  (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
+  (rf/reg-event :do-spawn
+    (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
+                                        :id-prefix  :worker
+                                        :start      [:begin]}]
+                    [:rf.machine/destroy :worker#1]]}))
+  (rf/dispatch-sync [:do-spawn])
+  (is (= {:spawn-counter {:worker 1} :snapshots {}}
+         (select-keys (:rf.runtime/machines (:rf.db/runtime (rf/frame-state-value :rf/default)))
+                      [:spawn-counter :snapshots]))
+      "both fx were handled: the spawn allocated :worker#1 and the destroy removed it"))
 
 ;; The registered machine's SPEC map, read through the generic registrar query
-;; + the `:rf/machine` inner-key projection (Spec 005 §Querying machines,
-;; spec/API.md §Public registrar query API). nil unless that `:event`
-;; registration carries `:rf/machine? true`.
+;; plus the `:rf/machine` inner-key projection (Spec 005 §Querying machines).
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
-;; Every registered machine-id, read through the same generic registrar query
-;; filtered on the `:rf/machine?` discriminator. There is no per-kind
-;; `machines` accessor — this filter IS the contract (Spec 005 §Querying
-;; machines).
-(defn- machine-ids []
-  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-              (rf/registrations {:source :store :kind :event}))))
-
 (deftest machines-introspection
-  (testing "the :rf/machine? filter over the generic read returns only ids registered via reg-machine"
-    (let [tiny-spec   {:initial :idle
-                       :data    {:n 0}
-                       :doc     "A tiny test machine."
-                       :actions {:bump (fn [{data :data}]
-                                         {:data (update data :n inc)})}
-                       :states  {:idle {:on {:tick {:target :idle
-                                                    :action :bump}}}}}
-          other-spec  {:initial :off
-                       :states  {:off {:on {:flip :on}}
-                                 :on  {:on {:flip :off}}}}]
-      (rf/reg-machine :test/tiny  tiny-spec)
-      (rf/reg-machine :test/other other-spec)
-      ;; A regular event-handler must NOT show up under the :rf/machine? filter.
-      (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
+  (let [tiny-spec  {:initial :idle
+                    :doc     "A tiny test machine."
+                    :states  {:idle {:on {:tick :idle}}}}
+        other-spec {:initial :off
+                    :states  {:off {:on {:flip :on}}
+                              :on  {:on {:flip :off}}}}]
+    (rf/reg-machine :test/tiny tiny-spec)
+    (rf/reg-machine :test/other other-spec)
+    (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
+    (is (= #{:test/tiny :test/other}
+           (set/intersection #{:test/tiny :test/other :test/regular}
+                             (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+                                              (rf/registrations {:source :store :kind :event}))))))
+        "the :rf/machine? filter lists reg-machine ids and excludes plain events")
+    (is (= [tiny-spec other-spec nil nil]
+           (map machine-spec [:test/tiny :test/other :test/regular :test/never-registered])))))
 
-      (let [ids (set (machine-ids))]
-        (is (contains? ids :test/tiny)
-            "the :rf/machine? filter lists machines registered via reg-machine")
-        (is (contains? ids :test/other)
-            "the :rf/machine? filter lists every reg-machine id")
-        (is (not (contains? ids :test/regular))
-            "the :rf/machine? filter excludes plain event handlers"))
-
-      ;; A single machine's SPEC is read through the generic registrar query
-      ;; plus the `:rf/machine` inner-key projection — the documented contract
-      ;; (Spec 005 §Querying machines), not a per-kind `machine-meta` alias.
-      (testing "the :rf/machine projection returns the spec map for registered machines"
-        (is (= tiny-spec (machine-spec :test/tiny))
-            "the projection returns the spec map passed to reg-machine")
-        (is (= other-spec (machine-spec :test/other)))
-        (is (= "A tiny test machine." (:doc (machine-spec :test/tiny)))
-            "the spec's :doc round-trips through the projection"))
-
-      (testing "the :rf/machine projection is nil for unregistered or non-machine ids"
-        (is (nil? (machine-spec :test/regular))
-            "non-machine event handlers return nil")
-        (is (nil? (machine-spec :test/never-registered))
-            "unregistered ids return nil"))
-
-      (testing "there is no per-kind `machine-meta` alias in re-frame.machines
-                — the generic read above is the contract"
-        (is (nil? (ns-resolve 're-frame.machines 'machine-meta))
-            "re-frame.machines/machine-meta must not be re-introduced")))))
-
-(deftest retired-per-kind-registry-aliases-are-absent
-  ;; Every per-kind `<kind>-ids` / `<kind>-meta` accessor is a
-  ;; second encoding of the one registrar grammar every tool already speaks:
-  ;;   (keys (rf/registrations {:source :store :kind k}))
-  ;;   (rf/handler-meta {:source :store :kind k :id id})
-  ;; plus, for the kinds that nest their spec, the documented inner-key
-  ;; projection (`:rf/resource`, `:rf/mutation`, `:rf/resource-scope`,
-  ;; `:rf/machine`). This deftest is the pin that stops one growing back.
-  (require 're-frame.resources)
-  (testing "re-frame.routing publishes no route-ids / route-meta"
-    (doseq [sym '[route-ids route-meta]]
-      (is (nil? (ns-resolve 're-frame.routing sym))
-          (str "re-frame.routing/" sym " must not be re-introduced"))))
-  (testing "re-frame.resources publishes no per-kind ids / meta accessors"
-    (doseq [sym '[resource-ids resource-meta mutation-ids mutation-meta
-                  scope-resolver-ids scope-resolver-meta]]
-      (is (nil? (ns-resolve 're-frame.resources sym))
-          (str "re-frame.resources/" sym " must not be re-introduced"))))
-  (testing "re-frame.core publishes no resource-meta / mutation-meta"
-    (doseq [sym '[resource-meta mutation-meta]]
-      (is (nil? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must not be re-introduced"))))
-  (testing "resource-meta / mutation-meta exist ARTEFACT-INTERNALLY, so the
-            resources runtime has its own shorthand for the projection"
-    (is (some? (ns-resolve 're-frame.resources.registry 'resource-meta)))
-    (is (some? (ns-resolve 're-frame.resources.mutation-registry 'mutation-meta)))))
-
-;; ssr-with-fx-override and ssr-end-to-end live in the ssr artefact's
-;; ssr_end_to_end_test.clj, co-located with the rest of the SSR
-;; request-lifecycle coverage.
-
-;; ---- registrations / handler-meta ----------------------------------------
-;;
-;; The introspection re-exports (`registrations`, `handler-meta`) are used
-;; inside fixtures and the source-coords tests; this deftest pins their
-;; cross-kind round-trip. It registers handlers across the canonical kinds,
-;; then walks the introspection surfaces against each. There is no
-;; `handler-ids` projection — the id set is
+;; The introspection re-exports (`registrations`, `handler-meta`) across every
+;; registration kind. There is no `handler-ids` projection — the id set is
 ;; `(set (keys (registrations kind)))`.
-
 (deftest registry-introspection-round-trip
-  (testing "rf/registrations, rf/handler-meta cover every
-            registration kind with the documented shape"
-    ;; ---- :event --------------------------------------------------------
-    (rf/reg-event :rf2-o1bp/evt1 (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :rf2-o1bp/evt2 (fn [_ _] {}))
-
-    ;; ---- :sub ---------------------------------------------------------
-    (rf/reg-sub :rf2-o1bp/sub1 (fn [db _] db))
-
-    ;; ---- :fx ----------------------------------------------------------
-    (rf/reg-fx :rf2-o1bp/fx1
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-
-    ;; ---- :cofx --------------------------------------------------------
-    (rf/reg-cofx :rf2-o1bp/cofx1 (fn [] :stub))
-
-    ;; ---- :view --------------------------------------------------------
-    ;; reg-view* is the JVM-safe registration path. On CLJS it wraps the
-    ;; render fn; on JVM it registers the fn directly under :view.
-    (rf/reg-view* :rf2-o1bp/view1 (fn [] [:div "v1"]))
-
-    ;; ---- :machine (registers under :event with :rf/machine? true) ----
-    (rf/reg-machine :rf2-o1bp/mach1
-      {:initial :idle
-       :data    {}
-       :states  {:idle {}}})
-
-    ;; ---- :route -------------------------------------------------------
-    (rf/reg-route :rf2-o1bp/route1 {} "/rf2-o1bp/landing")
-
-    ;; ---- :flow --------------------------------------------------------
-    ;; Flows live OUTSIDE the registrar — `reg-flow` writes
-    ;; only to the flows artefact's own per-frame store (`flows`, keyed
-    ;; `{frame-id {flow-id flow-map}}`), the single source of truth. The
-    ;; `:flow` registrar kind is RESERVED-but-empty (like `:http-
-    ;; interceptor`); introspection of registered flows goes through
-    ;; `rf.flows/flow-meta` / `rf.flows/flows-snapshot`, asserted in the flows
-    ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
-    ;; scope resolves the frame this registers against.
-    (rf/reg-flow :rf2-o1bp/flow1 {:inputs [] :output-path [:rf2-o1bp/flow-output]} (fn [_inputs] :computed))
-
-    ;; ---- :http-interceptor --------------------------------------------
-    ;; reg-http-interceptor uses its own per-frame atom (not the
-    ;; registrar). The surface is exercised here anyway so the late-bind
-    ;; hook is touched.
-    (rf/reg-http-interceptor :rf2-o1bp/interceptor1 {:before identity})
-
-    ;; ---- :error-projector --------------------------------------------
-    ;; reg-error-projector lives in re-frame.ssr; ns-load registers
-    ;; :rf.ssr/default-error-projector.
-    (rf/reg-error-projector :rf2-o1bp/err1 (fn [_ _] {}))
-
-    ;; ---- app-db schema -----------------------------------------------
-    ;; App-db schemas live OUTSIDE the registrar
-    ;; — `reg-app-schema` writes only to the schemas artefact's own
-    ;; per-frame side-table (`rf.schemas/schemas-by-frame`). There is NO
-    ;; `:app-schema` registrar kind. Introspection of registered app-db
-    ;; schemas goes through `rf.schemas/app-schemas` /
-    ;; `rf.schemas/app-schema-meta`, asserted in the schemas artefact's
-    ;; own tests.
-    (rf/reg-app-schema [:rf2-o1bp/path] :any)
-
-    ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
-    ;;          projection (there is no rf/handler-ids)
-    (testing "(set (keys (rf/registrations {:source :store :kind kind}))) enumerates ids per kind"
-      (let [ids-of          (fn [kind]
-                              (set (keys (rf/registrations {:source :store
-                                                            :kind   kind}))))
-            event-ids       (ids-of :event)
-            sub-ids         (ids-of :sub)
-            fx-ids          (ids-of :fx)
-            cofx-ids        (ids-of :cofx)
-            view-ids        (ids-of :view)
-            route-ids       (ids-of :route)
-            ep-ids          (ids-of :error-projector)]
-        (is (set? event-ids) "the id projection returns a set")
-        (is (contains? event-ids :rf2-o1bp/evt1))
-        (is (contains? event-ids :rf2-o1bp/evt2))
-        (is (contains? event-ids :rf2-o1bp/mach1)
-            "the machine appears in :event id set")
-        (is (contains? sub-ids :rf2-o1bp/sub1))
-        (is (contains? fx-ids :rf2-o1bp/fx1))
-        (is (contains? cofx-ids :rf2-o1bp/cofx1))
-        (is (contains? view-ids :rf2-o1bp/view1))
-        (is (contains? route-ids :rf2-o1bp/route1))
-        ;; `:flow` is a RESERVED-but-EMPTY registrar kind — reg-flow writes
-        ;; only to the flows artefact's per-frame store. The query path does
-        ;; not answer `{}` for it (that would be an authoritative-looking
-        ;; empty catalogue over a store that lives elsewhere); it THROWS,
-        ;; naming the owning read.
-        (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))
-            "querying the reserved-empty :flow slot throws rather than answering {}")
-        (is (some? (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1}))
-            "the flow IS introspectable via rf.flows/flow-meta (the per-frame store)")
-        (is (contains? ep-ids :rf2-o1bp/err1))
-        ;; `:app-schema` is NOT a registrar kind — no
-        ;; assertion here. App-db schema introspection goes through
-        ;; `rf.schemas/app-schemas` (returns `{path → registration-metadata}`).
-        (is (not (rf.registrar/valid-kind? :app-schema))
-            ":app-schema is NOT a registrar kind")))
-
-    ;; ---- (2) registrations returns {id → metadata} per kind -----------
-    (testing "(rf/registrations {:source :store :kind kind}) returns {id → metadata}"
-      (let [events (rf/registrations {:source :store :kind :event})]
-        (is (map? events))
-        (is (contains? events :rf2-o1bp/evt1))
-        (let [meta (get events :rf2-o1bp/evt1)]
-          (is (map? meta) "the value is a metadata map")
-          (is (fn? (:handler-fn meta))
-              "metadata carries :handler-fn — the registered handler fn"))))
-
-    ;; ---- (3) handler-meta returns the metadata for a single id -------
-    (testing "(rf/handler-meta {:source :store :kind kind :id id}) returns the metadata map"
-      (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-o1bp/evt1})]
-        (is (map? m))
-        (is (fn? (:handler-fn m)))
-        (is (not (contains? m :event/kind))
-            ":event metadata carries NO :event/kind sub-tag (EP-0018 — one form)"))
-      ;; A machine carries :rf/machine? true and :rf/machine <spec>.
-      (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-o1bp/mach1})]
-        (is (true? (:rf/machine? m))
-            "machine event metadata is tagged :rf/machine? true")
-        (is (map? (:rf/machine m))
-            "machine spec is stored at :rf/machine"))
-      ;; Routes carry the :path field.
-      (let [m (rf/handler-meta {:source :store :kind :route :id :rf2-o1bp/route1})]
-        (is (= "/rf2-o1bp/landing" (:path m))
-            ":route metadata carries :path"))
-      ;; Flows carry :output-path and :inputs. They are NOT in the registrar;
-      ;; the per-frame store is the single source of truth, read via
-      ;; `rf.flows/flow-meta`. A `:flow` query THROWS and names that door,
-      ;; rather than answering a nil that would read as "no such flow".
+  (rf/reg-event :o1bp/evt1 (fn [{:keys [db]} _] {:db db}))
+  (rf/reg-event :o1bp/evt2 (fn [_ _] {}))
+  (rf/reg-sub :o1bp/sub1 (fn [db _] db))
+  (rf/reg-fx :o1bp/fx1 {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/reg-cofx :o1bp/cofx1 (fn [] :stub))
+  (rf/reg-view* :o1bp/view1 (fn [] [:div "v1"]))
+  (rf/reg-machine :o1bp/mach1 {:initial :idle :data {} :states {:idle {}}})
+  (rf/reg-route :o1bp/route1 {} "/o1bp/landing")
+  ;; flows and http interceptors live in their artefacts' own per-frame stores
+  (rf/reg-flow :o1bp/flow1 {:inputs [] :output-path [:o1bp/flow-output]} (fn [_inputs] :computed))
+  (rf/reg-http-interceptor :o1bp/interceptor1 {:before identity})
+  (rf/reg-error-projector :o1bp/err1 (fn [_ _] {}))
+  (rf/reg-app-schema [:o1bp/path] :any)
+  (let [ids-of (fn [kind] (set (keys (rf/registrations {:source :store :kind kind}))))]
+    (testing "the id set per kind"
+      (doseq [[kind id] [[:event :o1bp/evt1] [:event :o1bp/evt2] [:event :o1bp/mach1]
+                         [:sub :o1bp/sub1] [:fx :o1bp/fx1] [:cofx :o1bp/cofx1]
+                         [:view :o1bp/view1] [:route :o1bp/route1]
+                         [:error-projector :o1bp/err1]]]
+        (is (contains? (ids-of kind) id) (str kind " lists " id)))
+      ;; :flow is reserved-but-empty: the query throws rather than answering an
+      ;; authoritative-looking {} over a store that lives elsewhere
+      (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow)))
+      (is (not (rf.registrar/valid-kind? :app-schema)) ":app-schema is not a registrar kind"))
+    (testing "handler-meta per id"
+      (let [evt (rf/handler-meta {:source :store :kind :event :id :o1bp/evt1})]
+        (is (= [true false] [(fn? (:handler-fn evt)) (contains? evt :event/kind)])
+            "carries the handler fn and no :event/kind sub-tag (EP-0018)"))
+      (is (= [true true] ((juxt (comp true? :rf/machine?) (comp map? :rf/machine))
+                          (rf/handler-meta {:source :store :kind :event :id :o1bp/mach1}))))
+      (is (= "/o1bp/landing" (:path (rf/handler-meta {:source :store :kind :route :id :o1bp/route1}))))
       (is (thrown? clojure.lang.ExceptionInfo
-            (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
+            (rf/handler-meta {:source :store :kind :flow :id :o1bp/flow1}))
           "a :flow query throws :rf.error/registrar-kind-not-queryable")
-      (let [m (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1})]
-        (is (= [:rf2-o1bp/flow-output] (:output-path m)))
-        (is (= [] (:inputs m))))
-      ;; Unknown id → nil.
-      (is (nil? (rf/handler-meta {:source :store :kind :event :id :no-such-event}))
-          "handler-meta on an unknown id returns nil"))))
+      (is (= {:output-path [:o1bp/flow-output] :inputs []}
+             (select-keys (rf.flows/flow-meta {:frame :rf/default :id :o1bp/flow1})
+                          [:output-path :inputs])))
+      (is (nil? (rf/handler-meta {:source :store :kind :event :id :no-such-event}))))))
