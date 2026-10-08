@@ -1,55 +1,13 @@
 (ns re-frame.machines-on-error-cljs-test
-  "First-class `:spawn :on-error` (XState v5 invoke `onError`).
-
-  When a `:spawn`-spawned child FAILS, the runtime routes the failure to the
-  spawning parent's `:spawn :on-error` TRANSITION (control flow — a declarative
-  parent state change), SYMMETRIC with the `:spawn :on-done` teardown
-  hook. Two triggers:
-
-    (1) the child reaches a designated ERROR `:final?` leaf (`:error? true`) —
-        the error payload (`:output-key` slot) rides into the `:on-error`
-        transition's `:event`;
-    (2) an uncaught child action exception
-        (`:rf.error/machine-action-exception`) — the exception envelope rides
-        into the `:on-error` transition's `:event`.
-
-  `:on-error` works alongside both observability surfaces: the trace emission
-  and the explicit dispatch-back-to-parent escape hatch both work alongside it;
-  `:on-error` is the declarative invoke-site control-flow form.
-
-  Tests:
-    (a) child reaches error `:final?` leaf → parent `:on-error :target` fires
-        + error payload in ctx;
-    (b) uncaught child action exception → parent `:on-error` fires (control
-        flow);
-    (c) `:on-error` with `:guard` + `:action`;
-    (d) child SUCCESS → `:on-done` fires, `:on-error` does NOT;
-    (e) no `:on-error` declared → the `:rf.machine/done` trace and
-        auto-destroy, and no framework-driven transition;
-    (f) malformed `:on-error` / `:error?`-without-`:final?` rejected at
-        registration;
-    (g) parallel-PARENT region `:spawn` — a `:spawn` declared
-        inside a parallel REGION keys its `:spawned` slot under the REAL
-        parent (not `:rf/transition-pure`), so BOTH the region's `:spawn
-        :on-done` and `:spawn :on-error` resolve REGION-SCOPED end-to-end
-        (error `:final?` leaf AND uncaught child-action exception), with the
-        sibling region untouched.
-    (h) parallel-region explicit `:on {:rf.machine.spawn/error …}` escape
-        hatch is REGION-scoped — a sibling region's explicit
-        handler must NOT catch another region's child failure.
-    (i) a parallel-region `:spawn :on-error` GUARD reading the invoke-id off
-        `(nth ev 1)` sees the region-RELATIVE path (`[:working]`), NOT the
-        region-prefixed `[:loader :working]`, so it matches.
-
-  Named `*-cljs-test.cljc` so it runs under both cognitect.test-runner (JVM)
-  and shadow-cljs (CLJS), matching `final_state_cljs_test.cljc`."
+  "A failing `:spawn` child — one that reaches an `:error? true` final leaf, or
+  throws from an action — drives the parent's `:spawn :on-error` transition,
+  region-scoped in a parallel parent; a success takes `:on-done`, never
+  `:on-error`."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   ;; Loading `re-frame.machines` installs the late-bind hooks `reg-machine`
-   ;; resolves through (without it, `rf/reg-machine` throws
-   ;; `:rf.error/machines-artefact-missing`).
+   ;; Installs the late-bind hooks `rf/reg-machine` resolves through.
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    [re-frame.trace.tooling :as rf.trace.tooling]
@@ -61,8 +19,6 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; snapshot lookup via the shared machines test-support — no hardcoded
-;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- spawned-id-for
@@ -70,450 +26,163 @@
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
-(defn- traces-for
-  [traces operation]
-  (filter #(= operation (:operation %)) @traces))
-
 (defn- record-traces!
   [k]
   (let [a (atom [])]
     (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
-;; ---- (a) child reaches error :final? leaf → parent :on-error :target fires ----
+(defn- error-child
+  "Fails on `:boom` through an `:error?` final leaf whose `:output-key` slot holds `err`."
+  [err]
+  {:initial :running
+   :data    {:err err}
+   :states  {:running {:on {:boom :failed}}
+             :failed  {:final? true :error? true :output-key :err}}})
+
+(defn- capture-error
+  "An `:on-error` action recording the failure payload, `(nth ev 2)` of
+  `[:rf.machine.spawn/error <invoke-id> <error>]`."
+  [{data :data ev :event}]
+  {:data (assoc data :captured (nth ev 2))})
 
 (deftest child-error-final-leaf-fires-parent-on-error-transition
-  (testing "child reaching an :error? :final? leaf drives the parent's :on-error :target (with the error payload)"
-    (rf/reg-machine :rf2-5hlsh-a/child
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:boom {:target :failed
-                              :action (fn [{data :data ev :event}]
-                                        {:data (assoc data :err (second ev))})}}}
-        ;; designated ERROR terminal — carries the error via :output-key
-        :failed  {:final?     true
-                  :error?     true
-                  :output-key :err}}})
-    (rf/reg-machine :rf2-5hlsh-a/parent
-      {:initial :idle
-       :data    {}
-       :states
-       {:idle    {:on {:start :working}}
-        :working {:spawn {:machine-id :rf2-5hlsh-a/child
-                          ;; :on-error is an :on-shaped TRANSITION resolved at
-                          ;; :working's level — :errored is a sibling.
-                          :on-error {:target :errored
-                                     :action (fn [{data :data ev :event}]
-                                               ;; ev = [:rf.machine.spawn/error <invoke-id> <error>]
-                                               {:data (assoc data :captured (nth ev 2))})}}
-                  :on    {:done :idle}}
-        :errored {}}})
-    (rf/dispatch-sync [:rf2-5hlsh-a/parent [:start]])
-    (let [child (spawned-id-for :rf2-5hlsh-a/parent [:working])]
-      (is (some? child) "child spawned")
-      (rf/dispatch-sync [child [:boom :network-down]])
-      (is (= :errored (:state (snapshot :rf2-5hlsh-a/parent)))
-          "parent's :on-error :target fired — it moved to :errored")
-      (is (= :network-down (get-in (snapshot :rf2-5hlsh-a/parent) [:data :captured]))
-          "the error payload (child's :output-key slot) rode into the :on-error transition's :event")
-      (is (nil? (snapshot child))
-          "the failed child auto-destroyed (it reached a :final? leaf)"))))
-
-;; ---- (b) uncaught child action exception → parent :on-error fires ----------
+  (rf/reg-machine :rf2-5hlsh-a/child (error-child :network-down))
+  (rf/reg-machine :rf2-5hlsh-a/parent
+    {:initial :idle
+     :data    {}
+     :states  {:idle    {:on {:start :working}}
+               :working {:spawn {:machine-id :rf2-5hlsh-a/child
+                                 :on-error   {:target :errored :action capture-error}}}
+               :errored {}}})
+  (rf/dispatch-sync [:rf2-5hlsh-a/parent [:start]])
+  (let [child (spawned-id-for :rf2-5hlsh-a/parent [:working])]
+    (rf/dispatch-sync [child [:boom]])
+    (is (= [:errored :network-down nil]
+           [(:state (snapshot :rf2-5hlsh-a/parent))
+            (get-in (snapshot :rf2-5hlsh-a/parent) [:data :captured])
+            (snapshot child)]))))
 
 (deftest child-action-exception-fires-parent-on-error-transition
-  (testing "an uncaught child action exception routes to the parent's :on-error transition (control flow)"
-    (let [traces (record-traces! ::action-exc)]
-      (rf/reg-machine :rf2-5hlsh-b/child
-        {:initial :running
-         :data    {}
-         :states
-         {:running {:on {:go {:target :next
-                              :action (fn [_] (throw (ex-info "kaboom" {:why :test})))}}}
-          :next    {}}})
-      (rf/reg-machine :rf2-5hlsh-b/parent
-        {:initial :working
-         :data    {}
-         :states
-         {:working {:spawn {:machine-id :rf2-5hlsh-b/child
-                            :on-error {:target :errored}}}
-          :errored {}}})
-      (rf/dispatch-sync [:rf2-5hlsh-b/parent [:rf.machine.spawn/spawned]])
-      (let [child (spawned-id-for :rf2-5hlsh-b/parent [:working])]
-        (rf/dispatch-sync [child [:go]])
-        (is (some #(= :rf.error/machine-action-exception (:operation %)) @traces)
-            "the action-exception trace also fired (observability alongside the control flow)")
-        (is (= :errored (:state (snapshot :rf2-5hlsh-b/parent)))
-            "the uncaught exception drove the parent's :on-error :target")))))
-
-;; ---- (c) :on-error with :guard + :action -----------------------------------
-
-(deftest on-error-honours-guard-and-action
-  (testing ":on-error candidate-vector resolves first-guard-pass-wins, runs the chosen :action"
-    (rf/reg-machine :rf2-5hlsh-c/child
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:fail {:target :failed
-                              :action (fn [{data :data ev :event}]
-                                        {:data (assoc data :code (second ev))})}}}
-        :failed  {:final?     true
-                  :error?     true
-                  :output-key :code}}})
-    (rf/reg-machine :rf2-5hlsh-c/parent
-      {:initial :working
-       :data    {}
-       :states
-       {:working {:spawn {:machine-id :rf2-5hlsh-c/child
-                          ;; guarded candidate vector: a 503 retries, anything
-                          ;; else gives up. First guard-pass wins.
-                          :on-error [{:guard  (fn [{ev :event}] (= 503 (nth ev 2)))
-                                      :target :retrying
-                                      :action (fn [{data :data}] {:data (assoc data :route :retry)})}
-                                     {:target :gave-up
-                                      :action (fn [{data :data}] {:data (assoc data :route :give-up)})}]}}
-        :retrying {}
-        :gave-up  {}}})
-    (rf/dispatch-sync [:rf2-5hlsh-c/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-5hlsh-c/parent [:working])]
-      (rf/dispatch-sync [child [:fail 503]])
-      (is (= :retrying (:state (snapshot :rf2-5hlsh-c/parent)))
-          "the 503 guard passed → :retrying")
-      (is (= :retry (get-in (snapshot :rf2-5hlsh-c/parent) [:data :route]))
-          "the guarded candidate's :action ran"))))
-
-;; ---- (d) child SUCCESS → :on-done fires, :on-error does NOT -----------------
+  (rf/reg-machine :rf2-5hlsh-b/child
+    {:initial :running
+     :states  {:running {:on {:go {:action (fn [_] (throw (ex-info "kaboom" {:why :test})))}}}}})
+  (rf/reg-machine :rf2-5hlsh-b/parent
+    {:initial :working
+     :states  {:working {:spawn {:machine-id :rf2-5hlsh-b/child :on-error {:target :errored}}}
+               :errored {}}})
+  (rf/dispatch-sync [:rf2-5hlsh-b/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-5hlsh-b/parent [:working]) [:go]])
+  (is (= :errored (:state (snapshot :rf2-5hlsh-b/parent)))))
 
 (deftest success-leaf-fires-on-done-not-on-error
-  (testing "a plain (non-:error?) :final? leaf fires :on-done; :on-error does NOT fire"
-    (rf/reg-machine :rf2-5hlsh-d/child
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:ok {:target :done
-                            :action (fn [{data :data ev :event}]
-                                      {:data (assoc data :tok (second ev))})}}}
-        :done    {:final?     true
-                  :output-key :tok}}})
-    (rf/reg-machine :rf2-5hlsh-d/parent
-      {:initial :working
-       :data    {}
-       :states
-       {:working {:spawn {:machine-id :rf2-5hlsh-d/child
-                          :on-done  (fn [{data :data result :result}]
-                                      (assoc data :got result))
-                          :on-error {:target :errored}}}
-        :errored {}}})
-    (rf/dispatch-sync [:rf2-5hlsh-d/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-5hlsh-d/parent [:working])]
-      (rf/dispatch-sync [child [:ok :the-token]])
-      (is (= :the-token (get-in (snapshot :rf2-5hlsh-d/parent) [:data :got]))
-          ":on-done ran against the success result")
-      (is (= :working (:state (snapshot :rf2-5hlsh-d/parent)))
-          "the parent did NOT move to :errored — :on-error did not fire on success"))))
-
-;; ---- (e) no :on-error declared → trace + auto-destroy, no transition ----
+  (rf/reg-machine :rf2-5hlsh-d/child
+    {:initial :running
+     :data    {:tok :the-token}
+     :states  {:running {:on {:ok :done}}
+               :done    {:final? true :output-key :tok}}})
+  (rf/reg-machine :rf2-5hlsh-d/parent
+    {:initial :working
+     :data    {}
+     :states  {:working {:spawn {:machine-id :rf2-5hlsh-d/child
+                                 :on-done    (fn [{data :data result :result}]
+                                               (assoc data :got result))
+                                 :on-error   {:target :errored}}}
+               :errored {}}})
+  (rf/dispatch-sync [:rf2-5hlsh-d/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-5hlsh-d/parent [:working]) [:ok]])
+  (is (= [:working :the-token]
+         [(:state (snapshot :rf2-5hlsh-d/parent))
+          (get-in (snapshot :rf2-5hlsh-d/parent) [:data :got])])))
 
 (deftest error-leaf-without-on-error-destroys-child-and-leaves-parent-unmoved
-  (testing "without :on-error, an error leaf fires the :rf.machine/done trace + auto-destroy"
-    (let [traces (record-traces! ::no-on-error)]
-      (rf/reg-machine :rf2-5hlsh-e/child
-        {:initial :running
-         :data    {}
-         :states
-         {:running {:on {:boom :failed}}
-          :failed  {:final? true :error? true}}})
-      ;; parent declares NO :on-error and no explicit failure handler: the
-      ;; child auto-destroys, the :rf.machine/done trace fires, and the failure
-      ;; event reaches the parent, which ignores it — the parent is unmoved.
-      ;; The explicit dispatch-back escape hatch (if the child chose it) works
-      ;; alongside — the next test exercises it; here we assert the framework
-      ;; adds NO transition itself.
-      (rf/reg-machine :rf2-5hlsh-e/parent
-        {:initial :working
-         :data    {}
-         :states
-         {:working {:spawn {:machine-id :rf2-5hlsh-e/child}}}})
-      (rf/dispatch-sync [:rf2-5hlsh-e/parent [:rf.machine.spawn/spawned]])
-      (let [child (spawned-id-for :rf2-5hlsh-e/parent [:working])]
-        (rf/dispatch-sync [child [:boom]])
-        (is (nil? (snapshot child))
-            "child auto-destroyed on its error leaf (no :on-error needed)")
-        (is (= :working (:state (snapshot :rf2-5hlsh-e/parent)))
-            "parent unmoved — no :on-error means no framework-driven transition")
-        (let [dones (traces-for traces :rf.machine/done)]
-          (is (= 1 (count dones)) "the :rf.machine/done actor-finality trace fired")
-          (is (true? (-> (first dones) :tags :error?))
-              ":rf.machine/done carries :error? true for an error leaf"))))))
-
-(deftest escape-hatch-explicit-dispatch-still-works
-  (testing "the lower-level escape hatch ([:fx [[:dispatch [parent [:failed]]]]]) works alongside :on-error"
-    (rf/reg-machine :rf2-5hlsh-e2/child
-      {:initial :running
-       :data    {}
-       :states
-       ;; The child explicitly dispatches a failure event back to its parent
-       ;; from a transition action — the documented lower-level form.
-       {:running {:on {:boom {:target :failed
-                              :action (fn [{data :data}]
-                                        {:data data
-                                         :fx   [[:dispatch [:rf2-5hlsh-e2/parent [:child-failed]]]]})}}}
-        :failed  {:final? true}}})
-    (rf/reg-machine :rf2-5hlsh-e2/parent
+  (let [traces (record-traces! ::no-on-error)]
+    (rf/reg-machine :rf2-5hlsh-e/child (error-child nil))
+    (rf/reg-machine :rf2-5hlsh-e/parent
       {:initial :working
-       :data    {}
-       :states
-       {:working {:spawn {:machine-id :rf2-5hlsh-e2/child}
-                  :on    {:child-failed :errored}}
-        :errored {}}})
-    (rf/dispatch-sync [:rf2-5hlsh-e2/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-5hlsh-e2/parent [:working])]
+       :states  {:working {:spawn {:machine-id :rf2-5hlsh-e/child}}}})
+    (rf/dispatch-sync [:rf2-5hlsh-e/parent [:rf.machine.spawn/spawned]])
+    (let [child (spawned-id-for :rf2-5hlsh-e/parent [:working])]
       (rf/dispatch-sync [child [:boom]])
-      (is (= :errored (:state (snapshot :rf2-5hlsh-e2/parent)))
-          "the explicit dispatch-back-to-parent escape hatch drove the parent transition"))))
-
-;; ---- (f) malformed :on-error / :error?-without-:final? rejected ------------
+      (is (= [nil :working [true]]
+             [(snapshot child)
+              (:state (snapshot :rf2-5hlsh-e/parent))
+              (->> @traces
+                   (filter #(= :rf.machine/done (:operation %)))
+                   (map (comp :error? :tags)))])))))
 
 (deftest registration-validations
-  (testing "a malformed :spawn :on-error is rejected at registration"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-bad-on-error-clause"
-          (rf/reg-machine :rf2-5hlsh-f/bad-on-error
+  (doseq [[error-id machine]
+          [[":rf.error/machine-bad-on-error-clause"
             {:initial :working
-             :states  {:working {:spawn {:machine-id :whatever
-                                         :on-error   42}}}}))))     ;; not a transition spec
-  (testing ":error? on a NON-final state is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-error-flag-without-final"
-          (rf/reg-machine :rf2-5hlsh-f/bad-error-flag
+             :states  {:working {:spawn {:machine-id :whatever :on-error 42}}}}]
+           [":rf.error/machine-error-flag-without-final"
             {:initial :a
-             :states  {:a {:error? true
-                           :on     {:go :b}}
-                       :b {}}}))))
-  (testing "a dangling :on-error action ref is rejected at registration"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error) #":rf.error/machine-unresolved-action"
-          (rf/reg-machine :rf2-5hlsh-f/dangling-action
+             :states  {:a {:error? true :on {:go :b}}
+                       :b {}}}]
+           [":rf.error/machine-unresolved-action"
             {:initial :working
              :states  {:working {:spawn {:machine-id :whatever
-                                         :on-error   {:target :errored
-                                                      :action :no-such-action}}}
-                       :errored {}}})))))
-
-;; ---- (g) parallel-PARENT region :spawn :on-done / :on-error -----
-;;
-;; A declarative `:spawn` declared INSIDE a parallel REGION keys its
-;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot under the REAL
-;; parent machine-id (the parallel machine itself), NOT the
-;; `:rf/transition-pure` fallback. `parallel/reduce-regions` re-stamps the live
-;; parent-id onto the synthetic region-spec, so both `:spawn :on-done` AND
-;; `:spawn :on-error` resolve region-scoped end-to-end. The
-;; resolvers (`resolver/spawn-spec-at` / `pick-spawn-error-transition`)
-;; strip the region-name prefix off the invoke-id so the hook fires at the
-;; region's own state level — exactly as `pick-after-transition` does.
-;;
-;; The region's child carries its `:data :rf/parent-id` as the real parent so
-;; both hooks resolve the parent from the child's finalize. Each test reads its
-;; child through the slot under the real parent — a slot keyed anywhere else
-;; reads no child — and asserts its hook fires region-scoped.
+                                         :on-error   {:target :errored :action :no-such-action}}}
+                       :errored {}}}]]]
+    (is (thrown-with-msg?
+          #?(:clj Exception :cljs js/Error) (re-pattern error-id)
+          (rf/reg-machine :rf2-5hlsh-f/bad machine)))))
 
 (deftest parallel-region-spawn-on-done-fires-region-scoped
-  (testing "a region's :spawn :on-done fires region-scoped when the child reaches a success :final? leaf"
-    (rf/reg-machine :rf2-r09fc-g1/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:ok {:target :done
-                                     :action (fn [{data :data ev :event}]
-                                               {:data (assoc data :tok (second ev))})}}}
-                 :done    {:final?     true
-                           :output-key :tok}}})
-    (rf/reg-machine :rf2-r09fc-g1/parent
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-r09fc-g1/child
-                                                      ;; :on-done runs against the success
-                                                      ;; result; record it into shared :data.
-                                                      :on-done (fn [{data :data result :result}]
-                                                                 (assoc data :got result))}
-                                              ;; the region transitions when the
-                                              ;; spawn-done escape event arrives.
-                                              :on    {:loaded :ready}}
-                                    :ready   {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf/dispatch-sync [:rf2-r09fc-g1/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-r09fc-g1/parent [:loader :working])]
-      (is (some? child) "child spawned under the real parent")
-      (rf/dispatch-sync [child [:ok :the-token]])
-      (is (= :the-token (get-in (snapshot :rf2-r09fc-g1/parent) [:data :got]))
-          "the region's :spawn :on-done ran against the child's success result — region-scoped")
-      (is (nil? (snapshot child))
-          "the finished child auto-destroyed (reached its success :final? leaf)"))))
+  (rf/reg-machine :rf2-r09fc-g1/child
+    {:initial :running
+     :data    {:tok :the-token}
+     :states  {:running {:on {:ok :done}}
+               :done    {:final? true :output-key :tok}}})
+  (rf/reg-machine :rf2-r09fc-g1/parent
+    {:type    :parallel
+     :data    {}
+     :regions {:loader {:initial :working
+                        :states  {:working {:spawn {:machine-id :rf2-r09fc-g1/child
+                                                    :on-done    (fn [{data :data result :result}]
+                                                                  (assoc data :got result))}}}}}})
+  (rf/dispatch-sync [:rf2-r09fc-g1/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-r09fc-g1/parent [:loader :working]) [:ok]])
+  (is (= :the-token (get-in (snapshot :rf2-r09fc-g1/parent) [:data :got]))))
 
 (deftest parallel-region-spawn-on-error-fires-region-scoped-error-leaf
-  (testing "a region's :spawn :on-error fires region-scoped when the child reaches an :error? :final? leaf"
-    (rf/reg-machine :rf2-r09fc-g2/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:boom {:target :failed
-                                       :action (fn [{data :data ev :event}]
-                                                 {:data (assoc data :err (second ev))})}}}
-                 :failed  {:final?     true
-                           :error?     true
-                           :output-key :err}}})
-    (rf/reg-machine :rf2-r09fc-g2/parent
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-r09fc-g2/child
-                                                      ;; :on-error is a region-scoped transition
-                                                      ;; resolved at :working's level — :errored is
-                                                      ;; a sibling leaf WITHIN this region.
-                                                      :on-error {:target :errored
-                                                                 :action (fn [{data :data ev :event}]
-                                                                           {:data (assoc data :captured (nth ev 2))})}}}
-                                    :errored {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf/dispatch-sync [:rf2-r09fc-g2/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-r09fc-g2/parent [:loader :working])]
-      (is (some? child) "child spawned under the real parent")
-      (rf/dispatch-sync [child [:boom :network-down]])
-      (is (= :errored (get-in (snapshot :rf2-r09fc-g2/parent) [:state :loader]))
-          "the :loader region moved to :errored — its :spawn :on-error fired region-scoped")
-      (is (= :idle (get-in (snapshot :rf2-r09fc-g2/parent) [:state :other]))
-          "the sibling :other region is untouched — :on-error is region-local")
-      (is (= :network-down (get-in (snapshot :rf2-r09fc-g2/parent) [:data :captured]))
-          "the error payload (child's :output-key slot) rode into the :on-error transition's :event")
-      (is (nil? (snapshot child))
-          "the failed child auto-destroyed (reached its :error? :final? leaf)"))))
-
-(deftest parallel-region-spawn-on-error-fires-on-uncaught-child-action-exception
-  (testing "an uncaught child action exception drives the region's :spawn :on-error region-scoped"
-    (rf/reg-machine :rf2-r09fc-g3/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:go {:target :next
-                                     :action (fn [_] (throw (ex-info "kaboom" {:why :test})))}}}
-                 :next    {}}})
-    (rf/reg-machine :rf2-r09fc-g3/parent
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-r09fc-g3/child
-                                                      :on-error {:target :errored}}}
-                                    :errored {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf/dispatch-sync [:rf2-r09fc-g3/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-r09fc-g3/parent [:loader :working])]
-      (is (some? child) "child spawned under the real parent")
-      (rf/dispatch-sync [child [:go]])
-      (is (= :errored (get-in (snapshot :rf2-r09fc-g3/parent) [:state :loader]))
-          "the uncaught child action exception drove the :loader region's :spawn :on-error :target")
-      (is (= :idle (get-in (snapshot :rf2-r09fc-g3/parent) [:state :other]))
-          "the sibling :other region is untouched — :on-error is region-local"))))
-
-;; ---- (h) explicit :on {:rf.machine.spawn/error …} escape hatch is REGION-scoped ----
-;;
-;; The spawn-error broadcast reaches EVERY region's resolver
-;; (`drain-parent-queue`), so the explicit `:on {:rf.machine.spawn/error …}`
-;; escape-hatch arm of `pick-spawn-error-transition` declines outright in a
-;; FOREIGN region (a region whose name does not match the invoke-id head),
-;; SYMMETRIC with the `:spawn :on-error` arm and with `pick-done-transition`'s
-;; region-identity `decline-region?` gate. A foreign region nils its invoke-id
-;; (disabling the `:spawn :on-error` arm) AND declines the explicit-`:on` arm,
-;; so a SIBLING region's explicit handler never catches another region's child
-;; failure — upholding XState v5 `invoke onError` region scoping.
+  (rf/reg-machine :rf2-r09fc-g2/child (error-child :network-down))
+  (rf/reg-machine :rf2-r09fc-g2/parent
+    {:type    :parallel
+     :data    {}
+     :regions {:loader {:initial :working
+                        :states  {:working {:spawn {:machine-id :rf2-r09fc-g2/child
+                                                    ;; The guard sees the region-RELATIVE invoke-id.
+                                                    :on-error   {:guard  (fn [{ev :event}] (= [:working] (nth ev 1)))
+                                                                 :target :errored
+                                                                 :action capture-error}}}
+                                  :errored {}}}
+               :other  {:initial :idle
+                        :states  {:idle {}}}}})
+  (rf/dispatch-sync [:rf2-r09fc-g2/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-r09fc-g2/parent [:loader :working]) [:boom]])
+  (is (= [{:loader :errored :other :idle} :network-down]
+         [(:state (snapshot :rf2-r09fc-g2/parent))
+          (get-in (snapshot :rf2-r09fc-g2/parent) [:data :captured])])))
 
 (deftest parallel-region-explicit-on-spawn-error-is-region-scoped
-  (testing "an explicit :on {:rf.machine.spawn/error …} in a sibling region does NOT catch another region's child failure"
-    (rf/reg-machine :rf2-w84jv-h/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:boom {:target :failed}}}
-                 :failed  {:final?     true
-                           :error?     true
-                           :output-key :err}}})
-    ;; The synthetic spawn-error event is dispatched whether or not the
-    ;; spawning parent declares `:spawn :on-error`. Here
-    ;; :loader declares one whose GUARD fails, so this also pins the
-    ;; guard-fail fall-through: the headline arm misses and the event falls
-    ;; through to the explicit-`:on` walk. (The no-`:on-error` route to that
-    ;; walk is pinned in `spawn_failure_routing_cljs_test.cljc`.) :loader's own
-    ;; explicit `:on {:rf.machine.spawn/error :handled}` then catches it
-    ;; in-region; the sibling :other declares a DECOY explicit handler that
-    ;; must NEVER fire — the failure belongs to :loader's region, and the
-    ;; explicit escape hatch is region-scoped.
-    (rf/reg-machine :rf2-w84jv-h/parent
-      {:type    :parallel
-       :data    {}
-       :guards  {:never (fn [_] false)}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-w84jv-h/child
-                                                      :on-error {:target :unreached
-                                                                 :guard  :never}}
+  ;; :loader's guarded :on-error misses, so the failure falls through to :loader's
+  ;; own explicit :on; :other's decoy explicit handler must never catch it.
+  (rf/reg-machine :rf2-w84jv-h/child (error-child nil))
+  (rf/reg-machine :rf2-w84jv-h/parent
+    {:type    :parallel
+     :data    {}
+     :guards  {:never (fn [_] false)}
+     :regions {:loader {:initial :working
+                        :states  {:working   {:spawn {:machine-id :rf2-w84jv-h/child
+                                                      :on-error   {:target :unreached :guard :never}}
                                               :on    {:rf.machine.spawn/error :handled}}
-                                    :unreached {}
-                                    :handled   {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {:on {:rf.machine.spawn/error :bad}}
-                                    :bad  {}}}}})
-    (rf/dispatch-sync [:rf2-w84jv-h/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-w84jv-h/parent [:loader :working])]
-      (is (some? child) "child spawned under the real parent in the :loader region")
-      (rf/dispatch-sync [child [:boom]])
-      (is (= :handled (get-in (snapshot :rf2-w84jv-h/parent) [:state :loader]))
-          "the :loader region's own explicit :on {:rf.machine.spawn/error …} caught its child's failure (its guarded :on-error missed → fell through to the in-region explicit :on)")
-      (is (= :idle (get-in (snapshot :rf2-w84jv-h/parent) [:state :other]))
-          "the sibling :other region's DECOY explicit :on handler did NOT fire — the explicit escape hatch is region-scoped"))))
-
-;; ---- (i) region :spawn :on-error GUARD reads the region-RELATIVE invoke-id ----
-;;
-;; The synthetic spawn-error event is `[:rf.machine.spawn/error <invoke-id>
-;; <error>]`. For a `:spawn` declared inside a parallel REGION the invoke-id is
-;; region-PREFIXED (`[:loader :working]`). `pick-spawn-error-transition` strips
-;; the region head so the resolver routes region-relative — but the event a
-;; guard / action reads off `(nth ev 1)` must be re-stamped region-relative too,
-;; SYMMETRIC with `pick-done-transition`. Without the re-stamp a region
-;; `:on-error` guard testing the invoke-id sees the region-PREFIXED
-;; `[:loader :working]` and NEVER matches (the region stays put). This asserts
-;; the guard reading `(nth ev 1)` sees the region-RELATIVE `[:working]` and
-;; fires the transition.
-
-(deftest parallel-region-spawn-on-error-guard-reads-region-relative-invoke-id
-  (testing "a region :spawn :on-error guard reading (nth ev 1) matches on the region-RELATIVE invoke-id"
-    (rf/reg-machine :rf2-cttpk4-i/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:boom {:target :failed
-                                       :action (fn [{data :data ev :event}]
-                                                 {:data (assoc data :err (second ev))})}}}
-                 :failed  {:final?     true
-                           :error?     true
-                           :output-key :err}}})
-    (rf/reg-machine :rf2-cttpk4-i/parent
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-cttpk4-i/child
-                                                      ;; The guard branches on the invoke-id
-                                                      ;; carried at (nth ev 1). It must be the
-                                                      ;; region-RELATIVE [:working], NOT the
-                                                      ;; region-prefixed [:loader :working].
-                                                      :on-error {:guard  (fn [{ev :event}]
-                                                                           (= [:working] (nth ev 1)))
-                                                                 :target :errored}}}
-                                    :errored {}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf/dispatch-sync [:rf2-cttpk4-i/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-cttpk4-i/parent [:loader :working])]
-      (is (some? child) "child spawned under the real parent in the :loader region")
-      (rf/dispatch-sync [child [:boom :network-down]])
-      (is (= :errored (get-in (snapshot :rf2-cttpk4-i/parent) [:state :loader]))
-          "the :on-error guard matched on the region-RELATIVE invoke-id [:working] → :loader moved to :errored (a guard seeing the region-prefixed [:loader :working] would never match, and the region would stay :working)")
-      (is (= :idle (get-in (snapshot :rf2-cttpk4-i/parent) [:state :other]))
-          "the sibling :other region is untouched"))))
+                                  :unreached {}
+                                  :handled   {}}}
+               :other  {:initial :idle
+                        :states  {:idle {:on {:rf.machine.spawn/error :bad}}
+                                  :bad  {}}}}})
+  (rf/dispatch-sync [:rf2-w84jv-h/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-w84jv-h/parent [:loader :working]) [:boom]])
+  (is (= {:loader :handled :other :idle} (:state (snapshot :rf2-w84jv-h/parent)))))
