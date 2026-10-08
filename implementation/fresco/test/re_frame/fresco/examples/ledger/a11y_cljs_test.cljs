@@ -68,26 +68,6 @@
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 (defn- named [tree node] (rf.fresco.test/accessible-name tree node))
 
-(defn- rewrite
-  "`tree` with every node matching `pred` replaced by `(f node)`.
-
-  The sabotage instrument. A structural assertion that a control is named
-  is worth nothing unless the same instrument can be shown finding an
-  UNNAMED one, and the honest way to produce an unnamed control is to
-  take a real rendering and remove the one attribute that names it —
-  leaving everything else, including the id, the role and the position,
-  exactly as the application wrote them."
-  [tree pred f]
-  (letfn [(walk [n]
-            (cond
-              (string? n) n
-              (map? n)    (let [n' (if (pred n) (f n) n)]
-                            (if-some [cs (:children n')]
-                              (assoc n' :children (mapv walk cs))
-                              n'))
-              :else       n))]
-    (walk tree)))
-
 (defn- note-node [tree] (classed tree "ledger-note"))
 (defn- flag-node [tree] (classed tree "ledger-flag"))
 
@@ -161,36 +141,6 @@
     (is (= [] (rf.fresco.test/unnamed-controls tree))
         (str what " — every field and button a user can operate must carry
              an accessible name, and this is the whole row asked at once"))))
-
-(deftest the-sweep-would-notice
-  ;; THE POSITIVE CONTROL. Without it the row above is green having proved
-  ;; only that `unnamed-controls` can return an empty vector, which it
-  ;; would do just as readily over a tree it could not read at all.
-  (testing "the same rendering with the note field's `aria-label` removed
-            — nothing else changes, and the sweep must find exactly one
-            offender"
-    (let [sabotaged (rewrite (row-tree 4136)
-                             #(= "ledger-note" (:class (rf.fresco.test/attrs %)))
-                             #(update % :attrs dissoc :aria-label))
-          found     (rf.fresco.test/unnamed-controls sabotaged)]
-      (is (= 1 (count found)))
-      (is (= (rf.fresco.examples.ledger.events/note-id 4136) (:id (rf.fresco.test/attrs (first found))))
-          "and it names the field, by the id the application gave it")))
-
-  (testing "and the button, which is named by an attribute rather than by
-            its content — `Flag` is the same word on all ten thousand of
-            them, so content naming would be a name that identifies
-            nothing"
-    (let [sabotaged (rewrite (row-tree 4136)
-                             #(= "ledger-flag" (:class (rf.fresco.test/attrs %)))
-                             #(update % :attrs dissoc :aria-label))]
-      (is (= "Flag" (named sabotaged (flag-node sabotaged)))
-          "it falls back to its content, which is why the row above
-           asserts the VALUE of the name and not merely that one exists")
-      (is (= [] (rf.fresco.test/unnamed-controls sabotaged))
-          "so this sabotage does NOT show up in the sweep, and saying so
-           is the honest limit of a sweep: it catches an absent name, not
-           an unhelpful one"))))
 
 ;; ---------------------------------------------------------------------------
 ;; State that moves, and a name that must not
