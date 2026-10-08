@@ -1,35 +1,14 @@
 (ns re-frame.http-synthetic-4xx-test
-  "The `:else` synthetic-4xx arm of `handle-response!`
-  (transport.cljc §handle-response!) end-to-end.
+  "The `:else` arm of `handle-response!` end to end: a non-2xx status that is
+  neither 4xx nor 5xx (a 1xx, or a 3xx the runtime did not follow) is
+  classified as a synthetic `:rf.http/http-4xx` carrying the raw body, and
+  routes through `maybe-retry!` so a `:retry {:on #{:rf.http/http-4xx}}` caller
+  retries it like a real 4xx.
 
-  THE ARM: a non-2xx status that is NOT 4xx/5xx — a 1xx, or a 3xx the
-  runtime did not follow — falls through the 4xx / 5xx / 2xx cascade to the
-  `:else` branch, which classifies it as `:rf.http/http-4xx` carrying the raw
-  body-text and routes through `maybe-retry!` (NOT
-  `finalise-failure!`) so a caller with `:retry {:on #{:rf.http/http-4xx}}`
-  retries it consistently with a real 4xx.
-
-  REACHABILITY: `:redirect :error` (or `:manual`) selects the JDK
-  `HttpClient$Redirect/NEVER` client (`transport-jvm/redirect->
-  policy`), so a 302 response surfaces UNFOLLOWED at status 302 through the
-  classification cascade rather than being auto-followed. The redirect-policy
-  MAPPING is unit-tested in `http_transport_security_test`; only a real 3xx
-  response driven through the cascade catches a refactor routing the `:else`
-  arm to `finalise-failure!`, or changing the synthesised kind. These
-  end-to-end tests pin it: a real 302-returning server, a
-  `:redirect :error` request, and assertions on (a) the synthesised
-  `:rf.http/http-4xx` kind, (b) the raw 302 body at `:body`, and (c) the
-  `maybe-retry!` routing (hit count > 1 under a `:rf.http/http-4xx` retry).
-
-  Strategy mirrors `http_backoff_cancellation_test`: a tiny in-process
-  `com.sun.net.httpserver.HttpServer` that always returns 302 and COUNTS its
-  hits.
-
-  Spec references:
-   - Spec 014 §Classification order (status classification before decode)
-   - Spec 014 §Failure categories (`:rf.http/http-4xx`)
-   - Spec 014 §Retry and backoff / §Request envelope (`:redirect`)"
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  `:redirect :error` selects the JDK `NEVER` redirect client, so a 302 from a
+  loopback server surfaces unfollowed. Only a real 3xx driven through the
+  cascade catches the arm being routed to `finalise-failure!` or reclassified."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
@@ -40,21 +19,12 @@
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
 
-;; ---- per-test reset (mirrors http_backoff_cancellation_test) ---------------
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- hit-counting always-302 server ----------------------------------------
+(def ^:private redirect-body "moved, and not followed")
 
-(def ^:private redirect-body
-  "moved permanently-ish — body the JDK NEVER-policy client surfaces raw")
-
-(defn- start-counting-302-server!
-  "Start an HttpServer that always returns a 302 (with a Location header the
-  NEVER-policy client will NOT follow) carrying `redirect-body`, incrementing
-  `hits` on every request. Returns `{:server :port :hits}`."
-  []
+(defn- start-counting-302-server! []
   (let [hits   (AtomicInteger. 0)
         server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
     (.createContext server "/"
@@ -64,9 +34,6 @@
                         (let [^HttpExchange ex ex
                               bs (.getBytes redirect-body "UTF-8")]
                           (try
-                            ;; A Location header a following client WOULD chase;
-                            ;; the :redirect :error client (NEVER) does not, so
-                            ;; the 302 surfaces unfollowed through the cascade.
                             (.add (.getResponseHeaders ex) "Location" "/elsewhere")
                             (.sendResponseHeaders ex 302 (long (count bs)))
                             (with-open [os (.getResponseBody ex)]
@@ -74,65 +41,39 @@
                             (catch Throwable _ nil))))))
     (.setExecutor server nil)
     (.start server)
-    {:server server
-     :port   (.getPort (.getAddress server))
-     :hits   hits}))
+    {:server server :port (.getPort (.getAddress server)) :hits hits}))
 
-(defn- stop-server! [{:keys [^HttpServer server]}]
-  (.stop server 0))
-
-(defn- await-condition!
-  ([pred] (await-condition! pred 5000))
-  ([pred timeout-ms]
-   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
-                                  :label "http-synthetic-4xx condition"})
-   true))
-
-;; ---- (1) synthetic-4xx classification + raw body + maybe-retry! routing -----
+(defn- await-condition! [pred]
+  (rf.test-support/poll-until pred {:timeout-ms 5000 :interval-ms 10
+                                    :label "http-synthetic-4xx condition"}))
 
 (deftest unfollowed-3xx-classifies-synthetic-4xx-and-retries
-  (testing "an UNFOLLOWED 302 (:redirect :error → JDK NEVER) hits
-  the `:else` arm: it classifies as :rf.http/http-4xx carrying the raw 302
-  body, and — being a :rf.http/http-4xx — is RETRIED under a
-  `:retry {:on #{:rf.http/http-4xx}}` config (routed through maybe-retry!,
-  NOT finalise-failure!). The server is hit TWICE (attempt + one retry)."
-    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-302-server!)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url      (str "http://127.0.0.1:" (:port srv) "/")
-                                 ;; NEVER-policy client — the 302 is NOT followed.
-                                 :redirect :error}
-                    :decode     :json
-                    ;; max-attempts 2 → exactly one retry, then exhaust.
-                    :retry      {:on           #{:rf.http/http-4xx}
-                                 :max-attempts 2
-                                 :backoff      {:base-ms 100 :factor 1 :max-ms 100}}
-                    :request-id :synth
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue])
-        ;; The synthetic http-4xx routes through maybe-retry! and retries once
-        ;; (the :else arm is NOT a direct finalise-failure!), so the server is
-        ;; hit exactly twice; this await throws if the retry never reaches it.
-        (await-condition! #(= 2 (.get hits)))
-        (await-condition! #(seq @replies))
-        (is (= 1 (count @replies))
-            "exactly one final reply after the retry exhausts")
-        (let [reply (first @replies)]
-          (is (= :error (:status reply))
-              "the exhausted synthetic-4xx lowers to a :status :error reply")
-          (is (= :rf.http/http-4xx (get-in reply [:error :kind]))
-              "the unfollowed 3xx classifies as the synthetic :rf.http/http-4xx kind")
-          (is (= 302 (get-in reply [:error :status]))
-              "the RAW 3xx status rides on the failure map")
-          (is (= redirect-body (get-in reply [:error :body]))
-              "the RAW 302 body-text rides at :body (decode never runs on a non-2xx)"))
-        (is (empty? (rf.http.registry/in-flight-snapshot))
-            "the registry is clean after the synthetic-4xx exhausts its retries")
-        (finally
-          (stop-server! srv))))))
+  (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-302-server!)
+        replies (atom [])]
+    (try
+      (rf/reg-event :reply/recorder
+        (fn [_ [_ payload]] (swap! replies conj payload) {}))
+      (rf/reg-event :issue
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url      (str "http://127.0.0.1:" (:port srv) "/")
+                               :redirect :error}
+                  :decode     :json
+                  :retry      {:on           #{:rf.http/http-4xx}
+                               :max-attempts 2
+                               :backoff      {:base-ms 100 :factor 1 :max-ms 100}}
+                  :request-id :synth
+                  :on-failure [:reply/recorder]
+                  :on-success [:reply/recorder]}]]}))
+      (rf/dispatch-sync [:issue])
+      ;; Two hits: the attempt and one retry. A direct finalise never retries.
+      (await-condition! #(= 2 (.get hits)))
+      (await-condition! #(seq @replies))
+      (is (= [{:status :error :error {:kind :rf.http/http-4xx :status 302 :body redirect-body}}]
+             (mapv #(-> (select-keys % [:status :error])
+                        (update :error select-keys [:kind :status :body]))
+                   @replies))
+          "one final reply, carrying the raw 3xx status and body")
+      (is (empty? (rf.http.registry/in-flight-snapshot)))
+      (finally
+        (.stop ^HttpServer (:server srv) 0)))))
