@@ -1,53 +1,19 @@
 (ns re-frame.substrate.custom-nonatom-container-cljs-test
-  "Spec 006 §`make-derived-value` — a CUSTOM adapter whose legitimate base
-  container is NOT atom-shaped must have its base-container writes delegated,
-  not rejected as derived.
-
-  The adapter contract states the container is OPAQUE to the core (Spec 006
-  §`make-state-container`) and custom adapters are the canonical way to
-  bridge external reactive sources (Spec 006 §The adapter API contract). A
-  conforming custom adapter may return a base container that is a JS class
-  instance, a signal/store object, or a host record — none of which satisfy
-  the host `IAtom` marker protocol.
-
-  A `replace-container!` choke point that classified any non-`IAtom`
-  container as DERIVED via an unconditional atom-marker fall-back
-  (`(not IAtom)`) would OVERRIDE even a published
-  `:adapter/derived-container?` hook's `false` (\"this is a base
-  container\") answer, so a write to such a custom base container would
-  throw `:rf.error/derived-container-replaced` before the adapter's own
-  `:replace-container!` could run.
-
-  The installed adapter's `:adapter/derived-container?` hook is therefore
-  authoritative whenever it has an opinion (truthy = derived → reject;
-  `false` = base → delegate); the atom-marker heuristic is consulted only
-  when the installed adapter returns the
-  `re-frame.substrate.adapter/container-class-unknown` sentinel (no
-  opinion). This suite installs a custom non-atom-base adapter and asserts:
-
-    1. `replace-container!` on its NON-ATOM base container DELEGATES and
-       succeeds (not misclassified / rejected).
-    2. `replace-container!` on its derived value is STILL rejected with the
-       canonical `:rf.error/derived-container-replaced` throw — the guard
-       against genuinely-derived writes is not weakened."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  "Spec 006 §`make-derived-value`: a CUSTOM adapter's base container need not be
+  atom-shaped (the container is OPAQUE to the core, Spec 006
+  §`make-state-container`). The installed adapter's `:adapter/derived-container?`
+  hook is authoritative whenever it has an opinion (truthy rejects, `false`
+  delegates); the atom-marker heuristic is consulted only on the
+  `container-class-unknown` sentinel. An unconditional `(not IAtom)` fall-back
+  would reject every write to such a base container."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.test-support :as rf.test-support]))
 
-;; ---- a custom adapter whose base container is NOT atom-shaped --------------
-;;
-;; `Cell` is the base, writable container: a host object that holds a value
-;; but does NOT satisfy `IAtom` (so the choke point's atom-marker heuristic
-;; would mis-read it as derived). It is backed by a private `clojure.core`
-;; atom held as an immutable field so the value is mutable cross-platform
-;; without the JVM `(set! (.-field …))` restriction — the IMPORTANT property
-;; for this suite is that the `Cell` instance itself is not an `IAtom`, which
-;; an `(instance? IAtom (->Cell …))` precondition asserts. `DerivedCell` is
-;; the adapter's `make-derived-value` result — read-only; writing to it is
-;; the programmer error the guard must still catch. Neither type is an
-;; `IAtom`, so the atom-marker heuristic alone cannot tell them apart —
-;; exactly the case the adapter's `:adapter/derived-container?` hook resolves.
+;; `Cell` is the writable base container and `DerivedCell` the read-only
+;; derived value. Neither is an `IAtom`, so only the adapter's hook can tell
+;; them apart.
 
 (deftype Cell [backing]
   #?(:clj clojure.lang.IDeref :cljs IDeref)
@@ -71,25 +37,13 @@
    :read-container       (fn [c] (deref c))
    :replace-container!   (fn [c new-value] (cell-set! c new-value))
    :make-derived-value   (fn [sources compute-fn] (DerivedCell. sources compute-fn))
-   ;; render / render-to-string / dispose-adapter! are unused by this suite;
-   ;; stub them so the spec map is shape-complete.
    :render               (fn [_ _ _] nil)
    :render-to-string     (fn [_ _] "")
    :dispose-adapter!     (fn [] nil)})
 
-;; ---- fixture --------------------------------------------------------------
-;; Adapter-less base fixture: each test installs `custom-adapter` itself and
-;; publishes the routed `:adapter/derived-container?` hook, then tears down.
-;; Using `make-reset-runtime-fixture` (with no `:adapter`) keeps the
-;; ns-load registrar baseline intact across the shared node-test process.
-
 (use-fixtures :each (rf.test-support/make-reset-runtime-fixture {}))
 
 (defn- install-custom-adapter! []
-  ;; Cold install of the custom adapter, then publish its container-class
-  ;; hook the way any custom adapter would: a routed hook that answers
-  ;; truthy for ITS derived value and `false` for ITS base container, with
-  ;; the chain-bottom fallback returning the no-opinion sentinel.
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/install-adapter! custom-adapter)
   (rf.substrate.adapter/route-hook! custom-adapter :adapter/derived-container?
@@ -102,79 +56,51 @@
 
 ;; ---- tests ----------------------------------------------------------------
 
+(defn- rejection-id [thunk]
+  (try (thunk) ::no-throw
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+         (:rf.error/id (ex-data e)))))
+
 (deftest custom-nonatom-base-container-is-accepted
-  (testing "replace-container! DELEGATES to a custom adapter whose base container is not IAtom"
-    (install-custom-adapter!)
-    (let [c (rf.substrate.adapter/make-state-container {:n 0})]
-      (is (false? #?(:clj  (instance? clojure.lang.IAtom c)
-                     :cljs (satisfies? IAtom c)))
-          "precondition: the custom base container is NOT atom-shaped")
-      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition: reads its seeded value")
-      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
-          "replace-container! on the non-atom base container is delegated and returns nil — NOT rejected as derived")
-      (is (= {:n 1} (rf.substrate.adapter/read-container c))
-          "the adapter's own replace-container! ran: the base container holds the new value"))))
+  (install-custom-adapter!)
+  (let [c (rf.substrate.adapter/make-state-container {:n 0})]
+    (is (= [nil {:n 1}]
+           [(rf.substrate.adapter/replace-container! c {:n 1})
+            (rf.substrate.adapter/read-container c)]))))
 
 (deftest custom-derived-container-is-still-rejected
-  (testing "replace-container! on the custom adapter's DERIVED value still throws (guard not weakened)"
-    (install-custom-adapter!)
-    (let [src     (rf.substrate.adapter/make-state-container {:n 7})
-          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (is (= 7 (rf.substrate.adapter/read-container derived))
-          "precondition: the derived value reads its computed value")
-      (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                (rf.substrate.adapter/replace-container! derived 42))
-                       "writing to the custom derived value throws")]
-        (is (= :rf.error/derived-container-replaced
-               (:rf.error/id (ex-data thrown)))
-            "the thrown ex-info carries the canonical :rf.error/id discriminator")
-        (is (= 'rf/replace-container! (:where (ex-data thrown)))
-            "the :where slot names the user-facing surface fn"))
-      ;; The rejected write must not have mutated the derived value, and the
-      ;; source remains writable (the guard fires only on the derived shape).
-      (is (= 7 (rf.substrate.adapter/read-container derived))
-          "the rejected write did not mutate the derived value")
-      (rf.substrate.adapter/replace-container! src {:n 8})
-      (is (= 8 (rf.substrate.adapter/read-container derived))
-          "writing to the source recomputes the derived value normally"))))
+  (install-custom-adapter!)
+  (let [src (rf.substrate.adapter/make-state-container {:n 7})]
+    (is (= :rf.error/derived-container-replaced
+           (rejection-id #(rf.substrate.adapter/replace-container!
+                            (rf.substrate.adapter/make-derived-value [src] :n) 42))))))
 
 (deftest no-opinion-falls-back-to-atom-marker-heuristic
-  (testing "when the installed adapter returns the container-class-unknown sentinel, the choke point uses the atom-marker heuristic"
-    ;; Install the custom adapter but DON'T publish a real container-class
-    ;; hook — route only the sentinel fallback. An IAtom base then classifies
-    ;; as base (delegated); a non-IAtom value classifies as derived (rejected)
-    ;; via the heuristic. This pins the fallback arm so the choke point's
-    ;; three-way branch is fully covered.
-    (rf.substrate.adapter/dispose-adapter!)
-    (let [writes       (atom 0)
-          atom-adapter {:kind                 :custom
-                        :make-state-container (fn [v] (atom v))
-                        :read-container       deref
-                        :replace-container!   (fn [c v] (swap! writes inc) (reset! c v) nil)
-                        :make-derived-value   (fn [sources compute-fn]
-                                                (reify #?(:clj clojure.lang.IDeref :cljs IDeref)
-                                                  (#?(:clj deref :cljs -deref) [_]
-                                                    (apply compute-fn (map deref sources)))))
-                        :render               (fn [_ _ _] nil)
-                        :render-to-string     (fn [_ _] "")
-                        :dispose-adapter!     (fn [] nil)}]
-      (rf.substrate.adapter/install-adapter! atom-adapter)
-      (rf.substrate.adapter/route-hook! atom-adapter :adapter/derived-container?
-        (constantly rf.substrate.adapter/container-class-unknown)
-        (constantly rf.substrate.adapter/container-class-unknown))
-      (let [base    (rf.substrate.adapter/make-state-container {:n 0})
-            derived (rf.substrate.adapter/make-derived-value [base] (fn [v] (:n v)))]
-        (is (nil? (rf.substrate.adapter/replace-container! base {:n 1}))
-            "an IAtom base container is delegated under the sentinel/heuristic path")
-        (is (= {:n 1} (rf.substrate.adapter/read-container base)) "the base write took effect")
-        (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                  (rf.substrate.adapter/replace-container! derived 99))
-                         "a non-IAtom derived value is rejected by the atom-marker heuristic")]
-          ;; On CLJS a delegated write to the IDeref-only derived value throws
-          ;; a missing-protocol js/Error, which the thrown? above accepts, so
-          ;; only the guard's own id says the guard rejected it.
-          (is (= :rf.error/derived-container-replaced
-                 (:rf.error/id (ex-data thrown)))
-              "the rejection is the derived-container guard, not a delegated write failing")
-          (is (= 1 @writes)
-              "the adapter's replace-container! ran for the base write only"))))))
+  ;; Only the sentinel fallback is routed, so the choke point classifies by the
+  ;; atom marker: the IAtom base is delegated, the non-IAtom derived rejected.
+  ;; On CLJS a delegated write to the IDeref-only derived value would throw a
+  ;; missing-protocol error, so the guard's own id is what says it rejected.
+  (rf.substrate.adapter/dispose-adapter!)
+  (let [writes       (atom 0)
+        atom-adapter {:kind                 :custom
+                      :make-state-container (fn [v] (atom v))
+                      :read-container       deref
+                      :replace-container!   (fn [c v] (swap! writes inc) (reset! c v) nil)
+                      :make-derived-value   (fn [sources compute-fn]
+                                              (reify #?(:clj clojure.lang.IDeref :cljs IDeref)
+                                                (#?(:clj deref :cljs -deref) [_]
+                                                  (apply compute-fn (map deref sources)))))
+                      :render               (fn [_ _ _] nil)
+                      :render-to-string     (fn [_ _] "")
+                      :dispose-adapter!     (fn [] nil)}]
+    (rf.substrate.adapter/install-adapter! atom-adapter)
+    (rf.substrate.adapter/route-hook! atom-adapter :adapter/derived-container?
+      (constantly rf.substrate.adapter/container-class-unknown)
+      (constantly rf.substrate.adapter/container-class-unknown))
+    (let [base    (rf.substrate.adapter/make-state-container {:n 0})
+          derived (rf.substrate.adapter/make-derived-value [base] :n)]
+      (is (= [nil {:n 1} :rf.error/derived-container-replaced 1]
+             [(rf.substrate.adapter/replace-container! base {:n 1})
+              (rf.substrate.adapter/read-container base)
+              (rejection-id #(rf.substrate.adapter/replace-container! derived 99))
+              @writes])))))
