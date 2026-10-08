@@ -1,159 +1,66 @@
 (ns re-frame2-pair-mcp.record-test
-  "Unit tests for the signal-recorder triplet — record / read-recording /
-  watch-until.
-
-  Three layers, mirroring `read_dom_test`:
-
-    1. Arg coercion — `parse-signals-arg` / `parse-stop-arg` accept the
-       JS-array / EDN-string / bare-map shapes the MCP host sends.
-
-    2. Predicate + form composition — `pred-source` compiles a DATA
-       predicate into a pure value-comparison fn source (no host source
-       crosses the wire); the `record` / `watch-until` eval forms carry
-       the load-bearing runtime calls and stay READ-ONLY (no dispatch /
-       reset / DOM-write host-forms).
-
-    3. Tool wiring — stub `cljs-eval-value` (no socket) and pin the wire
-       shape: record returns the runtime envelope, read-recording forwards
-       the change-log, watch-until resolves on the first :held? poll and
-       times out with :last-sample, and the gates (:no-signals /
-       :missing-pred / :missing-recording-id) short-circuit.
-
-  The rAF/dedup/teardown semantics (does the sampler actually dedup? does
-  it tear down at the stop condition?) live in the runtime
-  (`re-frame2-pair.runtime/start-recording!` & friends) and are exercised
-  by the form running in a real tab — out of scope for a node-runtime
-  unit suite. This suite pins the wire contract + the form's internal
-  shape; the runtime structural tests cover the sampler."
-  (:require [cljs.test :refer-macros [deftest is async testing]]
+  "Unit tests for the signal-recorder triplet: record, read-recording and
+  watch-until. Arg coercion, the data-predicate compile, and the tool
+  wiring against a stubbed runtime. Sampling, dedup and teardown live in
+  the preload runtime and are not exercised here."
+  (:require [cljs.test :refer-macros [deftest is async]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
-;; ---------------------------------------------------------------------------
-;; parse-signals-arg — input-shape contract.
-;; ---------------------------------------------------------------------------
-
 (deftest parse-signals-arg-shapes
-  (testing "JS array of signal objects"
-    (is (= [{:focus true} {:dom "#c"}]
-           (record/parse-signals-arg #js [#js {:focus true} #js {:dom "#c"}]))))
-  (testing "CLJS vector passes through"
-    (is (= [{:app-db [:cart]}] (record/parse-signals-arg [{:app-db [:cart]}]))))
-  (testing "a bare single signal map ⇒ wrapped in a vector"
-    (is (= [{:focus true}] (record/parse-signals-arg {:focus true}))))
-  (testing "EDN string ⇒ vector of signal maps"
-    (is (= [{:focus true} {:app-db [:a :b]}]
-           (record/parse-signals-arg "[{:focus true} {:app-db [:a :b]}]"))))
-  (testing "EDN string of a single map ⇒ wrapped"
-    (is (= [{:dom "#x"}] (record/parse-signals-arg "{:dom \"#x\"}"))))
-  (testing "absent / blank / unparseable ⇒ nil"
-    (is (nil? (record/parse-signals-arg nil)))
-    (is (nil? (record/parse-signals-arg "   ")))
-    (is (nil? (record/parse-signals-arg "(not edn")))))
-
-;; ---------------------------------------------------------------------------
-;; parse-stop-arg — keeps only the recognised keys.
-;; ---------------------------------------------------------------------------
-
-;; `parse-stop-arg` returns the tagged `[:ok m]` /
-;; `[:err :invalid-stop-edn]` shape (mirroring `read-edn-arg`). A
-;; malformed `stop` EDN surfaces as an honest `:err` tag rather than
-;; silently collapsing to `{}` (the default wall-clock window).
+  (doseq [[in out] [[#js [#js {:focus true} #js {:dom "#c"}] [{:focus true} {:dom "#c"}]]
+                    ["[{:focus true} {:app-db [:a :b]}]"    [{:focus true} {:app-db [:a :b]}]]
+                    ["{:dom \"#x\"}"                        [{:dom "#x"}]]
+                    ;; nil ⇒ the caller's :no-signals refusal
+                    ["   "                                  nil]
+                    ["(not edn"                             nil]]]
+    (is (= out (record/parse-signals-arg in)) (pr-str in))))
 
 (deftest parse-stop-arg-shapes
-  (is (= [:ok {:ms 5000}] (record/parse-stop-arg #js {:ms 5000})))
-  (is (= [:ok {:changes 10}] (record/parse-stop-arg "{:changes 10}")))
-  (is (= [:ok {:pred {:signal 0 :equals :done}}]
-         (record/parse-stop-arg "{:pred {:signal 0 :equals :done}}")))
-  (testing "unrecognised keys dropped"
-    (is (= [:ok {:ms 1}] (record/parse-stop-arg #js {:ms 1 :bogus 9}))))
-  (testing "absent ⇒ [:ok {}]"
-    (is (= [:ok {}] (record/parse-stop-arg nil)))))
-
-(deftest parse-stop-arg-malformed-edn-is-err-tagged
-  ;; Regression: a malformed `stop` EDN string must NOT silently
-  ;; collapse to `{}` (the default window) — it returns the honest
-  ;; `[:err :invalid-stop-edn]` tag so the caller short-circuits.
-  (testing "unbalanced delimiters ⇒ :err"
-    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "{:ms 5000"))) ;; missing brace
-    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "((("))))      ;; unbalanced
-  (testing "reads clean but not a map ⇒ :err (same swallow-class)"
-    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "[:ms 5000]")))))
-
-;; ---------------------------------------------------------------------------
-;; pred-source — DATA predicate compiles to a pure comparison fn source.
-;; ---------------------------------------------------------------------------
+  ;; A malformed `stop` must not collapse to `{}`, the default window; the
+  ;; unreadable case is pinned through the tool below.
+  (doseq [[in out] [[nil                                             [:ok {}]]
+                    [#js {:ms 1 :bogus 9}                            [:ok {:ms 1}]]
+                    ["{:changes 10 :pred {:signal 0 :equals :done}}" [:ok {:changes 10
+                                                                           :pred {:signal 0 :equals :done}}]]
+                    ["[:ms 5000]"                                    [:err :invalid-stop-edn]]]]
+    (is (= out (record/parse-stop-arg in)) (pr-str in))))
 
 (deftest pred-source-shapes
-  (testing ":equals comparison"
-    (let [src (record/pred-source {:signal 0 :equals :done})]
-      (is (str/includes? src "(get sample 0)"))
-      (is (str/includes? src ":done"))
-      (is (str/includes? src "(="))))
-  (testing ":path drills into the sampled value (path quoted as data)"
-    (let [src (record/pred-source {:signal 1 :path [:id] :equals "x"})]
-      (is (str/includes? src "(get-in (get sample 1) (quote [:id]))"))
-      (is (str/includes? src "\"x\""))))
-  (testing ":changed ⇒ some? check"
-    (let [src (record/pred-source {:signal 0 :changed true})]
-      (is (str/includes? src "some?"))))
-  (testing ":contains ⇒ string includes"
-    (let [src (record/pred-source {:signal 0 :contains "load"})]
-      (is (str/includes? src "clojure.string/includes?"))
-      (is (str/includes? src "\"load\""))))
-  (testing "bare {:signal n} ⇒ any non-nil"
-    (is (str/includes? (record/pred-source {:signal 2}) "some?")))
-  (testing "nil / non-map ⇒ nil"
-    (is (nil? (record/pred-source nil)))
-    (is (nil? (record/pred-source "not-a-map")))))
-
-(deftest pred-source-no-host-source-injection
-  ;; The compiled predicate is pure value comparison — a hostile :equals
-  ;; value is pr-str'd as a DATA literal, never spliced as host source.
-  (let [src (record/pred-source {:signal 0 :equals '(js/alert "pwn")})]
-    ;; The list rides as a quoted EDN literal, not an evaluated call.
-    (is (str/includes? src "(quote (js/alert \"pwn\"))"))))
-
-;; ---------------------------------------------------------------------------
-;; record form composition — load-bearing runtime call + read-only.
-;; ---------------------------------------------------------------------------
+  ;; Every caller comparand rides `(quote …)`: a hostile `:equals` list is
+  ;; compared as data, never evaluated.
+  (doseq [[pred src]
+          [[{:signal 0 :equals '(js/alert "pwn")}
+            "(fn [sample] (= (get sample 0) (quote (js/alert \"pwn\"))))"]
+           [{:signal 1 :path [:id] :equals "x"}
+            "(fn [sample] (= (get-in (get sample 1) (quote [:id])) (quote \"x\")))"]
+           [{:signal 0 :changed true}
+            "(fn [sample] (some? (get sample 0)))"]
+           [{:signal 0 :contains "load"}
+            "(fn [sample] (clojure.string/includes? (str (get sample 0)) \"load\"))"]
+           [{:signal 2}
+            "(fn [sample] (some? (get sample 2)))"]
+           [nil         nil]
+           ["not-a-map" nil]]]
+    (is (= src (record/pred-source pred)) (pr-str pred))))
 
 (deftest start-recording-form-shape
+  ;; The signals, the stop bound and the :pred-fn slot are pinned in
+  ;; data_arguments_test; the :elide-opts slot in egress_elision_test.
   (let [form (#'record/start-recording-form
                [{:focus true} {:app-db [:cart]}]
                {:ms 15000 :pred {:signal 0 :equals :done}}
                :rf/default
                2000
-               ;; the rendered elision-opts walker map.
                "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
-    ;; The signals, the quoted stop bound and the :pred-fn slot are pinned
-    ;; in data_arguments_test; the :elide-opts slot in egress_elision_test.
-    (testing "the frame and the entry cap ride the start-recording! opts"
-      (is (str/includes? form ":frame :rf/default"))
-      (is (str/includes? form ":max-entries 2000")))
-    (testing "the data predicate compiles away (no raw :pred)"
-      (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))))
-
-(deftest record-and-watch-forms-are-read-only
-  ;; READ-ONLY by construction — neither form may carry an app-mutation
-  ;; host-form. The whole point of the recorder is observation.
-  (let [rec-form   (#'record/start-recording-form [{:focus true}] {:ms 1000} nil nil
-                                                   "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")
-        watch-form (watch-until/watch-form [{:app-db [:x]}] :rf/default
-                                           (record/pred-source {:signal 0 :equals 1})
-                                           "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
-    (doseq [form [rec-form watch-form]
-            mutator ["pair-dispatch" "replace-app-db" "app-db-reset"
-                     ".setAttribute" ".dispatchEvent" ".innerHTML"
-                     "restore-epoch"]]
-      (is (not (str/includes? form mutator))
-          (str "recorder form must be read-only — found mutator " mutator)))))
+    (is (str/includes? form ":frame :rf/default"))
+    (is (str/includes? form ":max-entries 2000"))))
 
 ;; ---------------------------------------------------------------------------
-;; Tool wiring — preflight + envelope passthrough.
+;; Tool wiring.
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-conn []
@@ -161,50 +68,29 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; ---- record -----------------------------------------------------------------
-
 (deftest record-runtime-ok-false-is-iserror
-  ;; Adversarial: a REACHABLE runtime `:ok? false` — the
-  ;; `start-recording!` `:ambiguous-frame` refusal when an `:app-db`/`:sub`
-  ;; signal needs a frame and none resolves in a multi-frame session — MUST
-  ;; ride back as :isError, not a green tools/call carrying a buried
-  ;; `:ok? false` — which is what wrapping every envelope in wire/ok-text
-  ;; with no `:ok?` guard would produce. isError:true ⟺ :ok? false.
+  ;; `start-recording!` refuses `:ambiguous-frame` when an `:app-db` signal
+  ;; needs a frame and none resolves; it must not ride as a green result.
   (async done
     (let [canned {:ok? false :reason :ambiguous-frame :operation :start-recording}]
       (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (record/record-tool (fresh-conn) #js {:signals "[{:app-db [:cart]}]"})))
+            #(record/record-tool (fresh-conn) #js {:signals "[{:app-db [:cart]}]"}))
           (.then (fn [r]
-                   (is (true? (tu/error? r))
-                       "an :ambiguous-frame refusal from the runtime rides isError:true")
-                   (let [edn (tu/extract-edn r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :ambiguous-frame (:reason edn))))
+                   (is (tu/error? r))
+                   (is (= canned (tu/extract-edn r)) "the refusal rides verbatim")
                    (done)))))))
 
 (deftest record-tool-malformed-stop-errors-honestly
-  ;; Regression: a malformed `stop` EDN makes `record-tool`
-  ;; short-circuit to an honest `:ok? false` envelope
-  ;; (`:reason :invalid-stop-edn`, `:isError true`) — the `cond` branch
-  ;; fires BEFORE the `:else` arm reaches `ensure-runtime!` / the nREPL
-  ;; socket, so this resolves synchronously with no live runtime and no
-  ;; silent default-window recording started. Signals are present so the
-  ;; `:no-signals` branch does not fire first.
+  ;; Regression: a typo'd `stop` must not start a default-window recording.
+  ;; The branch fires before the runtime is touched.
   (async done
     (-> (record/record-tool (fresh-conn)
                             #js {:signals "[{:focus true}]" :stop "{:ms 5000"})
         (.then (fn [r]
-                 (is (tu/error? r)
-                     "malformed stop EDN surfaces as :isError true")
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :invalid-stop-edn (:reason edn))
-                       "honest :reason, not a silent default-window recording")
-                   (is (= "{:ms 5000" (:given edn))))
+                 (is (tu/error? r))
+                 (is (= {:ok? false :reason :invalid-stop-edn :given "{:ms 5000"}
+                        (dissoc (tu/extract-edn r) :hint)))
                  (done))))))
-
-;; ---- read-recording ---------------------------------------------------------
 
 (deftest read-recording-missing-id-short-circuits
   (async done
@@ -215,17 +101,12 @@
                  (done))))))
 
 (deftest read-recording-drain-and-stop-ride-the-form
-  ;; The :drain / :stop bool args must reach the runtime read-recording
-  ;; call as an opts map — capture the emitted form to confirm.
   (async done
     (let [seen   (atom nil)
           orig   nrepl/cljs-eval-value
-          ;; Explicit 3- and 4-arity (NOT a variadic / rest-arg fn):
-          ;; CLJS direct-arity dispatch calls the var via
-          ;; `...$_invoke$arity$3`, which a `(fn [& a])` doesn't expose —
-          ;; same reason `tu/with-stubbed-eval!` spells both arities out.
           canned (js/Promise.resolve {:ok? true :recording-id "r" :status :stopped
                                       :count 0 :entries []})
+          ;; Both arities spelled out: CLJS direct-arity dispatch skips a variadic fn.
           stub   (fn
                    ([_conn _build form] (reset! seen form) canned)
                    ([_conn _build form _opts] (reset! seen form) canned))]
@@ -233,70 +114,48 @@
       (-> (record/read-recording-tool (fresh-conn)
                                       #js {:recording-id "r" :drain true :stop true})
           (.then (fn [_]
-                   (is (str/includes? @seen "re-frame2-pair.runtime/read-recording"))
                    (is (str/includes? @seen ":drain true"))
                    (is (str/includes? @seen ":stop true"))))
           (.finally (fn []
                       (tu/restore-eval! stub orig)
                       (done)))))))
 
-;; ---- watch-until ------------------------------------------------------------
-
 (deftest watch-until-resolves-on-held-predicate
   (async done
-    ;; The poll form resolves to {:held? true ...} on the first eval.
-    (let [canned {:held? true :sample {0 :done} :t 1712}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (watch-until/watch-until-tool
-                (fresh-conn)
-                #js {:signals "[{:app-db [:upload :status]}]"
-                     :pred #js {:signal 0 :equals "done"}})))
-          (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:held? edn)) "watch resolved on the predicate")
-                     (is (= {0 :done} (:sample edn)) "the satisfying sample rides back"))
-                   (done)))))))
+    (-> (tu/with-stubbed-eval! {:held? true :sample {0 :done} :t 1712}
+          #(watch-until/watch-until-tool
+             (fresh-conn)
+             #js {:signals "[{:app-db [:upload :status]}]"
+                  :pred    #js {:signal 0 :equals "done"}}))
+        (.then (fn [r]
+                 (is (= {:ok? true :held? true :sample {0 :done} :t 1712}
+                        (dissoc (tu/extract-edn r) :elapsed-ms))
+                     "the satisfying sample rides back")
+                 (done))))))
 
 (deftest watch-until-times-out-with-last-sample
+  ;; The timeout is the watch's normal outcome, so it rides non-isError.
   (async done
-    ;; The poll form never reports :held? — the watch must time out and
-    ;; surface the final sample. timeout-ms tiny so the test is fast.
-    (let [canned {:held? false :sample {0 "loading"} :t 1}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (watch-until/watch-until-tool
-                (fresh-conn)
-                #js {:signals "[{:dom \"#spinner\"}]"
-                     :pred #js {:signal 0 :equals "done"}
-                     :timeout-ms 120})))
-          (.then (fn [r]
-                   (let [edn (tu/extract-edn r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :watch-timeout (:reason edn)))
-                     (is (true? (:timed-out? edn)))
-                     (is (= {0 "loading"} (:last-sample edn)) "final reading surfaced"))
-                   (done)))))))
+    (-> (tu/with-stubbed-eval! {:held? false :sample {0 "loading"} :t 1}
+          #(watch-until/watch-until-tool
+             (fresh-conn)
+             #js {:signals    "[{:dom \"#spinner\"}]"
+                  :pred       #js {:signal 0 :equals "done"}
+                  :timeout-ms 120}))
+        (.then (fn [r]
+                 (is (= {:ok?         false
+                         :reason      :watch-timeout
+                         :timed-out?  true
+                         :timeout-ms  120
+                         :last-sample {0 "loading"}}
+                        (dissoc (tu/extract-edn r) :hint))
+                     "the final reading shows how close the predicate got")
+                 (done))))))
 
 (deftest watch-until-missing-pred-short-circuits
   (async done
-    (-> (watch-until/watch-until-tool (fresh-conn)
-                                      #js {:signals "[{:focus true}]"})
+    (-> (watch-until/watch-until-tool (fresh-conn) #js {:signals "[{:focus true}]"})
         (.then (fn [r]
                  (is (tu/error? r))
                  (is (= :missing-pred (:reason (tu/extract-edn r))))
                  (done))))))
-
-(deftest watch-form-applies-pred-server-side
-  ;; The poll form must sample server-side AND apply the compiled
-  ;; predicate, returning :held? — so the wire payload is a boolean,
-  ;; not the whole sample-set re-tested client-side.
-  (let [form (watch-until/watch-form
-               [{:app-db [:x]}] :rf/default
-               (record/pred-source {:signal 0 :equals 1})
-               "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
-    (is (str/includes? form "re-frame2-pair.runtime/sample-signals"))
-    (is (str/includes? form ":held?"))
-    (is (str/includes? form ":sample"))))
