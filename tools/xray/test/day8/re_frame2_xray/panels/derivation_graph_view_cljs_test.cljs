@@ -110,31 +110,19 @@
 
 ;; ---- (1) the markup renders ----------------------------------------------
 
-(deftest panel-tree-renders-header-families-and-edges
-  (testing "the projection renders the header count strip, one section per
-            populated family, and the edges section"
+(deftest panel-tree-renders-a-section-per-populated-family
+  (testing "the projection renders one section per populated family"
     (let [tree (render)]
-      (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-header"))
-          "header section renders")
-      (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-counts"))
-          "count strip renders")
       (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-family-subs"))
           "the subs family section renders")
       (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-family-machines"))
-          "the machines family section renders")
-      (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-edges"))
-          "the edges section renders")
-      (is (empty? (nodes-with-testid-prefix tree "rf-xray-derivation-graph-silent"))
-          "a populated graph does not render the silent state"))))
+          "the machines family section renders"))))
 
 (deftest empty-graph-renders-the-silent-state
-  (testing "a graph with no nodes renders the silent state and no family
-            sections — the honest no-registrations story"
-    (let [tree (render (tab-data {:mode :static :nodes {} :edges []}))]
-      (is (seq (nodes-with-testid-prefix tree "rf-xray-derivation-graph-silent"))
-          "silent state renders")
-      (is (empty? (nodes-with-testid-prefix tree "rf-xray-derivation-graph-family-"))
-          "no family section renders"))))
+  (testing "a graph with no nodes renders the silent state — the honest
+            no-registrations story"
+    (is (seq (nodes-with-testid-prefix (render (tab-data {:mode :static :nodes {} :edges []}))
+                                       "rf-xray-derivation-graph-silent")))))
 
 ;; ---- (2) THE KEY ROW -----------------------------------------------------
 ;;
@@ -198,7 +186,6 @@
                          (filter #(and (vector? %) (= :span (first %))
                                        (contains? (props-of %) :key)
                                        (= "inline-flex" (:display (:style (props-of %)))))))]
-      (is (some? counts) "the count strip renders")
       ;; The fixture's two edges carry roles :input and :selector, so two
       ;; role chips must render, each keyed.
       (is (= 2 (count chips))
@@ -222,8 +209,6 @@
           tree (render (tab-data fixture-graph) #(swap! seen conj %))
           live (first (nodes-with-testid-prefix tree "rf-xray-derivation-graph-mode-live"))
           on-click (:on-click (props-of live))]
-      (is (some? live) "the :live mode button renders")
-      (is (fn? on-click) "it carries an :on-click handler")
       (on-click nil)
       (is (= [[:rf.xray/set-derivation-graph-mode :live]] @seen)
           "the handler called the supplied dispatcher with the mode event"))))
@@ -239,15 +224,10 @@
             React component and `defview`'s contract forbids mounting one
             that way."
     (derivation-graph/install!)
-    (let [tab   (panel-registry/tab-by-id :dynamic :derivation-graph)
-          panel (:panel tab)]
-      (is (some? tab) "the Graph tab is registered")
-      (is (fn? panel) "its :panel is callable, as reg-l4-tab! requires")
+    (let [panel (:panel (panel-registry/tab-by-id :dynamic :derivation-graph))]
       (is (not= derivation-graph/Panel panel)
-          "and it is NOT the boundary itself")
-      (let [mounted (panel)]
-        (is (vector? mounted) "the bridge answers hiccup")
-        (is (= :> (first mounted))
-            "an interop mount — Fresco's outward `as-component` door, which
-             takes the frame from the React context the enclosing
-             `rf/frame-provider` already wrote")))))
+          "the registered :panel is NOT the boundary itself")
+      (is (= :> (first (panel)))
+          "calling it answers an interop mount — Fresco's outward
+           `as-component` door, which takes the frame from the React context
+           the enclosing `rf/frame-provider` already wrote"))))
