@@ -1,92 +1,34 @@
 (ns re-frame.routing-navigation-test
-  "Navigation-planning tests for re-frame.routing — the programmatic
-  `:rf.route/navigate` and URL-driven
-  `:rf.route/handle-url-change` entry points (fragment handling,
-  not-found fallback, fail-closed hostile-URL handling, no-op /
-  fragment-only short-circuits, address-bar parity, arity misuse).
+  "Navigation tests for re-frame.routing's two doors — programmatic
+  `:rf.route/navigate` and URL-driven `:rf.route/handle-url-change`:
+  fragment handling, the not-found fallback and its address-bar parity, the
+  fail-closed open-redirect matrices, the rule-3 no-op and fragment-only
+  short-circuits, in-place `:query` / `:query-merge` edits, and the structural
+  request gate.
 
   ## Posture split
 
-  Navigation is production-real and most of this namespace carries no posture
-  guard: the slice writes, the fragment normalisations, the not-found
-  fallbacks and their address-bar parity, the rule-3 / fragment-only
-  short-circuits, `:on-match` fire-and-forget ordering, the in-place +
-  `:query-merge` grammar, the fail-closed open-redirect matrix and the
-  structural gate's REJECTIONS all run in the ordinary `clojure -M:test` suite
-  AND in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false`
-  lane).
+  Every deftest runs in `clojure -M:test` and in
+  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`). The gate
+  closes the trace bus at namespace load, so each assertion that reads a
+  trace — the lifecycle, nav-token and fragment-changed traces, the
+  `:rf.warning/malformed-url` and `:rf.warning/no-not-found-route`
+  advisories, and the `:rf.error/navigate-bad-request` and
+  `:rf.error/schema-validation-failure` diagnostics — sits inside a
+  `(when rf.interop/debug-enabled? …)` arm.
 
-  What is dev-only is the CHANNEL each of those was observed through. Three
-  families of assertion read the trace bus, which `rf.interop/debug-enabled?`
-  closes at namespace-load time:
-
-    * the lifecycle / nav-token / fragment-changed / plan traces
-      (`trace/emit!`);
-    * the fail-closed advisories `:rf.warning/malformed-url` and
-      `:rf.warning/no-not-found-route`;
-    * and the two error channels — `:rf.error/navigate-bad-request` (the
-      structural gate's DIAGNOSTIC) and `:rf.error/schema-validation-failure`
-      (the param-validation diagnostic).
-
-  Their assertions sit inside `(when rf.interop/debug-enabled? …)`
-  arms.
-
-  READ THIS BEFORE FILING A LOOK-ALIKE AS A DEFECT. Every rejection
-  those suites assert DOES survive production — none silently vanishes
-  under the gate. `re-frame.routing.address/classify` and the event-shape gate run
-  unconditionally and return `{}` from the handler, so a malformed request
-  leaves the slice untouched and pushes no URL under the gate exactly as it
-  does in dev; only the `trace/emit-error!` beside them goes quiet. The
-  param-validation reject at the navigate boundary behaves the same way — the
-  slice is unchanged in BOTH postures — which is a different shape from
-  `routing-nav-fx-schemas-test`'s fx-args gate, where the VERDICT itself
-  short-circuits to `true` under the gate (Spec 010 §Production builds).
-
-  FIVE assertions here would pass VACUOUSLY under the gate, each a
-  negative over a ring the gate leaves empty: the
-  `:rf.error/schema-validation-failure` denial on the
-  unmatched-without-404 commit, the two on the programmatic fragment-only
-  nav, the `:rf.route/fragment-changed` denial on the identical-target no-op,
-  and — the sharpest — `(is (empty? (filter …)))` in
-  `commit-traces-suppressed-from-trace-disabled-frame`, which is the whole
-  POINT of that deftest and would certify a leak-suppression the
-  framework never has occasion to perform.
-
-  PRODUCTION WITNESSES stand beside those arms:
-
-    * `rf.routing.address/classify` is the very fn the handler consults, pure and
-      always-on, so every structural-gate `:reason` / `:keys` claim is
-      asserted against ITS verdict outside the arm — same rule, same input,
-      no gate between the call and the answer. That also proves the
-      heterogeneous-key case's real subject: the canonical ordering that
-      keeps a mixed-kind key set off a `compare`-based `sort`.
-    * the `:frame` tag family is an ATTRIBUTION claim, and attribution is a
-      frame-state fact: each of those deftests asserts that the commit
-      landed in the non-default frame's own runtime-db and left `:rf/default`
-      alone.
-    * the fragment / nav-token / warning traces announce runtime-db moves,
-      so each asserts the move — the fragment really steps
-      nil → \"scroll-restoration\" → \"fragments\", the nav-token really is a
-      fresh string, the malformed URL really lands `:reason :malformed-url`,
-      and \"emits none\" really is \"allocated no token, re-fired no loader\"."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Each arm stands beside an always-on assertion of the runtime-db fact its
+  trace announces: the slice moved or stayed put, in the frame the `:frame`
+  tag names, and the URL was pushed or not. A rejected request is rejected in
+  both postures; only its diagnostic is dev-only."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
-            [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
-
-;; ---- the runtime-db facts a navigation leaves behind ----------------------
-;;
-;; The trace bus closes under `-Dre-frame.debug=false`; frame state does not.
-;; `frame-slice` reads the route slice of an ARBITRARY frame, which is what
-;; makes the `:frame`-tag deftests below checkable in both postures: a trace
-;; stamped `:frame :route/owner` is claiming the commit belongs to that frame,
-;; and that is a frame-state fact.
 
 (defn- frame-slice
   "The current route slice for `frame-id`."
@@ -94,1982 +36,553 @@
   (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
           [:rf.runtime/routing :current]))
 
-;; ---- Spec 012 §Carrying query state across routes (EP-0037 R5) ------------
-;;
-;; There is no `:query-retain`. A destination address is taken LITERALLY: the
-;; router never folds ambient current-route query state into a fresh
-;; destination. Applications that deliberately carry global URL state spell it
-;; as an ordinary pure function over the address — the recipe below is the one
-;; documented in `docs/routing/concepts.md` and Spec 012.
-
-(defn- with-shell-query
-  "The documented explicit-carry recipe, verbatim (Spec 012 §Carrying query
-  state across routes). APPLICATION code, not framework code — it lives in the
-  test to prove the recipe carries, not to bless a framework helper.
-
-  Note the `(or destination-query {})`: an address that carries no query at all
-  is the ordinary spelling (`{:to :route/cart}`), and a REPLAYED destination
-  from a leave-pending stash omits an empty `:query` entirely (EP-0037 R4
-  `destination-of`), so the fold must tolerate a missing key."
-  [current-query address]
-  (update address :query
-          (fn [destination-query]
-            (merge (select-keys current-query [:theme :locale])
-                   (or destination-query {})))))
-
-(defn- current-query []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-          [:rf.runtime/routing :current :query]))
-
-(deftest routing-destination-query-is-literal
-  (testing "a fresh destination gains NO ambient query from the current route"
-    (rf/reg-route :route/search {} "/search")
-    (rf/reg-route :route/cart   {} "/cart")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?theme=dark&locale=en" {:rf.route/cause :link}])
-      (is (= {"theme" "dark" "locale" "en"} (current-query))
-          "the slice carries the URL's query keys (as STRINGS — the route
-           declares no :query vocabulary, so nothing is keyword-promoted)")
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (is (= "/cart" (last @pushed))
-          "an authored `{:to :route/cart}` pushes exactly /cart — no hidden carry"))))
-
-(deftest routing-explicit-query-carry-recipe-carries
-  (testing "the application's pure carry helper puts carried keys in the AUTHORED address"
-    ;; EP conformance row 9: "every cross-route carried key appears in the
-    ;; authored address after the application's pure carry helper runs". The
-    ;; policy is visible at the call site and testable without a frame.
-    (rf/reg-route :route/search
-                  {:query [:map [:theme {:optional true} :string]
-                                [:locale {:optional true} :string]
-                                [:q {:optional true} :string]]}
-                  "/search")
-    (rf/reg-route :route/cart
-                  {:query [:map [:theme {:optional true} :string]
-                                [:locale {:optional true} :string]]}
-                  "/cart")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-
-      ;; 1. Land on /search?theme=dark&locale=en. Both keys are DECLARED in the
-      ;;    route's `:query` schema, so they are keyword-promoted in the slice —
-      ;;    declaring a key is what promotes it.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?theme=dark&locale=en" {:rf.route/cause :link}])
-      (is (= {:theme "dark" :locale "en"} (current-query))
-          "declared query keys are keyword-promoted")
-
-      ;; 2. The helper is a PURE function of (current-query, address) — assert
-      ;;    the address it produces before anything is dispatched.
-      (is (= {:to :route/cart :query {:theme "dark" :locale "en"}}
-             (with-shell-query (current-query) {:to :route/cart}))
-          "the carried keys are visible in the AUTHORED address")
-
-      ;; 3. Dispatching that authored address carries them into the URL.
-      (rf/dispatch-sync [:rf.route/navigate (with-shell-query (current-query) {:to :route/cart})])
-      (let [last-url (last @pushed)]
-        (is (re-find #"theme=dark" last-url)
-            "the helper carried :theme through programmatic nav")
-        (is (re-find #"locale=en" last-url)
-            "the helper carried :locale through programmatic nav"))
-
-      ;; 4. The EXPLICIT destination query WINS over the carried value.
-      (is (= {:to :route/cart :query {:theme "light" :locale "en"}}
-             (with-shell-query (current-query) {:to :route/cart :query {:theme "light"}}))
-          "the authored destination query wins; other carried keys still ride")
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate
-                         (with-shell-query (current-query) {:to :route/cart :query {:theme "light"}})])
-      (let [last-url (last @pushed)]
-        (is (re-find #"theme=light" last-url)
-            "explicit destination :theme overrides the carried value")
-        (is (re-find #"locale=en" last-url)
-            "other carried keys still reach the URL"))
-
-      ;; 5. Opting OUT is spelling the address without the helper — there is no
-      ;;    per-route configuration to reason about.
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (is (= "/cart" (last @pushed))
-          "skip the helper → no carry; the address is the whole truth"))))
-
-;; ---- nil-valued :query opt must not leak into the slice -----------------
-;;
-;; `route-url` ELIDES a nil-valued query key from the URL (and validates the
-;; elided map), so `[:rf.route/navigate {:to route :query {:sort nil}}]` pushes
-;; a bare `/search`. Writing `{:sort nil}` VERBATIM into the slice would make
-;; the slice diverge from the URL: a later URL-driven nav to the same `/search`
-;; yields `:query {}`, `{:sort nil}` != `{}`, and the rule-3 no-op would fail —
-;; `:on-match` would spuriously re-fire. The strip runs on every branch.
-
-(deftest navigate-nil-query-value-does-not-leak-into-slice-rf2-gxq7z1
-  (testing "a nil-valued :query opt is elided from the slice (matching the
-            pushed URL), so a later URL-driven nav to the same URL is a rule-3
-            no-op — no :on-match re-fire, no fresh nav-token"
-    (let [fires (atom 0)]
-      (rf/reg-event :route/search-loaded (fn [{:keys [db]} _] (swap! fires inc) {:db db}))
-      (rf/reg-route :route/search
-                    {:query    [:map [:sort {:optional true} :string]]
-                     :on-match [[:route/search-loaded]]}
-                    "/search")
-      ;; Programmatic nav with an explicit nil :sort — route-url elides it from
-      ;; the URL, so the slice must NOT carry {:sort nil}.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort nil}}])
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/routing :current])]
-        (is (= {} (:query slice))
-            "the slice :query has NO :sort key — matches the pushed /search URL")
-        (let [fires-after-nav @fires
-              token-after-nav (:nav-token slice)]
-          (is (= 1 fires-after-nav) ":on-match fired once on the initial nav")
-          ;; URL-driven nav to the SAME URL: identical-route-target? compares
-          ;; slice-query {} vs match-query {} — equal → rule-3 no-op. With a
-          ;; {:sort nil} leak this comparison would be {:sort nil} vs {} → NOT
-          ;; equal → a spurious re-fire + fresh token.
-          (rf/dispatch-sync [:rf.route/handle-url-change "/search" {:rf.route/cause :link}])
-          (let [slice' (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/routing :current])]
-            (is (= fires-after-nav @fires)
-                ":on-match did NOT re-fire — slice query matched the URL query")
-            (is (= token-after-nav (:nav-token slice'))
-                "the nav-token is unchanged — a genuine rule-3 no-op")))))))
-
-(deftest navigate-present-but-nil-query-clears-like-an-empty-map
-  ;; The strip above lives in the ResolvedTarget seam, where an
-  ;; ABSENT `:query` must stay absent rather than be conjured into `{}`. This
-  ;; door's OTHER normalisation lives here: presence — not
-  ;; truthiness — discriminates (`rf.routing.address/edit-keys`), so a present-but-nil
-  ;; `:query` is the same "clear the query" instruction as `:query {}`, and the
-  ;; branch that reads it hands it through as nil.
-  (testing "{:to … :query nil} writes {} — the same slice :query {} writes"
-    (rf/reg-route :route/search {} "/search")
-    (let [query-of (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                  [:rf.runtime/routing :current :query]))]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query nil}])
-      (is (= {} (query-of)) "a nil :query is a cleared query, never a nil slice")
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort "asc"}}])
-      ;; `/search` declares no query vocabulary, so `:sort` is
-      ;; an undeclared key and commits the way the URL spells it.
-      (is (= {"sort" "asc"} (query-of)))
-      (testing "and the in-place edit branch agrees"
-        (rf/dispatch-sync [:rf.route/navigate {:query nil}])
-        (is (= {} (query-of)))))))
-
-(deftest navigate-url-form-preserves-fragment
-  (testing ":rf.route/navigate with URL-string target preserves the URL's
-            embedded #fragment in the pushed URL"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}])
-      (is (= ["/docs/routing#scroll-restoration"] @pushed)
-          "fragment in the URL-string target round-trips through the push"))))
-
-;; ============================================================================
-;; Coverage of the navigate / pending-nav / scroll-strategy / route-url
-;; surfaces: each test below pins a documented branch directly.
-;; Behaviour-asserting + deterministic.
-;; ============================================================================
-
-;; ---- navigate URL-string target that matches NO route --------------------
-;;
-;; navigate.cljc's `{:url ...}` target branch resolves an unmatched URL to
-;; `(or (:route-id match) :rf.route/not-found)` with `:params {:url url}`.
-;; With a not-found route registered, that fallback is pinned for both
-;; doors by `not-found-address-bar-parity-programmatic-vs-url-driven`
-;; below; the case with NO not-found route registered is pinned here.
-
-(deftest navigate-url-form-unmatched-without-not-found-route-commits-and-warns
-  (testing "unmatched {:url ...} target with NO :rf.route/not-found route
-            registered still COMMITS the not-found slice, pushes the
-            REQUESTED url, and emits :rf.warning/no-not-found-route — it does
-            NOT reject. Mirrors the URL-driven path (url-change-fx), which
-            warns + commits rather than throwing. Pushing the requested url
-            verbatim means no route-url call on the unregistered
-            :rf.route/not-found id, which would throw :no-such-route and
-            reject."
-    ;; NB: a SEPARATE deftest from the registered-not-found case —
-    ;; the per-deftest fixture gives this a clean registrar with NO
-    ;; :rf.route/not-found, which is exactly the condition under test.
-    (rf/reg-route :route/home {} "/")
-    (let [pushed (atom [])
-          traces (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Land on home so the not-found commit displaces a known slice.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (reset! pushed [])
-      (rf/register-listener! :trace ::nav-nf-warn (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-      (rf/unregister-listener! :trace ::nav-nf-warn)
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "slice commits to :rf.route/not-found even with no such route
-             registered — consistent with the URL-driven path")
-        (is (= {:url "/no/such/path"} (:params slice))
-            ":params carries the unmatched URL under :url"))
-      (is (= ["/no/such/path"] @pushed)
-          ":rf.nav/push-url pushed the REQUESTED url verbatim — NOT a
-           fabricated /404, and no rejection")
-      ;; Dev-instrumentation arm (see ns docstring). BOTH legs read
-      ;; the trace ring, which the gate empties: the second is a NEGATIVE and
-      ;; would go green for free. Its real subject — "the unmatched path
-      ;; does not REJECT" — is the always-on pair above: the slice committed
-      ;; to :rf.route/not-found and the requested url was pushed. A rejection
-      ;; would leave both empty.
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev] (= :rf.warning/no-not-found-route (:operation ev)))
-                  @traces)
-            ":rf.warning/no-not-found-route fires when no 404 route is
-             registered — same signal as the URL-driven path")
-        (is (not-any? (fn [ev]
-                        (= :rf.error/schema-validation-failure (:operation ev)))
-                      @traces)
-            "no schema-validation-failure error — the unmatched path does not
-             reject via a route-url throw")))))
-
-;; ---- programmatic-miss and URL-driven-miss agree on the URL ---------------
-;;
-;; The two not-found entry points must keep the same URL in the address bar.
-;; PROGRAMMATIC `navigate {:url <miss>}` pushes the REQUESTED url;
-;; URL-DRIVEN `:rf.route/handle-url-change <miss>` emits NO push (the URL already
-;; changed via link/popstate). This test pins both halves in one place
-;; so a refactor cannot drift the programmatic path to /404 or
-;; sneak a push onto the URL-driven path.
-
-(deftest not-found-address-bar-parity-programmatic-vs-url-driven
-  (testing "programmatic navigate to an unmatched url pushes the REQUESTED
-            url (not /404); the URL-driven not-found path emits no push —
-            both keep the requested url in the address bar"
-    (rf/reg-route :route/home {} "/")
-    ;; The not-found route's literal :path is /404; a miss must NOT push it.
-    (rf/reg-route :rf.route/not-found {} "/404")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-
-      ;; ---- PROGRAMMATIC miss: pushes the requested url, not /404 ----
-      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "programmatic miss renders the not-found view (slice id)")
-        (is (= {:url "/no/such/path"} (:params slice))
-            "programmatic miss carries the requested url in :params"))
-      (is (= ["/no/such/path"] @pushed)
-          "programmatic miss pushes the REQUESTED url — NOT the not-found
-           route's literal /404")
-
-      ;; ---- URL-DRIVEN miss: emits no push at all ----
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/another/miss" {:rf.route/cause :link}])
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "URL-driven miss also renders the not-found view")
-        (is (= {:url "/another/miss"} (:params slice))
-            "URL-driven miss carries the requested url in :params"))
-      (is (empty? @pushed)
-          "URL-driven miss emits NO push — the URL already changed via
-           link/popstate, so the address bar already shows the requested url"))))
-
-;; ---- :rf.route/handle-url-change writes the full slice shape -----------
-;;
-;; Per Spec 012 §The :rf/route slice and §URL changes are events the slice
-;; carries `{:route-id :params :query :fragment :transition :error :nav-token}`
-;; on every URL-driven write. Omitting :fragment and :nav-token here would
-;; make the slice diverge in shape from the programmatic-nav path.
-
-(deftest handle-url-change-writes-full-slice-shape
-  (testing ":rf.route/handle-url-change writes :fragment and :nav-token
-            into the slice (the seven-key canonical shape)"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; URL with a fragment so we can assert :fragment is populated.
-    (rf/dispatch-sync [:rf.route/handle-url-change
-                       "/docs/routing#scroll-restoration"])
-    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-      (is (= :route/docs (:route-id slice))
-          "slice id is the matched route")
-      (is (= {:page "routing"} (:params slice))
-          "params from the matched route")
-      (is (= "scroll-restoration" (:fragment slice))
-          ":fragment populates the slice")
-      (is (= :idle (:transition slice))
-          "no :on-match → :transition :idle")
-      (is (nil? (:error slice))
-          ":error is nil on a clean nav")
-      (is (some? (:nav-token slice))
-          ":nav-token is allocated on every URL-driven nav"))))
-
-;; ---- malformed URL fail-closed at :rf.route/handle-url-change ---------------
-;;
-;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding. A
-;; URL whose %-encoding is malformed anywhere (path captures, query
-;; key/value, or fragment) routes to :rf.route/not-found with `:reason
-;; :malformed-url` on the slice's :params, and emits the structured
-;; :rf.warning/malformed-url trace alongside the standard
-;; :rf.error/no-such-handler. The discriminator distinguishes malformed
-;; URLs from bare misses ({:url url}) and validation failures
-;; ({:url url :reason :validation}).
-
-(deftest transitioned-malformed-url-routes-to-not-found-with-reason
-  (testing ":rf.route/handle-url-change for a malformed-%-encoded URL writes the
-            :rf.route/not-found slice with `:reason :malformed-url`, and emits
-            :rf.warning/malformed-url alongside the standard
-            :rf.error/no-such-handler"
-    ;; The door handles the miss the same way wherever the decode failed: the
-    ;; per-position verdict (path capture, query key / value, `#fragment`) is
-    ;; `match-url`'s and `malformed-url?`'s, pinned position by position in
-    ;; `routing-registry-test`.
-    (rf/reg-route :route/home {} "/")
-    (rf/reg-route :rf.route/not-found {} "/404")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::malformed-trace
-                             (fn [ev] (swap! traces conj ev)))
-      ;; A bare `%` in a captured segment.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}])
-      (rf/unregister-listener! :trace ::malformed-trace)
-      ;; SEMANTIC, posture-independent: WHICH url offended, and that the
-      ;; reason is `:malformed-url` rather than a bare miss, are both on the
-      ;; slice, which is what a per-route error UI branches on (Spec 012
-      ;; §Routing failure semantics).
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "malformed path → :rf.route/not-found")
-        (is (= {:url "/articles/%" :reason :malformed-url} (:params slice))
-            "params carries the URL AND `:reason :malformed-url`"))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.warning/malformed-url (:operation ev))
-                         (= "/articles/%" (-> ev :tags :url))))
-                  @traces)
-            ":rf.warning/malformed-url trace carries the offending URL")
-        (is (some (fn [ev]
-                    (and (= :rf.error/no-such-handler (:operation ev))
-                         (= :route (-> ev :tags :kind))
-                         (= :malformed-url (-> ev :tags :reason))))
-                  @traces)
-            ":rf.error/no-such-handler carries `:reason :malformed-url`")))))
-
-(deftest transitioned-forward-nav-traces-carry-frame-rf2-w3qgc
-  (testing "forward URL-driven nav (`:rf.route/cause :link`)
-            threads the active `frame` through `url-change-fx`, so the
-            route-miss / malformed-url / no-not-found diagnostics carry
-            `:frame` — consistent with the popstate/SSR sibling
-            (`:rf.route/handle-url-change`) and the programmatic
-            `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame`
-            on `:rf.error/no-such-handler {:kind :route}` and
-            `:rf.warning/no-not-found-route`."
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/home {} "/")
-    ;; No :rf.route/not-found registered → the bare-miss path also emits
-    ;; :rf.warning/no-not-found-route.
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-
-    ;; The trace-tag assertions in this deftest are dev-only, so under
-    ;; `-Dre-frame.debug=false` they execute nothing. What each tag CLAIMS,
-    ;; though, is an attribution — "this diagnostic belongs to :route/owner" —
-    ;; and attribution is a frame-state fact. Each block therefore asserts,
-    ;; always-on, that the nav really was carried out in the named frame and
-    ;; left the OTHER frame alone. Hardcoding `:rf/default` in
-    ;; `url-change-fx`'s frame threading would move the commit too.
-
-    (testing "non-default frame: malformed URL → frame-tagged traces"
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::w3qgc-malformed
-                               (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}] {:frame :route/owner})
-        (rf/unregister-listener! :trace ::w3qgc-malformed)
-        ;; SEMANTIC, posture-independent.
-        (is (= {:url "/articles/%" :reason :malformed-url}
-               (:params (frame-slice :route/owner)))
-            "the malformed nav was carried out IN :route/owner — the same frame
-             the diagnostics claim")
-        (is (nil? (:route-id (frame-slice :rf/default)))
-            "…and :rf/default was not touched")
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some (fn [ev]
-                      (and (= :rf.warning/malformed-url (:operation ev))
-                           (= "/articles/%" (-> ev :tags :url))
-                           (= :route/owner (-> ev :tags :frame))))
-                    @traces)
-              ":rf.warning/malformed-url carries :frame :route/owner on forward nav")
-          (is (some (fn [ev]
-                      (and (= :rf.error/no-such-handler (:operation ev))
-                           (= :route (-> ev :tags :kind))
-                           (= :route/owner (-> ev :tags :frame))))
-                    @traces)
-              ":rf.error/no-such-handler {:kind :route} carries :frame :route/owner"))))
-
-    (testing "non-default frame: bare miss with no 404 route → frame-tagged
-              :rf.warning/no-not-found-route + :rf.error/no-such-handler"
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::w3qgc-nonotfound
-                               (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:rf.route/handle-url-change "/no/such/route" {:rf.route/cause :link}] {:frame :route/owner})
-        (rf/unregister-listener! :trace ::w3qgc-nonotfound)
-        ;; SEMANTIC, posture-independent.
-        (is (= {:url "/no/such/route"} (:params (frame-slice :route/owner)))
-            "the bare miss was carried out IN :route/owner")
-        (is (nil? (:route-id (frame-slice :rf/default)))
-            "…and :rf/default was not touched")
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some (fn [ev]
-                      (and (= :rf.warning/no-not-found-route (:operation ev))
-                           (= :route/owner (-> ev :tags :frame))))
-                    @traces)
-              ":rf.warning/no-not-found-route carries :frame :route/owner")
-          (is (some (fn [ev]
-                      (and (= :rf.error/no-such-handler (:operation ev))
-                           (= :route/owner (-> ev :tags :frame))))
-                    @traces)
-              ":rf.error/no-such-handler carries :frame :route/owner"))))
-
-    (testing "default-frame forward nav tags :rf/default too (regression guard)"
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::w3qgc-default
-                               (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}] {:frame :rf/default})
-        (rf/unregister-listener! :trace ::w3qgc-default)
-        ;; SEMANTIC, posture-independent: the regression this
-        ;; guards against is a nil / synthesised frame, and the commit landing
-        ;; in :rf/default is the same statement about the same threaded stamp.
-        (is (= {:url "/articles/%" :reason :malformed-url}
-               (:params (frame-slice :rf/default)))
-            "the default-frame dispatch really was carried out in :rf/default")
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some (fn [ev]
-                      (and (= :rf.error/no-such-handler (:operation ev))
-                           (= :rf/default (-> ev :tags :frame))))
-                    @traces)
-              "default-frame dispatch tags :rf/default (not nil) — matches the
-               popstate/SSR sibling and the programmatic path"))))))
-
-;; ---- :on-match dispatches in order, fire-and-forget, readiness stays :idle ----
-
-(deftest on-match-dispatches-fire-and-forget-idle
-  (testing ":rf.route/navigate fires every :on-match event in order (fire-and-
-            forget); the transition observed by the handlers and after the drain
-            is :idle — :on-match never drives readiness (EP-0037 R1)"
-    (let [observed (atom [])]
-      ;; EP-0001: the route slice is durable routing runtime-db
-      ;; state, so the :on-match observers read `:transition` off the
-      ;; `:rf.db/runtime` coeffect.
-      (rf/reg-event :load/a
-                       (fn [{:keys [db] rt :rf.db/runtime} _]
-                         (swap! observed conj [:a (get-in rt [:rf.runtime/routing :current :transition])])
-                         {:db db}))
-      (rf/reg-event :load/b
-                       (fn [{:keys [db] rt :rf.db/runtime} _]
-                         (swap! observed conj [:b (get-in rt [:rf.runtime/routing :current :transition])])
-                         {:db db}))
-      (rf/reg-route :route/dashboard
-                    {:on-match [[:load/a] [:load/b]]} "/dashboard")
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/dashboard}])
-
-      (is (= [[:a :idle] [:b :idle]] @observed)
-          "both :on-match events fired in declaration order; both observed :idle")
-      (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/routing :current :transition]))
-          ":transition remains :idle after the fire-and-forget drain"))))
-
-;; ---- :rf.route/fragment-changed (fragment-only) trace event payload --------
-
-(deftest fragment-only-url-change-trace-payload
-  (testing "fragment-only URL change emits :rf.route/fragment-changed with
-            :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Land on /docs/routing first (no fragment).
-    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing" {:rf.route/cause :link}])
-    (let [traces    (atom [])
-          observed  (atom [])
-          record!   #(swap! observed conj (:fragment (frame-slice :rf/default)))]
-      (record!)
-      (rf/register-listener! :trace ::frag-only (fn [ev] (swap! traces conj ev)))
-      ;; Same path/query, different fragment → fragment-only nav.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#scroll-restoration" {:rf.route/cause :link}])
-      (record!)
-      ;; And again — prev→next this time.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#fragments" {:rf.route/cause :link}])
-      (record!)
-      (rf/unregister-listener! :trace ::frag-only)
-      ;; SEMANTIC, posture-independent: every assertion below reads
-      ;; the trace bus, so under the gate this deftest would execute nothing.
-      ;; What the :prev-fragment / :next-fragment pair REPORTS, though, is the
-      ;; slice stepping through those exact values — recorded here as it goes,
-      ;; which is the only way to see a "prev" after the fact.
-      (is (= [nil "scroll-restoration" "fragments"] @observed)
-          "the slice's :fragment really stepped nil → #scroll-restoration →
-           #fragments — the two transitions the two traces report")
-      (is (= :route/docs (:route-id (frame-slice :rf/default)))
-          "…on :route/docs, the route the traces tag")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [frag-events (filter #(= :rf.route/fragment-changed (:operation %)) @traces)]
-          (is (= 2 (count frag-events))
-              "two fragment-only changes emit two :rf.route/fragment-changed traces")
-          (let [first-ev  (first  frag-events)
-                second-ev (second frag-events)]
-            (is (= :route/docs (-> first-ev :tags :route-id))
-                "first trace tags :route-id")
-            (is (nil? (-> first-ev :tags :prev-fragment))
-                "first transition: prev-fragment is nil (no fragment before)")
-            (is (= "scroll-restoration" (-> first-ev :tags :next-fragment))
-                "first transition: next-fragment is the new value")
-            (is (= "scroll-restoration" (-> second-ev :tags :prev-fragment))
-                "second transition: prev-fragment is the previous value")
-            (is (= "fragments" (-> second-ev :tags :next-fragment))
-                "second transition: next-fragment is the new value")
-            ;; The fragment-only trace must carry the frame
-            ;; stamp under :tags :frame (Spec 012 §Multi-frame routing /
-            ;; Spec 009). Without it the trace is dropped from epoch/Xray
-            ;; capture (which buffers only frame-tagged events) and bypasses
-            ;; the frame-level trace-disable gate. The forward-nav
-            ;; (cause :link) path runs on the :rf/default frame.
-            (is (= :rf/default (-> first-ev :tags :frame))
-                "forward-nav fragment-only trace is frame-attributed")
-            (is (= :rf/default (-> second-ev :tags :frame))
-                "second fragment-only trace is frame-attributed too")))))))
-
-;; ============================================================================
-;; Spec 012 §Per-route data loading rule 3:
-;; identical-param re-navigation does NOT re-fire :on-match
-;; ============================================================================
-;;
-;; Same-route-id navigations with IDENTICAL params/query (and identical
-;; fragment) are a no-op re-navigation — the runtime compares the
-;; prospective slice against the current one and skips the :on-match
-;; re-fire + nav-token allocation. Re-firing loaders on a redundant
-;; navigation (clicking the already-active link, popstate to the current
-;; URL, a duplicate [:rf.route/navigate ...]) is the data-refetch thrash
-;; the rule forbids. Sibling of the fragment-only short-circuit;
-;; this is the stricter "nothing at all changed" case.
-
-(deftest changed-params-still-refires-on-match
-  (testing "Spec 012 rule 3: CHANGED params DO re-fire
-            :on-match (the no-op skip must not over-trigger)"
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :article/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/article
-                    {:on-match [[:article/load]]} "/articles/:id")
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (is (= 2 @on-match-calls)
-          "same route-id, different :params re-fires :on-match (A then B)")
-      (is (= "nav-2" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-          "a changed-params nav DOES allocate a fresh nav-token"))))
-
-;; ---- programmatic navigate validation failure REJECTS ------------------
-;;
-;; Spec 012 §Param validation at the call site: the event-boundary path
-;; [:rf.route/navigate ...] runs the route's :params/:query schema before
-;; transitioning; on failure the navigation is REJECTED — the :rf/route
-;; slice does not change, no URL is pushed — and the runtime emits
-;; :rf.error/schema-validation-failure (:where :event). Recovering the URL
-;; to "/" and PROCEEDING to write the slice + push "/" would mutate the
-;; slice into an invalid state on a caller bug.
-
-(deftest navigate-validation-failure-rejects-and-leaves-slice-unchanged
-  (testing "[:rf.route/navigate] with params that fail the
-            route's :params schema rejects — slice unchanged, no push,
-            :rf.error/schema-validation-failure (:where :event) emitted"
-    (let [restore (rf.routing-test-support/with-stub-validator)
-          pushed  (atom [])]
-      (try
-        (rf/reg-route :route/home {} "/")
-        (rf/reg-route :route/article
-                      {:params (fn [{:keys [id]}]
-                                 (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
-        (rf.fx/reg-fx :rf.nav/push-url
-                   {:platforms #{:server :client}}
-                   (fn [_ url] (swap! pushed conj url)))
-        ;; Land somewhere valid first so we can prove the slice is left
-        ;; untouched by the rejected navigation.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
-        (reset! pushed [])
-        (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
-              traces (atom [])]
-          (rf/register-listener! :trace ::reject (fn [ev] (swap! traces conj ev)))
-          ;; Caller bug: :id "zoo" violates the :params schema.
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}])
-          (rf/unregister-listener! :trace ::reject)
-          (let [after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-            (is (= before after)
-                "rejected navigation leaves the :rf/route slice UNCHANGED")
-            (is (= :route/article (:route-id after))
-                "slice still on the previously-valid route (not desynced)")
-            (is (empty? @pushed)
-                "rejected navigation pushes NO URL (no recovery to \"/\")")
-            ;; Dev-instrumentation arm (see ns docstring).
-            ;;
-            ;; READ THIS BEFORE CALLING A LOOK-ALIKE A DEFECT: the
-            ;; REJECT ITSELF survives production. The three legs above run
-            ;; unguarded under `-Dre-frame.debug=false` and pass — slice
-            ;; identical, route unchanged, nothing pushed — so a caller bug
-            ;; still fails closed in a production build. Only the
-            ;; `:rf.error/schema-validation-failure` DIAGNOSTIC is dev-only
-            ;; (`trace/emit-error!`). That is a different shape from the
-            ;; fx-args gate in `routing-nav-fx-schemas-test`, where the
-            ;; VERDICT short-circuits to `true` under the gate per Spec 010
-            ;; §Production builds; here the verdict is computed either way.
-            (when rf.interop/debug-enabled?
-              (let [err (first (filter #(= :rf.error/schema-validation-failure
-                                           (:operation %))
-                                       @traces))]
-                (is (some? err)
-                    ":rf.error/schema-validation-failure emitted on reject")
-                (is (= :event (-> err :tags :where))
-                    "error tags :where :event (event-boundary path)")))))
-        (finally (restore))))))
-
-;; ---- the `{:url}` door on a matched-but-INVALID URL -------------------
-;;
-;; Spec 012 §Target form sells `{:url s}` as the escape hatch "for dynamic
-;; or user-supplied URLs the app didn't build itself". Two different kinds
-;; of bad URL take two different exits:
-;;
-;;   * a URL matching NO route resolves to `:rf.route/not-found`, commits
-;;     the not-found slice and pushes the REQUESTED url (the 404 view);
-;;   * a URL that MATCHES a route but fails that route's `:params` schema
-;;     is REJECTED outright — no slice write, no push.
-;;
-;; The asymmetry is deliberate and the door's own comment calls it the
-;; specified behaviour (navigate.cljc — the programmatic door takes
-;; `(:route-id match)` rather than normalising to not-found, so a caller bug
-;; rejects through `route-url` instead of rendering a 404). The URL-DRIVEN
-;; door (`:rf.route/handle-url-change`) sends such a URL to the 404 view with
-;; `:reason :validation`, pinned by `routing-plan-seam-test`'s
-;; `both-url-bearing-doors-stamp-the-same-not-found-reason`; this deftest pins
-;; the programmatic half.
-
-(deftest url-form-navigate-on-validation-failing-match-rejects
-  (testing "Spec 012 §Target form: [:rf.route/navigate {:url ...}]
-            on a URL that MATCHES a route but fails its :params schema is
-            REJECTED — slice unchanged, no URL pushed — where the same URL
-            through the URL-driven door lands on the 404 view"
-    (let [restore (rf.routing-test-support/with-stub-validator)
-          pushed  (atom [])]
-      (try
-        (rf/reg-route :route/home {} "/")
-        (rf/reg-route :route/article
-                      {:params (fn [{:keys [id]}]
-                                 (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
-        (rf.fx/reg-fx :rf.nav/push-url
-                   {:platforms #{:server :client}}
-                   (fn [_ url] (swap! pushed conj url)))
-        ;; Land somewhere valid first, so the slice has a known state that a
-        ;; rejected navigation can be shown to have left alone.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
-        (reset! pushed [])
-        (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current])]
-          ;; "/articles/zoo" MATCHES /articles/:id, then fails the schema.
-          (rf/dispatch-sync [:rf.route/navigate {:url "/articles/zoo"}])
-          (let [after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/routing :current])]
-            (is (= before after)
-                "a matched-but-invalid {:url} leaves the :rf/route slice UNCHANGED")
-            (is (= :route/article (:route-id after))
-                "slice still on the previously-valid route, not desynced")
-            (is (empty? @pushed)
-                "a matched-but-invalid {:url} pushes NO URL — it does not degrade to the 404 view")))
-        (finally (restore))))))
-
-;; ============================================================================
-;; external-url? fails CLOSED on the JVM / no-browser-origin
-;; path: ambiguous or absolute URLs are classed external (no in-app push),
-;; closing the open-redirect bypass surface (leading whitespace before a
-;; scheme, backslash authorities, embedded control chars). Consistent with
-;; the routing fail-closed posture.
-;; ============================================================================
-
-(deftest url-requested-fails-closed-on-ambiguous-urls-jvm
-  (testing ":rf.route/url-requested on the JVM (no browser origin) classes
-            ambiguous / bypass-shaped URLs as EXTERNAL — no :rf.nav/push-url,
-            no slice rewrite — and only PROVABLY same-origin rooted paths
-            push through."
-    (rf/reg-route :route/home {} "/")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-      (testing "bypass-shaped / absolute / ambiguous URLs do NOT push"
-        (doseq [hostile ["https://evil.invalid/cart"   ;; scheme
-                         "//evil.invalid/cart"          ;; protocol-relative
-                         "/\\evil.invalid"              ;; backslash authority
-                         " /cart"                       ;; leading-space scheme-anchor bypass
-                         "\thttps://evil.invalid"       ;; embedded tab (browser-stripped)
-                         "javascript:alert(1)"          ;; non-http scheme
-                         "mailto:a@b.c"
-                         "cart"                          ;; bare relative segment (not rooted)
-                         ""]]
-          (reset! pushed [])
-          (rf/dispatch-sync [:rf.route/url-requested {:url hostile}])
-          (is (empty? @pushed)
-              (str "fail-closed: ambiguous/absolute URL " (pr-str hostile)
-                   " classed external, not pushed"))
-          (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                     [:rf.runtime/routing :current :route-id]))
-              (str "fail-closed: " (pr-str hostile)
-                   " did not rewrite the active route"))))
-      (testing "provably same-origin rooted paths DO push through"
-        (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
-          (reset! pushed [])
-          (rf/dispatch-sync [:rf.route/url-requested {:url safe}])
-          (is (= [safe] @pushed)
-              (str "safe same-origin reference " (pr-str safe)
-                   " pushes through verbatim")))))))
-
-;; ============================================================================
-;; :rf.route/navigate {:url ...} gates through the SAME
-;; fail-closed open-redirect classifier as :rf.route/url-requested. An
-;; ungated programmatic {:url ...} sink would push the URL VERBATIM, and
-;; every bypass vector in the matrix above would escape. This is that
-;; matrix re-run through the navigate {:url} sink.
-;; ============================================================================
-
-(deftest navigate-url-target-fails-closed-on-ambiguous-urls-jvm
-  (testing ":rf.route/navigate {:url <hostile>} on the JVM (no browser
-            origin) classes ambiguous / bypass-shaped URLs as EXTERNAL —
-            no :rf.nav/push-url, no slice rewrite — IDENTICALLY to the
-            :rf.route/url-requested link-click path."
-    (rf/reg-route :route/home {} "/")
-    (rf/reg-route :route/cart {} "/cart")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Land on a known route first so we can prove the slice does not move.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/cart" {:rf.route/cause :link}])
-      (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :route-id]))
-          "precondition: active route is :route/cart")
-      (testing "every bypass vector of the url-requested matrix fails closed through navigate {:url}"
-        (doseq [hostile ["https://evil.invalid/phish"   ;; absolute cross-origin
-                         "//evil.invalid/phish"          ;; protocol-relative
-                         "/\\evil.invalid"               ;; backslash authority
-                         " /cart"                        ;; leading-space scheme-anchor bypass
-                         "\thttps://evil.invalid"        ;; embedded tab (browser-stripped)
-                         "javascript:alert(1)"           ;; non-http scheme
-                         "https://good.com@evil.com/x"   ;; userinfo confusion
-                         "mailto:a@b.c"
-                         "cart"]]                          ;; bare relative segment (not rooted)
-          (reset! pushed [])
-          (rf/dispatch-sync [:rf.route/navigate {:url hostile}])
-          (is (empty? @pushed)
-              (str "fail-closed: navigate {:url " (pr-str hostile)
-                   "} classed external, not pushed"))
-          (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                     [:rf.runtime/routing :current :route-id]))
-              (str "fail-closed: navigate {:url " (pr-str hostile)
-                   "} did not rewrite the active route"))))
-      (testing "provably same-origin rooted paths DO push through navigate {:url}"
-        ;; Each safe nav is preceded by landing on a DIFFERENT route so the
-        ;; rule-3 identical-nav no-op never masks the push under test. `/`
-        ;; resolves to :route/home, the rest to :route/cart.
-        (doseq [[safe land-elsewhere] [["/cart"      "/"]
-                                       ["/"          "/cart"]
-                                       ["/cart?q=1"  "/"]
-                                       ["/cart#frag" "/"]]]
-          (rf/dispatch-sync [:rf.route/handle-url-change land-elsewhere {:rf.route/cause :link}])
-          (reset! pushed [])
-          (rf/dispatch-sync [:rf.route/navigate {:url safe}])
-          (is (seq @pushed)
-              (str "safe same-origin reference " (pr-str safe)
-                   " pushes through navigate {:url}")))))))
-
-;; ---- The flat request-map grammar -----------------------------------------
-;;
-;; Spec 012 §Navigation is an event: `:rf.route/navigate` carries ONE flat
-;; request map — no positional arity, no reserved-target form. Address keys
-;; (:to / :url / :params / :query / :fragment), policy keys (:replace? /
-;; :scroll / :bypass-leave?), and the in-place edit key :query-merge. The
-;; always-on structural gate is exercised in the dedicated gate suite below;
-;; here we pin that the address forms navigate cleanly.
-
-(deftest navigate-accepts-the-request-map-forms
-  (testing "the request-map forms all navigate cleanly —
-            {:to}, {:to :params}, {:to :params :replace?}"
-    (rf/reg-route :route/home    {} "/")
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [pushed   (atom [])
-          replaced (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf.fx/reg-fx :rf.nav/replace-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! replaced conj url)))
-      ;; {:to} — no path-params, no policy keys.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (is (= :route/home (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                            [:rf.runtime/routing :current])))
-          "{:to} navigates")
-      ;; {:to :params} — path-params, no policy keys.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
-      (is (= {:id "intro"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                            [:rf.runtime/routing :current])))
-          "{:to :params} navigates with path-params")
-      ;; {:to :params :replace?} — a policy key beside the address (:replace?
-      ;; true → :rf.nav/replace-url, proving the policy key is honoured).
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "two"} :replace? true}])
-      (is (= "/articles/two" (last @replaced))
-          "{:to :params :replace?} navigates; :replace? honoured")
-      (is (= {:id "two"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                          [:rf.runtime/routing :current])))
-          "the path-params landed in the slice, distinct from the policy key"))))
-
-(deftest navigate-does-not-false-flag-a-route-with-an-opts-named-path-param
-  (testing "a route that legitimately captures a segment named
-            :fragment is NOT false-flagged — the key is a declared
-            path-param, not a misplaced opt"
-    (rf/reg-route :route/anchor {} "/anchor/:fragment")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/anchor :params {:fragment "intro"}}])
-      (is (= :route/anchor (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                              [:rf.runtime/routing :current])))
-          "a declared :fragment path-param navigates normally (no false reject)")
-      (is (= "/anchor/intro" (last @pushed))
-          "the path-param :fragment populates the URL segment"))))
-
-;; ---- lifecycle / nav-token traces carry :frame ----------------------------
-;;
-;; `commit-navigation` emits `:rf.route.nav-token/allocated`,
-;; `:rf.route/activated`, and `:rf.route/deactivated`. Because
-;; `re-frame.epoch.capture/capture-event!` admits ONLY frame-tagged traces
-;; (capture.cljc §168-221) and the frame-level trace-disable gate
-;; (`re-frame.trace/emit!` §397-398) keys off `:tags :frame`, those
-;; frame-known traces would, without `:frame`, silently drop from Xray / epoch
-;; history AND leak past a `:rf.trace/frame-no-emit?` tool frame in a
-;; multi-frame app. The carried frame stamp (validated at the nav handler
-;; top via `frame/require-frame-stamp!`) is threaded into
-;; `commit-navigation` and stamped on all three. These tests use a
-;; NON-DEFAULT frame so hardcoding `:rf/default` (or dropping the tag)
-;; fails here.
-
-(deftest commit-traces-carry-frame-programmatic-rf2-dbmj6x
-  (testing "programmatic `:rf.route/navigate` stamps :frame on
-            :rf.route.nav-token/allocated, :rf.route/activated, and
-            :rf.route/deactivated for a non-default frame"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/from {} "/from")
-    (rf/reg-route :route/to   {} "/to")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; The trace assertions here read trace tags. The tags' CLAIM is
-    ;; that the activate / deactivate / allocate lifecycle belongs to
-    ;; :route/owner, and that is a frame-state fact — so each block asserts,
-    ;; always-on, that the route really activated in :route/owner's runtime-db
-    ;; and that :rf/default never moved. Hardcoding `:rf/default` on the
-    ;; commit path fails here in BOTH postures.
-    ;;
-    ;; First nav (no prior route): only nav-token-allocated + activated fire.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-nav1 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-nav1)
-      ;; SEMANTIC, posture-independent.
-      (is (= :route/from (:route-id (frame-slice :route/owner)))
-          ":route/from ACTIVATED in :route/owner — the frame the traces tag")
-      (is (some? (:nav-token (frame-slice :route/owner)))
-          "…and the nav-token was allocated into that frame's slice")
-      (is (nil? (:route-id (frame-slice :rf/default)))
-          "…while :rf/default never moved")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route.nav-token/allocated (:operation ev))
-                         (= :route/from (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route.nav-token/allocated carries :frame :route/owner")
-        (is (some (fn [ev]
-                    (and (= :rf.route/activated (:operation ev))
-                         (= :route/from (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route/activated carries :frame :route/owner")))
-    ;; Cross-route nav: deactivated + activated both carry the frame.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-nav2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-nav2)
-      ;; SEMANTIC, posture-independent: the cross-route move —
-      ;; :route/from DEACTIVATED, :route/to ACTIVATED — is one slice write in
-      ;; :route/owner, and :rf/default still holds neither route.
-      (is (= :route/to (:route-id (frame-slice :route/owner)))
-          "the cross-route move landed in :route/owner")
-      (is (nil? (:route-id (frame-slice :rf/default)))
-          "…and :rf/default still never moved")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route/deactivated (:operation ev))
-                         (= :route/from (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route/deactivated carries :frame :route/owner")
-        (is (some (fn [ev]
-                    (and (= :rf.route/activated (:operation ev))
-                         (= :route/to (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route/activated (cross-route) carries :frame :route/owner")))))
-
-(deftest commit-traces-carry-frame-url-driven-rf2-dbmj6x
-  (testing "URL-driven
-            `:rf.route/handle-url-change` stamps :frame on the lifecycle /
-            nav-token traces for a non-default frame"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/from {} "/from")
-    (rf/reg-route :route/to   {} "/to")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; As in the programmatic sibling above, the tags claim an
-    ;; ATTRIBUTION, and attribution is checkable off frame state in both
-    ;; postures.
-    ;;
-    ;; :rf.route/handle-url-change with cause :link (forward nav).
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-url1 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/from" {:rf.route/cause :link}] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-url1)
-      ;; SEMANTIC, posture-independent.
-      (is (= :route/from (:route-id (frame-slice :route/owner)))
-          "forward nav: the route activated in :route/owner")
-      (is (some? (:nav-token (frame-slice :route/owner)))
-          "forward nav: …allocating into that frame's slice")
-      (is (nil? (:route-id (frame-slice :rf/default)))
-          "forward nav: …and :rf/default never moved")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route.nav-token/allocated (:operation ev))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            "forward nav: :rf.route.nav-token/allocated carries :frame :route/owner")
-        (is (some (fn [ev]
-                    (and (= :rf.route/activated (:operation ev))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            "forward nav: :rf.route/activated carries :frame :route/owner")))
-    ;; :rf.route/handle-url-change (popstate / SSR) cross-route → deactivated.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-url2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/to"] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-url2)
-      ;; SEMANTIC, posture-independent.
-      (is (= :route/to (:route-id (frame-slice :route/owner)))
-          "handle-url-change: the cross-route move landed in :route/owner")
-      (is (nil? (:route-id (frame-slice :rf/default)))
-          "handle-url-change: …and :rf/default still never moved")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route/deactivated (:operation ev))
-                         (= :route/from (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            "handle-url-change: :rf.route/deactivated carries :frame :route/owner")
-        (is (some (fn [ev]
-                    (and (= :rf.route/activated (:operation ev))
-                         (= :route/to (-> ev :tags :route-id))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            "handle-url-change: :rf.route/activated carries :frame :route/owner")))))
-
-;; ---- trace-disabled frame suppresses commit traces ------------------------
-;;
-;; The frame-level trace-disable gate (`re-frame.trace/emit!` §397-398) keys
-;; off `:tags :frame`: an event tagged with a `:rf.trace/frame-no-emit?`
-;; frame is suppressed before any envelope is built. Lifecycle / nav-token
-;; traces without `:frame` would let a navigation driven from a tool frame
-;; (Xray's `:rf/xray`) LEAK those events into the very ring the inspector
-;; reads — the leak the gate exists to prevent. This proves the
-;; events carry `:frame` (and therefore also reach epoch capture, the
-;; sibling frame-tag admission gate): suppression from a no-emit frame and
-;; epoch-capture admission are the SAME `:tags :frame` condition.
-
-(deftest commit-traces-suppressed-from-trace-disabled-frame-rf2-dbmj6x
-  (testing "lifecycle / nav-token traces emitted from a
-            `:rf.trace/frame-no-emit?` frame are suppressed (proving they
-            carry :frame); the same dispatch from an emitting frame
-            produces them"
-    (rf/make-frame {:id :rf/default})
-    ;; A tool / inspector frame whose own reactivity must not flood the ring.
-    (rf/make-frame {:id :rf/tool :rf.trace/frame-no-emit? true})
-    (rf/reg-route :route/from {} "/from")
-    (rf/reg-route :route/to   {} "/to")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Seed a prior route in the tool frame so a cross-route nav would emit
-    ;; deactivated + activated (both must be suppressed).
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :rf/tool})
-    (let [tool-traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-tool (fn [ev] (swap! tool-traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :rf/tool})
-      (rf/unregister-listener! :trace ::dbmj6x-tool)
-      ;; SEMANTIC, posture-independent. The suppression leg below
-      ;; is the whole POINT of this deftest and is a NEGATIVE over the trace
-      ;; ring — under `-Dre-frame.debug=false` the ring is empty for EVERY
-      ;; frame, so it would certify a leak-suppression the framework never has
-      ;; occasion to perform. The premise it rests on — that the lifecycle
-      ;; events carry the `:frame` the gate keys off — is a frame-state fact:
-      ;; the whole navigation is attributed to :rf/tool and :rf/default is
-      ;; untouched. An unframed commit could not do that.
-      (is (= :route/to (:route-id (frame-slice :rf/tool)))
-          "the tool frame's own navigation really committed there")
-      (is (nil? (:route-id (frame-slice :rf/default)))
-          "…and :rf/default was never entered by it — the commit is
-           frame-attributed, which is the same `:tags :frame` condition the
-           suppression gate and epoch capture both read")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (empty? (filter #(#{:rf.route.nav-token/allocated
-                                :rf.route/activated
-                                :rf.route/deactivated}
-                              (:operation %))
-                            @tool-traces))
-            "no lifecycle / nav-token trace leaks from a :rf.trace/frame-no-emit?
-             frame (an unframed emit would leak past the gate)")))
-    ;; Control: the identical events DO fire from an ordinary emitting frame.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :rf/default})
-    (let [app-traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-app (fn [ev] (swap! app-traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :rf/default})
-      (rf/unregister-listener! :trace ::dbmj6x-app)
-      ;; SEMANTIC, posture-independent: the control's job is to
-      ;; prove the suppression above is not vacuous, so it needs a
-      ;; posture-independent half of its own — the SAME dispatch on an
-      ;; ordinary frame really does drive the same cross-route commit.
-      (is (= :route/to (:route-id (frame-slice :rf/default)))
-          "control: the identical dispatch commits from an ordinary frame")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some #(= :rf.route.nav-token/allocated (:operation %)) @app-traces)
-            "control: :rf.route.nav-token/allocated DOES fire from an emitting frame")
-        (is (some #(= :rf.route/activated (:operation %)) @app-traces)
-            "control: :rf.route/activated DOES fire from an emitting frame")
-        (is (some #(= :rf.route/deactivated (:operation %)) @app-traces)
-            "control: :rf.route/deactivated DOES fire from an emitting frame")))))
-
-;; ---- Spec 012 §In-place navigation + §The :query-merge key ---------------
-
 (defn- nav-slice
   "The current route slice for the default frame."
   []
   (frame-slice :rf/default))
 
-(defn- gate-verdict
-  "The always-on structural gate's OWN verdict on `request` —
-  `re-frame.routing.address/classify`, the exact fn `navigate-handler` calls,
-  against the live current slice. Returns nil when well-formed, else
-  `{:reason … :keys …}`.
+(defn- record-pushes!
+  "Capture every `:rf.nav/push-url` URL, on both platforms so the JVM routes it."
+  []
+  (let [pushed (atom [])]
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+                  (fn [_ url] (swap! pushed conj url)))
+    pushed))
 
-  The handler's `:rf.error/navigate-bad-request` DIAGNOSTIC rides
-  `trace/emit-error!` and closes under `-Dre-frame.debug=false`; the gate that
-  produces it does not — a malformed request still leaves the slice untouched
-  and pushes no URL. This reads the same rule on the same input with no bus in
-  between: what the reject WOULD report."
-  [request]
-  (rf.routing.address/classify request (nav-slice)))
+;; ---- addresses --------------------------------------------------------------
+
+(deftest routing-destination-query-is-literal
+  ;; EP-0037 R5: a fresh destination gains no ambient query from the current route.
+  (rf/reg-route :route/search {} "/search")
+  (rf/reg-route :route/cart   {} "/cart")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/search?theme=dark&locale=en" {:rf.route/cause :link}])
+    (is (= {"theme" "dark" "locale" "en"} (:query (nav-slice))))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
+    (is (= ["/cart"] @pushed))))
+
+(deftest navigate-present-but-nil-query-clears-like-an-empty-map
+  ;; Presence, not truthiness, discriminates: `:query nil` is the same "clear
+  ;; the query" as `:query {}`, on the destination and the in-place branch.
+  (rf/reg-route :route/search {} "/search")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query nil}])
+  (is (= {} (:query (nav-slice))))
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort "asc"}}])
+  (is (= {"sort" "asc"} (:query (nav-slice))))
+  (rf/dispatch-sync [:rf.route/navigate {:query nil}])
+  (is (= {} (:query (nav-slice)))))
+
+(deftest navigate-url-form-preserves-fragment
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}])
+    (is (= ["/docs/routing#scroll-restoration"] @pushed))))
+
+(deftest navigate-accepts-the-request-map-forms
+  ;; A policy key rides beside the address: `:replace? true` commits the
+  ;; path-params and replaces the history entry.
+  (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+  (let [replaced (atom [])]
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+                  (fn [_ url] (swap! replaced conj url)))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "two"} :replace? true}])
+    (is (= ["/articles/two"] @replaced))
+    (is (= {:id "two"} (:params (nav-slice))))))
+
+;; ---- the not-found fallback -------------------------------------------------
+
+(deftest navigate-url-form-unmatched-without-not-found-route-commits-and-warns
+  ;; With no :rf.route/not-found registered, an unmatched {:url} still commits
+  ;; the not-found slice and pushes the requested URL verbatim — never a
+  ;; route-url call on the unregistered id, which would reject — and warns.
+  (rf/reg-route :route/home {} "/")
+  (let [pushed (record-pushes!)
+        traces (atom [])]
+    (rf/register-listener! :trace ::nav-nf-warn (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+    (rf/unregister-listener! :trace ::nav-nf-warn)
+    (is (= {:route-id :rf.route/not-found :params {:url "/no/such/path"}}
+           (select-keys (nav-slice) [:route-id :params])))
+    (is (= ["/no/such/path"] @pushed))
+    (when rf.interop/debug-enabled?
+      (is (some #(= :rf.warning/no-not-found-route (:operation %)) @traces)))))
+
+(deftest not-found-address-bar-parity-programmatic-vs-url-driven
+  ;; Both doors keep the requested URL in the address bar: the programmatic
+  ;; door pushes it (never the not-found route's own /404), and the URL-driven
+  ;; door pushes nothing because the bar already moved.
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :rf.route/not-found {} "/404")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+    (is (= {:route-id :rf.route/not-found :params {:url "/no/such/path"}}
+           (select-keys (nav-slice) [:route-id :params])))
+    (is (= ["/no/such/path"] @pushed))
+    (reset! pushed [])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/another/miss" {:rf.route/cause :link}])
+    (is (= {:route-id :rf.route/not-found :params {:url "/another/miss"}}
+           (select-keys (nav-slice) [:route-id :params])))
+    (is (empty? @pushed))))
+
+(deftest navigate-unmatched-url-honours-explicit-fragment-override
+  ;; `{:url raw :fragment f}` on an unmatched URL rebuilds ONE effective URL —
+  ;; the raw path and query with the explicit fragment (nil clears it) — and
+  ;; feeds it to the slice, the not-found :params and the push. Without an
+  ;; explicit :fragment the raw URL rides verbatim.
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :rf.route/not-found {} "/404")
+  (let [pushed (record-pushes!)]
+    (doseq [[request url slice]
+            [[{:url "/no/such/path#old" :fragment "new"} "/no/such/path#new"  {:fragment "new"}]
+             [{:url "/no/such/path#old" :fragment nil}   "/no/such/path"      {:fragment nil}]
+             [{:url "/no/such/path#keep"}                "/no/such/path#keep" {}]]]
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate request])
+      (let [expected (assoc slice :route-id :rf.route/not-found :params {:url url})]
+        (is (= expected (select-keys (nav-slice) (keys expected))) (pr-str request)))
+      (is (= [url] @pushed) (pr-str request)))))
+
+(deftest handle-url-change-writes-full-slice-shape
+  ;; The URL-driven door writes the same seven-key slice the programmatic one does.
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#scroll-restoration"])
+  (is (= {:route-id   :route/docs
+          :params     {:page "routing"}
+          :query      {}
+          :fragment   "scroll-restoration"
+          :transition :idle
+          :error      nil
+          :nav-token  "nav-1"}
+         (nav-slice))))
+
+(deftest transitioned-malformed-url-routes-to-not-found-with-reason
+  ;; Spec 012 §Routing failure semantics: a malformed %-encoding lands on the
+  ;; not-found slice with `:reason :malformed-url`, the discriminator a
+  ;; per-route error UI branches on. The per-position decode verdicts are
+  ;; `routing-registry-test`'s.
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :rf.route/not-found {} "/404")
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::malformed-trace (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}])
+    (rf/unregister-listener! :trace ::malformed-trace)
+    (is (= {:route-id :rf.route/not-found :params {:url "/articles/%" :reason :malformed-url}}
+           (select-keys (nav-slice) [:route-id :params])))
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev] (and (= :rf.warning/malformed-url (:operation ev))
+                              (= "/articles/%" (-> ev :tags :url))))
+                @traces))
+      (is (some (fn [ev] (and (= :rf.error/no-such-handler (:operation ev))
+                              (= :route (-> ev :tags :kind))
+                              (= :malformed-url (-> ev :tags :reason))))
+                @traces)))))
+
+(deftest transitioned-forward-nav-traces-carry-frame-rf2-w3qgc
+  ;; A forward URL-driven nav threads its frame onto the route-miss
+  ;; diagnostics (Spec 009 requires `:frame` on `:rf.error/no-such-handler
+  ;; {:kind :route}`). The attribution is also a frame-state fact, read in
+  ;; both postures: the miss committed in :route/owner and left :rf/default alone.
+  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :route/owner})
+  (rf/reg-route :route/home {} "/")
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::w3qgc-malformed (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}] {:frame :route/owner})
+    (rf/unregister-listener! :trace ::w3qgc-malformed)
+    (is (= {:url "/articles/%" :reason :malformed-url} (:params (frame-slice :route/owner))))
+    (is (nil? (:route-id (frame-slice :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev] (and (= :rf.warning/malformed-url (:operation ev))
+                              (= "/articles/%" (-> ev :tags :url))
+                              (= :route/owner (-> ev :tags :frame))))
+                @traces))
+      (is (some (fn [ev] (and (= :rf.error/no-such-handler (:operation ev))
+                              (= :route (-> ev :tags :kind))
+                              (= :route/owner (-> ev :tags :frame))))
+                @traces)))))
+
+;; ---- :on-match and rule 3 ---------------------------------------------------
+
+(deftest on-match-dispatches-fire-and-forget-idle
+  ;; EP-0037 R1: every :on-match event fires, in declaration order, and none
+  ;; drives readiness — :transition is :idle for the handlers and after.
+  (let [observed (atom [])
+        observer (fn [tag]
+                   (fn [{:keys [db] rt :rf.db/runtime} _]
+                     (swap! observed conj [tag (get-in rt [:rf.runtime/routing :current :transition])])
+                     {:db db}))]
+    (rf/reg-event :load/a (observer :a))
+    (rf/reg-event :load/b (observer :b))
+    (rf/reg-route :route/dashboard {:on-match [[:load/a] [:load/b]]} "/dashboard")
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/dashboard}])
+    (is (= [[:a :idle] [:b :idle]] @observed))
+    (is (= :idle (:transition (nav-slice))))))
+
+(deftest changed-params-still-refires-on-match
+  ;; Spec 012 rule 3's no-op skip must not swallow a real param change.
+  (let [on-match-calls (atom 0)]
+    (rf/reg-event :article/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+    (rf/reg-route :route/article {:on-match [[:article/load]]} "/articles/:id")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
+    (is (= 2 @on-match-calls))
+    (is (= "nav-2" (:nav-token (nav-slice))))))
+
+;; ---- param validation at the programmatic door ----------------------------
+
+(deftest navigate-validation-failure-rejects-and-leaves-slice-unchanged
+  ;; Spec 012 §Param validation at the call site: params that fail the route's
+  ;; schema REJECT — slice unchanged, nothing pushed, in both postures. A
+  ;; `{:url}` that MATCHES the route but fails its schema rejects the same way;
+  ;; it does not degrade to the 404 view the URL-driven door would show.
+  (let [restore (rf.routing-test-support/with-stub-validator)
+        pushed  (record-pushes!)]
+    (try
+      (rf/reg-route :route/article
+                    {:params (fn [{:keys [id]}]
+                               (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
+      (reset! pushed [])
+      (let [before (nav-slice)
+            traces (atom [])]
+        (rf/register-listener! :trace ::reject (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}])
+        (rf/unregister-listener! :trace ::reject)
+        (is (= before (nav-slice)))
+        (when rf.interop/debug-enabled?
+          (is (= :event (->> @traces
+                             (filter #(= :rf.error/schema-validation-failure (:operation %)))
+                             first :tags :where))))
+        (rf/dispatch-sync [:rf.route/navigate {:url "/articles/zoo"}])
+        (is (= before (nav-slice)))
+        (is (empty? @pushed)))
+      (finally (restore)))))
+
+;; ---- the fail-closed open-redirect matrices --------------------------------
+;;
+;; With no browser origin, `external-url?` classes every ambiguous or absolute
+;; URL external: no push, no slice rewrite. Both URL-taking sinks gate on it.
+
+(deftest url-requested-fails-closed-on-ambiguous-urls-jvm
+  (rf/reg-route :route/home {} "/")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
+    (doseq [hostile ["https://evil.invalid/cart"   ;; scheme
+                     "//evil.invalid/cart"          ;; protocol-relative
+                     "/\\evil.invalid"              ;; backslash authority
+                     " /cart"                       ;; leading-space scheme-anchor bypass
+                     "\thttps://evil.invalid"       ;; embedded tab (browser-stripped)
+                     "javascript:alert(1)"          ;; non-http scheme
+                     "mailto:a@b.c"
+                     "cart"                         ;; bare relative segment (not rooted)
+                     ""]]
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/url-requested {:url hostile}])
+      (is (= [[] :route/home] [@pushed (:route-id (nav-slice))]) (pr-str hostile)))
+    (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/url-requested {:url safe}])
+      (is (= [safe] @pushed) (pr-str safe)))))
+
+(deftest navigate-url-target-fails-closed-on-ambiguous-urls-jvm
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :route/cart {} "/cart")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/cart" {:rf.route/cause :link}])
+    (doseq [hostile ["https://evil.invalid/phish"   ;; absolute cross-origin
+                     "//evil.invalid/phish"          ;; protocol-relative
+                     "/\\evil.invalid"               ;; backslash authority
+                     " /cart"                        ;; leading-space scheme-anchor bypass
+                     "\thttps://evil.invalid"        ;; embedded tab (browser-stripped)
+                     "javascript:alert(1)"           ;; non-http scheme
+                     "https://good.com@evil.com/x"   ;; userinfo confusion
+                     "mailto:a@b.c"
+                     "cart"]]                        ;; bare relative segment (not rooted)
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate {:url hostile}])
+      (is (= [[] :route/cart] [@pushed (:route-id (nav-slice))]) (pr-str hostile)))
+    ;; Each safe nav starts on a DIFFERENT route so the rule-3 no-op cannot mask the push.
+    (doseq [[safe land-elsewhere] [["/cart"      "/"]
+                                   ["/"          "/cart"]
+                                   ["/cart?q=1"  "/"]
+                                   ["/cart#frag" "/"]]]
+      (rf/dispatch-sync [:rf.route/handle-url-change land-elsewhere {:rf.route/cause :link}])
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate {:url safe}])
+      (is (seq @pushed) (pr-str safe)))))
+
+;; ---- commit lifecycle traces carry :frame ---------------------------------
+;;
+;; `commit-navigation` stamps the carried frame on `:rf.route.nav-token/allocated`,
+;; `:rf.route/deactivated` and `:rf.route/activated`; epoch capture and the
+;; frame-level trace-disable gate both key off `:tags :frame`. Each door runs in
+;; a NON-DEFAULT frame, so a commit path that hardcodes `:rf/default` fails here.
+
+(defn- commit-traces
+  "`[operation route-id frame]` for each commit lifecycle trace `dispatch!` emits."
+  [dispatch!]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::commit-traces (fn [ev] (swap! traces conj ev)))
+    (dispatch!)
+    (rf/unregister-listener! :trace ::commit-traces)
+    (set (for [{:keys [operation tags]} @traces
+               :when (#{:rf.route.nav-token/allocated :rf.route/deactivated :rf.route/activated}
+                      operation)]
+           [operation (:route-id tags) (:frame tags)]))))
+
+(def ^:private owner-cross-route-traces
+  #{[:rf.route.nav-token/allocated :route/to   :route/owner]
+    [:rf.route/deactivated         :route/from :route/owner]
+    [:rf.route/activated           :route/to   :route/owner]})
+
+(deftest commit-traces-carry-frame-programmatic-rf2-dbmj6x
+  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :route/owner})
+  (rf/reg-route :route/from {} "/from")
+  (rf/reg-route :route/to   {} "/to")
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/from}] {:frame :route/owner})
+  (let [traces (commit-traces #(rf/dispatch-sync [:rf.route/navigate {:to :route/to}] {:frame :route/owner}))]
+    (is (= :route/to (:route-id (frame-slice :route/owner))))
+    (is (nil? (:route-id (frame-slice :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (= owner-cross-route-traces traces)))))
+
+(deftest commit-traces-carry-frame-url-driven-rf2-dbmj6x
+  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :route/owner})
+  (rf/reg-route :route/from {} "/from")
+  (rf/reg-route :route/to   {} "/to")
+  (rf/dispatch-sync [:rf.route/handle-url-change "/from" {:rf.route/cause :link}] {:frame :route/owner})
+  (let [traces (commit-traces #(rf/dispatch-sync [:rf.route/handle-url-change "/to"] {:frame :route/owner}))]
+    (is (= :route/to (:route-id (frame-slice :route/owner))))
+    (is (nil? (:route-id (frame-slice :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (= owner-cross-route-traces traces)))))
+
+;; ---- in-place navigation (Spec 012 §In-place navigation) ------------------
 
 (deftest routing-in-place-target-stays-on-current-route
-  (testing "an in-place request patches the CURRENT route's query, holding id + path-params"
-    ;; Per Spec 012 §In-place navigation. An in-place request (no :to / :url)
-    ;; holds the route (path) fixed and changes only the query; a wholesale
-    ;; :query replaces the current query.
-    (rf/reg-route :route/article
-                  {:params [:map [:id :string]]
-                   :query  [:map [:tab {:optional true} :string]]}
-                  "/articles/:id")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Land on /articles/intro?tab=notes.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro?tab=notes" {:rf.route/cause :link}])
-      (is (= :route/article (:route-id (nav-slice))))
-      (is (= {:id "intro"} (:params (nav-slice))))
-      ;; In-place nav changing only the query.
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
-      (is (= :route/article (:route-id (nav-slice)))
-          "in-place keeps the current route-id")
-      (is (= {:id "intro"} (:params (nav-slice)))
-          "in-place keeps the current path-params (path held fixed)")
-      (is (= {:tab "history"} (:query (nav-slice)))
-          "the query changed to the supplied :query")
-      (is (= ["/articles/intro?tab=history"] @pushed)
-          "the pushed URL keeps the path and carries the new query"))))
+  ;; No :to / :url holds the route and its path-params; a wholesale :query
+  ;; replaces the current query.
+  (rf/reg-route :route/article
+                {:params [:map [:id :string]]
+                 :query  [:map [:tab {:optional true} :string]]}
+                "/articles/:id")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro?tab=notes" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
+    (is (= {:route-id :route/article :params {:id "intro"} :query {:tab "history"}}
+           (select-keys (nav-slice) [:route-id :params :query])))
+    (is (= ["/articles/intro?tab=history"] @pushed))))
 
 (deftest routing-query-merge-nil-removes-a-key
-  (testing "a nil :query-merge value REMOVES a key from the slice AND the URL"
-    ;; Per Spec 012 §The :query-merge opt: a nil value drops a key, matching
-    ;; route-url's query nil-elision. The slice must be clean too (no {:sort
-    ;; nil}) so a self-nav to the same query is a genuine no-op.
-    (rf/reg-route :route/search
-                  {:query [:map [:q {:optional true} :string]
-                                [:sort {:optional true} :string]]}
-                  "/search")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&sort=recent" {:rf.route/cause :link}])
-      (reset! pushed [])
-      ;; Remove :sort via a nil value.
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:sort nil}}])
-      (is (= {:q "clojure"} (:query (nav-slice)))
-          ":sort is removed from the slice (no {:sort nil} residue)")
-      (let [url (last @pushed)]
-        (is (re-find #"q=clojure" url) ":q survives")
-        (is (not (re-find #"sort" url)) ":sort is gone from the URL")))))
-
-(deftest routing-query-merge-preserves-falsy-values
-  (testing "a present-but-falsy :query-merge value survives (only nil removes)"
-    ;; false / 0 / "" are legitimate values, same as route-url.
-    (rf/reg-route :route/search
-                  {:query [:map [:page {:optional true} :int]
-                                [:flag {:optional true} :string]]}
-                  "/search")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=1" {:rf.route/cause :link}])
-      (reset! pushed [])
-      ;; page 0 is falsy-but-legitimate; flag "" is an explicit empty value.
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 0 :flag ""}}])
-      (is (= 0 (:page (:query (nav-slice))))
-          "page=0 (falsy) survives the merge")
-      (is (= "" (:flag (:query (nav-slice))))
-          "flag=\"\" (empty string) survives the merge")
-      (is (re-find #"page=0" (last @pushed))
-          "page=0 is emitted in the URL"))))
-
-(deftest routing-query-merge-non-map-value-rejects
-  (testing "a present NON-MAP :query-merge rejects at the always-on gate — it must never navigate"
-    ;; Per Spec 012 §The request grammar / §Validity rules rule 9,
-    ;; `:query-merge`'s value is a MAP of query deltas. Key PRESENCE
-    ;; discriminates the in-place branch, so without a rule about the VALUE
-    ;; `navigate-handler`'s `merge` fold would decide the outcome by
-    ;; Clojure's incidental collection semantics — THREE different wrong
-    ;; outcomes from one missing boundary check:
-    ;;   * `[:page 2]`  — accepted by `merge` as a map entry: a real
-    ;;                    navigation would commit, query changed, nav-token
-    ;;                    advanced, URL pushed.
-    ;;   * `"oops"`     — a raw ClassCastException with no ex-data, contained
-    ;;                    by the generic event-handler channel rather than
-    ;;                    this operation's structural rejection contract.
-    ;;   * `nil`        — swallowed by the fold's `if-let`: a silent no-op,
-    ;;                    despite presence being the grammar's discriminator.
-    ;; The gate rejects all three BEFORE any guard runs.
-    (rf/reg-route :route/search
-                  {:query     [:map [:q {:optional true} :string]
-                                    [:page {:optional true} :int]]
-                   :can-leave :search/can-leave?}
-                  "/search")
-    (let [pushed      (atom [])
-          errors      (atom [])
-          leave-calls (atom 0)]
-      (rf/reg-sub :search/can-leave?
-                  (fn [_ _] (swap! leave-calls inc) true))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&page=1" {:rf.route/cause :link}])
-      (is (= {:q "clojure" :page 1} (:query (nav-slice)))
-          "precondition: a real current route exists, so the rejections below
-           cannot be the :no-current-route rule firing instead")
-      (let [query-before (:query (nav-slice))
-            token-before (:nav-token (nav-slice))
-            id-before    (:route-id (nav-slice))]
-        (is (some? token-before) "precondition: a nav-token was allocated")
-
-        ;; POSITIVE CONTROL — the two-element vector genuinely commits a
-        ;; navigation through an unguarded fold. Without this row the
-        ;; assertions below would prove only that something was refused; this
-        ;; is what makes them load-bearing.
-        (is (= {:q "clojure" :page 2} (merge query-before [:page 2]))
-            "control: an unguarded `merge` really does fold a 2-vector into a
-             CHANGED query — this is the silent navigation being closed")
-
-        (reset! leave-calls 0)
-        (doseq [[label bad-value] [["two-element vector" [:page 2]]
-                                   ["string"             "oops"]
-                                   ["present nil"        nil]
-                                   ["seq of pairs"       [[:page 2]]]]]
-          (reset! pushed [])
-          (reset! errors [])
-          ;; SEMANTIC, posture-independent: the value-shape
-          ;; violation is the always-on gate's own verdict, readable under
-          ;; -Dre-frame.debug=false because `classify` is.
-          (is (= :query-merge-not-map (:reason (gate-verdict {:query-merge bad-value})))
-              (str label ": the gate names the query-merge-not-map violation"))
-          (is (= [:query-merge] (:keys (gate-verdict {:query-merge bad-value})))
-              (str label ": :keys names the offending key"))
-          (rf/register-listener! :trace ::qm-value-reject
-                                 (fn [ev] (when (= :error (:op-type ev))
-                                            (swap! errors conj ev))))
-          (rf/dispatch-sync [:rf.route/navigate {:query-merge bad-value}])
-          (rf/unregister-listener! :trace ::qm-value-reject)
-          (is (= id-before (:route-id (nav-slice)))
-              (str label ": the route slice is unchanged"))
-          (is (= query-before (:query (nav-slice)))
-              (str label ": the query is unchanged — no navigation committed"))
-          (is (= token-before (:nav-token (nav-slice)))
-              (str label ": the nav-token did NOT advance"))
-          (is (empty? @pushed)
-              (str label ": no URL effect committed"))
-          ;; Dev-instrumentation arm (see ns docstring).
-          (when rf.interop/debug-enabled?
-            (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-              (is (some? err) (str label ": :rf.error/navigate-bad-request emitted"))
-              (is (= :query-merge-not-map (-> err :tags :reason))
-                  (str label ": :reason names the value-shape violation"))
-              (is (= [:query-merge] (-> err :tags :keys))
-                  (str label ": :keys names the offending key")))))
-
-        (is (zero? @leave-calls)
-            "the gate rejected BEFORE any guard ran — :can-leave was never
-             consulted for any of the four malformed requests")
-
-        ;; …and the VALID surface still navigates, so the rows above are not
-        ;; passing because :query-merge stopped working altogether.
-        (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
-        (is (= {:q "clojure" :page 2} (:query (nav-slice)))
-            "control: a MAP delta still folds and commits")
-        (is (seq @pushed) "control: the valid navigation did push a URL")))))
-
-(deftest routing-in-place-before-first-nav-rejects
-  (testing "an in-place request before any navigation fails closed (no current route)"
-    ;; Per Spec 012 §Validity rules rule 6: an in-place request dispatched
-    ;; before any current route exists rejects loud — there is nothing to
-    ;; patch. The structural gate emits :rf.error/navigate-bad-request
-    ;; (:reason :no-current-route), slice unchanged, no push.
-    (let [pushed  (atom [])
-          errors  (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/register-listener! :trace ::inplace-reject
-                             (fn [ev] (when (= :error (:op-type ev))
-                                        (swap! errors conj ev))))
-      ;; SEMANTIC, posture-independent: the rule-7 violation is the
-      ;; always-on gate's own verdict, read BEFORE the dispatch — while there
-      ;; genuinely is no current route, which is the condition under test.
-      (is (= :no-current-route (:reason (gate-verdict {:query-merge {:page 1}})))
-          "the gate names the no-current-route violation")
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 1}}])
-      (rf/unregister-listener! :trace ::inplace-reject)
-      (is (empty? @pushed)
-          "no URL is pushed for an in-place nav with no current route")
-      (is (nil? (:route-id (nav-slice)))
-          "the route slice stays empty (unchanged)")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-          (is (some? err) ":rf.error/navigate-bad-request emitted")
-          (is (= :no-current-route (-> err :tags :reason))
-              ":reason names the no-current-route violation"))))))
+  ;; A nil :query-merge value removes the key from the slice as well as the
+  ;; URL, while the rest of the current query folds through.
+  (rf/reg-route :route/search
+                {:query [:map [:q {:optional true} :string]
+                              [:sort {:optional true} :string]]}
+                "/search")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&sort=recent" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/navigate {:query-merge {:sort nil}}])
+    (is (= {:q "clojure"} (:query (nav-slice))))
+    (is (= ["/search?q=clojure"] @pushed))))
 
 (deftest routing-in-place-query-merge-no-op-when-unchanged
-  (testing "in-place :query-merge to the SAME query is a rule-3 no-op"
-    ;; Per Spec 012 §Per-route data loading rule 3: a navigation whose
-    ;; resolved id/params/query/fragment match the current slice exactly is a
-    ;; no-op — no fresh nav-token, no push. Eliding nil-valued merge keys from
-    ;; the SLICE (not just the URL) is what makes this hold.
-    (rf/reg-route :route/search
-                  {:query [:map [:page {:optional true} :int]]} "/search")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=2" {:rf.route/cause :link}])
-      (let [token-before (:nav-token (nav-slice))]
-        (reset! pushed [])
-        ;; Merge :page 2 while already on page 2 → no-op.
-        (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
-        (is (empty? @pushed)
-            "a self-nav to the identical query pushes no URL (rule-3 no-op)")
-        (is (= token-before (:nav-token (nav-slice)))
-            "the nav-token is unchanged (no fresh epoch)")))))
+  ;; Spec 012 rule 3: a merge that leaves the query as it was is the complete
+  ;; no-op — nothing pushed, no fresh nav-token.
+  (rf/reg-route :route/search {:query [:map [:page {:optional true} :int]]} "/search")
+  (let [pushed (record-pushes!)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=2" {:rf.route/cause :link}])
+    (let [token-before (:nav-token (nav-slice))]
+      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
+      (is (empty? @pushed))
+      (is (= token-before (:nav-token (nav-slice)))))))
 
-;; ============================================================================
-;; programmatic fragment-only navigate short-circuit
-;; ============================================================================
+;; ---- fragment-only navigation (Spec 012 §Fragments rules 3-4) -------------
 ;;
-;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with fragments.
-;; A `:rf.route/navigate` whose resolved target differs from the current slice
-;; ONLY in its `#fragment` (same route-id/params/query) must take the SAME
-;; short-circuit the URL-driven doors take: update `:fragment`, emit ONE
-;; `:rf.route/fragment-changed`, drive history+scroll via effects, and do NOT
-;; call `commit-navigation` — no fresh nav-token, no `:on-match` re-fire, no
-;; resource re-plan. Taking the full commit path here would allocate a fresh
-;; token, re-fire every loader, and stale-suppress in-flight work for the
-;; route you are already on.
+;; A target that differs from the current slice ONLY in its #fragment updates
+;; `:fragment`, emits one `:rf.route/fragment-changed`, drives history and scroll
+;; through effects, and never reaches `commit-navigation`: no fresh nav-token,
+;; no `:on-match` re-fire, no resource re-plan.
 
 (defn- reg-nav-fxs-capturing!
-  "Register the four routing history/scroll fxs (`:platforms #{:server
-  :client}` so they route on the JVM) with capturing handlers. Returns a map
-  of atoms: `:push` / `:replace` (URL vectors), `:scroll` (args vectors), and
-  `:order` (an ordered `[fx-id args]` log across all four)."
+  "Register the four routing history / scroll fxs on both platforms with
+  capturing handlers. Returns atoms `:push` / `:replace` (URLs), `:scroll`
+  (args) and `:order` (an ordered `[fx-id args]` log across all four)."
   []
   (let [pushed   (atom [])
         replaced (atom [])
         scrolled (atom [])
         order    (atom [])]
     (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-               (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
+                  (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
     (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
-               (fn [_ url]  (swap! replaced conj url) (swap! order conj [:rf.nav/replace-url url])))
+                  (fn [_ url]  (swap! replaced conj url) (swap! order conj [:rf.nav/replace-url url])))
     (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
-               (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
+                  (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
     (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
-               (fn [_ args] (swap! order conj [:rf.nav/capture-scroll args])))
+                  (fn [_ args] (swap! order conj [:rf.nav/capture-scroll args])))
     {:push pushed :replace replaced :scroll scrolled :order order}))
 
+(defn- fx-log
+  "The `[fx-id args]` log with each scroll's args cut to `:strategy` / `:fragment`."
+  [order]
+  (map (fn [[id args]]
+         [id (cond-> args (= :rf.nav/scroll id) (select-keys [:strategy :fragment]))])
+       order))
+
+(defn- fragment-changed-tags
+  [traces]
+  (->> traces
+       (filter #(= :rf.route/fragment-changed (:operation %)))
+       (map #(select-keys (:tags %) [:route-id :prev-fragment :next-fragment :frame]))))
+
 (deftest navigate-fragment-only-short-circuits-no-refire-no-token-rf2-k4exp1
-  (testing "a programmatic `:rf.route/navigate` changing ONLY the
-            fragment updates `:fragment`, emits one `:rf.route/fragment-changed`,
-            preserves the slice byte-for-byte except `:fragment`, does NOT
-            re-fire `:on-match`, and does NOT allocate a new `:nav-token`"
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (let [fxs (reg-nav-fxs-capturing!)]
-        ;; Full nav → loader fires once, nav-1, pushes /docs/routing#a.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-        (is (= 1 @on-match-calls) ":on-match fired once on the full nav")
-        (let [slice-before (nav-slice)]
-          (is (= "nav-1"  (:nav-token slice-before)) "first nav allocated nav-1")
-          (is (= "a"      (:fragment slice-before)) "fragment is #a after the full nav")
-          (is (= ["/docs/routing#a"] @(:push fxs)) "full nav pushed /docs/routing#a")
-
-          (let [traces (atom [])]
-            (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
-            ;; Fragment-only nav: same route/params/query, #a → #b.
-            (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-            (rf/unregister-listener! :trace ::k4exp1-frag)
-
-            (let [slice-after (nav-slice)]
-              ;; TEETH 1 — no re-fire.
-              (is (= 1 @on-match-calls)
-                  "rule 4: :on-match did NOT re-fire on the fragment-only nav")
-              ;; TEETH 2 — only :fragment changed; everything else, the
-              ;; nav-1 token included, byte-for-byte (no new allocation).
-              (is (= (assoc slice-before :fragment "b") slice-after)
-                  "the slice is byte-for-byte identical except :fragment — :transition
-                   / :error / :nav-token / :route-id / :params / :query preserved")
-              ;; TEETH 3 — one fragment-changed, no allocation trace.
-              ;;
-              ;; Dev-instrumentation arm (see ns docstring). This
-              ;; whole block reads the trace bus, and its last two legs are
-              ;; NEGATIVES over the ring: green for free under the gate. Every
-              ;; claim in it has an always-on counterpart in TEETH 1-2 — the
-              ;; prev→next pair, the "exactly one" and the nav-token denial are
-              ;; the byte-for-byte `(= (assoc slice-before :fragment "b")
-              ;; slice-after)` above (one field moved, once, under nav-1), the
-              ;; activated denial is `(= 1 @on-match-calls)`, and the `:frame`
-              ;; tag is the fact that this default-frame nav moved the default
-              ;; frame's slice.
-              (when rf.interop/debug-enabled?
-                (let [frag (filter #(= :rf.route/fragment-changed (:operation %)) @traces)
-                      tags (-> frag first :tags)]
-                  (is (= 1 (count frag))
-                      "exactly one :rf.route/fragment-changed emitted")
-                  (is (= :route/docs (:route-id tags))      "fragment-changed carries :route-id")
-                  (is (= "a" (:prev-fragment tags))         "fragment-changed carries :prev-fragment")
-                  (is (= "b" (:next-fragment tags))         "fragment-changed carries :next-fragment")
-                  (is (= :rf/default (:frame tags))         "fragment-changed carries :frame (URL-driven parity)"))
-                (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
-                    "NO :rf.route.nav-token/allocated on the fragment-only nav")
-                (is (not-any? #(= :rf.route/activated (:operation %)) @traces)
-                    "NO :rf.route/activated on the fragment-only nav (route stays active)"))
-              ;; History: a push for the new fragment URL.
-              (is (= ["/docs/routing#a" "/docs/routing#b"] @(:push fxs))
-                  "the fragment-only nav pushed /docs/routing#b via :rf.nav/push-url")
-              (is (empty? @(:replace fxs))
-                  "no :rf.nav/replace-url on the default (push) door"))))))))
+  (let [on-match-calls (atom 0)
+        traces         (atom [])]
+    (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+    (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+    (let [fxs (reg-nav-fxs-capturing!)]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+      (let [slice-before (nav-slice)]
+        (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
+        (rf/unregister-listener! :trace ::k4exp1-frag)
+        (is (= 1 @on-match-calls))
+        ;; Only :fragment moved — the nav-1 token included, nothing was re-allocated.
+        (is (= (assoc slice-before :fragment "b") (nav-slice)))
+        (is (= ["/docs/routing#a" "/docs/routing#b"] @(:push fxs)))
+        (is (empty? @(:replace fxs)))
+        (when rf.interop/debug-enabled?
+          (is (= [{:route-id :route/docs :prev-fragment "a" :next-fragment "b" :frame :rf/default}]
+                 (fragment-changed-tags @traces))))))))
 
 (deftest navigate-fragment-only-effect-ordering-rf2-k4exp1
-  (testing "the fragment-only nav's effects are ordered
-            capture-scroll → push-url → scroll (state-first: the :fragment
-            write commits before the ordered history/scroll effects)"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-      (reset! (:order fxs) [])
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-      (let [ids (mapv first @(:order fxs))]
-        (is (= [:rf.nav/capture-scroll :rf.nav/push-url :rf.nav/scroll] ids)
-            "ordered: capture the leaving scroll, push the new URL, then scroll")
-        ;; The scroll fx targets the NEW fragment with the default :top strategy.
-        (let [scroll-args (-> @(:scroll fxs) last)]
-          (is (= :top (:strategy scroll-args)) "default forward strategy is :top")
-          (is (= "b"  (:fragment scroll-args)) "scroll targets the new #b fragment"))
-        ;; capture-scroll keyed on the LEAVING url (/docs/routing#a).
-        (is (= {:url "/docs/routing#a"}
-               (-> (filter #(= :rf.nav/capture-scroll (first %)) @(:order fxs)) first second))
-            "capture-scroll saves the position of the route being left (#a)")))))
+  ;; State first, then: capture the leaving position, push, scroll to the new fragment.
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [fxs (reg-nav-fxs-capturing!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+    (reset! (:order fxs) [])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
+    (is (= [[:rf.nav/capture-scroll {:url "/docs/routing#a"}]
+            [:rf.nav/push-url "/docs/routing#b"]
+            [:rf.nav/scroll {:strategy :top :fragment "b"}]]
+           (fx-log @(:order fxs))))))
 
 (deftest navigate-fragment-only-replace-uses-replace-url-rf2-k4exp1
-  (testing "`{:replace? true}` routes the fragment-only nav through
-            :rf.nav/replace-url (NOT push) — still no re-fire, still nav-1"
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (let [fxs (reg-nav-fxs-capturing!)]
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-        (reset! (:push fxs) [])
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :replace? true}])
-        (is (= "b"    (:fragment (nav-slice))) "fragment updated to #b")
-        (is (= "nav-1" (:nav-token (nav-slice))) "no new nav-token")
-        (is (= 1 @on-match-calls) ":on-match did NOT re-fire")
-        (is (= ["/docs/routing#b"] @(:replace fxs))
-            "{:replace? true} routed :rf.nav/replace-url with the new fragment URL")
-        (is (empty? @(:push fxs))
-            "no :rf.nav/push-url on the replace door")))))
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [fxs (reg-nav-fxs-capturing!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+    (reset! (:push fxs) [])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :replace? true}])
+    (is (= ["/docs/routing#b"] @(:replace fxs)))
+    (is (empty? @(:push fxs)))))
 
 (deftest navigate-fragment-only-scroll-false-suppresses-scroll-rf2-k4exp1
-  (testing "`{:scroll false}` on a fragment-only nav suppresses the
-            :rf.nav/scroll effect but still updates :fragment and pushes the URL"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-      (reset! (:scroll fxs) [])
-      (reset! (:push fxs) [])
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :scroll false}])
-      (is (= "b" (:fragment (nav-slice))) ":fragment still updates with :scroll false")
-      (is (= ["/docs/routing#b"] @(:push fxs)) "the URL is still pushed")
-      (is (empty? @(:scroll fxs))
-          ":scroll false suppressed the :rf.nav/scroll effect"))))
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [fxs (reg-nav-fxs-capturing!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+    (reset! (:scroll fxs) [])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :scroll false}])
+    (is (= "b" (:fragment (nav-slice))))
+    (is (empty? @(:scroll fxs)))))
 
 (deftest navigate-fragment-only-clearing-fragment-rf2-k4exp1
-  (testing "navigating with NO fragment from a fragment'd route
-            CLEARS the fragment (writes nil, pushes the fragment-less URL) and
-            is still a fragment-only short-circuit (no re-fire, no new token)"
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (let [fxs (reg-nav-fxs-capturing!)]
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-        (reset! (:push fxs) [])
-        ;; No :fragment opt → normalises to nil; #a → nil differs → fragment-only.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
-        (is (nil? (:fragment (nav-slice))) "fragment cleared to nil")
-        (is (= "nav-1" (:nav-token (nav-slice))) "clearing a fragment is fragment-only — no new token")
-        (is (= 1 @on-match-calls) "clearing a fragment does NOT re-fire :on-match")
-        (is (= ["/docs/routing"] @(:push fxs))
-            "the fragment-less URL is pushed")))))
+  ;; Dropping the fragment is still fragment-only: nil is written, the bare URL
+  ;; pushed, and no nav-token minted.
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [fxs (reg-nav-fxs-capturing!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+    (reset! (:push fxs) [])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
+    (is (= {:fragment nil :nav-token "nav-1"} (select-keys (nav-slice) [:fragment :nav-token])))
+    (is (= ["/docs/routing"] @(:push fxs)))))
 
 (deftest navigate-identical-target-with-replace-stays-noop-rf2-k4exp1
-  (testing "an EXACTLY identical target (same fragment too) stays the
-            complete no-op even with {:replace? true} — no history rewrite, no
-            fragment-changed, no token change (identical wins over fragment-only)"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-      (let [token-before (:nav-token (nav-slice))
-            traces       (atom [])]
-        (reset! (:push fxs) [])
-        (reset! (:replace fxs) [])
-        (rf/register-listener! :trace ::k4exp1-identical (fn [ev] (swap! traces conj ev)))
-        ;; Same route/params/query AND same fragment #a, with :replace? true.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a" :replace? true}])
-        (rf/unregister-listener! :trace ::k4exp1-identical)
-        (is (= token-before (:nav-token (nav-slice))) "identical target: token unchanged")
-        (is (empty? @(:push fxs))    "identical target: no push")
-        (is (empty? @(:replace fxs)) "identical target: no replace even with :replace? true")
-        (is (= "a" (:fragment (nav-slice)))
-            "identical target: the fragment did not move, so there was nothing
-             for a fragment-changed to report")
-        ;; Dev-instrumentation arm (see ns docstring). A NEGATIVE
-        ;; over the trace ring, green for free under the gate; the always-on
-        ;; legs above are what "complete no-op" means in runtime-db terms.
-        (when rf.interop/debug-enabled?
-          (is (not-any? #(= :rf.route/fragment-changed (:operation %)) @traces)
-              "identical target emits NO :rf.route/fragment-changed (it is a complete no-op)"))))))
-
-(deftest navigate-fragment-only-does-not-replan-resources-rf2-k4exp1
-  (testing "a fragment-only nav does NOT invoke the route-entry
-            resource plan (no ensure / release / re-plan) and leaves the owner
-            nav-token unchanged — proven via the shared `:routing/on-route-entry`
-            late-bind hook `commit-navigation` calls (the fragment-only branch
-            never enters `commit-navigation`)"
-    (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-    (rf/reg-event :docs/load (fn [{:keys [db]} _] {:db db}))
-    (let [fxs        (reg-nav-fxs-capturing!)
-          plan-calls (atom [])
-          prior      (rf.late-bind/get-fn :routing/on-route-entry)]
-      ;; Spy the route-entry hook the Resources artefact publishes; return an
-      ;; empty plan (no blocking, no fx, no error) so commit-navigation proceeds.
-      (rf.late-bind/set-fn! :routing/on-route-entry
-                         (fn [ctx] (swap! plan-calls conj ctx) {}))
-      (try
-        ;; Full nav → the route-entry plan runs once.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-        (is (= 1 (count @plan-calls))
-            "the route-entry resource plan ran once on the full nav")
-        (let [token-after-full (:nav-token (nav-slice))]
-          ;; Fragment-only nav → the plan is NOT invoked again; owner token stays.
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-          (is (= 1 (count @plan-calls))
-              "the fragment-only nav did NOT re-run the route-entry plan — no
-               ensure/release/re-plan")
-          (is (= token-after-full (:nav-token (nav-slice)))
-              "the owner nav-token is unchanged, so an in-flight resource owner
-               keyed on it stays valid"))
-        (finally
-          ;; Restore the prior hook binding (nil in the resources-free routing
-          ;; suite) so this spy never leaks into a sibling test.
-          (rf.late-bind/set-fn! :routing/on-route-entry prior))))))
-
-;; ============================================================================
-;; URL-driven fragment-only path emits the resolved scroll-fx
-;; ============================================================================
-;;
-;; Spec 012 §Fragments rules 3-4 / §Scroll restoration. The URL-driven
-;; fragment-only causes — `:link` (forward nav, default scroll
-;; `:top`) and `:popstate` (Back-Forward, default
-;; `:restore`) — short-circuit the full commit (no fresh nav-token, no
-;; `:on-match` re-fire), and they must still emit the resolved scroll-fx, not
-;; only the scroll CAPTURE: otherwise a user clicking a `#section` link, or
-;; Back-Forward to a fragment, would compute WHERE to scroll and then never
-;; scroll — `pushState`/popstate do not scroll to a fragment natively. The
-;; programmatic door (`fragment-only-nav-fx`) emits `:rf.nav/scroll`; the
-;; URL-driven door mirrors that emission (capture → scroll; NO push — the
-;; address bar already changed).
-
-(defn- reg-scroll-fxs-capturing!
-  "Register the URL-driven fragment door's scroll fxs (`:rf.nav/scroll` +
-  `:rf.nav/capture-scroll`) plus `:rf.nav/push-url` (so an unexpected push would
-  be observable) with capturing handlers on both server+client so they route on
-  the JVM. Returns a map of atoms: `:scroll` (args vectors), `:capture` (args
-  vectors), `:push` (URL vectors), and `:order` (an ordered `[fx-id args]` log)."
-  []
-  (let [scrolled (atom [])
-        captured (atom [])
-        pushed   (atom [])
-        order    (atom [])]
-    (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
-               (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
-    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
-               (fn [_ args] (swap! captured conj args) (swap! order conj [:rf.nav/capture-scroll args])))
-    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-               (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
-    {:scroll scrolled :capture captured :push pushed :order order}))
+  ;; Identical wins over fragment-only: an exactly identical target is the
+  ;; complete no-op even with :replace?.
+  (rf/reg-route :route/docs {} "/docs/:page")
+  (let [fxs (reg-nav-fxs-capturing!)]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
+    (let [before (nav-slice)]
+      (reset! (:push fxs) [])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a" :replace? true}])
+      (is (= before (nav-slice)))
+      (is (empty? @(:push fxs)))
+      (is (empty? @(:replace fxs))))))
 
 (deftest url-driven-fragment-only-emits-scroll-rf2-p1aipi
-  (testing "a URL-driven fragment-only change (cause :link,
-            forward nav) emits the resolved :rf.nav/scroll (default :top, targeting
-            the new fragment), captures the leaving position FIRST, and pushes NO
-            URL — mirroring the programmatic fragment-only door."
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (let [fxs (reg-scroll-fxs-capturing!)]
-        ;; Full nav to /docs/routing#a → loader fires once, allocates nav-1.
-        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#a" {:rf.route/cause :link}])
-        (is (= 1 @on-match-calls) ":on-match fired once on the full nav")
-        (is (= "nav-1" (:nav-token (nav-slice))) "first nav allocated nav-1")
-        (reset! (:scroll fxs) [])
-        (reset! (:capture fxs) [])
-        (reset! (:order fxs) [])
-        ;; Fragment-only forward nav: #a → #b (same route-id/params/query).
-        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#b" {:rf.route/cause :link}])
-        ;; The fragment-only short-circuit holds …
-        (is (= "b" (:fragment (nav-slice))) "fragment updated to #b")
-        (is (= "nav-1" (:nav-token (nav-slice))) "rule 3: no NEW nav-token")
-        (is (= 1 @on-match-calls) "rule 4: :on-match did NOT re-fire")
-        ;; … AND the resolved scroll-fx is emitted.
-        ;; TEETH — this is exactly the effect a capture-only door would drop.
-        (is (= 1 (count @(:scroll fxs)))
-            "TEETH: the URL-driven fragment-only nav emits exactly one :rf.nav/scroll")
-        (let [args (first @(:scroll fxs))]
-          (is (= :top (:strategy args)) "forward-nav default scroll strategy is :top")
-          (is (= "b"  (:fragment args)) ":rf.nav/scroll targets the new #b fragment"))
-        ;; Ordering: capture the leaving position, THEN scroll, and no push —
-        ;; the address bar already changed (URL-driven doors never drive the
-        ;; URL). All three fxs log to `:order`, so this one exact vector is
-        ;; also the absence of a push.
-        (is (= [:rf.nav/capture-scroll :rf.nav/scroll] (mapv first @(:order fxs)))
-            "ordered: capture the leaving scroll, then scroll to the new
-             fragment, and NO push (the address bar already changed)")
-        (is (= {:url "/docs/routing#a"} (first @(:capture fxs)))
-            "capture-scroll saves the position of the route being left (#a)")))))
-
-(deftest url-driven-popstate-fragment-only-emits-restore-scroll-rf2-p1aipi
-  (testing "a popstate fragment-only change (:rf.route/handle-url-change)
-            emits :rf.nav/scroll with the :restore default (Back-Forward restores
-            the saved position), while short-circuiting (no new token / no re-fire)."
-    (let [on-match-calls (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (let [fxs (reg-scroll-fxs-capturing!)]
-        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#a"])
-        (is (= 1 @on-match-calls) ":on-match fired once on the full popstate nav")
-        (reset! (:scroll fxs) [])
-        ;; Back/Forward to the SAME page, only the #fragment differs.
-        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#b"])
-        (is (= "b" (:fragment (nav-slice))) "fragment updated to #b")
-        (is (= "nav-1" (:nav-token (nav-slice))) "rule 3: no NEW nav-token on popstate fragment-only")
-        (is (= 1 @on-match-calls) "rule 4: :on-match did NOT re-fire on popstate fragment-only")
-        (is (= 1 (count @(:scroll fxs)))
-            "TEETH: the popstate fragment-only nav emits exactly one :rf.nav/scroll")
-        (is (= :restore (:strategy (first @(:scroll fxs))))
-            "popstate default scroll strategy is :restore")
-        (is (empty? @(:push fxs))
-            "URL-driven popstate door pushes NO URL")))))
-
-(deftest url-driven-fragment-only-scroll-false-suppresses-rf2-p1aipi
-  (testing "`:scroll false` on the route meta suppresses the
-            :rf.nav/scroll effect on a URL-driven fragment-only change, but still
-            updates :fragment (mirrors the programmatic :scroll-false suppression)."
-    (rf/reg-route :route/docs {:scroll false} "/docs/:page")
-    (let [fxs (reg-scroll-fxs-capturing!)]
+  ;; The URL-driven door short-circuits a fragment-only change the same way,
+  ;; and must still scroll — pushState and popstate do not scroll to a fragment
+  ;; natively. It captures the leaving position, scrolls, and pushes nothing:
+  ;; the address bar already moved.
+  (let [on-match-calls (atom 0)
+        traces         (atom [])]
+    (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+    (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+    (let [fxs (reg-nav-fxs-capturing!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#a" {:rf.route/cause :link}])
-      (reset! (:scroll fxs) [])
+      (reset! (:order fxs) [])
+      (rf/register-listener! :trace ::p1aipi-frag (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#b" {:rf.route/cause :link}])
-      (is (= "b" (:fragment (nav-slice))) ":fragment still updates with :scroll false")
-      (is (empty? @(:scroll fxs))
-          ":scroll false suppressed the :rf.nav/scroll effect on the URL-driven
-           fragment-only door"))))
+      (rf/unregister-listener! :trace ::p1aipi-frag)
+      (is (= {:fragment "b" :nav-token "nav-1"} (select-keys (nav-slice) [:fragment :nav-token])))
+      (is (= 1 @on-match-calls))
+      (is (= [[:rf.nav/capture-scroll {:url "/docs/routing#a"}]
+              [:rf.nav/scroll {:strategy :top :fragment "b"}]]
+             (fx-log @(:order fxs))))
+      (when rf.interop/debug-enabled?
+        (is (= [{:route-id :route/docs :prev-fragment "a" :next-fragment "b" :frame :rf/default}]
+               (fragment-changed-tags @traces)))))))
 
-;; ============================================================================
-;; the always-on structural gate (Spec 012 §Validity rules)
-;; ============================================================================
-;;
-;; The gate rejects a malformed request map BEFORE any guard runs, emitting
-;; :rf.error/navigate-bad-request (:where :event) with a :reason discriminator
-;; and :keys. The slice is unchanged, no URL is pushed. red->green per rule.
+;; ---- the structural request gate (Spec 012 §Validity rules) ---------------
 
 (defn- gate-reject
-  "Dispatch `request` as `[:rf.route/navigate request]` from a signed-in slice
-  on `:route/gate-a` and return the first :rf.error/navigate-bad-request trace
-  (or nil). Records whether any URL was pushed under `pushed`."
-  [request pushed]
+  "Dispatch `event` and return the tags of the `:rf.error/navigate-bad-request`
+  it emits, or nil."
+  [event]
   (let [errors (atom [])]
     (rf/register-listener! :trace ::gate
-                           (fn [ev] (when (= :error (:op-type ev))
+                           (fn [ev] (when (= :rf.error/navigate-bad-request (:operation ev))
                                       (swap! errors conj ev))))
-    (rf/dispatch-sync [:rf.route/navigate request])
+    (rf/dispatch-sync event)
     (rf/unregister-listener! :trace ::gate)
-    (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))))
+    (:tags (first @errors))))
 
 (deftest navigate-structural-gate-rejects-malformed-requests
-  (rf/reg-route :route/gate-a {:query [:map [:q {:optional true} :string]]} "/gate-a")
+  ;; The event-shape gate, then `re-frame.routing.address/classify` over the
+  ;; request map (its per-rule verdicts are `routing-address-extraction-test`'s),
+  ;; reject before any guard runs: the slice stays put, nothing is pushed and
+  ;; :can-leave is never consulted, in both postures. Ungated, each row would
+  ;; commit a navigation, throw a raw host exception, or silently drop part of
+  ;; the request.
+  (rf/reg-route :route/gate-a {:query     [:map [:q {:optional true} :string]
+                                                [:page {:optional true} :int]]
+                               :can-leave :gate/can-leave?}
+                "/gate-a")
   (rf/reg-route :route/gate-b {} "/gate-b")
-  (let [pushed (atom [])
-        slice  (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/routing :current]))]
-    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-               (fn [_ url] (swap! pushed conj url)))
-    ;; Establish a current route so in-place requests have something to patch.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/gate-a}])
+  (let [pushed      (record-pushes!)
+        leave-calls (atom 0)]
+    (rf/reg-sub :gate/can-leave? (fn [_ _] (swap! leave-calls inc) true))
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+                  (fn [_ url] (swap! pushed conj url)))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/gate-a :query {:q "x"}}])
     (reset! pushed [])
-
-    ;; The gate is ALWAYS-ON and so is its consequence — the two
-    ;; closing legs of this deftest run under `-Dre-frame.debug=false` and
-    ;; pass. What is dev-only is the `:rf.error/navigate-bad-request`
-    ;; DIAGNOSTIC each block reads. Every `:reason` / `:keys` claim therefore
-    ;; gets an always-on counterpart from `gate-verdict` — the same
-    ;; `rf.routing.address/classify` call the handler makes, on the same request, with no
-    ;; bus in between. Without it, the per-rule discrimination would go
-    ;; untested under the gate and only the coarse "nothing moved" pair below
-    ;; would survive.
-
-    (testing "empty map rejects (:no-destination-or-change)"
-      (is (= :no-destination-or-change (:reason (gate-verdict {}))))
-      (let [err (gate-reject {} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :no-destination-or-change (-> err :tags :reason)))
-          (is (= :event (-> err :tags :where))))))
-
-    (testing "pure-policy map rejects (:no-destination-or-change)"
-      (is (= :no-destination-or-change (:reason (gate-verdict {:replace? true}))))
-      (let [err (gate-reject {:replace? true} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :no-destination-or-change (-> err :tags :reason))))))
-
-    (testing ":to + :url are mutually exclusive"
-      (is (= :to-url-exclusive (:reason (gate-verdict {:to :route/gate-b :url "/gate-b"}))))
-      (let [err (gate-reject {:to :route/gate-b :url "/gate-b"} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :to-url-exclusive (-> err :tags :reason))))))
-
-    (testing ":url excludes :params / :query / :query-merge"
-      (is (= :url-excludes-address (:reason (gate-verdict {:url "/gate-b" :query {:q "x"}}))))
-      (let [err (gate-reject {:url "/gate-b" :query {:q "x"}} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :url-excludes-address (-> err :tags :reason))))))
-
-    (testing ":query + :query-merge are mutually exclusive"
-      (is (= :query-exclusive (:reason (gate-verdict {:query {:q "x"} :query-merge {:q "y"}}))))
-      (let [err (gate-reject {:query {:q "x"} :query-merge {:q "y"}} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :query-exclusive (-> err :tags :reason))))))
-
-    (testing ":query-merge on a destination request rejects"
-      (is (= :query-merge-in-place-only
-             (:reason (gate-verdict {:to :route/gate-b :query-merge {:q "x"}}))))
-      (let [err (gate-reject {:to :route/gate-b :query-merge {:q "x"}} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :query-merge-in-place-only (-> err :tags :reason))))))
-
-    (testing "unknown keys reject (namespaced INCLUDED)"
-      (is (= :unknown-keys (:reason (gate-verdict {:to :route/gate-b :bogus 1}))))
-      (let [err (gate-reject {:to :route/gate-b :bogus 1} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :unknown-keys (-> err :tags :reason)))))
-      (is (= {:reason :unknown-keys :keys [:my-app/replace?]}
-             (gate-verdict {:to :route/gate-b :my-app/replace? true}))
-          "a namespaced unknown key fails as loudly as a bare typo")
-      (let [err (gate-reject {:to :route/gate-b :my-app/replace? true} pushed)]
-        (when rf.interop/debug-enabled?
-          (is (= :unknown-keys (-> err :tags :reason)))
-          (is (= [:my-app/replace?] (-> err :tags :keys))
-              "a namespaced unknown key fails as loudly as a bare typo"))))
-
-    (is (= :route/gate-a (:route-id (slice)))
-        "every rejected request left the slice on the original route (unchanged)")
-    (is (empty? @pushed)
-        "no rejected request pushed a URL")))
-
-(deftest navigate-has-no-internal-request-exemption
-  (testing "there is no enter-resume protocol (EP-0037 R4), and so no
-            internal request rider. The `:rf.route/navigate` roster is
-            CLOSED with no exemption: the retired `:rf.route/enter-attempts`
-            rider rejects as an ordinary unknown key."
-    (rf/reg-route :route/rider {} "/rider")
-    (let [errors (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-      (rf/register-listener! :trace ::rider
-                             (fn [ev] (when (= :error (:op-type ev))
-                                        (swap! errors conj ev))))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/rider :rf.route/enter-attempts 2}])
-      (rf/unregister-listener! :trace ::rider)
-      (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                   [:rf.runtime/routing :current])))
-          "the malformed request navigated nowhere")
-      ;; SEMANTIC, posture-independent: "the roster is CLOSED with
-      ;; no exemption" is a statement about the always-on gate, so read it
-      ;; there. The trace leg below is that same verdict's dev-only diagnostic.
-      (is (= {:reason :unknown-keys :keys [:rf.route/enter-attempts]}
-             (gate-verdict {:to :route/rider :rf.route/enter-attempts 2}))
-          "the retired rider is an ORDINARY unknown key to the closed roster")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                                (= :unknown-keys (-> ev :tags :reason))
-                                (= [:rf.route/enter-attempts] (-> ev :tags :keys))))
-                  @errors)
-            "the retired rider is rejected LOUD as an unknown request key")))))
-
-;; ============================================================================
-;; explicit :fragment override on an UNMATCHED raw-URL navigate
-;; ============================================================================
-;;
-;; `:url` + `:fragment` is legal, and the explicit request fragment overrides
-;; the fragment embedded in the raw URL. A matched URL gets that from
-;; route-url rebuilding the address; an UNMATCHED shortcut pushing the raw url
-;; verbatim would keep `#old` in the address bar while the slice carries
-;; `#new`, and the guard/pending target would disagree. The effective
-;; requested URL carries the explicit fragment (an explicit nil clears it),
-;; and one URL feeds the slice, the push, and the not-found :params.
-
-(deftest navigate-unmatched-url-honours-explicit-fragment-override
-  (testing "an unmatched {:url raw :fragment value} navigate rebuilds ONE
-            effective URL — raw path/query with the explicit fragment — and
-            feeds it to the not-found :params, the slice, and the push; with
-            NO explicit :fragment the raw url rides verbatim"
-    (rf/reg-route :route/home {} "/")
-    (rf/reg-route :rf.route/not-found {} "/404")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; ---- override: explicit :fragment replaces the embedded one ----
-      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#old" :fragment "new"}])
-      (let [slice (nav-slice)]
-        (is (= :rf.route/not-found (:route-id slice))
-            "unmatched URL-string target → :rf.route/not-found slice")
-        (is (= "new" (:fragment slice))
-            "slice :fragment is the EXPLICIT override, not the embedded #old")
-        (is (= {:url "/no/such/path#new"} (:params slice))
-            "not-found :params carries the effective URL (embedded #old replaced)"))
-      (is (= ["/no/such/path#new"] @pushed)
-          "the PUSHED url carries the explicit fragment, not the embedded #old")
-
-      ;; ---- clear: explicit nil fragment drops the embedded fragment ----
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#old" :fragment nil}])
-      (let [slice (nav-slice)]
-        (is (nil? (:fragment slice))
-            "an explicit nil fragment clears the embedded #old in the slice")
-        (is (= {:url "/no/such/path"} (:params slice))
-            "not-found :params carries the fragment-cleared effective URL"))
-      (is (= ["/no/such/path"] @pushed)
-          "the PUSHED url has NO fragment when the explicit fragment is nil")
-
-      ;; ---- keep: NO explicit :fragment rides the raw url verbatim ----
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#keep"}])
-      (is (= ["/no/such/path#keep"] @pushed)
-          "no explicit :fragment → the raw url (with its embedded fragment) rides verbatim")
-      (is (= {:url "/no/such/path#keep"} (:params (nav-slice)))
-          "not-found :params carries the raw url verbatim"))))
-
-;; ============================================================================
-;; exact + total navigate map-boundary validation
-;; ============================================================================
-;;
-;; Malformed shapes a looser request gate would let through:
-;;   - `:params` beside an in-place key (would be silently ignored — params is
-;;     never accepted in-place; changing params requires a destination);
-;;   - a non-map payload (would reach `dissoc` → raw host throw);
-;;   - a THIRD event element (a positional opts map, as in a [target opts]
-;;     call — would be silently dropped while navigation proceeds);
-;;   - a heterogeneous unknown-key set (would reach a plain `sort` → compare
-;;     throw).
-;; Each rejects LOUD through :rf.error/navigate-bad-request, slice unchanged.
-
-(deftest navigate-params-in-place-without-destination-rejects
-  (testing ":params without a destination (:to / :url) rejects — a request
-            carrying :params beside an in-place key does not silently drop
-            the params"
-    (rf/reg-route :route/items {:params [:map [:id :string]]} "/items/:id")
-    (let [pushed (atom [])
-          errors (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Land on /items/old so an in-place patch has a current route.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/items :params {:id "old"}}])
-      (reset! pushed [])
-      (rf/register-listener! :trace ::params-reject
-                             (fn [ev] (when (= :error (:op-type ev))
-                                        (swap! errors conj ev))))
-      ;; :params beside an in-place :fragment. Without the rule this would
-      ;; emit NO error and push /items/old#x with :params silently ignored.
-      ;; SEMANTIC, posture-independent: rule 3 is the always-on
-      ;; gate's own verdict, `:keys` included — read it before the dispatch,
-      ;; from the very slice the handler will read.
-      (is (= {:reason :params-requires-destination :keys [:params]}
-             (gate-verdict {:params {:id "new"} :fragment "x"}))
-          "the gate names the params-without-destination violation and the
-           offending key")
-      (rf/dispatch-sync [:rf.route/navigate {:params {:id "new"} :fragment "x"}])
-      (rf/unregister-listener! :trace ::params-reject)
-      (is (= {:id "old"} (:params (nav-slice)))
-          "the slice params are UNCHANGED — the supplied :params did not sneak in")
-      (is (empty? @pushed) "no URL is pushed for the rejected request")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-          (is (some? err) ":rf.error/navigate-bad-request emitted")
-          (is (= :params-requires-destination (-> err :tags :reason))
-              ":reason names the params-without-destination violation")
-          (is (= [:params] (-> err :tags :keys))
-              ":keys names the offending :params key"))))))
-
-(deftest navigate-non-map-payload-and-extra-element-reject
-  (testing "a non-map payload and a third event element reject LOUD rather than
-            throwing a raw host exception / silently dropping the extra element"
-    (rf/reg-route :route/home {} "/")
-    (rf/reg-route :route/dest {} "/dest")
-    (let [pushed (atom [])
-          errors (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf.fx/reg-fx :rf.nav/replace-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Establish a current route so the slice-unchanged assertion is meaningful.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (reset! pushed [])
-      (rf/register-listener! :trace ::shape-reject
-                             (fn [ev] (when (= :error (:op-type ev))
-                                        (swap! errors conj ev))))
-
-      ;; The event-VECTOR shape gate is `navigate-handler`'s own
-      ;; first step and is always-on, so both rejections below survive
-      ;; `-Dre-frame.debug=false`; only their `:rf.error/navigate-bad-request`
-      ;; diagnostic is dev-only. Each block therefore keeps a
-      ;; posture-independent leg naming exactly what an ungated handler would
-      ;; DO — a raw host throw, and a silently-dropped extra element.
-
-      (testing "non-map payload rejects with :request-not-a-map (no raw throw)"
-        (reset! errors [])
-        ;; Ungated, this would reach `(dissoc \"/dest\" …)` and throw a host exception.
-        (rf/dispatch-sync [:rf.route/navigate "/dest"])
-        ;; SEMANTIC, posture-independent: reaching this line at all
-        ;; is the "no raw throw" half — `dispatch-sync` propagates a handler
-        ;; throw — and the slice is the "rejected, not navigated" half.
-        (is (= :route/home (:route-id (nav-slice)))
-            "the non-map payload neither threw nor navigated")
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-            (is (some? err) ":rf.error/navigate-bad-request emitted for a non-map payload")
-            (is (= :request-not-a-map (-> err :tags :reason))))))
-
-      (testing "extra event element rejects with :bad-event-arity (not dropped)"
-        (reset! errors [])
-        ;; Ungated, this would navigate to :route/dest while dropping {:replace? true}.
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/dest} {:replace? true}])
-        ;; SEMANTIC, posture-independent: TEETH — the failure mode
-        ;; is a SILENT SUCCESS, so "still on :route/home" is the whole claim
-        ;; and it needs no bus.
-        (is (= :route/home (:route-id (nav-slice)))
-            "the 3-element event did NOT navigate to :route/dest — the extra
-             element was rejected, not dropped")
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-            (is (some? err) ":rf.error/navigate-bad-request emitted for a 3-element event")
-            (is (= :bad-event-arity (-> err :tags :reason))))))
-
-      (rf/unregister-listener! :trace ::shape-reject)
-      (is (empty? @pushed) "no malformed-shape request pushed a URL"))))
-
+    (reset! leave-calls 0)
+    (let [before (nav-slice)]
+      (doseq [[event reason ks]
+              [[[:rf.route/navigate {:query-merge [:page 2]}]                  :query-merge-not-map         [:query-merge]]
+               [[:rf.route/navigate {:to :route/gate-b :my-app/replace? true}] :unknown-keys                [:my-app/replace?]]
+               [[:rf.route/navigate {:params {:q "y"} :fragment "x"}]          :params-requires-destination [:params]]
+               [[:rf.route/navigate "/gate-b"]                                 :request-not-a-map           []]
+               [[:rf.route/navigate {:to :route/gate-b} {:replace? true}]      :bad-event-arity             []]]]
+        (let [tags (gate-reject event)]
+          (is (= before (nav-slice)) (pr-str event))
+          (when rf.interop/debug-enabled?
+            (is (= {:where :event :reason reason :keys ks}
+                   (select-keys tags [:where :reason :keys]))
+                (pr-str event)))))
+      (is (empty? @pushed))
+      (is (zero? @leave-calls)))))
