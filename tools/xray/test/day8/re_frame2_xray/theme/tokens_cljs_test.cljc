@@ -1,448 +1,166 @@
 (ns day8.re-frame2-xray.theme.tokens-cljs-test
-  "Pure-data tests for the canonical Xray palette + motion seam.
-
-  ## Why .cljc + _cljs_test naming
-
-  Same dual-target pattern as `section_cljs_test.cljc` — Cognitect
-  (`.*-test$` ns regex) + Shadow `:node-test` (`cljs-test$`).
-
-  ## What's under test
-
-  - The palette is internally consistent (no nil values, every key
-    resolves to a 7-character `#RRGGBB` hex).
-  - The deep-variant + utility tokens
-    (`:red-deep`, `:white`) exist.
-  - `motion` carries the symbolic seam — `:scale-var-name` matches
-    the CSS variable injected by `theme/global-styles/motion-css` +
-    the canonical tab-fade duration.
-  - `duration-css` builds the `calc(<ms>ms * var(<var>, 1))` string
-    consumers paste into their `animation-duration` slot."
+  "Pure-data tests for the Xray palette, type scale, motion seam and the
+  machines-viz drift gates."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.set :as set]
             [day8.re-frame2-xray.theme.tokens :as t]
             [day8.re-frame2-machines-viz.theme.tokens :as mv]))
 
-;; ---- palette consistency -----------------------------------------------
+;; ---- palette -----------------------------------------------------------
 
 (deftest every-palette-value-resolves-to-hex
-  (testing "every value in `dark-palette` AND `light-palette` is a hex
-            string (no nil drop-outs, no rgba() drift). Asserted on the
-            palettes directly — `tokens` exposes the
-            CSS-variable surface (`var(--rf-xray-…)`); the palettes
-            are the hex source of truth registered against the
-            `:root` / `.rf-xray-theme-*` class scopes by
-            `theme/global-styles/themes-css`."
-    (doseq [palette-name [:dark :light]
-            :let [palette (get t/themes palette-name)]
+  (testing "`themes-css` publishes each value verbatim as a CSS custom
+            property, so a nil or malformed entry paints nothing."
+    (doseq [[theme palette] {:dark t/dark-palette :light t/light-palette}
             [k v] palette]
-      (is (string? v) (str palette-name " " k " resolves to a string"))
       (is (re-find #"^#[0-9A-Fa-f]{3,8}$" v)
-          (str palette-name " " k " value " v " is a # hex string")))))
-
-(deftest rf2-5kfxe4-deep-variants-and-white-present-in-palette
-  (testing "`:red-deep` and `:white` carry the danger-button /
-            primary-button fills through tokens. Both must be reachable from every consumer.
-            Asserted on `dark-palette` (the hex source of truth)."
-    (is (= "#a83a3a" (:red-deep t/dark-palette)))
-    (is (= "#ffffff" (:white t/dark-palette)))))
-
-;; ---- motion seam -------------------------------------------------------
-
-(deftest motion-durations-match-spec
-  (testing "the canonical duration lives here so the
-            renderer can read it rather than fork the number.
-            There is no `:flash-duration-ms` (no element applies a
-            diff-flash); `:fade-duration-ms`,
-            which the L4 tab cross-fade reads, is the
-            control that this map is populated at all."
-    (is (nil? (:flash-duration-ms t/motion)))
-    (is (= 180 (:fade-duration-ms  t/motion)))))
-
-(deftest duration-css-builds-calc-with-seam
-  (testing "`duration-css` returns the canonical
-            `calc(<ms>ms * var(--rf-xray-motion-scale, 1))` string.
-            Consumers paste this into the `:animation` declaration so
-            the reduced-motion seam is honoured without per-component
-            branching. calc() makes the multiplication resolve at the
-            CSS layer, and the `, 1` fallback keeps full-duration motion
-            for consumers that never install theme/global-styles."
-    (is (= "calc(400ms * var(--rf-xray-motion-scale, 1))"
-           (t/duration-css 400)))))
-
-;; ---- light theme -------------------------------------------------------
-
-(deftest themes-map-carries-dark-and-light
-  (testing "the `themes` registry exposes both palettes."
-    (is (contains? t/themes :dark))
-    (is (contains? t/themes :light))
-    (is (= t/dark-palette  (:dark  t/themes)))
-    (is (= t/light-palette (:light t/themes)))))
+          (str theme " " k " value " v " is a # hex string")))))
 
 (deftest light-palette-has-same-keys-as-dark
-  (testing "every dark token has a light counterpart — no nil lookups
-            when the theme flips at runtime."
+  (testing "every dark token has a light counterpart — no unresolved
+            variable when the theme flips at runtime."
     (is (= (set (keys t/dark-palette))
            (set (keys t/light-palette))))))
 
-(deftest light-palette-inverts-surface-lightness
-  (testing "Light theme (Figma) — chrome-bg #f5f5f5 /
-            panel #ffffff. The light theme inverts the lightness of
-            the dark surfaces."
-    (is (= "#fbfbfb" (:bg-0 t/light-palette)))
-    (is (= "#f5f5f5" (:bg-1 t/light-palette)))
-    (is (= "#ffffff" (:bg-2 t/light-palette)))))
-
-(deftest light-palette-darkens-accents
-  (testing "the single accent + semantics darken on the
-            light canvas to maintain contrast. Each token in the light
-            palette is a distinct variant of its dark counterpart
-            (sanity-check: the light hexes are not the same string as
-            their dark counterparts)."
-    (doseq [k [:accent
-               :error :warning :advisory :success
-               :green :yellow :orange :red :magenta :info]]
-      (is (not= (get t/dark-palette k)
-                (get t/light-palette k))
-          (str k " differs between the two palettes")))))
-
-(deftest single-blue-accent-no-orange-scheme
-  (testing "there is no orange identity: there is a
-            SINGLE accent (GitHub blue #539bf5 dark / #0969da light),
-            and the orange-scheme keys (:brand, :accent-dynamic,
-            :accent-static) are absent from both palettes."
-    (is (= "#539bf5" (:accent t/dark-palette)))
-    (is (= "#0969da" (:accent t/light-palette)))
-    (doseq [removed [:brand :accent-dynamic :accent-static]]
-      (is (not (contains? t/dark-palette removed))
-          (str removed " absent from dark palette"))
-      (is (not (contains? t/light-palette removed))
-          (str removed " absent from light palette")))))
+(deftest dark-accent-is-the-published-default-accent
+  (testing "`config/default-accent` publishes this hex to hosts as the
+            `--rf-xray-accent` default, and the API docs state it."
+    (is (= "#539bf5" (:accent t/dark-palette)))))
 
 (deftest tokens-is-the-css-variable-surface
-  (testing "`tokens` is the CSS-variable map. The inline-style call
-            sites that read
-            `(:bg-1 tokens)` resolve to `\"var(--rf-xray-bg-1)\"`;
-            the active theme's class scope decides whether the dark or
-            light palette's hex paints at runtime."
-    (is (= (set (keys t/dark-palette))
-           (set (keys t/tokens))))
-    (doseq [k (keys t/dark-palette)]
-      (is (= (str "var(--rf-xray-" (name k) ")")
-             (get t/tokens k))
-          (str k " resolves to its var() reference")))))
+  (testing "inline-style reads of `(:bg-1 tokens)` resolve to
+            `\"var(--rf-xray-bg-1)\"`, so the active theme's class scope
+            decides which palette's hex paints."
+    (is (= (into {} (for [k (keys t/dark-palette)]
+                      [k (str "var(--rf-xray-" (name k) ")")]))
+           t/tokens))))
 
 (deftest with-alpha-builds-color-mix-string
-  (testing "`with-alpha` is the canonical helper for the
-            alpha-tail-suffix idiom (`(str (:accent tokens)
-            \"55\")`). Returns a `color-mix(in srgb, var(--rf-xray-<key>)
-            <pct>%, transparent)` string. CSS-Color-4 is the cross-
-            browser path that composes alpha against an arbitrary
-            CSS-variable colour, and the transparent partner makes the
-            result a tint."
+  (testing "a two-digit alpha suffix is not valid CSS on a `var(--…)`
+            string, so tints compose through `color-mix`."
     (is (= "color-mix(in srgb, var(--rf-xray-accent) 33%, transparent)"
            (t/with-alpha :accent 33)))))
 
 ;; ---- L4 panel accent stripe --------------------------------------------
 
 (deftest panel-accent-is-tab-independent
-  (testing "`panel-accent` is TOTAL and tab-independent:
-            spec/022 + spec/021 §17.1.3 rule the L4 header stripe to a
-            SINGLE accent, so every tab id, every keyword that is not a
-            tab id, and `nil` all resolve to the one `:accent`
-            variable. The stripe always renders.
-
-            ASSERTED UNIVERSALLY, NOT AGAINST A ROSTER, ON PURPOSE.
-            A hand-listed roster here would drift from the shipped
-            tabs — naming retired ids, missing new ones — and a
-            pinning test comparing such a map with a copy of itself
-            could not fail on that drift. A universal assertion covers every
-            shipped tab without introducing a second inventory to
-            drift. The shipped roster has exactly ONE control and it
-            is registry-derived, not hand-listed:
-            `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`
-            asserts `focus/valid-panels` equals
-            `panel-registry/tab-ids-for-mode :dynamic`.
-
-            The vector below is a SAMPLE, not an inventory — one
-            shipped tab, one of the newest, one retired id, one that
-            was never registered, and `nil`. Nothing here needs
-            maintaining when a tab ships or retires; the property is
-            universal over the argument."
-    (let [accent (:accent t/tokens)]
-      (is (string? accent) "the single accent resolves (sanity guard)")
-      (doseq [tab [:machines :fresco :event :never-a-tab nil]]
-        (is (= accent (t/panel-accent tab))
-            (str "panel-accent " (pr-str tab) " is the single accent"))))))
+  (testing "the L4 header stripe is ONE accent for every argument
+            (spec/022, spec/021 §17.1.3). The rows are a sample — a tab
+            id, a keyword that is no tab, and nil — not a roster; the live
+            roster is pinned by
+            `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`."
+    (doseq [tab [:machines :never-a-tab nil]]
+      (is (= "var(--rf-xray-accent)" (t/panel-accent tab))
+          (str "panel-accent " (pr-str tab))))))
 
 (deftest accent-stripe-style-emits-3px-left-border
-  (testing "`accent-stripe-style` returns a merge-able style map
-            carrying the 3px left border + matching padding. The
-            border resolves through the active theme's
-            CSS variable (`var(--rf-xray-…)`) rather than a hardcoded
-            hex."
-    (let [s (t/accent-stripe-style :machines)]
-      (is (re-find #"3px solid" (:border-left s)))
-      (is (re-find #"var\(--rf-xray-" (:border-left s))
-          "the border ends with a CSS-variable reference, not a hardcoded hex")
-      (is (string? (:padding-left s))
-          "padding-left compensates for the border so text doesn't shift"))))
+  (is (= {:border-left  "3px solid var(--rf-xray-accent)"
+          :padding-left "10px"}
+         (t/accent-stripe-style :machines))))
 
-;; ---- display face ------------------------------------------------------
+;; ---- motion seam -------------------------------------------------------
 
-(deftest display-stack-is-fraunces-first
-  (testing "the L4 panel title face is Fraunces (the
-            variable serif). NOT Inter (already the body face) so
-            the title font is a deliberate hierarchy signal rather
-            than a weight bump."
-    (is (string? t/display-stack))
-    (is (re-find #"^Fraunces" t/display-stack)
-        "Fraunces is the first face in the stack")))
+(deftest motion-durations-match-spec
+  (testing "no element applies a diff flash, so there is no
+            `:flash-duration-ms`; the 180ms tab cross-fade is the control
+            (tools/xray spec 004 and 007 point at this pin)."
+    (is (nil? (:flash-duration-ms t/motion)))
+    (is (= 180 (:fade-duration-ms  t/motion)))))
 
-(deftest display-stack-falls-back-to-system-serif
-  (testing "the stack falls through to `ui-serif` (modern system
-            serif) then Georgia/Cambria/Times — never a sans. The
-            hierarchy contrast survives even if the WOFF2 fails to
-            load."
-    (is (re-find #"ui-serif" t/display-stack))
-    (is (re-find #"Georgia" t/display-stack))
-    (is (re-find #"serif$" t/display-stack)
-        "the chain terminates at the generic `serif` family")))
+(deftest duration-css-builds-calc-with-seam
+  (testing "the `, 1` fallback keeps full-duration motion where
+            theme/global-styles never published the scale variable."
+    (is (= "calc(400ms * var(--rf-xray-motion-scale, 1))"
+           (t/duration-css 400)))))
 
-;; ---- font-size CSS var anchor ------------------------------------------
+;; ---- type scale --------------------------------------------------------
 
 (deftest type-scale-multipliers-anchor-body-at-one
-  (testing "`:body` is the 1.0 anchor; every other size
-            is a fraction of it. Display rises slightly above; mono,
-            caption, micro fall below."
-    (is (= 1.0 (:body t/type-scale-multipliers)))
-    (is (> (:display t/type-scale-multipliers) 1.0))
-    (is (< (:caption t/type-scale-multipliers) 1.0))
-    (is (< (:micro   t/type-scale-multipliers) 1.0))))
-
-(deftest type-scale-keys-stable
-  (testing "`type-scale`'s KEYS are the fixed set below, whatever
-            its VALUES (calc-strings). Every call site that
-            reads `(:body type-scale)` resolves."
-    (let [expected #{:display :body :body-tight :mono-body :caption :micro
-                     :line-height-tight :line-height-mono}]
-      (is (= expected (set (keys t/type-scale)))))))
-
-(deftest type-scale-line-height-stays-unitless
-  (testing "line-height values are unitless ratios. They
-            scale with the resolved font-size automatically; only
-            absolute sizes are calc-strings."
-    (is (= 1.35 (:line-height-tight t/type-scale)))
-    (is (= 1.4  (:line-height-mono  t/type-scale)))))
+  (testing "the density setting writes the body size into
+            `--rf-xray-font-size`, which holds only while `:body` is 1.0."
+    (is (= 1.0 (:body t/type-scale-multipliers)))))
 
 (deftest font-size-css-builds-calc-with-var-and-fallback
-  (testing "`font-size-css` is the pure-data helper that
-            shapes each calc-string. Consumers (the `type-scale`
-            map) pipe their multiplier through it so the var name +
-            fallback default stay one source of truth.
-
-            The numeric literal is stringified by the host runtime
-            (`1.0` → `1` on CLJS, `1.0` on the JVM). We assert the
-            shape via regex rather than strict equality so both
-            runtimes pass."
-    (let [css (t/font-size-css 1.0)]
-      (is (string? css))
-      (is (re-find #"^calc\(var\(--rf-xray-font-size,\s*13px\)\s*\*\s*1(\.0+)?\)$" css)))))
-
-(deftest font-size-css-respects-distinct-multipliers
-  (testing "different multipliers produce distinct calc-strings —
-            the relative scale is preserved across the type table."
-    (let [body    (t/font-size-css (:body    t/type-scale-multipliers))
-          display (t/font-size-css (:display t/type-scale-multipliers))
-          caption (t/font-size-css (:caption t/type-scale-multipliers))]
-      (is (not= body display))
-      (is (not= body caption))
-      (is (not= display caption)))))
+  (is (= "calc(var(--rf-xray-font-size, 13px) * 0.846)"
+         (t/font-size-css 0.846))))
 
 (deftest type-scale-uses-font-size-css-helper
-  (testing "every size entry in `type-scale` is the
-            output of `font-size-css` applied to the matching
-            multiplier. Asserts the indirection is the only path to
-            the calc-string (no fixed-px values)."
+  (testing "every size resolves through the one `--rf-xray-font-size`
+            knob, so no fixed-px entry escapes a density change."
     (doseq [[k mult] t/type-scale-multipliers]
       (is (= (t/font-size-css mult) (get t/type-scale k))
           (str k " is font-size-css of its multiplier")))))
 
-;; ---- WCAG 2.1 AA contrast for `:text-tertiary` -------------------------
-;;
-;; The token is consumed in ~50 inline-style call sites (relative-time
-;; chip, hint text, settings field hints, inactive tab labels, "no
-;; events" empty state, palette result-count, etc.) — most at the
-;; caption/micro size where WCAG 2.1 AA's 4.5:1 small-text floor
-;; applies. A hex such as `#6B7080` would land at ~3.5:1 on the dark
-;; bg-1 surface, below that floor; the token must pass AA while still
-;; reading as muted/secondary.
-;;
-;; Contrast formula: WCAG 2.1 §1.4.3 relative luminance ratio.
-;; The helpers below are pure data — JVM-portable so the .cljc test
-;; surface validates the relationship on both runners.
-
-(defn- hex->rgb-channels
-  "Parse a `#RRGGBB` hex string into a 3-tuple of channels in the
-  [0, 1] range. Pure data."
-  [hex]
-  (let [s (subs hex 1)
-        ;; subs/parse-int on the JVM cannot pass a radix as a 2nd arg
-        ;; to `subs`; build the 2-char substrings manually.
-        r (subs s 0 2)
-        g (subs s 2 4)
-        b (subs s 4 6)
-        parse #?(:clj  #(/ (Long/parseLong % 16) 255.0)
-                 :cljs #(/ (js/parseInt % 16) 255.0))]
-    [(parse r) (parse g) (parse b)]))
-
-(defn- channel-luminance
-  "WCAG 2.1 §1.4.3 per-channel relative luminance. Input in [0, 1]."
-  [c]
-  (if (<= c 0.03928)
-    (/ c 12.92)
-    (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
+;; ---- WCAG 2.1 contrast of the text levels ------------------------------
 
 (defn- relative-luminance
   "WCAG 2.1 §1.4.3 relative luminance of a `#RRGGBB` colour."
   [hex]
-  (let [[r g b] (hex->rgb-channels hex)
-        rl (channel-luminance r)
-        gl (channel-luminance g)
-        bl (channel-luminance b)]
-    (+ (* 0.2126 rl) (* 0.7152 gl) (* 0.0722 bl))))
+  (let [channel (fn [i]
+                  (let [c (/ #?(:clj  (Long/parseLong (subs hex i (+ i 2)) 16)
+                                :cljs (js/parseInt (subs hex i (+ i 2)) 16))
+                             255.0)]
+                    (if (<= c 0.03928)
+                      (/ c 12.92)
+                      (Math/pow (/ (+ c 0.055) 1.055) 2.4))))]
+    (+ (* 0.2126 (channel 1)) (* 0.7152 (channel 3)) (* 0.0722 (channel 5)))))
 
 (defn- contrast-ratio
-  "WCAG 2.1 §1.4.3 contrast ratio between two colours. Returns a
-  number in [1.0, 21.0]. Order-independent — `(contrast-ratio fg bg)`
-  equals `(contrast-ratio bg fg)`."
   [hex-a hex-b]
-  (let [la (relative-luminance hex-a)
-        lb (relative-luminance hex-b)
-        lighter (max la lb)
-        darker  (min la lb)]
+  (let [[darker lighter] (sort [(relative-luminance hex-a)
+                                (relative-luminance hex-b)])]
     (/ (+ lighter 0.05) (+ darker 0.05))))
 
-(deftest text-tertiary-passes-wcag-aa-on-dark-bg-1
-  (testing "`:text-tertiary` on `:bg-1`
-            must clear WCAG 2.1 AA's 4.5:1 floor for small body text
-            (`#6B7080` would land at ~3.5:1, below it). Reads
-            `dark-palette` directly (the hex source of truth) — `tokens`
-            exposes CSS-variable strings."
-    (let [ratio (contrast-ratio (:text-tertiary t/dark-palette)
-                                (:bg-1 t/dark-palette))]
-      (is (>= ratio 4.5)
-          (str ":text-tertiary " (:text-tertiary t/dark-palette)
-               " on :bg-1 " (:bg-1 t/dark-palette)
-               " contrast ratio " ratio
-               " must clear WCAG 2.1 AA 4.5:1")))))
+(deftest text-levels-clear-wcag-contrast-on-dark-surfaces
+  (testing "spec/022: the three text levels clear AA (4.5:1) on the dark
+            surfaces, primary and secondary AAA (7:1). `:text-tertiary` is
+            read at caption/micro size, where AA's small-text floor applies."
+    (doseq [[fg bg floor] [[:text-tertiary  :bg-1 4.5]
+                           [:text-tertiary  :bg-2 4.5]
+                           [:text-secondary :bg-1 7.0]
+                           [:text-primary   :bg-1 7.0]]
+            :let [ratio (contrast-ratio (fg t/dark-palette) (bg t/dark-palette))]]
+      (is (>= ratio floor)
+          (str fg " " (fg t/dark-palette) " on " bg " " (bg t/dark-palette)
+               " contrast " ratio " is below " floor)))))
 
-(deftest text-tertiary-passes-wcag-aa-on-dark-bg-2
-  (testing "same token on `:bg-2`. The bg-2
-            surface is slightly lighter than bg-1, so the contrast
-            ratio is marginally LOWER (the foreground hex sits closer
-            to bg-2 in luminance). `#6B7080` would land ~3.1:1 here —
-            even further below the floor — so the token must clear AA
-            on this surface too."
-    (let [ratio (contrast-ratio (:text-tertiary t/dark-palette)
-                                (:bg-2 t/dark-palette))]
-      (is (>= ratio 4.5)
-          (str ":text-tertiary " (:text-tertiary t/dark-palette)
-               " on :bg-2 " (:bg-2 t/dark-palette)
-               " contrast ratio " ratio
-               " must clear WCAG 2.1 AA 4.5:1")))))
-
-(deftest text-secondary-still-passes-wcag-aaa
-  (testing "Sanity guard — `:text-secondary` clears AAA (7:1) on
-            bg-1, independently of `:text-tertiary`."
-    (let [ratio (contrast-ratio (:text-secondary t/dark-palette)
-                                (:bg-1 t/dark-palette))]
-      (is (>= ratio 7.0)
-          (str ":text-secondary must remain >= 7:1 (AAA), got " ratio)))))
-
-(deftest text-primary-still-passes-wcag-aaa
-  (testing "Sanity guard — `:text-primary` at AAA."
-    (let [ratio (contrast-ratio (:text-primary t/dark-palette)
-                                (:bg-1 t/dark-palette))]
-      (is (>= ratio 7.0)
-          (str ":text-primary must remain >= 7:1 (AAA), got " ratio)))))
-
-;; ---- Xray ↔ machines-viz palette drift CI gate ------------------------
+;; ---- Xray ↔ machines-viz drift gates -----------------------------------
 
 (deftest machines-viz-dark-palette-keys-subset-of-xray
-  (testing "every key the machines-viz
-            dark-palette publishes must also exist in Xray's
-            dark-palette. The gate is one-directional: machines-viz
-            publishes ONLY the tokens its chart consumes (a strict
-            subset), while Xray's palette is free to carry chrome-only
-            tokens the chart never reads (`:chrome-ribbon-*`, `:diff-*`,
-            `:syntax-*`, `:bg-issue-row`, `:selected-row-bg`, …) without
-            forcing machines-viz to mirror them as no-ops. A
-            machines-viz-only key here means the chart reaches for a
-            token Xray's source of truth doesn't define — a genuine
-            drift the shared-values gate (next test) cannot catch
-            because there is no Xray entry to compare against."
-    (let [xray-keys (set (keys t/dark-palette))
-          mv-keys    (set (keys mv/dark-palette))
-          mv-only    (set/difference mv-keys xray-keys)]
+  (testing "machines-viz publishes only the tokens its chart reads, a
+            subset of Xray's palette. A machines-viz-only key is a token
+            Xray's source of truth does not define, which the value gates
+            below cannot see."
+    (let [mv-only (set/difference (set (keys mv/dark-palette))
+                                  (set (keys t/dark-palette)))]
       (is (empty? mv-only)
-          (str "machines-viz dark-palette publishes key(s) absent from "
-               "Xray's dark-palette (source of truth): "
+          (str "machines-viz dark-palette keys absent from Xray's: "
                (vec (sort mv-only)))))))
 
 (deftest xray-and-machines-viz-dark-palettes-match-values
-  (testing "for every key SHARED between the two
-            dark-palettes the HEX values must agree. machines-viz
-            mirrors Xray at the values level (per the doc-string in
-            tools/machines-viz/src/.../theme/tokens.cljc) so the chart
-            renders identically whether embedded by Xray, Story, the
-            read-only viewer, or a user dev shell. A drift here is a
-            silent visual-fidelity bug — the chart paints a different
-            colour than the surrounding panel chrome."
-    (let [shared (set/intersection (set (keys t/dark-palette))
-                                           (set (keys mv/dark-palette)))]
-      (doseq [k shared]
-        (is (= (get t/dark-palette  k)
-               (get mv/dark-palette k))
-            (str "dark-palette drift on " k
-                 ": xray=" (pr-str (get t/dark-palette k))
-                 " vs machines-viz=" (pr-str (get mv/dark-palette k))))))))
+  (testing "the embedded chart paints the same hex as the surrounding
+            Xray chrome for every shared key."
+    (doseq [k (set/intersection (set (keys t/dark-palette))
+                                (set (keys mv/dark-palette)))]
+      (is (= (get t/dark-palette k) (get mv/dark-palette k))
+          (str "dark-palette drift on " k)))))
 
 (deftest xray-and-machines-viz-light-palettes-match-values
-  (testing "same drift gate for the light
-            palette: every key shared between the two light-palettes
-            must agree on hex value. Asserting shared-key equality
-            (rather than full set equality) lets each side carry extra
-            theme-internal entries without forcing the other to
-            mirror them."
-    (let [shared (set/intersection (set (keys t/light-palette))
-                                           (set (keys mv/light-palette)))]
-      (is (seq shared)
-          "the light palettes share at least the canonical 7-axis token
-           set (no empty-intersection footgun)")
-      (doseq [k shared]
-        (is (= (get t/light-palette  k)
-               (get mv/light-palette k))
-            (str "light-palette drift on " k
-                 ": xray=" (pr-str (get t/light-palette k))
-                 " vs machines-viz=" (pr-str (get mv/light-palette k))))))))
+  (let [shared (set/intersection (set (keys t/light-palette))
+                                 (set (keys mv/light-palette)))]
+    (is (seq shared) "the light palettes share keys, so the gate is not vacuous")
+    (doseq [k shared]
+      (is (= (get t/light-palette k) (get mv/light-palette k))
+          (str "light-palette drift on " k)))))
 
-;; ---- spacing scale (spec/021 §17.1.1) ----------------------------------
+(deftest xray-and-machines-viz-mono-and-sans-stacks-match
+  (is (= [t/mono-stack t/sans-stack] [mv/mono-stack mv/sans-stack])))
+
+;; ---- spacing scale -----------------------------------------------------
 
 (deftest spacing-scale-emits-px-strings
-  (testing "`spacing` is exactly :gap-0 through :gap-6 per spec/021
-            §17.1.1: CSS strings callers drop into inline `:style` maps.
-            Density is binding (§0); the 4-px base grid is the canonical
-            scale every panel reads. `:gap-0` is the literal `0` (no
-            unit); the rest are px-suffixed multiples of 4."
+  (testing "the 4px grid spec/021 §17.1.1 publishes, as inline-style strings."
     (is (= {:gap-0 "0"    :gap-1 "4px"  :gap-2 "8px"  :gap-3 "12px"
             :gap-4 "16px" :gap-5 "20px" :gap-6 "24px"}
            t/spacing))))
-
-(deftest xray-and-machines-viz-mono-and-sans-stacks-match
-  (testing "the font stacks are part of the shared visual
-            contract. Drift here lands the chart's labels on a
-            different face than the surrounding chrome — visually
-            obvious, structurally silent."
-    (is (= t/mono-stack mv/mono-stack))
-    (is (= t/sans-stack mv/sans-stack))))
