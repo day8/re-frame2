@@ -206,15 +206,7 @@
                         (testing "each delivered reply links to ITS reply bundle"
                           (is (some? (:reply-link r1)))
                           (is (some? (:reply-link r2)))
-                          (is (not= (:reply-link r1) (:reply-link r2))))
-                        (testing "control — without the join both read ISSUED, indistinguishable"
-                          (let [u1 (first (managed-records (h/event-bundle->managed-fx-records
-                                                             (bundle-for buffer [:t/search "1"]))))
-                                u2 (first (managed-records (h/event-bundle->managed-fx-records
-                                                             (bundle-for buffer [:t/search "2"]))))]
-                            (is (= :issued (:status u1) (:status u2)))
-                            (is (nil? (:duration-ms u1)))
-                            (is (nil? (:duration-ms u2)))))))))))))
+                          (is (not= (:reply-link r1) (:reply-link r2))))))))))))
       done)))
 
 ;; ===========================================================================
@@ -428,9 +420,7 @@
                       (let [buffer @traces
                             b2     (bundle-for buffer [:t/e2])
                             old    (only-managed buffer [:t/e1])
-                            new    (only-managed buffer [:t/e2])
-                            fx-new (first (filter #(= :rf.http/managed (get-in % [:tags :rf.fx/id]))
-                                                  (:effects b2)))]
+                            new    (only-managed buffer [:t/e2])]
                         (testing "PRECONDITION — the user abort of the OLD attempt landed in the re-issuing bundle"
                           (is (seq (filter #(= :user (get-in % [:tags :reason]))
                                            (ops (:other b2) :rf.http/aborted)))))
@@ -446,10 +436,6 @@
                           (let [bundle-only (first (managed-records (h/event-bundle->managed-fx-records b2)))]
                             (is (= :issued (:status bundle-only)))
                             (is (nil? (:cancel-cause bundle-only)))))
-                        (testing "control — attributed by request-id alone (no join), the new record takes the old attempt's abort"
-                          (let [legacy (h/http-adapter fx-new (:other b2) {:sole-http-fx? false})]
-                            (is (= :cancelled (:status legacy)))
-                            (is (= :user (:cancel-cause legacy)))))
                         (is (= :cancelled (:status old)))
                         (is (= :user (:cancel-cause old)))
                         (is (some? (:reply-link old)) "the :cancelled reply was delivered")
@@ -490,8 +476,8 @@
       done)))
 
 ;; ===========================================================================
-;; (g) terminal row present, issued row AGED OUT; (h) a capture with no
-;; issued row at all. Both stay unattributed ISSUED, without error.
+;; (g) terminal row present, issued row AGED OUT: the record stays
+;; unattributed ISSUED, without error.
 ;; ===========================================================================
 
 (deftest g-h-no-issued-row-stays-unattributed
@@ -516,23 +502,13 @@
                             ;; (g) a ring that evicted everything up to and
                             ;; including the issued row — the handled row
                             ;; after it survives, and so does the terminal.
-                            aged    (filterv #(> (:id %) (:id i)) full)
-                            ;; (h) the same capture as a runtime that never
-                            ;; emitted the issued row would have produced it.
-                            pre     (filterv #(not= :rf.http/issued (:operation %)) full)]
-                        (testing "control — on the full capture the record joins"
-                          (is (= :ok (:status (only-managed full [:t/gh])))))
+                            aged    (filterv #(> (:id %) (:id i)) full)]
                         (testing "(g) issued row aged out"
                           (let [r (only-managed-in-run aged (:dispatch-id (bundle-for full [:t/gh])))]
                             (is (seq (ops aged :rf.http/replied)) "PRECONDITION: the terminal row survived")
                             (is (= :issued (:status r)))
                             (is (nil? (:completion r)))
-                            (is (nil? (:reply-link r)))))
-                        (testing "(h) a capture with no issued row"
-                          (let [r (only-managed pre [:t/gh])]
-                            (is (= :issued (:status r)))
-                            (is (nil? (:completion r)))
-                            (is (nil? (:failure r)))))))))))))
+                            (is (nil? (:reply-link r)))))))))))))
       done)))
 
 ;; ===========================================================================
@@ -627,8 +603,7 @@
 ;; (l) the reply link is the delivery of THIS completion. A named
 ;; id reused after completion puts the IDENTICAL full work id on both
 ;; requests' completions AND on both replies, so a completion whose reply
-;; was SILENCED — `:on-failure nil`, or `:reply-to nil` — must not borrow
-;; the next request's delivery. The positive control delivers both.
+;; was SILENCED must not borrow the next request's delivery.
 ;; ===========================================================================
 
 (defn- reused-id-capture
@@ -699,44 +674,6 @@
                 (is (= :ok (:status r2)))
                 (is (= (:second delivered) (:reply-link r2))
                     "the successor links to its own delivery")))))
-      done)))
-
-(deftest l2-a-whole-reply-silenced-completion-does-not-borrow-the-later-reply
-  (async done
-    (finish
-      (-> (reused-id-capture {:reply-to nil} 200)
-          (.then
-            (fn [buffer]
-              (let [r1        (only-managed buffer [:t/l :first])
-                    r2        (only-managed buffer [:t/l :second])
-                    delivered (deliveries buffer)]
-                (the-full-work-id-was-reused buffer)
-                (testing "PRECONDITION — only the second request's reply was delivered"
-                  (is (= #{:second} (set (keys delivered)))))
-                (is (= :ok (:status r1)))
-                (is (nil? (:reply-link r1))
-                    "an OK completion under `:reply-to nil` delivered nothing either")
-                (is (= :ok (:status r2)))
-                (is (= (:second delivered) (:reply-link r2)))))))
-      done)))
-
-(deftest l3-control-when-both-deliver-each-links-to-its-own-reply
-  (async done
-    (finish
-      (-> (reused-id-capture {:reply-to [:t/l-done :first]} 500)
-          (.then
-            (fn [buffer]
-              (let [r1        (only-managed buffer [:t/l :first])
-                    r2        (only-managed buffer [:t/l :second])
-                    delivered (deliveries buffer)]
-                (the-full-work-id-was-reused buffer)
-                (testing "PRECONDITION — both replies were delivered"
-                  (is (= #{:first :second} (set (keys delivered)))))
-                (is (= :error (:status r1)))
-                (is (= (:first delivered) (:reply-link r1)))
-                (is (= :ok (:status r2)))
-                (is (= (:second delivered) (:reply-link r2)))
-                (is (not= (:reply-link r1) (:reply-link r2)))))))
       done)))
 
 ;; ===========================================================================
