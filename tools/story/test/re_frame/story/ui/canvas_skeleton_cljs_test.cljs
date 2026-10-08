@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.canvas-skeleton-cljs-test
   "The canvas loading-skeleton predicate and the viewport-px indicator."
-  (:require [cljs.test :refer-macros [are deftest is]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]))
 
 ;; Each row's `args` are `[phase first-rendered? assertions-recorded?
@@ -18,6 +18,30 @@
     [:loading   false true]        false
     ;; Events-only variants take the :pre-mount → :ready fast path.
     [:pre-mount false false true]  false))
+
+(deftest loading-skeleton-hiccup-shape
+  (testing "hiccup root carries the canonical data-test"
+    (let [hiccup (rf.story.ui.canvas/loading-skeleton)
+          [_tag props] hiccup]
+      (is (= "story-canvas-loading-skeleton" (:data-test props)))
+      (is (= "status" (:role props)))
+      (is (= "polite" (:aria-live props))))))
+
+(deftest first-rendered-sentinel-round-trip
+  (testing "marker round-trips through the per-variant set"
+    (rf.story.ui.canvas/reset-first-rendered!)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.x/y)))
+    (rf.story.ui.canvas/mark-variant-rendered! :story.x/y)
+    (is (true? (rf.story.ui.canvas/variant-first-rendered? :story.x/y)))
+    (rf.story.ui.canvas/reset-first-rendered! :story.x/y)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.x/y))))
+  (testing "reset all"
+    (rf.story.ui.canvas/mark-variant-rendered! :story.a/one)
+    (rf.story.ui.canvas/mark-variant-rendered! :story.b/two)
+    (is (true? (rf.story.ui.canvas/variant-first-rendered? :story.a/one)))
+    (rf.story.ui.canvas/reset-first-rendered!)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.a/one)))
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.b/two)))))
 
 (deftest viewport-indicator-elides-for-full
   (is (nil? (rf.story.ui.canvas/viewport-indicator {:label "Full" :width nil :height nil}))))
