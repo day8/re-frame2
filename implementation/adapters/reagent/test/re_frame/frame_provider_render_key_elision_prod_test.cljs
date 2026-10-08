@@ -63,13 +63,9 @@
         (fn [ev] (swap! seen conj ev)))
       (rf/reg-view* :prod-frame-provider/sample
                     (fn [] [:span "rendered"]))
-      (let [wrapper (rf/view :prod-frame-provider/sample)
-            out     (wrapper)]
-        (is (vector? out) "wrapper invoked the user fn — render still produced hiccup")
-        (is (= :span (first out)) "root tag preserved"))
-      (is (empty? @seen)
-          "no trace events delivered — :view/render elides under
-           :advanced + goog.DEBUG=false")
+      (let [out ((rf/view :prod-frame-provider/sample))]
+        (is (= [true :span true] [(vector? out) (first out) (empty? @seen)])
+            "the wrapper still rendered the user fn's hiccup, but delivered no trace event — :view/render elides under :advanced + goog.DEBUG=false"))
       (rf.trace.tooling/unregister-listener! ::prod-view-listener))))
 
 ;; ---- current-render-key still binds under prod ---------------------------
@@ -89,14 +85,10 @@
         (fn []
           (reset! observed-key (rf.views/current-render-key))
           [:span "key-reader"]))
-      (let [wrapper (rf/view :prod-frame-provider/key-reader)
-            _out    (wrapper)]
-        (is (vector? @observed-key)
-            "*render-key* is bound to a vector inside the render under prod")
-        (is (= :prod-frame-provider/key-reader (first @observed-key))
-            "the view-id slot of *render-key* survives under prod")
-        (is (some? (second @observed-key))
-            "the instance-token slot of *render-key* survives under prod")))))
+      ((rf/view :prod-frame-provider/key-reader))
+      (let [k @observed-key]
+        (is (= [true :prod-frame-provider/key-reader true] [(vector? k) (first k) (some? (second k))])
+            "*render-key* is bound inside the render under prod, with its view-id and instance-token slots")))))
 
 ;; ---- mint-instance-token! survives (value-layer machinery) ---------------
 
@@ -109,12 +101,8 @@
             elides, but the mint surface itself is safe to call."
     (let [t1 (rf.views/mint-instance-token!)
           t2 (rf.views/mint-instance-token!)]
-      (is (integer? t1) "mint returns an integer under prod")
-      (is (integer? t2) "second call also returns an integer")
-      (is (not= t1 t2)
-          "the counter still advances under prod — the value-layer
-           machinery survives elision; only the dev-only consumer
-           (the trace surface) elides"))))
+      (is (= [true true true] [(integer? t1) (integer? t2) (not= t1 t2)])
+          "each mint returns an integer and the counter still advances under prod — the value-layer machinery survives elision"))))
 
 ;; ---- current-render-key outside a render-key binding falls through -------
 
