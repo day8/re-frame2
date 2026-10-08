@@ -1,98 +1,37 @@
 (ns re-frame.machines-conformance-test
-  "Drives every conformance-corpus fixture whose `:fixture/calls` exercise
-  `:machine-transition` through `re-frame.machines/machine-transition` and
-  `=`-checks the result against the recorded `:expect-next-snapshot` /
-  `:expect-effects`.
-
-  The conformance corpus at `spec/conformance/fixtures/*.edn` is the
-  normative behaviour description for `machine-transition`. This namespace
-  wires the machine-related Mode B fixtures into the machines artefact's own
-  CI gate, so the spec-defined invariants run on every machines-touching PR
-  (and any machines refactor that breaks a fixture surfaces at the machines
-  artefact's gate rather than only downstream at core's).
-
-  Scope:
-    - Mode B fixtures only — `:fixture/calls` containing
-      `:call :machine-transition`. Mode A (dispatch-driven) fixtures
-      live downstream in the core artefact's runner, which has the
-      frame + dispatch loop.
-    - Pure-function assertions only — `:expect-next-snapshot` and
-      `:expect-effects` per `spec/conformance/README.md` §Mode B.
-    - No side-effects, no frame, no app-db. The machines artefact's
-      transition engine is JVM-runnable from arguments alone.
-
-  Capability tagging:
-    The conformance README §Capability tagging says conformance is
-    graded against the port's claimed capability list. For this Mode B
-    runner the practical capability set is everything the
-    `machine-transition` primitive covers — :fsm/flat, :fsm/hierarchical,
-    :fsm/parallel-regions, :fsm/eventless-always, :fsm/delayed-after,
-    :fsm/tags, :fsm/final-states, plus :actor/spawn-destroy and
-    :actor/declarative-spawn (both surface as spawn/destroy fx in the result
-    vector, no live actor needed). Anything else (e.g. :core/error,
-    :routing/*, :ssr/*) is core's surface and the fixture is skipped.
-
-  This is a per-artefact gate; the core artefact's runner exercises the
-  full corpus end-to-end through the dispatch loop. Both gates running
-  is intentional belt-and-braces."
+  "The machines artefact's gate over the Mode-B conformance corpus: every
+  `spec/conformance/fixtures/*.edn` fixture with a `:machine-transition` or
+  `:reg-machine` call, whose capabilities this pure runner claims, must
+  produce exactly its recorded snapshot / effects / registration error.
+  Mode-A (dispatch-driven) fixtures run in core's runner."
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.machines :as rf.machines]))
 
-;; ---- fixture discovery ----------------------------------------------------
-
 (def fixtures-dir
-  "The conformance corpus lives at `spec/conformance/fixtures/` at the
-  repo root.
-
-  Anchored to a CLASSPATH RESOURCE, not the working directory. A
-  cwd-relative `(io/file \"../../spec/conformance/fixtures\")` would assume
-  the JVM cwd is `implementation/machines/`, so that `../../` reaches the repo
-  root. That holds for the canonical per-artefact gate (`clojure -M:test` run
-  from `implementation/machines/`, which is what CI runs) but SILENTLY
-  MIS-SCOPES under the combined `implementation/deps.edn :test` alias: run
-  from `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
-  returns nothing, and the corpus discovers zero fixtures (the non-empty
-  floor in `run-machines-conformance-corpus` turns that mis-discovery RED
-  instead of silent-green).
-
-  This test namespace's own source file is on the test classpath (the
-  artefact's `:test {:extra-paths [\"test\"]}`), so resolving it via
-  `io/resource` pins the anchor to the on-disk source location regardless
-  of cwd or which alias loaded the namespace. Walking five parents
-  (`machines_conformance_test.clj → re_frame → test → machines →
-  implementation → repo root`) reaches the repo root, then we descend into
-  `spec/conformance/fixtures`."
+  ;; Anchored to this file's classpath location, not the cwd: run from
+  ;; `implementation/` a cwd-relative path resolves above the repo root.
   (let [res (io/resource "re_frame/machines_conformance_test.clj")]
-    (assert res
-            (str "machines-conformance-test cannot locate its own source on "
-                 "the classpath — the machines test/ dir must be on the test "
-                 "classpath for fixture discovery to anchor."))
-    (-> (io/file res)        ; .../machines/test/re_frame/machines_conformance_test.clj
-        .getParentFile       ; .../machines/test/re_frame
-        .getParentFile       ; .../machines/test
-        .getParentFile       ; .../machines
-        .getParentFile       ; .../implementation
+    (assert res "machines test/ must be on the classpath to locate the fixtures")
+    (-> (io/file res)
+        .getParentFile       ; test/re_frame
+        .getParentFile       ; test
+        .getParentFile       ; machines
+        .getParentFile       ; implementation
         .getParentFile       ; repo root
         (io/file "spec" "conformance" "fixtures")
         .getCanonicalFile)))
 
 (defn- read-one-form
-  "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
-  returns only the FIRST and silently discards the rest, so a fixture whose
-  expectation block closes early passes having verified less than it claims.
-  Throws rather than returning `:fixture/load-error`, which
-  `all-machine-transition-fixtures` below FILTERS OUT — quieter still than
-  the skip the core runner would give it. Full rationale on
-  `re-frame.conformance-test/read-one-form`."
+  "Read `text` as exactly one EDN form, or throw: a plain read keeps the
+  first form and silently drops the rest of a fixture."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
-               (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    ".")
+               (throw (ex-info (str "conformance fixture " fixture-name " " why ".")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
@@ -103,63 +42,27 @@
     (when (identical? eof form)
       (fail "holds no top-level EDN form" {:fixture/forms 0}))
     (when-not (identical? eof (rd))
-      (fail (str "must hold exactly ONE top-level EDN form — a plain read"
-                 " returns the first and silently discards the rest")
-            {:fixture/forms :more-than-one}))
+      (fail "must hold exactly ONE top-level EDN form" {:fixture/forms :more-than-one}))
     form))
 
-(defn- load-fixture [file]
-  ;; Pure `clojure.edn` cannot read an auto-resolved `::name` keyword
-  ;; without a *reader-resolver*. Match the core runner's translation so
-  ;; such a fixture loads as bare data: rewrite `::name` →
-  ;; `:rf.machine.timer/name`, the namespace of synthetic timer events.
-  (let [raw   (slurp file)
-        fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
-                           ":rf.machine.timer/$1")]
-    (read-one-form fixed (.getName file))))
-
-(def machine-call-ops
-  "The Mode-B `:call` ops this artefact's runner executes:
-  `:machine-transition` (pure transition) and `:reg-machine` (pure
-  registration validation, pinning the registration-error taxonomy)."
-  #{:machine-transition :reg-machine})
-
-(defn- has-machine-call?
-  "True if any `:fixture/calls` entry uses a `:call` this runner executes."
-  [fixture]
-  (some (fn [c] (contains? machine-call-ops (:call c)))
-        (or (:fixture/calls fixture) [])))
+(def machine-call-ops #{:machine-transition :reg-machine})
 
 (defn all-machine-transition-fixtures
-  "Every fixture file whose `:fixture/calls` contains at least one
-  `:machine-transition` or `:reg-machine` call. Returns a vector of
-  `[filename fixture]` pairs in stable lex order."
+  "`[filename fixture]` for every fixture with a call this runner executes,
+  in filename order."
   []
   (->> (file-seq fixtures-dir)
-       (filter #(.isFile %))
-       (filter #(str/ends-with? (.getName %) ".edn"))
+       (filter #(and (.isFile %) (str/ends-with? (.getName %) ".edn")))
        (sort-by #(.getName %))
-       (map (fn [f] [(.getName f) (load-fixture f)]))
-       (filter (fn [[_ fx]]
-                 (and (not (:fixture/load-error fx))
-                      (has-machine-call? fx))))
+       (map (fn [f] [(.getName f) (read-one-form (slurp f) (.getName f))]))
+       (filter (fn [[_ fx]] (some (comp machine-call-ops :call) (:fixture/calls fx))))
        vec))
 
-;; ---- claimed capability set -----------------------------------------------
-;;
-;; Per `spec/conformance/README.md` §Capability tagging, the runner only
-;; executes fixtures whose `:fixture/capabilities` are a subset of the
-;; port's claimed list. For this Mode B runner the claim is the FSM /
-;; actor capability surface `machine-transition` covers — pure-function
-;; capabilities only. Anything that requires the dispatch loop, a frame,
-;; or app-db state (the schemas / SSR / routing / flow surfaces) is
-;; out-of-scope for this runner and the fixture is reported as skipped.
-
 (def claimed-capabilities
-  "Capabilities the pure machine-transition primitive covers — the
-  FSM/actor capability surface. Any fixture declaring capabilities outside
-  this set is reported as skipped (it belongs to core's downstream runner,
-  not this Mode B gate)."
+  "The pure-function FSM / actor surface `machine-transition` and
+  `validate-machine!` cover. A fixture declaring anything else is skipped.
+  The `:core/*` tags ride on some machine fixtures and are no-ops for a
+  pure call."
   #{:fsm/flat
     :fsm/hierarchical
     :fsm/parallel-regions
@@ -167,24 +70,12 @@
     :fsm/delayed-after
     :fsm/tags
     :fsm/final-states
-    ;; First-class history pseudo-states (`:type :history` — shallow / deep
-    ;; / default-target). The pure `machine-transition` primitive records on
-    ;; exit + restores on re-entry against the in-snapshot `:rf/history`
-    ;; slot, so history fixtures run in this Mode B gate.
     :fsm/history
-    ;; The registration-error taxonomy (Spec 009 thrown-error shape) —
-    ;; pinned by the `:reg-machine` Mode-B op against the pure
-    ;; `validate-machine!` validator.
     :fsm/registration-validation
     :actor/spawn-destroy
     :actor/declarative-spawn
     :actor/spawn-and-join
     :actor/own-state
-    ;; :core/* tags appear on a few machine fixtures alongside the FSM
-    ;; capability they exercise (e.g. tags-round-trip-pr-str declares
-    ;; both :fsm/tags and :core/event-handler). For the Mode B subset
-    ;; the :core/* tags are no-ops — the call is pure — so we claim them
-    ;; here to avoid spurious skips.
     :core/event-handler
     :core/sub
     :core/fx
@@ -192,40 +83,18 @@
     :core/trace
     :core/frame})
 
-(def claimed-spec-versions
-  "Fixture spec versions this runner conforms against. Matches the core
-  runner's set."
-  #{"1.0"})
+(def claimed-spec-versions #{"1.0"})
 
-(defn- runnable-capability-set?
-  "True iff every capability the fixture declares is in `claimed-capabilities`."
-  [fixture]
-  (let [caps (or (:fixture/capabilities fixture) #{})]
-    (every? claimed-capabilities caps)))
+(defn- runnable? [fixture]
+  (and (every? claimed-capabilities (:fixture/capabilities fixture))
+       (let [v (:fixture/spec-version fixture)]
+         (or (nil? v) (contains? claimed-spec-versions v)))))
 
-(defn- spec-version-claimed?
-  "True if the fixture's spec version (if any) is in `claimed-spec-versions`."
-  [fixture]
-  (let [v (:fixture/spec-version fixture)]
-    (or (nil? v) (contains? claimed-spec-versions v))))
+;; ---- handler-body DSL (spec/conformance/README.md §Handler-body DSL) --------
+;; Mirrors core's `realise-machine-handlers`, which lives in core/test and is
+;; not on this artefact's classpath.
 
-;; ---- machine-action body realisation --------------------------------------
-;;
-;; The conformance corpus describes machine action bodies in the
-;; handler-body DSL (see `spec/conformance/README.md` §Handler-body DSL).
-;; The DSL interpreter for VALUE forms lives in `re-frame.conformance`
-;; (already a dep of this artefact via core/src). The action-body
-;; reducer here is the same shape as `re-frame.conformance-test`'s
-;; `realise-machine-handlers` in core — duplicated here rather than
-;; reaching across artefacts because the core helper lives in
-;; core/test/, not core/src/, and the test-tree isn't on this
-;; artefact's classpath.
-
-(defn- realise-machine-action
-  "Build a `(fn [{:keys [data event]}])` from a DSL body. The fn returns
-  `{:data <maybe-new-data> :fx <vec-of-fx>}` matching the action's
-  canonical return shape per Spec 005 §Actions (single context-map arg)."
-  [steps]
+(defn- realise-machine-action [steps]
   (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
           final
@@ -233,13 +102,10 @@
             (fn [{:keys [data] :as ctx} step]
               (case (first step)
                 :set    (let [[_ path v] step]
-                          (assoc ctx :data
-                                 (assoc-in data path (eval-value v ctx))))
+                          (assoc ctx :data (assoc-in data path (eval-value v ctx))))
                 :fx     (let [[_ a b] step]
-                          (update ctx :fx (fnil conj [])
-                                  [a (eval-value b ctx)]))
-                :throw  (throw (ex-info (str (second step))
-                                        {:from-fixture? true}))
+                          (update ctx :fx (fnil conj []) [a (eval-value b ctx)]))
+                :throw  (throw (ex-info (str (second step)) {:from-fixture? true}))
                 ctx))
             {:data data :event event :fx []}
             steps)]
@@ -247,206 +113,72 @@
         (not= data (:data final)) (assoc :data (:data final))
         (seq (:fx final))         (assoc :fx (:fx final))))))
 
-(defn- realise-machine-guard
-  "Build a `(fn [{:keys [data event]}])` from a DSL body — returns a
-  boolean. Per Spec 005 §Guards (single context-map arg)."
-  [steps]
+(defn- realise-machine-guard [steps]
   (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
           step       (first steps)]
       (when (and (vector? step) (= :fn (first step)))
         (boolean (eval-value step {:data data :event event}))))))
 
-(defn- realise-machine-handlers
-  "Walk `:fixture/handlers :machine-action` + `:machine-guard` and produce
-  `{:actions {id fn} :guards {id fn}}`."
-  [fixture]
-  (let [handlers (or (:fixture/handlers fixture) {})]
-    {:actions
-     (into {}
-           (for [[id steps] (:machine-action handlers)]
-             [id (realise-machine-action steps)]))
-     :guards
-     (into {}
-           (for [[id steps] (:machine-guard handlers)]
-             [id (realise-machine-guard steps)]))}))
+(defn- realise-machine-handlers [fixture]
+  (let [handlers (:fixture/handlers fixture)]
+    {:actions (update-vals (:machine-action handlers) realise-machine-action)
+     :guards  (update-vals (:machine-guard handlers) realise-machine-guard)}))
 
-;; ---- single :machine-transition call --------------------------------------
+;; ---- calls -----------------------------------------------------------------
 
-(defn- run-machine-transition-call
-  "Execute one `:machine-transition` call. Returns
-  `{:passed? bool :detail msg}` matching the core runner's contract."
-  [call realised]
-  (let [{:keys [actions guards]} realised
-        ;; Merge fixture-registered handlers into the definition's
-        ;; named-binding maps (same shape as core's run-call). Fixture
-        ;; bindings live alongside any short-names the def declares;
-        ;; the engine follows short-name → registered-id → fn through
-        ;; the combined map.
-        definition (-> (:definition call)
+(defn- run-machine-transition-call [call {:keys [actions guards]}]
+  (let [definition (-> (:definition call)
                        (update :actions #(merge actions %))
                        (update :guards  #(merge guards %)))
-        r          (try (rf.machines/machine-transition definition
-                                                     (:snapshot call)
-                                                     (:event call))
+        r          (try (rf.machines/machine-transition definition (:snapshot call) (:event call))
                         (catch Throwable e
-                          {:snapshot nil
-                           :fx   [:error (.getMessage e)]}))
-        ;; A bounded-depth abort (`:always` / `:raise` depth limit tripped on
-        ;; a runaway cycle) is `:status :error` with a depth-exceeded
-        ;; `:kind`, not an `:ok` rollback no-op (XState v5 throws on such a
-        ;; cycle). The fixture's `:expect-next-snapshot` / `:expect-effects`
-        ;; capture the ATOMIC-ROLLBACK contract: the macrostep does not
-        ;; commit, so the externally-observable next-snapshot is the INPUT
-        ;; snapshot and the effects are empty (the lifecycle handler
-        ;; short-circuits to `{}`, leaving the pre-event snapshot committed).
-        ;; Project a depth-abort onto that observable shape so the fixture
-        ;; asserts the rollback fact under the failure surface.
+                          {:snapshot nil :fx [:error (.getMessage e)]}))
+        ;; A depth-limit abort rolls the macrostep back: the observable
+        ;; result is the input snapshot and no effects.
         depth-abort? (contains? #{:rf.error/machine-always-depth-exceeded
                                   :rf.error/machine-raise-depth-exceeded}
                                 (get-in r [:error :kind]))
         snap-out   (if depth-abort? (:snapshot call) (:snapshot r))
-        fx-out     (if depth-abort? [] (:fx r))
+        fx-out     (if depth-abort? [] (vec (:fx r)))
         want-snap  (:expect-next-snapshot call)
-        want-fx    (or (:expect-effects call) [])
-        ok-snap?   (= want-snap snap-out)
-        ok-fx?     (= want-fx (vec fx-out))]
-    {:passed? (and ok-snap? ok-fx?)
-     :detail  (when-not (and ok-snap? ok-fx?)
-                (str "machine-transition\n"
-                     "    event:             " (:event call) "\n"
-                     "    expected snapshot: " want-snap "\n"
-                     "    actual   snapshot: " snap-out "\n"
-                     "    expected effects:  " want-fx "\n"
-                     "    actual   effects:  " fx-out))}))
-
-;; ---- single :reg-machine call ---------------------------------------------
-;;
-;; The `:reg-machine` Mode-B op pins the registration-error taxonomy
-;; (Spec 009 §The thrown-error shape — the :rf.error/id ex-data contract)
-;; against the pure registration validator `validate-machine!`. A
-;; well-formed `:definition` validates silently; a malformed one throws an
-;; ex-info whose `:rf.error/id` ex-data slot names the category the
-;; fixture's `:expect-error` pins. No registrar, no substrate, no app-db —
-;; the validator is a pure leaf fn of the machine map.
+        want-fx    (or (:expect-effects call) [])]
+    (when-not (and (= want-snap snap-out) (= want-fx fx-out))
+      (str "machine-transition " (:event call)
+           "\n    expected snapshot: " want-snap "\n    actual   snapshot: " snap-out
+           "\n    expected effects:  " want-fx   "\n    actual   effects:  " fx-out))))
 
 (defn- run-reg-machine-call
-  "Execute one `:reg-machine` call. Returns `{:passed? bool :detail msg}`.
-
-  Validates `(:definition call)` via `re-frame.machines/validate-machine!`.
-  - With `:expect-error <category-kw>`: passes iff the validator throws an
-    ex-info whose `(:rf.error/id (ex-data e))` equals the category.
-  - With `:expect-valid? true` (or no `:expect-error`): passes iff the
-    validator does NOT throw (a well-formed control case)."
+  "`:expect-error` names the `:rf.error/id` `validate-machine!` must throw;
+  without it the definition must validate."
   [call]
-  (let [definition (:definition call)
-        want-error (:expect-error call)
-        thrown     (try (rf.machines/validate-machine! definition) nil
-                        (catch clojure.lang.ExceptionInfo e e)
-                        (catch Throwable e e))]
-    (if want-error
-      (let [got-id (when (instance? clojure.lang.ExceptionInfo thrown)
-                     (:rf.error/id (ex-data thrown)))
-            ok?    (= want-error got-id)]
-        {:passed? ok?
-         :detail  (when-not ok?
-                    (str "reg-machine\n"
-                         "    expected error :rf.error/id: " want-error "\n"
-                         "    actual   error :rf.error/id: " got-id "\n"
-                         "    thrown:                       " (some-> thrown ex-message)))})
-      ;; control: must NOT throw
-      {:passed? (nil? thrown)
-       :detail  (when (some? thrown)
-                  (str "reg-machine\n"
-                       "    expected: no error (well-formed machine)\n"
-                       "    thrown:   " (ex-message thrown)))})))
+  (let [want-error (:expect-error call)
+        thrown     (try (rf.machines/validate-machine! (:definition call)) nil
+                        (catch Throwable e e))
+        got-id     (:rf.error/id (ex-data thrown))]
+    (cond
+      (and want-error (not= want-error got-id))
+      (str "reg-machine: expected :rf.error/id " want-error ", got " got-id
+           " (" (some-> thrown ex-message) ")")
 
-;; ---- fixture-level pass/fail ----------------------------------------------
+      (and (not want-error) thrown)
+      (str "reg-machine: expected a valid machine, threw " (ex-message thrown)))))
 
-(defn- run-fixture
-  "Run every `:machine-transition` and `:reg-machine` call in the fixture;
-  return `{:fixture-id ... :passed? bool :failures [detail ...]}`. Other
-  `:call` ops in the same fixture are ignored — they belong to primitives
-  that don't ship in this artefact."
-  [fixture]
-  (let [realised   (realise-machine-handlers fixture)
-        calls      (or (:fixture/calls fixture) [])
-        results    (->> calls
-                        (keep (fn [c]
-                                (case (:call c)
-                                  :machine-transition (run-machine-transition-call c realised)
-                                  :reg-machine        (run-reg-machine-call c)
-                                  nil)))
-                        vec)
-        failures   (filterv (complement :passed?) results)]
-    {:fixture-id (:fixture/id fixture)
-     :calls-run  (count results)
-     :passed?    (empty? failures)
-     :failures   (mapv :detail failures)}))
-
-;; ---- the test entrypoint --------------------------------------------------
+(defn- fixture-failures [fixture]
+  (let [realised (realise-machine-handlers fixture)]
+    (keep (fn [c]
+            (case (:call c)
+              :machine-transition (run-machine-transition-call c realised)
+              :reg-machine        (run-reg-machine-call c)
+              nil))
+          (:fixture/calls fixture))))
 
 (deftest run-machines-conformance-corpus
-  (let [results (atom [])]
-    (doseq [[fname fixture] (all-machine-transition-fixtures)]
-      (cond
-        (not (spec-version-claimed? fixture))
-        (swap! results conj {:fixture-id   (:fixture/id fixture)
-                             :fname        fname
-                             :skipped?     true
-                             :reason       "spec-version not in claimed set"
-                             :spec-version (:fixture/spec-version fixture)})
-
-        (not (runnable-capability-set? fixture))
-        (swap! results conj {:fixture-id   (:fixture/id fixture)
-                             :fname        fname
-                             :skipped?     true
-                             :reason       "capabilities outside Mode B claim"
-                             :capabilities (:fixture/capabilities fixture)})
-
-        :else
-        (swap! results conj (assoc (run-fixture fixture) :fname fname))))
-    (let [all     @results
-          run     (remove :skipped? all)
-          passed  (filter :passed? run)
-          failed  (remove :passed? run)
-          skipped (filter :skipped? all)]
-      ;; Non-empty floor. The (zero? (count failed)) below, alone, passes
-      ;; GREEN over an empty / fully-skipped / orphaned corpus (wrong cwd,
-      ;; fixtures-dir rename, or a capability-vocab rename that orphans
-      ;; every Mode B fixture) — verifying NOTHING.
-      ;; Assert that fixtures actually executed:
-      ;;   - (pos? (count run)) catches the fully-empty case;
-      ;;   - the expected-minimum (>= 40) catches partial mass-orphaning
-      ;;     without pinning an exact count, since the set of runnable
-      ;;     :machine-transition / :reg-machine fixtures grows.
-      (is (pos? (count run))
-          "at least one Mode B :machine-transition fixture must have executed")
-      (is (>= (count run) 40)
-          (str "machines corpus runnable-fixture floor (>= 40): only "
-               (count run) " executed — a fixtures-dir/cwd fault or a "
-               "capability-vocab rename has orphaned the corpus."))
-      ;; Silent-on-success: summary prints only on failure.
-      (when (seq failed)
-        (println)
-        (println "Machines conformance corpus (Mode B :machine-transition):")
-        (println "  total fixtures (filtered to :machine-transition calls):" (count all))
-        (println "  runnable:                                              " (count run))
-        (println "  passed:                                                " (count passed))
-        (println "  failed:                                                " (count failed))
-        (println "  skipped (out-of-scope for Mode B):                     " (count skipped))
-        (when (seq skipped)
-          (println)
-          (println "Skipped:")
-          (doseq [s skipped]
-            (println "  " (:fixture-id s) "—" (:reason s)
-                     (or (:capabilities s) (:spec-version s)))))
-        (println)
-        (println "Failures:")
-        (doseq [f failed]
-          (println "  " (:fixture-id f))
-          (doseq [d (:failures f)]
-            (println "    " d))))
-      (is (zero? (count failed))
-          (str "All Mode B :machine-transition fixtures must pass; "
-               (count failed) " failed.")))))
+  (let [run      (filter (comp runnable? second) (all-machine-transition-fixtures))
+        failures (vec (for [[fname fixture] run
+                            detail          (fixture-failures fixture)]
+                        (str fname ": " detail)))]
+    ;; The floor keeps an emptied or orphaned corpus (wrong dir, a renamed
+    ;; capability) from passing over nothing; the corpus only grows.
+    (is (>= (count run) 40) (str "only " (count run) " Mode-B fixtures ran"))
+    (is (empty? failures) (str/join "\n" failures))))
