@@ -88,82 +88,11 @@
     (is (= expected (:state (snapshot machine-id))) label)))
 
 ;; ---------------------------------------------------------------------------
-;; (b) the blocking child INTERNAL transition runs its :action then halts
-;;     — for both the empty-map-with-action and... the nil form takes no
-;;     action (nil carries none), so :action coverage rides the map form.
-;; ---------------------------------------------------------------------------
-
-(deftest forbidden-block-runs-its-action-then-halts
-  (testing "a child block carrying an :action runs the action AND blocks the parent (internal, state unchanged)"
-    (let [log (atom [])
-          machine
-          {:initial :authenticated
-           :data    {}
-           :actions {:warn   (fn [_] (swap! log conj :warn) {})
-                     :logout-action (fn [_] (swap! log conj :parent-logout) {})}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             ;; parent's :logout carries an action too, so we can prove it
-             ;; did NOT run (the child block shadowed it).
-             :on      {:logout {:target [:unauthenticated] :action :logout-action}}
-             :states
-             {:dashboard {:on {:open-modal :modal}}
-              :modal     {:on {:logout {:action :warn}   ;; block + action, no :target
-                               :close  :dashboard}}}}
-            :unauthenticated {}}}]
-      (rf/reg-machine :forbid/action machine)
-      (seed-snapshot! :forbid/action {:state [:authenticated :modal] :data {}})
-      (reset! log [])
-      (rf/dispatch-sync [:forbid/action [:logout]])
-      (is (= [:warn] @log)
-          "the child block's :action ran; the parent's :logout action did NOT")
-      (is (= [:authenticated :modal] (:state (snapshot :forbid/action)))
-          "internal transition — state unchanged; parent :logout still blocked"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) compound coverage — the block lives on a deeper leaf and shadows a
-;;     transition factored TWO levels up.
-;; ---------------------------------------------------------------------------
-
-(deftest forbidden-block-shadows-grandparent-inherited-transition
-  (testing "a deep leaf's `{:on {:logout nil}}` blocks a :logout factored two levels up"
-    (let [machine
-          {:initial :app
-           :data    {}
-           :states
-           {:app
-            {:initial :authenticated
-             :on      {:logout [:bye]}                 ;; factored to the ROOT-child :app
-             :states
-             {:authenticated
-              {:initial :checkout
-               :states
-               ;; :checkout is two levels below the :logout declaration; it
-               ;; blocks with a present nil.
-               {:checkout {:on {:logout nil :cancel :browsing}}
-                :browsing {:on {:checkout :checkout}}}}}}
-            :bye {}}}]
-      (rf/reg-machine :forbid/compound machine)
-      (seed-snapshot! :forbid/compound
-                      {:state [:app :authenticated :checkout] :data {}})
-      (rf/dispatch-sync [:forbid/compound [:logout]])
-      (is (= [:app :authenticated :checkout] (:state (snapshot :forbid/compound)))
-          "deep-leaf nil block halted the walk — the :logout factored two levels up was NOT inherited")
-      ;; And from a sibling leaf WITHOUT the block, :logout is inherited.
-      (seed-snapshot! :forbid/compound
-                      {:state [:app :authenticated :browsing] :data {}})
-      (rf/dispatch-sync [:forbid/compound [:logout]])
-      (is (= [:bye] (:state (snapshot :forbid/compound)))
-          ":browsing has no :logout key → walk continues to :app → inherited :logout fired"))))
-
-;; ---------------------------------------------------------------------------
 ;; (d) forbidden block vs :* / :ns/* fallthrough — the headline semantic.
 ;;     A forbidden block (enabled internal candidate) does NOT fall to a
 ;;     same-level wildcard, NOR to a parent wildcard — it is a deliberate
 ;;     consume-here. This is the OPPOSITE of a GUARD-BLOCKED exact, which
-;;     DOES fall through. Test both halves so the distinction is
-;;     pinned.
+;;     DOES fall through (machines_wildcard_fallthrough_cljs_test).
 ;; ---------------------------------------------------------------------------
 
 (deftest forbidden-block-does-not-fall-through-to-wildcards
@@ -195,30 +124,3 @@
           "the forbidden exact block fired (a no-op) — NO wildcard at any tier/level ran")
       (is (= [:authenticated :modal] (:state (snapshot :forbid/wild)))
           "state unchanged — the block consumed the event"))))
-
-(deftest forbidden-block-contrasts-with-guard-blocked-fallthrough
-  (testing "CONTRAST: a GUARD-BLOCKED exact DOES fall through to :* — proving the block is the difference"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:leaf-star (tag :leaf-star)
-                     :blocked   (tag :blocked)}
-           :states
-           {:authenticated
-            {:initial :modal
-             :states
-             ;; SAME shape as above but the exact entry is GUARD-BLOCKED
-             ;; (not a forbidden block) — it must fall through to the
-             ;; same-level :*, firing :leaf-star.
-             {:modal {:on {:auth/logout {:guard :never :action :blocked}
-                           :*           {:action :leaf-star}}}}}}}]
-      (rf/reg-machine :forbid/guard-contrast machine)
-      (seed-snapshot! :forbid/guard-contrast {:state [:authenticated :modal] :data {}})
-      (reset! log [])
-      (rf/dispatch-sync [:forbid/guard-contrast [:auth/logout]])
-      (is (= [:leaf-star] @log)
-          "guard-blocked exact is NOT enabled → falls through to the same-level :*;
-           the guard-blocked action did not run"))))
