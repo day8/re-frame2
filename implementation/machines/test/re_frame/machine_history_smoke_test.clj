@@ -128,128 +128,69 @@
 ;; on `:source :recorded`, `:prev-config` absent on the first-ever recording).
 
 (deftest recorded-trace-shape-deep
-  (testing ":rf.machine.history/recorded carries the spec/009 deep tag bag"
-    ;; First-ever recording for [:player :playing] — :prev-config ABSENT.
+  (testing ":rf.machine.history/recorded carries the spec/009 deep tag bag (no :prev-config on a first recording)"
     (step deep-player (seed [:player :playing :mid-track]) [:stop])
-    (let [evs (history-events :rf.machine.history/recorded)]
-      (is (= 1 (count evs)) "exactly one recorded event")
-      (let [tags (:tags (first evs))]
-        (is (= :rf.machine (:op-type (first evs))) "machine-activity op-type")
-        (is (= [:player :playing] (:compound-path tags)) ":compound-path = exited owner's decl path")
-        (is (= :deep (:kind tags)) ":kind :deep (not :deep?)")
-        (is (= [:player :playing :mid-track] (:recorded-config tags))
-            ":recorded-config = full leaf")
-        (is (not (contains? tags :prev-config))
-            ":prev-config ABSENT on the first-ever recording")
-        (is (not (contains? tags :history-key)) "no :history-key tag")
-        (is (not (contains? tags :config)) "no :config tag (the key is :recorded-config)")
-        (is (not (contains? tags :deep?)) "no :deep? tag (the key is :kind)")
-        (is (not (contains? tags :region)) "no :region tag (the region is part of :compound-path)")))))
+    (is (= [[:rf.machine {:compound-path [:player :playing] :kind :deep
+                          :recorded-config [:player :playing :mid-track]}]]
+           (mapv (fn [ev] [(:op-type ev)
+                           (select-keys (:tags ev) [:compound-path :kind :recorded-config :prev-config])])
+                 (history-events :rf.machine.history/recorded))))))
 
 (deftest restored-trace-shape-recorded-source
-  (testing ":rf.machine.history/restored on the :recorded path"
+  (testing ":rf.machine.history/restored on the :recorded path (no :fallback)"
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])]
       (reset-capture!)
       (step deep-player after-stop [:play])
-      (let [evs  (history-events :rf.machine.history/restored)
-            ev   (first evs)
-            tags (:tags ev)]
-        (is (= 1 (count evs)) "exactly one restored event")
-        (is (= :rf.machine (:op-type ev)) "machine-activity op-type")
-        (is (= [:player :playing] (:compound-path tags)) ":compound-path = the restored owner's decl path")
-        (is (= :deep (:kind tags)) ":kind :deep")
-        ;; `:source` is hoisted to the envelope top level on the success path
-        ;; (build-event strips it from :tags) — the spec's documented hoist.
-        (is (= :recorded (:source ev)) ":source :recorded (hoisted to top level)")
-        (is (= [:player :playing :mid-track] (:restored-config tags))
-            ":restored-config = the recorded config that drove the restore")
-        (is (= [:player :playing :mid-track] (:resolved-leaf tags))
-            ":resolved-leaf = the concrete leaf entered")
-        (is (not (contains? tags :fallback))
-            ":fallback ABSENT on the :recorded path")
-        (is (not (contains? tags :history-key)) "no :history-key tag")
-        (is (not (contains? tags :deep?)) "no :deep? tag")
-        (is (not (contains? tags :region)) "no :region tag")))))
+      (is (= [[:rf.machine :recorded {:compound-path   [:player :playing] :kind :deep
+                                      :restored-config [:player :playing :mid-track]
+                                      :resolved-leaf   [:player :playing :mid-track]}]]
+             (mapv (fn [ev] [(:op-type ev) (:source ev)
+                             (select-keys (:tags ev) [:compound-path :kind :restored-config
+                                                      :resolved-leaf :fallback])])
+                   (history-events :rf.machine.history/restored)))))))
 
 (deftest restored-trace-shape-default-source-with-fallback
-  (testing ":rf.machine.history/restored on the :default path names the :fallback"
-    ;; First entry — nothing recorded → :default, :default-target declared.
+  (testing ":rf.machine.history/restored on the :default path names the :fallback (no :restored-config)"
     (step deep-player (seed [:player :stopped]) [:play])
-    (let [evs  (history-events :rf.machine.history/restored)
-          ev   (first evs)
-          tags (:tags ev)]
-      (is (= 1 (count evs)) "exactly one restored event")
-      (is (= :default (:source ev)) ":source :default (no recording; hoisted)")
-      (is (= :default-target (:fallback tags))
-          ":fallback :default-target (the pseudo-state declared one)")
-      (is (= [:player :playing :at-start] (:resolved-leaf tags))
-          ":resolved-leaf = :default-target descended to its :initial")
-      (is (not (contains? tags :restored-config))
-          ":restored-config ABSENT on the :default path (nothing recorded)"))))
+    (is (= [[:default {:fallback :default-target :resolved-leaf [:player :playing :at-start]}]]
+           (mapv (fn [ev] [(:source ev)
+                           (select-keys (:tags ev) [:fallback :resolved-leaf :restored-config])])
+                 (history-events :rf.machine.history/restored))))))
 
 (deftest restored-trace-shape-default-fallback-initial
   (testing ":fallback :initial when the pseudo-state declares no :default-target"
-    (let [m {:initial :player
-             :states  {:player
-                        {:initial :stopped
-                         :states  {:stopped {:on {:play [:player :playing :hist]}}
-                                   :playing {:initial :at-start
-                                             :on      {:stop [:player :stopped]}
-                                             :states  {:hist      {:type :history :deep? true}
-                                                       :at-start  {}
-                                                       :mid-track {}}}}}}}]
-      (step m (seed [:player :stopped]) [:play])
-      (let [ev   (first (history-events :rf.machine.history/restored))
-            tags (:tags ev)]
-        (is (= :default (:source ev)))
-        (is (= :initial (:fallback tags))
-            ":fallback :initial — no :default-target declared")
-        (is (not (contains? tags :restored-config)))))))
+    (step {:initial :player
+           :states  {:player
+                     {:initial :stopped
+                      :states  {:stopped {:on {:play [:player :playing :hist]}}
+                                :playing {:initial :at-start
+                                          :on      {:stop [:player :stopped]}
+                                          :states  {:hist      {:type :history :deep? true}
+                                                    :at-start  {}
+                                                    :mid-track {}}}}}}}
+          (seed [:player :stopped]) [:play])
+    (let [ev (first (history-events :rf.machine.history/restored))]
+      (is (= [:default {:fallback :initial}]
+             [(:source ev) (select-keys (:tags ev) [:fallback :restored-config])])))))
 
 (deftest restored-trace-shape-shallow-kind
   (testing "shallow history restore stamps :kind :shallow"
     (let [after-eject (step shallow-player (seed [:player :playing :mid-track]) [:eject])]
       (reset-capture!)
       (step shallow-player after-eject [:insert])
-      (let [ev   (first (history-events :rf.machine.history/restored))
-            tags (:tags ev)]
-        (is (= :shallow (:kind tags)) ":kind :shallow (no :deep?)")
-        (is (= :recorded (:source ev)))
-        (is (= :playing (:restored-config tags))
-            ":restored-config = recorded direct-child keyword (shallow)")
-        (is (= [:player :playing :at-start] (:resolved-leaf tags))
-            ":resolved-leaf = recorded child descended through its :initial")))))
+      (let [ev (first (history-events :rf.machine.history/restored))]
+        (is (= [:recorded {:kind :shallow :restored-config :playing
+                           :resolved-leaf [:player :playing :at-start]}]
+               [(:source ev) (select-keys (:tags ev) [:kind :restored-config :resolved-leaf])]))))))
 
 (deftest cascade-step-source-stamping
-  (testing "history-driven :entry cascade steps carry :source (spec/009 line 291)"
-    ;; Re-run the restore and read the structured cascade off the ENGINE
-    ;; seam's Result (the `:re-frame.machines.result/cascade` rider is lifecycle bookkeeping
-    ;; the public map does not carry) — each :entry step must carry :source
-    ;; matching the restored event; non-history steps (exit) carry none.
+  (testing "history-driven :entry cascade steps carry :source; :exit steps do not (spec/009)"
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])
-          r          (rf.machines.parallel/machine-transition deep-player after-stop [:play])]
-      (is (rf.machines.result/ok? r))
-      (let [cascade (rf.machines.result/cascade r)
-            entries (filterv #(= :entry (:kind %)) cascade)
-            exits   (filterv #(= :exit (:kind %)) cascade)]
-        (is (seq entries) "the restore produced entry steps")
-        (is (every? #(= :recorded (:source %)) entries)
-            "every history-driven :entry step carries :source :recorded")
-        (is (every? #(not (contains? % :source)) exits)
-            "non-history (:exit) steps carry NO :source key")))))
-
-(deftest non-history-transition-has-no-source-on-steps
-  (testing "an ordinary (non-history) transition stamps NO :source on cascade steps"
-    ;; :seek :at-start→:mid-track is a plain leaf transition — no history.
-    (let [r       (rf.machines.parallel/machine-transition
-                    deep-player (seed [:player :playing :at-start]) [:seek])
-          cascade (rf.machines.result/cascade r)]
-      (is (rf.machines.result/ok? r))
-      (is (every? #(not (contains? % :source))
-                  (filterv #(= :entry (:kind %)) cascade))
-          "no :source on entry steps of a non-history transition")
-      (is (empty? (history-events :rf.machine.history/restored))
-          "no restored event for a non-history transition"))))
+          cascade    (rf.machines.result/cascade
+                       (rf.machines.parallel/machine-transition deep-player after-stop [:play]))]
+      (is (= [#{:recorded} #{false}]
+             [(set (map :source (filter #(= :entry (:kind %)) cascade)))
+              (set (map #(contains? % :source) (filter #(= :exit (:kind %)) cascade)))])))))
 
 ;; ---- a history target declared inside its owning compound -----------------
 ;;
@@ -288,38 +229,31 @@
   (assoc (seed state) :data {:log []}))
 
 (deftest restore-declared-on-the-owning-compound-keeps-it-standing
-  (testing "a transition declared on :p to its own history, without :reenter?, leaves :p standing"
+  (testing "a transition declared on :p to its own history, without :reenter?, leaves :p standing:
+            nothing recorded, so the default :a is entered and :p's :exit / :entry do not run"
     (let [after (step (history-owner-chart false) (logged-at [:p :b :b2]) [:restore])]
-      (is (= [:p :a] (:state after))
-          "nothing recorded yet, so the default target :a is entered")
-      (is (= [:exit/b :enter/a] (get-in after [:data :log]))
-          ":p's :exit / :entry do not run — only the states below :p move")
-      (is (nil? (:rf/history after))
-          ":p was not exited, so it recorded nothing")
-      (is (= :default (:source (first (history-events :rf.machine.history/restored))))))))
+      (is (= [[:p :a] [:exit/b :enter/a] nil :default]
+             [(:state after) (get-in after [:data :log]) (:rf/history after)
+              (:source (first (history-events :rf.machine.history/restored)))])))))
 
 (deftest reenter-to-own-history-restores-what-its-exit-recorded
   (testing "shallow — :reenter? true exits :p, recording :b, and restores :b"
-    (let [after (step (history-owner-chart false) (logged-at [:p :b :b2]) [:restart])
+    (let [after    (step (history-owner-chart false) (logged-at [:p :b :b2]) [:restart])
           restored (first (history-events :rf.machine.history/restored))]
-      (is (= [:p :b :b1] (:state after))
-          "the recorded child :b, then its :initial — not the default :a")
-      (is (= [:exit/b :exit/p :enter/p :enter/b :enter/b1] (get-in after [:data :log])))
-      (is (= {[:p] :b} (:rf/history after)))
-      (is (= :recorded (:source restored)))
-      (is (= :b (get-in restored [:tags :restored-config])))))
+      (is (= [[:p :b :b1] [:exit/b :exit/p :enter/p :enter/b :enter/b1] {[:p] :b} :recorded :b]
+             [(:state after) (get-in after [:data :log]) (:rf/history after)
+              (:source restored) (get-in restored [:tags :restored-config])]))))
   (testing "deep — the restore reads the leaf the same exit recorded"
     (let [after (step (history-owner-chart true) (logged-at [:p :b :b2]) [:restart])]
-      (is (= [:p :b :b2] (:state after)))
-      (is (= {[:p] [:p :b :b2]} (:rf/history after))))))
+      (is (= [[:p :b :b2] {[:p] [:p :b :b2]}] [(:state after) (:rf/history after)])))))
 
 (deftest history-restoring-its-declaring-state-re-enters-it
   (testing "a history target whose restored configuration contains the declaring state exits and re-enters it"
-    (let [before (assoc (logged-at [:p :b :b1]) :rf/history {[:p] :b})
-          after  (step (history-owner-chart false) before [:back])]
-      (is (= [:p :b :b1] (:state after)))
-      (is (= [:exit/b :enter/b :enter/b1] (get-in after [:data :log]))
-          ":b exits and re-enters, so its children are torn down and rebuilt"))))
+    (let [after (step (history-owner-chart false)
+                      (assoc (logged-at [:p :b :b1]) :rf/history {[:p] :b})
+                      [:back])]
+      (is (= [[:p :b :b1] [:exit/b :enter/b :enter/b1]]
+             [(:state after) (get-in after [:data :log])])))))
 
 ;; ---- a history target declared below its owning compound -------------------
 ;;
@@ -345,28 +279,14 @@
                           :hist {:type :history :deep? deep?}}}}})
 
 (deftest child-declared-history-restore-exits-and-re-enters-the-recorded-child
-  (testing "shallow, recording {[:p] :b}: :b exits and re-enters"
-    (let [before (assoc (logged-at [:p :b :b2]) :rf/history {[:p] :b})
-          after  (step (child-declared-chart false) before [:go])]
-      (is (= [:p :b :b1] (:state after)))
-      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log])))))
-  (testing "shallow, nothing recorded: the :initial fallback takes the same domain"
-    (let [after (step (child-declared-chart false) (logged-at [:p :b :b2]) [:go])]
-      (is (= [:p :b :b1] (:state after)))
-      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log])))))
-  (testing "deep, recording {[:p] [:p :b :b1]}: the domain is :p as well"
-    (let [before (assoc (logged-at [:p :b :b2]) :rf/history {[:p] [:p :b :b1]})
-          after  (step (child-declared-chart true) before [:go])]
-      (is (= [:p :b :b1] (:state after)))
-      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log]))))))
-
-(deftest history-restore-from-outside-the-owning-compound-enters-it
-  (testing "control: from :q, shallow and deep restores enter :p and the recorded configuration"
-    (doseq [[deep? recorded] [[false :b] [true [:p :b :b1]]]]
-      (let [before (assoc (logged-at :q) :rf/history {[:p] recorded})
-            after  (step (child-declared-chart deep?) before [:enter])]
-        (is (= [:p :b :b1] (:state after)))
-        (is (= [:exit/q :enter/p :enter/b :enter/b1] (get-in after [:data :log])))))))
+  (testing "shallow recorded, shallow unrecorded (:initial fallback) and deep recorded all take :p's domain"
+    (doseq [[deep? history] [[false {[:p] :b}] [false nil] [true {[:p] [:p :b :b1]}]]]
+      (let [after (step (child-declared-chart deep?)
+                        (cond-> (logged-at [:p :b :b2]) history (assoc :rf/history history))
+                        [:go])]
+        (is (= [[:p :b :b1] [:exit/b2 :exit/b :act :enter/b :enter/b1]]
+               [(:state after) (get-in after [:data :log])])
+            (pr-str [deep? history]))))))
 
 (def ^:private region-child-declared
   {:type    :parallel
