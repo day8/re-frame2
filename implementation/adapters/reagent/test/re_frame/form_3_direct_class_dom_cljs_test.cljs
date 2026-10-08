@@ -5,20 +5,14 @@
   names. The two other Form-3 fixtures both register an outer fn that
   RETURNS a class.
 
-  A reading of the source suggests the shape breaks — `build-frame-aware-view`
+  A reading of the source suggests the shape breaks: `build-frame-aware-view`
   ends in an unconditional `(apply render-fn args)`, a `create-class`
-  constructor satisfies `fn?`, and the annotation walk's `reagent-class?` guard
-  inspects the render's OUTPUT rather than the registered INPUT, so it cannot
-  catch a constructor that has already been called. That reading is correct as
-  far as it goes, yet on STOCK Reagent the shape mounts correctly: every
-  assertion here passes with no repair in place, and the fixture is
-  discriminating — a planted fault takes the `:browser-test` lane red.
-
-  So this namespace is coverage for a contract that holds rather than the
-  witness of a repair. It asserts what that reading says would be lost:
-  rendered props from `:reagent-render` under a real class instance, and
-  exactly-once `:component-did-mount` / `:component-will-unmount`. If a
-  change breaks the direct shape, this is what says so.
+  constructor satisfies `fn?`, and the annotation walk's `reagent-class?`
+  guard inspects the render's OUTPUT rather than the registered INPUT. On
+  STOCK Reagent the shape mounts correctly all the same, and this asserts
+  what that reading says would be lost: rendered props from
+  `:reagent-render` under a real class instance, and exactly-once
+  `:component-did-mount` / `:component-will-unmount`.
 
   Stock Reagent only. `reagent-slim` builds its class differently (it tags the
   constructor `cljsReagentClass` and installs `prototype.render` rather than
@@ -97,8 +91,6 @@
 (defn- text-of [dom-id]
   (some-> (.getElementById js/document dom-id) (.-textContent)))
 
-(defn- mounted-attr [dom-id attr]
-  (some-> (.getElementById js/document dom-id) (.getAttribute attr)))
 
 (defn- run-mount-case
   "Mount `[(rf/view view-id) label]` under a frame-provider, run `after-mount`,
@@ -147,19 +139,16 @@
           (fn []
             ;; The whole contract in one assertion: called as a function,
             ;; the constructor would never produce this node.
-            (is (= "hello" (text-of "direct-class-preinit"))
-                "the class's :reagent-render produced the DOM node with its arg")
-            (is (= [:render "hello"] (first @lifecycle))
-                "the render ran under the class, not as a bare constructor call")
-            (is (= 1 (count (filter #(= [:mount "direct-class-preinit"] %) @lifecycle)))
-                "component-did-mount fired exactly once")
-            (is (empty? (filter #(= :unmount (first %)) @lifecycle))
-                "nothing unmounted while still mounted"))
+            (is (= ["hello" [:render "hello"] 1 []]
+                   [(text-of "direct-class-preinit") (first @lifecycle)
+                    (count (filter #(= [:mount "direct-class-preinit"] %) @lifecycle))
+                    (filterv #(= :unmount (first %)) @lifecycle)])
+                "the class's :reagent-render produced the DOM node with its arg, under the class rather than as a bare constructor call; did-mount fired once and nothing unmounted"))
           (fn []
-            (is (nil? (text-of "direct-class-preinit"))
-                "the node is gone after unmount")
-            (is (= 1 (count (filter #(= [:unmount "direct-class-preinit"] %) @lifecycle)))
-                "component-will-unmount fired exactly once")))))))
+            (is (= [nil 1]
+                   [(text-of "direct-class-preinit")
+                    (count (filter #(= [:unmount "direct-class-preinit"] %) @lifecycle))])
+                "the node is gone after unmount, and component-will-unmount fired exactly once")))))))
 
 (deftest direct-class-registered-after-init-mounts-with-exactly-once-lifecycle
   (testing "the same direct shape registered AFTER the adapter is installed —
@@ -173,10 +162,10 @@
         (run-mount-case
           ::postinit-panel "direct-class-postinit" "world" done
           (fn []
-            (is (= "world" (text-of "direct-class-postinit"))
-                "the post-init direct class rendered its arg")
-            (is (= 1 (count (filter #(= [:mount "direct-class-postinit"] %) @lifecycle)))
-                "component-did-mount fired exactly once"))
+            (is (= ["world" 1]
+                   [(text-of "direct-class-postinit")
+                    (count (filter #(= [:mount "direct-class-postinit"] %) @lifecycle))])
+                "the post-init direct class rendered its arg, and component-did-mount fired exactly once"))
           (fn []
             (is (= 1 (count (filter #(= [:unmount "direct-class-postinit"] %) @lifecycle)))
                 "component-will-unmount fired exactly once")))))))
