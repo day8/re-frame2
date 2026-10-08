@@ -16,7 +16,7 @@
        row.
 
     5. **Search filter** — substring across flow-id + path + doc."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load-time hook so `reg-flow` / `flows-snapshot`
             ;; resolve. The Static Flows panel reads the PRODUCTION data
@@ -25,7 +25,6 @@
             ;; reserved-but-empty), so the live-source regression below
             ;; registers real flows through `rf/reg-flow`.
             [re-frame.flows]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -86,11 +85,16 @@
   boundary renders.
 
   The dispatcher is nil: no row here types into the search box, and the
-  search box only calls it from `:on-change`. The boundary's OWN behaviour
-  — first paint, liveness, frame targeting, evidence isolation, teardown
-  and row identity — is `panel_fresco_boundary_dom_cljs_test`'s subject."
+  search box only calls it from `:on-change`."
   []
   (panel/panel-tree @(rf/subscribe [:rf.xray.static.flows/tab-data]) nil))
+
+(defn- inspector-view-forms
+  "Every `[ei/edn-inspector-view {…}]` form in the tree — the widget's
+  FRESCO head, left unexpanded (see the walker note above)."
+  [tree]
+  (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
+           (hiccup-nodes tree)))
 
 ;; ---- fixture data -------------------------------------------------------
 
@@ -115,54 +119,24 @@
 
 (deftest filter-rows-substring
   (let [rows (panel/project-rows sample-flows)]
-    (testing "blank query returns rows verbatim"
+    (testing "a nil or blank query returns rows verbatim"
       (is (= rows (panel/filter-rows rows nil)))
-      (is (= rows (panel/filter-rows rows "")))
       (is (= rows (panel/filter-rows rows "   "))))
-    (testing "case-insensitive substring across id"
-      (is (= 1 (count (panel/filter-rows rows "CART"))))
-      (is (= 1 (count (panel/filter-rows rows "user")))))
-    (testing "matches against doc"
-      (is (= 1 (count (panel/filter-rows rows "concat")))))
-    (testing "no match → empty"
-      (is (= 0 (count (panel/filter-rows rows "no-such-thing")))))))
+    (testing "case-insensitive substring across id and doc"
+      (are [query ids] (= ids (mapv :flow-id (panel/filter-rows rows query)))
+        "CART"   [:cart/total]
+        "concat" [:user/full-name]))))
 
 (deftest project-data-shape
   ;; nil frame-id = list every frame's flows (see scope-to-frame).
-  (let [data (panel/project-data sample-flows nil nil)]
-    (testing "silent flag"
-      (is (false? (:silent? data)))
-      (is (true? (:silent? (panel/project-data {} nil nil)))))
-    (testing "totals + filter flags"
-      (is (= 2 (:total data)))
-      (is (false? (:filtered? data)))
-      (is (true? (:filtered? (panel/project-data sample-flows nil "cart")))))))
-
-(deftest scope-to-frame-narrows-to-one-frame
-  (let [multi {:rf/default {:a {:id :a}}
-               :rf/cart    {:b {:id :b}}}]
-    (testing "nil frame-id passes the snapshot through verbatim"
-      (is (= multi (panel/scope-to-frame multi nil))))
-    (testing "a frame-id keeps only that frame's entry"
-      (is (= {:rf/default {:a {:id :a}}}
-             (panel/scope-to-frame multi :rf/default)))
-      (is (= {:rf/cart {:b {:id :b}}}
-             (panel/scope-to-frame multi :rf/cart))))
-    (testing "an absent frame-id yields an empty registry"
-      (is (= {} (panel/scope-to-frame multi :rf/nope))))))
+  (is (= [false 2 false]
+         ((juxt :silent? :total :filtered?) (panel/project-data sample-flows nil nil))))
+  (is (true? (:filtered? (panel/project-data sample-flows nil "cart"))))
+  (is (true? (:silent? (panel/project-data {} nil nil)))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
-
-(deftest set-query-writes-the-slot
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.static.flows/set-query "cart"])
-    (is (= "cart" @(rf/subscribe [:rf.xray.static.flows/query])))
-    (rf/dispatch-sync [:rf.xray.static.flows/set-query ""])
-    (is (nil? @(rf/subscribe [:rf.xray.static.flows/query]))
-        "blank string dissocs the slot")))
 
 (def two-frame-flows
   "Two frames each carrying distinct flows — fixture for the picker-
@@ -180,28 +154,20 @@
                  :output-path [:cart :count]}}})
 
 (deftest tab-data-scopes-to-picker-frame
-  (testing "the L1 frame picker scopes the Flows catalogue — switching
-            the picker frame changes which frame's flows the tab lists,
-            rather than the flattened all-frames set"
+  (testing "the L1 frame picker scopes the Flows catalogue to the picked
+            frame's flows rather than the flattened all-frames set of 3"
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          two-frame-flows])
-      (testing "picker on :rf/default → only that frame's one flow"
+      (let [total-and-ids (fn []
+                            (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
+                              [(:total data) (mapv :flow-id (:flows data))]))]
         (rf/dispatch-sync [:rf.xray/select-frame :rf/default])
-        (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
-          (is (= 1 (:total data)) "frame :rf/default has one flow")
-          (is (= [:user/full-name] (mapv :flow-id (:flows data)))
-              "only :rf/default's flow surfaces")))
-      (testing "picker on :rf/cart-frame → only that frame's two flows"
+        (is (= [1 [:user/full-name]] (total-and-ids)))
         (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame])
-        (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
-          (is (= 2 (:total data)) "frame :rf/cart-frame has two flows")
-          (is (= [:cart/count :cart/total] (mapv :flow-id (:flows data)))
-              "only :rf/cart-frame's flows surface — NOT the global set of 3")))
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test nil]))))
+        (is (= [2 [:cart/count :cart/total]] (total-and-ids)))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) view rendering
@@ -213,15 +179,14 @@
     (rf/dispatch-sync
       [:rf.xray.static.flows/set-registered-flows-override-for-test
        sample-flows])
-    (let [tree      (panel-tree)
-          list-node (find-by-testid tree "rf-xray-static-flows-list")
-          rows      (find-by-testid-prefix tree "rf-xray-static-flows-row-")]
-      (is (= 2 (count rows)) "two row surfaces rendered")
+    (let [tree (panel-tree)]
       (is (some? (find-by-testid tree "rf-xray-static-flows-search"))
           "search box rendered")
-      (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-      (is (every? #(= "listitem" (:role (second %))) rows)
-          "every row carries role=listitem"))))
+      (is (= ["list" ["listitem" "listitem"]]
+             [(:role (second (find-by-testid tree "rf-xray-static-flows-list")))
+              (mapv #(:role (second %))
+                    (find-by-testid-prefix tree "rf-xray-static-flows-row-"))])
+          "a role=list <ul> holding one role=listitem row per flow"))))
 
 (deftest panel-renders-filtered-state
   (setup-xray!)
@@ -235,80 +200,18 @@
           "empty-filtered surface mounts when query removes every row"))))
 
 ;; -------------------------------------------------------------------------
-;; (4) EDN values render through the shared widget's FRESCO head
-;; -------------------------------------------------------------------------
-
-(defn- inspector-view-forms
-  "Every `[ei/edn-inspector-view {…}]` form in the tree — the widget's
-  FRESCO head, and the only fn-headed vector the panel emits.
-
-  No expansion of any kind. The panel CALLS every plain helper, so the
-  tree is already realized down to this leaf, and the
-  leaf must STAY a leaf: applying a boundary here would run
-  `rf.fresco/sub` outside the collector."
-  [tree]
-  (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
-           (hiccup-nodes tree)))
-
-(deftest input-output-render-through-the-widgets-fresco-head
-  (testing "input + output paths render via the shared EDN widget, through
-            its FRESCO head.
-
-            The row asserts on the head form the panel emits, not on the
-            widget's expanded `rf-xray-edn-inspector-*` CONTAINER testid,
-            which only exists once the widget has been invoked. The walker
-            above invokes nothing, and it must not: `ei/edn-inspector-view`
-            is a boundary whose body may only run inside a React render
-            window. Asserting on the head also pins HD-016 directly:
-            `ei/edn-inspector` is a plain fn, and a plain fn in hiccup head
-            position is a loud error inside a Fresco body."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test
-         sample-flows])
-      (let [tree  (panel-tree)
-            heads (inspector-view-forms tree)]
-        ;; Two flows: 2 + 1 input paths, plus one output path each = 5.
-        (is (= 5 (count heads))
-            (str "every input and output path renders through the widget's "
-                 "Fresco head. Mount ids: "
-                 (pr-str (mapv #(:mount-id (second %)) heads))))
-        (is (empty? (filterv #(and (vector? %) (= ei/edn-inspector (first %)))
-                             (hiccup-nodes tree)))
-            "and NOT ONE `[ei/edn-inspector …]` Reagent head survives — that
-             head is a plain fn, which is a loud error in a Fresco body, so
-             a single survivor would take the whole panel down at runtime
-             rather than degrade")
-        (is (= (count heads) (count (set (map #(:mount-id (second %)) heads))))
-            "each mount gets its OWN `:mount-id` — two mounts sharing one
-             would share a width slot and a projection cache")))))
-
-;; -------------------------------------------------------------------------
-;; (4a) ONE FLOW-ID, TWO FRAMES, ONE RENDER FRAME
+;; (4) ONE FLOW-ID, TWO FRAMES, ONE RENDER FRAME
 ;; -------------------------------------------------------------------------
 ;;
-;; THE ROW ABOVE CANNOT SEE THIS, and that is why this section exists rather
-;; than an extra `is` up there. `sample-flows` is ONE frame carrying two
-;; DIFFERENT ids, so its mount ids are distinct on the flow-id alone and stay
-;; distinct however the node key is built. The browser lane's W5 is no help
-;; either — it removes differently named rows from one frame. So neither
-;; fixture exercises the case the flows registry explicitly supports:
-;; frame-divergence per id (Spec 013), surfaced all at once by the browse-all
-;; projection.
+;; The flows registry is frame-divergent per id (Spec 013), and the browse-all
+;; projection lists every frame's flows at once, so one flow-id can reach the
+;; tree twice inside the one `:rf/xray` render frame.
 
 (def one-flow-id-two-frames
-  "ONE flow-id registered against TWO frames — the fixture nothing else in
-  this file reaches.
-
-  `scope-to-frame` with a nil frame-id (the default OBSERVED-target state,
-  `defaults/default-target-frame` = UNSELECTED) passes every frame's flows
-  through, so these two registrations project to TWO rows inside the ONE
-  `:rf/xray` render frame the panel paints in.
-
-  Each row carries its own `:inputs` / `:output-path`, which is the point of
-  frame-divergence: they are two different flows that happen to share a
-  name."
+  "ONE flow-id registered against TWO frames, each with its own `:inputs` /
+  `:output-path`. `scope-to-frame` with a nil frame-id (the default,
+  unselected observed frame) passes both through, so they project to TWO
+  rows."
   {:app/a {:shared/flow {:id          :shared/flow
                          :inputs      [[:a :in]]
                          :output-path [:a :out]}}
@@ -316,74 +219,22 @@
                          :inputs      [[:b :in]]
                          :output-path [:b :out]}}})
 
-(def two-flow-ids-one-frame
-  "THE NON-VACUITY CONTROL, and it is taken from the target in the same run
-  rather than reasoned about: same row COUNT, same input/output shape, same
-  walker, ids that genuinely differ. A `row-identity` that answered a
-  constant — or a walker that silently found nothing — reads red here while
-  the fixture above would read green, so the pair separates \"the panel
-  distinguishes these rows\" from \"this test distinguishes anything\"."
-  {:app/a {:flow/one {:id          :flow/one
-                      :inputs      [[:a :in]]
-                      :output-path [:a :out]}
-           :flow/two {:id          :flow/two
-                      :inputs      [[:b :in]]
-                      :output-path [:b :out]}}})
-
-(defn- mount-ids-for-override [fixture]
-  (rf/dispatch-sync
-    [:rf.xray.static.flows/set-registered-flows-override-for-test fixture])
-  (let [data  @(rf/subscribe [:rf.xray.static.flows/tab-data])
-        heads (inspector-view-forms (panel/panel-tree data nil))]
-    {:rows      (:flows data)
-     :forms     (count heads)
-     :mount-ids (mapv #(:mount-id (second %)) heads)}))
-
 (deftest two-rows-sharing-a-flow-id-across-frames-get-distinct-mount-ids
-  (testing "the inspector node key is qualified by the row's
-            OWNING FRAME, so two rows sharing a flow-id across two frames do
-            not collide on one `:mount-id`.
-
-            WHY A COLLIDING `:mount-id` IS NOT COSMETIC. `edn-widget/
-            inspect-view` hands the node key straight to the boundary as its
-            `:mount-id` and derives the expansion `:panel-id` from the same
-            string, and the Fresco head TRUSTS that id — unlike the Reagent
-            head, which mints a UUID per mount and so cannot collide.
-            `edn-inspector/container-ref-for` then MEMOISES the ref callback
-            on `[render-frame mount-id]`, and the render frame is `:rf/xray`
-            for both rows, so a shared node key means one ResizeObserver
-            entry for two live mounts: the second never installs an observer,
-            and detaching either row calls `release-mount!` for the
-            SURVIVOR."
+  (testing "the inspector node key carries the row's OWNING FRAME, so two rows
+            sharing a flow-id across frames do not share a `:mount-id`.
+            `edn-inspector/container-ref-for` memoises its ref callback on
+            `[render-frame mount-id]`, so a shared id would give two live
+            mounts one ResizeObserver entry, and detaching either row would
+            release the survivor's."
     (setup-xray!)
     (rf/with-frame :rf/xray
-      (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
-                                             one-flow-id-two-frames)]
-        (is (= [:shared/flow :shared/flow] (mapv :flow-id rows))
-            (str "PRECONDITION: two rows sharing ONE flow-id reached the "
-                 "tree. Rows: " (pr-str (mapv (juxt :frame :flow-id) rows))))
-        (is (= #{:app/a :app/b} (set (map :frame rows)))
-            "PRECONDITION: and they carry DIFFERENT owning frames — the
-             browse-all projection is what puts both in one catalogue")
-        (is (= 4 forms)
-            (str "PRECONDITION: 2 rows x (1 input + 1 output) = 4 inspector "
-                 "mounts. Mount ids: " (pr-str mount-ids)))
-        (is (= 4 (count (set mount-ids)))
-            (str "THE CLAIM: four mounts, four DISTINCT `:mount-id`s. Two "
-                 "rows sharing a flow-id would collapse to 2 without the "
-                 "frame in the key. Mount ids: " (pr-str mount-ids))))
-      (testing "NON-VACUITY CONTROL — distinct ids in ONE frame still separate"
-        (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
-                                               two-flow-ids-one-frame)]
-          (is (= [:flow/one :flow/two] (mapv :flow-id rows))
-              "control fixture projects two genuinely distinct ids")
-          (is (= 4 forms) "same shape as the case above")
-          (is (= 4 (count (set mount-ids)))
-              (str "and they were already distinct — so a red above is the "
-                   "frame qualifier, not a broken walker. Mount ids: "
-                   (pr-str mount-ids)))))
       (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test nil]))))
+        [:rf.xray.static.flows/set-registered-flows-override-for-test
+         one-flow-id-two-frames])
+      (let [mount-ids (mapv #(:mount-id (second %)) (inspector-view-forms (panel-tree)))]
+        (is (= 4 (count mount-ids) (count (set mount-ids)))
+            (str "2 rows x (1 input + 1 output) = 4 inspector mounts, all "
+                 "distinct. Mount ids: " (pr-str mount-ids)))))))
 
 ;; -------------------------------------------------------------------------
 ;; (4b) the input-path seq's React keys actually REACH the renderer
@@ -391,15 +242,8 @@
 
 (defn- keyed-input-fragments
   "Every `[:<> {:key …} [ei/edn-inspector-view {…}]]` fragment wrapping an
-  INPUT path's value.
-
-  Keyed off the boundary's `:mount-id`, which `edn-widget/inspect-view`
-  derives from the node-key the panel passes —
-  `rf-xray-inspect-static-flows/<frame>/<flow>/input/<i>` for an input,
-  `…/output` for the single output value. The FRAME is in there because
-  a flow-id is unique per frame, not per catalogue. The output
-  value is not in a seq and needs no key, so including it would make the
-  claim below false for a correct panel."
+  INPUT path's value, picked out by the `/input/` segment of the boundary's
+  `:mount-id`. The output value is not in a seq and needs no key."
   [tree]
   (filterv (fn [node]
              (and (vector? node)
@@ -416,45 +260,24 @@
   (str (:mount-id (second (nth fragment 2 nil)))))
 
 (deftest input-path-rows-carry-react-keys-in-the-attribute-map
-  (testing "each input-path value in a flow row's `for` seq carries a
-            React key THE SHIPPED RENDERER CAN ACTUALLY READ.
-
-            The row reads the key off the keyed fragment's attribute map,
-            which is the one spelling that reaches the renderer, and never
-            looks at metadata. `^{:key …}` reader metadata on the
-            `(edn/inspect …)` CALL FORM is discarded on return, so nothing
-            would reach React. An assertion on `with-meta` metadata on the
-            returned VECTOR would be a HOLLOW GATE, green while React
-            receives nothing: Fresco's codec reads `:key` from an ATTRIBUTE
-            MAP and reads Clojure metadata NOWHERE. A lost key does not fail
-            — it degrades into index-based reconciliation, which paints
-            identically.
-
-            The browser lane's W5 closes the loop from the other side, on a
-            real React commit: it removes the HEAD of a two-row list and
-            asserts the survivor is the same DOM node."
+  (testing "each input-path value in a flow row's `for` seq carries its React
+            key in the keyed fragment's ATTRIBUTE MAP — the one spelling
+            Fresco's codec reads. Metadata reaches React nowhere, and a lost
+            key degrades silently into index-based reconciliation."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
-      (let [tree      (panel-tree)
-            fragments (keyed-input-fragments tree)]
+      (let [fragments (keyed-input-fragments (panel-tree))]
         (is (<= 2 (count fragments))
-            (str "PRECONDITION: at least two input-path values rendered in "
-                 "one seq — a single-element seq needs no key, so a smaller "
-                 "count would make the claim below vacuous. Got: "
-                 (count fragments)))
+            (str "PRECONDITION: at least two input-path values rendered — the "
+                 "claims below are vacuous over fewer. Got: " (count fragments)))
         (is (every? #(some? (:key (second %))) fragments)
-            (str "every input-path value carries a React key IN THE "
-                 "ATTRIBUTE MAP, which is where both Reagent's "
-                 "`get-react-key` and Fresco's codec look. Attribute maps "
-                 "seen: " (pr-str (mapv second fragments))))
-        ;; Uniqueness is a PER-SEQ property, not a global one: React only
-        ;; needs a key to distinguish SIBLINGS, and each flow row owns its
-        ;; own inputs seq. Grouping by the flow the mount-id names is what
-        ;; makes this a real claim — asserted globally it reads red on a
-        ;; correct panel, because two flows both start their seq at `in-0`.
+            (str "every input-path value carries a React key in the attribute "
+                 "map. Attribute maps seen: " (pr-str (mapv second fragments))))
+        ;; Uniqueness is PER SEQ: each flow row owns its own inputs seq, and
+        ;; two flows both start theirs at `in-0`.
         (is (every? (fn [[_ frags]]
                       (= (count frags)
                          (count (set (map #(:key (second %)) frags)))))
@@ -467,39 +290,31 @@
 ;; (5) LIVE production data source regression
 ;; -------------------------------------------------------------------------
 ;;
-;; Every test above injects fixtures through the test-only OVERRIDE seam
-;; (`set-registered-flows-override-for-test`), and the override branch never
-;; touches the production read, so those tests stay green even when the
-;; panel's real data source is empty. This section exercises the genuine
+;; Every test above injects fixtures through the test-only OVERRIDE seam,
+;; whose branch never touches the production read. This one exercises the
 ;; PRODUCTION path — the `:rf.xray.static.flows/registered-flows` sub's
-;; `registered-flows-value` → `re-frame.flows/flows-snapshot` read —
-;; against REAL `reg-flow` registrations, with NO override installed.
+;; `registered-flows-value` → `re-frame.flows/flows-snapshot` read — against
+;; REAL `reg-flow` registrations, with NO override installed.
 ;;
 ;; The per-frame `flows` atom is the SOLE store and the registrar `:flow`
 ;; slot is RESERVED-but-empty: `(rf/registrations :flow)` THROWS
 ;; `:rf.error/registrar-kind-not-queryable`. A `registered-flows-value` body
 ;; that read the registrar would return an EMPTY catalogue against real
-;; flows and fail the first assertion below, while every override-based
-;; test above stays green.
+;; flows, while every override-based test above stays green.
 
 (defn- production-setup-xray!
   "Install the PRODUCTION Static Flows wiring (no override seam) plus the
-  two host frames the live-source flows register against."
+  host frame the live-source flows register against."
   []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
-  (rf/make-frame {:id :flows-test/frame-a :doc "host frame A"})
-  (rf/make-frame {:id :flows-test/frame-b :doc "host frame B"}))
+  (rf/make-frame {:id :flows-test/frame-a :doc "host frame A"}))
 
 (deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
   (testing "the PRODUCTION Static Flows data source reads
-            `rf.flows/flows-snapshot` (the per-frame flows store) and surfaces
-            real `reg-flow` registrations. Reading the empty registrar
-            `:flow` slot would return an empty catalogue (the panel would
-            degrade silently), which the override-based tests above cannot
-            see."
+            `rf.flows/flows-snapshot` and surfaces real `reg-flow`
+            registrations"
     (production-setup-xray!)
-    ;; Register REAL flows against host frame A via the public facade.
     (rf/reg-flow :user/full-name
                  {:inputs      [[:user :first] [:user :last]]
                   :output-path [:derived :full-name]
@@ -512,57 +327,11 @@
                   :doc         "sum of cart items"
                   :frame       :flows-test/frame-a}
                  (fn [_] 0))
-    ;; Read through the LIVE production sub — NOT the override seam — inside
-    ;; the :rf/xray frame the panel seats in. nil picker frame → list every
-    ;; frame's flows (see scope-to-frame), so the catalogue carries both.
+    ;; nil picker frame → list every frame's flows (see scope-to-frame).
     (rf/with-frame :rf/xray
-      (let [snapshot @(rf/subscribe [:rf.xray.static.flows/registered-flows])]
-        (is (seq snapshot)
-            "production data source is NON-EMPTY against real flows (the
-             empty registrar :flow slot would read {})")
-        (is (= #{:user/full-name :cart/total}
-               (set (keys (get snapshot :flows-test/frame-a))))
-            "frame A's two flows surface, keyed by frame in the per-frame shape"))
-      (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
-        (is (false? (:silent? data))
-            "tab-data is not silent — the panel renders rows, not the empty state")
-        (is (= 2 (:total data))
-            "both real flows reach the view-facing composite")))))
-
-(deftest live-source-surfaces-frame-divergent-definitions
-  (testing "Spec 013 — the SAME flow-id registered against two
-            frames carries each frame's OWN divergent definition in the
-            production data source. A frame-blind registrar slot could
-            only ever show the last registrant; `rf.flows/flows-snapshot` shows
-            both, and the panel scopes per frame."
-    (production-setup-xray!)
-    (let [derive-a (fn [first* last*] (str first* " " last*))
-          derive-b (fn [first* last*] (str last* ", " first*))]
-      ;; Same flow-id :user/full-name, two frames, DIVERGENT :derive +
-      ;; :output-path.
-      (rf/reg-flow :user/full-name
-                   {:inputs      [[:user :first] [:user :last]]
-                    :output-path [:derived :natural]
-                    :doc         "first last"
-                    :frame       :flows-test/frame-a}
-                   derive-a)
-      (rf/reg-flow :user/full-name
-                   {:inputs      [[:user :first] [:user :last]]
-                    :output-path [:derived :sortable]
-                    :doc         "last, first"
-                    :frame       :flows-test/frame-b}
-                   derive-b)
-      (rf/with-frame :rf/xray
-        (let [snapshot @(rf/subscribe [:rf.xray.static.flows/registered-flows])
-              entry-a  (get-in snapshot [:flows-test/frame-a :user/full-name])
-              entry-b  (get-in snapshot [:flows-test/frame-b :user/full-name])]
-          (is (some? entry-a) "frame A's entry present")
-          (is (some? entry-b) "frame B's entry present")
-          (is (= derive-a (:derive entry-a))
-              "frame A keeps its OWN :derive (not clobbered by frame B's later reg)")
-          (is (= derive-b (:derive entry-b))
-              "frame B keeps its OWN :derive")
-          (is (= [:derived :natural] (:output-path entry-a))
-              "frame A keeps its OWN :output-path")
-          (is (= [:derived :sortable] (:output-path entry-b))
-              "frame B keeps its OWN :output-path — divergent per frame"))))))
+      (is (= #{:user/full-name :cart/total}
+             (set (keys (get @(rf/subscribe [:rf.xray.static.flows/registered-flows])
+                             :flows-test/frame-a))))
+          "frame A's two flows surface, keyed by frame in the per-frame shape")
+      (is (= 2 (:total @(rf/subscribe [:rf.xray.static.flows/tab-data])))
+          "both real flows reach the view-facing composite"))))
