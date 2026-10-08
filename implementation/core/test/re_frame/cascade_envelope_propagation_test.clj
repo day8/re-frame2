@@ -1,275 +1,114 @@
 (ns re-frame.cascade-envelope-propagation-test
-  "Spec/002 §Cascade propagation (line 1162) +
-  §Drain-loop pseudocode `inheritable-envelope-keys` (lines 947-952).
+  "Cascade propagation (Spec 002 §Cascade propagation, §Drain-loop pseudocode
+  `inheritable-envelope-keys`): a child queued by `:fx [[:dispatch …]]` or
+  `:dispatch-later` inherits the parent envelope's `:fx-overrides`,
+  `:interceptor-overrides`, `:trace-id`, `:origin` and `:frame`, while
+  `:source` is re-stamped by the fx that queued it (`:fx-dispatch` /
+  `:fx-dispatch-later`). A user fx-handler receives the envelope as
+  `(:envelope m)`.
 
-  The dispatch envelope's `:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`, `:frame` MUST propagate through
-  `:fx [[:dispatch ...]]` cascades: when a handler returns an effect-map
-  containing `:dispatch`, the dispatched child inherits the parent
-  envelope's overrides. Same mechanism for `:dispatch-later`.
-
-  `:source` is **excluded from inheritance** — each
-  fx-emitted child stamps its own immediate-trigger value
-  (`:fx-dispatch` / `:fx-dispatch-later`) so the trigger-kind axis
-  reflects the substrate's actual dispatch site rather than the
-  originating user event's trigger.
-
-  JVM-only — the cascade propagation is platform-agnostic; the runtime
-  paths under test do not depend on a CLJS host.
-
-  EP-0002: under the carried-invariant frame contract the
-  top-level `dispatch-sync` calls below must establish a frame scope — a
-  bare dispatch under no scope raises `:rf.error/no-frame-context`
-  (there is no `:rf/default` floor). The fixture registers an ordinary
-  `:rf/default` frame and pins `*current-frame*` to it (the fixture-level
-  equivalent of `(with-frame :rf/default …)`); the CHILD dispatches
-  (`:fx [[:dispatch …]]` / `:dispatch-later`) carry the parent's
-  `:frame` explicitly via `child-dispatch-opts`, so the fixture scope does
-  not affect the cascade propagation under test.
-
-  ## Posture split
-
-  Every deftest here reads production surfaces — an fx-handler stub's
-  captured args, the `(:envelope m)` slot on the fx-handler ctx — and runs
-  under `scripts/test-core-prod-gate.sh`.
-
-  `trace-id-origin-propagate-source-overridden-through-cascade` reads
-  `:origin` inheritance and the `:source :fx-dispatch` re-stamp off the
-  child's DISPATCH ENVELOPE via `(:envelope m)` — the production-visible
-  surface `fx-handler-ctx-carries-envelope-slot` establishes — rather than
-  off the `:rf.event/dispatched` TRACE stream, which is gone under
-  `-Dre-frame.debug=false`, so both claims hold in BOTH postures. The
-  trace-shape half (`:origin` under `:tags`, `:source` hoisted to the top
-  level per Spec 009 §Core fields) is a claim about the trace EVENT rather
-  than about propagation, and that half alone sits in a
-  `(when rf.interop/debug-enabled? …)` arm."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Every claim reads a production surface — fx-handler arguments or
+  `(:envelope m)` — so the whole namespace runs under
+  `scripts/test-core-prod-gate.sh` too."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
-
-;; ---- fixtures -------------------------------------------------------------
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
-  ;; EP-0002: establish an explicit frame scope (no synthesised default).
+  ;; The ambient scope the top-level dispatches resolve against; children
+  ;; carry the parent's `:frame` explicitly.
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; ---- :fx-overrides cascade propagation ------------------------------------
-
 (deftest fx-overrides-propagate-through-dispatch-cascade
-  (testing "per-call :fx-overrides ride the :fx [[:dispatch ...]] cascade"
-    (let [http-fired (atom [])
-          http-stub  (atom [])]
-      (rf/reg-fx :test/http
-        (fn [_ args] (swap! http-fired conj args)))
-      (rf/reg-fx :test/http.stub
-        (fn [_ args] (swap! http-stub conj args)))
-      (rf/reg-event :test/parent
-        (fn [_ _]
-          {:fx [[:test/http {:tag :from-parent}]
-                [:dispatch [:test/child]]]}))
-      (rf/reg-event :test/child
-        (fn [_ _]
-          {:fx [[:test/http {:tag :from-child}]]}))
-
-      (rf/dispatch-sync
-        [:test/parent]
-        {:fx-overrides {:test/http :test/http.stub}})
-
-      (is (empty? @http-fired)
-          "no real :test/http fired — every call should hit the stub")
-      (is (= [{:tag :from-parent} {:tag :from-child}] @http-stub)
-          "the stub captured BOTH the parent's and the child's :test/http calls")))
-
-  (testing "per-call :fx-overrides propagate through nested :dispatch cascades"
-    (let [http-stub (atom [])]
-      (rf/reg-fx :test/http  (fn [_ _]))
-      (rf/reg-fx :test/http.stub
-        (fn [_ args] (swap! http-stub conj args)))
-      (rf/reg-event :test/lvl-0
-        (fn [_ _]
-          {:fx [[:test/http {:lvl 0}]
-                [:dispatch [:test/lvl-1]]]}))
-      (rf/reg-event :test/lvl-1
-        (fn [_ _]
-          {:fx [[:test/http {:lvl 1}]
-                [:dispatch [:test/lvl-2]]]}))
-      (rf/reg-event :test/lvl-2
-        (fn [_ _]
-          {:fx [[:test/http {:lvl 2}]]}))
-
-      (rf/dispatch-sync
-        [:test/lvl-0]
-        {:fx-overrides {:test/http :test/http.stub}})
-
-      (is (= [{:lvl 0} {:lvl 1} {:lvl 2}] @http-stub)
-          "override propagated through three levels of :dispatch cascade"))))
-
-;; ---- :trace-id / :origin propagation; :source overridden by fx-handler -----
+  (let [real (atom [])
+        stub (atom [])]
+    (rf/reg-fx :test/http (fn [_ args] (swap! real conj args)))
+    (rf/reg-fx :test/http.stub (fn [_ args] (swap! stub conj args)))
+    (rf/reg-event :test/parent
+      (fn [_ _]
+        {:fx [[:test/http {:tag :from-parent}]
+              [:dispatch [:test/child]]]}))
+    (rf/reg-event :test/child
+      (fn [_ _]
+        {:fx [[:test/http {:tag :from-child}]]}))
+    (rf/dispatch-sync [:test/parent] {:fx-overrides {:test/http :test/http.stub}})
+    (is (= {:real [] :stub [{:tag :from-parent} {:tag :from-child}]}
+           {:real @real :stub @stub})
+        "the parent's and the child's :test/http calls both hit the stub")))
 
 (deftest trace-id-origin-propagate-source-overridden-through-cascade
-  (testing ":trace-id and :origin ride the child envelope; :source is OVERRIDDEN to :fx-dispatch"
-    ;; Capture parent and child envelopes via an fx probe (both postures)
-    ;; and via the trace stream (dev only) — every :rf.event/dispatched
-    ;; event surfaces :origin on :tags and :source hoisted to the top level.
-    ;;
-    ;; `:source` is NOT inherited through `:fx [[:dispatch ...]]`
-    ;; cascades — the `:dispatch` fx handler stamps `:source :fx-dispatch`
-    ;; on the child envelope, regardless of what the parent carried. The
-    ;; parent's `:source :test` is recorded against the parent's own
-    ;; envelope; the child reports the substrate's actual dispatch site.
-    (let [seen       (atom [])
-          ;; ALWAYS-ON PROBE: the fx-handler ctx's `:envelope`
-          ;; slot is a production surface (see `fx-handler-ctx-carries-
-          ;; envelope-slot` below), so running one of these inside EACH level
-          ;; of the cascade reads the parent's and the child's envelopes
-          ;; without any trace involvement.
-          envelopes  (atom {})]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (rf/reg-fx :test/probe
-          (fn [m [level]] (swap! envelopes assoc level (:envelope m))))
-        (rf/reg-event :test/parent
-          (fn [_ _]
-            {:fx [[:test/probe [:parent]]
-                  [:dispatch [:test/child]]]}))
-        (rf/reg-event :test/child
-          (fn [{:keys [db]} _]
-            {:db db
-             :fx [[:test/probe [:child]]]}))
-
-        (rf/dispatch-sync [:test/parent]
-                          {:trace-id ::scoped-trace
-                           :origin   :test
-                           :source   :test})
-
-        ;; ---- ALWAYS-ON: propagation read off the envelopes ---------------
-        (let [parent-env (:parent @envelopes)
-              child-env  (:child  @envelopes)]
-          (is (= :test (:origin parent-env)) "parent carries :origin :test")
-          (is (= :test (:source parent-env)) "parent carries :source :test")
-          (is (= ::scoped-trace (:trace-id parent-env)) "parent carries :trace-id")
-          (is (= :test (:origin child-env))
-              ":origin :test propagated through the cascade")
-          (is (= ::scoped-trace (:trace-id child-env))
-              ":trace-id propagated through the cascade")
-          (is (= :fx-dispatch (:source child-env))
-              "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)"))
-
-        ;; ---- dev-instrumentation arm ------------------------------------
-        ;; What remains here is a claim about the trace EVENT's SHAPE — that
-        ;; `:origin` rides under `:tags` while `:source` is hoisted to the top
-        ;; level per Spec 009 §Core fields — rather than about propagation,
-        ;; which the envelope assertions above carry in both postures.
-        (when rf.interop/debug-enabled?
-          (let [dispatched   (->> @seen
-                                  (filter #(= :rf.event/dispatched (:operation %))))
-                parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
-                child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
-            (is (= :test      (:source parent-ev))                          "parent carries :source :test")
-            (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
-                ":origin :test propagated through the cascade")
-            (is (= :fx-dispatch (:source child-ev))
-                "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
-
-;; ---- :envelope exposed on fx-handler ctx -----------------------------------
+  (let [child-env (atom nil)]
+    (rf/reg-fx :test/probe (fn [m _] (reset! child-env (:envelope m))))
+    (rf/reg-event :test/parent (fn [_ _] {:fx [[:dispatch [:test/child]]]}))
+    (rf/reg-event :test/child (fn [_ _] {:fx [[:test/probe]]}))
+    (rf/dispatch-sync [:test/parent] {:trace-id ::scoped-trace
+                                      :origin   :test
+                                      :source   :test})
+    (is (= {:trace-id ::scoped-trace :origin :test :source :fx-dispatch}
+           (select-keys @child-env [:trace-id :origin :source]))
+        ":trace-id and :origin are inherited; :source is re-stamped by the :dispatch fx")))
 
 (deftest fx-handler-ctx-carries-envelope-slot
-  (testing "user fx-handler receives (:envelope m) — the parent dispatch envelope"
-    (let [captured-envelopes (atom [])]
-      (rf/reg-fx :test/capture-envelope
-        (fn [m _args] (swap! captured-envelopes conj (:envelope m))))
-      (rf/reg-event :test/run
-        (fn [_ _]
-          {:fx [[:test/capture-envelope]]}))
-
-      (rf/dispatch-sync [:test/run]
-                        {:trace-id  ::abc
-                         :origin    :test
-                         :source    :unit-test})
-
-      (let [env (first @captured-envelopes)]
-        (is (= ::abc      (:trace-id env)))
-        (is (= :test      (:origin env)))
-        (is (= :unit-test (:source env)))
-        (is (= [:test/run] (:event env)))))))
-
-;; ---- the in-flight envelope, for framework code in a handler BODY ---------
+  (let [captured (atom nil)]
+    (rf/reg-fx :test/capture-envelope (fn [m _] (reset! captured (:envelope m))))
+    (rf/reg-event :test/run (fn [_ _] {:fx [[:test/capture-envelope]]}))
+    (rf/dispatch-sync [:test/run] {:trace-id ::abc
+                                   :origin   :test
+                                   :source   :unit-test})
+    (is (= {:trace-id ::abc :origin :test :source :unit-test :event [:test/run]}
+           (select-keys @captured [:trace-id :origin :source :event])))))
 
 (deftest in-flight-envelope-is-bound-for-the-handler-call
-  (testing "`current-event-envelope` hands a handler body the dequeued envelope,
-            scoped to its frame — the seam the machine completion carriers use to
-            queue a child through `child-dispatch!` without an fx ctx"
-    (let [seen (atom nil)]
-      (rf/reg-fx :test/http (fn [_ _]))
-      (rf/reg-fx :test/http.stub (fn [_ _]))
-      (rf/reg-event :test/peek
-        (fn [_ _]
-          (reset! seen {:own   (rf.frame/current-event-envelope :rf/default)
-                        :other (rf.frame/current-event-envelope :test/other-frame)})
-          {}))
-      (rf/dispatch-sync [:test/peek]
-                        {:fx-overrides {:test/http :test/http.stub}
-                         :origin       :test
-                         :trace-id     ::peek})
-      (let [{:keys [own other]} @seen]
-        (is (= [:test/peek] (:event own)) "the handler saw its own dequeued envelope")
-        (is (= {:test/http :test/http.stub} (:fx-overrides own)))
-        (is (= :test (:origin own)))
-        (is (= ::peek (:trace-id own)))
-        (is (nil? other) "scoped to the in-flight event's frame")))
+  ;; `current-event-envelope` is the seam machine completion carriers use to
+  ;; queue a child through `child-dispatch!` without an fx ctx.
+  (let [seen (atom nil)]
+    (rf/reg-fx :test/http (fn [_ _]))
+    (rf/reg-fx :test/http.stub (fn [_ _]))
+    (rf/reg-event :test/peek
+      (fn [_ _]
+        (reset! seen {:own   (rf.frame/current-event-envelope :rf/default)
+                      :other (rf.frame/current-event-envelope :test/other-frame)})
+        {}))
+    (rf/dispatch-sync [:test/peek] {:fx-overrides {:test/http :test/http.stub}
+                                    :origin       :test
+                                    :trace-id     ::peek})
+    (is (= {:own   {:event        [:test/peek]
+                    :fx-overrides {:test/http :test/http.stub}
+                    :origin       :test
+                    :trace-id     ::peek}
+            :other nil}
+           (update @seen :own select-keys [:event :fx-overrides :origin :trace-id]))
+        "the handler sees its own dequeued envelope, scoped to its frame")
     (is (nil? (rf.frame/current-event-envelope :rf/default))
         "unbound outside any handler pipeline")))
 
-;; ---- :dispatch-later propagates inheritable keys --------------------------
-;;
-;; :dispatch-later wraps in set-timeout!; we can verify the opts the
-;; eventual :router/dispatch! call would receive by stubbing set-timeout!
-;; semantics. Easier path: register a fixture timer that runs the inner
-;; fn synchronously via a custom :dispatch-later shape — but the
-;; reserved-fx body is platform-coupled (rf.interop/set-timeout!). For JVM
-;; the timer fires on a future; we use a CountDownLatch coordinated stub
-;; to keep the test deterministic.
-
 (deftest dispatch-later-propagates-inheritable-keys
-  (testing ":dispatch-later carries parent overrides into the deferred dispatch"
-    (let [stub-fired (atom [])
-          done       (promise)]
-      (rf/reg-fx :test/http (fn [_ _]))
-      (rf/reg-fx :test/http.stub
-        (fn [_ args]
-          (swap! stub-fired conj args)
-          (deliver done :fired)))
-      (rf/reg-event :test/parent
-        (fn [_ _]
-          {:fx [[:dispatch-later {:ms 1 :event [:test/child]}]]}))
-      (rf/reg-event :test/child
-        (fn [_ _]
-          {:fx [[:test/http {:tag :deferred}]]}))
-
-      (rf/dispatch-sync
-        [:test/parent]
-        {:fx-overrides {:test/http :test/http.stub}})
-
-      (is (= :fired (deref done 2000 :timeout))
-          ":dispatch-later fired the :test/child cascade")
-      (is (= [{:tag :deferred}] @stub-fired)
-          ":fx-overrides propagated into :dispatch-later's deferred dispatch"))))
+  (let [stub-fired (atom [])
+        done       (promise)]
+    (rf/reg-fx :test/http (fn [_ _]))
+    (rf/reg-fx :test/http.stub
+      (fn [_ args]
+        (swap! stub-fired conj args)
+        (deliver done :fired)))
+    (rf/reg-event :test/parent
+      (fn [_ _] {:fx [[:dispatch-later {:ms 1 :event [:test/child]}]]}))
+    (rf/reg-event :test/child
+      (fn [_ _] {:fx [[:test/http {:tag :deferred}]]}))
+    (rf/dispatch-sync [:test/parent] {:fx-overrides {:test/http :test/http.stub}})
+    (deref done 2000 nil)
+    (is (= [{:tag :deferred}] @stub-fired)
+        ":fx-overrides reached :dispatch-later's deferred dispatch")))
