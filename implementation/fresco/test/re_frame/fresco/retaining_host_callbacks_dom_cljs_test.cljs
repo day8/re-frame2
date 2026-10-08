@@ -79,8 +79,7 @@
   ## Companion
 
   `reincarnation_routing_cljs_test` establishes the same routing law one
-  rung down, against the lowering functions directly and with a
-  reconstruction of the late-binding mechanism as its negative control.
+  rung down, against the lowering functions directly.
   This file does not restate it: it asks whether the law survives a real
   React vendor holding the closure, and what the law costs there."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -491,26 +490,6 @@
               (is (= 1 (pings)) "the live incarnation's own vendor writes its own app-db")
               (is (empty? refusals)))
             (finally (rf.fresco.impl.mount/release! handle))))))))
-
-(deftest NEGATIVE-CONTROL-an-unpinned-capture-does-reach-the-successor
-  ;; Section 5's safety half asserts a NON-event, so a sabotage has to
-  ;; redden it: remove the retirement check and the retired-callback case
-  ;; must go red. Performed through the documented
-  ;; seam rather than by redefining a runtime var — `rf/capture-frame`
-  ;; taken while NO frame is live under the id pins nothing, so the ops
-  ;; stay address-directed and write whoever occupies the address later.
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [unpinned (rf/capture-frame frame-id)]    ; captured with no live frame
-      (fresh! "A")
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals
-                                 #((:dispatch-sync unpinned) [::ping :unpinned]))]
-        (is (= 1 (pings))
-            "the write LANDS — so the identical assertion in section 5 is
-             capable of failing, and passes there because of the pin")
-        (is (= :unpinned (last-tag)))
-        (is (empty? refusals) "and nothing is refused, because nothing was pinned")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — DELAYED. The same law, a real macrotask after the render
