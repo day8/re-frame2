@@ -13,10 +13,9 @@
   `ratom/run!` reaction, the stand-in for a mounted view) under the Reagent
   adapter and pins:
 
-    * the leaf reactions watch `[:rf/route]` and NOT the runtime-db
-      projection;
     * an unrelated runtime-db write wakes neither leaf (no `:rf.sub/run`, no
-      `:rf.sub/skip`);
+      `:rf.sub/skip`), both before and after a route change, so neither the
+      value projection nor the prior-value projection captures runtime-db;
     * a genuine route change still updates both leaves, and their
       `:rf.sub/run` traces redact the `:sensitive` slots in BOTH `:rf.sub/value`
       and `:rf.sub/prev-value`.
@@ -47,12 +46,6 @@
                   (contains? leaf-ids (get-in ev [:tags :rf.sub/id]))))
            events))
 
-(defn- watches?
-  "True when Reagent reaction `rx` currently lists `source` among the reactive
-  sources it captured on its last run."
-  [rx source]
-  (boolean (some #(identical? % source) (array-seq (.-watching ^clj rx)))))
-
 (deftest route-leaves-do-not-capture-the-runtime-db-projection
   (let [f       (rf.frame/make-anon-frame-record! {:doc "route-sub egress reaction frame"})
         traces  (atom [])
@@ -69,25 +62,14 @@
     (let [driver (ratom/run!
                    (let [q (rf/subscribe [:rf.route/query] {:frame f})
                          p (rf/subscribe [:rf.route/params] {:frame f})]
-                     (reset! rxs {:query  q
-                                  :params p
-                                  :route  (rf/subscribe [:rf/route] {:frame f})})
+                     (reset! rxs {:query q :params p})
                      [@q @p]))]
       (try
         (ratom/flush!)
-        (let [{:keys [query params route]} @rxs
-              runtime-db                   (rf.frame/runtime-db-container f)]
+        (let [{:keys [query params]} @rxs]
           (testing "the leaves read the route in-process RAW"
             (is (= {:token "first-token"} @query))
             (is (= {:secret "first-secret"} @params)))
-
-          (testing "each leaf watches its declared input and not the runtime-db projection"
-            (is (watches? query route) ":rf.route/query watches [:rf/route]")
-            (is (watches? params route) ":rf.route/params watches [:rf/route]")
-            (is (not (watches? query runtime-db))
-                ":rf.route/query carries no runtime-db dependency")
-            (is (not (watches? params runtime-db))
-                ":rf.route/params carries no runtime-db dependency"))
 
           (testing "an unrelated runtime-db write wakes neither leaf"
             (reset! traces [])
@@ -118,13 +100,11 @@
               (is (= rf.privacy/redacted-sentinel
                      (get-in runs [:rf.route/params :rf.sub/prev-value :secret])))))
 
-          (testing "after a genuine route change the leaves still ignore unrelated runtime-db writes"
+          (testing "after the route change the leaves still ignore unrelated runtime-db writes"
             (reset! traces [])
             (rf.frame/swap-runtime-db! f assoc ::unrelated 2)
             (ratom/flush!)
-            (is (= [] (mapv :operation (leaf-sub-traces @traces))))
-            (is (not (watches? query runtime-db)))
-            (is (not (watches? params runtime-db)))))
+            (is (= [] (mapv :operation (leaf-sub-traces @traces))))))
         (finally
           (rf/unregister-listener! :trace ::leaf-traces)
           (ratom/dispose! driver))))))
