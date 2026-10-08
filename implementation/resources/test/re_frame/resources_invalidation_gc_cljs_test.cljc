@@ -1,89 +1,40 @@
 (ns re-frame.resources-invalidation-gc-cljs-test
-  "Invalidation / owner-liveness / GC / stale-timer behaviour for the
-  Resources artefact (Spec 016 §Invalidation, §Active owners and causes,
-  §Stale and GC scheduling).
-
-  These JVM+CLJS unit tests pin the contract:
-
-    1. EXACT TAG INVALIDATION — scoped by DEFAULT (a match needs the entry's
-       scope to equal :scope); CROSS-SCOPE is opt-in (:cross-scope? true) and
-       Xray-visible; matched active-owner entries refetch, matched ownerless
-       entries are left stale / GC-eligible; on a successful (re)load the tag
-       index for the key is REPLACED (old tags removed); one decision summary
-       + per-entry detail; no-match distinction (match in another scope vs no
-       tag anywhere);
-    2. ACTIVE OWNERS + owner-index + :rf.resource/release-
-       owner — release drops the owner from the entry + index + work record;
-       an in-flight attempt is aborted ONLY when NO owner remains (a shared
-       request is not cancelled because one owner went away); causes never
-       create liveness;
-    3. CLEAR-SCOPE — removes the scope's entries, recomputes indexes,
-       cancels their timers, and SUPPRESSES a late reply by the entry-vanish
-       + monotone-generation boundary (a recreated entry gets a higher
-       generation so the old reply's work-id can never re-match);
-    4. STALE / GC TIMERS — freshness is derived from DURABLE timestamps (not
-       \"the timer fired on time\"); the timer handler RE-CHECKS the live
-       entry / owners / generation before writing (never writes a stale
-       decision); timers live in a host SIDE TABLE (not frame-state); a fired
-       GC removes an entry ONLY if still owner-free + idle; frame destroy
-       cancels all the frame's timers (composed into the single
-       :resources/on-frame-destroyed! hook); inactive entries GC after
-       :gc-after-ms;
-    5. :rf.resource/remove cancels the removed instance's timers."
+  "Invalidation, owner liveness, clear-scope and the stale/GC timers (Spec 016
+  §Invalidation, §Active owners and causes, §Stale and GC scheduling).
+  Invalidation is scoped by default and cross-scope only on an audited opt-in;
+  releasing the last owner aborts in-flight work; timers live in a host side
+  table and re-check the live entry before acting."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.frame :as rf.frame]
-   ;; load-bearing side-effecting require: the façade registers the
-   ;; :rf.resource/* events + the timer / work-ledger side-table fx + the
-   ;; internal re-check events these tests dispatch through.
    [re-frame.resources]
    [re-frame.resources.events :as rf.resources.events]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.timers :as rf.resources.timers]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
-   ;; production HTTP fx surface (so the transport feature probe resolves);
-   ;; the actual fetch + abort are overridden by capturing no-ops below.
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport + abort + timer-schedule (deterministic) ---------
-
 (def ^:private aborts (atom []))
 (def ^:private scheduled-timers (atom []))
 
 (defn- capturing-fixture
-  "Override the real :rf.http/managed + :rf.http/managed-abort fxs with
-  capturing no-ops, and CAPTURE :rf.resource/schedule-timers so the
-  succeeded-handler's arming is asserted WITHOUT a real wall-clock timer
-  firing (the timer-table primitive is tested directly elsewhere). Composed
-  INSIDE the reset-runtime fixture (one `use-fixtures` call).
-
-  The shared `make-reset-runtime-fixture`'s
-  `:resources/reset-resources!` post-dispose hook already clears the state /
-  work-ledger / timer host caches before this fixture runs, so no per-suite
-  reset is repeated here. (The timer-PRIMITIVE tests below keep their own
-  `rf.resources.timers/reset-cache!` calls — those are direct primitive assertions that
-  reset just before arming a real timer, not fixture-level cache hygiene.)"
+  "Capture managed-HTTP aborts and :rf.resource/schedule-timers arming, so no
+  wall-clock timer fires; the fetch itself is a no-op."
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
-  ;; capture the schedule-timers arming (the real fx arms host timers; here we
-  ;; record the args so the test stays deterministic — no wall clock)
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
-  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
-  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
-  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
-  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
-  ;; property the fixture wants, with no policy tier of its own.
+  ;; ensures here pass an explicit :scope; the resolver's slot stays unwritten
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope))
@@ -95,16 +46,10 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- runtime-db
-  ([] (runtime-db :rf/default))
-  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
-
-(defn- entry
-  ([scoped-key] (entry :rf/default scoped-key))
-  ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
+(defn- invalidated? [scoped-key] (some? (:invalidated-at (entry scoped-key))))
+(defn- work-record [wid] (rf.resources.work-ledger/get-record (runtime-db) wid))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -123,347 +68,168 @@
                      {:resource resource :scope scope :params {:slug slug}
                       :owner owner}]))
 
-(defn- succeed!
-  "Feed an internal success reply for a scoped key, reading the LIVE entry's
-  current work-id + generation (the per-frame generation allocator is
-  monotone, so a hardcoded generation would be stale-suppressed once more
-  than one resource has loaded in the frame)."
-  [scoped-key data]
+(defn- reply!
+  "Feed an internal reply for `scoped-key` against the LIVE entry's current
+  work id and generation."
+  [event-id scoped-key extra]
   (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e) :data data}])))
+    (rf/dispatch-sync [event-id (merge {:resource/key scoped-key :work/id (:current-work e)
+                                        :generation (:generation e)}
+                                       extra)])))
+
+(defn- succeed! [scoped-key data]
+  (reply! :rf.resource.internal/succeeded scoped-key {:data data}))
 
 (defn- fail!
-  "Feed an internal FAILED reply (a non-abort transport error) for a scoped
-  key, reading the LIVE entry's current work-id + generation. On an entry with
-  no usable data this is a FIRST-LOAD failure → `:error`."
+  "A non-abort transport failure; a first-load failure settles :error."
   [scoped-key reason]
-  (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e)
-                        :error {:kind :rf.http/server-error :reason reason}}])))
+  (reply! :rf.resource.internal/failed scoped-key {:error {:kind :rf.http/server-error :reason reason}}))
 
 (defn- abort!
-  "Feed an internal FAILED reply carrying an `:rf.http/aborted` envelope (an
-  intentional cancellation, not a failure) for a scoped key,
-  reading the LIVE entry's current work-id + generation. `failed-handler`
-  branches this into the ABORT / cancellation settle, never `:error`."
+  "An :rf.http/aborted failure: a cancellation, which never settles :error."
   [scoped-key]
-  (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e)
-                        :error {:kind :rf.http/aborted :reason :user}}])))
+  (reply! :rf.resource.internal/failed scoped-key {:error {:kind :rf.http/aborted :reason :user}}))
 
 (defn- last-schedule-for [scoped-key]
   (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
-;; ===========================================================================
-;; 1. Exact tag invalidation — scoped default + cross-scope opt-in
-;; ===========================================================================
+(defn- timer-delays
+  "Each captured schedule-timers emission as [resource-key stale gc]."
+  []
+  (mapv (juxt :resource/key (comp :stale :timers) (comp :gc :timers)) @scheduled-timers))
+
+(defn- two-scope-ownerless!
+  "Load slug \"w\" of `resource` in scopes {:user \"a\"} and {:user \"b\"},
+  then release both owners so an invalidation marks stale rather than
+  refetching. Returns the two scoped keys."
+  [resource]
+  (rf/reg-resource resource (article-spec) article-spec-request)
+  (mapv (fn [[u owner]]
+          (let [scope {:user u}
+                k     (rf.resources.state/scoped-resource-key scope resource {:slug "w"})]
+            (ensure! resource scope "w" owner)
+            (succeed! k {:title u})
+            (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}])
+            k))
+        [["a" [:app :a 1]] ["b" [:app :b 1]]]))
 
 (deftest invalidate-tags-is-scoped-by-default
-  (rf/reg-resource :iv/article (article-spec) article-spec-request)
-  (let [sa {:user "a"} sb {:user "b"}
-        ka (rf.resources.state/scoped-resource-key sa :iv/article {:slug "w"})
-        kb (rf.resources.state/scoped-resource-key sb :iv/article {:slug "w"})]
-    (ensure! :iv/article sa "w" [:app :a 1])
-    (succeed! ka {:title "A"})
-    (ensure! :iv/article sb "w" [:app :b 1])
-    (succeed! kb {:title "B"})
-    ;; release both owners so the invalidation marks stale WITHOUT refetching
-    ;; (a refetch that SUCCEEDED would satisfy + clear the invalidation,
-    ;; masking the test — a refetch that merely STARTS does not,
-    ;; and §6 below pins that a failed or aborted one leaves the fact standing)
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope sa :tags #{[:article "w"]}}])
-    (testing "Spec 016 §Invalidation — scoped by DEFAULT: only the in-scope
-              entry is marked stale; the other scope is untouched (no
-              cross-scope leak)"
-      (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
-      (is (nil?  (:invalidated-at (entry kb))) "scope B entry NOT invalidated"))))
+  (let [[ka kb] (two-scope-ownerless! :iv/article)]
+    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope {:user "a"} :tags #{[:article "w"]}}])
+    (is (= [true false] (map invalidated? [ka kb])) "only the in-scope entry is marked stale")))
 
 (deftest invalidate-tags-cross-scope-opt-in
-  (rf/reg-resource :ivx/article (article-spec) article-spec-request)
-  (let [sa {:user "a"} sb {:user "b"}
-        ka (rf.resources.state/scoped-resource-key sa :ivx/article {:slug "w"})
-        kb (rf.resources.state/scoped-resource-key sb :ivx/article {:slug "w"})]
-    (ensure! :ivx/article sa "w" [:app :a 1])
-    (succeed! ka {:title "A"})
-    (ensure! :ivx/article sb "w" [:app :b 1])
-    (succeed! kb {:title "B"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
-    ;; cross-scope is the AUDITED escape — it MUST carry :cause and
-    ;; is scope-AGNOSTIC, so it carries NO :scope (a closed union — a
-    ;; :scope alongside :cross-scope? true is rejected, see the conflict test).
+  (let [[ka kb] (two-scope-ownerless! :ivx/article)]
+    ;; the audited escape: a :cause and no :scope
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:tags #{[:article "w"]} :cross-scope? true
                         :cause [:admin/cache-poisoning-response]}])
-    (testing "Spec 016 §Invalidation — :cross-scope? true matches the tag in
-              EVERY scope (the explicit, Xray-visible opt-in)"
-      (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
-      (is (some? (:invalidated-at (entry kb))) "scope B entry ALSO marked stale"))))
-
-(deftest invalidate-tags-cross-scope-rejects-a-supplied-scope
-  ;; CLOSED UNION: the payload is EITHER scoped ({:scope …}) OR a
-  ;; cross-scope sweep ({:cross-scope? true, :scope ABSENT}). A :cross-scope?
-  ;; true that ALSO carries :scope is a contradiction (which scope would win on
-  ;; a scope-agnostic sweep?) — rejected loudly, never resolve-then-ignore.
-  (rf/reg-resource :ivc/article (article-spec) article-spec-request)
-  (testing "Spec 016 §The cross-scope lattice — a :scope alongside
-            :cross-scope? true throws :rf.error/resource-cross-scope-scope-conflict
-            (fail-closed, before any invalidation)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-scope-conflict"
-          (rf.resources.events/invalidate-tags-handler
-            {:rf.db/runtime {} :rf.frame/id :rf/default}
-            [:rf.resource/invalidate-tags
-             {:scope {:user "a"} :tags #{[:article "w"]} :cross-scope? true
-              :cause [:admin/x]}])))))
-
-(deftest invalidate-tags-invalidated-at-is-the-event-time-ms
-  ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
-  ;; the durable :invalidated-at is the INVALIDATION EVENT'S :time-ms (the
-  ;; causal world input), NOT an ambient clock read in the reducer. Scripting
-  ;; the dispatch's :rf.cofx pins the value; replaying the SAME token
-  ;; rewrites the SAME :invalidated-at (replay-stable, not the live clock).
-  (rf/reg-resource :ivt/article (article-spec) article-spec-request)
-  (let [sa {:user "a"}
-        ka (rf.resources.state/scoped-resource-key sa :ivt/article {:slug "w"})
-        t1 1781078400123
-        t2 1781078999999]
-    (ensure! :ivt/article sa "w" [:app :a 1])
-    (succeed! ka {:title "A"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope sa :tags #{[:article "w"]}}]
-                      {:rf.cofx {:rf/time-ms t1}})
-    (testing ":invalidated-at is EXACTLY the supplied token :time-ms (not now)"
-      (is (= t1 (:invalidated-at (entry ka)))))
-    ;; re-invalidate with a DIFFERENT scripted time — the durable fact tracks
-    ;; the causal token, so it moves to the new token's :time-ms (proving it
-    ;; is read off the token, not a fresh clock read).
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope sa :tags #{[:article "w"]}}]
-                      {:rf.cofx {:rf/time-ms t2}})
-    (testing "replaying with a new scripted token rewrites :invalidated-at to
-              that token's :time-ms (read off the token, not the clock)"
-      (is (= t2 (:invalidated-at (entry ka)))))))
-
-;; ---- scoped invalidate-tags fails closed without a scope -------------------
-;; The re-frame event loop catches a handler throw and surfaces it as
-;; :rf.error/handler-exception (it does NOT rethrow to dispatch-sync's
-;; caller), so the throw is asserted at the fn boundary (calling
-;; invalidate-tags-handler directly), exactly as the mutation suite asserts
-;; its validation throws. The dispatch-path no-mutation is observed
-;; separately.
+    (is (= [true true] (map invalidated? [ka kb])) "the tag is matched in every scope")))
 
 (defn- invalidate-cofx
-  "A minimal cofx for a direct invalidate-tags-handler call: a runtime-db
-  value under :rf.db/runtime + a frame id."
+  "A minimal cofx for a direct handler call. A handler throw through dispatch
+  is captured by the router, so fail-closed throws are asserted here."
   [runtime-db]
   {:rf.db/runtime runtime-db :rf.frame/id :rf/default})
 
-(deftest invalidate-tags-scoped-without-scope-fails-closed
-  (testing "Spec 016 §Invalidation — a SCOPED (default)
-            invalidate-tags with NO :scope is a loud
-            :rf.error/resource-invalidate-scope-required (never a silent
-            nil-scope match that invalidates nothing or the wrong set)"
+(deftest invalidate-tags-fails-closed-on-a-malformed-payload
+  ;; Scoped needs a concrete, canonical scope; cross-scope needs a :cause and
+  ;; no :scope. Never a silent nil-scope match or an unaudited sweep.
+  (doseq [[payload error-id]
+          [[{:tags #{[:article "w"]}} #"resource-invalidate-scope-required"]
+           [{:scope nil :tags #{[:article "w"]}} #"resource-invalidate-scope-required"]
+           [{:scope :rf.scope/glabal :tags #{[:article "w"]}} #"resource-invalid-scope"]
+           [{:tags #{[:article "w"]} :cross-scope? true} #"resource-cross-scope-cause-required"]
+           [{:tags #{[:article "w"]} :cross-scope? true :cause nil} #"resource-cross-scope-cause-required"]
+           [{:scope {:user "a"} :tags #{[:article "w"]} :cross-scope? true :cause [:admin/x]}
+            #"resource-cross-scope-scope-conflict"]]]
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
+          #?(:clj Throwable :cljs js/Error) error-id
           (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
-            [:rf.resource/invalidate-tags {:tags #{[:article "w"]}}]))))
-  (testing "an explicitly nil :scope (not merely absent) is ALSO rejected
-            — fail-closed is about the absence of a concrete scope"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags {:scope nil :tags #{[:article "w"]}}])))))
-
-;; ---- cross-scope MUST carry :cause (the audited escape) --------------------
-
-(deftest invalidate-tags-cross-scope-without-cause-fails-closed
-  (testing "Spec 016 §The cross-scope lattice — a :cross-scope?
-            true invalidate-tags with NO :cause is a loud
-            :rf.error/resource-cross-scope-cause-required (never a silent
-            unaudited cross-scope sweep). Cross-scope is the audited escape; it
-            MUST carry the privacy-relevant :cause evidence."
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:tags #{[:article "w"]} :cross-scope? true}]))))
-  (testing "an explicitly nil :cause (not merely absent) is ALSO rejected —
-            fail-closed is about the absence of :cause evidence (cross-scope
-            carries NO :scope — a closed union)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:tags #{[:article "w"]}
-              :cross-scope? true :cause nil}])))))
-
-;; ---- invalidate-tags scope routes through canonicalize-scope ---------------
-
-(deftest invalidate-tags-rejects-an-invalid-scope
-  ;; A scope reaching invalidate-tags routes through the shared
-  ;; rf.resources.state/canonicalize-scope path and fails closed — never a
-  ;; silent wrong cache scope. The [:rf.scope/global] singleton-vector spelling
-  ;; is NOT a global alias: the global scope IS the bare keyword.
-  (doseq [[label scope error-id]
-          [["a reserved-namespace scope typo (:rf.scope/glabal) → :rf.error/resource-invalid-scope"
-            :rf.scope/glabal #"resource-invalid-scope"]
-           ["a host / non-EDN scope value → :rf.error/resource-non-edn-params"
-            {:cb (fn [])} #"resource-non-edn-params"]
-           ["the wrapped singleton-vector global spelling → :rf.error/resource-invalid-scope"
-            [:rf.scope/global] #"resource-invalid-scope"]]]
-    (testing label
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) error-id
-            (rf.resources.events/invalidate-tags-handler
-              (invalidate-cofx {})
-              [:rf.resource/invalidate-tags
-               {:scope scope :tags #{[:article "w"]}}]))))))
+            [:rf.resource/invalidate-tags payload]))
+        (pr-str payload))))
 
 (deftest clear-scope-rejects-reserved-scope-typo
-  (testing "clear-scope routes its scope through
-            the shared rf.resources.state/canonicalize-scope path; a reserved-namespace
-            typo (:rf.scope/glabal) fails closed (a typo can never silently
-            clear the WRONG scope — a cross-tenant data wipe)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (rf.resources.events/clear-scope-handler
-            (invalidate-cofx {})
-            [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}])))))
+  ;; a typo must never silently clear the wrong scope
+  (is (thrown-with-msg?
+        #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+        (rf.resources.events/clear-scope-handler
+          (invalidate-cofx {})
+          [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}]))))
 
 (deftest invalidate-tags-refetches-active-leaves-inactive-stale
   (rf/reg-resource :ivr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         kact  (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "active"})
         kin   (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "inactive"})]
-    ;; active-owner entry
     (ensure! :ivr/article scope "active" [:route :r 1])
     (succeed! kact {:title "Active"})
-    ;; inactive entry (owner released)
     (ensure! :ivr/article scope "inactive" [:app :x 1])
     (succeed! kin {:title "Inactive"})
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope scope :tags #{[:article "active"] [:article "inactive"]}}])
-    (testing "Spec 016 §Invalidation 3-4 — the active-owner entry refetches
-              (→ :fetching, prior data kept); the inactive entry is left
-              stale / GC-eligible (NOT refetched)"
-      (is (= :fetching (:status (entry kact))) "active entry refetched")
-      (is (= {:title "Active"} (:data (entry kact))) "prior data kept on refetch")
-      (is (= :loaded (:status (entry kin))) "inactive entry NOT refetched")
-      (is (some? (:invalidated-at (entry kin))) "inactive entry left stale"))))
+    (is (= [:fetching {:title "Active"}] ((juxt :status :data) (entry kact)))
+        "the owned entry refetches, keeping its data")
+    (is (= [:loaded true] [(:status (entry kin)) (invalidated? kin)])
+        "the ownerless entry is left stale, not refetched")))
 
 (deftest successful-load-replaces-tag-index
   (rf/reg-resource :tagrep/article
-                   (article-spec {:tags (fn [{:keys [slug]} data]
-                                          ;; tags depend on the DATA's version
-                                          #{[:article slug] [:rev (:rev data)]})})
+                   (article-spec {:tags (fn [{:keys [slug]} data] #{[:article slug] [:rev (:rev data)]})})
                    article-spec-request)
   (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :tagrep/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :tagrep/article {:slug "w"})
+        kid   (rf.resources.state/key-id k)
+        index (fn [tag] (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) tag)))]
     (ensure! :tagrep/article scope "w" [:app :t 1])
     (succeed! k {:rev 1})
-    (testing "first load produces version-1 tags"
-      (is (= #{[:article "w"] [:rev 1]} (:tags (entry k))))
-      ;; tag-index members are the byte key-id.
-      (is (= #{(rf.resources.state/key-id k)} (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 1])))))
-    ;; refetch → data now rev 2 → tags REPLACED
+    (is (= [#{[:article "w"] [:rev 1]} #{kid}] [(:tags (entry k)) (index [:rev 1])]))
     (rf/dispatch-sync [:rf.resource/refetch {:resource :tagrep/article :scope scope
                                              :params {:slug "w"}}])
     (succeed! k {:rev 2})
-    (testing "Spec 016 §Invalidation — on a successful (re)load the tag index
-              for the key is REPLACED with the new data's tags; the OLD tag is
-              removed (stale list/detail relationships stop receiving
-              invalidations)"
-      (is (= #{[:article "w"] [:rev 2]} (:tags (entry k))) "entry tags replaced")
-      (is (= #{(rf.resources.state/key-id k)} (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 2])))
-          "new tag indexed")
-      (is (nil? (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 1])))
-          "OLD tag removed from the index (not accumulated)"))))
-
-;; ===========================================================================
-;; 2. Active owners — release aborts ONLY orphaned in-flight work
-;; ===========================================================================
+    (is (= [#{[:article "w"] [:rev 2]} #{kid} nil] [(:tags (entry k)) (index [:rev 2]) (index [:rev 1])])
+        "the reload replaces the tags and drops the old tag from the index")))
 
 (deftest release-owner-does-not-abort-shared-in-flight
   (rf/reg-resource :sh/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :sh/article {:slug "w"})]
-    ;; two owners ensure the SAME in-flight key (dedupe joins)
     (ensure! :sh/article scope "w" [:route :r 1])
     (ensure! :sh/article scope "w" [:app :x 1])
-    (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k))))
+    (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k))) "both owners joined one attempt")
     (let [wid (:current-work (entry k))]
       (reset! aborts [])
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-      (testing "Spec 016 §Race — releasing ONE owner of a shared in-flight
-                request does NOT abort it (a remaining owner still needs it)"
-        (is (= #{[:app :x 1]} (:active-owners (entry k))) "one owner dropped")
-        (is (= [] @aborts) "no abort emitted (work still owned)")
-        (is (= #{[:app :x 1]} (:owners (rf.resources.work-ledger/get-record (runtime-db) wid)))
-            "work record owners updated"))
-      (testing "releasing the LAST owner orphans the in-flight attempt →
-                opportunistic abort (best-effort; stale suppression is the
-                real boundary)"
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
-        (is (empty? (:active-owners (entry k))) "entry now owner-free")
-        ;; the abort carries the frame-QUALIFIED transport request-id
-        ;; (`managed-request-id`), NOT the bare work-id (the managed-HTTP
-        ;; registry keys by request-id process-globally; a bare work-id would
-        ;; collide across frames).
-        (is (= [(rf.resources.work-ledger/managed-request-id :rf/default wid)] @aborts)
-            "orphaned in-flight attempt aborted (by qualified request-id)")
-        (is (= :abort-requested
-               (:status (rf.resources.work-ledger/get-record (runtime-db) wid)))
-            "work row moved to :abort-requested")))))
+      (is (= [#{[:app :x 1]} [] #{[:app :x 1]}]
+             [(:active-owners (entry k)) @aborts (:owners (work-record wid))])
+          "releasing one owner of a shared request does not abort it")
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
+      ;; the abort carries the frame-qualified request id, never the bare work id
+      (is (= [true [(rf.resources.work-ledger/managed-request-id :rf/default wid)] :abort-requested]
+             [(empty? (:active-owners (entry k))) @aborts (:status (work-record wid))])
+          "releasing the last owner aborts the orphaned attempt"))))
 
-;; ---- abort-requested / terminal work is NON-joinable ----------------------
-;; A re-ensure after the last owner released (→ :abort-requested) or after a
-;; direct/internal aborted settle (→ terminal :cancelled) must NOT dedupe onto
-;; the doomed/dead prior attempt — it must start a FRESH generation. (Stale
-;; :current-work pointers survive both paths; the LINKED RECORD'S status is
-;; the joinability boundary, not the pointer.)
+;; The linked work record's status, not the entry's :current-work pointer, is
+;; what makes an attempt joinable.
 
 (deftest re-ensure-after-owner-release-does-not-join-abort-requested
   (rf/reg-resource :nj/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :nj/article {:slug "w"})]
-    ;; load attempt in flight, single owner
     (ensure! :nj/article scope "w" [:route :r 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
-      (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db) wid1))))
-      ;; the LAST owner releases → the work record is marked :abort-requested
-      ;; (opportunistic abort issued) but the entry still POINTS at wid1.
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (runtime-db) wid1)))
-          "released-last-owner work is abort-requested")
-      (is (= wid1 (:current-work (entry k)))
-          "entry still points at the abort-requested work (stale pointer)")
-      (testing "an immediate re-ensure does NOT join the
-                abort-requested work; it starts a FRESH generation + work id"
-        (ensure! :nj/article scope "w" [:route :r 2])
-        (let [e (entry k)]
-          (is (= (inc gen1) (:generation e)) "fresh generation (no dedupe onto dead work)")
-          (is (not= wid1 (:current-work e)) "a new work id, not the abort-requested one")
-          (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))))
-              "the new attempt is live")
-          (is (contains? (:active-owners e) [:route :r 2])
-              "the new owner is attached to the fresh attempt"))))))
+      (is (= [:abort-requested wid1] [(:status (work-record wid1)) (:current-work (entry k))])
+          "precondition: the entry still points at the abort-requested work")
+      (ensure! :nj/article scope "w" [:route :r 2])
+      (let [e (entry k)]
+        (is (= [(inc gen1) true :running true]
+               [(:generation e) (not= wid1 (:current-work e)) (:status (work-record (:current-work e)))
+                (contains? (:active-owners e) [:route :r 2])])
+            "a fresh, live attempt carrying the new owner")))))
 
 (deftest re-ensure-after-abort-settle-does-not-join-terminal
   (rf/reg-resource :njt/article (article-spec) article-spec-request)
@@ -472,443 +238,198 @@
     (ensure! :njt/article scope "w" [:app :a 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
-      ;; an abort reply (an `:rf.http/aborted` envelope through the canonical
-      ;; failure seam) settles the entry to a non-error `:idle` and marks the
-      ;; work row TERMINAL :cancelled.
       (abort! k)
-      (is (= :cancelled (:status (rf.resources.work-ledger/get-record (runtime-db) wid1)))
-          "the aborted work row is terminal :cancelled")
-      (testing "a subsequent ensure does NOT join the terminal
-                work; it starts a fresh generation"
-        (ensure! :njt/article scope "w" [:app :a 2])
-        (let [e (entry k)]
-          (is (= (inc gen1) (:generation e)) "fresh generation")
-          (is (not= wid1 (:current-work e)) "a new live work id"))))))
-
-;; ===========================================================================
-;; 3. clear-scope — suppress late reply by entry-vanish + generation
-;; ===========================================================================
+      (is (= :cancelled (:status (work-record wid1))) "precondition: the aborted row is terminal")
+      (ensure! :njt/article scope "w" [:app :a 2])
+      (is (= [(inc gen1) true] [(:generation (entry k)) (not= wid1 (:current-work (entry k)))])
+          "a fresh generation and work id"))))
 
 (deftest clear-scope-suppresses-late-reply
   (rf/reg-resource :clr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :clr/article {:slug "w"})]
     (ensure! :clr/article scope "w" [:app :c 1])
-    (let [stale-wid (:current-work (entry k))]
+    (let [stale-wid (:current-work (entry k))
+          late!     (fn [data] (rf/dispatch-sync [:rf.resource.internal/succeeded
+                                                  {:resource/key k :work/id stale-wid
+                                                   :generation 1 :data data}]))]
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope :cause :logout}])
       (is (nil? (entry k)) "entry removed by clear-scope")
-      (testing "Spec 016 §clear-scope — a late reply for the cleared entry's
-                work-id is SUPPRESSED (the entry it would write into is gone;
-                the generation/work-id check finds no live entry)"
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key k :work/id stale-wid :generation 1
-                            :data {:title "Late"}}])
-        (is (nil? (entry k)) "late reply did NOT resurrect / write the entry"))
-      (testing "a recreated entry in the same scope gets a HIGHER generation
-                (monotone host-side allocator), so the old reply's work-id can
-                never re-match (anti-recycling)"
+      (late! {:title "Late"})
+      (is (nil? (entry k)) "a late reply does not resurrect the entry")
+      (testing "a recreated entry gets a higher generation, so the old reply never matches it"
         (ensure! :clr/article scope "w" [:app :c 2])
-        (is (= 2 (:generation (entry k))) "recreated entry on a fresh generation")
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key k :work/id stale-wid :generation 1
-                            :data {:title "ZombieLate"}}])
-        (is (not= {:title "ZombieLate"} (:data (entry k)))
-            "the pre-clear reply never writes the recreated entry")))))
-
-;; ===========================================================================
-;; 4. Stale / GC timers — side table + re-check before write + frame destroy
-;; ===========================================================================
+        (is (= 2 (:generation (entry k))))
+        (late! {:title "ZombieLate"})
+        (is (not= {:title "ZombieLate"} (:data (entry k))))))))
 
 (deftest succeeded-arms-stale-and-gc-timers
   (rf/reg-resource :tm/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :tm/article {:slug "w"})]
-    (reset! scheduled-timers [])
     (ensure! :tm/article scope "w" [:app :tm 1])
     (succeed! k {:title "W"})
-    (testing "Spec 016 §Stale and GC scheduling — a successful load emits one
-              :rf.resource/schedule-timers fx carrying the durable delays
-              derived from the resource policy"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= k (:resource/key args)))
-        (is (= 60000 (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])))))))
-
-(deftest no-explicit-policy-arms-default-gc-timer
-  ;; An absent :gc-after-ms normalizes AT REGISTRATION to the framework's
-  ;; finite default (300000ms), so a settle DOES arm a GC timer even though
-  ;; this resource declares no explicit policy. :stale-after-ms has its own
-  ;; independent absent-default (never time-stale), so the settle's
-  ;; :timers :stale delay stays nil.
-  (rf/reg-resource :np/article (article-spec) article-spec-request) ;; no :stale-after-ms / :gc-after-ms
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :np/article {:slug "w"})]
-    (reset! scheduled-timers [])
-    (ensure! :np/article scope "w" [:app :np 1])
-    (succeed! k {:title "W"})
-    (testing "a resource declaring no explicit GC policy still arms the
-              DEFAULT GC timer (no silent infinite lingering); stale
-              stays unarmed (its own absent-default is never-time-stale)"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= k (:resource/key args)))
-        (is (nil? (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])))))))
+    (is (= [[k 60000 300000]] (timer-delays))
+        "one schedule-timers fx carrying the resource's policy delays")))
 
 (deftest gc-after-ms-never-arms-no-gc-timer
-  ;; The explicit, auditable opt-out: a resource that declares
-  ;; :gc-after-ms :never arms NO GC timer at all (the owner-free entry
-  ;; lingers indefinitely, by declared intent rather than by omission).
+  ;; the explicit, auditable opt-out: the owner-free entry lingers by intent
   (rf/reg-resource :npn/article (article-spec {:gc-after-ms :never}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :npn/article {:slug "w"})]
-    (reset! scheduled-timers [])
     (ensure! :npn/article scope "w" [:app :npn 1])
     (succeed! k {:title "W"})
-    (testing ":gc-after-ms :never arms no timer at all (no schedule-timers fx)"
-      (is (= [] @scheduled-timers)))))
+    (is (= [] @scheduled-timers))))
+
+;; A first load that fails or is aborted settles with no data and no work in
+;; flight, so it must arm GC itself: otherwise an owner-free entry from it is
+;; never reaped.
 
 (deftest first-load-error-arms-gc-and-is-collected-after-release
-  ;; A FIRST load that FAILS settles `:error` with `:current-work
-  ;; nil`. The `:error` settle MUST arm a GC timer (mirroring the success-path
-  ;; arming): arming only on a SUCCESSFUL settle would never reap an owner-free
-  ;; errored entry (an unbounded cache leak for the frame's life). Once
-  ;; owner-free + idle the fired GC re-check collects it.
   (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gce/article {:slug "w"})]
-    (reset! scheduled-timers [])
     (ensure! :gce/article scope "w" [:app :gce 1])
-    (fail! k :transient-500)   ;; first load fails → :error (no usable data)
-    (testing "Spec 016 §Stale and GC scheduling — a first-load
-              `:error` settle arms the GC timer (so the errored entry can be
-              reaped)"
-      (let [e (entry k)]
-        (is (= :error (:status e)) "first-load failure settled :error")
-        (is (nil? (:current-work e)) "no in-flight work after the error settle"))
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted on the :error settle")
-        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
-        (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))
-    (testing "the owner releases → owner-free + idle + :error; the fired GC
-              re-check collects the errored entry (not leaked)"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gce 1]}])
-      (is (empty? (:active-owners (entry k))) "entry now owner-free")
-      (is (= :error (:status (entry k))) "still :error, idle (no current-work)")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)) "GC reaped the owner-free errored entry"))))
+    (fail! k :transient-500)
+    (is (= [:error nil] ((juxt :status :current-work) (entry k))))
+    (is (= [5000 nil] ((juxt (comp :gc :timers) (comp :poll :timers)) (last-schedule-for k)))
+        "the error settle armed GC at :gc-after-ms, and no poll")
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gce 1]}])
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (nil? (entry k)) "GC reaped the owner-free errored entry")))
 
 (deftest first-load-abort-arms-gc-and-is-collected-after-release
-  ;; A FIRST load that is ABORTED (an intentional cancellation,
-  ;; NOT a failure) settles a non-error stable `:idle` with
-  ;; `:current-work nil` (no usable data). Like its `:error` settle twin, the
-  ;; abort settle MUST arm a GC timer: otherwise an owner-free `:idle` entry
-  ;; from a cancelled first load would NEVER be reaped — the same unbounded
-  ;; per-frame cache leak, via the non-error settle path. Once owner-free the
-  ;; fired GC re-check collects it.
   (rf/reg-resource :gca/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gca/article {:slug "w"})]
-    (reset! scheduled-timers [])
     (ensure! :gca/article scope "w" [:app :gca 1])
-    (abort! k)   ;; first-load aborted → :idle (no usable data)
-    (testing "Spec 016 §Cancellation is opportunistic / §Stale and
-              GC scheduling — a first-load ABORT settle arms the GC timer (so
-              the owner-free idle entry can be reaped)"
-      (let [e (entry k)]
-        (is (= :idle (:status e)) "first-load abort settled :idle (no usable data)")
-        (is (nil? (:current-work e)) "no in-flight work after the abort settle"))
-      (let [args (last-schedule-for k)]
-        (is (some? args) "schedule-timers emitted on the abort settle")
-        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
-        (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))
-    (testing "the owner releases → owner-free + idle; the fired GC re-check
-              collects the aborted entry (not leaked)"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gca 1]}])
-      (is (empty? (:active-owners (entry k))) "entry now owner-free")
-      (is (= :idle (:status (entry k))) "still :idle, no current-work")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)) "GC reaped the owner-free aborted entry"))))
-
-(deftest background-refresh-abort-does-not-rearm-gc
-  ;; Guard: a BACKGROUND-refresh abort (the entry keeps prior data
-  ;; and returns to `:loaded`, not `:idle`) is NOT a first-load abort: its
-  ;; stale/GC timers were armed on the prior success, and `entry-abort-settled`
-  ;; makes no freshness change, so the refresh-abort settle re-arms NOTHING (no
-  ;; double-arm) — mirrors `background-refresh-failure-does-not-rearm-gc`.
-  (rf/reg-resource :gcra/article (article-spec {:gc-after-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gcra/article {:slug "w"})]
-    (ensure! :gcra/article scope "w" [:route :r 1])
-    (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
-    ;; a background refetch that is then aborted (entry keeps data, returns to
-    ;; :loaded)
-    (rf/dispatch-sync [:rf.resource/refetch {:resource :gcra/article :scope scope
-                                             :params {:slug "w"}}])
-    (reset! scheduled-timers [])
-    (abort! k)                       ;; background refresh abort
-    (testing "a background-refresh abort (status :loaded, data
-              kept) re-arms NO timer (the GC was already armed on the prior
-              success — no double-arm from the abort path)"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "background refresh abort kept :loaded")
-        (is (= {:title "W"} (:data e)) "prior data kept"))
-      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
-          "no schedule-timers re-armed on the background-refresh abort"))))
-
-(deftest background-refresh-failure-does-not-rearm-gc
-  ;; Guard: a BACKGROUND-refresh failure (the entry keeps prior data
-  ;; and returns to `:loaded`) is NOT a first-load error: its stale/GC timers
-  ;; were armed on the prior success, and `entry-failed` makes no freshness
-  ;; change, so the refresh-failure settle re-arms NOTHING (no double-arm).
-  (rf/reg-resource :gcb/article (article-spec {:gc-after-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gcb/article {:slug "w"})]
-    (ensure! :gcb/article scope "w" [:route :r 1])
-    (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
-    ;; a background refetch that fails (entry keeps data, returns to :loaded)
-    (rf/dispatch-sync [:rf.resource/refetch {:resource :gcb/article :scope scope
-                                             :params {:slug "w"}}])
-    (reset! scheduled-timers [])
-    (fail! k :transient-503)         ;; background refresh failure
-    (testing "a background-refresh failure (status :loaded, data
-              kept, :refresh-error) re-arms NO timer (the GC was already armed on
-              the prior success — no double-arm from the failure path)"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "background refresh failure kept :loaded")
-        (is (= {:title "W"} (:data e)) "prior data kept")
-        (is (some? (:refresh-error e)) ":refresh-error recorded"))
-      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
-          "no schedule-timers re-armed on the background-refresh failure"))))
-
-;; ---- a GC skip RESCHEDULES so a later release/settle is GC'd --------------
+    (abort! k)
+    (is (= [:idle nil] ((juxt :status :current-work) (entry k))))
+    (is (= [5000 nil] ((juxt (comp :gc :timers) (comp :poll :timers)) (last-schedule-for k)))
+        "the abort settle armed GC at :gc-after-ms, and no poll")
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gca 1]}])
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (nil? (entry k)) "GC reaped the owner-free aborted entry")))
 
 (deftest gc-skip-while-owned-reschedules-and-collects-after-release
+  ;; A skipped GC re-arms, so a release after the original deadline does not
+  ;; strand the entry.
   (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gcr/article {:slug "w"})]
     (ensure! :gcr/article scope "w" [:app :gcr 1])
     (succeed! k {:title "W"})
     (reset! scheduled-timers [])
-    (testing "a GC timer firing while the entry is still OWNED
-              skips collection but RE-ARMS a fresh GC re-check (so a later
-              release after the original deadline does not strand the entry)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (some? (entry k)) "owned entry kept (GC skipped)")
-      (is (= :loaded (:status (entry k))))
-      (is (= 1 (count @scheduled-timers)) "exactly one reschedule fx emitted")
-      (let [args (first @scheduled-timers)]
-        (is (= k (:resource/key args)))
-        (is (= 1000 (get-in args [:timers :gc])) "rescheduled with the resource's :gc-after-ms")
-        (is (nil? (get-in args [:timers :stale])) "stale timer NOT re-armed on a GC skip")))
-    (testing "the owner releases AFTER the original deadline; the rescheduled
-              GC re-check now finds the entry owner-free + idle and collects it"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcr 1]}])
-      (is (empty? (:active-owners (entry k))) "entry now owner-free")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)) "the rescheduled GC re-check collected the now-inactive entry"))))
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (= :loaded (:status (entry k))) "the owned entry is kept")
+    (is (= [[k nil 1000]] (timer-delays)) "one GC reschedule at :gc-after-ms; stale not re-armed")
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcr 1]}])
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (nil? (entry k)) "the rescheduled check collects the now-inactive entry")))
 
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
   (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gci/article {:slug "w"})]
-    ;; in flight + owner-free (owner released while loading)
     (ensure! :gci/article scope "w" [:app :gci 1])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gci 1]}])
-    (is (some? (:current-work (entry k))) "in flight, owner-free")
+    (is (some? (:current-work (entry k))) "precondition: in flight, owner-free")
     (reset! scheduled-timers [])
-    (testing "a GC timer firing while the entry is IN-FLIGHT skips
-              but RE-ARMS a fresh GC re-check"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (some? (entry k)) "in-flight entry kept (GC skipped)")
-      (is (= 1 (count @scheduled-timers)) "one reschedule fx emitted")
-      (is (= 1000 (get-in (first @scheduled-timers) [:timers :gc]))))
-    (testing "the in-flight work settles (a stale/aborted reply clears
-              :current-work via the work-row terminal); once owner-free + idle
-              the rescheduled GC re-check collects it"
-      ;; settle the work to a non-error idle state via an abort reply (clears
-      ;; :current-work without re-attaching an owner) — the entry is now
-      ;; owner-free + idle (GC-eligible)
-      (let [wid (:current-work (entry k))]
-        (rf/dispatch-sync [:rf.resource.internal/failed
-                           {:resource/key k :work/id wid
-                            :generation (:generation (entry k))
-                            :rf.frame/id :rf/default}
-                           {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}]))
-      (is (nil? (:current-work (entry k))) "work settled — no longer in flight")
-      (is (empty? (:active-owners (entry k))) "owner-free")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)) "the rescheduled GC re-check collected the now-idle entry"))))
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (= [true [1000]] [(some? (entry k)) (mapv (comp :gc :timers) @scheduled-timers)])
+        "the in-flight entry is kept and one GC reschedule armed")
+    (let [wid (:current-work (entry k))]
+      (rf/dispatch-sync [:rf.resource.internal/failed
+                         {:resource/key k :work/id wid
+                          :generation (:generation (entry k))
+                          :rf.frame/id :rf/default}
+                         {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}]))
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (nil? (entry k)) "once settled and idle, the rescheduled check collects it")))
 
 (deftest gc-skip-no-entry-does-not-reschedule
   (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [k (rf.resources.state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
-    (reset! scheduled-timers [])
-    (testing "a GC timer firing for an entry that no longer exists
-              (removed / cleared) does NOT reschedule (nothing to collect)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)))
-      (is (empty? @scheduled-timers) "no reschedule fx for a vanished entry"))))
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+    (is (empty? @scheduled-timers) "nothing to collect, so no reschedule")))
 
 (deftest stale-fired-rechecks-durable-fact-no-write
+  ;; freshness derives from the durable :stale-at; the timer is advisory
   (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :sf/article {:slug "w"})]
     (ensure! :sf/article scope "w" [:app :sf 1])
     (succeed! k {:title "W"})
     (let [before (entry k)]
-      (testing "Spec 016 §Stale and GC scheduling — the stale-timer re-check
-                derives freshness from the DURABLE :stale-at; it writes NO
-                durable change (the :stale? sub derives staleness; the timer
-                is advisory)"
-        (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource/key k}])
-        (is (= before (entry k)) "stale-fired made no durable entry change")))))
+      (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource/key k}])
+      (is (= before (entry k)) "stale-fired made no durable change"))))
 
 (deftest frame-destroy-cancels-resource-timers
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
-  (let [fa :fd/frame-a
-        k  (rf.resources.state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})]
+  (let [fa        :fd/frame-a
+        k         (rf.resources.state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})
+        fa-timers #(count (filter (fn [[[fid _ _] _]] (= fid fa)) @rf.resources.timers/timer-table))]
     (rf/make-frame {:id fa :doc "frame-destroy timer frame"})
-    ;; arm two long timers in frame A directly via the side-table primitive
     (rf.resources.timers/schedule! fa k rf.resources.timers/stale-kind 1000000)
     (rf.resources.timers/schedule! fa k rf.resources.timers/gc-kind 1000000)
-    (is (= 2 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @rf.resources.timers/timer-table)))
-        "two timers armed for frame A")
-    (testing "Spec 016 §Stale and GC scheduling — frame destroy cancels ALL
-              of the frame's resource timers (composed into the single
-              :resources/on-frame-destroyed! teardown hook, not a second
-              teardown path)"
-      (rf.frame/destroy-frame! fa)
-      (is (= 0 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @rf.resources.timers/timer-table)))
-          "frame A's timers cancelled + dropped on destroy"))))
-
-;; ===========================================================================
-;; 5. remove cancels the instance's timers
-;; ===========================================================================
+    (is (= 2 (fa-timers)) "precondition: two timers armed for frame A")
+    (rf.frame/destroy-frame! fa)
+    (is (= 0 (fa-timers)) "frame destroy cancels and drops the frame's timers")))
 
 (deftest remove-cancels-instance-timers
   (rf/reg-resource :rmt/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :rmt/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :rmt/article {:slug "w"})
+        slot  [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]]
     (ensure! :rmt/article scope "w" [:app :rmt 1])
     (succeed! k {:title "W"})
-    ;; arm a real long timer so remove has something to cancel. The timer
-    ;; side-table key's resource-key element is the byte key-id.
     (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
-    (is (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
-    (testing "Spec 016 §Events / §Stale and GC scheduling — :rf.resource/remove
-              evicts the instance AND cancels its advisory timers"
-      (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope scope
-                                              :params {:slug "w"}}])
-      (is (nil? (entry k)) "instance removed")
-      (is (not (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
-          "its GC timer cancelled"))))
+    (is (contains? @rf.resources.timers/timer-table slot) "precondition: a GC timer is armed")
+    (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope scope
+                                            :params {:slug "w"}}])
+    (is (= [nil false] [(entry k) (contains? @rf.resources.timers/timer-table slot)])
+        "the instance is removed and its timer cancelled")))
 
-;; ===========================================================================
-;; 6. An invalidation SURVIVES a refetch that did not succeed
-;; ===========================================================================
-;;
-;; The durable `:invalidated-at` is a FRESHNESS FACT, and Spec 016 §Totality
-;; rules those facts ORTHOGONAL to load status — so only a settle that actually
-;; produced authoritative data may clear one; `entry-start-load` does not.
-;; Clearing it at load START would let an invalidation-driven refetch that
-;; FAILED or was ABORTED erase the very invalidation that caused it: neither
-;; `entry-failed` nor `entry-abort-settled` restores the fact. The entry would
-;; then read FRESH while still holding PRE-MUTATION data, and — with no
-;; `:stale-after-ms`, where `:invalidated-at` is the entry's ONLY path to
-;; `:stale?` (Spec 016 §Freshness clock contract) — the fresh-skip `ensure`
-;; gate and the focus/reconnect active-stale scan would both skip it for the
-;; rest of the session. One 5xx would be enough.
-;;
-;; These two pins are the two distinct non-success settles. They assert the
-;; DURABLE fact, the shared `entry-stale?` derivation every freshness reader
-;; consults, AND the user-visible consequence (the next `ensure` must refetch
-;; rather than fresh-skip a cache hit) — the last is what actually bites.
+;; :invalidated-at is a freshness fact, orthogonal to load status, so only a
+;; settle that produced authoritative data may clear it. Without
+;; :stale-after-ms it is the entry's only path to :stale?, so losing it to a
+;; failed or aborted refetch would fresh-skip the pre-mutation data for good.
 
 (deftest invalidation-survives-a-failed-refetch
-  ;; FAILURE-after-invalidation. An owned entry is invalidated (so
-  ;; the invalidation refetches it), the refetch 5xxs, and the invalidation must
-  ;; still stand: the entry is holding pre-mutation data and nothing has
-  ;; re-read authoritative state.
   (rf/reg-resource :ifz/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :ifz/article {:slug "w"})
         owner [:app :ifz 1]]
     (ensure! :ifz/article scope "w" owner)
     (succeed! k {:title "pre-mutation"})
-    (is (nil? (:invalidated-at (entry k))) "control: loaded entry is not invalidated")
-    ;; the entry keeps its ACTIVE OWNER, so the invalidation refetches it
-    ;; rather than leaving it stale-in-place.
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope scope :tags #{[:article "w"]}}])
-    (is (some? (:current-work (entry k)))
-        "control: the active-owner invalidation started a refetch")
-    (testing "a start-load does NOT clear the durable
-              :invalidated-at, so a refetch that FAILS leaves the invalidation
-              standing (Spec 016 §Totality — freshness facts are orthogonal to
-              load status; only a SUCCESSFUL settle satisfies an invalidation)"
-      (fail! k :boom)
-      (let [e (entry k)]
-        (is (= :loaded (:status e))
-            "a background-refresh failure returns to :loaded (last-known-good preserved)")
-        (is (= {:title "pre-mutation"} (:data e))
-            "the entry is still holding PRE-MUTATION data — the harm the fact records")
-        (is (some? (:refresh-error e)) "the refresh failure was recorded")
-        (is (some? (:invalidated-at e))
-            "the durable invalidation SURVIVED the failed refetch")
-        ;; `:stale-after-ms` is undeclared, so `:stale-at` is nil and
-        ;; `:invalidated-at` is the ONLY path to stale — the clock is
-        ;; immaterial, which is exactly the default where losing the
-        ;; invalidation would bite hardest.
-        (is (nil? (:stale-at e)) "control: no time-staleness in play")
-        (is (rf.resources.state/entry-stale? e 0)
-            "the shared freshness derivation every reader consults still reads STALE")))
-    (testing "and the consequence that bites: the next ensure
-              REFETCHES rather than serving a fresh-skip cache hit, so the
-              mutation's effect is eventually seen"
-      (ensure! :ifz/article scope "w" owner)
-      (is (some? (:current-work (entry k)))
-          "the stale entry started a new attempt (no fresh-skip)"))))
+    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope scope :tags #{[:article "w"]}}])
+    (is (some? (:current-work (entry k))) "precondition: the owned entry's invalidation refetches")
+    (fail! k :boom)
+    (let [e (entry k)]
+      (is (= [:loaded {:title "pre-mutation"} true] [(:status e) (:data e) (some? (:refresh-error e))])
+          "a background-refresh failure keeps the last-known-good data")
+      (is (= [true nil true] [(some? (:invalidated-at e)) (:stale-at e) (rf.resources.state/entry-stale? e 0)])
+          "the invalidation survives and is the only thing keeping the entry stale"))
+    (ensure! :ifz/article scope "w" owner)
+    (is (some? (:current-work (entry k))) "the next ensure refetches rather than fresh-skipping")))
 
 (deftest invalidation-survives-an-aborted-refetch
-  ;; RELEASE-MID-REFETCH abort, the sibling case and the one that
-  ;; would regress silently. The last owner releases while the invalidation's
-  ;; refetch is in flight; the orphaned attempt is aborted, and
-  ;; `entry-abort-settled` deliberately writes NO error facts — so nothing
-  ;; whatsoever marks the entry as needing a re-read except the invalidation
-  ;; itself, which must therefore survive.
+  ;; the last owner leaves mid-refetch, and an abort writes no error facts, so
+  ;; only the invalidation still marks the entry for a re-read
   (rf/reg-resource :ifza/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :ifza/article {:slug "w"})
         owner [:app :ifza 1]]
     (ensure! :ifza/article scope "w" owner)
     (succeed! k {:title "pre-mutation"})
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope scope :tags #{[:article "w"]}}])
-    (is (some? (:current-work (entry k)))
-        "control: the active-owner invalidation started a refetch")
-    ;; the last owner goes away mid-flight — the attempt is orphaned and
-    ;; opportunistically aborted (Spec 016 §Race).
+    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope scope :tags #{[:article "w"]}}])
+    (is (some? (:current-work (entry k))) "precondition: the owned entry's invalidation refetches")
     (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}])
-    (testing "an ABORTED refetch settles with no error facts at
-              all, so erasing :invalidated-at at start-load would leave NOTHING
-              marking the entry for re-read; the invalidation must survive the
-              abort"
-      (abort! k)
-      (let [e (entry k)]
-        (is (= :loaded (:status e))
-            "a refresh abort returns to :loaded (a cancellation is not a failure)")
-        (is (= {:title "pre-mutation"} (:data e))
-            "the entry is still holding PRE-MUTATION data")
-        (is (nil? (:error e)) "control: an abort writes no :error")
-        (is (nil? (:refresh-error e)) "control: an abort writes no :refresh-error")
-        (is (some? (:invalidated-at e))
-            "the durable invalidation SURVIVED the aborted refetch")
-        (is (rf.resources.state/entry-stale? e 0)
-            "the shared freshness derivation still reads STALE")))
-    (testing "so a later ensure (a re-entered route re-owning the
-              entry) refetches instead of fresh-skipping the pre-mutation value"
-      (ensure! :ifza/article scope "w" [:app :ifza 2])
-      (is (some? (:current-work (entry k)))
-          "the stale entry started a new attempt (no fresh-skip)"))))
+    (abort! k)
+    (let [e (entry k)]
+      (is (= [:loaded {:title "pre-mutation"} nil nil] ((juxt :status :data :error :refresh-error) e))
+          "a refresh abort returns to :loaded with no error facts")
+      (is (= [true true] [(some? (:invalidated-at e)) (rf.resources.state/entry-stale? e 0)])
+          "the invalidation survives the aborted refetch"))
+    (ensure! :ifza/article scope "w" [:app :ifza 2])
+    (is (some? (:current-work (entry k))) "a later ensure refetches rather than fresh-skipping")))
