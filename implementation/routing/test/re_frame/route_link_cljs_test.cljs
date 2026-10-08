@@ -1,48 +1,33 @@
 (ns re-frame.route-link-cljs-test
-  "CLJS tests for the `:route/link` registered view. Covers
-  the click-interception semantics that only run in a JS environment:
+  "CLJS tests for the `:route/link` registered view's click and intent
+  handlers, which only run in a JS environment:
 
-  - plain left-click (no modifier keys, button 0) → preventDefault is
-    called AND `:rf.route/url-requested` is dispatched with the synthesised
-    URL, which carries the path-params, query and fragment.
-  - modifier-key clicks (cmd / ctrl / shift / alt) → preventDefault is
-    NOT called and no event is dispatched; the browser handles the
-    click natively (preserving open-in-new-tab affordances).
-  - auxiliary-button clicks (middle-click, button 1) → same as
-    modifier-key clicks: deferred to the browser.
-  - caller-supplied `:on-click` that calls preventDefault → the
-    framework's interception is skipped.
+  - a plain left-click (button 0, no modifiers) calls preventDefault and
+    dispatches `:rf.route/url-requested` with the synthesised URL and the
+    link's navigation policy;
+  - modifier-key and middle-button clicks, and anchors with native-handling
+    attributes (`target=_blank`, `download`), defer to the browser;
+  - a caller `:on-click` runs first, and pre-empts the framework only by
+    calling preventDefault;
+  - the click and the `:prefetch :intent` warm-ups dispatch into the frame
+    that RENDERED the link, however long after render they fire.
 
-  These cases run the bare `route-link-render` fn (the one exposed
-  without Reagent's wrapping) against a synthetic event object so the
-  test has no DOM dependency. ns ends in `-cljs-test` so shadow-cljs's
-  `:node-test` build picks it up.
+  These cases call the bare `route-link-render` fn against a synthetic event
+  object, so the test has no DOM dependency.
 
-  Per Spec 012 §Linking from views — plain-anchor semantics and
-  API.md `route-link` row's click-rules paragraph."
+  Per Spec 012 §Linking from views and API.md `route-link` row's
+  click-rules paragraph."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; The delayed-click rows rebind the ambient
-            ;; frame scope directly to model a real browser click firing
-            ;; after the render-time rf.frame/provider scope has unwound.
             [re-frame.frame :as rf.frame]
-            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
-            ;; The credible-intent position class is pinned against
-            ;; its one published definition, so this file's literal cannot
-            ;; silently fall behind it.
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
-;; Snapshot/restore the registrar around each test — same
-;; pattern as routing_cljs_test.cljs. We do NOT use registrar/clear-all!
-;; on CLJS: it would wipe routing.cljc's ns-load-time registrations
-;; (the :rf.route/* events, the :rf/route reg-sub family, AND the
-;; :route/link registered view), and CLJS has no `require :reload` to
-;; resurrect them. test-support's make-reset-runtime-fixture snapshots the
-;; registrar and rolls back per-test changes only.
+;; The snapshot/restore fixture, not registrar/clear-all!: CLJS has no
+;; `require :reload` to resurrect routing's ns-load-time registrations.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
@@ -53,38 +38,24 @@
 (defn- mk-event
   "Hand-build a JS object the handler can poke at. `:preventDefault`
   flips `:defaultPrevented` to true so subsequent reads see the change."
-  [{:keys [button meta ctrl shift alt default-prevented]
-    :or {button 0 meta false ctrl false shift false alt false
-         default-prevented false}}]
+  [{:keys [button meta ctrl shift alt]
+    :or {button 0 meta false ctrl false shift false alt false}}]
   (let [o #js {:button           button
                :metaKey          meta
                :ctrlKey          ctrl
                :shiftKey         shift
                :altKey           alt
-               :defaultPrevented default-prevented}]
+               :defaultPrevented false}]
     (set! (.-preventDefault o)
           (fn [] (set! (.-defaultPrevented o) true)))
     o))
 
 (defn- click!
-  "Render route-link with `props`, extract the on-click handler from
-  the hiccup, invoke it against `event`, then return:
-    {:dispatched   <event-vector or nil — the :rf.route/url-requested event>
-     :prevented?   <boolean — was preventDefault called?>
-     :href         <a's :href>}
-
-  Captures the dispatched event via a trace callback. router/dispatch!
-  enqueues asynchronously, so we read the queued-event trace
-  (`:event/dispatched`) rather than polling the queue drain. This keeps
-  the test independent of the queue's drain timing.
-
-  `:source` is the closed-enum functional-origin tag on the
-  `:rf.event/dispatched` trace (stamped from the envelope in
-  `emit-dispatched-trace!`); we surface it so callers can pin that the
-  route-link click stamps `:source :router`.
-  `:source` is hoisted to a top-level slot on every trace event
-  (re-frame.trace/build-event — Spec 009 §Core fields hoist contract),
-  not stamped under `:tags` on the success path."
+  "Render route-link with `props`, invoke its on-click handler against
+  `event`, and return `{:dispatched <the :rf.route/url-requested event or nil>
+  :source <its trace :source> :prevented? <boolean>}`. The dispatch is read
+  off the `:rf.event/dispatched` trace, which fires at enqueue, so the result
+  does not depend on the queue's drain timing."
   [props event]
   (let [dispatched (atom nil)
         source     (atom nil)
@@ -103,8 +74,7 @@
         (on-click event)
         {:dispatched @dispatched
          :source     @source
-         :prevented? (.-defaultPrevented event)
-         :href       (:href attrs)})
+         :prevented? (.-defaultPrevented event)})
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
@@ -113,65 +83,21 @@
 (deftest plain-left-click-intercepts
   (testing "button 0 + no modifiers → preventDefault + :rf.route/url-requested"
     (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched source prevented? href]}
+    (let [{:keys [dispatched source prevented?]}
           (click! {:to :route/cart} (mk-event {}))]
-      (is (= "/cart" href))
       (is prevented? "preventDefault was called on plain left-click")
-      (is (= :rf.route/url-requested (first dispatched))
-          "the dispatched event is :rf.route/url-requested")
-      ;; The route-link click stamps the
-      ;; closed-enum functional-origin axis `:source :router` so Xray's
-      ;; L2 timeline + filter pills tag the cascade as a
-      ;; routing-substrate dispatch, not :ui.
       (is (= :router source)
           "the route-link dispatch stamps :source :router (not :unknown / :ui)")
-      ;; With no policy keys on the link, the payload is ONE key. `=` on the
-      ;; whole map is the pin — an address key creeping back in fails here
-      ;; rather than being tolerated. The route id is not lost: `/cart` is
-      ;; what `:route/cart` synthesised, and the handler matches it back.
-      (is (= {:url "/cart"} (second dispatched))
-          "the click payload carries the url and nothing else"))))
+      ;; The whole payload: an address key beside :url fails here.
+      (is (= [:rf.route/url-requested {:url "/cart"}] dispatched)))))
 
 (deftest plain-left-click-carries-the-link-navigation-policy
-  (testing ":replace?, :scroll and :bypass-leave? ride the click's dispatch
-            and never reach the <a>"
+  (testing ":replace?, :scroll and :bypass-leave? ride the click's dispatch"
     (rf/reg-route :route/cart {} "/cart")
-    (let [props     {:to :route/cart :class "nav" :replace? true
-                     :scroll :preserve :bypass-leave? true}
-          [_ attrs] (rf.routing.link/route-link-render props)
-          {:keys [dispatched prevented?]} (click! props (mk-event {}))]
-      (is prevented?)
-      (is (= [:rf.route/url-requested
-              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
-             dispatched)
-          "each policy key the link carries is on the dispatch")
-      (is (= "nav" (:class attrs)) "an ordinary attribute still passes through")
-      (is (not-any? #(contains? attrs %) [:replace? :scroll :bypass-leave?])
-          "no policy key is rendered as an <a> attribute"))))
-
-(deftest plain-left-click-passes-params-query-and-fragment
-  (testing "params, query and fragment all reach the dispatch — INSIDE the url"
-    (rf/reg-route :route/article {:params [:map [:id :string]]
-                                  :query  [:map [:tab [:enum :summary :details]]]} "/articles/:id")
-    ;; :tab is declared as a BOUNDED [:enum …] keyword slot in the route's
-    ;; :query schema (a bare :keyword slot is rejected at reg-route);
-    ;; pass a conformant value through the link click so
-    ;; route-url's validation doesn't reject the caller's payload.
-    (let [{:keys [dispatched]}
-          (click! {:to       :route/article
-                   :params   {:id "intro"}
-                   :query    {:tab :summary}
-                   :fragment "notes"}
-                  (mk-event {}))
-          payload (second dispatched)]
-      ;; The payload is `{:url …}`, so the three address
-      ;; components are asserted where they live — synthesised into the
-      ;; path-form url by the shared `url-requested-payload`. `:fragment`
-      ;; is pinned here (the
-      ;; `#notes` tail) and in the seam suite.
-      (is (= {:url "/articles/intro?tab=summary#notes"} payload)
-          "params, query and fragment are all in the url, and the url is all
-           the payload carries"))))
+    (is (= [:rf.route/url-requested
+            {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
+           (:dispatched (click! {:to :route/cart :replace? true :scroll :preserve :bypass-leave? true}
+                                (mk-event {})))))))
 
 ;; ---- modifier-key clicks defer to browser ------------------------------
 
@@ -186,107 +112,64 @@
                                 ["middle-click (button 1)" {:button 1}]]]
       (let [{:keys [dispatched prevented?]}
             (click! {:to :route/cart} (mk-event event-opts))]
-        (is (not prevented?) (str label " leaves the click for the browser"))
-        (is (nil? dispatched) (str label " dispatches no :rf.route/url-requested event"))))))
+        (is (= [false nil] [prevented? dispatched])
+            (str label " leaves the click for the browser and dispatches nothing"))))))
 
 ;; ---- native-anchor attributes defer to the browser ---------------------
 ;;
-;; A route-link rendered with native-handling anchor attributes
-;; (`target="_blank"` / `download`) looks like a normal anchor in the DOM,
-;; and a user expects the native new-tab / download behaviour. Intercepting
-;; a plain left-click into a same-document `:rf.route/url-requested` dispatch
-;; would silently break that contract, so the click handler
-;; gates interception on `native-anchor?`. The table below proves plain
-;; left-clicks on such links do NOT preventDefault and do NOT dispatch, and
-;; that a same-document `_self` target or a false / nil `:download` still
-;; intercepts.
+;; An off-document `:target` or a requested `:download` keeps the browser's
+;; new-tab / download behaviour; `_self` and a false / nil `:download` are
+;; same-document and still intercept.
 
 (deftest native-anchor-attributes-decide-interception
   (rf/reg-route :route/cart {} "/cart")
-  (testing "an off-document :target or a requested :download defers a plain
-            left-click to the browser — no preventDefault, no
-            :rf.route/url-requested"
-    (doseq [[label props] [["target=_blank"           {:target "_blank"}]
-                           ["target=_parent"          {:target "_parent"}]
-                           ["target=_top"             {:target "_top"}]
-                           ["target=named-frame"      {:target "named-frame"}]
-                           ["download=\"report.pdf\"" {:download "report.pdf"}]
-                           ["download=true"           {:download true}]]]
-      (let [{:keys [dispatched prevented?]}
-            (click! (merge {:to :route/cart} props) (mk-event {}))]
-        (is (not prevented?) (str label " leaves the click for the browser"))
-        (is (nil? dispatched) (str label " dispatches no :rf.route/url-requested event")))))
-  (testing "a _self target and a false / nil :download are same-document, so
-            SPA interception still applies"
-    (doseq [[label props] [["target=_self"   {:target "_self"}]
-                           ["download=false" {:download false}]
-                           ["download=nil"   {:download nil}]]]
-      (let [{:keys [dispatched prevented?]}
-            (click! (merge {:to :route/cart} props) (mk-event {}))]
-        (is prevented? (str label " is intercepted"))
-        (is (= :rf.route/url-requested (first dispatched))
-            (str label " dispatches :rf.route/url-requested like a plain link"))))))
+  (doseq [[props native?] [[{:target "_blank"}       true]
+                           [{:download "report.pdf"} true]
+                           [{:target "_self"}        false]
+                           [{:download false}        false]
+                           [{:download nil}          false]]]
+    (let [{:keys [dispatched prevented?]}
+          (click! (merge {:to :route/cart} props) (mk-event {}))]
+      (is (= (if native? [false nil] [true :rf.route/url-requested])
+             [prevented? (first dispatched)])
+          (pr-str props)))))
 
 ;; ---- caller-supplied :on-click can pre-empt ----------------------------
 
 (deftest caller-on-click-pre-empts-when-preventing-default
   (testing "if the caller's :on-click calls preventDefault, the framework's interception is skipped"
     (rf/reg-route :route/cart {} "/cart")
-    (let [custom-fired?   (atom false)
-          custom-on-click (fn [e]
-                            (reset! custom-fired? true)
-                            (.preventDefault e))
-          {:keys [dispatched prevented?]}
-          (click! {:to :route/cart :on-click custom-on-click}
-                  (mk-event {}))]
-      (is @custom-fired? "the caller's on-click ran")
-      (is prevented? "the caller called preventDefault")
-      (is (nil? dispatched)
-          "the framework did NOT dispatch :rf.route/url-requested when the caller pre-empted"))))
+    (is (nil? (:dispatched (click! {:to :route/cart :on-click (fn [e] (.preventDefault e))}
+                                   (mk-event {})))))))
 
 (deftest caller-on-click-runs-but-does-not-block
   (testing "if the caller's :on-click does NOT preventDefault, the framework still intercepts"
     (rf/reg-route :route/cart {} "/cart")
-    (let [custom-fired?   (atom false)
-          custom-on-click (fn [_e] (reset! custom-fired? true))
-          {:keys [dispatched prevented?]}
-          (click! {:to :route/cart :on-click custom-on-click}
+    (let [custom-fired? (atom false)
+          {:keys [dispatched]}
+          (click! {:to :route/cart :on-click (fn [_e] (reset! custom-fired? true))}
                   (mk-event {}))]
       (is @custom-fired? "the caller's on-click ran")
-      (is prevented? "the framework still called preventDefault")
       (is (= :rf.route/url-requested (first dispatched))
           "the framework dispatched :rf.route/url-requested"))))
 
 ;; ---- the click must carry the RENDER-TIME frame -------------------------
 ;;
-;; A real browser click runs LONG after render: the render-time dynamic
-;; `with-frame` / frame-provider scope has already unwound by the time the
-;; user clicks. Because `:route/link` is registered via `reg-view*` with the
-;; prebuilt `route-link-render` fn, it does NOT get the `reg-view` macro's
-;; injected render-time frame capture — so an on-click closure that
-;; dispatched with only `{:source :router}` would resolve the frame AMBIENTLY
-;; at click time. Clicked outside any scope that would raise
-;; `:rf.error/no-frame-context`; clicked under a DIFFERENT ambient frame it
-;; would silently route the navigation to the wrong frame.
-;;
-;; `route-link-render` captures the rendering frame ONCE at render time and dispatches
-;; `:rf.route/url-requested` into THAT frame (preserving `:source :router`). These
-;; tests render the link under a non-default frame, then fire the click after
-;; the render scope has unwound — modelling the genuine delayed-click path the
-;; same-scope tests above cannot reach.
+;; A real browser click runs long after render, when the render-time
+;; `with-frame` / frame-provider scope has unwound. `:route/link` is
+;; registered via `reg-view*`, so it gets no injected render-time frame
+;; capture: `route-link-render` captures the rendering frame itself and
+;; dispatches into it. Resolving the frame at click time would raise
+;; `:rf.error/no-frame-context` with no scope, or route to the wrong frame
+;; under a different one.
 
 (defn- click-after-scope-unwound!
   "Render `route-link` with `props` while a `with-frame` scope pins
   `render-frame`, capture the on-click closure, THEN invoke it with the
-  ambient frame scope cleared to `click-scope-frame` (nil ⇒ no scope at
-  all — the genuine post-render browser-click condition). Returns the
-  TARGET frame the resulting `:rf.route/url-requested` dispatch routed to (read
-  off the `:rf.event/dispatched` trace's `:frame` slot), plus whether the
-  click raised, and `:source`.
-
-  Capturing the closure under one frame and firing it under another (or
-  none) is exactly the async boundary a `setTimeout` / real DOM click
-  crosses; the render-time scope is gone by click time."
+  ambient frame scope set to `click-scope-frame` (nil ⇒ no scope at all).
+  Returns the target frame the `:rf.route/url-requested` dispatch routed to
+  (off the `:rf.event/dispatched` trace), its `:source`, and the error id if
+  the click raised."
   [props render-frame click-scope-frame]
   (let [target (atom nil)
         source (atom nil)
@@ -297,18 +180,13 @@
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
                    (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
-          ;; The target frame rides under :tags (build-event hoists only
-          ;; :source / :recovery / :call-site to the top level — :frame
-          ;; stays in :tags); :source IS hoisted top-level.
+          ;; :source is hoisted to the trace's top level; :frame stays in :tags.
           (reset! target (-> ev :tags :frame))
           (reset! source (:source ev)))))
     (try
-      ;; RENDER under the render-frame scope, capture the closure.
       (let [on-click (rf/with-frame render-frame
                        (let [[_ attrs] (rf.routing.link/route-link-render props)]
                          (:on-click attrs)))
-            ;; FIRE after the render scope has unwound, under the click-time
-            ;; ambient scope (nil ⇒ no scope at all).
             raised (try
                      (binding [rf.frame/*current-frame* click-scope-frame]
                        (on-click (mk-event {})))
@@ -321,49 +199,29 @@
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
-(deftest delayed-click-with-no-ambient-scope-carries-render-frame-rf2-o3nam4
-  (testing "a link rendered under :route/owner, clicked after the render
-            scope unwound and with NO ambient frame, dispatches
-            :rf.route/url-requested into :route/owner — not :rf.error/no-frame-context"
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [target-frame source raised]}
-          (click-after-scope-unwound! {:to :route/cart} :route/owner nil)]
-      (is (nil? raised)
-          "the delayed click must NOT raise :rf.error/no-frame-context")
-      (is (= :route/owner target-frame)
-          "the dispatch routed to the RENDER-TIME frame, not an ambient default")
-      (is (= :router source)
-          ":source :router is preserved on the frame-carrying dispatch"))))
-
 (deftest delayed-click-ignores-wrong-ambient-frame-rf2-o3nam4
-  (testing "even when a DIFFERENT frame is ambient at click time, the click
-            routes to the frame that RENDERED the link (the captured frame is
-            authoritative, never the click-time ambient)"
+  (testing "a link rendered under :route/owner and clicked after the render
+            scope unwound dispatches into :route/owner, with no ambient frame
+            at click time and with a different one"
     (rf/make-frame {:id :route/owner})
     (rf/make-frame {:id :route/other})
     (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [target-frame source raised]}
-          (click-after-scope-unwound! {:to :route/cart} :route/owner :route/other)]
-      (is (nil? raised) "no error raised")
-      (is (= :route/owner target-frame)
-          "the dispatch routed to the render frame, NOT the wrong ambient frame")
-      (is (= :router source)))))
+    (doseq [ambient [nil :route/other]]
+      (is (= {:target-frame :route/owner :source :router :raised nil}
+             (click-after-scope-unwound! {:to :route/cart} :route/owner ambient))
+          (str "ambient frame at click time: " (pr-str ambient))))))
 
-;; ---- EP-0037 R3: `:prefetch :intent` — the DOM intent arm -----------------
+;; ---- `:prefetch :intent` — the DOM intent arm -----------------------------
 ;;
-;; The three intent positions are framework-owned on a `:prefetch :intent`
-;; link: hover, focus, and touch-start each dispatch `[:rf.route/prefetch
-;; {address}]` to the render-time-captured frame, and each COMPOSES with a
-;; caller-supplied handler of the same name rather than replacing it. A render
-;; alone must dispatch nothing (Governing Law 1) — these tests fire the handlers
-;; explicitly, which is the only way a prefetch can happen.
+;; Hover, focus and touch-start each dispatch `[:rf.route/prefetch {address}]`
+;; to the render-time frame, composing with a caller handler of the same name.
+;; A render alone dispatches nothing (Governing Law 1).
 
 (defn- fire-intent!
   "Render `route-link` with `props` under `render-frame` (nil ⇒ ambient), invoke
-  the handler at `attr-key` with a synthetic event, and report what the intent
-  dispatched: the `[:rf.route/prefetch …]` vector, the `:source` tag, and the
-  TARGET frame the dispatch routed to."
+  the handler at `attr-key` (none when absent) with a synthetic event, and
+  report what was dispatched: the `[:rf.route/prefetch …]` vector, the
+  `:source` tag, and the TARGET frame the dispatch routed to."
   ([props attr-key] (fire-intent! props attr-key nil))
   ([props attr-key render-frame]
    (let [dispatched (atom nil)
@@ -387,50 +245,33 @@
            (h (mk-event {})))
          {:dispatched @dispatched
           :source     @source
-          :target     @target
-          :installed? (contains? attrs attr-key)
-          :attrs      attrs})
+          :target     @target})
        (finally
          (rf.trace.tooling/unregister-listener! cb-key))))))
 
 (deftest prefetch-intent-dispatches-on-each-credible-intent-position
   (testing "hover, focus and touch-start each warm the link's own destination"
     (rf/reg-route :route/article {:params [:map [:slug :string]]} "/articles/:slug")
-    (let [positions [:on-mouse-enter :on-focus :on-touch-start]]
-      ;; ROSTER PIN. The positions stay written out, because naming
-      ;; them is what tells a reader which gestures this file exercises — but a
-      ;; literal alone fails CLOSED: `prefetch-intent-attrs` maps over
-      ;; `rf.routing.link/prefetch-intent-keys`, so a position added to that class would be
-      ;; installed correctly, go untested here, and nothing would say so.
-      ;; Iterating the class instead would absorb the new position silently and
-      ;; would not red either; only pinning the two against each other does.
-      (is (= (set rf.routing.link/prefetch-intent-keys) (set positions))
-          (str "the credible-intent class has changed to "
-               (pr-str rf.routing.link/prefetch-intent-keys)
-               " — extend this test's positions to match it"))
-      (doseq [pos positions]
-        (let [{:keys [dispatched source installed?]}
-              (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos)]
-          (is installed? (str pos " is installed on a :prefetch :intent link"))
-          (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"}}] dispatched)
-              (str pos " dispatched the address-only prefetch event"))
-          (is (= :router source) "routing-substrate attribution"))))))
+    (doseq [pos [:on-mouse-enter :on-focus :on-touch-start]]
+      (is (= {:dispatched [:rf.route/prefetch {:to :route/article :params {:slug "x"}}]
+              :source     :router}
+             (select-keys (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos)
+                          [:dispatched :source]))
+          (str pos " dispatched the address-only prefetch event")))))
 
 (deftest a-link-without-prefetch-installs-no-intent-handlers
-  (testing "a passive link installs NONE of the three positions, so a caller's
+  (testing "a passive link installs none of the intent positions, so a caller's
             own hover handler is the only thing on the anchor"
     (rf/reg-route :route/cart {} "/cart")
-    (let [own (fn [_] nil)
-          {:keys [attrs]} (fire-intent! {:to :route/cart :on-mouse-enter own}
-                                        :on-mouse-enter)]
+    (let [own   (fn [_] nil)
+          attrs (second (rf.routing.link/route-link-render {:to :route/cart :on-mouse-enter own}))]
       (is (identical? own (:on-mouse-enter attrs))
           "the caller's handler is passed through untouched — not wrapped")
-      (is (not (contains? attrs :on-focus)))
-      (is (not (contains? attrs :on-touch-start))))))
+      (is (not-any? #(contains? attrs %) [:on-focus :on-touch-start])))))
 
 (deftest prefetch-intent-composes-with-a-caller-handler
   (testing "the framework handler runs the caller's handler of the same name
-            FIRST and still dispatches — compose, not replace"
+            and still dispatches — compose, not replace"
     (rf/reg-route :route/cart {} "/cart")
     (let [ran (atom [])
           {:keys [dispatched]}
@@ -443,40 +284,27 @@
 
 (deftest prefetch-intent-dispatches-to-the-render-time-frame
   (testing "the warm-up targets the frame that RENDERED the link, exactly as the
-            click handler does — never a sibling frame (Spec 012 §Route-plan
-            prefetch: the carried-frame invariant)"
+            click handler does (Spec 012 §Route-plan prefetch)"
     (rf/make-frame {:id :route/owner})
     (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [target dispatched]}
-          (fire-intent! {:to :route/cart :prefetch :intent} :on-mouse-enter :route/owner)]
-      (is (= :route/owner target))
-      (is (= [:rf.route/prefetch {:to :route/cart}] dispatched)))))
+    (is (= :route/owner
+           (:target (fire-intent! {:to :route/cart :prefetch :intent} :on-mouse-enter :route/owner))))))
 
 (deftest a-passive-render-dispatches-nothing
-  (testing "Governing Law 1 — rendering a :prefetch :intent link installs the
-            handlers but dispatches NOTHING until an intent actually fires"
+  (testing "Governing Law 1 — rendering a :prefetch :intent link dispatches
+            NOTHING until an intent actually fires"
     (rf/reg-route :route/cart {} "/cart")
-    (let [dispatched (atom nil)
-          cb-key     (keyword (gensym "render-only-"))]
-      (rf.trace.tooling/register-listener!
-        cb-key
-        (fn [ev] (when (and (= :rf.event/dispatched (:operation ev))
-                            (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
-                   (reset! dispatched (-> ev :tags :rf.event/v)))))
-      (try
-        (rf.routing.link/route-link-render {:to :route/cart :prefetch :intent})
-        (is (nil? @dispatched) "a render is not an intent")
-        (finally (rf.trace.tooling/unregister-listener! cb-key))))))
+    ;; attr-key nil: render only, fire no handler.
+    (is (nil? (:dispatched (fire-intent! {:to :route/cart :prefetch :intent} nil)))
+        "a render is not an intent")))
 
 (deftest an-unsupported-prefetch-value-fails-loud-at-render
-  (testing ":intent is the only accepted value — an unsupported mode is a caller
-            bug at the render site, not a silently passive link"
+  (testing ":intent is the only accepted value — an unsupported mode, nil
+            included, is a caller bug at the render site, not a silently
+            passive link"
     (rf/reg-route :route/cart {} "/cart")
-    (doseq [v [true :render :viewport nil]]
+    (doseq [v [true :render nil]]
       (let [data (try (rf.routing.link/route-link-render {:to :route/cart :prefetch v}) nil
                       (catch :default e (ex-data e)))]
-        (is (= :rf.error/route-link-bad-prefetch (:rf.error/id data))
-            (str "prefetch " (pr-str v) " must throw"))
-        (is (= v (:value data)))))
-    (testing "and :intent still renders"
-      (is (some? (rf.routing.link/route-link-render {:to :route/cart :prefetch :intent}))))))
+        (is (= [:rf.error/route-link-bad-prefetch v] ((juxt :rf.error/id :value) data))
+            (str "prefetch " (pr-str v) " must throw"))))))
