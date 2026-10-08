@@ -6,8 +6,8 @@
   shipped collector rather than an `rf/reg-view` reading through whatever
   view build the installed substrate adapter supplies. This file is the
   behavioural evidence for that. It follows the
-  `resources_fresco_boundary_dom_cljs_test` template, trimmed to the three
-  rows this panel's boundary can actually be wrong about.
+  `resources_fresco_boundary_dom_cljs_test` template, trimmed to the one row
+  this panel's boundary can be wrong about on its own.
 
   ## Why a DOM row at all, when `trace_view_cljs_test` has dozens
 
@@ -24,16 +24,13 @@
     1 FIRST DISPLAY               — W1, through `panel-registry`'s entry
     4 FRAME TARGETING             — W1's second half, read off the frame's
                                     OWN sub-cache rather than off the DOM
-    2 UPDATES ON A REAL CHANGE    — W2, with the deaf control that makes
-                                    the update mean liveness
-    6 CLEAN TEARDOWN              — W3
 
-  Criteria 3 and 5 have no row here. Criterion 3 (Xray's own interactions)
-  is covered structurally by `trace_view_cljs_test`'s row-click rows
-  against `op-row-attrs`; criterion 5 (tool activity never masquerading as
-  application evidence) is a property of the boundary rather than of this
-  panel, and `resources_fresco_boundary_dom_cljs_test`'s W3 proves
-  it in both directions for the same mechanism.
+  Criteria 2, 5 and 6 — updating on a real change, tool activity never
+  masquerading as application evidence, and clean teardown — are Fresco's
+  boundary contract, the same for every `defview` whose body is pure, and
+  `resources_fresco_boundary_dom_cljs_test` proves them for that one
+  mechanism. Criterion 3 (Xray's own interactions) is covered structurally
+  by `trace_view_cljs_test`'s row-click rows against `op-row-attrs`.
 
   ## The mount is the SHELL's mount, taken from the registry
 
@@ -62,7 +59,7 @@
   `tools/xray/test`. The `:node-test` build's `cljs-test$` regex also
   matches, so it LOADS under Node — where every row short-circuits through
   [[browser?]] and reports the skip rather than passing silently."
-  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -80,8 +77,7 @@
   ::app)
 
 (def ^:private feed-q
-  "The panel's principal read. Named once because three rows key off it —
-  the sub-cache is keyed by the query vector itself
+  "The panel's principal read. The sub-cache is keyed by the query vector itself
   (`re-frame.subs/cache-key` is identity), so this value IS the cache key."
   [:rf.xray/trace-feed])
 
@@ -112,28 +108,18 @@
 (def ^:private one-row-epoch
   (mk-epoch 1 11 [(mk-trace 101 :rf.event/dispatched 100 11)]))
 
-(def ^:private two-row-epoch
-  "W2's second state: the SAME epoch with a second op appended, so the
-  invalidation is a real value change on a declared input of the feed."
-  (mk-epoch 1 11 [(mk-trace 101 :rf.event/dispatched 100 11)
-                  (mk-trace 202 :rf.event/handler-ran 200 11)]))
-
 (rf/reg-sub ::n (fn [db _] (::n db)))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
-     ;; `:async? true` because W2 and W3 are `async` rows, and `cljs.test`
-     ;; refuses a FUNCTION fixture in any namespace that carries one.
-     :async?        true
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
                       ;; Fresco's collector tables are process-global
                       ;; `defonce`s the core fixture knows nothing about; a
                       ;; neighbour's boundary left in the entry cache would
-                      ;; make W3's release row read a residue that is not
-                      ;; this panel's.
+                      ;; be a residue that is not this panel's.
                       (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- browser?
@@ -143,27 +129,6 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-;; NO `flush-render!` HELPER HERE, and its absence is a finding rather than
-;; an omission — the template records why.
-;; A Fresco boundary is NOT in Reagent's render queue: its update is
-;; scheduled by the collector through React, so draining Reagent's queue
-;; commits nothing of this panel's and a row written that way reads a DOM
-;; that has not moved and reports a LIVE panel as dead. Mount is committed
-;; with `flushSync` (React's own door) and everything after it is polled.
-
-(defn- settle
-  "A promise resolving once every render pipeline on the page has had a
-  real chance to commit — two animation frames and a macrotask. It exists
-  for the CONTROL in W2: an absence asserted immediately after a change is
-  a race, and an absence asserted after this is a decision."
-  []
-  (js/Promise.
-    (fn [resolve]
-      (js/requestAnimationFrame
-        (fn [_]
-          (js/requestAnimationFrame
-            (fn [_] (js/setTimeout resolve 20))))))))
-
 (defn- setup! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
@@ -171,8 +136,7 @@
   nil)
 
 (defn- seed!
-  "Seed the per-frame epoch ring and pin focus at its cascade. A dispatch,
-  so it IS a real invalidation of the feed composite."
+  "Seed the per-frame epoch ring and pin focus at its cascade."
   [record]
   (rf/dispatch-sync [:rf.xray/sync-epoch-history [record]] {:frame :rf/xray})
   (rf/dispatch-sync [:rf.xray/focus-event (:dispatch-id record) nil]
@@ -195,9 +159,8 @@
     {:container container :root root :tab tab}))
 
 (defn- teardown!
-  "Unmount inside `flushSync` so React's cleanup effects — which is where
-  the collector releases a boundary's reads — have RUN by the time the next
-  line reads the sub-cache. A bare `.unmount` schedules them."
+  "Unmount inside `flushSync`, so React's cleanup effects have run before the
+  container is detached. A bare `.unmount` schedules them."
   [root container]
   (react-dom/flushSync (fn [] (.unmount root)))
   (.remove container))
@@ -245,17 +208,9 @@
             _probe (rf/subscribe [::n] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
-          (is (some? (q container (testid-sel "rf-xray-trace")))
-              "the panel committed a real DOM root under React — a Fresco
-               boundary mounted through Reagent's `:>` from the registry entry")
-          (is (some? (q container (testid-sel "rf-xray-trace-feed")))
-              "and the feed container rendered, so the body ran rather than
-               short-circuiting to an empty state")
-          (is (some? (q container (testid-sel "rf-xray-trace-rows")))
-              "the flat row list's own container is there — so
-               `resizable-table-view` rendered rather than throwing")
           (is (some? (q container (testid-sel "rf-xray-trace-row-101")))
-              "with a real row from the seeded epoch — the read reached the
+              "the panel committed real DOM under React, through the registry
+               entry, with a row from the seeded epoch — the read reached the
                panel rather than the panel painting an empty shell")
 
           ;; ---- criterion 4: the read is where the tree said it would be ----
@@ -277,149 +232,3 @@
             ;; lifecycle and an imperative subscriber must not rely on that.
             (rf/unsubscribe [::n] {:frame app-frame})
             (teardown! root container)))))))
-
-;; ===========================================================================
-;; W2 — it updates on a real dependency change, and the control is deaf
-;; ===========================================================================
-
-(deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "the mounted panel re-renders itself and commits new DOM
-            when its read's value really changes, and does NOT when nothing it
-            watches moved. Criterion 2, with the control that makes the
-            update mean liveness rather than a commit that simply had not
-            happened yet."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (async done
-        (setup!)
-        (seed! one-row-epoch)
-        (let [{:keys [container root]} (mount-panel! :rf/xray)
-              section (q container (testid-sel "rf-xray-trace"))
-              row?    (fn [] (some? (q container (testid-sel "rf-xray-trace-row-202"))))]
-          (is (not (row?))
-              "NON-VACUITY: the op this row drives on is NOT on screen before
-               the epoch carrying it is synced")
-
-          ;; ---- phase 2: the world moves, and the panel is deaf ------------
-          ;; `:rf.xray/trace-feed` declares `[:rf.xray/focus]` and
-          ;; `[:rf.xray/epoch-history]` as its inputs and reads NOTHING else.
-          ;; The expanded-row set is a different sub entirely, so toggling a
-          ;; row that does not exist changes app-db while invalidating nothing
-          ;; the feed watches.
-          (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 999]
-                            {:frame :rf/xray})
-          (is (contains? (rf/subscribe-once [:rf.xray/trace-expanded-row-ids]
-                                            {:frame :rf/xray})
-                         999)
-              "PRECONDITION: app-db really moved — so a missing row below is
-               the panel failing to re-render and not the dispatch failing")
-          (-> (settle)
-              (.then
-                (fn [_]
-                  (is (not (row?))
-                      "CONTROL: given a full settling window, the committed DOM
-                       does NOT carry the row. A panel that re-rendered
-                       here would make phase 3 pass for a reason that is not
-                       liveness")
-                  ;; ---- phase 3: a declared input moves, the read re-runs ---
-                  (rf/dispatch-sync [:rf.xray/sync-epoch-history [two-row-epoch]]
-                                    {:frame :rf/xray})
-                  (rf.test-support/poll-until row?
-                    {:label "the panel committed the new op's row"})))
-              (.then
-                (fn [_]
-                  (is (row?)
-                      (str "the panel re-rendered on a real invalidation of its "
-                           "own read and committed the new op's row"))
-                  (is (identical? section
-                                  (q container (testid-sel "rf-xray-trace")))
-                      "and it is the SAME <section> node: React reconciled the
-                       live tree in place, so the row did not arrive by the
-                       panel being remounted from scratch, which would not be
-                       liveness")))
-              (.catch (fn [e]
-                        (is false (str "W2 never settled: " (.-message e)
-                                       " — DOM: " (.-textContent container)))
-                        nil))
-              (.then (fn [_]
-                       (teardown! root container)
-                       (done)))))))))
-
-;; ===========================================================================
-;; W3 — teardown releases what the mount acquired, and a reopen does not grow it
-;; ===========================================================================
-
-(defn- released? [] (zero? (ref-count-of :rf/xray feed-q)))
-
-(deftest w3-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "unmounting the panel releases its subscription
-            reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Criterion 6, and the number that
-            catches a leaky design: with a four-call interop binding the
-            `:rf/xray` ref-count would climb across renders and never fall
-            on unmount.
-
-            THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
-            than reading once. `impl.collector`'s `cell-reapers` gives a cell
-            whose last reader unmounts ONE MACROTASK OF GRACE, so that a keyed
-            reorder which unmounts and remounts a row within a single turn
-            reuses the reaction instead of rebuilding it. A synchronous read
-            straight after `flushSync(root.unmount)` returns 1 and the same
-            read one macrotask later returns 0, so a synchronous assertion
-            would report a LEAK against a collector behaving exactly as
-            documented."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (async done
-        (setup!)
-        (seed! one-row-epoch)
-        ;; The starting point is polled, not asserted: a neighbouring row's
-        ;; teardown grace may still be in flight when this one begins.
-        (-> (rf.test-support/poll-until released?
-              {:label "no reference held before the first mount"})
-            (.then
-              (fn [_]
-                (let [{:keys [container root]} (mount-panel! :rf/xray)
-                      mounted (ref-count-of :rf/xray feed-q)]
-                  (is (pos? mounted)
-                      "the mount took a reference — otherwise the release
-                       below is vacuous")
-                  ;; A real value change first, so the release is measured
-                  ;; after the boundary has re-wired its read at least once
-                  ;; rather than only on its first pass.
-                  (rf/dispatch-sync [:rf.xray/sync-epoch-history [two-row-epoch]]
-                                    {:frame :rf/xray})
-                  (-> (rf.test-support/poll-until
-                        (fn [] (some? (q container
-                                         (testid-sel "rf-xray-trace-row-202"))))
-                        {:label "the panel committed the second op's row"})
-                      (.then
-                        (fn [_]
-                          (is (= mounted (ref-count-of :rf/xray feed-q))
-                              "the re-render did not ACCUMULATE references")
-                          (teardown! root container)
-                          (rf.test-support/poll-until released?
-                            {:label "the first unmount released the read"})))
-                      (.then
-                        (fn [_]
-                          (is (released?)
-                              (str "the unmount released it COMPLETELY, within "
-                                   "the collector's grace macrotask. Cache: "
-                                   (pr-str (keys (cache-of :rf/xray)))))
-                          ;; ---- reopen: the same count, not a higher one ----
-                          (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
-                                remounted (ref-count-of :rf/xray feed-q)]
-                            (is (= mounted remounted)
-                                (str "reopening returns to the SAME reference "
-                                     "count (" mounted ") rather than "
-                                     "accumulating — accumulation across "
-                                     "open/close cycles is the signature of a "
-                                     "release the substrate's own reaction "
-                                     "lifecycle cannot see. Got: " remounted))
-                            (teardown! r2 c2)
-                            (rf.test-support/poll-until released?
-                              {:label "the second unmount released it too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases it too")))
-            (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
