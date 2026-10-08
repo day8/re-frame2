@@ -1,18 +1,8 @@
 (ns re-frame.story.play.evidence-test
-  "Pure projection tests for `re-frame.story.play.evidence`
-  (spec/017-Testing-Story.md §Run-result evidence projection).
-
-  These are entirely pure: hand-built `:rf/epoch-record` tapes in,
-  run-result evidence slots out. They run under `clojure -M:test` (JVM).
-  They pin the projection's contract:
-
-  - a schema failure in an epoch trace appears in run-result schema
-    violations;
-  - a narrative span can contain multiple epoch beats for one dispatch
-    step;
-  - run-result projections agree with the retained epoch tape;
-  - no separate accumulator can report pass when the epoch tape shows a
-    failure (`tape-shows-failure?` reads the projection, not a sibling)."
+  "The run-result evidence projection (spec/017-Testing-Story.md §Run-result
+  evidence projection): hand-built `:rf/epoch-record` tapes in, evidence
+  slots out. Every slot derives from the one tape, so no accumulator can
+  report a pass the tape contradicts."
   (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.play.evidence :as rf.story.play.evidence]))
 
@@ -30,9 +20,9 @@
                      extra)})
 
 (defn- warning-trace
-  "A real framework warning trace event — `:op-type :warning` (the canonical
-  severity discriminator every `(trace/emit! :warning …)` site produces;
-  the framework NEVER emits `:warn`). Spec 009 §Op-type vocabulary."
+  "A framework warning trace event — `:op-type :warning`, the severity
+  every `(trace/emit! :warning …)` site produces (spec/009 §Op-type
+  vocabulary)."
   [id operation category]
   {:operation operation
    :op-type   :warning
@@ -63,425 +53,275 @@
           :effects      []}
          m))
 
+(defn- spans
+  "Each narrative span as `[step [epoch-id …]]`."
+  [n]
+  (mapv (juxt :step #(mapv :epoch-id (:epochs %))) n))
+
 ;; ===========================================================================
 ;; SCHEMA VIOLATIONS
 ;; ===========================================================================
 
 (deftest schema-failure-in-trace-appears-in-run-result
-  (testing "a schema failure present in an epoch trace appears in schema-violations"
-    (let [tape [(epoch 1 {:trigger-event [:checkout/submit]
-                          :trace-events  [(run-start-trace 10 [:checkout/submit] 100)
-                                          (schema-trace 11 :event :checkout/submit
-                                                        {:path [:cart] :value :bad})]})]]
-      (is (= [{:where      :event
-               :failing-id :checkout/submit
-               :epoch-id   1
-               :trace-id   11
-               :path       [:cart]
-               :value      :bad
-               :selector   [:event :checkout/submit [:cart]]}]
-             (rf.story.play.evidence/schema-violations tape))))))
+  (let [tape [(epoch 1 {:trigger-event [:checkout/submit]
+                        :trace-events  [(run-start-trace 10 [:checkout/submit] 100)
+                                        (schema-trace 11 :event :checkout/submit
+                                                      {:path [:cart] :value :bad})]})]]
+    (is (= [{:where      :event
+             :failing-id :checkout/submit
+             :epoch-id   1
+             :trace-id   11
+             :path       [:cart]
+             :value      :bad
+             :selector   [:event :checkout/submit [:cart]]}]
+           (rf.story.play.evidence/schema-violations tape)))))
 
 (deftest schema-violation-selectors-per-surface
-  (testing "selectors key per the §Schema-rule surface grammar"
-    (is (= [:event :e/id]            (rf.story.play.evidence/violation-selector {:where :event :failing-id :e/id})))
-    (is (= [:event :e/id [:p]]       (rf.story.play.evidence/violation-selector {:where :event :failing-id :e/id :path [:p]})))
-    (is (= [:cofx :c/id]             (rf.story.play.evidence/violation-selector {:where :cofx :failing-id :c/id})))
-    (is (= [:fx-args :fx/id]         (rf.story.play.evidence/violation-selector {:where :fx-args :failing-id :fx/id})))
-    (is (= [:sub-return :s/id [:q]]  (rf.story.play.evidence/violation-selector {:where :sub-return :failing-id :s/id :query-v [:q]})))
-    (is (= [:app-db [:root] [:leaf]] (rf.story.play.evidence/violation-selector {:where :app-db :registered-path [:root] :path [:leaf]})))
-    (is (= [:machine-data :m/id :macrostep]
-           (rf.story.play.evidence/violation-selector {:where :machine-data :machine-id :m/id :phase :macrostep})))))
+  ;; the §Schema-rule surface grammar
+  (are [record selector] (= selector (rf.story.play.evidence/violation-selector record))
+    {:where :event :failing-id :e/id}                          [:event :e/id]
+    {:where :event :failing-id :e/id :path [:p]}               [:event :e/id [:p]]
+    {:where :cofx :failing-id :c/id}                           [:cofx :c/id]
+    {:where :fx-args :failing-id :fx/id}                       [:fx-args :fx/id]
+    {:where :sub-return :failing-id :s/id :query-v [:q]}       [:sub-return :s/id [:q]]
+    {:where :app-db :registered-path [:root] :path [:leaf]}    [:app-db [:root] [:leaf]]
+    {:where :machine-data :machine-id :m/id :phase :macrostep} [:machine-data :m/id :macrostep]))
 
 (deftest multiple-violations-projected-in-tape-order
-  (testing "violations across epochs project in dispatch order, emission order within"
-    (let [tape [(epoch 1 {:trace-events [(schema-trace 10 :event :a {})
-                                         (schema-trace 11 :cofx :b {})]})
-                (epoch 2 {:trace-events [(schema-trace 20 :app-db {}
-                                                       {:registered-path [:x] :path [:x :y]})]})]
-          violations (rf.story.play.evidence/schema-violations tape)]
-      (is (= [10 11 20] (mapv :trace-id violations)))
-      (is (= [1 1 2]    (mapv :epoch-id violations))))))
+  ;; dispatch order across epochs, emission order within
+  (is (= [[10 1] [11 1] [20 2]]
+         (mapv (juxt :trace-id :epoch-id)
+               (rf.story.play.evidence/schema-violations
+                 [(epoch 1 {:trace-events [(schema-trace 10 :event :a {})
+                                           (schema-trace 11 :cofx :b {})]})
+                  (epoch 2 {:trace-events [(schema-trace 20 :app-db {}
+                                                         {:registered-path [:x] :path [:x :y]})]})])))))
 
 ;; ===========================================================================
 ;; WARNINGS / EFFECTS / SUB-RUNS / RENDERS
 ;; ===========================================================================
 
 (deftest warnings-projected-from-trace-events
-  (testing "every :warning-op trace projects to a warning record, in tape order"
-    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)
-                                         {:operation :rf.event/run-start :op-type :trace :id 11 :tags {}}]})
-                (epoch 2 {:trace-events [(warning-trace 20 :rf.warning/bar :rf.warning/bar)]})]
-          ws (rf.story.play.evidence/warnings tape)]
-      (is (= [:rf.warning/foo :rf.warning/bar] (mapv :operation ws)))
-      (is (= [1 2] (mapv :epoch-id ws))))))
-
-(deftest warning-projection-keys-on-canonical-op-type
-  ;; The framework emits `:op-type :warning`
-  ;; (every `(trace/emit! :warning …)` site; spec/009 §Op-type vocabulary),
-  ;; NEVER `:op-type :warn`. A `(= :warn (:op-type …))` predicate would leave
-  ;; the `:warnings` projection silently always-empty against real tapes,
-  ;; defeating `:rf.assert/no-warnings`. This pins the canonical value: a
-  ;; real `:warning`-op trace MUST project, and a bogus `:warn`-op trace
-  ;; MUST NOT.
-  (testing "a real :op-type :warning trace projects into :warnings"
-    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/real :rf.warning/real)]})]
-          ws   (rf.story.play.evidence/warnings tape)]
-      (is (true? (rf.story.play.evidence/warning-trace? {:op-type :warning})))
-      (is (= 1 (count ws)) "the canonical :warning op-type is projected")
-      (is (= [:rf.warning/real] (mapv :operation ws)))))
-  (testing "a bogus :op-type :warn trace is NOT a warning (the framework never emits :warn)"
-    (let [bogus-warn {:operation :rf.warning/bogus :op-type :warn :id 99 :tags {:category :rf.warning/bogus}}
-          tape       [(epoch 1 {:trace-events [bogus-warn]})]]
-      (is (false? (rf.story.play.evidence/warning-trace? bogus-warn)))
-      (is (= [] (rf.story.play.evidence/warnings tape))
-          ":warn is not the canonical discriminator — it must not project")))
-  (testing "the agreement floor sees real warnings only via the canonical op-type"
-    ;; A real warning-only tape carries no FAILURE (warnings are not the
-    ;; failure floor), but the projection must still surface it so a wired
-    ;; :rf.assert/no-warnings has teeth.
-    (let [tape [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)]})]
-          ev   (rf.story.play.evidence/project-evidence tape)]
-      (is (= 1 (count (:warnings ev)))
-          "project-evidence surfaces real :warning traces into the run-result slot"))))
+  ;; Keyed on :op-type :warning: a predicate on any other value leaves the
+  ;; projection empty against real tapes and disarms :rf.assert/no-warnings.
+  (is (= [[:rf.warning/foo 1] [:rf.warning/bar 2]]
+         (mapv (juxt :operation :epoch-id)
+               (rf.story.play.evidence/warnings
+                 [(epoch 1 {:trace-events [(warning-trace 10 :rf.warning/foo :rf.warning/foo)
+                                           {:operation :rf.event/run-start :op-type :trace :id 11 :tags {}}]})
+                  (epoch 2 {:trace-events [(warning-trace 20 :rf.warning/bar :rf.warning/bar)]})])))))
 
 (deftest effects-sub-runs-renders-concatenated-from-epochs
-  (testing "per-epoch structured rows concatenate in dispatch order, stamped with epoch-id"
-    (let [tape [(epoch 1 {:effects  [{:fx-id :db :outcome :ok}]
-                          :sub-runs [{:sub-id :s1 :recomputed? true}]
-                          :renders  [{:render-key [:v 0]}]})
-                (epoch 2 {:effects  [{:fx-id :dispatch :outcome :ok}
-                                     {:fx-id :http :outcome :ok}]})]
-          ev (rf.story.play.evidence/project-evidence tape)]
-      (is (= [:db :dispatch :http] (mapv :fx-id (:effects ev))))
-      (is (= [1 2 2] (mapv :epoch-id (:effects ev))) "each effect row carries its source epoch")
-      (is (= [:s1] (mapv :sub-id (:sub-runs ev))))
-      (is (= [1] (mapv :epoch-id (:sub-runs ev))))
-      (is (= [[:v 0]] (mapv :render-key (:renders ev))))
-      (is (= [1] (mapv :epoch-id (:renders ev)))))))
+  (let [ev (rf.story.play.evidence/project-evidence
+             [(epoch 1 {:effects  [{:fx-id :db :outcome :ok}]
+                        :sub-runs [{:sub-id :s1 :recomputed? true}]
+                        :renders  [{:render-key [:v 0]}]})
+              (epoch 2 {:effects  [{:fx-id :dispatch :outcome :ok}
+                                   {:fx-id :http :outcome :ok}]})])]
+    (is (= [[:db 1] [:dispatch 2] [:http 2]] (mapv (juxt :fx-id :epoch-id) (:effects ev))))
+    (is (= [[:s1 1]] (mapv (juxt :sub-id :epoch-id) (:sub-runs ev))))
+    (is (= [[[:v 0] 1]] (mapv (juxt :render-key :epoch-id) (:renders ev))))))
 
 ;; ===========================================================================
 ;; REACTIVE-COUNTS PROJECTION  (spec/017 §Runner kinds and capabilities)
 ;; ===========================================================================
 
 (deftest reactive-counts-nil-for-bare-headless-tape
-  (testing "a tape with no sub-run / render rows projects no :reactive-counts slot"
-    ;; A bare headless dispatch-only run never exercised the reactive
-    ;; substrate — the slot is ABSENT so the fail-closed check refuses a
-    ;; reactive-count assertion.
-    (let [tape [(epoch 1 {:effects [{:fx-id :db :outcome :ok}]})]]
-      (is (nil? (rf.story.play.evidence/reactive-counts tape)))
-      (is (not (contains? (rf.story.play.evidence/project-evidence tape) :reactive-counts))
-          "no reactive rows → :reactive-counts slot omitted, not a zero stub"))))
-
-(deftest reactive-counts-counts-recomputes-and-renders-from-the-tape
-  (testing "a known dispatch's sub-run + render rows count exactly from the tape"
-    ;; One epoch: two TRUE sub recomputes (two distinct subs) and two view
-    ;; renders, all credited to the dispatching event.
-    (let [tape [(epoch 1 {:trigger-event [:counter/inc]
-                          :sub-runs [{:sub-id :total  :recomputed? true
-                                      :cause-event-id :counter/inc}
-                                     {:sub-id :parity :recomputed? true
-                                      :cause-event-id :counter/inc}]
-                          :renders  [{:render-key [:counter 0] :cause-event-id :counter/inc}
-                                     {:render-key [:badge 0]   :cause-event-id :counter/inc}]})]]
-      (is (= {:sub-recomputes 2   ; two :rf.sub/run rows
-              :view-renders   2   ; two :rf.view/rendered rows
-              :by-sub-id      {:total 1 :parity 1}
-              :by-view        {:counter 1 :badge 1}   ; keyed by registered view-id
-              :by-render-key  {[:counter 0] 1 [:badge 0] 1}
-              ;; both recomputes + both renders credited to the dispatching event
-              :by-cause       {:counter/inc {:sub-recomputes 2 :view-renders 2}}
-              :per-epoch      [{:epoch-id 1 :sub-recomputes 2 :view-renders 2}]}
-             (rf.story.play.evidence/reactive-counts tape))))))
+  ;; a run that never exercised the reactive substrate carries NO slot, so a
+  ;; reactive-count assertion fails closed
+  (let [tape [(epoch 1 {:effects [{:fx-id :db :outcome :ok}]})]]
+    (is (nil? (rf.story.play.evidence/reactive-counts tape)))
+    (is (not (contains? (rf.story.play.evidence/project-evidence tape) :reactive-counts)))))
 
 (deftest reactive-counts-aggregate-across-epochs-and-causes
-  (testing "recomputes / renders aggregate across a multi-epoch cascade, keyed by cause"
-    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true
-                                      :cause-event-id :a}]
-                          :renders  [{:render-key [:v 0] :cause-event-id :a}]})
-                (epoch 2 {:sub-runs [{:sub-id :total :recomputed? true
-                                      :cause-event-id :b}
-                                     {:sub-id :total :recomputed? true
-                                      :cause-event-id :b}]
-                          :renders  [{:render-key [:v 0] :cause-event-id :b}]})]]
-      (is (= {:sub-recomputes 3            ; 1 + 2 across the two epochs
-              :view-renders   2            ; 1 + 1
-              :by-sub-id      {:total 3}   ; the over-recompute signal: :total recomputed 3×
-              ;; The tape SUPPLIES one render row for :v in each of the two
-              ;; epochs, so the aggregate is 2. The count comes from the rows
-              ;; the tape carries — never inferred from the epoch count, which
-              ;; is not a render-count proxy.
-              :by-view        {:v 2}
-              :by-render-key  {[:v 0] 2}
-              :by-cause       {:a {:sub-recomputes 1 :view-renders 1}
-                               :b {:sub-recomputes 2 :view-renders 1}}
-              ;; one per-epoch entry per committed reactive epoch, tape order
-              :per-epoch      [{:epoch-id 1 :sub-recomputes 1 :view-renders 1}
-                               {:epoch-id 2 :sub-recomputes 2 :view-renders 1}]}
-             (rf.story.play.evidence/reactive-counts tape))))))
+  (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true
+                                    :cause-event-id :a}]
+                        :renders  [{:render-key [:v 0] :cause-event-id :a}]})
+              (epoch 2 {:sub-runs [{:sub-id :total :recomputed? true
+                                    :cause-event-id :b}
+                                   {:sub-id :total :recomputed? true
+                                    :cause-event-id :b}]
+                        :renders  [{:render-key [:v 0] :cause-event-id :b}]})]]
+    ;; counts come from the rows the tape carries, never from the epoch count
+    (is (= {:sub-recomputes 3
+            :view-renders   2
+            :by-sub-id      {:total 3}
+            :by-view        {:v 2}
+            :by-render-key  {[:v 0] 2}
+            :by-cause       {:a {:sub-recomputes 1 :view-renders 1}
+                             :b {:sub-recomputes 2 :view-renders 1}}
+            :per-epoch      [{:epoch-id 1 :sub-recomputes 1 :view-renders 1}
+                             {:epoch-id 2 :sub-recomputes 2 :view-renders 1}]}
+           (rf.story.play.evidence/reactive-counts tape)))))
 
 (deftest reactive-counts-rows-with-no-cause-attribution
-  (testing "a reactive row outside a cascade (no :cause-event-id) is counted but uncredited"
-    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true}]
-                          :renders  [{:render-key [:v 0]}]})]]
-      (is (= {:sub-recomputes 1
-              :view-renders   1
-              :by-sub-id      {:total 1}
-              :by-view        {:v 1}
-              :by-render-key  {[:v 0] 1}
-              :by-cause       {}   ; a nil cause-event-id contributes no entry
-              :per-epoch      [{:epoch-id 1 :sub-recomputes 1 :view-renders 1}]}
-             (rf.story.play.evidence/reactive-counts tape))))))
-
-(deftest reactive-counts-in-project-evidence-when-tape-has-reactive-rows
-  (testing ":reactive-counts rides project-evidence and agrees with the standalone projection"
-    (let [tape [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true}]
-                          :renders  [{:render-key [:v 0]}]})]
-          ev   (rf.story.play.evidence/project-evidence tape {:script [[:dispatch [:counter/inc]]]})]
-      (is (= (rf.story.play.evidence/reactive-counts tape) (:reactive-counts ev))
-          "the slot is the standalone projection — one tape, one projection"))))
+  ;; counted, but a nil :cause-event-id credits no cause
+  (is (= [1 1 {}]
+         ((juxt :sub-recomputes :view-renders :by-cause)
+          (rf.story.play.evidence/reactive-counts
+            [(epoch 1 {:sub-runs [{:sub-id :total :recomputed? true}]
+                       :renders  [{:render-key [:v 0]}]})])))))
 
 ;; ===========================================================================
 ;; TWO-LEVEL NARRATIVE
 ;; ===========================================================================
 
 (deftest narrative-span-can-contain-multiple-beats-for-one-step
-  (testing "one dispatch step that re-dispatches spans multiple epoch beats"
-    ;; Single script step; the handler re-dispatched, so the drain
-    ;; committed THREE epochs — all attributed to the one step.
-    (let [script [[:dispatch [:checkout/submit]]]
-          tape   [(epoch 1 {:trigger-event [:checkout/submit]})
-                  (epoch 2 {:trigger-event [:checkout/validate]})
-                  (epoch 3 {:trigger-event [:checkout/done]})]
-          n      (rf.story.play.evidence/narrative script tape)]
-      (is (= 1 (count n)) "one outer span for the one dispatch step")
-      (is (= [:dispatch [:checkout/submit]] (:step (first n))))
-      (is (= [1 2 3] (mapv :epoch-id (:epochs (first n))))
-          "all three beats under the one step"))))
+  ;; the handler re-dispatched, so one step's drain committed three epochs
+  (is (= [[[:dispatch [:checkout/submit]] [1 2 3]]]
+         (spans (rf.story.play.evidence/narrative
+                  [[:dispatch [:checkout/submit]]]
+                  [(epoch 1 {:trigger-event [:checkout/submit]})
+                   (epoch 2 {:trigger-event [:checkout/validate]})
+                   (epoch 3 {:trigger-event [:checkout/done]})])))))
 
 (deftest narrative-attributes-stamped-beats-exactly
-  (testing "with :rf.story/script-idx stamps, beats land in the producing step's span"
-    (let [script [[:dispatch [:a]] [:assert-db [:k] 1] [:dispatch [:b]]]
-          tape   [(epoch 1 {:rf.story/script-idx nil :trigger-event [:setup]}) ; setup → leading
-                  (epoch 2 {:rf.story/script-idx 0 :trigger-event [:a]})
-                  (epoch 3 {:rf.story/script-idx 0 :trigger-event [:a-redispatch]})
-                  (epoch 4 {:rf.story/script-idx 2 :trigger-event [:b]})]
-          n      (rf.story.play.evidence/narrative script tape)]
-      (is (= [[nil                 [1]]     ; the setup beat leads
-              [[:dispatch [:a]]    [2 3]]   ; step 0 owns both its beats
-              [[:assert-db [:k] 1] []]      ; a pure assertion step has no beats
-              [[:dispatch [:b]]    [4]]]
-             (mapv (juxt :step #(mapv :epoch-id (:epochs %))) n))
-          "a leading nil span, then one span per script step"))))
+  (is (= [[nil                 [1]]     ; the setup beat leads
+          [[:dispatch [:a]]    [2 3]]   ; step 0 owns both its beats
+          [[:assert-db [:k] 1] []]      ; a pure assertion step has no beats
+          [[:dispatch [:b]]    [4]]]
+         (spans (rf.story.play.evidence/narrative
+                  [[:dispatch [:a]] [:assert-db [:k] 1] [:dispatch [:b]]]
+                  [(epoch 1 {:rf.story/script-idx nil :trigger-event [:setup]})
+                   (epoch 2 {:rf.story/script-idx 0 :trigger-event [:a]})
+                   (epoch 3 {:rf.story/script-idx 0 :trigger-event [:a-redispatch]})
+                   (epoch 4 {:rf.story/script-idx 2 :trigger-event [:b]})])))))
 
 (deftest stamp-tape-from-settle-boundaries
-  (testing "stamp-tape maps runner-recorded per-dispatch-step settle
-            boundaries onto the raw tape — the discriminating re-dispatch
-            case the EVEN partition mis-groups"
-    ;; Two dispatch steps; the SECOND re-dispatches → settles to 2 epochs.
-    ;; Tape = [a c d]; boundaries = [0 1] (e0 committed before step 1's
-    ;; settle began at count 1). EXACT: step 0 owns {a}; step 1 owns {c d}.
-    (let [script     [[:dispatch [:a]] [:dispatch [:c]]]
-          tape       [(epoch 1 {:trigger-event [:a]})
-                      (epoch 2 {:trigger-event [:c]})
-                      (epoch 3 {:trigger-event [:d]})] ; c's re-dispatch
-          stamped    (rf.story.play.evidence/stamp-tape script tape [0 1])]
-      (is (= [0 1 1] (mapv :rf.story/script-idx stamped))
-          "a → step 0; c + its re-dispatch d → step 1 (fan-out attaches to
-           the producing step)")
-      ;; The stamped tape lights up EXACT attribution end-to-end.
-      (let [n (rf.story.play.evidence/narrative script stamped)]
-        (is (= [[:a]]    (mapv :trigger-event (:epochs (first n)))))
-        (is (= [[:c] [:d]] (mapv :trigger-event (:epochs (second n))))
-            "EXACT — NOT the EVEN [2 1] split that mis-groups c onto step 0"))))
-
+  (testing "a re-dispatch's fan-out stamps onto the producing step"
+    ;; boundaries [0 1]: step 1's settle began after one committed epoch
+    (is (= [0 1 1]
+           (mapv :rf.story/script-idx
+                 (rf.story.play.evidence/stamp-tape
+                   [[:dispatch [:a]] [:dispatch [:c]]]
+                   [(epoch 1 {:trigger-event [:a]})
+                    (epoch 2 {:trigger-event [:c]})
+                    (epoch 3 {:trigger-event [:d]})]
+                   [0 1])))))
   (testing "records before the first boundary lead under the nil setup span"
-    (let [script  [[:dispatch [:act]]]
-          tape    [(epoch 1 {:trigger-event [:setup]})  ; pre-dispatch cascade
-                   (epoch 2 {:trigger-event [:act]})]
-          ;; The one dispatch step's settle began at count 1 (after setup).
-          stamped (rf.story.play.evidence/stamp-tape script tape [1])]
-      (is (= [nil 0] (mapv :rf.story/script-idx stamped))
-          "the setup epoch leads (nil); the dispatched epoch → step 0")))
-
+    (is (= [nil 0]
+           (mapv :rf.story/script-idx
+                 (rf.story.play.evidence/stamp-tape
+                   [[:dispatch [:act]]]
+                   [(epoch 1 {:trigger-event [:setup]})
+                    (epoch 2 {:trigger-event [:act]})]
+                   [1])))))
   (testing "with no boundaries the tape is returned verbatim → EVEN fallback"
-    (let [script [[:dispatch [:a]]]
-          tape   [(epoch 1 {:trigger-event [:a]})]]
-      (is (= tape (rf.story.play.evidence/stamp-tape script tape nil))
-          "absent attribution leaves the tape unstamped")
-      (is (= tape (rf.story.play.evidence/stamp-tape script tape []))
-          "an empty boundary vector also degrades to the raw tape"))))
-
-;; ---- stamp-tape survives epoch-history ring eviction ---------------------
-;;
-;; `epoch-history` is a bounded per-frame ring (default depth 50); once
-;; total epochs exceed the depth, the ring evicts the OLDEST records.
-;; `boundaries` are the runner-recorded `:epoch-id` at the start of each
-;; dispatch step's settle (a genuine monotonic identity — see
-;; `runner-events/last-epoch-id`), NOT a ring-length COUNT: a count
-;; PLATEAUS at the ring depth once full, so two boundaries recorded after
-;; that point are numerically identical and a position-based zip against
-;; the (now-truncated) tape silently attributes surviving epochs to the
-;; WRONG step. Fixture below simulates a 5-dispatch-step run against a
-;; ring depth of 3 — epochs 1 and 2 are evicted; epochs 3/4/5 survive
-;; with THEIR OWN real `:epoch-id`s (48/49/50 — arbitrary large numbers,
-;; standing in for "whatever the process-global epoch counter had
-;; reached", proving the mechanism does not depend on ids starting at 1
-;; or being contiguous from 0). Fixed boundaries are RECORDED as each
-;; step's own settle began — i.e. the id of the LAST epoch committed
-;; before that step's dispatch, exactly what `last-epoch-id` snapshots.
+    (let [tape [(epoch 1 {:trigger-event [:a]})]]
+      (is (= tape (rf.story.play.evidence/stamp-tape [[:dispatch [:a]]] tape nil))))))
 
 (deftest stamp-tape-survives-ring-eviction-no-plateau
-  (testing "five dispatch steps' worth of boundaries, recorded
-            as genuine (non-plateauing) epoch-ids, correctly attribute
-            each SURVIVING record to the step that actually produced it
-            — even though the two earliest records were evicted from the
-            tape entirely"
-    (let [script  [[:dispatch [:set 1]]
-                   [:dispatch [:set 2]]
-                   [:dispatch [:set 3]]
-                   [:dispatch [:set 4]]
-                   [:dispatch [:set 5]]]
-          ;; Only the LAST 3 of 5 committed epochs survive the depth-3
-          ;; ring (their own ids are 48/49/50 — the first two, 46/47,
-          ;; were evicted and are simply gone from `tape`).
-          tape    [(epoch 48 {:trigger-event [:set 3]})
-                   (epoch 49 {:trigger-event [:set 4]})
-                   (epoch 50 {:trigger-event [:set 5]})]
-          ;; Recorded BEFORE each step's own dispatch — genuinely
-          ;; monotonic, no plateau, regardless of the ring depth.
-          boundaries [45 46 47 48 49]
-          stamped (rf.story.play.evidence/stamp-tape script tape boundaries)]
-      (is (= [2 3 4] (mapv :rf.story/script-idx stamped))
-          "epoch 48 -> step 2 (dispatched [:set 3]); 49 -> step 3
-           ([:set 4]); 50 -> step 4 ([:set 5]) — each surviving record's
-           OWN epoch-id decides ownership, not its position in the
-           (evicted) tape")
-      (let [n (rf.story.play.evidence/narrative script stamped)]
-        (is (= [] (:epochs (nth n 0))) "step 0's own epoch (id 46) was evicted — no beats")
-        (is (= [] (:epochs (nth n 1))) "step 1's own epoch (id 47) was evicted — no beats")
-        (is (= [[:set 3]] (mapv :trigger-event (:epochs (nth n 2))))
-            "step 2 correctly owns its surviving epoch")
-        (is (= [[:set 4]] (mapv :trigger-event (:epochs (nth n 3))))
-            "step 3 correctly owns its surviving epoch")
-        (is (= [[:set 5]] (mapv :trigger-event (:epochs (nth n 4))))
-            "step 4 correctly owns its surviving epoch")))))
+  ;; Boundaries are the genuine monotonic :epoch-id recorded as each step's
+  ;; settle began, not a ring-length count that plateaus at the ring depth.
+  ;; Five steps against a depth-3 ring: epochs 46/47 were evicted, 48-50
+  ;; survive and each is owned by the step that produced it.
+  (is (= [2 3 4]
+         (mapv :rf.story/script-idx
+               (rf.story.play.evidence/stamp-tape
+                 (mapv (fn [n] [:dispatch [:set n]]) [1 2 3 4 5])
+                 [(epoch 48 {:trigger-event [:set 3]})
+                  (epoch 49 {:trigger-event [:set 4]})
+                  (epoch 50 {:trigger-event [:set 5]})]
+                 [45 46 47 48 49])))))
 
 (deftest narrative-no-dispatch-steps-leads-whole-tape
-  (testing "a script with no dispatch steps puts the whole tape in a leading span"
-    (let [script [[:assert-db [:k] 1] [:wait 10]]
-          tape   [(epoch 1 {})]
-          n      (rf.story.play.evidence/narrative script tape)]
-      (is (= [[nil                 [1]]
-              [[:assert-db [:k] 1] []]
-              [[:wait 10]          []]]
-             (mapv (juxt :step #(mapv :epoch-id (:epochs %))) n))))))
+  (is (= [[nil                 [1]]
+          [[:assert-db [:k] 1] []]
+          [[:wait 10]          []]]
+         (spans (rf.story.play.evidence/narrative [[:assert-db [:k] 1] [:wait 10]]
+                                                  [(epoch 1 {})])))))
 
 (deftest narrative-even-partition-fewer-epochs-than-steps
-  (testing "fewer epochs than dispatch steps gives later steps empty spans, drops nothing"
-    (let [script [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]
-          tape   [(epoch 1 {})] ;; only one epoch committed
-          n      (rf.story.play.evidence/narrative script tape)
-          total-beats (reduce + (map (comp count :epochs) n))]
-      (is (= 3 (count n)))
-      (is (= 1 total-beats) "the single epoch is not dropped")
-      (is (= [1] (mapv :epoch-id (:epochs (first n)))) "front-loaded onto the first step"))))
+  ;; the single epoch is front-loaded, never dropped
+  (is (= [[[:dispatch [:a]] [1]]
+          [[:dispatch [:b]] []]
+          [[:dispatch [:c]] []]]
+         (spans (rf.story.play.evidence/narrative
+                  [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]
+                  [(epoch 1 {})])))))
 
 (deftest narrative-beat-carries-full-spec-shape
-  (testing "each inner beat carries every spec/017 §Run result beat slot"
-    (let [script [[:dispatch [:checkout/submit]]]
-          tape   [(epoch 1 {:dispatch-id   100
-                            :trigger-event [:checkout/submit]
-                            :db-before     {:step :a}
-                            :db-after      {:step :b}
-                            :effects       [{:fx-id :db :outcome :ok}]
-                            :sub-runs      [{:sub-id :total :recomputed? true}]
-                            :renders       [{:render-key [:cart 0]}]
-                            :trace-events  [(run-start-trace 10 [:checkout/submit] 100)]})]
-          beat   (first (:epochs (first (rf.story.play.evidence/narrative script tape))))]
-      (is (= 1 (:epoch-id beat)))
-      (is (= 100 (:dispatch-id beat)))
-      (is (= [:checkout/submit] (:trigger-event beat)))
-      (is (= {:step :a} (:db-before beat)))
-      (is (= {:step :b} (:db-after beat)))
-      (is (= [{:fx-id :db :outcome :ok}] (:effects beat)))
-      (is (= [{:sub-id :total :recomputed? true}] (:sub-runs beat)))
-      (is (= [{:render-key [:cart 0]}] (:renders beat)))
-      (is (= 1 (count (:trace-events beat)))))))
+  ;; every spec/017 §Run result beat slot
+  (is (= {:epoch-id      1
+          :dispatch-id   100
+          :trigger-event [:checkout/submit]
+          :outcome       :ok
+          :db-before     {:step :a}
+          :db-after      {:step :b}
+          :effects       [{:fx-id :db :outcome :ok}]
+          :sub-runs      [{:sub-id :total :recomputed? true}]
+          :renders       [{:render-key [:cart 0]}]
+          :trace-events  [(run-start-trace 10 [:checkout/submit] 100)]}
+         (first (:epochs (first (rf.story.play.evidence/narrative
+                                  [[:dispatch [:checkout/submit]]]
+                                  [(epoch 1 {:dispatch-id   100
+                                             :trigger-event [:checkout/submit]
+                                             :db-before     {:step :a}
+                                             :db-after      {:step :b}
+                                             :effects       [{:fx-id :db :outcome :ok}]
+                                             :sub-runs      [{:sub-id :total :recomputed? true}]
+                                             :renders       [{:render-key [:cart 0]}]
+                                             :trace-events  [(run-start-trace 10 [:checkout/submit] 100)]})])))))))
 
 (deftest narrative-span-carries-author-caption
-  (testing "a [:dispatch evec {:caption …}] step surfaces the caption on its span"
-    (let [script [[:dispatch [:checkout/submit] {:caption "submit the order"}]]
-          tape   [(epoch 1 {:trigger-event [:checkout/submit]})]
-          span   (first (rf.story.play.evidence/narrative script tape))]
-      (is (= "submit the order" (:caption span)))
-      ;; a step with no caption map carries no :caption key
-      (let [no-cap (first (rf.story.play.evidence/narrative [[:dispatch [:x]]]
-                                              [(epoch 1 {})]))]
-        (is (not (contains? no-cap :caption)))))))
+  (let [n (rf.story.play.evidence/narrative
+            [[:dispatch [:checkout/submit] {:caption "submit the order"}]]
+            [(epoch 1 {:trigger-event [:checkout/submit]}) (epoch 2 {})])]
+    (is (= "submit the order" (:caption (first n))))
+    (is (= ["submit the order" "submit the order"]
+           (mapv :span-caption (rf.story.play.evidence/narrative-beats n)))
+        "each beat of a captioned span carries its caption")
+    (is (not (contains? (first (rf.story.play.evidence/narrative [[:dispatch [:x]]] [(epoch 1 {})]))
+                        :caption)))))
 
 ;; ===========================================================================
 ;; NARRATIVE NAVIGATION — the scrub backbone
 ;; ===========================================================================
 
 (deftest narrative-beats-flatten-tree-in-tape-order
-  (testing "the two-level tree flattens to an ordered beat sequence with nav context"
-    (let [script [[:dispatch [:a]] [:assert-db [:k] 1] [:dispatch [:b]]]
-          tape   [(epoch 1 {:rf.story/script-idx nil :trigger-event [:setup]})
-                  (epoch 2 {:rf.story/script-idx 0   :trigger-event [:a]})
-                  (epoch 3 {:rf.story/script-idx 0   :trigger-event [:a2]})
-                  (epoch 4 {:rf.story/script-idx 2   :trigger-event [:b]})]
-          n      (rf.story.play.evidence/narrative script tape)
-          beats  (rf.story.play.evidence/narrative-beats n)]
-      (is (= 4 (count beats)) "the assert step contributes no beat; every committed epoch appears")
-      (is (= [0 1 2 3] (mapv :beat-idx beats)) "beat-idx is the dense 0-based scrub address")
-      (is (= [1 2 3 4] (mapv :epoch-id beats)) "beats are in tape order")
-      ;; span context rides through: setup leads (span 0, nil step), step 0
-      ;; owns its two beats (span 1), the :dispatch [:b] beat is span 3.
-      (is (= [0 1 1 3] (mapv :span-idx beats)))
-      (is (= [nil [:dispatch [:a]] [:dispatch [:a]] [:dispatch [:b]]]
-             (mapv :step beats)) "each beat carries its owning span's step"))))
-
-(deftest narrative-beats-carry-span-caption
-  (testing "a captioned span stamps :span-caption onto each of its beats"
-    (let [script [[:dispatch [:a] {:caption "do the thing"}]]
-          tape   [(epoch 1 {}) (epoch 2 {})]
-          beats  (rf.story.play.evidence/narrative-beats (rf.story.play.evidence/narrative script tape))]
-      (is (= ["do the thing" "do the thing"] (mapv :span-caption beats))))))
+  ;; [beat-idx epoch-id span-idx step]: the assert step contributes no beat
+  (is (= [[0 1 0 nil]
+          [1 2 1 [:dispatch [:a]]]
+          [2 3 1 [:dispatch [:a]]]
+          [3 4 3 [:dispatch [:b]]]]
+         (mapv (juxt :beat-idx :epoch-id :span-idx :step)
+               (rf.story.play.evidence/narrative-beats
+                 (rf.story.play.evidence/narrative
+                   [[:dispatch [:a]] [:assert-db [:k] 1] [:dispatch [:b]]]
+                   [(epoch 1 {:rf.story/script-idx nil :trigger-event [:setup]})
+                    (epoch 2 {:rf.story/script-idx 0   :trigger-event [:a]})
+                    (epoch 3 {:rf.story/script-idx 0   :trigger-event [:a2]})
+                    (epoch 4 {:rf.story/script-idx 2   :trigger-event [:b]})]))))))
 
 (deftest beat-count-and-beat-at-and-epoch-ids
-  (testing "scrub extent, addressing, and restore-epoch targets"
-    (let [script [[:dispatch [:a]]]
-          tape   [(epoch 10 {}) (epoch 11 {}) (epoch 12 {})]
-          n      (rf.story.play.evidence/narrative script tape)]
-      (is (= 3 (rf.story.play.evidence/beat-count n)) "scrub slider extent = committed-epoch count")
-      (is (= 10 (:epoch-id (rf.story.play.evidence/beat-at n 0))))
-      (is (= 12 (:epoch-id (rf.story.play.evidence/beat-at n 2))))
-      (is (nil? (rf.story.play.evidence/beat-at n 3))  "scrub past the end is nil")
-      (is (nil? (rf.story.play.evidence/beat-at n -1)) "scrub before the start is nil")
-      (is (= [10 11 12] (rf.story.play.evidence/beat-epoch-ids n))
-          "the ordered restore-epoch targets, one per scrub position")
-      ;; beat-epoch-ids aligns 1:1 with narrative-beats
-      (is (= (rf.story.play.evidence/beat-epoch-ids n)
-             (mapv :epoch-id (rf.story.play.evidence/narrative-beats n)))))))
+  (let [n (rf.story.play.evidence/narrative [[:dispatch [:a]]]
+                                            [(epoch 10 {}) (epoch 11 {}) (epoch 12 {})])]
+    (is (= 3 (rf.story.play.evidence/beat-count n)))
+    (is (= 12 (:epoch-id (rf.story.play.evidence/beat-at n 2))))
+    (is (nil? (rf.story.play.evidence/beat-at n 3)) "past the end")
+    (is (nil? (rf.story.play.evidence/beat-at n -1)) "before the start")
+    (is (= [10 11 12] (rf.story.play.evidence/beat-epoch-ids n)))))
 
 ;; ===========================================================================
 ;; AGREEMENT INVARIANT — no green while tape is red
 ;; ===========================================================================
 
 (deftest projections-agree-with-the-tape
-  (testing "project-evidence returns the tape verbatim + every slot derived from it"
-    (let [tape [(epoch 1 {:effects [{:fx-id :db :outcome :ok}]
-                          :trace-events [(warning-trace 10 :rf.warning/x :rf.warning/x)]})]
-          ev   (rf.story.play.evidence/project-evidence tape {:script [[:dispatch [:e]]]})]
-      (is (= tape (:epoch-tape ev)) "the retained tape rides verbatim as the evidence source")
-      (is (= (rf.story.play.evidence/schema-violations tape) (:schema-violations ev)))
-      (is (= (rf.story.play.evidence/warnings tape)          (:warnings ev)))
-      (is (= (rf.story.play.evidence/effects tape)           (:effects ev)))
-      (is (= (rf.story.play.evidence/sub-runs tape)          (:sub-runs ev)))
-      (is (= (rf.story.play.evidence/renders tape)           (:renders ev)))
-      (is (= (rf.story.play.evidence/narrative [[:dispatch [:e]]] tape) (:narrative ev))))))
+  (let [tape [(epoch 1 {:effects      [{:fx-id :db :outcome :ok}]
+                        :sub-runs     [{:sub-id :total :recomputed? true}]
+                        :renders      [{:render-key [:v 0]}]
+                        :trace-events [(warning-trace 10 :rf.warning/x :rf.warning/x)]})]
+        ks   [:epoch-tape :schema-violations :warnings :effects :sub-runs :renders
+              :reactive-counts :narrative]]
+    (is (= {:epoch-tape        tape
+            :schema-violations (rf.story.play.evidence/schema-violations tape)
+            :warnings          (rf.story.play.evidence/warnings tape)
+            :effects           (rf.story.play.evidence/effects tape)
+            :sub-runs          (rf.story.play.evidence/sub-runs tape)
+            :renders           (rf.story.play.evidence/renders tape)
+            :reactive-counts   (rf.story.play.evidence/reactive-counts tape)
+            :narrative         (rf.story.play.evidence/narrative [[:dispatch [:e]]] tape)}
+           (select-keys (rf.story.play.evidence/project-evidence tape {:script [[:dispatch [:e]]]}) ks)))))
 
 (deftest tape-shows-failure?-trips-on-an-unconsumed-violation-a-halt-or-an-error-effect
   (let [dirty    [(epoch 1 {:trace-events [(schema-trace 10 :event :checkout/submit {})]})]
@@ -497,41 +337,15 @@
 ;; ===========================================================================
 ;; RUN-TAPE TRUNCATION SIGNAL
 ;; ===========================================================================
-;;
-;; `run-tape-truncated?` observes whether the bounded per-frame ring evicted
-;; the run's baseline record (front-eviction): if NO retained record still
-;; sits at/before the baseline, the ring overflowed with run epochs and the
-;; earliest run evidence is GONE. Depth-free — it needs only the full ring +
-;; the baseline id.
 
 (deftest run-tape-truncated-detects-evicted-baseline
-  (testing "baseline still covered (a record ≤ baseline survives) → NOT truncated"
-    ;; baseline 100; the ring still holds record 100 (the baseline itself) and
-    ;; newer run records — nothing evicted.
-    (let [full-ring [(epoch 100 {}) (epoch 103 {}) (epoch 107 {})]]
-      (is (false? (rf.story.play.evidence/run-tape-truncated? full-ring 100))
-          "the baseline record survives → the ring holds every run record")))
-
-  (testing "baseline evicted (every retained record > baseline) → TRUNCATED"
-    ;; baseline 100 but the oldest surviving record is 142 — the baseline
-    ;; (and the run's earliest epochs) were pushed off the ring's front.
-    (let [full-ring [(epoch 142 {}) (epoch 150 {}) (epoch 159 {})]]
-      (is (true? (rf.story.play.evidence/run-tape-truncated? full-ring 100))
-          "no record ≤ baseline survives → the run overflowed the ring")))
-
-  (testing "a pre-baseline record older than the baseline also counts as covered"
-    ;; The ring may hold records OLDER than the baseline (a same-id rerun
-    ;; inherits pre-run history); any record ≤ baseline proves no run epoch
-    ;; was evicted.
-    (let [full-ring [(epoch 88 {}) (epoch 100 {}) (epoch 140 {})]]
-      (is (false? (rf.story.play.evidence/run-tape-truncated? full-ring 100)))))
-
-  (testing "a fresh inline frame (zero / nil baseline) is never flagged"
-    ;; No baseline record exists to evict, and depth-free detection cannot
-    ;; tell overflow from an exact fill without the ring depth — so it does
-    ;; not over-claim.
-    (is (false? (rf.story.play.evidence/run-tape-truncated? [(epoch 1 {}) (epoch 2 {})] 0)))
-    (is (false? (rf.story.play.evidence/run-tape-truncated? [(epoch 1 {}) (epoch 2 {})] nil))))
-
-  (testing "an empty ring is not truncated"
-    (is (false? (rf.story.play.evidence/run-tape-truncated? [] 100)))))
+  ;; Truncated iff no retained record sits at or before the run's baseline:
+  ;; the ring overflowed with run epochs. A zero / nil baseline (a fresh
+  ;; inline frame) is never flagged, since depth-free detection cannot tell
+  ;; overflow from an exact fill.
+  (are [ring baseline truncated?] (= truncated? (rf.story.play.evidence/run-tape-truncated? ring baseline))
+    [(epoch 100 {}) (epoch 103 {}) (epoch 107 {})] 100 false
+    [(epoch 142 {}) (epoch 150 {}) (epoch 159 {})] 100 true
+    [(epoch 1 {}) (epoch 2 {})]                    0   false
+    [(epoch 1 {}) (epoch 2 {})]                    nil false
+    []                                             100 false))
