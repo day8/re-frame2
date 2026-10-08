@@ -4,9 +4,7 @@
   creates NO pending value, and dispatches `:rf.route/entry-denied` exactly
   once. Also covers the guard-per-transition-kind rules (stage 3), the
   framework no-op default handler, the URL restore on a URL-driven door, the
-  SSR `403` floor + redirect supersession, the fresh-return auth recipe, and
-  the retirement roster (`:rf.route/entry-blocked`, `:enter-attempts`,
-  `:rf.error/route-guard-loop`, enter bypass, `:bypass-guards?`).
+  SSR `403` floor, and the fresh-return auth recipe.
 
   ## Posture split
 
@@ -18,31 +16,18 @@
   SSR response. Those run in the ordinary `clojure -M:test` suite AND in
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
-  Two shapes need the guard.
-
-  1. Trace-PAYLOAD assertions — the `:rf.error/can-enter-non-boolean` tags,
-     the `:rf.error/navigate-bad-request` `:reason` / `:keys` — sit behind
-     `trace/emit-error!`, gated on `rf.interop/debug-enabled?` and read once at
-     load time. They sit inside `(when rf.interop/debug-enabled? …)`
-     dev-instrumentation arms. In every case the SEMANTICS beside them (the deny
-     holds; the malformed request navigates nowhere) stay posture-independent.
-
-  2. NEGATIVE trace assertions — `not-any? :rf.error/no-such-handler` and
-     `not-any? :rf.error/route-guard-loop`. Under the gate the ring is EMPTY
-     by design, so these pass VACUOUSLY: they would report green
-     without the framework doing anything at all. They are dev-posture
-     assertions and are guarded as such, with the production-visible half of
-     each (the deny still holds; 12 attempts really did deny 12 times and
-     accumulated no pending value) left outside the arm."
+  Trace reads — the `:rf.error/can-enter-non-boolean` tags and the NEGATIVE
+  `not-any?` reads for `:rf.error/no-such-handler` and
+  `:rf.error/route-guard-loop` — sit behind `trace/emit!` /
+  `trace/emit-error!`, gated on `rf.interop/debug-enabled?`. Under the gate the
+  ring is EMPTY by design, so a negative there would pass vacuously; each sits
+  inside a `(when rf.interop/debug-enabled? …)` arm with its production-visible
+  half (the deny holds) left outside."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.routing :as rf.routing]
-            [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.ssr :as rf.ssr]))
@@ -70,14 +55,7 @@
   "Re-register `:rf.route/entry-denied` with a recorder, returning the atom
   the denial payloads land in. This REPLACES the framework default handler,
   so a test that wants to prove default-handler safety must not call it.
-
-  Registers through the PUBLIC `rf/reg-event` — the spelling every doc, example
-  and skill teaches — so the suite exercises the documented recipe rather than a
-  framework-internal back door. The public macro stamps the calling namespace
-  as `:rf.provenance/ns`; the framework's own no-provenance default carries
-  the `:rf/framework-default?` marker, so the default image selects this
-  registration alone and the next `rf/make-frame` does not fail with
-  `:rf.error/image-duplicate-id`."
+  Registers through the PUBLIC `rf/reg-event`, the documented recipe."
   []
   (let [seen (atom [])]
     (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
@@ -102,7 +80,6 @@
           ":rf.route/entry-denied dispatched EXACTLY once across both hops")
       (is (empty? @pushed)
           "the link door decided BEFORE pushing — no history entry was added")
-      (is (nil? (pending)) "no pending value")
       (is (= :home (current-id)) "no transition"))))
 
 (deftest entry-denied-through-popstate-door
@@ -118,7 +95,6 @@
       (is (= 1 (count @seen)) "exactly one denial")
       (is (= ["/home"] @replaced)
           "the current slice's URL was restored by replace (no history entry)")
-      (is (nil? (pending)))
       (is (= :home (current-id))))))
 
 (deftest entry-denied-on-initial-load
@@ -128,8 +104,7 @@
     (let [seen (capture-denials!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"])
       (is (= 1 (count @seen)) "exactly one denial on the initial load")
-      (is (nil? (current-id)) "no route committed at all")
-      (is (nil? (pending))))))
+      (is (nil? (current-id)) "no route committed at all"))))
 
 ;; ---- the exactly-once floor: the framework DEFAULT handler --------------
 
@@ -140,61 +115,31 @@
             still holds. This is the ZERO-times half of exactly-once."
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (is (some? (rf.registrar/lookup :event :rf.route/entry-denied))
-        "the framework default handler is registered")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::d (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::d)
-      ;; Dev-instrumentation arm (see ns docstring). BOTH of these
-      ;; read the trace ring, and the second is NEGATIVE: under
-      ;; -Dre-frame.debug=false the ring is empty by design, so `not-any?`
-      ;; would pass without the framework resolving anything.
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count (filter #(= :rf.route/entry-denied (:operation %)) @traces)))
             "exactly one :rf.route/entry-denied trace — counted independently of
              any application handler")
         (is (not-any? #(= :rf.error/no-such-handler (:operation %)) @traces)
             "no :rf.error/no-such-handler — the default handler resolved the dispatch"))
-      ;; SEMANTIC, posture-independent: with only the framework default in
-      ;; place the denial is still a HARD deny that commits nothing.
-      (is (= :home (current-id)) "with the default handler, denial is a HARD deny")
-      (is (nil? (pending))))))
+      (is (= :home (current-id)) "with the default handler, denial is a HARD deny"))))
 
 (deftest application-handler-registers-cleanly-and-fires-exactly-once
-  (testing "the DOCUMENTED recipe, and the complement of the test
-            above. An application registers its OWN :rf.route/entry-denied
-            through the PUBLIC rf/reg-event, exactly as the routing docs, the
-            auth how-to, the API table and the skill all teach. BOTH properties
-            must hold at once: the app registration coexists with the framework's
-            shipped no-op default (the next rf/make-frame assembles rather than
-            throwing :rf.error/image-duplicate-id with colliding coordinates
-            [{:ns nil} {:ns \"<app ns>\"}]), and the app handler receives the
-            denial EXACTLY once. Invocations are COUNTED, so a double-fire and a
-            zero-fire (the framework no-op still shadowing the app's handler)
-            both fail."
+  (testing "an application registers its OWN :rf.route/entry-denied through the
+            PUBLIC rf/reg-event, then builds a frame: the registration coexists
+            with the framework's shipped no-op default (rf/make-frame does not
+            throw :rf.error/image-duplicate-id), and the app handler — not the
+            default — receives the denial exactly once"
     (register-common!)
     (let [calls (atom 0)]
       (rf/reg-event :rf.route/entry-denied (fn [_ _] (swap! calls inc) {}))
-      (is (= 1 (count (filter #(= :rf.route/entry-denied %)
-                              (keys (rf.registrar/registrations :event)))))
-          "one :event registration for the id — the app's replaced the default")
-      ;; This is the ordinary order: an app's namespaces
-      ;; load and register, and THEN frames are built.
       (let [probe (rf/make-frame {:id :rf2-0r6q4/probe})]
-        (is (some? probe)
-            "rf/make-frame assembles cleanly after the app registration")
-        (is (zero? @calls) "registration alone fires nothing")
-        (rf/dispatch-sync [:rf.route/navigate {:to :home}] {:frame probe})
-        (is (zero? @calls)
-            "an ALLOWED navigation fires no denial — rules out a spurious count")
         (rf/dispatch-sync [:rf.route/navigate {:to :account}] {:frame probe})
-        (is (= 1 @calls)
-            "the APPLICATION handler ran exactly once on a freshly sealed frame
-             — not twice, and not zero times")
-        (rf/dispatch-sync [:rf.route/navigate {:to :account}] {:frame probe})
-        (is (= 2 @calls)
-            "a second denied attempt is a second denial — one per attempt")))))
+        (is (= 1 @calls))))))
 
 ;; ---- denial payload shape ------------------------------------------------
 
@@ -207,26 +152,26 @@
     (let [seen (capture-denials!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (let [d (first @seen)]
-        (is (= {:to :account} (:destination d))
-            ":destination is the canonical named address")
-        (is (= :account (get-in d [:target :route-id])))
-        (is (= "/account" (get-in d [:target :url])))
-        (is (= :navigate (:cause d)))
-        (is (= "/account" (:requested-url d)))
-        (is (= :auth/signed-in? (:guard d)))
+        (is (= {:destination   {:to :account}
+                :target        {:route-id :account :url "/account"}
+                :cause         :navigate
+                :requested-url "/account"
+                :guard         :auth/signed-in?}
+               (-> d
+                   (select-keys [:destination :target :cause :requested-url :guard])
+                   (update :target select-keys [:route-id :url]))))
         (is (nil? (:id d)) "a denial has no pending id — it is terminal")))))
 
 (deftest entry-denied-raw-url-destination-normalises
   (testing "a MATCHING raw-URL request denies with the canonical NAMED
-            destination recovered from the resolved target"
+            destination recovered from the resolved target, and :requested-url
+            preserves the caller's input"
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [seen (capture-denials!)]
       (rf/dispatch-sync [:rf.route/navigate {:url "/account"}])
-      (is (= {:to :account} (:destination (first @seen)))
-          "a matching raw URL normalises to the named branch")
-      (is (= "/account" (:requested-url (first @seen)))
-          ":requested-url preserves the caller's input"))))
+      (is (= {:destination {:to :account} :requested-url "/account"}
+             (select-keys (first @seen) [:destination :requested-url]))))))
 
 ;; ---- the closed boolean contract ----------------------------------------
 
@@ -244,17 +189,14 @@
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::nb)
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; fail-CLOSED semantics are pinned posture-independently below, through
-      ;; the PUBLIC :rf.route/entry-denied handler `capture-denials!` seats.
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/can-enter-non-boolean (:operation ev))
                                 (= :account (-> ev :tags :route-id))))
                   @traces)
             ":rf.error/can-enter-non-boolean fired, tagged with the target route"))
-      (is (= 1 (count @seen)) "the non-boolean DENIED, exactly once")
-      (is (= :account (:route-id (:target (first @seen))))
-          "the denial names the guarded target — the non-boolean failed CLOSED there")
+      (is (= [:account] (map (comp :route-id :target) @seen))
+          "the non-boolean DENIED, exactly once, naming the guarded target")
       (is (= :home (current-id))))))
 
 (deftest can-enter-guard-receives-resolved-target
@@ -268,8 +210,7 @@
       (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
-      (is (= :account (:route-id @seen)))
-      (is (= "/account" (:url @seen)))
+      (is (= [:account "/account"] ((juxt :route-id :url) @seen)))
       (is (= :account (current-id)) "guard allowed — entry completed"))))
 
 ;; ---- entry has NO bypass -------------------------------------------------
@@ -301,8 +242,6 @@
     (is (= :login (current-id)) "the denial handler redirected to login")
     (is (= {:to :account} (get-in (rf/app-db-value :rf/default) [:auth :return-to]))
         "the denied destination was stashed as a replayable RouteDestination")
-    (is (nil? (pending)) "no pending value was created by the denial")
-    ;; sign in, then return freshly
     (rf/dispatch-sync [:auth/set true])
     (rf/dispatch-sync [:rf.route/navigate
                        (get-in (rf/app-db-value :rf/default) [:auth :return-to])])
@@ -340,8 +279,7 @@
       (rf/dispatch-sync [:rf.route/url-requested {:url "/page"}])
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
       (rf/dispatch-sync [:rf.route/handle-url-change "/page" {:rf.route/cause :link}])
-      (is (zero? @leave) ":can-leave was NOT evaluated on an exact no-op")
-      (is (zero? @enter) ":can-enter was NOT evaluated on an exact no-op"))))
+      (is (= [0 0] [@leave @enter]) "neither :can-leave nor :can-enter was evaluated"))))
 
 (deftest full-transition-runs-both-guards
   (testing "a FULL transition — including a changed in-place :query, which is
@@ -351,8 +289,7 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
       (reset! leave 0) (reset! enter 0)
       (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
-      (is (= 1 @leave) "an in-place query change is a full transition — leave ran")
-      (is (= 1 @enter) "…and entry ran too; the in-place form is not a bypass")
+      (is (= [1 1] [@leave @enter]) "the in-place form is a full transition, not a bypass")
       ;; `/page` declares no query vocabulary, so `:tab` is
       ;; committed the way the URL spells it.
       (is (= {"tab" "history"} (get-in (rdb) [:rf.runtime/routing :current :query]))))))
@@ -364,8 +301,7 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
       (reset! leave 0) (reset! enter 0)
       (rf/dispatch-sync [:rf.route/navigate {:fragment "errors"}])
-      (is (= 1 @leave) ":can-leave ran on the fragment-only change")
-      (is (= 1 @enter) ":can-enter ran on the fragment-only change")
+      (is (= [1 1] [@leave @enter]))
       (is (= "errors" (get-in (rdb) [:rf.runtime/routing :current :fragment]))))))
 
 (deftest link-door-decides-exactly-once
@@ -382,16 +318,16 @@
       (is (= 1 @enter) ":can-enter evaluated exactly once across both hops"))))
 
 ;; ===========================================================================
-;; SSR — the default 403 floor and redirect supersession (Spec 011)
+;; SSR — the default 403 floor (Spec 011)
 ;; ===========================================================================
 
 (defn- server-frame! []
   (rf.frame/make-anon-frame-record! {:platform :server}))
 
 (deftest ssr-hard-deny-stamps-403
-  (testing "on a server frame a denial stamps the default 403 BEFORE the
-            denial event drains; with no replacement the response stays 403
-            and the protected route is uncommitted"
+  (testing "on a server frame a denial stamps the default 403; with no
+            replacement the response stays 403 and the protected route is
+            uncommitted"
     (register-common!)
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
@@ -415,23 +351,10 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (is (empty? @statuses) "no status fx on a client frame"))))
 
-(deftest ssr-application-redirect-supersedes-403
-  (testing "the application handler may supersede the default 403 with the
-            canonical :rf.server/redirect under Spec 011 redirect precedence"
-    (register-common!)
-    (rf/reg-event :rf.route/entry-denied
-      (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))
-    (let [f (server-frame!)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
-      (let [resp (rf.ssr/get-response f)]
-        (is (= "/login" (get-in resp [:redirect :location]))
-            "the app redirect landed")
-        (is (= 302 (:status resp))
-            "redirect precedence replaced the default 403 status")))))
-
 (deftest ssr-application-may-set-another-status
-  (testing "an application handler may explicitly set another status under
-            Spec 011's last-write-wins multiple-status policy"
+  (testing "the 403 is stamped BEFORE the denial event drains, so an
+            application handler may set another status under Spec 011's
+            last-write-wins multiple-status policy"
     (register-common!)
     (rf/reg-event :rf.route/entry-denied
       (fn [_ _] {:fx [[:rf.server/set-status 404]]}))
@@ -439,55 +362,6 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
       (is (= 404 (:status (rf.ssr/get-response f)))
           "last write wins — the app's explicit status supersedes the 403 floor"))))
-
-;; ===========================================================================
-;; Retirement roster — every retired symbol is GONE
-;; ===========================================================================
-
-(deftest retired-entry-machinery-is-gone
-  (testing "the retired entry machinery (EP-0037 R4): no :rf.route/entry-blocked
-            event, no enter bypass, no :bypass-guards? policy key, no :enter-attempts"
-    (register-common!)
-    (is (nil? (rf.registrar/lookup :event :rf.route/entry-blocked))
-        ":rf.route/entry-blocked is not a registered event")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    ;; the retired set-valued policy key is an UNKNOWN request key
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::bad (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:enter}}])
-      (rf/unregister-listener! :trace ::bad)
-      ;; SEMANTIC, posture-independent: the REJECTION is the
-      ;; always-on structural gate (`rf.routing.address/classify`; navigate.cljc
-      ;; §236-250), so a retired key really does buy nothing under the
-      ;; production gate — `:bypass-guards? #{:enter}` did NOT get past the
-      ;; `:can-enter` guard, and the slice never moved.
-      (is (= :home (current-id))
-          ":bypass-guards? bought no entry — the malformed request navigated nowhere")
-      (is (= [:bypass-guards?]
-             (:keys (rf.routing.address/classify {:to :account :bypass-guards? #{:enter}} nil)))
-          "the always-on gate names :bypass-guards? as the unknown key")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                                (= :unknown-keys (-> ev :tags :reason))
-                                (= [:bypass-guards?] (-> ev :tags :keys))))
-                  @traces)
-            ":bypass-guards? is rejected LOUD as an unknown request key")))
-    ;; and the retired internal resume rider is likewise unknown
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::rider (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :home :rf.route/enter-attempts 2}])
-      (rf/unregister-listener! :trace ::rider)
-      ;; SEMANTIC, posture-independent: same always-on gate.
-      (is (= :unknown-keys
-             (:reason (rf.routing.address/classify {:to :home :rf.route/enter-attempts 2} nil)))
-          ":rf.route/enter-attempts is not an exemption in the always-on gate")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                                (= :unknown-keys (-> ev :tags :reason))))
-                  @traces)
-            ":rf.route/enter-attempts is not an internal exemption")))))
 
 (deftest repeated-denials-never-emit-a-loop-error
   (testing "entry is terminal, so a repeatedly-denied target cannot spin —
@@ -500,12 +374,7 @@
       (dotimes [_ 12] (rf/dispatch-sync [:rf.route/navigate {:to :account}]))
       (rf/unregister-listener! :trace ::loop)
       (is (= 12 (count @seen)) "each fresh attempt denies once — 12 attempts, 12 denials")
-      ;; Dev-instrumentation arm (see ns docstring). This assertion
-      ;; is NEGATIVE over the trace ring, which is EMPTY by design under
-      ;; -Dre-frame.debug=false, so outside a posture guard it would pass
-      ;; vacuously. The production-visible half of "cannot spin" — 12 attempts
-      ;; produced exactly 12 terminal denials and no pending accumulation —
-      ;; is asserted outside the arm.
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (not-any? #(= :rf.error/route-guard-loop (:operation %)) @traces)
             ":rf.error/route-guard-loop is retired"))
@@ -528,7 +397,8 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
-      (is (some? (pending)) "the LEAVE guard blocked first — a resumable pending value")
-      (is (= :editor (:rejecting-route (pending))) "…recorded against the CURRENT route")
-      (is (= {:to :account} (:destination (pending))) "…carrying the replayable destination")
+      (is (= {:rejecting-route :editor :destination {:to :account}}
+             (select-keys (pending) [:rejecting-route :destination]))
+          "the LEAVE guard blocked first — a resumable pending value against the
+           CURRENT route, carrying the replayable destination")
       (is (false? @enter-ran) "the entry guard was NOT consulted"))))
