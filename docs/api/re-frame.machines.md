@@ -134,7 +134,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 | `:rf.error/machine-history-duplicate` | One compound declares two history nodes. |
 | `:rf.error/machine-history-bad-default-target` | A history node's `:default-target` does not resolve. |
 | `:rf.error/machine-parallel-bad-shape` | A parallel root also has `:initial` or `:states`, a region has no `:initial`, or two regions declare a spawn at the same in-region path. |
-| `:rf.error/machine-parallel-nested-not-supported` | A region declares `:type :parallel`. |
+| `:rf.error/machine-parallel-nested-not-supported` | A region, or any state below the machine root, declares `:type :parallel`. |
 | `:rf.error/machine-parallel-root-on-bad-target` | A parallel root's `:on` uses a bare keyword target instead of a region-qualified path. |
 | `:rf.error/machine-parallel-on-done-target` | A parallel root's `:on-done` has a `:target`. |
 | `:rf.error/machine-parallel-region-order-required` | `:regions` has more than eight entries and there is no `:region-order`. |

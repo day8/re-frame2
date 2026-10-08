@@ -1356,6 +1356,27 @@
       :else
       (walk [] (:states machine)))))
 
+(defn- validate-parallel-root-only!
+  "Refuse a `:type :parallel` state below a flat or compound machine root
+  with `:rf.error/machine-parallel-nested-not-supported`, the id a parallel
+  region's own nested `:type :parallel` is refused under
+  (`validate-parallel!`). Parallel is root-only (Spec 005 §Parallel regions):
+  the runtime runs `:regions` only on a `:type :parallel` machine root, so
+  such a state would run as a plain state and its regions would be silently
+  ignored."
+  [machine]
+  (when-not (rf.machines.parallel/parallel? machine)
+    (doseq [[path n] (walk-state-nodes-with-path machine)]
+      (when (= :parallel (:type n))
+        (throw (validation-error
+                 :rf.error/machine-parallel-nested-not-supported
+                 (str "state " (pr-str path) " declares :type :parallel below the "
+                      "machine root. Parallel regions run only on a :type :parallel "
+                      "machine root, so here they would be silently ignored. Declare "
+                      ":type :parallel on the root, or model the parallel part as its "
+                      "own machine.")
+                 {:state-path path}))))))
+
 (defn- walk-state-nodes-with-scope
   "Like `walk-state-nodes-with-path` but additionally yields the `:states`
   SCOPE each node lives in (its flat machine's `:states` or its owning
@@ -2525,6 +2546,7 @@
         machine    (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
+  (validate-parallel-root-only! machine)
   (validate-region-spawn-paths! machine)
   ;; A non-parallel root's `:after` (hand-authored or lowered
   ;; from a root `:timeout` / `:on-timeout`) has no runtime scheduling /

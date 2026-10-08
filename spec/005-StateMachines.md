@@ -1728,7 +1728,7 @@ The snapshot's `:state` becomes the **third arm** described in [§Snapshot shape
 {:state {:auth [:authenticated :dashboard] :lifecycle :idle} ...}
 ```
 
-Nested parallel regions (a region whose own state-tree declares `:type :parallel`) are not supported in v1. The validator rejects them at registration with `:rf.error/machine-parallel-nested-not-supported`. Two-level nesting can be modelled as a flatter cross-product or, more idiomatically, as multiple top-level parallel-region machines. This is a **deferred** (not permanently-blessed) divergence with a recorded reconsideration trigger — see [§Lessons from xstate — Four non-substrate divergences, item 2](#four-non-substrate-divergences--ruled-and-recorded).
+Nested parallel regions (a region whose own state-tree declares `:type :parallel`) are not supported in v1. The validator rejects them at registration with `:rf.error/machine-parallel-nested-not-supported`. Parallel is root-only, so a `:type :parallel` state below a flat or compound root is refused with the same id — the runtime would run it as a plain state and never enter its regions. Two-level nesting can be modelled as a flatter cross-product or, more idiomatically, as multiple top-level parallel-region machines. This is a **deferred** (not permanently-blessed) divergence with a recorded reconsideration trigger — see [§Lessons from xstate — Four non-substrate divergences, item 2](#four-non-substrate-divergences--ruled-and-recorded).
 
 The `:data` slot is **shared** across every region — there is no `:data` slot on a region body, and there is no per-region `:data` slot inside the snapshot. Region states see and write the same `:data` map; the action-effect contract is the flat machine's (`(fn [{:keys [data event]}] {:data {...}})`).
 
