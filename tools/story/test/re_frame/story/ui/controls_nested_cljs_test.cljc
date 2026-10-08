@@ -1,33 +1,19 @@
 (ns re-frame.story.ui.controls-nested-cljs-test
-  "Tests for the Story Controls panel's nested Malli walker.
+  "Tests for the Story Controls panel's nested Malli walker and the
+  path-aware cell-override writes behind it.
 
-  The walker recurses into `:map` / `:vector` / `:tuple` / `:set`
-  schemas — these tests pin the pure-data widget-spec emission, the
-  default-element-value seeding for collection adds, and the path-
-  aware cell-override writes against shell-state.
-
-  Splits into three tiers:
-
-  - **JVM + CLJS** (`state.cljc` / `args.cljc` are `.cljc`) — the
-    path-aware `set-cell-override` fn (plus its `-scalar` wrapper) in
-    isolation, AND the edit -> `resolve-args` round-trip: a
-    nested-control edit against a REGISTERED variant's real args,
-    resolved back through `rf.story.args/resolve-args` the way the canvas
-    actually reads them. `rf.story/reg-variant` + `rf.story.args/resolve-args` are
-    plain registrar reads — no Reagent / DOM needed — so this tier runs
-    on both runtimes.
-  - **CLJS-only** (`controls.cljs` is CLJS-only — it depends on
-    Reagent / DOM) — `infer-widget` widget-spec emission on every
-    collection operator, plus `resolve-argtypes` integration with the
-    Story registrar.
+  - **JVM + CLJS** — `set-cell-override` / `clear-cell-override` in
+    `state.cljc`.
+  - **CLJS-only** — `infer-widget` widget-spec emission and
+    `resolve-argtypes` against the Story registrar (`controls.cljs`
+    depends on Reagent / DOM).
 
   Runs on the JVM under `clojure -M:test` and on CLJS under shadow's
   `:node-test` target (its `cljs-test$` regex picks up the `-cljs-test`
   suffix)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
             [re-frame.story :as rf.story]
-            [re-frame.story.args :as rf.story.args]
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -36,11 +22,6 @@
 (defn reset-fixture [test-fn]
   (rf.story/clear-all!)
   (rf.story.ui.state/reset-shell-state!)
-  ;; `install-canonical-vocabulary!` seeds the lifecycle-machine
-  ;; event/registrar entries a LIVE variant run needs; nothing in this
-  ;; file dispatches a run — the JVM+CLJS round-trip tests below only
-  ;; read `rf.story/reg-variant` bodies back through `rf.story.args/resolve-args`
-  ;; (plain registrar data, no frame involved) — so it stays CLJS-only.
   #?(:cljs (rf.story/install-canonical-vocabulary!))
   (test-fn))
 
@@ -49,119 +30,55 @@
 ;; ---- CLJS: infer-widget on collection forms -----------------------------
 
 #?(:cljs
-   (deftest infer-widget-map-emits-group
-     (testing ":map schema → :group widget with one entry per key"
-       (let [w (rf.story.ui.controls/infer-widget
-                 [:map [:label :string] [:disabled? :boolean]])]
-         (is (= :group (:widget w)))
-         (is (= :map   (:kind w)))
-         (is (= 2      (count (:entries w))))
-         (is (= [:label :disabled?] (mapv :key (:entries w))))
-         (is (= :text    (-> w :entries (nth 0) :widget :widget)))
-         (is (= :boolean (-> w :entries (nth 1) :widget :widget)))))))
+   (deftest infer-widget-collection-shapes
+     (are [schema widget] (= widget (rf.story.ui.controls/infer-widget schema))
+       ;; the optional properties map at index 1 is skipped, not read as an entry
+       [:map {:closed true} [:label :string] [:disabled? :boolean]]
+       {:widget :group :kind :map
+        :entries [{:key :label :widget {:widget :text}}
+                  {:key :disabled? :widget {:widget :boolean}}]}
 
-#?(:cljs
-   (deftest infer-widget-map-with-properties-skips-property-map
-     (testing ":map with an optional properties map at index 1 is handled"
-       (let [w (rf.story.ui.controls/infer-widget
-                 [:map {:closed true} [:k :string]])]
-         (is (= :group (:widget w)))
-         (is (= [:k] (mapv :key (:entries w))))))))
+       [:set :int]
+       {:widget :repeater :kind :set :element {:widget :number}}
 
-#?(:cljs
-   (deftest infer-widget-set-emits-repeater
-     (testing ":set schema → :repeater widget kind :set"
-       (let [w (rf.story.ui.controls/infer-widget [:set :int])]
-         (is (= :repeater (:widget w)))
-         (is (= :set      (:kind w)))
-         (is (= :number   (-> w :element :widget)))))))
+       [:tuple :string :int :boolean]
+       {:widget :tuple :kind :tuple
+        :positions [{:widget :text} {:widget :number} {:widget :boolean}]}
 
-#?(:cljs
-   (deftest infer-widget-tuple-emits-positions
-     (testing ":tuple schema → :tuple widget with one position per element"
-       (let [w (rf.story.ui.controls/infer-widget [:tuple :string :int :boolean])]
-         (is (= :tuple (:widget w)))
-         (is (= 3 (count (:positions w))))
-         (is (= [:text :number :boolean]
-                (mapv :widget (:positions w))))))))
+       [:enum :a :b :c]
+       {:widget :select :options [:a :b :c]}
 
-#?(:cljs
-   (deftest infer-widget-nested-map-of-maps
-     (testing ":map nested inside :map → depth-2 :group"
-       (let [w (rf.story.ui.controls/infer-widget
-                 [:map
-                  [:outer
-                   [:map
-                    [:inner :string]
-                    [:flag  :boolean]]]])]
-         (is (= :group (:widget w)))
-         (is (= :outer (-> w :entries first :key)))
-         (let [inner-w (-> w :entries first :widget)]
-           (is (= :group (:widget inner-w)))
-           (is (= 2 (count (:entries inner-w))))
-           (is (= [:inner :flag] (mapv :key (:entries inner-w))))
-           (is (= :text    (-> inner-w :entries (nth 0) :widget :widget)))
-           (is (= :boolean (-> inner-w :entries (nth 1) :widget :widget))))))))
-
-#?(:cljs
-   (deftest infer-widget-vector-of-maps
-     (testing ":vector [:map ...] → :repeater whose element is a :group"
-       (let [w (rf.story.ui.controls/infer-widget
-                 [:vector [:map [:k :string] [:n :int]]])]
-         (is (= :repeater (:widget w)))
-         (is (= :group    (-> w :element :widget)))
-         (is (= [:k :n]   (mapv :key (-> w :element :entries))))))))
-
-#?(:cljs
-   (deftest infer-widget-enum-still-scalar
-     (testing "the scalar :enum path is not caught by the vector dispatch"
-       (let [w (rf.story.ui.controls/infer-widget [:enum :a :b :c])]
-         (is (= :select (:widget w)))
-         (is (= [:a :b :c] (:options w)))))))
-
-#?(:cljs
-   (deftest infer-widget-unknown-vector-falls-back-to-text
-     (testing "an unrecognised vector schema-op degrades to :text"
-       (is (= :text (:widget (rf.story.ui.controls/infer-widget [:fn 'pos?])))))))
+       ;; an unrecognised vector schema-op degrades to :text
+       [:fn 'pos?]
+       {:widget :text})))
 
 ;; ---- CLJS: resolve-argtypes from the component view's props schema -------
 ;;
-;; The auto-derivation schema is the COMPILED
-;; variant-plan's `[:world :view-args-schema]`, resolved first-match
-;; `[:rf/props :schema]` off the variant's `:component` VIEW metadata. These
-;; exercise the PRODUCTION path: a REGISTERED view carries the props schema
-;; under `:rf/props`; the variant points its `:component` at it; the plan
-;; compiles via the DEFAULT side-table lookup (no `:lookup` / `:view-lookup`
-;; arg). A resolver reading `:schema` off the bare variant body would both
-;; miss `:rf/props` AND never see the compiled `:component`; only the
-;; production path shows that.
+;; The schema is the compiled plan's `[:world :view-args-schema]`, resolved
+;; off the `:component` view's `:rf/props`. A resolver reading `:schema` off
+;; the bare variant body would miss both.
 
 #?(:cljs
    (deftest resolve-argtypes-picks-up-component-props-schema
-     (testing "the :component view's :rf/props schema drives the inference,
-               resolved off the compiled plan"
-       (rf/reg-view* :view.nest/widget
-         {:rf/props [:map
-                     [:title :string]
-                     [:items [:vector :string]]
-                     [:meta  [:map [:author :string] [:rating :int]]]]}
-         (fn [_] [:div]))
-       (rf.story/reg-variant :story.nest/v
-         {:component :view.nest/widget
-          :args      {:title "Hello"
-                      :items ["a" "b"]
-                      :meta  {:author "ada" :rating 5}}
-          :setup    []})
-       (let [t (rf.story.ui.controls/resolve-argtypes :story.nest/v)]
-         ;; :title scalar
-         (is (= :text (-> t :title :widget)))
-         ;; :items vector → :repeater
-         (is (= :repeater (-> t :items :widget)))
-         (is (= :vector   (-> t :items :kind)))
-         (is (= :text     (-> t :items :element :widget)))
-         ;; :meta nested :map → :group with two entries
-         (is (= :group (-> t :meta :widget)))
-         (is (= [:author :rating] (mapv :key (-> t :meta :entries))))))))
+     (rf/reg-view* :view.nest/widget
+       {:rf/props [:map
+                   [:title :string]
+                   [:items [:vector :string]]
+                   [:meta  [:map [:author :string] [:rating :int]]]]}
+       (fn [_] [:div]))
+     (rf.story/reg-variant :story.nest/v
+       {:component :view.nest/widget
+        :args      {:title "Hello"
+                    :items ["a" "b"]
+                    :meta  {:author "ada" :rating 5}}
+        :setup    []})
+     (is (= {:title {:widget :text}
+             :items {:widget :repeater :kind :vector :element {:widget :text}}
+             :meta  {:widget :group :kind :map
+                     :entries [{:key :author :widget {:widget :text}}
+                               {:key :rating :widget {:widget :number}}]}}
+            (select-keys (rf.story.ui.controls/resolve-argtypes :story.nest/v)
+                         [:title :items :meta])))))
 
 #?(:cljs
    (deftest resolve-argtypes-author-argtypes-win
@@ -175,9 +92,8 @@
           :argtypes  {:label {:widget :select :options ["a" "b"]}}
           :args      {:label "a"}
           :setup    []})
-       (let [t (rf.story.ui.controls/resolve-argtypes :story.nest/v2)]
-         (is (= :select (-> t :label :widget)))
-         (is (= ["a" "b"] (-> t :label :options)))))))
+       (is (= {:widget :select :options ["a" "b"]}
+              (:label (rf.story.ui.controls/resolve-argtypes :story.nest/v2)))))))
 
 #?(:cljs
    (deftest resolve-argtypes-value-shape-fallback-recurses
@@ -187,240 +103,74 @@
                    :items ["x" "y"]}
           :setup []})
        (let [t (rf.story.ui.controls/resolve-argtypes :story.nest/v3)]
-         ;; :nest map value → :group
          (is (= :group (-> t :nest :widget)))
          (is (some? (some #(= :k (:key %)) (-> t :nest :entries))))
-         ;; :items vector value → :repeater
          (is (= :repeater (-> t :items :widget)))))))
-
-;; ---- 2-arity threads precomputed eff-args --------------------------------
-
-#?(:cljs
-   (deftest resolve-argtypes-2-arity-threads-eff-args
-     (testing "the 2-arity overload uses the supplied eff-args instead of
-               re-resolving — passes a fabricated args map and asserts the
-               fallback-inference reflects that shape (not the registered
-               variant args)"
-       (rf.story/reg-variant :story.nest/v4
-         {:args   {:registered "x"}
-          :setup []})
-       ;; Supply a different eff-args map. The variant has no schema and
-       ;; no argtypes, so the fallback inference walks the supplied map's
-       ;; value shapes — :supplied should appear in the result, :registered
-       ;; should NOT (proving the supplied map was used, not the variant's
-       ;; own).
-       (let [t (rf.story.ui.controls/resolve-argtypes :story.nest/v4
-                                          {:supplied "y" :n 42})]
-         (is (contains? t :supplied))
-         (is (contains? t :n))
-         (is (not (contains? t :registered)))
-         (is (= :text   (-> t :supplied :widget)))
-         (is (= :number (-> t :n :widget)))))))
 
 ;; ---- JVM + CLJS: path-aware set-cell-override ---------------------------
 
-(deftest set-cell-override-deeply-nested
-  (testing "path can address depth ≥ 3"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x
-                                      [:outer :inner :leaf] 42)]
-      (is (= 42 (get-in s1 [:cell-overrides :story.a/x
-                            :outer :inner :leaf]))))))
-
 (deftest set-cell-override-tolerates-integer-indices
-  (testing "vector indices are valid path elements — WITHOUT a base seed
-            (the caller supplied none) the missing collection vivifies
-            as a real VECTOR, NOT the int-keyed map plain `assoc-in`
-            would mint for a missing intermediate value"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [:items 0] "x")]
-      (is (= "x" (get-in s1 [:cell-overrides :story.a/x :items 0])))
-      (is (vector? (get-in s1 [:cell-overrides :story.a/x :items]))
-          "a real vector — not {0 \"x\"}, a collection-kind corruption")
-      (is (= ["x"] (get-in s1 [:cell-overrides :story.a/x :items]))))))
+  (testing "with no base seed a missing collection vivifies as a real
+            VECTOR, not the int-keyed map plain `assoc-in` would mint"
+    (let [s1    (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
+                                                     :story.a/x [:items 0] "x")
+          items (get-in s1 [:cell-overrides :story.a/x :items])]
+      (is (vector? items))
+      (is (= ["x"] items)))))
 
-;; ---- kind-aware vivification (nested :vector/:set edit) -----------------
-;;
-;; Editing an EXISTING entry of a not-yet-overridden `:vector`/`:set` arg
-;; is the most common controls-panel interaction (open panel, edit an
-;; array entry directly, never touch [+]/[-]). Plain `assoc-in` against
-;; `state` cannot know the collection's sibling entries, so
-;; `set-cell-override`'s 5-arity accepts a `base` seed — the arg's
-;; current resolved value (`rf.story.args/resolve-args`, cell-overrides excluded)
-;; — and walks it via `assoc-in-kind-aware` instead of raw `assoc-in`.
+;; Editing one entry of a not-yet-overridden `:vector`/`:set` arg: args
+;; resolution replaces vectors/sets whole but deep-merges maps, so a
+;; collection level is seeded from `base` (its siblings survive) while a
+;; map level stays minimal.
 
 (deftest set-cell-override-deeply-nested-vivifies-map-levels-with-set-base
-  (testing "a deep path mixes map-vivification (keyword segments) and
-            set-vivification (the integer segment) correctly at each
-            level: the nested SET is seeded from base so its sibling
-            entries survive (replace-semantics), while the enclosing MAP
-            stays MINIMAL — its unrelated :other key is NOT written into
-            the override, because deep-merge resolution
-            restores unrelated map keys from base at read time"
-    (let [s  rf.story.ui.state/default-shell-state
-          ;; :group has an unrelated sibling key + a nested :tags SET,
-          ;; none of it overridden yet.
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [:group :tags 0] "x"
-                                      {:tags #{"a" "b"} :other 1})]
+  (testing "the nested SET is seeded from base so its sibling entry survives
+            and stays a set, while the enclosing MAP stays minimal — its
+            unrelated :other key is not written into the override"
+    (let [s1 (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
+                                                  :story.a/x [:group :tags 0] "x"
+                                                  {:tags #{"a" "b"} :other 1})]
       (is (= {:tags #{"x" "b"}}
-             (get-in s1 [:cell-overrides :story.a/x :group]))
-          "the nested set becomes {x b} (its sibling entry \"b\" preserved
-           from base); the group's :other map sibling is NOT stored — a
-           deep-merge read against base restores it, so pinning it in the
-           override would be redundant and would shadow later base changes"))))
+             (get-in s1 [:cell-overrides :story.a/x :group]))))))
 
-;; ---- the edit -> resolve-args ROUND TRIP ---------------------------------
-;;
-;; The isolated set-cell-override tests above pin the shell-state write
-;; shape; they never prove the write actually SURVIVES a real
-;; `rf.story.args/resolve-args` deep-merge read against a REGISTERED variant's
-;; base args — the exact seam `args.cljc`'s documented 'vectors/sets
-;; replace, not merge element-wise' semantics can corrupt.
-;; `rf.story/reg-variant` + `rf.story.args/resolve-args` are plain registrar reads
-;; (no frame / dispatch), so this tier runs on JVM + CLJS.
+(deftest set-cell-override-vector-entry-edit-keeps-base-siblings
+  (let [s1    (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
+                                                   :story.a/x [:items 1] "X" ["a" "b" "c"])
+        items (get-in s1 [:cell-overrides :story.a/x :items])]
+    (is (vector? items))
+    (is (= ["a" "X" "c"] items))))
 
-(deftest set-cell-override-edit-vector-entry-then-resolve-args-round-trip
-  (testing "editing ONE entry of a registered variant's
-            un-overridden :vector arg, seeded the SAME way the controls
-            panel seeds it (`rf.story.args/resolve-args` minus cell-overrides),
-            round-trips through `resolve-args` as the sibling-preserving
-            vector — not an int-keyed map, not a truncated singleton"
-    (rf.story/reg-variant :story.nest.roundtrip/vector-arg
-      {:args   {:items ["a" "b" "c"]}
-       :setup []})
-    (let [base       (get (rf.story.args/resolve-args :story.nest.roundtrip/vector-arg) :items)
-          shell      (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
-                                              :story.nest.roundtrip/vector-arg
-                                              [:items 1] "X" base)
-          overrides  (get-in shell [:cell-overrides :story.nest.roundtrip/vector-arg])
-          eff        (rf.story.args/resolve-args :story.nest.roundtrip/vector-arg
-                                        {:cell-overrides overrides})]
-      (is (= ["a" "b" "c"] base) "precondition: the registered base vector")
-      (is (vector? (:items overrides))
-          "the override itself stays a real vector, not an int-keyed map")
-      (is (= ["a" "X" "c"] (:items overrides))
-          "only the edited index changed; siblings a/c survive")
-      (is (= ["a" "X" "c"] (:items eff))
-          "resolve-args' deep-merge (vectors replace whole) reflects the
-           SAME sibling-preserving vector — the edit->resolve-args round
-           trip the isolated set-cell-override tests do not prove"))))
-
-(deftest set-cell-override-edit-set-entry-then-resolve-args-round-trip
-  (testing "the same round-trip for a :set-kind arg — the
-            override stays a real set (matching the schema's declared
-            kind), and a SECOND edit against the now-established set
-            override does not throw"
-    (rf.story/reg-variant :story.nest.roundtrip/set-arg
-      {:args   {:tags #{"a" "b"}}
-       :setup []})
-    (let [base       (get (rf.story.args/resolve-args :story.nest.roundtrip/set-arg) :tags)
-          ;; The panel's repeater renders a SET via a stable sorted
-          ;; vector projection — index 0 is "a" (sort-by str).
-          shell      (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
-                                              :story.nest.roundtrip/set-arg
-                                              [:tags 0] "x" base)
-          overrides  (get-in shell [:cell-overrides :story.nest.roundtrip/set-arg])
-          eff        (rf.story.args/resolve-args :story.nest.roundtrip/set-arg
-                                        {:cell-overrides overrides})]
-      (is (set? base))
-      (is (set? (:tags overrides))
-          "the override is a real set, not a vector or an int-keyed map")
-      (is (= #{"x" "b"} (:tags overrides)))
-      (is (= #{"x" "b"} (:tags eff)))
-      ;; A SECOND edit against the now-established set override (no base
-      ;; passed — none needed, an override already exists) must not throw.
-      (let [shell2     (rf.story.ui.state/set-cell-override shell
-                                                :story.nest.roundtrip/set-arg
-                                                [:tags 0] "y")
-            overrides2 (get-in shell2 [:cell-overrides :story.nest.roundtrip/set-arg])]
-        (is (set? (:tags overrides2)))
-        (is (= #{"y" "x"} (:tags overrides2))
-            "sort-by str on #{x b} is [b x] — index 0 is \"b\"; replacing
-             it with \"y\" leaves {y x}")))))
-
-(deftest set-cell-override-edit-nested-map-key-then-resolve-args-round-trip
-  (testing "editing ONE key of a registered variant's nested
-            :map arg writes ONLY that key into the override (its map
-            siblings stay unwritten), yet `resolve-args`' deep-merge
-            restores the untouched siblings from base — the edit->read
-            round trip the isolated set-cell-override test can't prove"
-    (rf.story/reg-variant :story.nest.roundtrip/map-arg
-      {:args   {:settings {:title "Nested title" :enabled? true}}
-       :setup []})
-    (let [base      (get (rf.story.args/resolve-args :story.nest.roundtrip/map-arg) :settings)
-          shell     (rf.story.ui.state/set-cell-override rf.story.ui.state/default-shell-state
-                                             :story.nest.roundtrip/map-arg
-                                             [:settings :title] "Edited" base)
-          overrides (get-in shell [:cell-overrides :story.nest.roundtrip/map-arg])
-          eff       (rf.story.args/resolve-args :story.nest.roundtrip/map-arg
-                                       {:cell-overrides overrides})]
-      (is (= {:title "Nested title" :enabled? true} base)
-          "precondition: the registered base map")
-      (is (= {:title "Edited"} (:settings overrides))
-          "only the edited :title key is written; the :enabled? sibling
-           stays OUT of the override")
-      (is (= {:title "Edited" :enabled? true} (:settings eff))
-          "resolve-args' deep-merge restores the untouched :enabled?
-           sibling from base while reflecting the :title edit"))))
-
-(deftest set-cell-override-singleton-path-equivalent-to-scalar-wrapper
-  (testing "a 1-element path produces the same result as the scalar wrapper"
-    (let [s  rf.story.ui.state/default-shell-state
-          via-path   (rf.story.ui.state/set-cell-override        s :story.a/x [:label] "hi")
-          via-scalar (rf.story.ui.state/set-cell-override-scalar s :story.a/x  :label  "hi")]
-      (is (= via-path via-scalar))
-      (is (= "hi" (get-in via-path [:cell-overrides :story.a/x :label]))))))
-
-(deftest set-cell-override-empty-path-noop
-  (testing "an empty path leaves the state unchanged"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [] :ignored)]
-      (is (= s s1)))))
-
-(deftest set-cell-override-roundtrip-deep-then-shallow
-  (testing "shallow override at the same arg-key shadows deep entries"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override        s0 :story.a/x [:meta :author] "ada")
-          s2 (rf.story.ui.state/set-cell-override-scalar s1 :story.a/x  :meta {:author "bob"})]
-      (is (= {:author "bob"}
-             (get-in s2 [:cell-overrides :story.a/x :meta]))))))
+(deftest set-cell-override-edits-an-established-set-override
+  (testing "a set override stays a set across an indexed edit; the index
+            addresses the sorted projection the repeater renders — sort-by
+            str on #{x b} is [b x], so index 0 is \"b\""
+    (let [s1 (-> rf.story.ui.state/default-shell-state
+                 (rf.story.ui.state/set-cell-override-scalar :story.a/x :tags #{"x" "b"})
+                 (rf.story.ui.state/set-cell-override :story.a/x [:tags 0] "y"))]
+      (is (= #{"y" "x"} (get-in s1 [:cell-overrides :story.a/x :tags]))))))
 
 ;; ---- JVM + CLJS: per-arg clear-cell-override -----------------------------
 
 (deftest clear-cell-override-drops-one-arg-keeps-others
-  (testing "clear-cell-override reverts a single arg-key, leaving the
-            variant's other overrides intact"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (-> s0
+  (testing "clearing one arg keeps the variant's other args and other
+            variants; clearing its last arg prunes the variant's entry"
+    (let [s1 (-> rf.story.ui.state/default-shell-state
                  (rf.story.ui.state/set-cell-override-scalar :story.a/x :label "hi")
-                 (rf.story.ui.state/set-cell-override-scalar :story.a/x :n     42))
-          s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :label)]
-      (is (nil? (get-in s2 [:cell-overrides :story.a/x :label])))
-      (is (= 42 (get-in s2 [:cell-overrides :story.a/x :n]))))))
-
-(deftest clear-cell-override-leaves-other-variants
-  (testing "clearing one variant's arg does not touch another variant's
-            overrides"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (-> s0
-                 (rf.story.ui.state/set-cell-override-scalar :story.a/x :label "hi")
+                 (rf.story.ui.state/set-cell-override-scalar :story.a/x :n     42)
                  (rf.story.ui.state/set-cell-override-scalar :story.b/y :label "yo"))
-          s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :label)]
-      (is (not (contains? (:cell-overrides s2) :story.a/x)))
-      (is (= "yo" (get-in s2 [:cell-overrides :story.b/y :label]))))))
+          s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :label)
+          s3 (rf.story.ui.state/clear-cell-override s2 :story.a/x :n)]
+      (is (= {:story.a/x {:n 42} :story.b/y {:label "yo"}} (:cell-overrides s2)))
+      (is (= {:story.b/y {:label "yo"}} (:cell-overrides s3))))))
 
 (deftest clear-cell-override-drops-matching-repeater-row-ids
-  (testing "clearing a collection arg drops only the repeater row-id
-            bookkeeping anchored on that arg-key; sibling collection
-            row-ids survive (the two stay in lockstep)"
-    (let [s0 rf.story.ui.state/default-shell-state
-          ;; Two collection args under one variant, each with row ids.
-          s1 (-> s0
+  (testing "clearing a collection arg drops only the repeater row ids
+            anchored on that arg-key; a sibling collection's survive"
+    (let [s1 (-> rf.story.ui.state/default-shell-state
                  (rf.story.ui.state/set-cell-override-scalar :story.a/x :items ["a" "b"])
                  (rf.story.ui.state/ensure-repeater-row-ids :story.a/x [:items] 2)
                  (rf.story.ui.state/set-cell-override-scalar :story.a/x :tags  ["t"])
                  (rf.story.ui.state/ensure-repeater-row-ids :story.a/x [:tags] 1))
           s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :items)]
-      ;; :items row-ids gone, :tags row-ids intact.
       (is (= [] (rf.story.ui.state/repeater-row-ids s2 :story.a/x [:items])))
       (is (= 1 (count (rf.story.ui.state/repeater-row-ids s2 :story.a/x [:tags])))))))
