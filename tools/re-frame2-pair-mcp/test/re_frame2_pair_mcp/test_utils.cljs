@@ -1,48 +1,7 @@
 (ns re-frame2-pair-mcp.test-utils
-  "Shared test helpers.
-
-  Home for fns that only the test corpus uses but that conceptually
-  sit alongside the production code.
-
-  ## Wire-envelope extractors
-
-  The MCP tools return a `#js {:content #js [#js {:text \"...edn...\"}]}`
-  envelope (with an optional `:isError true`). Four trivial extractors
-  walk that shape, shared across the suites that need them
-  (`conformance_test`, `handler_meta_test`, `invoke_test`,
-  `cache_test`, `dispatch_test`) so a wire-shape change touches one
-  definition rather than several drifting copies:
-
-    - `args->js`     — CLJS arg map → the `#js {}` object tools read.
-    - `extract-text` — pull the first content item's `:text` string.
-    - `extract-edn`  — `extract-text` then `edn/read-string`.
-    - `error?`       — truthy `:isError` slot.
-
-  ## Stub installer
-
-  `with-stubbed-eval!` installs a Promise-returning stub over
-  `nrepl/cljs-eval-value` and restores it in `.finally` so cleanup
-  outlives async resolution. The corpus driver in `conformance_test`
-  keeps its own richer `eval-script`/`forms-seen` variant (different
-  contract), and `invoke_test` keeps its fixture-scoped restore (race
-  avoidance) deliberately — neither is collapsed here.
-
-  ## `dedup-expand`
-
-  The inverse of `re-frame.mcp-base.dedup/dedup-value`, useful to assert
-  round-trip exactness against an MCP-shaped wire payload without growing
-  the production surface. The agent host reconstructs locally via
-  `re-frame.mcp-base.dedup/expand`; the MCP server never calls the inverse, so the
-  helper lives here, signalling \"test-only\" by location.
-
-  ## Test-only base re-exports
-
-  `token-estimate` and `overflow-hint-fallback` are test-only handles
-  on the cross-MCP token rule and the overflow-fallback hint.
-  Production code calls `base-overflow` / `base-cap` directly; hosting
-  these here (the test-only home) keeps the production surface lean
-  while still pinning the cross-MCP token rule + overflow-fallback
-  contract in one shared test-side place."
+  "Shared test helpers: wire-envelope extractors, async-safe stub
+  installers for the nREPL eval globals, the dedup inverse, and test-only
+  handles on mcp-base's token rule and overflow hint."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
@@ -50,10 +9,6 @@
             [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
-
-;; ---------------------------------------------------------------------------
-;; Wire-envelope extractors — one definition, shared across suites.
-;; ---------------------------------------------------------------------------
 
 (defn args->js
   "Coerce a CLJS arg map into the `#js {}` object the tools read via
@@ -65,90 +20,48 @@
     o))
 
 (defn extract-text
-  "Pull the first content item's `:text` string from an MCP result
-  envelope, or nil if the shape isn't present."
+  "The first content item's `:text` string, or nil."
   [^js result]
   (let [content (j/get result :content)
         item    (when (array? content) (aget content 0))]
     (when item (j/get item :text))))
 
 (defn extract-edn
-  "`extract-text` then EDN-read the string back to CLJS data."
   [^js result]
   (some-> (extract-text result) edn/read-string))
 
 (defn error?
-  "True when the result envelope carries `:isError true`."
   [^js result]
   (true? (j/get result :isError)))
 
-;; ---------------------------------------------------------------------------
-;; Stub installer — async-safe `cljs-eval-value` override.
-;;
-;; ## Identity-guarded restore
-;;
-;; `nrepl/cljs-eval-value` is a single shared-mutable global. Every stub
-;; installer across the corpus mutates its root via `set!`. A `.finally`-
-;; scoped restore resolves on a microtask that can land AFTER cljs.test's
-;; `done` has advanced to a NEIGHBOURING namespace's test — which has
-;; ALREADY installed ITS own stub. An unconditional `(set! global orig)`
-;; would then clobber that fresh stub back to a stale fn mid-eval, and the
-;; victim test would reach the real socket (`cached port file disappeared`
-;; / `re-find must match against a string`). The race is order-dependent,
-;; so it migrates with test ordering.
-;;
-;; `restore-eval!` makes every restore IDENTITY-GUARDED: it restores
-;; `orig` ONLY when the global is still the exact `stub` this installer
-;; set. A restore that arrives after a neighbour re-stubbed becomes a
-;; no-op — it cannot clobber a global it no longer owns. With every
-;; installer routed through this guard, the suite is order-independent.
-;; ---------------------------------------------------------------------------
+;; The nREPL eval fns are shared mutable globals. A `.finally` restore can
+;; land after cljs.test has moved on to a test that installed its own stub,
+;; so every restore is identity-guarded: it puts `orig` back only while the
+;; global is still this installer's `stub`.
 
 (defn restore-eval!
-  "Identity-guarded restore of `nrepl/cljs-eval-value`. Restores `orig`
-  ONLY when the current global is still `stub` (the fn this installer
-  set). A late restore whose stub has already been superseded by a
-  neighbouring test becomes a no-op, so it can never clobber a fresh
-  stub."
   [stub orig]
   (when (identical? nrepl/cljs-eval-value stub)
     (set! nrepl/cljs-eval-value orig)))
 
 (defn restore-jvm-eval!
-  "Identity-guarded restore of `nrepl/jvm-eval` — the `jvm-eval` twin of
-  `restore-eval!`. Same shared-mutable-global hazard, same guard: a late
-  `.finally` only restores when the global is still this installer's
-  `stub`."
   [stub orig]
   (when (identical? nrepl/jvm-eval stub)
     (set! nrepl/jvm-eval orig)))
 
 (defn restore-cljs-eval!
-  "Identity-guarded restore of `nrepl/cljs-eval` — the lower-level
-  `cljs-eval` twin of `restore-eval!`. Same hazard + guard."
   [stub orig]
   (when (identical? nrepl/cljs-eval stub)
     (set! nrepl/cljs-eval orig)))
 
 (defn restore-freshness!
-  "Identity-guarded restore of `freshness/jvm-build-freshness`. Same
-  hazard + guard as `restore-eval!`."
   [stub orig]
   (when (identical? freshness/jvm-build-freshness stub)
     (set! freshness/jvm-build-freshness orig)))
 
 (defn with-stubbed-eval!
-  "Install a stub `nrepl/cljs-eval-value` that resolves to `canned-value`
-  on every call (both the 3- and 4-arity), then run `body-fn` (which
-  returns a Promise) and restore the original in `.finally` so cleanup
-  outlives async resolution.
-
-  Restore is identity-guarded: a late `.finally` cannot
-  clobber a neighbouring test's freshly-installed stub.
-
-  This is the simple, value-returning variant used by suites that don't
-  need to inspect the emitted form. Suites that need to capture / match
-  the form string keep their own richer installer."
+  "Stub `nrepl/cljs-eval-value` (both arities) to resolve to
+  `canned-value` while the Promise from `body-fn` runs."
   [canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
         stub (fn
@@ -162,20 +75,9 @@
         (.finally (fn [] (restore-eval! stub orig))))))
 
 (defn with-stubbed-freshness!
-  "Stub `freshness/jvm-build-freshness` to resolve to `jvm-half` (a map
-  or nil) for the duration of `body-fn`, restoring in `.finally`.
-  `discover-app` assembles a freshness token, which
-  reads the JVM-side shadow worker state via `jvm-eval`; in a unit test
-  with no live nREPL that probe would attempt a real socket. Stub it so
-  discover-app tests stay hermetic and deterministic.
-
-  Pass `nil` to simulate an unreadable JVM half (the `:liveness
-  :unknown` degrade path); pass a map like
-  `{:compile-cycle 1 :build-flushed-at 100 :runtime-count 1
-    :heartbeat-age-ms 50}` to drive a specific verdict.
-
-  Composes with `with-stubbed-eval!` — nest them when a test needs both
-  the CLJS health read AND the JVM freshness half stubbed."
+  "Stub `freshness/jvm-build-freshness` to resolve to `jvm-half` (a map, or
+  nil for an unreadable JVM half) while the Promise from `body-fn` runs,
+  so discover-app never opens a real socket."
   [jvm-half body-fn]
   (let [orig freshness/jvm-build-freshness
         stub (fn [_conn _bid] (js/Promise.resolve jvm-half))]
@@ -185,34 +87,16 @@
         (.finally (fn [] (restore-freshness! stub orig))))))
 
 (defn dedup-expand
-  "Reverse `re-frame.mcp-base.dedup/dedup-value`. Given a value possibly
-  wrapped in the `:rf.mcp/dedup-table` marker, reconstruct the original
-  structure
-  via `re-frame.mcp-base.dedup/expand`. Idempotent on already-expanded values
-  (returns the input unchanged when the wrapper isn't present)."
+  "Inverse of `re-frame.mcp-base.dedup/dedup-value`; returns `v` unchanged
+  when it carries no dedup table."
   [v]
   (if (and (map? v) (contains? v rf.mcp-base.vocab/dedup-table-key))
     (rf.mcp-base.dedup/expand (get v rf.mcp-base.vocab/dedup-table-key))
     v))
 
-;; ---------------------------------------------------------------------------
-;; Test-only base re-exports.
-;;
-;; Production code calls `base-overflow` / `base-cap` directly; these
-;; aliases let the test corpus reach the cross-MCP token rule, the
-;; overflow-fallback hint, and the preview cap. Hosting them here keeps
-;; the production namespaces lean.
-;; ---------------------------------------------------------------------------
-
 (defn token-estimate
-  "Delegates to `re-frame.mcp-base.overflow/token-estimate` — the
-  cross-MCP `(quot (count s) 4)` token approximation. Test-only handle
-  on the cross-MCP token rule."
   [s]
   (rf.mcp-base.overflow/token-estimate s))
 
 (def overflow-hint-fallback
-  "The cross-MCP overflow-marker fallback hint string, sourced from
-  `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only handle
-  on the overflow-fallback contract."
   rf.mcp-base.overflow/overflow-hint-fallback)
