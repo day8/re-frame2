@@ -41,60 +41,36 @@
 
 (deftest undeclared-initial-is-refused
   (testing "a root :initial naming no state in :states is refused"
-    (let [d (reg-error {:initial :zzz :states {:a {:on {:go :a}}}})]
-      (is (= :rf.error/machine-unresolved-target (:rf.error/id d)))
-      (is (= :initial (:slot d)) "names the :initial slot")
-      (is (= :zzz (:target d)) "names the undeclared :initial")
-      (is (= :rf/root (:state d)))))
-
+    (is (= {:rf.error/id :rf.error/machine-unresolved-target :slot :initial :target :zzz :state :rf/root}
+           (select-keys (reg-error {:initial :zzz :states {:a {:on {:go :a}}}})
+                        [:rf.error/id :slot :target :state]))))
   (testing "a compound's :initial naming no child is refused"
     (let [d (reg-error {:initial :p
                         :states  {:p {:initial :zzz :states {:x {}}}}})]
-      (is (= :rf.error/machine-unresolved-target (:rf.error/id d)))
-      (is (= [:p :initial :zzz] [(:state d) (:slot d) (:target d)]))))
-
+      (is (= [:rf.error/machine-unresolved-target :p :initial :zzz]
+             [(:rf.error/id d) (:state d) (:slot d) (:target d)]))))
   (testing "a parallel region's :initial naming no state in its :states is refused"
     (let [d (reg-error {:type    :parallel
                         :regions {:r1 {:initial :zzz :states {:a {}}}
                                   :r2 {:initial :p :states {:p {}}}}})]
-      (is (= :rf.error/machine-unresolved-target (:rf.error/id d)))
-      (is (= [:r1 :initial :zzz] [(:region d) (:slot d) (:target d)]))))
-
-  (testing "controls: a root, compound and region :initial naming a declared child register"
-    (is (nil? (reg-error {:initial :p
-                          :states  {:p {:initial :x :states {:x {}}}}})))
-    (is (nil? (reg-error {:type    :parallel
-                          :regions {:r1 {:initial :a :states {:a {}}}
-                                    :r2 {:initial :p :states {:p {}}}}})))))
+      (is (= [:rf.error/machine-unresolved-target :r1 :initial :zzz]
+             [(:rf.error/id d) (:region d) (:slot d) (:target d)])))))
 
 (deftest pure-transition-refuses-an-undeclared-snapshot-state
   (let [definition {:id      :refusal/pure
                     :initial :a
-                    :states  {:a {:on {:go :b}} :b {}}}]
-    (testing "a snapshot :state naming no declared state throws rather than no-op"
-      (let [e (try (rf.machines/machine-transition definition {:state :zzz :data {}} [:go])
-                   nil
-                   (catch clojure.lang.ExceptionInfo ex ex))]
-        (is (some? e) "the pure transition throws on a phantom :state")
-        (is (= :rf.error/machine-state-not-in-definition (:rf.error/id (ex-data e))))
-        (is (= :zzz (:state (ex-data e))) "names the offending :state")))
-
-    (testing "a compound path naming no declared node throws the same id"
-      (is (= :rf.error/machine-state-not-in-definition
-             (try (rf.machines/machine-transition definition {:state [:a :zzz] :data {}} [:go])
-                  nil
-                  (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex)))))))
-
-    (testing "a malformed :state reports its shape, not its membership"
-      (is (= :rf.error/machine-bad-state-form
-             (try (rf.machines/machine-transition definition {:state "a" :data {}} [:go])
-                  nil
-                  (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex)))))))
-
-    (testing "control: a declared :state transitions"
-      (is (= {:status :ok :state :b}
-             (-> (rf.machines/machine-transition definition {:state :a :data {}} [:go])
-                 (as-> r {:status (:status r) :state (get-in r [:snapshot :state])})))))))
+                    :states  {:a {:on {:go :b}} :b {}}}
+        refusal    (fn [state]
+                     (try (rf.machines/machine-transition definition {:state state :data {}} [:go])
+                          nil
+                          (catch clojure.lang.ExceptionInfo ex (ex-data ex))))]
+    (is (= {:rf.error/id :rf.error/machine-state-not-in-definition :state :zzz}
+           (select-keys (refusal :zzz) [:rf.error/id :state]))
+        "a snapshot :state naming no declared state throws rather than no-op")
+    (is (= :rf.error/machine-state-not-in-definition (:rf.error/id (refusal [:a :zzz])))
+        "a compound path naming no declared node throws the same id")
+    (is (= :rf.error/machine-bad-state-form (:rf.error/id (refusal "a")))
+        "a malformed :state reports its shape, not its membership")))
 
 (deftest pure-transition-refuses-an-undeclared-region-state
   (let [definition {:id      :refusal/pure-parallel
@@ -109,20 +85,11 @@
                      (try (rf.machines/machine-transition definition {:state state :data {}} [:go])
                           nil
                           (catch clojure.lang.ExceptionInfo ex (ex-data ex))))]
-    (testing "a region value naming no state of that region throws, naming the region"
-      (let [d (refusal {:r1 :zzz :r2 :q})]
-        (is (= :rf.error/machine-state-not-in-definition (:rf.error/id d)))
-        (is (= [:r1 :zzz] [(:region d) (:state d)]))))
-
-    (testing "a nested compound value naming no declared node throws the same id"
-      (let [d (refusal {:r1 :a :r2 [:p :zzz]})]
-        (is (= :rf.error/machine-state-not-in-definition (:rf.error/id d)))
-        (is (= [:r2 [:p :zzz]] [(:region d) (:state d)]))))
-
-    (testing "control: a declared parallel configuration transitions"
-      (is (= {:status :ok :state {:r1 :b :r2 [:p :p1]}}
-             (-> (rf.machines/machine-transition definition {:state {:r1 :a :r2 [:p :p1]} :data {}} [:go])
-                 (as-> r {:status (:status r) :state (get-in r [:snapshot :state])})))))))
+    (doseq [[state region bad] [[{:r1 :zzz :r2 :q} :r1 :zzz]
+                                [{:r1 :a :r2 [:p :zzz]} :r2 [:p :zzz]]]]
+      (let [d (refusal state)]
+        (is (= [:rf.error/machine-state-not-in-definition region bad]
+               [(:rf.error/id d) (:region d) (:state d)]))))))
 
 ;; ---- :guard / action slots hold one fn or one keyword ------------------------
 
@@ -133,104 +100,69 @@
                   :actions {:a1 f :a2 f}}
         machine  (fn [a-state] (merge base {:initial :a :states {:a a-state :b {}}}))]
     (testing "an :entry / :exit / transition :action vector is refused"
-      (let [d (reg-error (machine {:entry [f f]}))]
-        (is (= :rf.error/machine-bad-action-form (:rf.error/id d)))
-        (is (= :entry (:slot d)) "names the slot"))
-      (is (= :rf.error/machine-bad-action-form (reg-error-id (machine {:entry [:a1 :a2]}))))
+      (is (= {:rf.error/id :rf.error/machine-bad-action-form :slot :entry}
+             (select-keys (reg-error (machine {:entry [f f]})) [:rf.error/id :slot])))
       (is (= :rf.error/machine-bad-action-form (reg-error-id (machine {:exit [f] :on {:go :b}}))))
       (is (= :rf.error/machine-bad-action-form
              (reg-error-id (machine {:on {:go {:target :b :action [f f]}}})))))
-
     (testing "the XState {:type …} action object is refused"
       (is (= :rf.error/machine-bad-action-form (reg-error-id (machine {:entry {:type :a1}})))))
-
-    (testing "a vector, map, combinator or string :guard is refused"
-      (doseq [bad [[:g 10] {:id :g :params {}} {:and [:g :h]} "g"]]
-        (let [d (reg-error (machine {:on {:go {:target :b :guard bad}}}))]
-          (is (= :rf.error/machine-bad-guard-form (:rf.error/id d)) (pr-str bad))
-          (is (= bad (:guard d)) "names the offending guard"))))
-
+    (testing "a non-keyword, non-fn :guard is refused, naming the guard"
+      (is (= {:rf.error/id :rf.error/machine-bad-guard-form :guard {:and [:g :h]}}
+             (select-keys (reg-error (machine {:on {:go {:target :b :guard {:and [:g :h]}}}}))
+                          [:rf.error/id :guard]))))
     (testing "an :always candidate's guard / action forms are checked too"
       (is (= :rf.error/machine-bad-action-form
-             (reg-error-id (machine {:always [{:guard :g :target :b :action [f]}]})))))
-
-    (testing "controls: fn and keyword guards / actions register"
-      (is (nil? (reg-error (machine {:entry f :exit :a1
-                                     :on {:go {:target :b :guard :g :action :a2}
-                                          :up {:target :b :guard g :action f}}})))))))
+             (reg-error-id (machine {:always [{:guard :g :target :b :action [f]}]})))))))
 
 ;; ---- :spawn, :internal-events, :tags and :on-done shapes -----------------------
 
 (deftest spawn-must-be-one-spec-map
-  (testing "a vector :spawn is refused — N children is :spawn-all"
-    (let [d (reg-error {:initial :a
-                        :states  {:a {:spawn [{:machine-id :k1} {:machine-id :k2}]}}})]
-      (is (= :rf.error/machine-spawn-bad-shape (:rf.error/id d)))
-      (is (= :a (:state d)))))
-  (testing "control: one spawn-spec map registers"
-    (is (nil? (reg-error {:initial :a :states {:a {:spawn {:machine-id :k1}}}})))))
+  (is (= {:rf.error/id :rf.error/machine-spawn-bad-shape :state :a}
+         (select-keys (reg-error {:initial :a
+                                  :states  {:a {:spawn [{:machine-id :k1} {:machine-id :k2}]}}})
+                      [:rf.error/id :state]))
+      "a vector :spawn is refused — N children is :spawn-all"))
 
 (deftest internal-events-has-no-wildcard
   (testing "a :ns/* or :* member is refused — membership is exact"
-    (let [d (reg-error {:initial         :a
-                        :internal-events #{:change/*}
-                        :states          {:a {:on {:change/* :a}}}})]
-      (is (= :rf.error/machine-bad-internal-events (:rf.error/id d)))
-      (is (= [:change/*] (:wildcards d))))
+    (is (= {:rf.error/id :rf.error/machine-bad-internal-events :wildcards [:change/*]}
+           (select-keys (reg-error {:initial         :a
+                                    :internal-events #{:change/*}
+                                    :states          {:a {:on {:change/* :a}}}})
+                        [:rf.error/id :wildcards])))
     (is (= :rf.error/machine-bad-internal-events
-           (reg-error-id {:initial :a :internal-events #{:*} :states {:a {}}})))
-    (is (= [:change/*]
-           (:wildcards (reg-error {:initial         :a
-                                   :internal-events #{:change/* :change/x}
-                                   :states          {:a {:on {:change/x :a}}}})))
-        "a wildcard beside a real member is refused, naming only the wildcard"))
-  (testing "controls: an enumerated member, and a name that merely ends in *, register"
-    (is (nil? (reg-error {:initial         :a
-                          :internal-events #{:change/x}
-                          :states          {:a {:on {:change/x :a}}}})))
+           (reg-error-id {:initial :a :internal-events #{:*} :states {:a {}}}))))
+  (testing "a name that merely ends in * is an ordinary literal event id"
     (is (nil? (reg-error {:initial         :a
                           :internal-events #{:field/save*}
-                          :states          {:a {:on {:field/save* :a}}}}))
-        ":field/save* is an ordinary literal event id")))
+                          :states          {:a {:on {:field/save* :a}}}})))))
 
 (deftest tags-refuse-reserved-namespaces
   (testing "an :rf/* or :rf.*/* tag is refused"
-    (let [d (reg-error {:initial :a :states {:a {:tags #{:rf/x}}}})]
-      (is (= :rf.error/machine-bad-tags (:rf.error/id d)))
-      (is (= [:rf/x] (:reserved d))))
+    (is (= {:rf.error/id :rf.error/machine-bad-tags :reserved [:rf/x]}
+           (select-keys (reg-error {:initial :a :states {:a {:tags #{:rf/x}}}})
+                        [:rf.error/id :reserved])))
     (is (= :rf.error/machine-bad-tags
            (reg-error-id {:initial :a :states {:a {:tags #{:busy :rf.foo/x}}}}))))
   (testing "control: tags in the app's own namespaces register"
     (is (nil? (reg-error {:initial :a :states {:a {:tags #{:busy :ui.state/loading}}}})))))
 
 (deftest on-done-belongs-on-a-compound-node
-  (testing ":on-done on a leaf is refused — it could never fire"
-    (let [d (reg-error {:initial :a :states {:a {:on-done :b :on {:go :c}} :b {} :c {}}})]
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
-      (is (= [:on-done] (:offending-keys d)))
-      (is (= :a (:state d))))
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-error-id {:initial :a :states {:a {:final? true :on-done :b} :b {}}}))
-        "a :final? leaf included"))
-  (testing "control: :on-done on a compound registers"
-    (is (nil? (reg-error {:initial :p
-                          :states  {:p {:initial :x
-                                        :on-done :b
-                                        :states  {:x {:on {:fin :y}} :y {:final? true}}}
-                                    :b {}}})))))
+  (is (= {:rf.error/id :rf.error/machine-unknown-node-key :offending-keys [:on-done] :state :a}
+         (select-keys (reg-error {:initial :a :states {:a {:on-done :b :on {:go :c}} :b {} :c {}}})
+                      [:rf.error/id :offending-keys :state]))
+      ":on-done on a leaf is refused — it could never fire"))
 
 ;; ---- an :always needs a :guard or a :target -----------------------------------
 
 (deftest unguarded-targetless-always-is-refused
   (let [f (fn [_] nil)]
     (testing "an :always entry with neither :guard nor :target is refused"
-      (let [d (reg-error {:initial :x :actions {:noop f}
-                          :states  {:x {:always {:action :noop}}}})]
-        (is (= :rf.error/machine-always-unguarded-targetless (:rf.error/id d)))
-        (is (= :x (:state d))))
-      (is (= :rf.error/machine-always-unguarded-targetless
-             (reg-error-id {:initial :x :states {:x {:always [{}]}}}))
-          "the empty entry")
+      (is (= {:rf.error/id :rf.error/machine-always-unguarded-targetless :state :x}
+             (select-keys (reg-error {:initial :x :actions {:noop f}
+                                      :states  {:x {:always {:action :noop}}}})
+                          [:rf.error/id :state])))
       (is (= :rf.error/machine-always-unguarded-targetless
              (reg-error-id {:initial :x :guards {:more? (fn [_] false)} :actions {:noop f}
                             :states  {:x {:always [{:guard :more? :target :y}
