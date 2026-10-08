@@ -4,9 +4,7 @@
   `re-frame.adapter.reagent` ns, so the `client-root` / `render!` /
   `unmount!` trio must behave identically over `reagent2.dom.client`: this
   pins the same behaviours by spying on the slim Root API through
-  `with-redefs` (no DOM; :node-test).
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  `with-redefs` (no DOM; :node-test)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.dom.client :as rdc]
             [re-frame.frame :as rf.frame]
@@ -71,6 +69,11 @@
 (defn- calls-of-kind [calls call-kind]
   (filter #(= call-kind (first %)) calls))
 
+(defn- by-kind
+  "The recorded calls grouped as [create-root hydrate-root render]."
+  [calls]
+  (mapv #(vec (calls-of-kind calls %)) [:create-root :hydrate-root :render]))
+
 (deftest cold-first-render-creates-once-later-renders-update-the-same-root
   (testing "first render! creates once; later renders reuse the identical Root"
     (let [root  (make-fake-root :cold)
@@ -81,10 +84,10 @@
                       (rf.adapter.reagent-slim/render! h [:div "v1"] mount)
                       (rf.adapter.reagent-slim/render! h [:div "v2"] mount)
                       (rf.adapter.reagent-slim/render! h [:div "v3"] mount))))]
-      (is (= [[:create-root mount]] (calls-of-kind calls :create-root)))
-      (is (empty? (calls-of-kind calls :hydrate-root)))
-      (is (= [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]
-             (calls-of-kind calls :render))))))
+      (is (= [[[:create-root mount]]
+              []
+              [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]]
+             (by-kind calls))))))
 
 (deftest hydrating-first-render-hydrates-once-later-renders-update
   (testing "render! with {:hydrate? true} hydrates once; later renders update"
@@ -96,11 +99,10 @@
                       (rf.adapter.reagent-slim/render! h [:div "ssr"] mount {:hydrate? true})
                       (rf.adapter.reagent-slim/render! h [:div "v2"] mount {:hydrate? true})
                       (rf.adapter.reagent-slim/render! h [:div "v3"] mount))))]
-      (is (= [[:hydrate-root mount [:div "ssr"]]]
-             (calls-of-kind calls :hydrate-root)))
-      (is (empty? (calls-of-kind calls :create-root)))
-      (is (= [[:render root [:div "v2"]] [:render root [:div "v3"]]]
-             (calls-of-kind calls :render))))))
+      (is (= [[]
+              [[:hydrate-root mount [:div "ssr"]]]
+              [[:render root [:div "v2"]] [:render root [:div "v3"]]]]
+             (by-kind calls))))))
 
 (deftest unmount-is-idempotent-and-a-later-render-mounts-afresh
   (testing "unmount! twice reaches rdc/unmount once; render! afterwards mounts afresh"
@@ -115,10 +117,10 @@
                        (rf.adapter.reagent-slim/unmount! h)
                        (rf.adapter.reagent-slim/render! h [:div "v2"] mount))))]
       (is (= [[:unmount root-1]] (calls-of-kind calls :unmount)))
-      (is (= [[:create-root mount] [:create-root mount]]
-             (calls-of-kind calls :create-root)))
-      (is (= [[:render root-1 [:div "v1"]] [:render root-2 [:div "v2"]]]
-             (calls-of-kind calls :render))))))
+      (is (= [[[:create-root mount] [:create-root mount]]
+              []
+              [[:render root-1 [:div "v1"]] [:render root-2 [:div "v2"]]]]
+             (by-kind calls))))))
 
 (deftest dispose-adapter-releases-live-handles-once
   (testing "the drain releases each still-live handle once; nothing is released twice"
@@ -134,8 +136,6 @@
                           (rf.substrate.adapter/dispose-adapter!)
                           (rf.adapter.reagent-slim/unmount! live)
                           (rf.adapter.reagent-slim/unmount! gone))))]
-      (is (= 1 (count (filter #(identical? root-live (second %))
-                              (calls-of-kind calls :unmount)))))
-      (is (= 1 (count (filter #(identical? root-gone (second %))
-                              (calls-of-kind calls :unmount)))))
-      (is (= 2 (count (calls-of-kind calls :unmount)))))))
+      ;; `gone` is unmounted by hand before the drain releases `live`.
+      (is (= [[:unmount root-gone] [:unmount root-live]]
+             (calls-of-kind calls :unmount))))))
