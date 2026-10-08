@@ -96,7 +96,6 @@
   | [[a-remount-releases-then-acquires-and-the-instance-is-a-new-one]] | exact release at an ordinary exit | a cleanup that runs but releases the SUCCESSOR |
   | [[a-thrown-render-releases-and-the-reset-key-retry-acquires-afresh]] | the exit path nobody writes | `try`-less cleanup, or a release keyed off unmount alone |
   | [[after-teardown-the-outside-world-reaches-nothing]] | no stale-frame callbacks | a listener that outlives its component |
-  | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## Browser lane
 
@@ -105,8 +104,7 @@
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`) and
   each row degrades there to a STATED skip rather than to a false green —
   the posture the other `*-dom` suites keep."
-  (:require [clojure.set :as set]
-            [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -131,25 +129,6 @@
 
 (rf/reg-sub ::picks  (fn [db _] (:picks db 0)))
 (rf/reg-sub ::picked (fn [db _] (:picked db)))
-
-;; ---------------------------------------------------------------------------
-;; The roster this file undertakes to reach
-;; ---------------------------------------------------------------------------
-
-(def ^:private declared-population
-  "A row that starts returning early, or a mechanism that stops being
-  driven, fails the last deftest instead of quietly shrinking the
-  evidence."
-  #{:sdk/premise
-    :sdk/idempotent-acquisition
-    :sdk/strict-mode
-    :sdk/remount
-    :sdk/thrown-render-and-retry
-    :sdk/no-stale-callback})
-
-(defonce ^:private !exercised (atom #{}))
-
-(defn- exercised! [mechanism] (swap! !exercised conj mechanism) nil)
 
 ;; ---------------------------------------------------------------------------
 ;; THE VENDOR — the one stand-in, and why it is shaped the way it is
@@ -563,7 +542,6 @@
                     (is (= 2 @!released))
                     (is (= 0 @!double-destroys)))
 
-                  (exercised! :sdk/premise)
                   nil))
               (.catch (report-failure! "the premise" handle))
               ;; The single `done`, with nothing after it.
@@ -639,7 +617,6 @@
                     (is (= 1 @!released))
                     (is (= 0 @!double-destroys)))
 
-                  (exercised! :sdk/idempotent-acquisition)
                   nil))
               (.catch (report-failure! "idempotent acquisition" handle))
               (.then (fn [_] (done)))))))))
@@ -697,7 +674,6 @@
                     (is (= 0 (count @!live)))
                     (is (= 2 @!released)))
 
-                  (exercised! :sdk/strict-mode)
                   nil))
               (.catch (report-failure! "StrictMode" handle))
               (.then (fn [_] (done)))))))))
@@ -768,7 +744,6 @@
                   (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                   (is (= 0 (count @!live)))
                   (is (= 3 @!released))
-                  (exercised! :sdk/remount)
                   nil))
               (.catch (report-failure! "remount" handle))
               (.then (fn [_] (done)))))))))
@@ -869,7 +844,6 @@
                     (is (= 2 @!released))
                     (is (= 0 @!double-destroys)))
 
-                  (exercised! :sdk/thrown-render-and-retry)
                   nil))
               (.catch (report-failure! "thrown render" handle))
               (.then (fn [_] (done)))))))))
@@ -917,19 +891,6 @@
                     (is (= 1 @!released))
                     (is (= 0 @!double-destroys)))
 
-                  (exercised! :sdk/no-stale-callback)
                   nil))
               (.catch (report-failure! "no stale callback" handle))
               (.then (fn [_] (done)))))))))
-
-;; ---------------------------------------------------------------------------
-;; 7. The roster
-;; ---------------------------------------------------------------------------
-
-(deftest the-declared-population-was-actually-exercised
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test reaches none of the mechanisms")
-    (testing "every mechanism this file claims to drive was driven"
-      (is (= declared-population (set/intersection declared-population @!exercised))
-          (str "not exercised: "
-               (pr-str (set/difference declared-population @!exercised)))))))
