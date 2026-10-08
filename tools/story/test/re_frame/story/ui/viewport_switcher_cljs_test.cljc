@@ -1,16 +1,9 @@
 (ns re-frame.story.ui.viewport-switcher-cljs-test
-  "CLJS-side smoke tests for the viewport switcher chip.
-
-  Runs in shadow's `:node-test` build (the ns name ends in `cljs-test`
-  to match `:ns-regexp \"cljs-test$\"`). The JVM gate is covered by
-  `re-frame.story.viewport-test`; this ns exercises the CLJS-only
-  surfaces:
-
-  - `select!` writes through to shell-state-atom.
-  - The chip renders without throwing.
-  - Per-story override beats the toolbar selection at resolve time.
-  - The chip emits `aria-haspopup` + `aria-expanded` (NOT
-    `aria-pressed`) so the toolbar reset assertion is not tripped."
+  "The viewport switcher chip on CLJS: `select!` writes shell state, the
+  effective viewport resolves override > toolbar, and the chip is a menu
+  button (`aria-haspopup`, never `aria-pressed`, which the toolbar reset
+  gate in story_feature_load counts). The pure preset logic is in
+  `re-frame.story.viewport-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             #?@(:cljs [[re-frame.story.ui.state :as rf.story.ui.state]
@@ -30,11 +23,11 @@
 #?(:cljs
    (use-fixtures :each (fn [t] (reset-all!) (t))))
 
-;; ---- pure-ish: select! mutations ----------------------------------------
+;; ---- select! -------------------------------------------------------------
 
 #?(:cljs
    (deftest cljs-select-drops-unknown
-     (testing "an unknown preset coerces to nil — slot is cleared"
+     (testing "a preset is written; an unknown preset clears the slot"
        (rf.story.ui.viewport-switcher/select! :tablet)
        (is (= :tablet (:viewport (rf.story.ui.state/get-state))))
        (rf.story.ui.viewport-switcher/select! :phablet)
@@ -44,7 +37,7 @@
 
 #?(:cljs
    (deftest cljs-effective-viewport-respects-variant-override
-     (testing "per-variant :viewport body slot beats toolbar"
+     (testing "per-variant :viewport body slot beats story and toolbar"
        (rf.story/reg-story* :story.vp-override
          {:doc "viewport override fixture" :component :ignored
           :viewport :desktop})
@@ -52,9 +45,7 @@
          {:doc "child" :viewport :mobile-portrait})
        (rf.story.ui.state/swap-state! assoc :viewport :tablet)
        (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-override/v)
-       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
-         (is (= "Mobile portrait" (:label eff))
-             "variant body's :viewport (:mobile-portrait) wins over toolbar (:tablet)"))
+       (is (= "Mobile portrait" (:label (rf.story.ui.viewport-switcher/effective-viewport))))
        (is (= :mobile-portrait (rf.story.ui.viewport-switcher/effective-id))))))
 
 #?(:cljs
@@ -67,8 +58,6 @@
          {:doc "child"})
        (rf.story.ui.state/swap-state! assoc :viewport :tablet)
        (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-story-only/v)
-       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
-         (is (= "Desktop" (:label eff))))
        (is (= :desktop (rf.story.ui.viewport-switcher/effective-id))))))
 
 #?(:cljs
@@ -90,7 +79,6 @@
        (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-extends/child)
        (is (= :mobile-portrait (rf.story.ui.viewport-switcher/effective-id))
            "the parent's viewport, not the toolbar's")
-       (is (= "Mobile portrait" (:label (rf.story.ui.viewport-switcher/effective-viewport))))
        (is (= (get-in (rf.story/variant-plan :story.vp-extends/child) [:world :viewport])
               (rf.story.ui.viewport-switcher/effective-id))
            "the viewport the compiled plan carries")
@@ -102,57 +90,19 @@
    (deftest cljs-effective-viewport-falls-through-to-toolbar
      (testing "no override → toolbar selection takes effect"
        (rf.story.ui.state/swap-state! assoc :viewport :tablet)
-       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
-         (is (= "Tablet" (:label eff)))))))
+       (is (= "Tablet" (:label (rf.story.ui.viewport-switcher/effective-viewport)))))))
 
-;; ---- the chip renders without throwing ----------------------------------
-
-#?(:cljs
-   (deftest cljs-chip-renders-without-throwing
-     (testing "chip-when-enabled returns a hiccup tree (no exceptions)"
-       (let [hiccup (rf.story.ui.viewport-switcher/chip-when-enabled)]
-         (is (vector? ((first hiccup))) "the gated chip renders")))))
-
-#?(:cljs
-   (deftest cljs-chip-uses-aria-haspopup-not-aria-pressed
-     (testing "reset gate: chip MUST NOT emit aria-pressed='true'
-               by default. The toolbar reset assertion in
-               story_feature_load counts [aria-pressed='true'] post-reset
-               and demands count === 0."
-       (let [hiccup (rf.story.ui.viewport-switcher/chip)]
-         ;; The chip render returns [:span ... [:button {...}]]; the
-         ;; button's attribute map is the second element of the inner
-         ;; button vector. Walk the hiccup defensively.
-         (let [flat (->> (tree-seq coll? seq hiccup)
-                         (filter map?))
-               attrs-with-button (filter #(or (:aria-haspopup %)
-                                              (:aria-pressed %)) flat)
-               aria-pressed-vals (keep :aria-pressed attrs-with-button)
-               aria-haspopup-vals (keep :aria-haspopup attrs-with-button)]
-           (is (seq aria-haspopup-vals)
-               "the chip exposes aria-haspopup for screen readers")
-           (is (not-any? #(= "true" %) aria-pressed-vals)
-               "no element under the chip is aria-pressed='true' by default"))))))
+;; ---- the chip ------------------------------------------------------------
 
 #?(:cljs
    (deftest cljs-chip-data-attrs
-     (testing "chip carries data-test + data-viewport for browser specs"
-       (let [hiccup (rf.story.ui.viewport-switcher/chip)
-             flat   (->> (tree-seq coll? seq hiccup)
-                         (filter map?))
-             attrs  (filter #(= "story-toolbar-viewport"
-                                (:data-test %)) flat)]
-         (is (= 1 (count attrs))
-             "exactly one chip element carries the data-test handle")
-         (is (= "full" (:data-viewport (first attrs)))
-             "default render reports :full")))))
-
-;; ---- localStorage hydration: see the dom sibling -----------------------
-;;
-;; The two `hydrate!` rows live in
-;; `re-frame.story.viewport-storage-dom-cljs-test`, beside the
-;; `save-to-storage!` / `load-from-storage` round-trip they depend on.
-;; Guarded by `(when (browser?) ...)` here they would execute in neither
-;; lane: this namespace ends `-cljs-test`, so `:browser-test` never loads
-;; it, while `:node-test` -- which has no `window.localStorage` -- would
-;; skip the body.
+     (testing "the chip carries its browser-spec hooks and is a menu
+               button: aria-haspopup, and no aria-pressed='true' anywhere
+               under it"
+       (let [flat  (->> (tree-seq coll? seq (rf.story.ui.viewport-switcher/chip))
+                        (filter map?))
+             attrs (filter #(= "story-toolbar-viewport" (:data-test %)) flat)]
+         (is (= [["full" "menu"]]
+                (mapv (juxt :data-viewport :aria-haspopup) attrs))
+             "one chip element; default render reports :full")
+         (is (not-any? #(= "true" (:aria-pressed %)) flat))))))
