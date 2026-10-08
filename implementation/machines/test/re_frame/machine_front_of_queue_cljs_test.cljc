@@ -1,8 +1,9 @@
 (ns re-frame.machine-front-of-queue-cljs-test
   "Spec 005 §Level 4 end to end: a real machine action's `:fx [[:dispatch …]]`
   continuation leap-frogs an already-queued external event, and FIFO resumes
-  once control leaves the machine. Core's `router-front-of-queue-cljs-test`
-  pins the queue-insertion rule itself."
+  once control leaves the machine — a plain handler running as that
+  continuation queues its own `:fx` dispatch at the back. Core's
+  `router-front-of-queue-cljs-test` pins the queue-insertion rule itself."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.router :as rf.router]
@@ -21,8 +22,7 @@
     (rf/reg-event :cont-1
       (fn [_ _]
         (log! :cont-1)
-        (rf.router/dispatch! [:cont-2] {})
-        {}))
+        {:fx [[:dispatch [:cont-2]]]}))
     (rf/reg-machine :rf2-j20a7/quiesce
       {:initial :idle
        :actions {:fire (fn [_]

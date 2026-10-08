@@ -3010,9 +3010,19 @@
         ;; carries no flag and stays FIFO. `:raise` is untouched: it
         ;; never reaches the router queue (it drains in-memory inside the
         ;; machine handler invocation, pre-commit).
-        envelope   (cond-> envelope
+        ;;
+        ;; A plain handler CLEARS the flag: the event it is running may
+        ;; itself be a front-of-queue continuation, but its own `:fx`
+        ;; children originate in a non-machine handler, so they join the
+        ;; back of the queue like any other plain handler's.
+        envelope   (cond
                      (:rf/machine? handler-meta)
-                     (assoc :rf.machine/internal? true))
+                     (assoc envelope :rf.machine/internal? true)
+
+                     (:rf.machine/internal? envelope)
+                     (dissoc envelope :rf.machine/internal?)
+
+                     :else envelope)
         ;; The classification-derived `:rf/sensitive?` key (from
         ;; `:schema-sensitive?`) drives the scope's `:sensitive?`
         ;; trace-event stamp (read by `handler-scope-from-meta`).
