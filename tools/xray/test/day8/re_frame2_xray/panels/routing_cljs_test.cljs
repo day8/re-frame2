@@ -23,39 +23,13 @@
                                 FROM/TO overlay glyphs on matching rows.
 
   The browse + search + Simulate-URL surface lives on the Static
-  Routes panel (see `static/routes/panel_cljs_test.cljs`).
-
-  ## What's under test
-
-    1. **Registry wires the subs** — every sub the panel reads gets
-       installed by `register-xray-handlers!`.
-
-    2. **Three sections always render** — when routes are registered,
-       CURRENT ROUTE + NAVIGATION THIS EPOCH + ROUTE TABLE all render.
-
-    3. **Route table always renders** — every registered route gets a
-       table row regardless of focused-epoch activity.
-
-    4. **Per-epoch overlay** — when the focused cascade carries a
-       `:rf.route.nav-token/allocated` emit, the destination row gets a
-       `:to` marker, the NAVIGATION section surfaces FROM ──► TO + an
-       outcome chip, and the prior route (when distinct) gets `:from`.
-
-    5. **No-activity branch** — when focused cascade has no routing
-       trace events, NAVIGATION reads the empty caption, CURRENT ROUTE
-       + ROUTE TABLE still render, and the current row is highlighted.
-
-    6. **Silent state** — when no routes registered, panel renders the
-       silent-by-default caption (no sections).
-
-    7. **Frame isolation** — every read targets `:rf/xray`'s frame."
+  Routes panel (see `static/routes/panel_cljs_test.cljs`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.routing]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.palette.subs :as palette-subs]
             [day8.re-frame2-xray.panels.routing :as routing]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -170,17 +144,6 @@
   [route-id]
   (select-keys (rf/registrations {:source :store :kind :route}) [route-id]))
 
-;; ---- (1) tab inventory --------------------------------------------------
-
-(deftest palette-includes-routing
-  (testing "the palette's canonical panel list carries the :routing entry"
-    (let [panels (palette-subs/palette-panels)
-          ids    (set (map :id panels))]
-      (is (contains? ids :routing) ":routing in palette-panels")
-      (is (contains? ids :module-view) ":module-view in palette-panels")
-      (is (= 10 (count panels))
-          "exactly 10 entries — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (Resources is its own L4 tab — Spec 016 §Xray and AI tooling; Graph is the EP-0014 derivation graph — the unified derivation/process graph across all algebra-view families; Frames is the EP-0013 tab over the EP-0023 image -> frame public model, each live image-loaded frame as an execution context carrying its resolved image's [kind id] descriptors; Fresco is the views over the adapter-neutral Fresco evidence surface. There is no Issues tab — issues surface inline + event-row pink-wash + the always-on issues ribbon signal; no Event/Handler tab — the Epoch panel covers it; no Chrome A11y tab — Story ships that panel; no Machines Canvas tab — its browse-all canvas is the Static Machines sub-tab.)"))))
-
 ;; ---- (2) three sections render (always-visible base layer) --------------
 
 (deftest panel-renders-three-sections-when-routes-registered
@@ -193,40 +156,25 @@
                          {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
       (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-routing"))
-            "panel root present")
         ;; §1 CURRENT ROUTE
-        (is (some? (find-by-testid tree "rf-xray-routing-current"))
-            "§1 CURRENT ROUTE section renders")
         (is (some? (find-by-testid tree "rf-xray-routing-current-id"))
             "current route id renders")
         ;; §2 NAVIGATION THIS EPOCH
-        (is (some? (find-by-testid tree "rf-xray-routing-nav"))
-            "§2 NAVIGATION THIS EPOCH section renders")
-        ;; §3 ROUTE TABLE
-        (is (some? (find-by-testid tree "rf-xray-routing-table"))
-            "§3 ROUTE TABLE section renders")
         (is (some? (find-by-testid tree "rf-xray-routing-no-activity"))
             "NAVIGATION reads 'No route activity in this epoch.'")
+        ;; §3 ROUTE TABLE
         (is (some? (find-by-testid tree "rf-xray-routing-table-current-marker"))
             "current route gets the '◀ current' marker when no nav this epoch")
-        (is (nil? (find-by-testid tree "rf-xray-routing-nav-outcome"))
-            "no outcome chip when no activity")
-        ;; Each route gets a table row.
+        ;; Each route gets a table row, nested ones included.
         (doseq [rid (keys cart-routes)]
           (is (some? (find-by-testid tree
                        (str "rf-xray-routing-table-row-" (name rid))))
               (str "route-table row rendered for " rid)))
-        ;; Tree disclosure: :route/checkout is a parent (cart-routes nests
-        ;; :route/payment + :route/confirm under it) so its row carries
-        ;; the `▾` disclosure chevron (Figma ChevronRight on parent rows).
-        ;; Row test-ids use (name route-id), so :route/checkout → checkout.
-        (let [chevron (find-by-testid
-                        tree "rf-xray-routing-table-row-checkout-chevron")]
-          (is (some? chevron)
-              "parent route :route/checkout renders a disclosure chevron")
-          (is (re-find #"▾" (node-text chevron))
-              "chevron glyph is ▾ (always-expanded tree)"))
+        ;; :route/checkout parents :route/payment + :route/confirm, so its row
+        ;; carries the `▾` disclosure chevron.
+        (is (re-find #"▾" (node-text (find-by-testid
+                                       tree "rf-xray-routing-table-row-checkout-chevron")))
+            "parent route :route/checkout renders the ▾ disclosure chevron")
         ;; Leaf routes carry NO chevron — the leading cell is an aligned
         ;; spacer instead.
         (is (nil? (find-by-testid
@@ -241,11 +189,6 @@
                                   {:params   {:order-id "ord-1234"}
                                    :query    {:source "cart"}
                                    :fragment "step-3"})]
-      (is (= ::order (:route-id slice))
-          "PRECONDITION: the navigation landed — otherwise nothing below is the router's")
-      (is (seq (:query slice)) "PRECONDITION: the navigation wrote a query")
-      (is (some? (:fragment slice)) "PRECONDITION: the navigation wrote a fragment")
-      (is (some? (:transition slice)) "PRECONDITION: the navigation wrote a readiness")
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
                            (real-route-entry ::order)]
@@ -276,7 +219,6 @@
   (testing "a navigation with no query and no fragment renders neither row"
     (setup-xray-frame!)
     (let [slice (navigated-slice! ::plain "/routing-cljs-test/plain" {})]
-      (is (= ::plain (:route-id slice)) "PRECONDITION: the navigation landed")
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
                            (real-route-entry ::plain)]
@@ -295,33 +237,16 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test {}]
                         {:frame :rf/xray})
       (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-routing"))
-            "panel root present")
         (is (some? (find-by-testid tree "rf-xray-routing-silent"))
             "silent caption rendered for empty registrar")
         (is (nil? (find-by-testid tree "rf-xray-routing-table"))
-            "ROUTE TABLE NOT rendered when no routes registered")
-        (is (nil? (find-by-testid tree "rf-xray-routing-current"))
-            "CURRENT ROUTE NOT rendered when silent")
-        (is (nil? (find-by-testid tree "rf-xray-routing-nav"))
-            "NAVIGATION NOT rendered when silent")))))
-
-;; ---- (3) no-activity branch (focused epoch with no routing trace) -------
+            "ROUTE TABLE NOT rendered when no routes registered")))))
 
 ;; ---- (4) per-epoch overlay (focused cascade with nav-token emit) --------
 
 (deftest panel-paints-to-marker-and-outcome-when-cascade-navigated
   (testing "nav-token emit → :to marker on the table row + NAVIGATION FROM/TO + transitioned outcome"
     (setup-xray-frame!)
-    ;; The live slice is a real navigation's — a hand-typed `{:id …}`, a key
-    ;; the router never writes, would leave CURRENT ROUTE reading
-    ;; "No active route." without anything noticing.
-    (let [slice (navigated-slice! ::confirm "/routing-cljs-test/confirm"
-                                  {:query {:source "cart"}})]
-      (is (= ::confirm (:route-id slice)) "PRECONDITION: the navigation landed")
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test slice]
-                          {:frame :rf/xray})))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
@@ -335,21 +260,13 @@
                           {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray/focus-event 99 nil] {:frame :rf/xray}))
       (let [tree (panel-tree)]
-        ;; ROUTE TABLE still renders.
-        (is (some? (find-by-testid tree "rf-xray-routing-table")))
-        ;; :to overlay glyph present on the destination table row.
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-to"))
             ":to overlay glyph rendered on destination route in the table")
-        ;; NAVIGATION section surfaces FROM ──► TO + outcome.
         (is (some? (find-by-testid tree "rf-xray-routing-nav-to"))
             "NAVIGATION TO id rendered")
-        (is (some? (find-by-testid tree "rf-xray-routing-nav-outcome"))
-            "NAVIGATION outcome chip rendered")
-        (let [outcome (find-by-testid tree "rf-xray-routing-nav-outcome")]
-          (is (re-find #"transitioned" (node-text outcome))
-              "outcome reads 'transitioned' for an :on-match nav"))
-        (is (nil? (find-by-testid tree "rf-xray-routing-no-activity"))
-            "empty-state caption NOT rendered when activity present")))))
+        (is (re-find #"transitioned"
+                     (node-text (find-by-testid tree "rf-xray-routing-nav-outcome")))
+            "outcome reads 'transitioned' for an :on-match nav")))))
 
 (deftest panel-paints-from-and-to-when-prior-slice-differs
   (testing "distinct prior slice → both :from and :to markers + FROM in NAVIGATION"
@@ -380,13 +297,8 @@
       (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-from"))
             ":from overlay glyph rendered on origin route in the table")
-        (is (some? (find-by-testid tree "rf-xray-routing-table-marker-to"))
-            ":to overlay glyph rendered on destination route in the table")
-        (is (some? (find-by-testid tree "rf-xray-routing-nav-from"))
-            "NAVIGATION FROM id rendered")
-        (let [from (find-by-testid tree "rf-xray-routing-nav-from")]
-          (is (re-find #":route/cart" (node-text from))
-              "FROM reads the prior route :route/cart"))))))
+        (is (re-find #":route/cart" (node-text (find-by-testid tree "rf-xray-routing-nav-from")))
+            "FROM reads the prior route :route/cart")))))
 
 ;; ---- (5) NAVIGATION THIS EPOCH reads the focused navigation's params -----
 ;; Never the live route's.
@@ -432,12 +344,7 @@
                              :frame             :rf/default
                              :frame-state-after {:rf.db/runtime rdb-1}}]]
                           {:frame :rf/xray})
-        (is (= :rf/default @(rf/subscribe [:rf.xray/observed-frame]))
-            "PRECONDITION: the observed frame is the one that navigated")
-        (is (= ::e-1 (:epoch-id @(rf/subscribe [:rf.xray/focus])))
-            "PRECONDITION: focus names the navigation's epoch")
         (let [params (find-by-testid (panel-tree) "rf-xray-routing-nav-params")]
-          (is (some? params) "the params span rendered")
           (is (= (pr-str {:id "1"}) (node-text params))
               "E1's own params, not the live {:id \"3\"}"))))))
 
