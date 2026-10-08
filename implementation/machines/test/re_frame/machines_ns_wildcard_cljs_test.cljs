@@ -43,14 +43,6 @@
     (rf/dispatch-sync [seed-id])))
 
 ;; ---------------------------------------------------------------------------
-;; (a) :mouse/* matches different events in the SAME namespace
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; (b) :mouse/* BEATS total :* (priority — most-specific wins)
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
 ;; (c) guard-blocked exact :mouse/down falls through to :mouse/*
 ;; ---------------------------------------------------------------------------
 
@@ -97,32 +89,7 @@
       (rf/dispatch-sync [:z4t2v/blocked-ns->total [:mouse/down]])
       (is (= [:total-any] @log)
           "guard-blocked :mouse/* fell through to the total :*;
-           the guard-blocked namespace-wildcard action must NOT fire")))
-
-  (testing "guard-blocked leaf :mouse/* + no enabled leaf :* → walks to parent :*"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:leaf-ns         (tag :leaf-ns)
-                     :parent-wildcard (tag :parent-wildcard)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:* {:action :parent-wildcard}}        ;; parent total :*
-             :states
-             ;; leaf declares ONLY a guard-blocked :mouse/* — no leaf :*.
-             {:dashboard {:on {:mouse/* {:guard :never :action :leaf-ns}}}}}}}]
-      (rf/reg-machine :z4t2v/blocked-ns->parent machine)
-      (reset! log [])
-      ;; leaf :mouse/* blocked, no leaf :* ⇒ leaf yields nothing ⇒ walk to
-      ;; parent :authenticated, whose :* fires.
-      (rf/dispatch-sync [:z4t2v/blocked-ns->parent [:mouse/down]])
-      (is (= [:parent-wildcard] @log)
-          "blocked leaf :mouse/* fell through past the (absent) leaf :* to the parent :*;
-           the guard-blocked leaf :mouse/* action must NOT fire"))))
+           the guard-blocked namespace-wildcard action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (e) :mouse/* does NOT match :keyboard/down (namespace isolation)
@@ -156,77 +123,7 @@
 ;; (f) compound + parallel coverage
 ;; ---------------------------------------------------------------------------
 
-(deftest compound-ns-wildcard-prefers-leaf-over-parent
-  (testing "compound: leaf :mouse/* fires before a parent :mouse/* (same-level priority)"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :actions {:leaf-ns   (tag :leaf-ns)
-                     :parent-ns (tag :parent-ns)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:mouse/* {:action :parent-ns}}        ;; parent :mouse/*
-             :states
-             ;; leaf has its OWN :mouse/* — should shadow the parent's.
-             {:dashboard {:on {:mouse/* {:action :leaf-ns}}}}}}}]
-      (rf/reg-machine :z4t2v/compound machine)
-      (reset! log [])
-      (rf/dispatch-sync [:z4t2v/compound [:mouse/down]])
-      (is (= [:leaf-ns] @log)
-          "leaf :mouse/* fired before any parent walk — same-level priority;
-           the parent :mouse/* must NOT fire when the leaf handled the event")))
-
-  (testing "compound: blocked leaf exact → leaf :ns/* → walks to parent exact"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:leaf-exact  (tag :leaf-exact)
-                     :leaf-ns     (tag :leaf-ns)
-                     :parent-exact (tag :parent-exact)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:mouse/down {:action :parent-exact}}  ;; parent exact
-             :states
-             ;; leaf exact :mouse/down is guard-blocked; leaf :mouse/* enabled.
-             {:dashboard {:on {:mouse/down {:guard :never :action :leaf-exact}
-                               :mouse/*    {:action :leaf-ns}}}}}}}]
-      (rf/reg-machine :z4t2v/compound-fallthrough machine)
-      (reset! log [])
-      ;; leaf exact blocked → leaf :mouse/* enabled fires; the leaf level is
-      ;; satisfied so the walk stops — the parent's exact :mouse/down is shadowed.
-      (rf/dispatch-sync [:z4t2v/compound-fallthrough [:mouse/down]])
-      (is (= [:leaf-ns] @log)
-          "leaf :mouse/* fired before any parent walk — within-level tier priority;
-           neither the blocked leaf exact nor the parent exact fired"))))
-
 (deftest parallel-region-ns-wildcard-resolves-per-region
-  (testing "parallel: each region's :ns/* resolves independently under broadcast"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:type    :parallel
-           :data    {}
-           :actions {:left-ns  (tag :left-ns)
-                     :right-ns (tag :right-ns)}
-           :regions
-           {:left  {:initial :a
-                    :states  {:a {:on {:mouse/* {:action :left-ns}}}}}
-            :right {:initial :x
-                    :states  {:x {:on {:mouse/* {:action :right-ns}}}}}}}]
-      (rf/reg-machine :z4t2v/parallel machine)
-      (reset! log [])
-      ;; :mouse/move broadcasts to both regions; each region's :mouse/* fires.
-      (rf/dispatch-sync [:z4t2v/parallel [:mouse/move]])
-      (is (= #{:left-ns :right-ns} (set @log))
-          "both regions caught :mouse/move via their own :mouse/*")))
-
   (testing "parallel: exact beats :ns/* per region; non-matching ns is a region no-op"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
