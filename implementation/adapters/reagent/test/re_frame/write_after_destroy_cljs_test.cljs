@@ -1,34 +1,12 @@
 (ns re-frame.write-after-destroy-cljs-test
-  "Integration-tier pin for the defense-in-depth nil-container
-  guard, exercised under the Reagent adapter.
-
-  The guard sits at `re-frame.substrate.adapter/replace-container!` —
-  every frame app-db write flows through that single choke point, so a
-  scheduled drain that races frame destruction (router :db commit, flow
-  recompute, epoch restore, SSR write …) cannot NPE on a background
-  thread once its frame has been torn down. Instead the call no-ops and
-  fires the always-on `:rf.error/write-after-destroy` with
-  `:recovery :ignored` (per EP-0008 an error on the production-survivable
-  axis, not a DCE'd warning — the same destroy-race the dispatch/subscribe
-  paths surface as `:rf.error/frame-destroyed`).
-
-  Unit-level coverage of that contract lives at
-  `re-frame.frame-lifecycle-test/replace-container-no-ops-on-nil-container`
-  and `.../replace-container-on-destroyed-frame-does-not-npe` in the core
-  artefact. Those run against the plain-atom JVM adapter; this ns
-  re-pins the contract on the Reagent integration path, with the Reagent
-  adapter installed — proving substrate-agnosticism (the guard sits ABOVE the adapter's
-  `:replace-container!` slot, so it is not routed through the adapter,
-  but the integration shape must still hold under every adapter).
-
-  The scenario: a live frame, destroyed, its container read (now nil per
-  `frame/app-db-container` on a destroyed frame), then the write attempted
-  — the exact shape router.cljc's per-event :db commit traces when racing
-  destroy. The bare `replace-container! nil` call is
-  `re-frame.write-after-destroy-always-on-cljs-test`'s, which runs on this
-  host too.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Every app-db write goes through `re-frame.substrate.adapter/replace-container!`,
+  so a scheduled drain that races frame destruction no-ops there and fires
+  the always-on `:rf.error/write-after-destroy` with `:recovery :ignored`
+  rather than throwing. The core artefact pins this against the plain-atom
+  JVM adapter (`re-frame.frame-lifecycle-test`); this re-pins the
+  destroyed-frame shape router.cljc's `:db` commit takes, under the Reagent
+  adapter. The bare `replace-container! nil` call is
+  `re-frame.write-after-destroy-always-on-cljs-test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -58,11 +36,9 @@
         (rf/make-frame {:id frame-id :doc "destroy-race reproducer"})
         (rf/destroy-frame! frame-id)
         (let [container (rf.frame/app-db-container frame-id)]
-          (is (nil? container)
-              "app-db-container on a destroyed frame returns nil — the precondition for the nil write")
-          (is (nil? (rf.substrate.adapter/replace-container! container {:would :have :npe'd true}))
-              "writing through the nil container is a documented no-op"))
-        (is (pos? (count @errs))
-            ":rf.error/write-after-destroy fired for the post-destroy write")
-        (is (every? #(= :ignored (:recovery %)) @errs)
-            "every fired error carries :recovery :ignored")))))
+          (is (= [nil nil]
+                 [container (rf.substrate.adapter/replace-container! container {:would :have :npe'd true})])
+              "a destroyed frame's container is nil, and writing through it is a documented no-op"))
+        (is (and (seq @errs) (every? #(= :ignored (:recovery %)) @errs))
+            (str ":rf.error/write-after-destroy fired for the write, carrying :recovery :ignored; got "
+                 (pr-str @errs)))))))
