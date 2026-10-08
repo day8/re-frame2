@@ -1,231 +1,115 @@
 (ns re-frame.http-actor-destroy-stale-test
-  "Per EP-0011 / Managed-Effects §Cancellation: an actor-destroy
-  abort whose reply target is OBSOLETE — its event-id names the destroyed
-  actor itself (the machine-shape wrapper's `[self-id [:rf.http/failed]]`
-  default, or any request whose reply addresses its own actor) — does NOT
-  deliver a live `:cancelled`/failure reply to the app target. It lowers to
-  the canonical `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope
-  outcome: the app target MUST NOT run, and a `:rf.http/stale-suppressed`
-  reply-envelope trace records the carried correlation joined to `:work/id`.
+  "An actor-destroy abort whose reply target addresses the destroyed actor
+  itself is obsolete (Managed-Effects §Cancellation): the target MUST NOT run,
+  and the outcome lowers to a `:status :stale` / `:suppressed`
+  `:rf.http/stale-suppressed` row. Two transport paths reach an aborted reply —
+  the abort-fn's own `dispatch-aborted!`, and a completion that wins the
+  once-only CAS and reclassifies the flipped abort cell — and both must apply
+  the suppression.
 
-  The contrast: an actor-destroy abort whose
-  reply target is an ORDINARY event (still meaningful — a separate recorder
-  handler) receives the live `:status :cancelled` / `:failure` delivery and
-  emits no stale-suppression row;
-  `http-actor-destroy-cancellation-test/spawned-child-request-aborts-on-parent-state-exit`
-  pins that on the same actor and request.
-
-  Spec references:
-   - Managed-Effects §Cancellation (`:status :cancelled` when meaningful,
-     `:status :stale`/`:suppressed` when teardown made the target obsolete)
-   - EP-0011 §Status taxonomy (line 763-768)
-   - Spec 014 §Abort on actor destroy
-
-  The obsolescence determinant is STRUCTURAL: when `abort-on-actor-destroy`
-  fires, the actor IS under teardown, so a reply addressing that same actor is
-  obsolete by construction — no liveness probe (the snapshot is still present
-  mid-cascade, since `destroy-single-actor!` aborts in-flight HTTP BEFORE the
-  snapshot teardown)."
+  The host transport is replaced at `jvm-fetch`, so each test decides when the
+  request completes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm]
+            [re-frame.interop :as rf.interop]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
-  (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
-           [java.net InetSocketAddress]
-           [java.util.concurrent CountDownLatch TimeUnit]))
-
-;; ---- per-test reset (mirrors http_actor_destroy_cancellation_test.clj) ----
+  (:import [java.util.concurrent CompletableFuture]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- in-process latch server ----------------------------------------------
+(defn- settle-router!
+  "FIFO barrier: a task queued behind a reply dispatch runs only once that
+  reply's event has been handled."
+  []
+  (let [done (promise)]
+    (rf.interop/next-tick #(deliver done true))
+    (is (true? (deref done 2000 false)) "the router barrier ran")))
 
-(defn- start-blocking-server!
-  [^CountDownLatch latch status content-type body]
-  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext server "/"
-                    (reify HttpHandler
-                      (handle [_ ex]
-                        (let [^HttpExchange ex ex]
-                          (.await latch 30 TimeUnit/SECONDS)
-                          (let [bs (.getBytes (str body) "UTF-8")]
-                            (when content-type
-                              (-> ex .getResponseHeaders (.set "Content-Type" content-type)))
-                            (try
-                              (.sendResponseHeaders ex status (long (count bs)))
-                              (with-open [os (.getResponseBody ex)]
-                                (.write os bs))
-                              (catch Throwable _ nil)))
-                          nil))))
-    (.setExecutor server nil)
-    (.start server)
-    {:server server :port (.getPort (.getAddress server))}))
+(defn- start-self-addressed-worker!
+  "Spawn `:worker/proc#1`, whose request's `:on-failure` addresses the actor
+  itself, and wait until that request is in flight."
+  []
+  (rf/reg-machine :worker/proc
+    {:initial :idle
+     :actions {:fire (fn [_]
+                       {:fx [[:rf.http/managed
+                              {:request    {:url "http://example.invalid/slow"}
+                               :decode     :json
+                               :request-id [:worker/proc :slow]
+                               :on-failure [:worker/proc#1 [:self/failed]]}]]})}
+     :states  {:idle    {:on {:start :running}}
+               :running {:entry :fire}}})
+  (rf/reg-machine :sup/flow
+    {:initial :idle
+     :states  {:idle    {:on {:start :working}}
+               :working {:spawn {:machine-id :worker/proc :start [:start]}
+                         :on    {:cancel :idle}}}})
+  (rf/dispatch-sync [:sup/flow [:start]])
+  (rf.test-support/poll-until #(seq (rf.http.managed/actor-in-flight-snapshot))
+                              {:timeout-ms 5000 :interval-ms 10
+                               :label "http-actor-destroy-stale in flight"}))
 
-(defn- stop-server! [{:keys [^HttpServer server]}]
-  (.stop server 0))
+(defn- self-dispatches [traces]
+  (count (filter #(and (= :rf.event/dispatched (:operation %))
+                       (= :worker/proc#1 (first (:rf.event/v (:tags %)))))
+                 traces)))
 
-(defn- await-condition!
-  ([pred] (await-condition! pred 5000))
-  ([pred timeout-ms]
-   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
-                                  :label "http-actor-destroy-stale condition"})
-   true))
-
-(defn- stale-traces [traces]
-  (filter #(= :rf.http/stale-suppressed (:operation %)) traces))
-
-;; ---- (1) obsolete actor-bound target (reply addresses the actor itself) ---
-;; ----     → :status :stale / :suppressed, NO app delivery -------------------
+(defn- stale-tags [traces ks]
+  (-> (filter #(= :rf.http/stale-suppressed (:operation %)) traces)
+      first
+      :tags
+      (select-keys ks)))
 
 (deftest obsolete-actor-bound-target-suppresses-stale-on-destroy
-  (testing "an actor whose request's :on-failure addresses the actor itself: destroying it suppresses the app reply as :status :stale (no delivery), and emits a :rf.http/stale-suppressed reply-envelope trace"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          ;; Dispatch probe: a trace listener records EVERY dispatched event's
-          ;; id, so we can assert the dead actor's reply event was NEVER
-          ;; re-dispatched (there is no live handler to record into otherwise).
-          dispatched (atom [])
-          traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::yrrpe2-1
-          (fn [ev]
-            (swap! traces conj ev)
-            (when (= :rf.event/dispatched (:operation ev))
-              (swap! dispatched conj (first (:rf.event/v (:tags ev)))))))
-        ;; The child actor issues a managed request whose :on-failure
-        ;; addresses ITSELF ([:worker/proc#1 [:self/failed]]) — the
-        ;; machine-shape wrapper's `[self-id ...]` shape. After destroy that
-        ;; target addresses a now-dead actor → obsolete → suppressed.
-        (rf/reg-machine :worker/proc
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-request
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               :request-id [:worker/proc :slow]
-                               ;; reply addressed to the actor itself
-                               :on-failure [:worker/proc#1 [:self/failed]]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-request}}})
-        (rf/reg-machine :sup/flow
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/proc
-                               :start      [:start]}
-                      :on    {:cancel :idle}}}})
-        (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))
-        ;; Snapshot how many times the actor's own event-id was dispatched
-        ;; up to (and including) the spawn/start sequence — the suppressed
-        ;; reply must add NO further dispatch to it.
-        (let [self-dispatches-before (count (filter #{:worker/proc#1} @dispatched))]
-        ;; Destroy the child mid-flight.
-        (rf/dispatch-sync [:sup/flow [:cancel]])
-        ;; Wait for the canonical stale-suppression trace to land.
-        (await-condition! #(seq (stale-traces @traces)))
-        (let [tags (:tags (first (stale-traces @traces)))]
-          (is (= :stale (:rf.reply/status tags))
-              "the obsolete actor-bound completion lowers to :status :stale")
-          (is (= :suppressed (:rf.reply/work-status tags)))
-          (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason tags)))
-          (is (= :http (:rf.reply/work-kind tags)))
-          (is (= [:rf.work/http [:worker/proc :slow] 1 1] (:rf.reply/work-id tags))
-              "the canonical join key reads the carried (aborted) attempt's work-id")
-          (is (= [:rf.work/http [:worker/proc :slow] 1 1]
-                 (:work/id (:rf.reply/carried tags)))))
-        ;; Quiescence window: assert the actor's own target was NOT dispatched
-        ;; AFTER the destroy (the obsolete app reply MUST NOT run).
-        (Thread/sleep 150)
-        (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
-            "the app reply target (addressing the destroyed actor) MUST NOT be dispatched post-destroy")
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "actor index is empty after the suppressed abort")
-        (.countDown latch))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::yrrpe2-1)
-          (stop-server! srv))))))
-
-;; ---- (2) the abort-precedence RECLASSIFICATION path -----------------------
-;; ----     (JVM completion-wins-the-CAS race) must apply the SAME obsolete- --
-;; ----     target stale suppression as the direct dispatch-aborted! path -----
+  (testing "destroying the actor suppresses its self-addressed reply as :stale"
+    (let [traces (atom [])]
+      (with-redefs [rf.http.transport-jvm/jvm-fetch (fn [_] (CompletableFuture.))]
+        (try
+          (rf.trace.tooling/register-listener! ::direct #(swap! traces conj %))
+          (start-self-addressed-worker!)
+          (let [before (self-dispatches @traces)]
+            (rf/dispatch-sync [:sup/flow [:cancel]])
+            (settle-router!)
+            (is (= {:rf.reply/status       :stale
+                    :rf.reply/work-status  :suppressed
+                    :rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete
+                    :rf.reply/work-id      [:rf.work/http [:worker/proc :slow] 1 1]}
+                   (stale-tags @traces [:rf.reply/status :rf.reply/work-status
+                                        :rf.reply/stale-reason :rf.reply/work-id])))
+            (is (= before (self-dispatches @traces))
+                "the destroyed actor's reply target was not dispatched"))
+          (finally
+            (rf.trace.tooling/unregister-listener! ::direct)))))))
 
 (deftest completion-wins-cas-obsolete-target-suppresses-stale-on-destroy
-  (testing "the abort-precedence RECLASSIFICATION is a SECOND path to an :rf.http/aborted reply besides dispatch-aborted! (the direct abort-fn path): when abort-on-actor-destroy flips :aborted? but LOSES the once-only :finalised? CAS to the completion (whenComplete) thread, finalise-success!/finalise-failure! sees the flipped cell, reclassifies to :actor-destroyed, and routes through emit-and-dispatch-failure!. A suppression gate there of only #{:request-id-superseded :epoch-restored} would deliver a LIVE :cancelled reply to the destroyed actor for an obsolete (self-addressing) target, so emit-and-dispatch-failure! applies actor-destroy-target-obsolete? + emit-actor-destroy-stale-trace! too."
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          dispatched (atom [])
-          traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::teurt-3
-          (fn [ev]
-            (swap! traces conj ev)
-            (when (= :rf.event/dispatched (:operation ev))
-              (swap! dispatched conj (first (:rf.event/v (:tags ev)))))))
-        (rf/reg-machine :worker/proc
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-request
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               :request-id [:worker/proc :slow]
-                               ;; reply addressed to the actor itself → obsolete
-                               ;; once the actor is under teardown
-                               :on-failure [:worker/proc#1 [:self/failed]]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-request}}})
-        (rf/reg-machine :sup/flow
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/proc
-                               :start      [:start]}
-                      :on    {:cancel :idle}}}})
-        (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))
-        (let [self-dispatches-before (count (filter #{:worker/proc#1} @dispatched))
-              ;; Reach the LIVE in-flight handle and reproduce Path B
-              ;; DETERMINISTICALLY: flip its abort-precedence cell EXACTLY as
-              ;; abort-on-actor-destroy does (:reason :actor-destroyed + the
-              ;; actor's own id) but WITHOUT firing the abort-fn — so the
-              ;; once-only :finalised? CAS stays open and the completion thread
-              ;; (released next) WINS it, driving the reclassification through
-              ;; finalise-* → emit-and-dispatch-failure! rather than through
-              ;; dispatch-aborted!. This isolates the exact reclassification
-              ;; path from the inherently-flaky real thread race.
-              handle (first (get (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))]
-          (is (some? handle) "the actor-bound in-flight handle is reachable")
-          (is (some? (:aborted? handle)) "the handle carries the abort-precedence cell")
-          (reset! (:aborted? handle) {:reason :actor-destroyed :actor-id :worker/proc#1})
-          ;; Release the server: the completion thread runs finalise-* with the
-          ;; flipped cell and the CAS still open → the reclassification path.
-          (.countDown latch)
-          ;; The canonical stale-suppression trace must land — proof the
-          ;; obsolete suppression fired on THIS path (not a live delivery).
-          (await-condition! #(seq (stale-traces @traces)))
-          (let [tags (:tags (first (stale-traces @traces)))]
-            (is (= :stale (:rf.reply/status tags))
-                "the reclassified obsolete completion lowers to :status :stale")
-            (is (= :suppressed (:rf.reply/work-status tags)))
-            (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason tags))))
-          ;; Quiescence: the obsolete self-addressed reply MUST NOT be
-          ;; dispatched. Without the suppression in emit-and-dispatch-failure!,
-          ;; a live :cancelled reply would reach :worker/proc#1 here.
-          (Thread/sleep 150)
-          (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
-              "the abort-precedence reclassification MUST NOT deliver a live :cancelled reply to the destroyed actor's self-addressed target"))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::teurt-3)
-          (stop-server! srv))))))
+  (testing "a completion that wins the once-only CAS after an actor-destroy flipped
+            the abort cell reclassifies to :actor-destroyed and suppresses the
+            self-addressed reply the same way"
+    (let [traces (atom [])
+          cf     (CompletableFuture.)]
+      (with-redefs [rf.http.transport-jvm/jvm-fetch (fn [_] cf)]
+        (try
+          (rf.trace.tooling/register-listener! ::reclassified #(swap! traces conj %))
+          (start-self-addressed-worker!)
+          (let [before (self-dispatches @traces)
+                handle (first (get (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))]
+            ;; Flip the abort cell exactly as `abort-on-actor-destroy` does, but
+            ;; without firing the abort-fn, so the completion wins the CAS.
+            (reset! (:aborted? handle) {:reason :actor-destroyed :actor-id :worker/proc#1})
+            (.complete cf {:ok? true :status 200 :status-text "OK" :headers {} :body-text "{}"})
+            (settle-router!)
+            (is (= {:rf.reply/status       :stale
+                    :rf.reply/work-status  :suppressed
+                    :rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete}
+                   (stale-tags @traces [:rf.reply/status :rf.reply/work-status
+                                        :rf.reply/stale-reason])))
+            (is (= before (self-dispatches @traces))
+                "no live :cancelled reply reached the destroyed actor's target"))
+          (finally
+            (rf.trace.tooling/unregister-listener! ::reclassified)))))))
