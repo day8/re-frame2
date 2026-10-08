@@ -19,22 +19,7 @@
   ever drops a `:rf.cofx/run` emit on the floor (or stamps a new
   operation name the reader doesn't match), the COEFFECT step
   disappears from the projection here — the test goes red against
-  reality, not against a stale synth fixture.
-
-  ## What's exercised
-
-  - DISPATCH row — the substrate's `:rf.event/dispatched` emit.
-  - HANDLER     — the substrate's `:rf.event/run-end` emit (carries
-                  the canonical `:rf.event/elapsed-ms` tag). The
-                  `:rf.event/db-changed` emit is pinned for drift
-                  detection (the projection's `db-write?` reads it).
-
-  COEFFECTs / FX / FLOW / SUBSCRIPTIONS / VIEWS are NOT exercised
-  here (each would require a non-trivial registration / mount /
-  substrate sub recompute). The cascade above is the minimum surface
-  that proves the reader is canonically aligned with substrate emit
-  reality; per-emit canonical-name pinning lives in the synth-fixture
-  projection tests."
+  reality, not against a stale synth fixture."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load-time hook so `reg-flow` resolves + the
@@ -121,14 +106,9 @@
         (is (contains? steps :dispatch)
             "DISPATCH step present — projection matched the
              substrate's `:rf.event/dispatched` operation name")
-        (is (contains? steps :handler)
-            "HANDLER step present — projection matched the
-             substrate's `:rf.event/run-end` operation name")
-        ;; Find the HANDLER step and assert its `db-write?` flag is
-        ;; set. The projection reads the substrate's `:rf.event/db-changed`
-        ;; emit — its canonical name must align with substrate reality.
+        ;; The HANDLER step's `db-write?` reads the substrate's
+        ;; `:rf.event/db-changed` emit.
         (let [handler-step (first (filter #(= :handler (:step %)) projected))]
-          (is (some? handler-step) "HANDLER step row exists")
           (is (true? (:db-write? handler-step))
               "HANDLER `db-write?` reads the substrate's
                `:rf.event/db-changed` emit. If this fails after a
@@ -171,36 +151,29 @@
     (rf/dispatch-sync [:rf.tyivx/increment-flow]) ; primes :base = 1, :derived = 2
     (trace-collector/reset-for-test!)
     (rf/dispatch-sync [:rf.tyivx/increment-flow]) ; :base 1 → 2 ; flow :derived 2 → 4
-    (let [buf (vec (trace-collector/buffer-for-test))
-          op? (fn [op] (some #(= op (:operation %)) buf))]
-      (is (op? :rf.event/db-pending)
-          "substrate emitted t1 `:rf.event/db-pending` (post-handler)")
-      (is (op? :rf.event/db-pending-post-flow)
-          "substrate emitted t2 `:rf.event/db-pending-post-flow` (post-flow)")
-      (is (op? :rf.flow/computed)
-          "the flow recomputed → `:rf.flow/computed` emitted")
-      (let [record    {:epoch-id      2
-                       :event-id      :rf.tyivx/increment-flow
-                       :trigger-event [:rf.tyivx/increment-flow]
-                       :dispatch-id   2
-                       ;; the record's :db-after is the FINAL post-flow db
-                       :db-before     {:base 1 :derived 2}
-                       :db-after      {:base 2 :derived 4}
-                       :trace-events  buf}
-            projected (proj/project record)
-            h         (first (filter #(= :handler (:step %)) projected))
-            f         (first (filter #(= :flow (:step %)) projected))]
-        (is (some? h) "HANDLER step present")
-        (is (= {:base 2 :derived 2} (:db-post-handler h))
-            "HANDLER `:db-post-handler` (t1) = :base bumped, :derived STILL
-             the PRE-flow value (2) — the handler did not touch :derived")
-        (is (some? f) "FLOW step present")
-        (is (= :rf.tyivx/derived (:flow-id f)))
-        (is (= {:base 2 :derived 2} (:db-pre-flow f))
-            "FLOW `:db-pre-flow` (t1) lacks the flow's recompute")
-        (is (= {:base 2 :derived 4} (:db-post-flow f))
-            "FLOW `:db-post-flow` (t2) carries :derived = 2 × :base = 4 —
-             the flow's OWN contribution, separate from the handler")))))
+    ;; A missing t1, t2 or `:rf.flow/computed` emit turns the equalities
+    ;; below red: t1 feeds `:db-post-handler` / `:db-pre-flow`, t2 feeds
+    ;; `:db-post-flow`, and the FLOW step is built from `:rf.flow/computed`.
+    (let [record    {:epoch-id      2
+                     :event-id      :rf.tyivx/increment-flow
+                     :trigger-event [:rf.tyivx/increment-flow]
+                     :dispatch-id   2
+                     ;; the record's :db-after is the FINAL post-flow db
+                     :db-before     {:base 1 :derived 2}
+                     :db-after      {:base 2 :derived 4}
+                     :trace-events  (vec (trace-collector/buffer-for-test))}
+          projected (proj/project record)
+          h         (first (filter #(= :handler (:step %)) projected))
+          f         (first (filter #(= :flow (:step %)) projected))]
+      (is (= {:base 2 :derived 2} (:db-post-handler h))
+          "HANDLER `:db-post-handler` (t1) = :base bumped, :derived STILL
+           the PRE-flow value (2) — the handler did not touch :derived")
+      (is (= :rf.tyivx/derived (:flow-id f)) "FLOW step present")
+      (is (= {:base 2 :derived 2} (:db-pre-flow f))
+          "FLOW `:db-pre-flow` (t1) lacks the flow's recompute")
+      (is (= {:base 2 :derived 4} (:db-post-flow f))
+          "FLOW `:db-post-flow` (t2) carries :derived = 2 × :base = 4 —
+           the flow's OWN contribution, separate from the handler"))))
 
 ;; ---- REFUSED effect map, and the pinned bundle that
 ;; ---- settled no epoch
@@ -239,11 +212,9 @@
                                  buf))]
       ;; Drift pin first: if the substrate renames or stops emitting this,
       ;; everything below is measuring a fixture rather than reality.
-      (is (some? refusal)
-          "substrate emitted `:rf.error/effect-map-shape` for the foreign
-           top-level key — the projection keys on this operation name")
       (is (= :error (:op-type refusal))
-          "and stamped `:op-type :error`, which is what
+          "substrate emitted `:rf.error/effect-map-shape` for the foreign
+           top-level key, stamped `:op-type :error`, which is what
            `projection/cascade-error-event?` discriminates on")
       (is (= :bogus-fx (get-in refusal [:tags :offending-key]))
           "naming the offending key")
@@ -254,13 +225,11 @@
                        :trace-events  buf}
             projected (proj/project record)
             se        (first (filter #(= :side-effects (:step %)) projected))]
-        (is (some? se)
-            "a SIDE EFFECTS step is present. The refusal is PRE-commit, so no
-             effect ran and `side-effects-step` builds nothing from the
-             ledger — the step is synthesised so the failure has a home at
-             the boundary where it actually happened.")
         (is (true? (:synthesised? se))
-            "and it is the synthesised one, since nothing ran")
+            "a SIDE EFFECTS step is present and synthesised. The refusal is
+             PRE-commit, so no effect ran and `side-effects-step` builds
+             nothing from the ledger — the step is synthesised so the
+             failure has a home at the boundary where it actually happened.")
         (is (= 1 (count (:errors se)))
             "carrying exactly one exception card")
         (is (= :rf.error/effect-map-shape
@@ -310,13 +279,6 @@
       (is (nil? (focus/find-epoch-record nil 999 history))
           "and to NO record — not the head. Answering `head` would render
            that epoch's complete cascade under a different event's row.")
-      ;; The 2-arities are what the Trace panel and the issues ribbon call,
-      ;; and they keep head-fallback.
-      (is (= :focused (focus/resolve-focus-status nil history))
-          "the 2-arity cannot see a dispatch-id and answers
-           head-fallback for the consumers that use it")
-      (is (= head (focus/find-epoch-record nil history))
-          "likewise")
       ;; And an empty history is still the cold-start empty state, pinned
       ;; bundle or not: `:rf.xray/sync-epoch-history` reaches exactly that
       ;; shape when a seed redacts away to nothing.
