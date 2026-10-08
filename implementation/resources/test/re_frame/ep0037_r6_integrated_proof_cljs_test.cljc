@@ -32,7 +32,7 @@
   capturing no-op and the host nav fxs are captured, so the URL/scroll side is
   observable without a browser."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
