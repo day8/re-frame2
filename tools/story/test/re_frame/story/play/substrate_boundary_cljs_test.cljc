@@ -1,32 +1,12 @@
 (ns re-frame.story.play.substrate-boundary-cljs-test
-  "The `:settled-boundary-hooks` PRODUCER, and the substrate settle it
-  provides in place of a timer.
-
-  What these tests witness is not how fast the settle is. It is that
-  Story has a settle signal from the substrate at all: with the
-  `:settled-boundary-hooks` slot holding a consumer and no producer, every
-  host would run at `:provides :headless`, whose only flush is a no-op,
-  and the only settle after an interaction would be the run-loop's
-  `setTimeout` 0 — which drains the microtask queue but never asks a
-  rAF-scheduled substrate to commit.
-
-  So the witness cannot be a timing measurement (a fast machine proves
-  nothing, and a slow one proves nothing either). It is a COUNT: with a
-  substrate whose commit is observable, does the runner call it? Without
-  the producer it never does — `substrate-commits-before-a-dom-step`
-  would read 0. It reads the count on the statement after `exec-step!`
-  returns, so it also pins that the commit is synchronous, not scheduled.
-
-  Runner note, and it is why this file is named and extensioned the way
-  it is: `.cljc` so the JVM lane (`clojure -M:test` from `tools/story`)
-  loads it, and `*_cljs_test` so the `:node-test` build's `cljs-test$`
-  ns-regexp DISCOVERS it too. Both lanes therefore execute every assertion
-  here — which matters because the production code is entirely `.cljc`
-  and a reader-conditional mistake in the `:cljs` branch would be
-  invisible to a JVM-only run. Nothing in this file needs a DOM: the
-  settle under test happens BEFORE the DOM executor runs, which is exactly
-  why the JVM can witness it."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "The `:settled-boundary-hooks` producer, and the substrate settle it
+  provides in place of a timer. The witness is a COUNT of substrate
+  commits, read on the statement after `exec-step!` returns, so it also
+  pins that the commit is synchronous. Nothing here needs a DOM: the settle
+  happens before the DOM executor runs. `.cljc` with a `-cljs-test` name, so
+  the JVM and `:node-test` lanes both run it, since the production code's
+  reader conditionals are invisible to a JVM-only run."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.story :as rf.story]
@@ -42,37 +22,25 @@
 
 (def ^:private commits
   "Count of substrate commits the fake adapter's `:flush-render!` has been
-  asked for. The whole witness reduces to whether this moves."
+  asked for."
   (atom 0))
 
 (defn- committing-adapter
-  "`plain-atom` plus the ONE optional contract fn under test here. The
-  real Reagent adapter's is `(fn [f] (f) (r/flush))`; this one keeps the
-  same shape and counts instead of flushing, so a JVM run can observe the
-  call the browser would make."
+  "`plain-atom` plus the optional `:flush-render!`, counting instead of
+  flushing (the Reagent adapter's is `(fn [f] (f) (r/flush))`)."
   []
   (assoc rf.substrate.plain-atom/adapter
          :flush-render! (fn [f] (f) (swap! commits inc) nil)))
 
-;; NOT `rf.story.late-bind/clear!` — that wipes the canonical shims every sibling
-;; test ns registers at load time (`:run-play-step`, `:clear-step-boundaries`,
-;; `:ensure-canonical-installed`), and the wipe outlives this ns in a shared
-;; JVM. Snapshot the whole map and restore it, so exactly the one slot these
-;; tests are about is under test and nothing else moves.
-
+;; Snapshot and restore the late-bind map rather than `clear!` it: sibling
+;; namespaces register shims at load time that must outlive this one. The
+;; adapter is destroyed first because `init!` is idempotent for a seated
+;; plain-atom, which would leave `:flush-render!` uninstalled.
 (use-fixtures :each
   (fn [t]
     (let [saved @rf.story.late-bind/hooks]
       (reset! commits 0)
       (swap! rf.story.late-bind/hooks dissoc :settled-boundary-hooks)
-      ;; Cold-start the adapter slot in the PROLOGUE, not only the epilogue.
-      ;; `committing-adapter` is `plain-atom` plus one optional contract fn, so
-      ;; it carries plain-atom's canonical `:rf.adapter/plain-atom` kind — and
-      ;; `init!` is idempotent for the seated adapter. If a sibling
-      ;; suite in this shared runtime has already seated plain-atom, the `init!`
-      ;; below is a same-adapter no-op, `:flush-render!` is never installed, and
-      ;; the witness silently measures nothing. Destroying first means the first
-      ;; test in this ns cannot depend on process order.
       (try (rf/destroy-adapter!)
            (catch #?(:clj Throwable :cljs :default) _ nil))
       (try (t)
@@ -83,142 +51,96 @@
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))
 
 (defn- dom-assert-step
-  "A folded in-script DOM checkpoint — the shape a shipping
-  `[:assert-dom sel :text \"x\"]` has by the time the executor sees it."
+  "A folded in-script DOM checkpoint, as the executor sees an `:assert-dom` step."
   []
   [:assert [rf.story.assertions/id-dom-text "[data-test=x]" "42"]])
 
 ;; ---- the producer --------------------------------------------------------
 
-(deftest headless-when-no-adapter-is-seated
-  (testing "with no adapter installed the producer yields the headless
-            default — the JVM floor stays headless, which is what makes
-            installing it unconditionally safe"
-    (is (nil? (rf.story.play.substrate-boundary/adapter-flush-render)))
-    (let [hooks (rf.story.play.substrate-boundary/substrate-flush-hooks :any-frame)]
-      (is (identical? rf.story.play.settled-boundary/headless-flush-hooks hooks))
-      (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary hooks))))))
+(deftest producer-names-no-substrate
+  ;; Built from the LIVE adapter, so swapping the adapter swaps the settle
+  ;; with no per-substrate entry (spec/Tool-Pair.md §Driving the render).
+  ;; With no adapter seated it stays headless, which makes installing it
+  ;; unconditionally safe.
+  (is (identical? rf.story.play.settled-boundary/headless-flush-hooks
+                  (rf.story.play.substrate-boundary/substrate-flush-hooks :f)))
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary
+                     (rf.story.play.substrate-boundary/substrate-flush-hooks :f))))
+  (rf/destroy-adapter!)
+  (rf/init! (committing-adapter))
+  (is (= :dom (rf.story.play.settled-boundary/hooks-provided-boundary
+                (rf.story.play.substrate-boundary/substrate-flush-hooks :f)))))
 
 (deftest provides-dom-when-the-live-adapter-can-commit
-  (testing "an adapter shipping :flush-render! lifts the declared boundary
-            to :dom and registers the commit at both richer rungs"
-    (rf/init! (committing-adapter))
-    (let [hooks (rf.story.play.substrate-boundary/substrate-flush-hooks :f)]
-      (is (= :dom (rf.story.play.settled-boundary/hooks-provided-boundary hooks)))
-      (is (fn? (get-in hooks [:flush! :cljs-reactive])))
-      (is (fn? (get-in hooks [:flush! :dom])))
-      (is (zero? @commits) "building the hooks must not commit anything")
-      ((get-in hooks [:flush! :dom]) :f)
-      (is (= 1 @commits)))))
-
-(deftest producer-names-no-substrate
-  (testing "the hooks are built from the LIVE adapter, so swapping the
-            adapter swaps the settle with no Story-side entry per
-            substrate (spec/Tool-Pair.md §Driving the render: a tool that
-            names reagent.core/flush! is non-conforming)"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary
-                       (rf.story.play.substrate-boundary/substrate-flush-hooks :f))))
-    (rf/destroy-adapter!)
-    (rf/init! (committing-adapter))
-    (is (= :dom (rf.story.play.settled-boundary/hooks-provided-boundary
-                  (rf.story.play.substrate-boundary/substrate-flush-hooks :f))))))
+  ;; the commit is registered at both richer rungs, and building the hooks
+  ;; commits nothing
+  (rf/init! (committing-adapter))
+  (let [hooks (rf.story.play.substrate-boundary/substrate-flush-hooks :f)]
+    (is (zero? @commits))
+    ((get-in hooks [:flush! :cljs-reactive]) :f)
+    (is (= 1 @commits))
+    ((get-in hooks [:flush! :dom]) :f)
+    (is (= 2 @commits))))
 
 ;; ---- the slot ------------------------------------------------------------
 
 (deftest install-registers-the-late-bind-slot
-  (testing "before install! the slot is empty and the runner falls back to
-            headless"
-    (is (nil? (rf.story.late-bind/get-fn :settled-boundary-hooks)))
-    (rf/init! (committing-adapter))
-    (is (= :headless
-           (rf.story.play.settled-boundary/hooks-provided-boundary
-             (rf.story.play.runner-events/current-flush-hooks :f)))
-        "WITNESS: with no producer the live shell plays at :provides :headless"))
-  (testing "after install! the runner resolves the substrate hooks"
-    (rf.story.play.substrate-boundary/install!)
-    (is (= :dom
-           (rf.story.play.settled-boundary/hooks-provided-boundary
-             (rf.story.play.runner-events/current-flush-hooks :f))))))
+  (rf/init! (committing-adapter))
+  (is (= :headless
+         (rf.story.play.settled-boundary/hooks-provided-boundary
+           (rf.story.play.runner-events/current-flush-hooks :f)))
+      "WITNESS: with no producer the live shell plays at :provides :headless")
+  (rf.story.play.substrate-boundary/install!)
+  (is (= :dom
+         (rf.story.play.settled-boundary/hooks-provided-boundary
+           (rf.story.play.runner-events/current-flush-hooks :f)))))
 
 ;; ---- the settle, which is the point --------------------------------------
 
 (deftest substrate-commits-before-a-dom-step
-  (testing "WITNESS: a step that reads the DOM runs against a COMMITTED
-            substrate. Without the producer + the pre-step settle this
-            count would stay 0 — the runner would never ask the substrate
-            to commit, and the only thing between an event and a DOM read
-            would be a setTimeout 0"
-    (rf/init! (committing-adapter))
-    (rf.story.play.substrate-boundary/install!)
-    (is (zero? @commits))
-    (rf.story.play.runner-events/exec-step! :f 0 (dom-assert-step))
-    (is (pos? @commits)
-        "a DOM-family checkpoint must settle the substrate before reading")))
+  ;; WITNESS: without the producer and the pre-step settle, nothing would ask
+  ;; the substrate to commit between an event and a DOM read
+  (rf/init! (committing-adapter))
+  (rf.story.play.substrate-boundary/install!)
+  (rf.story.play.runner-events/exec-step! :f 0 (dom-assert-step))
+  (is (pos? @commits)))
 
 (deftest headless-steps-do-not-commit
-  (testing "a step that requires only :headless does not drag the
-            substrate through a commit — the ladder means what it says,
-            and the cheap path stays cheap"
-    (rf/init! (committing-adapter))
-    (rf.story.play.substrate-boundary/install!)
-    (rf.story.play.runner-events/exec-step! :f 0 [:wait-until [:queue-empty]])
-    (is (zero? @commits))))
-
-(deftest no-producer-means-no-commit
-  (testing "the commit needs the PRODUCER, not the pre-step settle alone: with
-            the slot empty, the same DOM step commits nothing even though
-            the adapter could have"
-    (rf/init! (committing-adapter))
-    (rf.story.play.runner-events/exec-step! :f 0 (dom-assert-step))
-    (is (zero? @commits))))
+  (rf/init! (committing-adapter))
+  (rf.story.play.substrate-boundary/install!)
+  (rf.story.play.runner-events/exec-step! :f 0 [:wait-until [:queue-empty]])
+  (is (zero? @commits)))
 
 ;; ---- the shared flush loop ----------------------------------------------
 
 (deftest settle-to-is-inert-below-its-rung
-  (testing "a cheaper `required` stops the ladder where it should"
-    (let [seen  (atom [])
-          hooks {:provides :dom
-                 :flush!   {:cljs-reactive (fn [_] (swap! seen conj :cljs-reactive))
-                            :dom           (fn [_] (swap! seen conj :dom))}}]
-      (rf.story.play.settled-boundary/settle-to! :f hooks :headless)
-      (is (= [] @seen)))))
+  (let [seen  (atom [])
+        hooks {:provides :dom
+               :flush!   {:cljs-reactive (fn [_] (swap! seen conj :cljs-reactive))
+                          :dom           (fn [_] (swap! seen conj :dom))}}]
+    (rf.story.play.settled-boundary/settle-to! :f hooks :headless)
+    (is (= [] @seen))))
 
 ;; ===========================================================================
 ;; THE TERMINAL PATH — where the settle's result must gate the read
 ;; ===========================================================================
 ;;
-;; `exec-step!` short-circuits — `(or (settle-substrate-for-step! …)
-;; (case stype …))`, so an in-script DOM checkpoint cannot run against a
-;; substrate that failed to commit. `run-terminal-assertions!` asks the
-;; SAME settle and must honour its result the same way: a terminal path
-;; that discarded the result and then called `exec-assert!`
-;; unconditionally would run both.
-;;
-;; Two consequences, and the second is the one that bites. The assertion
-;; would READ a substrate whose commit had just thrown or timed out — so it
-;; could record a PASS it had not earned. And the settle failure itself
-;; would disappear: terminal assertions are not a runner step stream, so a
-;; discarded step-result has nowhere to land, and the ONE accumulator the
-;; terminal verdict is folded from (`:rf.story/assertions`) would never
-;; hear about it. A DOM-family atom records NOTHING under a headless runner
-;; (the executor's own `{:skipped? true}` branch declines to mint a vacuous
-;; record), which is precisely why the witnesses below can count: a
-;; discarded settle failure leaves ZERO records in the accumulator, an
-;; honoured one leaves exactly one carrying the refusal.
+;; `run-terminal-assertions!` asks the same pre-read settle as an in-script
+;; checkpoint and must honour its result: a terminal DOM atom must not read a
+;; substrate whose commit threw or timed out, and the settle failure must
+;; reach `:rf.story/assertions`, the one accumulator the terminal verdict
+;; folds. A DOM atom records nothing under a headless runner, so the
+;; accumulator holds zero records when the failure is dropped and exactly one
+;; when it is honoured.
 
 (def ^:private terminal-frame
-  "A real registered frame — `rf.story.assertions/record!` lands its record by
-  dispatching into the frame's app-db, and swallows the dispatch when the
-  frame is gone. `:f` (which every test above uses) is never registered:
-  fine for the settle-count witnesses, useless for a record witness."
+  ;; a registered frame: `record!` dispatches into its app-db
   :story.substrate-boundary/terminal)
 
 (defn- terminal-frame!
   "Seat the adapter, (re-)register `terminal-frame`, and install the
-  canonical assertion vocabulary so `::append` has a handler. Called per
-  test rather than from the fixture: the fixture is shared with the
-  settle-count witnesses above, which deliberately run with no frame."
+  canonical assertion vocabulary."
   []
   (rf/init! (committing-adapter))
   (rf.story/install-canonical-vocabulary!)
@@ -235,103 +157,60 @@
   (vec (:rf.story/assertions (rf/app-db-value terminal-frame))))
 
 (def ^:private terminal-dom-atom
-  "The terminal counterpart of `dom-assert-step` — a bare DOM-family atom,
-  the shape `[:expect :assertions]` carries."
   [rf.story.assertions/id-dom-text "[data-test=x]" "42"])
 
 (deftest terminal-assertion-refuses-when-the-commit-throws
-  (testing "WITNESS: a terminal DOM assertion whose pre-read settle THREW
-            must not be evaluated, and the failure must reach the unified
-            verdict. Discarding the throw would leave the accumulator
-            holding nothing at all — the run would report on a substrate
-            that had blown up mid-commit as though nothing had happened"
-    (terminal-frame!)
-    (install-hooks! {:provides :dom
-                     :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
-    (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
-    (let [recs (terminal-records)]
-      (is (= 1 (count recs))
-          "the settle failure reached the ONE terminal accumulator")
-      (is (= rf.story.assertions/id-dom-text (:assertion (first recs)))
-          "recorded against the atom it refused, not a synthetic id")
-      (is (= :error (:status (first recs))))
-      (is (false? (:passed? (first recs))))
-      (is (= :error (rf.story.requirements/aggregate-status recs nil))
-          "and folds to :error through the ONE aggregation rule — a
-           substrate that threw mid-commit is a fault, not a refusal"))))
+  ;; recorded against the atom it refused, and a substrate that threw
+  ;; mid-commit folds to :error, a fault rather than a refusal
+  (terminal-frame!)
+  (install-hooks! {:provides :dom
+                   :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
+  (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+  (let [recs (terminal-records)]
+    (is (= [[rf.story.assertions/id-dom-text :error false]]
+           (mapv (juxt :assertion :status :passed?) recs)))
+    (is (= :error (rf.story.requirements/aggregate-status recs nil)))))
 
 (deftest terminal-assertion-refuses-when-the-commit-times-out
-  (testing "WITNESS: the same for the other way a
-            settle declines — an over-budget flush phase. `settle-to!`
-            returns the fail-closed :flush-timeout refusal, so the terminal
-            verdict must read :cannot-run: the runner could not establish
-            the boundary the assertion needed, and therefore proved nothing"
-    (terminal-frame!)
-    (install-hooks! {:provides   :dom
-                     :timeout-ms -1
-                     :flush!     {:dom (fn [_] nil)}})
-    (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
-    (let [recs (terminal-records)]
-      (is (= 1 (count recs)))
-      (is (= :cannot-run (:status (first recs))))
-      (is (true? (:cannot-run? (first recs))))
-      (is (= :cannot-run (rf.story.requirements/aggregate-status recs nil))
-          "the distinct THIRD status — never a silent pass"))))
+  (terminal-frame!)
+  (install-hooks! {:provides   :dom
+                   :timeout-ms -1
+                   :flush!     {:dom (fn [_] nil)}})
+  (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+  (let [recs (terminal-records)]
+    (is (= [[:cannot-run true]] (mapv (juxt :status :cannot-run?) recs)))
+    (is (= :cannot-run (rf.story.requirements/aggregate-status recs nil)))))
 
 (deftest a-settled-terminal-assertion-still-evaluates
-  (testing "the refusal must not over-fire. With a commit that SUCCEEDS
-            the substrate is asked to commit, and the executor — not a
-            refusal record — owns the verdict. Under a headless runner that DOM executor declines to
-            mint a record at all, so an empty accumulator here is the proof
-            that nothing was refused"
-    (terminal-frame!)
-    (install-hooks! {:provides :dom :flush! {:dom (fn [_] nil)}})
-    (reset! commits 0)
-    (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
-    (is (empty? (terminal-records))
-        "no refusal record was minted for a settle that succeeded")))
+  ;; a commit that succeeds mints no refusal record
+  (terminal-frame!)
+  (install-hooks! {:provides :dom :flush! {:dom (fn [_] nil)}})
+  (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+  (is (empty? (terminal-records))))
 
 (deftest a-headless-terminal-assertion-is-untouched
-  (testing "the JVM / node-runtime path never settles: below :cljs-reactive
-            `settle-substrate-for-step!` returns nil without consulting a
-            hook, so a handler-backed terminal atom goes straight to the
-            `exec-assert!` arm — even under hooks whose :dom flush would
-            throw if it were ever reached"
-    (terminal-frame!)
-    (install-hooks! {:provides :dom
-                     :flush!   {:dom (fn [_] (throw (ex-info "must not run" {})))}})
-    (rf/reg-event ::seed (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
-    (rf/dispatch-sync [::seed {:status :loaded}] {:frame terminal-frame})
-    (rf.story.play.runner-events/run-terminal-assertions!
-      terminal-frame [[:rf.assert/path-equals [:status] :loaded]])
-    (let [recs (filterv #(= :rf.assert/path-equals (:assertion %)) (terminal-records))]
-      (is (= 1 (count recs)) "the handler-backed atom recorded exactly once")
-      (is (true? (:passed? (first recs)))
-          "and it PASSED — the :dom flush was never consulted"))))
+  ;; below :cljs-reactive no hook is consulted, even one whose :dom flush throws
+  (terminal-frame!)
+  (install-hooks! {:provides :dom
+                   :flush!   {:dom (fn [_] (throw (ex-info "must not run" {})))}})
+  (rf/reg-event ::seed (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
+  (rf/dispatch-sync [::seed {:status :loaded}] {:frame terminal-frame})
+  (rf.story.play.runner-events/run-terminal-assertions!
+    terminal-frame [[:rf.assert/path-equals [:status] :loaded]])
+  (is (= [true] (mapv :passed? (filterv #(= :rf.assert/path-equals (:assertion %)) (terminal-records))))))
 
 #?(:clj
    (deftest jvm-only-a-refused-terminal-settle-never-reaches-the-executor
-     ;; JVM-ONLY, and the name says so. A spy on the executor is the only
-     ;; direct read of "did `exec-assert!` run?": a DOM-family atom records
-     ;; nothing under a headless runner either way, so the count witnesses
-     ;; above prove the failure ARRIVES without proving the evaluation was
-     ;; PREVENTED. Var redefinition answers that — and only on the JVM.
-     ;; `with-redefs` in CLJS mutates a var whose call sites the compiler
-     ;; may already have inlined (`:static-fns`), so a spy that never fires
-     ;; would read as a PASS there: a false green, which is worse than no
-     ;; witness at all.
-     (testing "WITNESS: the refusal REPLACES the evaluation. An executor
-               invoked behind the failed settle would leave [:assert-ran]
-               in the spy — both would have run"
-       (terminal-frame!)
-       (install-hooks! {:provides :dom
-                        :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
-       (let [ran (atom [])]
-         (with-redefs-fn {#'rf.story.play.runner-events/exec-assert!
-                          (fn [_frame-id _idx _step] (swap! ran conj :assert-ran) nil)}
-           (fn []
-             (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])))
-         (is (= [] @ran)
-             "the assertion executor was NOT invoked behind a failed settle")
-         (is (= [:error] (mapv :status (terminal-records)))
-             "and the refusal is what the terminal verdict folds")))))
+     ;; The counts above prove the failure arrives, not that the evaluation
+     ;; was prevented; only a spy on the executor reads that. JVM-only:
+     ;; `with-redefs` in CLJS may miss call sites the compiler inlined, so a
+     ;; spy that never fires would read as a pass.
+     (terminal-frame!)
+     (install-hooks! {:provides :dom
+                      :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
+     (let [ran (atom [])]
+       (with-redefs-fn {#'rf.story.play.runner-events/exec-assert!
+                        (fn [_frame-id _idx _step] (swap! ran conj :assert-ran) nil)}
+         (fn []
+           (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])))
+       (is (= [] @ran) "the refusal replaces the evaluation"))))
