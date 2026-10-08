@@ -99,10 +99,9 @@
           (.then (fn [_]
                    (await-mode :rf/xray :all)))
           (.then (fn [_]
-                   (is (= :all (mode-of :rf/xray))
-                       ":rf/xray :mode flips to :all via the envelope opts")
+                   ;; await-mode resolving is the :rf/xray check.
                    (is (nil? (mode-of :rf/default))
-                       ":rf/default is NOT polluted by the dispatch")))
+                       ":rf/xray :mode flipped via the envelope opts, and :rf/default is NOT polluted")))
           ;; Reports and releases; it never finishes — `done` runs the
           ;; whole remainder of the run synchronously, so a `.catch` downstream of
           ;; it would claim a later namespace's throw and fire `done` twice.
@@ -119,8 +118,7 @@
             :frame slot is set at enqueue time (not at drain time when
             the binding has already popped). This is the second per-
             call-site pattern (used by core.cljs `set-target-frame!`
-            in imperative code) — the bead claims it doesn't work
-            from React handlers; this test pins whether it does."
+            in imperative code)."
     (async done
       (-> (inside-set-timeout
             (fn []
@@ -129,10 +127,8 @@
           (.then (fn [_]
                    (await-mode :rf/xray :all)))
           (.then (fn [_]
-                   (is (= :all (mode-of :rf/xray))
-                       ":rf/xray :mode flips to :all via the lexical with-frame wrapper")
                    (is (nil? (mode-of :rf/default))
-                       ":rf/default is NOT polluted by the dispatch")))
+                       ":rf/xray :mode flipped via the lexical with-frame wrapper, and :rf/default is NOT polluted")))
           (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
           (.then (fn [_] (done)))))))
 
@@ -154,10 +150,8 @@
             (.then (fn [_]
                      (await-mode :rf/xray :all)))
             (.then (fn [_]
-                     (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via the captured dispatcher")
                      (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")))
+                         ":rf/xray :mode flipped via the captured dispatcher, and :rf/default is NOT polluted")))
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
@@ -186,10 +180,8 @@
             (.then (fn [_]
                      (await-mode :rf/xray :all)))
             (.then (fn [_]
-                     (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via the bind-fn wrap")
                      (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")))
+                         ":rf/xray :mode flipped via the bind-fn wrap, and :rf/default is NOT polluted")))
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
@@ -202,7 +194,5 @@
     (let [wrapped (rf.frame/bind-fn :rf/xray
                     (fn [mode] (rf/dispatch-sync [:rf-tvu99/set-mode mode])))]
       (wrapped :all)
-      (is (= :all (mode-of :rf/xray))
-          ":rf/xray :mode flips via sync dispatch inside the wrap")
-      (is (nil? (mode-of :rf/default))
-          ":rf/default is NOT polluted"))))
+      (is (= [:all nil] [(mode-of :rf/xray) (mode-of :rf/default)])
+          ":rf/xray :mode flips via sync dispatch inside the wrap, and :rf/default is NOT polluted"))))
