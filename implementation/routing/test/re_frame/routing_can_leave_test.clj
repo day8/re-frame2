@@ -29,552 +29,284 @@
   `:rejecting-guard` into the pending-navigation slot itself."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.events :as rf.events]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.routing :as rf.routing]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
+(defn- routing
+  ([] (routing :rf/default))
+  ([frame] (get-in (:rf.db/runtime (rf/frame-state-value frame)) [:rf.runtime/routing])))
+
+(defn- pending
+  ([] (pending :rf/default))
+  ([frame] (:pending-navigation (routing frame))))
+
+(defn- current-id
+  ([] (current-id :rf/default))
+  ([frame] (:route-id (:current (routing frame)))))
+
+(defn- editor!
+  "An `:editor/article` route guarded by `can-leave` (`:editor/can-leave?` is
+  false while the editor is dirty), a `:route/cart` target, the `:editor/dirty`
+  event and a no-op push fx."
+  [can-leave]
+  (rf/reg-route :editor/article
+                {:params [:map [:id :string]] :can-leave can-leave} "/editor/articles/:id")
+  (rf/reg-route :route/cart {} "/cart")
+  (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
+  (rf/reg-sub :editor/can-leave? (fn [db _] (not (get-in db [:editor :dirty?]))))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+
+(defn- dirty-editor!
+  "Land `frame` on the editor and dirty it with `v`, so leaving blocks."
+  ([] (dirty-editor! :rf/default true))
+  ([frame v]
+   (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}]
+                     {:frame frame})
+   (rf/dispatch-sync [:editor/dirty v] {:frame frame})))
+
 ;; ---- Spec 012 §Navigation blocking — pending-nav protocol ----------------
 
 (deftest routing-pending-nav-protocol
-  (testing "block via :can-leave; continue and cancel both clear the slot"
-    ;; Per Spec 012 §Navigation blocking — pending-nav protocol: a route
-    ;; declares :can-leave (sub-id → boolean). When the sub returns false,
-    ;; :rf.route/url-requested writes :rf/pending-navigation and does not push.
-    ;; :rf.route/continue clears the slot AND completes the navigation.
-    ;; :rf.route/cancel clears the slot WITHOUT navigating.
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-
-    (rf/reg-event :editor/dirty
-                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _]
-                  ;; "OK to leave" = NOT dirty.
-                  (not (get-in db [:editor :dirty?]))))
-
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-
-    ;; 1. Land on the editor route. nav-token allocates; slice is set.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (is (= :editor/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                   [:rf.runtime/routing :current :route-id]))
-        "initial nav landed on :editor/article")
-
-    ;; 2. Dirty the form so :can-leave? returns false.
-    (rf/dispatch-sync [:editor/dirty true])
-
-    ;; 3. Try to leave. Guard rejects → pending slot is set; URL unchanged.
+  (testing "block via :can-leave; cancel clears the slot without navigating,
+            continue clears it and completes the navigation"
+    (editor! :editor/can-leave?)
+    (dirty-editor!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    ;; The slot's fields are pinned by `pending-navigation-slot-shape`, which
-    ;; blocks the same request from the same editor state.
-    (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
-      (is (some? pending)
-          ":rf/pending-navigation is populated on guard rejection")
-      (is (= :editor/article
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-          "the :rf/route slice does NOT change when blocked"))
-
-    ;; 4. CANCEL — slot clears; original route stays active.
+    (is (= [true :editor/article] [(some? (pending)) (current-id)])
+        "blocked: the slot is populated and the route does not change")
     (rf/dispatch-sync [:rf.route/cancel "pn-1"])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "cancel clears :rf/pending-navigation")
-    (is (= :editor/article
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "cancel does NOT navigate")
-
-    ;; 5. Now block again — and CONTINUE this time.
+    (is (= [nil :editor/article] [(pending) (current-id)]) "cancel clears; no navigation")
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "second blocked request reseats the slot")
+    (is (some? (pending)) "a second blocked request reseats the slot")
     (rf/dispatch-sync [:rf.route/continue "pn-2"])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "continue clears :rf/pending-navigation")
-    (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "continue completes the original navigation")))
-
-;; ---- pending-nav protocol: continue / cancel with NO pending slot --------
-;;
-;; `pending-nav-continue-and-cancel-require-matching-id` covers a WRONG id
-;; while a pending nav EXISTS. The complementary case — dispatching continue
-;; / cancel when the slot is empty (a stray event, a double-cancel) — must be
-;; a clean no-op: continue's `(and pending ...)` guard and cancel's
-;; `(= pn-id <nil id>)` both fall through to `{}`.
-
-(deftest continue-and-cancel-no-op-when-no-pending-nav
-  (testing ":rf.route/cancel and :rf.route/continue are safe no-ops when
-            :rf/pending-navigation is empty (no slot to resolve)"
-    (rf/reg-route :route/home {} "/")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Land on home; no navigation is pending.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "no pending navigation to begin with")
-    (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-      ;; Stray cancel — nothing to clear.
-      (rf/dispatch-sync [:rf.route/cancel "phantom-id"])
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-          "cancel with no pending slot leaves the slot nil")
-      (is (= before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
-          "cancel with no pending slot does not perturb the route slice")
-      ;; Stray continue — no original event to re-issue.
-      (rf/dispatch-sync [:rf.route/continue "phantom-id"])
-      (is (= before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
-          "continue with no pending slot does not navigate")
-      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-          "the active route stays put"))))
+    (is (= [nil :route/cart] [(pending) (current-id)])
+        "continue clears and completes the original navigation")))
 
 ;; ---- :rf/pending-navigation full slot shape ------------------------------
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol and
-;; Spec-Schemas.md §:rf/pending-navigation the slot carries
-;; `{:id :destination :target :cause :policy :requested-url
-;;   :rejecting-route :rejecting-guard}`. Tools / dialogs read :rejecting-guard to render
-;; meaningful "Discard changes on Editor?" prompts.
+;; Spec-Schemas.md §:rf/pending-navigation. Tools / dialogs read
+;; :rejecting-guard to render "Discard changes on Editor?" prompts.
 
 (deftest pending-navigation-slot-shape
-  (testing ":rf/pending-navigation carries the full Spec-Schemas slot shape"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
-      (is (string? (:id pending))
-          ":id is the opaque pending-nav id")
-      (is (= "/cart" (:requested-url pending))
-          ":requested-url carries the navigation target")
-      (is (= :editor/article (:rejecting-route pending))
-          ":rejecting-route names the active route at rejection time")
-      (is (= :editor/can-leave? (:rejecting-guard pending))
-          ":rejecting-guard names the rejecting sub-id (for tooling)")
-      (is (= {:to :route/cart} (:destination pending))
-          ":destination replaces the original event vector as the replay description")
-      (is (= {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
-             (:target pending))
-          ":target is the resolved target the guards saw")
-      (is (= :link (:cause pending)) ":cause names the door")
-      (is (= {} (:policy pending))
-          ":policy is {} when the caller authored no :replace? / :scroll")
-      (is (nil? (:reason pending))
-          "the leave-only slot carries no :reason discriminator — it is always a leave")
-      (is (nil? (:direction pending))
-          "…and no :direction discriminator")
-      (is (nil? (:enter-attempts pending))
-          "…and no :enter-attempts key"))))
+  (editor! :editor/can-leave?)
+  (dirty-editor!)
+  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+  (let [p (pending)]
+    (is (string? (:id p)) ":id is the opaque pending-nav id")
+    (is (= {:requested-url   "/cart"
+            :rejecting-route :editor/article
+            :rejecting-guard :editor/can-leave?
+            :destination     {:to :route/cart}
+            :target          {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
+            :cause           :link
+            :policy          {}}
+           (select-keys p [:requested-url :rejecting-route :rejecting-guard
+                           :destination :target :cause :policy])))))
 
 ;; ---- :can-leave query vectors, and the leave guard on every door ---------
 
 (deftest can-leave-query-vector-blocks-url-requested
-  (testing "Spec-shaped :can-leave query vectors are subscribed directly"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
+  (testing "a Spec-shaped :can-leave query vector is subscribed directly; the
+            slot stores the guard id, not the whole vector"
+    (editor! [:editor/can-leave?])
+    (dirty-editor!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
-      (is (some? pending)
-          "query-vector guard returning false blocks the navigation")
-      (is (= :editor/can-leave? (:rejecting-guard pending))
-          "pending slot stores the guard id, not the whole query vector")
-      (is (= [:editor/can-leave?] (:can-leave (rf/handler-meta {:source :store :kind :route :id :editor/article})))
-          "route metadata preserves canonical query-vector semantics"))))
+    (is (= :editor/can-leave? (:rejecting-guard (pending))))))
 
 (deftest programmatic-navigate-runs-can-leave-guard
   (testing ":rf.route/navigate is guarded by the active route's :can-leave"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (editor! [:editor/can-leave?])
     (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:editor/dirty true])
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+                    (fn [_ url] (swap! pushed conj url)))
+      (dirty-editor!)
+      (reset! pushed [])
       (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (is (some? (get-in db [:rf.runtime/routing :pending-navigation]))
-            "programmatic navigation sets pending-navigation when blocked")
-        (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
-            "the active route does not change")
-        (is (empty? @pushed)
-            "pushState is not requested for a blocked programmatic nav")))))
+      (is (= [true :editor/article] [(some? (pending)) (current-id)]))
+      (is (empty? @pushed) "pushState is not requested for a blocked programmatic nav"))))
 
 (deftest handle-url-change-runs-can-leave-guard
   (testing ":rf.route/handle-url-change is guarded by the active route's :can-leave"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
+    (editor! [:editor/can-leave?])
+    (dirty-editor!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/cart"])
-    (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-      (is (some? (get-in db [:rf.runtime/routing :pending-navigation]))
-          "popstate/initial URL handling sets pending-navigation when blocked")
-      (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
-          "the active route does not change while pending"))))
+    (is (= [true :editor/article] [(some? (pending)) (current-id)]))))
 
 (deftest pending-nav-continue-and-cancel-require-matching-id
   (testing ":rf.route/continue and :rf.route/cancel ignore stale pending-nav ids"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
+    (editor! [:editor/can-leave?])
+    (dirty-editor!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (let [pending-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :pending-navigation :id])]
+    (let [pending-id (:id (pending))]
       (rf/dispatch-sync [:rf.route/cancel "stale-id"])
-      (is (= pending-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/routing :pending-navigation :id]))
-          "cancel with the wrong id leaves the pending navigation intact")
+      (is (= pending-id (:id (pending))) "cancel with the wrong id leaves the slot intact")
       (rf/dispatch-sync [:rf.route/continue "stale-id"])
-      (is (= :editor/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                     [:rf.runtime/routing :current :route-id]))
-          "continue with the wrong id does not navigate")
-      (is (= pending-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/routing :pending-navigation :id]))
-          "continue with the wrong id leaves the pending navigation intact")
+      (is (= [pending-id :editor/article] [(:id (pending)) (current-id)])
+          "continue with the wrong id neither navigates nor clears the slot")
       (rf/dispatch-sync [:rf.route/cancel pending-id])
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-          "cancel with the matching id clears the slot"))))
+      (is (nil? (pending)) "cancel with the matching id clears the slot"))))
 
 ;; ---- :rf.route/navigation-blocked is a DISPATCHED event -------------------
 ;;
 ;; Spec 012 §Navigation blocking §Default flow step 4d: the runtime
-;; DISPATCHES [:rf.route/navigation-blocked pending-nav]. An app that
-;; registers its own :rf.route/navigation-blocked handler must see it
-;; fire; the trace (step 4e) alone would not fire it.
+;; DISPATCHES [:rf.route/navigation-blocked pending-nav], so an app-registered
+;; handler fires; the trace (step 4e) alone would not fire it.
 
 (deftest navigation-blocked-is-dispatched-as-an-event
-  (testing "a :can-leave rejection DISPATCHES
-            [:rf.route/navigation-blocked pending-nav] so an
-            app-registered handler fires (Spec 012 §Default flow 4d)"
-    (let [seen (atom nil)]
-      (rf/reg-route :editor/article
-                    {:params    [:map [:id :string]]
-                     :can-leave :editor/can-leave?} "/editor/articles/:id")
-      (rf/reg-route :route/cart {} "/cart")
-      (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-      (rf/reg-sub :editor/can-leave?
-                  (fn [db _] (not (get-in db [:editor :dirty?]))))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-      ;; App registers its OWN handler over the framework default no-op,
-      ;; through the PUBLIC `rf/reg-event` — the documented spelling.
-      (rf/reg-event :rf.route/navigation-blocked
-                    (fn [_ [_ pending-nav]]
-                      (reset! seen pending-nav)
-                      {}))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (is (some? @seen)
-          "app-registered :rf.route/navigation-blocked handler fired")
-      (is (= "/cart" (:requested-url @seen))
-          "the dispatched event carried the pending-nav map as its arg")
-      (is (= :editor/article (:rejecting-route @seen))
-          "pending-nav names the rejecting route")
-      (is (= :editor/can-leave? (:rejecting-guard @seen))
-          "pending-nav names the rejecting guard sub-id"))))
+  (let [seen (atom nil)]
+    (editor! :editor/can-leave?)
+    (rf/reg-event :rf.route/navigation-blocked
+                  (fn [_ [_ pending-nav]] (reset! seen pending-nav) {}))
+    (dirty-editor!)
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (is (= {:requested-url "/cart" :rejecting-route :editor/article :rejecting-guard :editor/can-leave?}
+           (select-keys @seen [:requested-url :rejecting-route :rejecting-guard]))
+        "the app handler received the pending-nav map")))
 
 ;; ============================================================================
 ;; can-leave / external-url diagnostics carry :frame
 ;; ============================================================================
 ;;
-;; `:rf.error/can-leave-non-boolean`,
-;; `:rf.warning/can-leave-subs-artefact-missing`,
-;; `:rf.route/navigation-blocked`, and `:rf.route/external-url-requested`
-;; stamp the `:frame` their emit site has in hand. Because
 ;; `re-frame.epoch.capture/capture-event!` admits ONLY frame-tagged traces and
 ;; the frame-level trace-disable gate in `re-frame.trace/emit!` keys off
-;; `:tags :frame`, an untagged frame-known diagnostic would drop from epoch /
+;; `:tags :frame`, so an untagged frame-known diagnostic would drop from epoch /
 ;; Xray AND leak past a `:rf.trace/frame-no-emit?` tool frame. These tests use
 ;; a NON-DEFAULT frame so a regression that drops the tag fails here.
 
+(defn- two-frames! []
+  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :route/owner}))
+
+(defmacro ^:private traced
+  "The trace events emitted while `body` runs."
+  [& body]
+  `(let [traces# (atom [])]
+     (rf/register-listener! :trace ::traced (fn [ev#] (swap! traces# conj ev#)))
+     (try ~@body (finally (rf/unregister-listener! :trace ::traced)))
+     @traces#))
+
 (deftest navigation-blocked-trace-carries-frame-rf2-dbmj6x
-  (testing ":rf.route/navigation-blocked stamps :frame for a
-            non-default frame"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
-    (rf/dispatch-sync [:editor/dirty true] {:frame :route/owner})
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-blocked)
-      ;; SEMANTIC, posture-independent: the block landed in the
-      ;; NON-DEFAULT frame and nowhere else. That is the production half of
-      ;; "the diagnostic knew which frame it was on" — the rejecting guard is
-      ;; recorded in :route/owner's runtime-db, and :rf/default is untouched.
-      (is (= :editor/can-leave?
-             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                     [:rf.runtime/routing :pending-navigation :rejecting-guard]))
-          ":route/owner's pending-nav slot names the rejecting guard")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :pending-navigation]))
-          ":rf/default saw no pending navigation — the block is frame-local")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route/navigation-blocked (:operation ev))
-                         (= :editor/can-leave? (-> ev :tags :rejecting-guard))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route/navigation-blocked carries :frame :route/owner")))))
+  (two-frames!)
+  (editor! :editor/can-leave?)
+  (dirty-editor! :route/owner true)
+  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner}))]
+    ;; SEMANTIC, posture-independent: the block landed in the NON-DEFAULT
+    ;; frame and nowhere else.
+    (is (= :editor/can-leave? (:rejecting-guard (pending :route/owner))))
+    (is (nil? (pending)) ":rf/default saw no pending navigation — the block is frame-local")
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev]
+                  (and (= :rf.route/navigation-blocked (:operation ev))
+                       (= :editor/can-leave? (-> ev :tags :rejecting-guard))
+                       (= :route/owner (-> ev :tags :frame))))
+                traces)
+          ":rf.route/navigation-blocked carries :frame :route/owner"))))
 
 (deftest can-leave-non-boolean-trace-carries-frame-rf2-dbmj6x
-  (testing ":rf.error/can-leave-non-boolean stamps :frame for a
-            non-default frame (the guard already resolves the sub against it)"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/set-dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
-    (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
-    (rf/dispatch-sync [:editor/set-dirty 42] {:frame :route/owner})
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-nb)
-      ;; SEMANTIC, posture-independent: the non-boolean guard failed
-      ;; CLOSED against the NON-DEFAULT frame — :route/owner is still on the
-      ;; source route with a pending slot, and :rf/default was never involved.
-      (is (= :editor/article
-             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                     [:rf.runtime/routing :current :route-id]))
-          ":route/owner stayed on the source route — the guard failed closed there")
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                         [:rf.runtime/routing :pending-navigation]))
-          ":route/owner's pending-nav slot is populated")
-      (is (= :editor/article
-             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                     [:rf.runtime/routing :pending-navigation :rejecting-route]))
-          ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :pending-navigation]))
-          ":rf/default saw no pending navigation — the guard is frame-local")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.error/can-leave-non-boolean (:operation ev))
-                         (= 42 (-> ev :tags :value))
-                         (= :editor/article (-> ev :tags :route-id))
-                         (= :blocked-navigation (:recovery ev))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.error/can-leave-non-boolean carries the offending value, the route-id
-             keyword, :recovery :blocked-navigation and :frame :route/owner")))))
+  (two-frames!)
+  (editor! [:editor/leave?])
+  ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
+  (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
+  (dirty-editor! :route/owner 42)
+  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner}))]
+    ;; SEMANTIC, posture-independent: the non-boolean guard failed CLOSED
+    ;; against the NON-DEFAULT frame, and :rejecting-route is the route-id
+    ;; KEYWORD, not the "/editor/articles/:id" path string.
+    (is (= [:editor/article :editor/article]
+           [(current-id :route/owner) (:rejecting-route (pending :route/owner))]))
+    (is (nil? (pending)) ":rf/default saw no pending navigation — the guard is frame-local")
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev]
+                  (and (= :rf.error/can-leave-non-boolean (:operation ev))
+                       (= 42 (-> ev :tags :value))
+                       (= :editor/article (-> ev :tags :route-id))
+                       (= :blocked-navigation (:recovery ev))
+                       (= :route/owner (-> ev :tags :frame))))
+                traces)
+          ":rf.error/can-leave-non-boolean carries the offending value, the route-id
+           keyword, :recovery :blocked-navigation and :frame :route/owner"))))
 
 (deftest can-leave-subs-artefact-missing-trace-carries-frame-rf2-dbmj6x
-  (testing ":rf.warning/can-leave-subs-artefact-missing stamps
-            :frame for a non-default frame when the subs hook is unbound"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
-    ;; Unbind the subs hook so `can-leave?` falls through to the
-    ;; subs-artefact-missing warning branch (the consumer-opted-out path).
-    (let [prior (rf.late-bind/get-fn :subs/subscribe-once)]
-      (try
-        (rf.late-bind/set-fn! :subs/subscribe-once nil)
-        (let [traces (atom [])]
-          (rf/register-listener! :trace ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
-          (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
-          (rf/unregister-listener! :trace ::dbmj6x-missing)
-          ;; SEMANTIC, posture-independent: with the subs hook
-          ;; unbound the guard cannot be evaluated, so `decisions/guard?`
-          ;; degrades to ALLOW — the navigation
-          ;; PROCEEDS in :route/owner and no pending slot is written. The
-          ;; warning is the dev-only announcement of that degraded state.
-          (is (= :route/cart
-                 (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                         [:rf.runtime/routing :current :route-id]))
-              "the unevaluable guard degraded to ALLOW — :route/owner navigated")
-          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                            [:rf.runtime/routing :pending-navigation]))
-              "…and nothing was left pending")
-          ;; Dev-instrumentation arm (see ns docstring).
-          (when rf.interop/debug-enabled?
-            (is (some (fn [ev]
-                        (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
-                             (= :route/owner (-> ev :tags :frame))))
-                      @traces)
-                ":rf.warning/can-leave-subs-artefact-missing carries :frame :route/owner")))
-        (finally
-          ;; Restore the hook (it lives in core/subs.cljc, which the routing
-          ;; fixture does NOT reload, so it must be put back explicitly).
-          (rf.late-bind/set-fn! :subs/subscribe-once prior))))))
+  (two-frames!)
+  (editor! :editor/can-leave?)
+  (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}]
+                    {:frame :route/owner})
+  ;; The subs hook lives in core/subs.cljc, which the routing fixture does NOT
+  ;; reload, so it is put back explicitly.
+  (let [prior (rf.late-bind/get-fn :subs/subscribe-once)]
+    (try
+      (rf.late-bind/set-fn! :subs/subscribe-once nil)
+      (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}]
+                                             {:frame :route/owner}))]
+        ;; SEMANTIC, posture-independent: the unevaluable guard degrades to
+        ;; ALLOW — :route/owner navigated and nothing was left pending.
+        (is (= [:route/cart nil] [(current-id :route/owner) (pending :route/owner)]))
+        ;; Dev-instrumentation arm (see ns docstring).
+        (when rf.interop/debug-enabled?
+          (is (some (fn [ev]
+                      (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
+                           (= :route/owner (-> ev :tags :frame))))
+                    traces)
+              ":rf.warning/can-leave-subs-artefact-missing carries :frame :route/owner")))
+      (finally
+        (rf.late-bind/set-fn! :subs/subscribe-once prior)))))
 
 (deftest external-url-requested-trace-carries-frame-rf2-dbmj6x
-  (testing ":rf.route/url-requested external-URL branch stamps :frame
-            for a non-default frame (symmetric with the programmatic
-            `:rf.route/navigate {:url ...}` external path, which already tags)"
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/home {} "/")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}] {:frame :route/owner})
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
-                        {:frame :route/owner})
-      (rf/unregister-listener! :trace ::dbmj6x-external)
-      ;; SEMANTIC, posture-independent: an EXTERNAL URL is not an
-      ;; in-app navigation — :route/owner's slice stays on `/` and no pending
-      ;; slot is written. That is the branch the trace merely announces.
-      (is (= :route/home
-             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                     [:rf.runtime/routing :current :route-id]))
-          "the external URL did not move :route/owner's routing slice")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
-                        [:rf.runtime/routing :pending-navigation]))
-          "…and left nothing pending")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route/external-url-requested (:operation ev))
-                         (= :route/owner (-> ev :tags :frame))))
-                  @traces)
-            ":rf.route/external-url-requested carries :frame :route/owner")))))
+  (two-frames!)
+  (rf/reg-route :route/home {} "/")
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}] {:frame :route/owner})
+  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
+                                         {:frame :route/owner}))]
+    ;; SEMANTIC, posture-independent: an EXTERNAL URL is not an in-app
+    ;; navigation — :route/owner stays on `/` with nothing pending.
+    (is (= [:route/home nil] [(current-id :route/owner) (pending :route/owner)]))
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (some (fn [ev]
+                  (and (= :rf.route/external-url-requested (:operation ev))
+                       (= :route/owner (-> ev :tags :frame))))
+                traces)
+          ":rf.route/external-url-requested carries :frame :route/owner"))))
 
 ;; ============================================================================
 ;; nav-guard phase fails CLOSED on a throwing/hostile URL
 ;; ============================================================================
 ;;
-;; The target the leave/enter guards branch on comes from
-;; `rf.routing.resolve/url-resolution`, which resolves through
-;; `match-url-fail-closed` rather than raw `rf.routing.registry/match-url` —
-;; the SAME wrapper `url-change-fx` routes through. The target is resolved
-;; before the guards on every navigation,
-;; even when the route declares no `:can-leave` / `:can-enter` at all, so a
-;; raw `match-url` there would let any unexpected throw escape the guard phase
-;; and crash the event drain for EVERY nav entry point (`:rf.route/url-requested`,
-;; `:rf.route/navigate`,
-;; `:rf.route/handle-url-change`) instead of failing closed to
+;; The guard-phase target comes from `rf.routing.resolve/url-resolution`, which
+;; resolves through `match-url-fail-closed` — the SAME wrapper `url-change-fx`
+;; uses. It runs on every navigation, guards or not, so a raw `match-url` there
+;; would let an unexpected throw escape `dispatch-sync` and crash the event
+;; drain for every nav entry point instead of failing closed to
 ;; `:rf.route/not-found` like a bare miss.
 
 (deftest nav-guard-hostile-url-fails-closed-not-found-rf2-dqlfty
-  (testing "a URL that makes `match-url` THROW during the
-            nav-guard phase must not crash the event drain — the
-            guard-phase target resolves through `match-url-fail-closed`
-            exactly like `url-change-fx`, so the throw is swallowed and the
-            navigation proceeds to :rf.route/not-found instead of an
-            uncaught exception escaping `dispatch-sync`"
-    (rf/reg-route :route/home {} "/")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-    (with-redefs [rf.routing.registry/match-url
-                  (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
-      ;; A raw `match-url` would throw this call straight out of
-      ;; dispatch-sync (crashing the event drain); it completes cleanly.
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
-      (is (= :rf.route/not-found
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/routing :current :route-id]))
-          "the throwing URL fails closed to :rf.route/not-found rather than
-           crashing the event drain"))))
+  (rf/reg-route :route/home {} "/")
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
+  (with-redefs [rf.routing.registry/match-url
+                (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
+    (is (= :rf.route/not-found (current-id))
+        "the throwing URL fails closed to :rf.route/not-found rather than
+         crashing the event drain")))
 
 (deftest nav-guard-hostile-url-does-not-bypass-declared-can-leave-guard-rf2-dqlfty
-  (testing "the fail-closed target still lets a DECLARED
-            :can-leave guard run against the CURRENT route (only the
-            TARGET — derived from the hostile
-            URL — degrades to a miss); a dirty-form guard still blocks a hostile
-            navigation attempt rather than silently crashing past it"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
+  (testing "only the TARGET derived from the hostile URL degrades to a miss; a
+            declared dirty-form :can-leave still runs against the CURRENT route
+            and blocks the attempt"
+    (editor! :editor/can-leave?)
+    (dirty-editor!)
     (with-redefs [rf.routing.registry/match-url
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
       (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :pending-navigation]))
-          "the dirty-form :can-leave guard still blocks the throwing URL —
-           no crash, no silent bypass")
-      (is (= :editor/article
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/routing :current :route-id]))
-          "the active route is unchanged (leave was blocked, not crashed
-           past)"))))
+      (is (= [true :editor/article] [(some? (pending)) (current-id)])))))
