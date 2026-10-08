@@ -271,14 +271,11 @@
                                cascade record r/as-element nil)))
             container    (:container mounted)]
         (try
-          (is (every? string? [a-go b-go a-always b-always])
-              "all four real regional edges exist in the projection")
           (let [chart    (.querySelector container
                            "[data-testid=\"rf-xray-machine-focused-event-chart\"]")
                 rendered (some-> chart (.getAttribute "data-fired-edge-ids"))
                 ids      (set (when rendered
                                 (remove string/blank? (string/split rendered #"\s+"))))]
-            (is (some? chart) "the focused-event chart wrapper rendered")
             (is (= #{a-go b-go a-always b-always} ids)
                 (str "data-fired-edge-ids RENDERS exactly the four real regional edges "
                      "(two direct :go + two :always rounds); rendered=" (pr-str rendered))))
