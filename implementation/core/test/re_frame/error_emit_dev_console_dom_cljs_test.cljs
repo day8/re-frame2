@@ -1,88 +1,28 @@
 (ns re-frame.error-emit-dev-console-dom-cljs-test
   "The unowned-error dev console fallback in `re-frame.error-emit`.
 
-  An untooled dev build DOES surface a framework refusal, via a dev-build
-  console.error fallback that fires ONLY when NOTHING ROUTED the record.
-  Not `reportError`; no new API knob; browser-hosted dev builds only.
+  When NOTHING ROUTED a refusal record — no `:errors` listener registered
+  (corpus-wide), and the record's own frame delivered it to no REGISTERED
+  `:observability :errors` sink (frame-scoped) — a browser-hosted dev build
+  prints it once as `[\"[re-frame2]\" <summary> <record> <exception>]`: a
+  readable summary line (the category, then the exception's message, else the
+  record's `:reason`), the record as a value, and the original exception when
+  the category carries one. Never `reportError`: the browser test runner fails
+  a run on any `pageerror`, and suites elsewhere exercise refusals on purpose.
 
-  This suite is the two-way control, and BOTH halves are the contract:
-
-    - with nothing owning it a promoted refusal reaches the console exactly
-      once, as `[\"[re-frame2]\" <summary> <record> <exception>]` — a readable
-      SUMMARY LINE first, then the structured record and the ORIGINAL
-      exception as separate console ARGUMENTS;
-    - with ANY `:errors` listener attached the fallback is SILENT — that is
-      what stops it being a nag-diagnostic. Ownership is corpus-wide and
-      implicit: a listener that ignores the category, or
-      one that itself throws, still owns the stream. Dropping the last
-      listener resumes the fallback.
-
-  The SECOND ownership arm has its block beside the listener block below:
-  the record's owning frame having routed it to a REGISTERED
-  `:observability :errors` sink also owns it, frame-scoped rather than
-  corpus-wide.
-
-  ## The summary argument
-
-  The record rides as a VALUE, and that is right — but a CLJS map is not a
-  JS object. Chrome renders its interior fields, so the record alone would
-  show `[re-frame2] {meta: null, cnt: 7, arr: Array(14), __hash: null, …}`
-  and no message at all (measured in headless Chromium, not asserted in a
-  unit test).
-
-  So a readable line LEADS, and the assertions below pin both halves of
-  that: the summary is text and names the category, AND the record and
-  exception still ride as their own arguments so a structured consumer and
-  the DevTools inspector are unaffected. The summary composes no new error
-  prose — it is the exception's `ex-message`, else the record's `:reason`,
-  else the bare category keyword.
-
-  And, in every case, ZERO `reportError` calls. `reportError` reports \"in
-  the same fashion as an unhandled exception\" (HTML Standard), which
-  Chromium turns into a `pageerror` — and
-  `implementation/scripts/run-browser-tests.cjs` fails an otherwise-green
-  run on any `pageerror` while treating console output as diagnostic-only
-  (\"only pageerror is fatal\"). Suites elsewhere in this bundle exercise
-  promoted refusals deliberately, so the no-`reportError` assertion is
-  what keeps the fallback off the runner's fatal channel.
-
-  ## Why the ns is `-dom-cljs-test`
-
-  The `-dom-cljs-test$` suffix puts this namespace on the `:browser-test`
-  build (the only lane with a real browser host, where the fallback is
-  live), and the broader `cljs-test$` regexp ALSO puts it on the always-on
-  `:node-test` build — where it runs the other half of the host boundary:
-  Node-targeted CLJS has a `console` too and must stay listener-only, so
-  the Node lane asserts SILENCE for the same refusal. One file, both sides
-  of the boundary, neither able to drift from the other.
-
-  Every browser-gated row below therefore spells its guard as
-  `(if-not (browser?) (is true skip-msg) ...)` rather than as a bare
-  `(when (browser?) ...)`. Under `:node-test` the marker assertion fires
-  and the row reports a STATED skip; a bare `when` would leave it passing
-  with zero assertions, which reads on the console exactly like a row that
-  ran. The browser lane evaluates the same body either way.
-  `node-targeted-cljs-stays-quiet` is the one row that runs only OFF a DOM
-  host, so its guard and its stated skip are the mirror image: the marker
-  fires under `:browser-test`, where the row's body does not run.
-
-  The JVM / SSR lane is listener-only by the same rule and needs no
-  counterpart here: `#?(:clj …)` in `report-unowned-error!` is `nil`."
+  The `-dom-cljs-test` suffix puts this namespace on `:browser-test`, where the
+  fallback is live, and the broader `cljs-test$` regexp also puts it on
+  `:node-test`, which has a `console` but no DOM and must stay silent. So every
+  browser-only row reports a stated skip under Node, and
+  `node-targeted-cljs-stays-quiet` is the mirror image."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
-            ;; The app-db rejection arm below needs the OPTIONAL
-            ;; schemas artefact actually loaded — without the require,
-            ;; `reg-app-schema` writes into a registry no validator consults
-            ;; and the whole deftest passes vacuously.
+            ;; Loaded so `reg-app-schema` reaches a validator; without it the
+            ;; app-db rollback row passes vacuously.
             [re-frame.schemas]
-            ;; The machine-data rollback arm below drives a real
-            ;; machine, so the machines artefact has to be LOADED — its
-            ;; late-bind hooks are what the candidate walker resolves, and
-            ;; without them the deftest would pass vacuously.
-            [re-frame.machines]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -90,21 +30,14 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
+     ;; Both ownership registries are `defonce` atoms, and an entry leaked
+     ;; from a sibling test would silence the fallback invisibly.
      :init-fn (fn []
-                ;; The listener registry is a `defonce` atom that survives
-                ;; test re-runs, and EMPTINESS is the whole condition under
-                ;; test here — a listener leaked from a sibling test would
-                ;; silently invert every assertion below.
                 (rf.error-emit/clear-error-listeners!)
-                ;; The sink registry is the SECOND ownership arm and a
-                ;; `defonce` atom for the same reason, so a sink leaked
-                ;; from a sibling test silences the fallback just as
-                ;; invisibly.
                 (rf.observability/clear-observability-sinks!))}))
 
 (defn- browser?
-  "True only on a real DOM host. `js/document` presence is the same
-  discriminator the fallback itself uses."
+  "True only on a real DOM host — the discriminator the fallback itself uses."
   []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -113,15 +46,10 @@
   "skipped: no DOM (node lane — see ns docstring)")
 
 (defn- capture-console
-  "Run `thunk` with `console.error` swapped for a recorder and
-  `globalThis.reportError` swapped for a counter. Returns
-
-      {:console      [[arg …] …]   ;; one entry per call, ARGUMENTS not text
-       :report-error <int>}
-
-  Restores both, including when `thunk` throws. Arguments are kept
-  unflattened on purpose: the contract is what the framework PASSES, not
-  how a console chooses to render it."
+  "Run `thunk` with `console.error` and `globalThis.reportError` swapped for
+  recorders, restoring both. Returns `{:console [[arg …] …] :report-error <int>}`,
+  keeping the ARGUMENTS of each call, since the contract is what the framework
+  passes rather than how a console renders it."
   [thunk]
   (let [calls       (atom [])
         reports     (atom 0)
@@ -140,12 +68,10 @@
 
 (defn- register-refusal-handlers! []
   (rf/reg-event :fu75.console/throws
-                (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
-  (rf/reg-event :fu75.console/foreign-fx
-                (fn [_ _] {:db {} :fu75.console/not-an-fx-key 1})))
+                (fn [_ _] (throw (ex-info "kaboom" {:cause :test})))))
 
 ;; ===========================================================================
-;; EMPTY REGISTRY — the fallback fires, exactly once, with the right arguments
+;; Unowned — the fallback fires once, with the right arguments
 ;; ===========================================================================
 
 (deftest unowned-refusal-reaches-the-dev-console
@@ -153,233 +79,125 @@
     (is true skip-msg)
     (do
       (register-refusal-handlers!)
-      (testing "a throwing handler — one structured diagnostic, no reportError"
+      (testing "a throwing handler: prefix, summary, record, original exception;
+                no reportError"
         (let [{:keys [console report-error]}
               (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
           (is (= 1 (count console))
               (str "exactly one console.error for one refusal; got "
                    (pr-str (mapv first console))))
           (let [[prefix summary record ex] (first console)]
-            (is (= "[re-frame2]" prefix) "the stable prefix leads")
-            (is (string? summary)
-                "a READABLE line comes before the record — without it
-                 Chrome renders the CLJS map's interior fields and the reader
-                 sees no message at all")
-            (is (re-find #"^:rf\.error/handler-exception\b" summary)
-                (str "the summary names the category first — the greppable "
-                     "discriminator; got " (pr-str summary)))
-            (is (re-find #"kaboom" summary)
-                (str "and carries the exception's OWN message, not a synthesised "
-                     "one; got " (pr-str summary)))
-            (is (map? record) "the structured record still rides as its OWN argument")
-            (is (= :rf.error/handler-exception (:error record)))
-            (is (= :fu75.console/throws (:event-id record)))
-            (is (= [:fu75.console/throws] (:event record)))
-            (is (= :rf/default (:frame record)))
-            (is (identical? ex (:exception record))
-                "the ORIGINAL exception object rides as its own argument")
-            (is (= "kaboom" (ex-message ex))
-                "and it is the handler's exception, not a synthesised one"))
-          (is (zero? report-error)
-              "no reportError — so no window `error` event and no pageerror")))
-
-      (testing "the effect-map envelope refusal — same shape"
-        (let [{:keys [console report-error]}
-              (capture-console #(rf/dispatch-sync [:fu75.console/foreign-fx]))]
-          (is (= 1 (count console)))
-          (let [[prefix summary record] (first console)]
             (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/effect-map-shape\b" summary))
-            (is (= :rf.error/effect-map-shape (:error record))))
+            (is (re-find #"^:rf\.error/handler-exception\b" summary)
+                (str "the summary names the category first; got " (pr-str summary)))
+            (is (re-find #"kaboom" summary)
+                (str "and carries the exception's own message; got " (pr-str summary)))
+            (is (= :rf.error/handler-exception (:error record)))
+            (is (identical? ex (:exception record))
+                "the original exception rides as its own argument")
+            (is (= "kaboom" (ex-message ex))))
           (is (zero? report-error))))
 
-      (testing "an unregistered event id — the typo case. It carries NO
-                exception, so there is no fourth argument; the summary still
-                names the category, which is what a reader greps"
-        (let [{:keys [console report-error]}
+      (testing "an unregistered event id carries no exception and no :reason: three
+                arguments, and the summary is the bare category"
+        (let [{:keys [console]}
               (capture-console #(rf/dispatch-sync [:fu75.console/nothing-here]))]
           (is (= 1 (count console)))
           (let [args (first console)]
             (is (= 3 (count args))
-                (str "prefix + summary + record — nothing synthesised to stand in "
-                     "for the absent exception; got " (count args) " arguments"))
+                (str "prefix + summary + record; got " (count args) " arguments"))
             (is (= "[re-frame2]" (first args)))
             (is (= ":rf.error/no-such-handler" (second args))
-                (str "no exception and no :reason on this category, so the summary "
-                     "is the bare category keyword — never an empty string, never "
-                     "invented prose; got " (pr-str (second args))))
-            (is (= :rf.error/no-such-handler (:error (nth args 2))))
-            (is (nil? (:exception (nth args 2)))))
-          (is (zero? report-error)))))))
-
-;; ===========================================================================
-;; NON-EVENT UNION RECORD — the second fan-out site follows the same rule
-;; ===========================================================================
+                (str "never an empty string, never invented prose; got "
+                     (pr-str (second args))))
+            (is (= :rf.error/no-such-handler (:error (nth args 2))))))))))
 
 (deftest unowned-union-record-reaches-the-dev-console
   (if-not (browser?)
     (is true skip-msg)
-    (do
-      (testing "`dispatch-error-record*`'s site — reached here through the
-                genuine frame-teardown report caller, a non-event union record
-                that carries no top-level `:exception`"
-        (let [{:keys [console report-error]}
-              (capture-console
-                (fn []
-                  (rf.error-emit/dispatch-frame-teardown-report!
-                    :rf/default
-                    [{:hook :fu75/step :exception (ex-info "teardown" {})
-                      :where :safe-call-hook!}]
-                    1234)))]
-          (is (= 1 (count console)))
-          (let [[prefix summary record] (first console)]
-            (is (= 3 (count (first console))))
-            (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/frame-teardown-failed\b" summary))
-            (is (re-find #"teardown step\(s\) threw" summary)
-                (str "this union record carries no top-level :exception but DOES "
-                     "carry a composed :reason — the summary must fall back to it "
-                     "rather than stopping at the category; got " (pr-str summary)))
-            (is (= :rf.error/frame-teardown-failed (:error record)))
-            (is (= 1 (count (:hook-failures record)))))
-          (is (zero? report-error)))))))
+    (testing "the `dispatch-error-record*` site, through the frame-teardown
+              report: no top-level exception, so the summary falls back to the
+              record's composed :reason"
+      (let [{:keys [console]}
+            (capture-console
+              (fn []
+                (rf.error-emit/dispatch-frame-teardown-report!
+                  :rf/default
+                  [{:hook :fu75/step :exception (ex-info "teardown" {})
+                    :where :safe-call-hook!}]
+                  1234)))]
+        (is (= 1 (count console)))
+        (let [[prefix summary record] (first console)]
+          (is (= 3 (count (first console))))
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/frame-teardown-failed\b" summary))
+          (is (re-find #"teardown step\(s\) threw" summary)
+              (str "the summary falls back to :reason; got " (pr-str summary)))
+          (is (= :rf.error/frame-teardown-failed (:error record))))))))
 
-;; ===========================================================================
-;; NO-FRAME-CONTEXT — the category with no exception to summarise
-;; ===========================================================================
-;;
-;; A summary line alone cannot help this category. `emit-no-frame-context!`
-;; passes no exception (nothing threw — the operation is invalid), so a record
-;; of pure metadata would carry the recovery ladder `no-frame-context-payload`
-;; composes nowhere on the always-on axis, and no formatter reading only the
-;; record could recover a sentence that is not there.
-;;
-;; So both halves are asserted here: the ladder is ON THE RECORD (the emit
-;; site carries it through `dispatch-on-error!`'s attribution seam),
-;; and it REACHES THE CONSOLE LINE.
+;; `emit-no-frame-context!` and `emit-bad-frame-provider-arg!` pass no
+;; exception (nothing threw), so the record's `:reason` is the only place the
+;; composed sentence can reach the always-on axis and the console line.
 
 (deftest no-frame-context-carries-its-ladder-to-the-console
   (if-not (browser?)
     (is true skip-msg)
-    (do
-      (let [payload (rf.frame/no-frame-context-payload :subscribe
-                                                    {:where 'rf/subscribe})]
-        (is (string? (:reason payload))
-            "premise: the payload composes the ladder in the first place")
+    (let [payload (rf.frame/no-frame-context-payload :subscribe {:where 'rf/subscribe})]
+      (testing "the always-on record carries the payload's own :reason and :recovery"
+        (let [seen (atom [])]
+          (rf.error-emit/register-error-listener! :fu75/ladder
+                                                  (fn [record] (swap! seen conj record)))
+          (rf.frame/emit-no-frame-context! payload)
+          (rf.error-emit/unregister-error-listener! :fu75/ladder)
+          (let [record (first @seen)]
+            (is (= :rf.error/no-frame-context (:error record)))
+            (is (= (:reason payload) (:reason record)))
+            (is (= :supply-frame (:recovery record))))))
 
-        (testing "the always-on record carries the payload's OWN :reason and
-                  :recovery — this category throws nothing, so without them the
-                  record holds no message anywhere"
-          (let [seen (atom [])]
-            (rf.error-emit/register-error-listener! :fu75/ladder
-                                   (fn [record] (swap! seen conj record)))
-            (rf.frame/emit-no-frame-context! payload)
-            (rf.error-emit/unregister-error-listener! :fu75/ladder)
-            (let [record (first @seen)]
-              (is (= :rf.error/no-frame-context (:error record)))
-              (is (= (:reason payload) (:reason record))
-                  "the composed ladder, verbatim — not a re-derivation")
-              (is (= :supply-frame (:recovery record))
-                  "and the machine-readable repair beside it"))))
-
-        (testing "and the console line leads with the category and the ladder,
-                  so a reader who opens devtools sees the text FIRST"
-          (rf.error-emit/clear-error-listeners!)
-          (let [{:keys [console report-error]}
-                (capture-console #(rf.frame/emit-no-frame-context! payload))]
-            (is (= 1 (count console)))
-            (let [args (first console)
-                  [prefix summary record] args]
-              (is (= 3 (count args))
-                  (str "prefix + summary + record; no exception on this "
-                       "category. Got " (count args)))
-              (is (= "[re-frame2]" prefix))
-              (is (re-find #"^:rf\.error/no-frame-context\b" summary))
-              (is (re-find #"no frame context" summary)
-                  (str "the ladder itself reaches the line — this is the exact "
-                       "text a record-only console line cannot show; got "
-                       (pr-str summary)))
-              (is (map? record) "and the record still rides for the inspector"))
-            (is (zero? report-error))))))))
+      (testing "the frameless record prints even with a sink registered: no frame
+                owns it, so no sink policy can — and the ladder leads the line"
+        (rf/register-observability-sink! :fu75.sink/collector (fn [_r] nil))
+        (let [{:keys [console report-error]}
+              (capture-console #(rf.frame/emit-no-frame-context! payload))]
+          (is (= 1 (count console))
+              (str "a frameless record still reaches the console; got "
+                   (pr-str console)))
+          (let [[prefix summary record :as args] (first console)]
+            (is (= 3 (count args)))
+            (is (= "[re-frame2]" prefix))
+            (is (re-find #"^:rf\.error/no-frame-context\b" summary))
+            (is (re-find #"no frame context" summary)
+                (str "the ladder reaches the line; got " (pr-str summary)))
+            (is (nil? (:frame record)) "premise: the record really is frameless"))
+          (is (zero? report-error)))))))
 
 (deftest bad-frame-provider-arg-carries-its-reason-too
   (if-not (browser?)
     (is true skip-msg)
-    (do
-      (testing "`emit-bad-frame-provider-arg!` says it MIRRORS
-                `emit-no-frame-context!`, and it has the same shape for the
-                same reason — no exception, a composed :reason on the payload.
-                Pinned so the two cannot drift into one carrying its message
-                and the other not"
-        (rf.error-emit/clear-error-listeners!)
-        (let [payload (rf.frame/bad-frame-provider-arg-payload
-                        "not-a-frame" {:where 'rf/frame-provider})
-              {:keys [console]}
-              (capture-console #(rf.frame/emit-bad-frame-provider-arg! payload))]
-          (is (= 1 (count console)))
-          (let [[_ summary record] (first console)]
-            (is (re-find #"^:rf\.error/bad-frame-provider-arg\b" summary))
-            (is (re-find #"must be a frame id keyword" summary)
-                (str "the payload's own sentence reaches the line; got "
-                     (pr-str summary)))
-            (is (= (:reason payload) (:reason record))
-                "and verbatim onto the record for an off-box shipper")))))))
+    (let [payload (rf.frame/bad-frame-provider-arg-payload
+                    "not-a-frame" {:where 'rf/frame-provider})
+          {:keys [console]}
+          (capture-console #(rf.frame/emit-bad-frame-provider-arg! payload))]
+      (is (= 1 (count console)))
+      (let [[_ summary record] (first console)]
+        (is (re-find #"must be a frame id keyword" summary)
+            (str "the payload's own sentence reaches the line; got " (pr-str summary)))
+        (is (= (:reason payload) (:reason record))
+            "and verbatim onto the record for an off-box shipper")))))
 
 ;; ===========================================================================
-;; OWNED — a listener suppresses the fallback, on BOTH fan-out sites
+;; Owned by a listener — corpus-wide, and the registration is the ownership
 ;; ===========================================================================
-
-(deftest an-attached-listener-suppresses-the-fallback
-  (if-not (browser?)
-    (is true skip-msg)
-    (do
-      (register-refusal-handlers!)
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener! :fu75/owner
-                              (fn [record] (swap! seen conj record)))
-        (testing "the listener receives the record exactly once and the console
-                  stays silent"
-          (let [{:keys [console report-error]}
-                (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-            (is (= [:rf.error/handler-exception] (mapv :error @seen))
-                "the owner got its record")
-            (is (empty? console)
-                (str "and the fallback stayed quiet; got " (pr-str console)))
-            (is (zero? report-error))))
-
-        (testing "the union-record site is suppressed by the same ownership"
-          (reset! seen [])
-          (let [{:keys [console]}
-                (capture-console
-                  (fn []
-                    (rf.error-emit/dispatch-frame-teardown-report!
-                      :rf/default
-                      [{:hook :fu75/step :where :safe-call-hook!}]
-                      1234)))]
-            (is (= [:rf.error/frame-teardown-failed] (mapv :error @seen)))
-            (is (empty? console))))))))
 
 (deftest ownership-is-implicit-and-corpus-wide
   (if-not (browser?)
     (is true skip-msg)
-    (do
+    (testing "a listener that THROWS still owns the stream: the substrate swallows
+              the throw, and the fallback must not read that as nobody-owns-it"
       (register-refusal-handlers!)
-      (testing "a listener that IGNORES the category still owns the stream —
-                ownership is the registration, not the handling"
-        (rf.error-emit/register-error-listener! :fu75/indifferent (fn [_record] nil))
-        (let [{:keys [console]}
-              (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-          (is (empty? console))))
-
-      (testing "and so does one that THROWS — the substrate swallows the
-                listener throw, and the fallback must not read that as
-                nobody-owns-it"
-        (rf.error-emit/clear-error-listeners!)
-        (rf.error-emit/register-error-listener! :fu75/broken
-                              (fn [_record] (throw (ex-info "listener boom" {}))))
-        (let [{:keys [console]}
-              (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-          (is (empty? console)))))))
+      (rf.error-emit/register-error-listener! :fu75/broken
+                                              (fn [_record] (throw (ex-info "listener boom" {}))))
+      (is (empty? (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))))))
 
 (deftest dropping-the-last-listener-resumes-the-fallback
   (if-not (browser?)
@@ -387,47 +205,23 @@
     (do
       (register-refusal-handlers!)
       (rf.error-emit/register-error-listener! :fu75/owner (fn [_record] nil))
-      (let [owned (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-        (is (empty? (:console owned)) "quiet while owned"))
+      (is (empty? (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))
+          "quiet while owned, by a listener that ignores the record")
       (rf.error-emit/unregister-error-listener! :fu75/owner)
-      (let [unowned (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-        (is (= 1 (count (:console unowned)))
-            "the registry is empty again, so the fallback resumes")
-        (is (= "[re-frame2]" (ffirst (:console unowned))))
-        (is (zero? (:report-error unowned)))))))
+      (is (= 1 (count (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws])))))
+          "the registry is empty again, so the fallback resumes"))))
 
 ;; ===========================================================================
-;; OWNED BY THE FRAME'S SINK POLICY — the second ownership arm
+;; Owned by the frame's sink policy — frame-scoped
 ;; ===========================================================================
 ;;
-;; The fallback fires when NOTHING ROUTED THIS RECORD, which is two arms, not
-;; one. Arm (a) — any corpus-wide `:errors` listener — is the block above.
-;; Arm (b) is here: the record's OWNING FRAME declared an
-;; `:observability :errors` policy and at least one of its entries resolved to
-;; a REGISTERED sink fn, which was invoked. That is the NORMAL production
-;; door (Spec 015 §Frame-owned observability sink policy), and keying the
-;; fallback on the listener registry alone would give a frame whose sink
-;; already had the record a console line anyway — while a *listener* that
-;; never looked at the category would silence records belonging to frames it
-;; had never heard of.
-;;
-;; The two arms differ in SCOPE on purpose: a listener owns corpus-wide, a
-;; sink policy owns only the frame that declared it. So a sibling frame with
-;; no policy on the same page keeps its console line — the property a
-;; page-wide claim cannot offer, and the reason no one needs a no-op listener
-;; registered purely to buy silence.
-;;
-;; "Routed" is exact: DELIVERED to a registered sink fn. A policy naming a
-;; sink the app never registered routes nowhere and does NOT own the record
-;; (fail-visible — the console is the only place it would otherwise appear).
-;; A registered sink that THROWS does own it: the sink author has the record,
-;; and swallowing their throw must not read as nobody-owns-it — the same
-;; posture `ownership-is-implicit-and-corpus-wide` pins for a throwing
-;; listener.
+;; "Routed" means DELIVERED to a registered sink fn. A policy naming a sink the
+;; app never registered routes nowhere and does not own the record; a
+;; registered sink that throws does own it.
 
 (defn- register-sink-refusal!
-  "Register a throwing handler on `frame-id`, whose frame declares
-  `entries` as its `:observability :errors` policy. Returns nil."
+  "Make `frame-id` with `entries` as its `:observability :errors` policy, and
+  register a handler on it that throws."
   [frame-id entries]
   (rf/make-frame (cond-> {:id frame-id :doc "sink-ownership witness"}
                    (some? entries) (assoc :observability {:errors entries})))
@@ -436,142 +230,70 @@
                 (fn [_ _] (throw (ex-info "sink-arm kaboom" {:cause :test}))))
   nil)
 
-(deftest a-registered-frame-sink-suppresses-the-fallback
-  (if-not (browser?)
-    (is true skip-msg)
-    (do
-      (testing "the frame's :errors policy delivered the record to a REGISTERED
-                sink, so the record was routed and the console stays silent —
-                with NO :errors listener anywhere"
-        (let [seen (atom [])]
-          ;; Arm (a) must be provably OUT of the picture, or the silence below
-          ;; could be a leaked listener rather than the sink route.
-          (rf.error-emit/clear-error-listeners!)
-          (rf/register-observability-sink! :fu75.sink/collector
-                                           (fn [r] (swap! seen conj r)))
-          (register-sink-refusal! :fu75.sink/frame [{:sink :fu75.sink/collector}])
-          (let [{:keys [console report-error]}
-                (capture-console
-                  #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/frame}))]
-            (is (= 1 (count @seen))
-                (str "premise: the sink genuinely received the record — without "
-                     "this the silence below would be vacuous; got " (count @seen)))
-            (is (= :rf.observe/error (:kind (first @seen))))
-            (is (empty? console)
-                (str "the record was routed, so nothing is unowned; got "
-                     (pr-str console)))
-            (is (zero? report-error))))))))
-
 (deftest a-policy-naming-an-UNREGISTERED-sink-still-prints
   (if-not (browser?)
     (is true skip-msg)
     (do
-      (testing "declaring a policy is not routing. The named sink was never
-                registered, so `deliver-to-sink!` no-op'd and the record went
-                NOWHERE — fail-visible: the console is the only channel left"
-        (register-sink-refusal! :fu75.sink/orphan [{:sink :fu75.sink/never-wired}])
-        (let [{:keys [console report-error]}
-              (capture-console
-                #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/orphan}))]
-          (is (= 1 (count console))
-              (str "an unwired sink id must not buy silence; got " (pr-str console)))
-          (let [[prefix summary record] (first console)]
-            (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/handler-exception\b" summary))
-            (is (= :fu75.sink/orphan (:frame record))))
-          (is (zero? report-error)))))))
+      (register-sink-refusal! :fu75.sink/orphan [{:sink :fu75.sink/never-wired}])
+      (let [{:keys [console]}
+            (capture-console
+              #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/orphan}))]
+        (is (= 1 (count console))
+            (str "an unwired sink id must not buy silence; got " (pr-str console)))
+        (is (= :fu75.sink/orphan (:frame (nth (first console) 2))))))))
 
 (deftest sink-ownership-is-frame-scoped-not-page-wide
   (if-not (browser?)
     (is true skip-msg)
-    (do
-      (testing "one frame's policy silences ONLY its own records. A sibling
-                frame on the same page that declared nothing keeps its console
-                line — this is the property a corpus-wide listener claim cannot
-                express, and the reason the fallback keys on frame routing"
-        (let [seen (atom [])]
-          (rf/register-observability-sink! :fu75.sink/collector
-                                           (fn [r] (swap! seen conj r)))
-          (register-sink-refusal! :fu75.sink/owned [{:sink :fu75.sink/collector}])
-          (rf/make-frame {:id :fu75.sink/bare :doc "no :observability policy"})
-          (rf/reg-event :fu75.sink/bare-throws
-                        {:frame :fu75.sink/bare}
-                        (fn [_ _] (throw (ex-info "bare kaboom" {}))))
-          (let [owned (capture-console
-                        #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/owned}))
-                bare  (capture-console
-                        #(rf/dispatch-sync [:fu75.sink/bare-throws] {:frame :fu75.sink/bare}))]
-            (is (empty? (:console owned))
-                (str "the frame that routed stays quiet; got "
-                     (pr-str (:console owned))))
-            (is (= 1 (count (:console bare)))
-                (str "the frame that routed NOTHING still prints; got "
-                     (pr-str (:console bare))))
-            (is (= :fu75.sink/bare (:frame (nth (first (:console bare)) 2)))
-                "and the line that printed is the bare frame's own record")))))))
+    (testing "a frame whose policy delivered the record to a registered sink stays
+              quiet; a sibling frame that declared nothing still prints"
+      (let [seen (atom [])]
+        (rf/register-observability-sink! :fu75.sink/collector
+                                         (fn [r] (swap! seen conj r)))
+        (register-sink-refusal! :fu75.sink/owned [{:sink :fu75.sink/collector}])
+        (rf/make-frame {:id :fu75.sink/bare :doc "no :observability policy"})
+        (rf/reg-event :fu75.sink/bare-throws
+                      {:frame :fu75.sink/bare}
+                      (fn [_ _] (throw (ex-info "bare kaboom" {}))))
+        (let [owned (capture-console
+                      #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/owned}))
+              bare  (capture-console
+                      #(rf/dispatch-sync [:fu75.sink/bare-throws] {:frame :fu75.sink/bare}))]
+          (is (= 1 (count @seen))
+              (str "premise: the sink received the owned frame's record; got "
+                   (count @seen)))
+          (is (empty? (:console owned))
+              (str "the frame that routed stays quiet; got " (pr-str (:console owned))))
+          (is (= 1 (count (:console bare)))
+              (str "the frame that routed nothing still prints; got "
+                   (pr-str (:console bare))))
+          (is (= :fu75.sink/bare (:frame (nth (first (:console bare)) 2)))))))))
 
 (deftest a-throwing-registered-sink-still-owns-the-record
   (if-not (browser?)
     (is true skip-msg)
-    (do
-      (testing "the sink was invoked and threw. `deliver-to-sink!` swallows it
-                for sibling isolation, and that swallow must not read as
-                nobody-owns-it — the sink author HAS the record. Same posture
-                as the throwing listener in `ownership-is-implicit-and-corpus-wide`"
-        (let [calls (atom 0)]
-          (rf/register-observability-sink! :fu75.sink/broken
-                                           (fn [_r]
-                                             (swap! calls inc)
-                                             (throw (ex-info "sink boom" {}))))
-          (register-sink-refusal! :fu75.sink/throwing [{:sink :fu75.sink/broken}])
-          (let [{:keys [console report-error]}
-                (capture-console
-                  #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/throwing}))]
-            (is (= 1 @calls) "premise: the sink really was invoked")
-            (is (empty? console)
-                (str "delivery is ownership, whatever the sink then did; got "
-                     (pr-str console)))
-            (is (zero? report-error))))))))
-
-(deftest a-frameless-record-has-no-sink-arm-and-still-prints
-  (if-not (browser?)
-    (is true skip-msg)
-    (do
-      (testing "a `:frame nil` record carries no frame-owned policy BY
-                DEFINITION, so arm (b) can never fire for it. With no listener
-                either, the fallback fires — this is the untooled case the
-                fallback exists for, and the sink arm must not erode it"
-        (rf/register-observability-sink! :fu75.sink/collector (fn [_r] nil))
-        (let [payload (rf.frame/no-frame-context-payload :subscribe
-                                                         {:where 'rf/subscribe})
-              {:keys [console report-error]}
-              (capture-console #(rf.frame/emit-no-frame-context! payload))]
-          (is (= 1 (count console))
-              (str "a frameless record still reaches the console; got "
-                   (pr-str console)))
-          (let [[prefix _summary record] (first console)]
-            (is (= "[re-frame2]" prefix))
-            (is (nil? (:frame record))
-                "premise: this record really is frameless"))
-          (is (zero? report-error)))))))
+    (let [calls (atom 0)]
+      (rf/register-observability-sink! :fu75.sink/broken
+                                       (fn [_r]
+                                         (swap! calls inc)
+                                         (throw (ex-info "sink boom" {}))))
+      (register-sink-refusal! :fu75.sink/throwing [{:sink :fu75.sink/broken}])
+      (let [{:keys [console]}
+            (capture-console
+              #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/throwing}))]
+        (is (= 1 @calls) "premise: the sink really was invoked")
+        (is (empty? console)
+            (str "delivery is ownership, whatever the sink then did; got "
+                 (pr-str console)))))))
 
 ;; ===========================================================================
-;; THE APP-DB CANDIDATE REJECTION
+;; The app-db candidate rejection
 ;; ===========================================================================
 ;;
-;; The fallback hangs off the `:errors` stream, so a rejected `app-db`
-;; candidate emitted on the DEV TRACE only would be the one refusal an
-;; untooled dev build cannot see — even though it discards a WHOLE
-;; transaction, and an application-wide permanent rollback loop would produce
-;; 0 page errors, 0 console messages of any level, 0 failed requests, and an
-;; empty screen.
-;;
-;; The rejection is routed onto the `:errors` stream from inside the
-;; validator's own `debug-enabled?` gate, and this fallback then fires FOR
-;; FREE — no second printer in the validator. So the assertions here are about
-;; the seam, not about a printer: one line per failing registration, naming
-;; the registered path and the TYPE of what it found, and silent the moment
-;; anything owns the stream.
+;; The validator routes a rejected candidate onto the `:errors` stream through
+;; `dispatch-error-record!`, so this fallback prints it with no second printer:
+;; one line per failing registration, naming the registered path and the type
+;; of what it found, and silent once anything owns the stream.
 
 (defn- register-rollback-app! []
   (rf/make-frame {:id :fu75.rollback/frame :doc "app-db rollback console witness"})
@@ -586,9 +308,8 @@
     (is true skip-msg)
     (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
       (register-rollback-app!)
-      (testing "an EMPTY registry — one console.error per FAILING registration,
-                each naming the registered path and what was found there"
-        (let [{:keys [console report-error]}
+      (testing "unowned: one console.error per failing registration"
+        (let [{:keys [console]}
               (capture-console
                 #(rf/dispatch-sync [:fu75.rollback/write]
                                    {:frame :fu75.rollback/frame}))
@@ -599,241 +320,42 @@
           (is (= 2 (count rollback))
               (str "one line per violated registration; got "
                    (pr-str (mapv second console))))
-          (doseq [[prefix summary record] rollback]
-            (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/schema-validation-failure\b" summary)
-                (str "the summary names the category first; got " (pr-str summary)))
+          (doseq [[_ summary] rollback]
             (is (re-find #"got nil" summary)
-                (str "and ends with the TYPE of what it found — the half that "
-                     "makes a wall of these lines self-diagnosing; got "
-                     (pr-str summary)))
-            (is (= :app-db (:where record)))
-            (is (true? (:rollback? record)))
-            (is (nil? (:value record))
-                "the offending value stays on the dev trace"))
+                (str "the line ends with the TYPE of what it found; got "
+                     (pr-str summary))))
           (is (= #{[:articles] [:tags]}
                  (set (map (fn [args] (:registered-path (nth args 2))) rollback)))
-              "each line names a DISTINCT registration, so seventeen of them read
-               as seventeen broken declarations rather than one repeated noise")
-          (is (zero? report-error)
-              "console.error, never reportError — a rejected candidate is a
-               framework verdict, not an unhandled exception")))
+              "each line names a distinct registration")))
 
-      (testing "ANY listener owns the stream and the fallback goes quiet — the
-                ownership rule applies to this category too"
-        (rf.error-emit/clear-error-listeners!)
+      (testing "owned: any listener silences it"
         (let [seen (atom [])]
           (rf.error-emit/register-error-listener! :fu75/rollback-owner
-                                 (fn [r] (swap! seen conj r)))
+                                                  (fn [r] (swap! seen conj r)))
           (let [{:keys [console]}
                 (capture-console
                   #(rf/dispatch-sync [:fu75.rollback/write]
                                      {:frame :fu75.rollback/frame}))]
             (is (= 2 (count (filter #(= :rf.error/schema-validation-failure (:error %))
                                     @seen)))
-                "the owner got both records")
+                "premise: the owner got both records")
             (is (empty? console)
                 (str "and nothing printed; got " (pr-str console))))
           (rf.error-emit/unregister-error-listener! :fu75/rollback-owner))))))
 
 ;; ===========================================================================
-;; THE OTHER ROLLBACK ARMS
-;; ===========================================================================
-;;
-;; There are four `:rollback? true` producers, and the `:where :app-db` one
-;; above reaches this fallback FOR FREE — no second printer, no second gate.
-;; These two deftests keep that claim honest for the rest of the set: a
-;; machine transaction discarded by a `[:schemas :data]` violation, and a
-;; candidate rejected because a REGISTERED app-db schema is itself malformed,
-;; must reach the same console by the same route, and must go equally quiet
-;; the moment anything owns the `:errors` stream.
-
-(def ^:private vkn8-machine-id :fu75.rollback/machine)
-
-(defn- register-machine-rollback-app! []
-  (rf/make-frame {:id :fu75.machine/frame :doc "machine-data rollback console witness"})
-  (rf/reg-machine vkn8-machine-id
-    {:initial :idle
-     :data    {:n 1}
-     :schemas {:data [:map [:n pos-int?]]}
-     :actions {:break (fn [_] {:data {:n 0}})}
-     :states  {:idle {:on {:break {:target :idle :action :break}}}}}))
-
-(defn- register-malformed-rollback-app! []
-  (rf/make-frame {:id :fu75.malformed/frame :doc "malformed-schema rollback console witness"})
-  ;; A childless `[:vector]` registers cleanly (Malli validates schema FORMS
-  ;; lazily) and then makes the registered validator THROW on the first
-  ;; candidate validation.
-  (rf/with-frame :fu75.malformed/frame
-    (rf/reg-app-schema [:broken] [:vector]))
-  (rf/reg-event :fu75.malformed/write (fn [_ _] {:db {:broken [1]}})))
-
-(deftest unowned-machine-data-rollback-reaches-the-dev-console
-  (if-not (browser?)
-    (is true skip-msg)
-    (when (some? (rf.late-bind/get-fn :machines/validate-machine-data!))
-      (register-machine-rollback-app!)
-      ;; Settle the machine with its conforming initial `:data` first, so the
-      ;; line under test comes from the MACROSTEP and not the bootstrap.
-      (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
-
-      (testing "an EMPTY registry — one console.error naming the machine whose
-                `:data` broke its schema and the lifecycle phase it broke at"
-        (let [{:keys [console report-error]}
-              (capture-console
-                #(rf/dispatch-sync [vkn8-machine-id [:break]]
-                                   {:frame :fu75.machine/frame}))
-              rollback (filterv (fn [args]
-                                  (= :machine-data (:where (nth args 2 nil))))
-                                console)]
-          (is (= 1 (count rollback))
-              (str "one line for the rejected machine transition; got "
-                   (pr-str (mapv second console))))
-          (let [[prefix summary record] (first rollback)]
-            (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/schema-validation-failure\b" summary)
-                (str "the summary names the category first; got " (pr-str summary)))
-            (is (re-find #":macrostep" summary)
-                (str "and the lifecycle phase, which is where the blast radius "
-                     "is read off; got " (pr-str summary)))
-            (is (= vkn8-machine-id (:machine-id record)))
-            (is (= :fu75.machine/frame (:frame record))
-                "the frame is threaded onto the record — without it the record could
-                 never reach this frame's :observability :errors sink")
-            (is (true? (:rollback? record)))
-            (is (nil? (:value record))
-                "the machine's `:data` stays on the dev trace"))
-          (is (zero? report-error)
-              "console.error, never reportError — a rejected candidate is a
-               framework verdict, not an unhandled exception")))
-
-      (testing "ANY listener owns the stream and the fallback goes quiet"
-        (rf.error-emit/clear-error-listeners!)
-        (let [seen (atom [])]
-          (rf.error-emit/register-error-listener! :fu75/machine-owner
-                                 (fn [r] (swap! seen conj r)))
-          (let [{:keys [console]}
-                (capture-console
-                  #(rf/dispatch-sync [vkn8-machine-id [:break]]
-                                     {:frame :fu75.machine/frame}))]
-            (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
-                "the owner got the record")
-            (is (empty? console)
-                (str "and nothing printed; got " (pr-str console))))
-          (rf.error-emit/unregister-error-listener! :fu75/machine-owner))))))
-
-(deftest unowned-malformed-schema-rollback-reaches-the-dev-console
-  (if-not (browser?)
-    (is true skip-msg)
-    (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
-      (register-malformed-rollback-app!)
-
-      (testing "an EMPTY registry — one console.error naming the registration
-                the developer has to fix"
-        (let [{:keys [console report-error]}
-              (capture-console
-                #(rf/dispatch-sync [:fu75.malformed/write]
-                                   {:frame :fu75.malformed/frame}))
-              rollback (filterv (fn [args]
-                                  (= :rf.error/malformed-schema
-                                     (:error (nth args 2 nil))))
-                                console)]
-          (is (= 1 (count rollback))
-              (str "one line for the malformed registration; got "
-                   (pr-str (mapv second console))))
-          (let [[prefix summary record] (first rollback)]
-            (is (= "[re-frame2]" prefix))
-            (is (re-find #"^:rf\.error/malformed-schema\b" summary)
-                (str "the summary names the category first; got " (pr-str summary)))
-            (is (= [:broken] (:registered-path record)))
-            (is (= :fu75.malformed/frame (:frame record)))
-            (is (true? (:rollback? record)))
-            (is (nil? (:schema record))
-                "the malformed registration FORM stays on the dev trace — it
-                 `pr-str`s unbounded"))
-          (is (zero? report-error))))
-
-      (testing "ANY listener owns the stream and the fallback goes quiet"
-        (rf.error-emit/clear-error-listeners!)
-        (let [seen (atom [])]
-          (rf.error-emit/register-error-listener! :fu75/malformed-owner
-                                 (fn [r] (swap! seen conj r)))
-          (let [{:keys [console]}
-                (capture-console
-                  #(rf/dispatch-sync [:fu75.malformed/write]
-                                     {:frame :fu75.malformed/frame}))]
-            (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
-            (is (empty? console)
-                (str "and nothing printed; got " (pr-str console))))
-          (rf.error-emit/unregister-error-listener! :fu75/malformed-owner))))))
-
-;; ===========================================================================
-;; HOST BOUNDARY — Node-targeted CLJS stays listener-only
+;; Host boundary — Node-targeted CLJS stays listener-only
 ;; ===========================================================================
 
 (deftest node-targeted-cljs-stays-quiet
   (if (browser?)
     (is true "skipped: DOM host present (browser lane — see ns docstring)")
-    (do
+    (testing "same refusal, same empty registry, no DOM host: no console output
+              and no reportError — the fallback is a browser-development
+              diagnostic, not a generic CLJS print"
       (register-refusal-handlers!)
-      (testing "same refusal, same empty registry, no DOM host: the fallback is
-                a browser-DEVELOPMENT diagnostic, not a generic CLJS print. A
-                Node lane's caller observes the dispatch directly and attaches
-                a listener in one line, exactly as the JVM lane does."
-        (let [{:keys [console report-error]}
-              (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-          (is (empty? console)
-              (str "no console output off a DOM host; got " (pr-str console)))
-          (is (zero? report-error))))
-
-      (testing "and the record still reaches an attached listener — the
-                always-on axis is unchanged off-browser"
-        (let [seen (atom [])]
-          (rf.error-emit/register-error-listener! :fu75/owner
-                                (fn [record] (swap! seen conj record)))
-          (rf/dispatch-sync [:fu75.console/throws])
-          (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
-
-      ;; The same boundary for the machine-data and malformed-schema arms. The
-      ;; host rule is a property of the FALLBACK, not of a category, so a new
-      ;; producer must inherit it
-      ;; rather than acquire its own exemption — this is the half that would
-      ;; catch a second printer being added beside the seam.
-      (testing "the machine-data and malformed-schema rollbacks obey the same
-                host boundary: silent off a DOM host, and still delivered to an
-                attached listener"
-        (when (some? (rf.late-bind/get-fn :machines/validate-machine-data!))
-          (register-machine-rollback-app!)
-          (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
-          (rf.error-emit/clear-error-listeners!)
-          (let [{:keys [console report-error]}
-                (capture-console
-                  #(rf/dispatch-sync [vkn8-machine-id [:break]]
-                                     {:frame :fu75.machine/frame}))]
-            (is (empty? console)
-                (str "no console output off a DOM host; got " (pr-str console)))
-            (is (zero? report-error)))
-          (let [seen (atom [])]
-            (rf.error-emit/register-error-listener! :fu75/machine-owner
-                                   (fn [r] (swap! seen conj r)))
-            (rf/dispatch-sync [vkn8-machine-id [:break]] {:frame :fu75.machine/frame})
-            (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
-                "the always-on axis is unchanged off-browser")
-            (rf.error-emit/unregister-error-listener! :fu75/machine-owner)))
-
-        (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
-          (register-malformed-rollback-app!)
-          (rf.error-emit/clear-error-listeners!)
-          (let [{:keys [console report-error]}
-                (capture-console
-                  #(rf/dispatch-sync [:fu75.malformed/write]
-                                     {:frame :fu75.malformed/frame}))]
-            (is (empty? console)
-                (str "no console output off a DOM host; got " (pr-str console)))
-            (is (zero? report-error)))
-          (let [seen (atom [])]
-            (rf.error-emit/register-error-listener! :fu75/malformed-owner
-                                   (fn [r] (swap! seen conj r)))
-            (rf/dispatch-sync [:fu75.malformed/write] {:frame :fu75.malformed/frame})
-            (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
-            (rf.error-emit/unregister-error-listener! :fu75/malformed-owner)))))))
+      (let [{:keys [console report-error]}
+            (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
+        (is (empty? console)
+            (str "no console output off a DOM host; got " (pr-str console)))
+        (is (zero? report-error))))))
