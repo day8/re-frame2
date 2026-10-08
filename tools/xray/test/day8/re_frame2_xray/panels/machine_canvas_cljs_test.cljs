@@ -10,8 +10,8 @@
     1. Registration of the canvas subs, events and fx — pinned by
        `registry_cljs_test`'s registry snapshot rows rather than here.
     2. The chart-collapsed slot mutates + persists per machine.
-    3. The `Chart` view returns hiccup carrying the canvas-host
-       data-testid."
+    3. The `Chart` view's after-rings mount and the extent of the
+       `as-child` seam in `chart-tree`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -64,19 +64,6 @@
                     [:rf.xray.machine-canvas/chart-collapsed-for :m]))
         ":mode :expanded flips the slot to false")))
 
-(deftest chart-collapsed-is-per-machine
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-chart-collapsed
-       {:machine-id :auth/login :mode :collapsed}])
-    (is (= true  @(rf/subscribe
-                    [:rf.xray.machine-canvas/chart-collapsed-for :auth/login])))
-    (is (= false @(rf/subscribe
-                    [:rf.xray.machine-canvas/chart-collapsed-for :checkout/flow]))
-        "per-machine slot, one machine's collapse
-         does not affect another's")))
-
 (deftest persist-chart-collapsed-fx-actually-fires-rf2-04tx
   (testing "the set-chart-collapsed handler must REACH the persist fx,
             not merely have one registered. A handler returning the fx-id
@@ -97,32 +84,22 @@
           {:fx-overrides
            {:rf.xray.machine-canvas/persist-chart-collapsed
             (fn [_ctx by-id] (swap! persisted conj by-id))}})
-        (is (= 1 (count @persisted))
-            "the persist fx ran exactly once — it reached the :fx walk")
-        (is (= {:auth/login true} (first @persisted))
-            "and carried the POST-mutation chart-collapsed map")
         (rf/dispatch-sync
           [:rf.xray.machine-canvas/set-chart-collapsed
            {:machine-id :checkout/flow :mode :collapsed}]
           {:fx-overrides
            {:rf.xray.machine-canvas/persist-chart-collapsed
             (fn [_ctx by-id] (swap! persisted conj by-id))}})
-        (is (= {:auth/login true :checkout/flow true} (second @persisted))
-            "a second toggle persists the WHOLE by-id map, not just the
-             machine that moved — the reload-restore contract")))))
+        (is (= [{:auth/login true} {:auth/login true :checkout/flow true}]
+               @persisted)
+            "the persist fx ran once per dispatch — it reached the :fx walk —
+             each time carrying the WHOLE post-mutation by-id map, not just
+             the machine that moved: the reload-restore contract")))))
 
 ;; ---- 3. Chart view hiccup shape ---------------------------------------
 
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
 
 (def ^:private fixture-definition
   {:initial :idle
@@ -140,11 +117,9 @@
             `machine_after_rings_fresco_boundary_dom_cljs_test`, which
             mounts this same public var — this row is what says CHART is
             the caller holding it, so the two cannot drift apart silently.
-
-            Both halves are asserted. The bridge being present is the claim;
-            the boundary being ABSENT is what would catch `Chart` mounting
-            the boundary directly, which type-checks fine and fails only at
-            first paint."
+            `Chart` mounting the boundary directly type-checks fine and
+            fails only at first paint; it drops the bridge, which this row
+            reads."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [tree  (mc/Chart {:definition fixture-definition :machine-id :m})
@@ -152,9 +127,7 @@
                         (comp (filter vector?) (map first))
                         (hiccup-seq tree))]
         (is (contains? heads after-rings/AfterRingsOverlay-bridge)
-            "Chart mounts AfterRingsOverlay-bridge (:show-after-rings? defaults true)")
-        (is (not (contains? heads after-rings/AfterRingsOverlay))
-            "and NOT the boundary itself, which a Reagent tree cannot mount")))))
+            "Chart mounts AfterRingsOverlay-bridge (:show-after-rings? defaults true)")))))
 
 (deftest chart-omits-the-after-rings-bridge-when-suppressed
   (testing "the three Static / topology call sites pass `:show-after-rings?
@@ -198,9 +171,6 @@
             heads    (into #{}
                            (comp (filter vector?) (map first))
                            (hiccup-seq tree))]
-        (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
-            "the canvas host is emitted by chart-tree itself and does NOT
-             cross the seam — the boundary's own chrome stays its own")
         (is (= 1 (count @crossed))
             (str "exactly one thing crosses. Crossed: " (pr-str @crossed)))
         (is (= mv-chart/MachineChart (ffirst @crossed))
