@@ -1,51 +1,17 @@
 (ns re-frame.image-no-emit-trace-gate-cljs-test
-  "`emit-dispatched-trace!`'s enqueue-time `:rf.trace/no-emit?`
-  gate must be IMAGE-AWARE.
+  "The enqueue-time `:rf.trace/no-emit?` gate (Spec 009 §Trace-emission
+  opt-out) resolves the handler's meta through the target frame's image
+  generation. It runs outside the `call-with-frame-resolution` binding around
+  `process-event!`, so a bare registrar lookup would miss an image-inline
+  handler and emit `:rf.event/dispatched` into the stream it opted out of.
 
-  The gate reads the target handler's registration meta to decide whether to
-  suppress the `:rf.event/dispatched` enqueue trace (Spec 009 §Trace-emission
-  opt-out). It runs at enqueue time, OUTSIDE the `call-with-frame-resolution`
-  binding that wraps `process-event!`, so it resolves the meta through the
-  target frame's image generation. A BARE `(registrar/lookup :event event-id)`
-  there would MISS an image-loaded frame's inline `:reg-event` handler (which
-  lives ONLY in the frame's generation resolver, and whose inline descriptor
-  CAN carry `:rf.trace/no-emit?` in `:metadata`): the bare lookup would return
-  nil → `no-emit?` false → the `:rf.event/dispatched` trace would flood the
-  very stream the handler is marked to stay out of — the same flood the gate
-  prevents for registrar-registered handlers.
-
-  Mirrors `re-frame.trace-test`'s registrar-handler no-emit tests for the IMAGE
-  case: an image inline no-emit handler must NOT emit `:rf.event/dispatched` at
-  enqueue; a baseline image handler WITHOUT the flag still does (so the
-  suppression is the difference, not that image dispatches never emit).
-
-  `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`.
-
-  ## Posture split
-
-  The always-on half is that the image-inline handler is RESOLVED AND RUN —
-  `:bookkeeping/ran?` / `:normal/ran?` land in the frame's app-db. That is the
-  precondition the whole namespace rests on (a generation-blind lookup would
-  return nil), it is readable straight off
-  `rf/app-db-value`, and it needs no trace surface — so it is asserted WITHOUT
-  a posture guard and runs in `scripts/test-core-prod-gate.sh` too.
-
-  The `:rf.event/dispatched` assertions are DEV-ONLY: `:rf.trace/no-emit?`
-  gates a `trace/emit!` site, and under `-Dre-frame.debug=false` nothing is
-  emitted at all. BOTH of them sit inside the
-  `(when rf.interop/debug-enabled? …)` arm, the negative
-  included — and the negative is the point rather than tidiness. Left outside,
-  `(not (contains? ops :rf.event/dispatched))` over an EMPTY `ops` would report
-  that the no-emit flag correctly suppressed the enqueue trace when in fact
-  nothing was emitted for any handler, flagged or not. \"The flag is the
-  difference\" is a claim about a dev channel and is only meaningful where that
-  channel is live."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  The trace assertions are dev-only: under `-Dre-frame.debug=false` nothing is
+  emitted, and the negative would pass over an empty stream."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core           :as rf]
             [re-frame.image          :as rf.image]
             [re-frame.interop        :as rf.interop]
-            [re-frame.live-frame     :as rf.live-frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support   :as rf.test-support]))
 
@@ -53,75 +19,36 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter        rf.substrate.plain-atom/adapter
                                             :ambient-frame  nil}))
 
-(defn- dispatched-ops-for
-  "Dispatch `event` to the image-loaded frame `fid` while recording every trace
-  event whose event-id is `event-id`; return the set of `:operation`s seen for
-  it. `event-id` is resolved off `:rf.trace/event-id` or the event vector tag."
-  [fid event event-id]
+(defn- dispatched-trace?
+  "Dispatch `event` to `fid`; true when an `:rf.event/dispatched` trace names it."
+  [fid event]
   (let [recorded (atom [])]
     (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
     (try
       (rf/dispatch-sync event {:frame fid})
-      (->> @recorded
-           (filter (fn [ev]
-                     (let [tags (:tags ev)
-                           eid  (or (:rf.trace/event-id tags)
-                                    (let [v (:rf.event/v tags)]
-                                      (when (vector? v) (first v))))]
-                       (= event-id eid))))
-           (map :operation)
-           set)
+      (boolean (some #(and (= :rf.event/dispatched (:operation %))
+                           (= event (get-in % [:tags :rf.event/v])))
+                     @recorded))
       (finally
         (rf/unregister-listener! :trace ::rec)))))
 
-(deftest image-inline-no-emit-handler-does-not-emit-dispatched-at-enqueue
-  (testing "an image-loaded frame whose INLINE :reg-event handler is marked
-            :rf.trace/no-emit? true does NOT emit :rf.event/dispatched at enqueue
-            time — the gate resolves the handler meta through the frame's image
-            generation, not a bare (generation-blind) registrar lookup"
-    (rf/make-frame {:id :img/main :doc "image-loaded no-emit frame"})
-    ;; The handler exists ONLY in the frame's image (never globally registered),
-    ;; so a bare enqueue-time lookup would miss it entirely.
-    (let [img (rf.image/image
+(deftest image-inline-no-emit-flag-suppresses-the-enqueue-trace
+  ;; both handlers live only in the frame's image, never in the registrar
+  (rf/make-frame
+    {:id     :img/main
+     :images [(rf.image/image
                 {:id :img/no-emit
                  :registrations
                  {:reg-event [[:bookkeeping/internal {:rf.trace/no-emit? true}
-                               (fn [{:keys [db]} _]
-                                 {:db (assoc db :bookkeeping/ran? true)})]]}})]
-      (rf.live-frame/make-frame {:id :img/main :images [img]} [])
-      (let [ops (dispatched-ops-for :img/main [:bookkeeping/internal]
-                                    :bookkeeping/internal)]
-        ;; The handler body still ran (opt-out is of TRACE EMISSION, not
-        ;; execution) — proves the image handler was genuinely resolved + run.
-        (is (true? (:bookkeeping/ran? (rf/app-db-value :img/main)))
-            "the inline image handler executed")
-        ;; Dev-instrumentation arm (see ns docstring §Posture
-        ;; split). A NEGATIVE over the trace stream: under the production gate
-        ;; `ops` is empty for EVERY handler, so this would pass without the
-        ;; no-emit flag doing anything at all.
-        (when rf.interop/debug-enabled?
-          ;; A no-emit handler must not emit :rf.event/dispatched.
-          (is (not (contains? ops :rf.event/dispatched))
-              (str "the :rf.trace/no-emit? image handler must NOT emit "
-                   ":rf.event/dispatched at enqueue; saw ops: " (pr-str ops))))))))
-
-(deftest image-inline-handler-without-flag-still-emits-dispatched
-  (testing "baseline sanity: the SAME image-inline dispatch shape WITHOUT
-            :rf.trace/no-emit? DOES emit :rf.event/dispatched — so the
-            suppression above is the flag's effect, not that image-frame
-            dispatches never emit"
-    (rf/make-frame {:id :img/main :doc "image-loaded normal frame"})
-    (let [img (rf.image/image
-                {:id :img/normal
-                 :registrations
-                 {:reg-event [[:normal/event {:doc "no no-emit flag"}
-                               (fn [{:keys [db]} _]
-                                 {:db (assoc db :normal/ran? true)})]]}})]
-      (rf.live-frame/make-frame {:id :img/main :images [img]} [])
-      (let [ops (dispatched-ops-for :img/main [:normal/event] :normal/event)]
-        (is (true? (:normal/ran? (rf/app-db-value :img/main)))
-            "the inline image handler executed")
-        ;; Dev-instrumentation arm (see ns docstring §Posture split).
-        (when rf.interop/debug-enabled?
-          (is (contains? ops :rf.event/dispatched)
-              ":rf.event/dispatched fired for the un-flagged image handler"))))))
+                               (fn [{:keys [db]} _] {:db (assoc db :bookkeeping/ran? true)})]
+                              [:normal/event
+                               (fn [{:keys [db]} _] {:db (assoc db :normal/ran? true)})]]}})]}
+    [])
+  (let [flagged (dispatched-trace? :img/main [:bookkeeping/internal])
+        normal  (dispatched-trace? :img/main [:normal/event])]
+    (is (= {:bookkeeping/ran? true :normal/ran? true}
+           (select-keys (rf/app-db-value :img/main) [:bookkeeping/ran? :normal/ran?]))
+        "both image-inline handlers resolved and ran")
+    (when rf.interop/debug-enabled?
+      (is (= [false true] [flagged normal])
+          "the flag, not the image, suppresses the trace"))))
