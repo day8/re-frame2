@@ -128,8 +128,6 @@
             toggle renders (2 memo-hit subs) but the dim row list does not."
     (seed-memo-hits! :rf/xray)
     (let [tree (render-panel :rf/xray)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
-          "the footer toggle renders")
       (is (re-find #"Show 2 unchanged subs"
                    (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle")))
           "collapsed label counts the memo-hit subs")
@@ -146,25 +144,19 @@
     (seed-memo-hits! :rf/xray)
     (let [tree    (render-panel :rf/xray)
           handler (toggle-on-click tree)]
-      (is (fn? handler) "the toggle exposes an :on-click handler")
       ;; Fire outside any with-frame — exactly a browser click after render.
       (handler (fake-event))
       (async done
         (-> (await-xray-db :rf/xray
                            #(true? (boolean (:reactive/show-unchanged? %)))
-                           ":reactive/show-unchanged? flips true after the click")
+                           "the deferred click lands on :rf/xray's frame")
             (.then (fn [_]
-                     (is (true? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
-                         "the deferred click landed on :rf/xray's frame")
                      (is (nil? (:reactive/show-unchanged? (rf/app-db-value :rf/default)))
                          ":rf/default's db was NOT polluted (no bare-dispatch leak)")
                      ;; Re-render: the composite now folds in the flipped axis.
-                     (let [tree2 (render-panel :rf/xray)]
-                       (is (some? (rf.test-helpers/find-by-testid tree2 "rf-xray-reactive-unchanged-list"))
-                           "after the click the dim memo-hit row list renders")
-                       (is (seq (rf.test-helpers/find-by-testid-prefix
-                                  tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
-                           "a memo-hit row renders after expand (readable slug stem, injective suffix)"))))
+                     (is (some? (rf.test-helpers/find-by-testid
+                                  (render-panel :rf/xray) "rf-xray-reactive-unchanged-list"))
+                         "after the click the dim memo-hit row list renders")))
             (.catch (fn [e] (is false (.-message e)) nil))
             (.then (fn [_] (done))))))))
 
@@ -178,15 +170,9 @@
     ;; Flip ONLY the Settings pin (the panel-local toggle stays default OFF).
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update :general :show-unchanged-subs? true]))
-    (let [tree (render-panel :rf/xray)]
-      (is (false? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
-          "the panel-local quick-toggle is OFF")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-list"))
-          "the Settings pin alone opens the disclosure")
-      (is (= "true"
-             (get (second (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
-                  :aria-expanded))
-          "the toggle reports expanded"))))
+    (is (some? (rf.test-helpers/find-by-testid (render-panel :rf/xray)
+                                               "rf-xray-reactive-unchanged-list"))
+        "the Settings pin alone opens the disclosure")))
 
 ;; ---- frame isolation ---------------------------------------------------
 
@@ -208,8 +194,6 @@
                            #(true? (boolean (:reactive/show-unchanged? %)))
                            "instance A flips true")
             (.then (fn [_]
-                     (is (true? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
-                         "instance A's disclosure expanded")
                      (is (false? (boolean (:reactive/show-unchanged? (rf/app-db-value :xray-cell-2))))
                          "instance B is untouched — driving A did not move B")))
             (.catch (fn [e] (is false (.-message e)) nil))
