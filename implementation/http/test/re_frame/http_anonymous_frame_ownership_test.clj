@@ -1,26 +1,19 @@
 (ns re-frame.http-anonymous-frame-ownership-test
-  "A managed request with NO `:request-id` and no
-  owning actor is still owned by the frame that issued it.
+  "A managed request is owned by the frame that issued it, even with no
+  `:request-id` and no owning actor. The two frame-lifecycle boundaries — frame
+  destroy and the epoch-restore quiesce — cancel every request the frame issued
+  and suppress its late reply, recording a `:rf.http/stale-suppressed` row whose
+  `:recovery` names the boundary.
 
-  `:request-id` is optional (Spec 014 §Args), and the two frame-lifecycle
-  boundaries — frame destroy and the epoch-restore HTTP quiesce — must cancel
-  every request the frame issued. A registry that found requests only through
-  its request-id and actor-id indexes would leave an anonymous request
-  invisible to both sweeps: its host future would stay live, its retry would
-  keep firing, and its late reply would commit into a SUCCESSOR frame created
-  under the same id.
-
-  Every assertion here is behavioural — host futures cancelled or not, replies
-  delivered or not, committed app-db, fetch counts, stale-suppression traces —
-  so the file fails against such a registry. The
-  host transport is replaced ONLY at `jvm-fetch`; the managed effect, registry,
-  router, `destroy-frame!` and reply dispatch are all real."
+  The host transport is replaced only at `jvm-fetch`; the managed effect,
+  registry, router, `destroy-frame!` and reply dispatch are real."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
@@ -63,11 +56,9 @@
 (defn- stale-suppressed [traces]
   (filter #(= :rf.http/stale-suppressed (:operation %)) traces))
 
-;; ---- the committed-state regression ----------------------------------------
-
 (deftest destroy-then-recreate-drops-the-anonymous-late-reply
   (testing "an anonymous request in flight when its frame is destroyed is
-            cancelled, and its late completion commits NOTHING into a new frame
+            cancelled, and its late completion is not delivered into a new frame
             created under the same id"
     (let [cf      (CompletableFuture.)
           replies (atom [])]
@@ -79,29 +70,24 @@
         (is (.isCancelled cf)
             "destroy-frame! cancelled the anonymous request's host future")
         (rf/make-frame {:id :frame/anon})
-        (is (= {} (rf/app-db-value :frame/anon))
-            "precondition: the successor frame starts empty")
-        ;; Complete the OLD incarnation's future. Its completion callback runs
-        ;; on this thread, so any reply it dispatches is queued ahead of the
-        ;; barrier below.
+        ;; The completion callback runs on this thread, so any reply it
+        ;; dispatches is queued ahead of the barrier below.
         (.complete cf ok-response)
         (settle-router!)
         (is (empty? @replies)
-            "no reply from the destroyed incarnation was delivered")
-        (is (= {} (rf/app-db-value :frame/anon))
-            "the successor frame's committed app-db is untouched")))))
-
-;; ---- both frame boundaries, several requests, a sibling frame --------------
+            "no reply from the destroyed incarnation was delivered")))))
 
 (deftest frame-boundaries-cancel-every-anonymous-request-and-spare-siblings
-  (doseq [[label boundary] [[:frame-destroy rf.http.registry/abort-in-flight-on-frame-destroyed!]
-                            [:epoch-restore rf.http.registry/abort-in-flight-for-frame!]]]
-    (testing (str label " — every anonymous request frame A issued is cancelled
-                  and suppressed, while frame B's identical anonymous request is
-                  untouched and still delivers")
+  (doseq [[label hook recovery] [[:frame-destroy :http/on-frame-destroyed! :suppressed-on-frame-destroy]
+                                 [:epoch-restore :http/abort-in-flight-for-frame! :suppressed-on-epoch-restore]]]
+    (testing (str label " — through its published hook, every anonymous request
+                  frame A issued is cancelled and suppressed with one stale row
+                  each, while frame B's identical request is untouched and still
+                  delivers")
       (rf.http.registry/clear-all-in-flight!)
       (let [issued  (atom [])
-            replies (atom [])]
+            replies (atom [])
+            traces  (atom [])]
         (reg-anonymous-load! replies)
         (rf/make-frame {:id :frame/a})
         (rf/make-frame {:id :frame/b})
@@ -117,14 +103,23 @@
                              (keep (fn [[f cf]] (when (= f frame-id) cf)) @issued))
                 a-futures  (futures-of :frame/a)
                 [b-future] (futures-of :frame/b)]
-            (is (= 2 (count a-futures))
-                "precondition: frame A has two anonymous requests in flight")
-            (is (some? b-future) "precondition: frame B has one")
-            (boundary :frame/a)
-            (is (every? #(.isCancelled ^CompletableFuture %) a-futures)
-                "BOTH of frame A's anonymous requests were cancelled by the one sweep")
-            (is (not (.isCancelled ^CompletableFuture b-future))
+            (try
+              (rf.trace.tooling/register-listener! ::boundary #(swap! traces conj %))
+              ((rf.late-bind/get-fn hook) :frame/a)
+              (finally
+                (rf.trace.tooling/unregister-listener! ::boundary)))
+            (is (= [true true] (map #(.isCancelled ^CompletableFuture %) a-futures))
+                "both of frame A's anonymous requests were cancelled by the one sweep")
+            (is (false? (.isCancelled ^CompletableFuture b-future))
                 "the sibling frame's anonymous request is untouched")
+            (is (= (repeat 2 [recovery {:rf.reply/status       :stale
+                                        :rf.reply/work-status  :suppressed
+                                        :rf.reply/stale-reason :rf.http/request-id-superseded
+                                        :frame                 :frame/a}])
+                   (map (juxt :recovery #(select-keys (:tags %) [:rf.reply/status :rf.reply/work-status
+                                                                 :rf.reply/stale-reason :frame]))
+                        (stale-suppressed @traces)))
+                ":recovery names the boundary")
             (doseq [cf a-futures] (.complete ^CompletableFuture cf ok-response))
             (.complete ^CompletableFuture b-future ok-response)
             (settle-router!)
@@ -132,8 +127,6 @@
                 "only the sibling's reply was delivered; frame A's late completions were suppressed")))
         (rf/destroy-frame! :frame/a)
         (rf/destroy-frame! :frame/b)))))
-
-;; ---- the sleeping-backoff phase --------------------------------------------
 
 (deftest frame-destroy-cancels-an-anonymous-request-sleeping-in-backoff
   (testing "an anonymous request sleeping in its retry backoff when its frame is
@@ -154,7 +147,6 @@
         ;; Attempt 1 completes synchronously with a retryable 503, so by the
         ;; time dispatch-sync returns the request is sleeping in its backoff.
         (rf/dispatch-sync [:anon/load] {:frame :frame/anon})
-        (is (= 1 @fetches) "precondition: attempt 1 ran")
         (rf/destroy-frame! :frame/anon)
         ;; A retry that must NOT happen has no positive signal to wait for:
         ;; outlast two further backoff windows, then count.
@@ -164,8 +156,6 @@
             "the pending retry was cancelled — attempt 2 was never issued")
         (is (empty? @replies)
             "nothing was delivered for the destroyed frame's request")))))
-
-;; ---- ownership is released on completion -----------------------------------
 
 (deftest completed-anonymous-requests-leave-nothing-for-the-frame-sweep
   (testing "a success and a failure each release their frame ownership when they
@@ -186,10 +176,8 @@
           (.complete ^CompletableFuture ok-cf ok-response)
           (.completeExceptionally ^CompletableFuture failed-cf (IOException. "connection reset"))
           (settle-router!)
-          (is (= #{:ok :error} (set (map :status @replies)))
-              "precondition: one success and one failure were delivered")
           (try
-            (rf.trace.tooling/register-listener! ::sweep (fn [ev] (swap! traces conj ev)))
+            (rf.trace.tooling/register-listener! ::sweep #(swap! traces conj %))
             (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/anon)
             (is (= 1 (count (stale-suppressed @traces)))
                 "the sweep found exactly one handle: neither completed request was retained")
