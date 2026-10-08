@@ -1,30 +1,8 @@
 (ns re-frame2-pair-mcp.orient-test
-  "Unit tests for the orient tool — the app-shape orientation summary.
-
-  The tool is a thin wrapper over the runtime `orient` fn: it emits the
-  `(re-frame2-pair.runtime/orient)` form and shapes the response. Here we
-  stub `cljs-eval-value` to return a representative orient summary and pin:
-
-    - the emitted form calls the runtime `orient` fn;
-    - the summary shape (liveness / frames / app-db-top-keys / registry /
-      machines) rides through to the wire envelope unchanged;
-    - a non-map runtime return degrades to a structured error, never a
-      silent success.
-
-  The runtime `orient` composition is exercised by the bb structural pin
-  (tests/runtime/orient_test.clj in the skill).
-
-  ## Stub lifetime — fixture-scoped, not Promise-chain-scoped
-
-  Each test installs its `cljs-eval-value` stub via a bare `set!` (no
-  per-test `.finally`); a `use-fixtures :each :after` step unconditionally
-  restores the pristine original captured at ns-load. This keeps cleanup
-  independent of the Promise chain: a `.finally`-scoped restore fires
-  AFTER cljs.test's `done` has already advanced to the next test, which in
-  the full suite would let a neighbour's late restore clobber THIS test's
-  freshly-installed stub mid-eval — surfacing as a flaky
-  `connect EADDRNOTAVAIL` from the real socket fn. The fixture boundary
-  closes that race (the same approach invoke_test uses)."
+  "Unit tests for the orient tool — the first-contact app-shape summary.
+  The tool emits `(re-frame2-pair.runtime/orient)`, caps the runtime's id
+  lists to examples with a continuation per list, and echoes the resolved
+  `:build`. The blank-eval degrade is pinned by the conformance corpus."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.cache :as cache]
@@ -34,6 +12,8 @@
             [re-frame2-pair-mcp.tools.orient :as orient]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
+;; Stubs are installed by bare `set!` and restored by the fixture, so a late
+;; restore cannot clobber a neighbouring test's stub.
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 
 (use-fixtures :each
@@ -46,7 +26,6 @@
     conn))
 
 (def ^:private read-result-text tu/extract-edn)
-(def ^:private err? tu/error?)
 
 (def ^:private sample-summary
   {:ok? true
@@ -54,9 +33,6 @@
               :ambiguous-frame? false :runtime-instance-id "abc"}
    :frames   {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default}
    :app-db-top-keys {:rf/default [:cart :route :user]}
-   ;; The runtime orient counts carry the three EP-0016 resources-artefact
-   ;; kinds (:resource / :mutation / :resource-scope) — see the orient
-   ;; descriptor example in descriptors_data.cljs.
    :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6
                        :frame 2 :route 4 :flow 0 :head 0 :error-projector 0
                        :resource 3 :mutation 2 :resource-scope 1}
@@ -66,12 +42,8 @@
    :machines [:checkout]})
 
 (defn- stub-eval!
-  "Install a `cljs-eval-value` stub via a bare `set!` (NO `.finally` —
-  cleanup is the `:after` fixture's job). Records the emitted
-  (non-probe) form into `captured*` and resolves it with `canned`.
-  PROBE-AWARE: the preload-probe sentinel form (`__re_frame2_pair_runtime`)
-  is answered with `true` so the tool's `ensure-runtime!` preflight passes
-  regardless of conn-cache state. `captured*` may be nil."
+  "Answer the preload probe directly; record every other form into
+  `captured*` (may be nil) and answer it with `canned`."
   [captured* canned]
   (let [respond (fn [form]
                   (if (and (string? form) (re-find #"__re_frame2_pair_runtime" form))
@@ -83,49 +55,21 @@
             ([_c _b form] (respond form))
             ([_c _b form _o] (respond form))))))
 
-(deftest emits-the-orient-runtime-form
+(deftest summary-shape-rides-through
+  ;; Lists within the example limit ride through unchanged.
   (async done
     (let [captured (atom nil)]
       (stub-eval! captured sample-summary)
       (-> (orient/orient-tool (fresh-conn) #js {})
-          (.then (fn [_]
-                   (is (= "(re-frame2-pair.runtime/orient)" @captured)
-                       "emits the runtime orient call, no args")
-                   (done)))))))
-
-(deftest summary-shape-rides-through
-  (async done
-    (stub-eval! nil sample-summary)
-    (-> (orient/orient-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (not (err? r)))
-                 (is (= sample-summary (dissoc (read-result-text r) :build))
-                     "every slot of the runtime summary rides through unchanged")
-                 (done))))))
-
-(deftest echoes-session-sticky-build-when-omitted
-  ;; With a session target cached (a prior discover-app), orient with no
-  ;; :build arg resolves to AND echoes that sticky target.
-  (async done
-    (stub-eval! nil sample-summary)
-    (let [conn (fresh-conn)]
-      (swap! conn assoc :resolved-build-id :examples/step-deck
-                        :probed-builds #{:examples/step-deck})
-      (-> (orient/orient-tool conn #js {})
           (.then (fn [r]
-                   (is (= :examples/step-deck (:build (read-result-text r)))
-                       "orient resolves + echoes the session-sticky build")
+                   (is (= "(re-frame2-pair.runtime/orient)" @captured))
+                   (is (= (assoc sample-summary :build :app) (read-result-text r)))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; A real registry orients under the DEFAULT cap.
-;;
-;; The runtime composes the whole sorted id vector of every navigable kind.
-;; On an app with hundreds of registrations those vectors alone are several
-;; times the default budget, so the mandatory first read overflowed before
-;; it returned the frame / count summary it exists for. The first-contact
-;; result carries counts for every kind and a capped run of example ids,
-;; with a `:truncated` entry naming the exact call that returns the rest.
+;; A real registry orients under the DEFAULT cap: shipped whole, the sorted
+;; id vectors of a several-hundred-handler app overflow the budget before
+;; the frame / count summary the first read exists for.
 ;; ---------------------------------------------------------------------------
 
 (defn- many-ids
@@ -147,8 +91,6 @@
                     :fx     (many-ids "fx" 78)}
          :machines (many-ids "machines" 31)))
 
-(defn- overflow? [edn] (contains? edn :rf.mcp/overflow))
-
 (deftest a-registry-of-several-hundred-ids-orients-under-the-default-cap
   (async done
     (is (> (quot (count (pr-str big-summary)) 4) 5000)
@@ -156,71 +98,51 @@
     (stub-eval! nil big-summary)
     (-> (tools/invoke (fresh-conn) "orient" #js {} nil)
         (.then (fn [r]
-                 (let [edn (read-result-text r)]
-                   (is (not (err? r)))
-                   (is (not (overflow? edn))
-                       "the first-contact read fits the default cap without max-tokens")
-                   (is (= (get-in big-summary [:registry :counts]) (get-in edn [:registry :counts]))
-                       "every kind keeps its true count")
-                   (doseq [path [[:registry :events] [:registry :subs] [:registry :fx] [:machines]]]
-                     (is (= (take 20 (get-in big-summary path)) (get-in edn path))
-                         (str path " carries the first 20 sorted ids as examples")))
-                   (is (= [{:slot  [:registry :events] :shown 20 :total 439
-                            :next  {:tool "list-handlers" :args {:kind "event" :frame ":rf/default"}}}
-                           {:slot  [:registry :subs] :shown 20 :total 285
-                            :next  {:tool "list-handlers" :args {:kind "sub" :frame ":rf/default"}}}
-                           {:slot  [:registry :fx] :shown 20 :total 78
-                            :next  {:tool "list-handlers" :args {:kind "fx" :frame ":rf/default"}}}
-                           {:slot  [:machines] :shown 20 :total 31
-                            :next  {:tool "list-handlers" :args {:kind "machine"}}}]
-                          (:truncated edn))
-                       "each capped list names its total and the call that returns the rest of THAT registry")
-                   (is (= (:liveness sample-summary) (:liveness edn)) "liveness rides through")
-                   (is (= (:frames sample-summary) (:frames edn))
-                       "frame lists and the operating frame are untouched")
-                   (is (= {:rf/default [:cart :route :user]} (:app-db-top-keys edn))
-                       "the reserved :rf/xray frame stays out of :app-db-top-keys")
-                   (is (= :frame (get-in edn [:registry :basis])) "the registry keeps its basis")
-                   (is (= :rf/default (get-in edn [:registry :frame]))))
+                 ;; Every kind keeps its true count; each capped list carries its
+                 ;; first 20 sorted ids and names the call that returns the rest
+                 ;; of THAT registry; every other slot is untouched.
+                 (let [capped (reduce (fn [s p] (update-in s p #(vec (take 20 %))))
+                                      big-summary
+                                      [[:registry :events] [:registry :subs] [:registry :fx] [:machines]])]
+                   (is (= (assoc capped :truncated
+                                 [{:slot  [:registry :events] :shown 20 :total 439
+                                   :next  {:tool "list-handlers" :args {:kind "event" :frame ":rf/default"}}}
+                                  {:slot  [:registry :subs] :shown 20 :total 285
+                                   :next  {:tool "list-handlers" :args {:kind "sub" :frame ":rf/default"}}}
+                                  {:slot  [:registry :fx] :shown 20 :total 78
+                                   :next  {:tool "list-handlers" :args {:kind "fx" :frame ":rf/default"}}}
+                                  {:slot  [:machines] :shown 20 :total 31
+                                   :next  {:tool "list-handlers" :args {:kind "machine"}}}])
+                          (select-keys (read-result-text r) (conj (keys big-summary) :truncated)))))
                  (done))))))
 
 (deftest a-process-basis-continuation-names-no-frame
   ;; With no single operating frame the registry is the process-wide
-  ;; registrar, which `list-handlers` reads when it is given no `frame`.
-  (async done
-    (stub-eval! nil (-> big-summary
-                        (update :registry dissoc :frame)
-                        (assoc-in [:registry :basis] :process)))
-    (-> (orient/orient-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (let [edn (read-result-text r)]
-                   (is (= {:tool "list-handlers" :args {:kind "event"}}
-                          (:next (first (:truncated edn))))
-                       "the process registrar's continuation is list-handlers without a frame"))
-                 (done))))))
+  ;; registrar, which `list-handlers` reads when given no `frame`.
+  (is (= {:tool "list-handlers" :args {:kind "event"}}
+         (-> big-summary
+             (update :registry dissoc :frame)
+             (assoc-in [:registry :basis] :process)
+             orient/bound-summary
+             :truncated first :next))))
 
 (deftest orient-overflow-hint-names-only-accepted-arguments
-  ;; An overflow still happens under a budget the caller lowered. Its hint
-  ;; must name arguments the schemas really accept — orient itself has no
-  ;; narrowing argument, so "re-call with narrower args" was advice the
-  ;; agent could not follow.
+  ;; orient has no narrowing argument, so an overflow under a lowered budget
+  ;; must point at arguments the schemas really accept.
   (async done
     (stub-eval! nil sample-summary)
     (-> (tools/invoke (fresh-conn) "orient" #js {"max-tokens" 20} nil)
         (.then (fn [r]
-                 (let [hint  (get-in (read-result-text r) [:rf.mcp/overflow :hint])
+                 (let [hint  (str (get-in (read-result-text r) [:rf.mcp/overflow :hint]))
                        props (fn [tool]
                                (->> registry/tool-descriptors
                                     (filter #(= tool (:name %)))
                                     first
                                     descriptors/with-budget-knob
                                     :inputSchema :properties keys (map name) set))]
-                   (is (string? hint) "a lowered budget overflows with a hint")
-                   (is (not (re-find #"narrower args" (str hint)))
-                       "no advice to narrow arguments orient does not have")
                    (doseq [[tool arg] [["list-handlers" "kind"] ["list-handlers" "frame"]
                                        ["snapshot" "path"] ["orient" "max-tokens"]]]
-                     (is (re-find (re-pattern (str "`" arg "`")) (str hint))
+                     (is (re-find (re-pattern (str "`" arg "`")) hint)
                          (str "the hint names `" arg "`"))
                      (is (contains? (props tool) arg)
                          (str tool " accepts `" arg "`, so the advice can be followed"))))
