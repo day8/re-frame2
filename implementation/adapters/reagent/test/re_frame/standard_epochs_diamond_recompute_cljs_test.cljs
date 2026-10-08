@@ -1,20 +1,8 @@
 (ns re-frame.standard-epochs-diamond-recompute-cljs-test
-  "Substrate contract coverage for the standard-epochs
-  Reactive-substrate section's DIAMOND redundant-recompute probe: the
-  automated companion to the testbed's visual diamond probe (the join
-  sub recomputes 1× per single root change at both the raw-Reagent and
-  the re-frame reg-sub layers).
-
-  The standard-epochs testbed
-  (`tools/xray/testbeds/standard_epochs/core.cljs`) is test-free: its
-  button #24 demonstrates the behaviour for Xray +
-  re-frame2-pair inspection. The hard ASSERTION lives here — the substrate
-  subs contract suite — sibling to
-  `re-frame.standard-epochs-views-subs-lifecycle-cljs-test`.
-
-  The diamond (a copy of the testbed's `:standard-epochs/diamond-*` subs,
-  registered here under the same ids — this ns never loads the testbed, so
-  it pins the substrate's diamond behaviour, not the testbed's source):
+  "The DIAMOND redundant-recompute probe the standard-epochs testbed
+  (`tools/xray/testbeds/standard_epochs/core.cljs`, test-free) demonstrates,
+  asserted on a copy of its `:standard-epochs/diamond-*` subs under the same
+  ids; the testbed is never loaded:
 
          :diamond-root          (L1 — reads :views/diamond-root)
            /        \\
@@ -28,20 +16,10 @@
   sub TWICE per single root change (the push-based diamond redundant-
   recompute).
 
-  THE METHODOLOGICAL TWIST (do not get this wrong).
-  To COUNT recomputes you must exercise the PUSH path, which needs an
-  EAGER consumer + a flush. A single lazy deref always pulls the join node
-  exactly once and CANNOT reveal a double-compute. So we stand a real
-  mounted view in with `reagent.ratom/run!` (an auto-running reaction that
-  eagerly derefs `:diamond-c`), reset the counter, dispatch ONE root
-  change, `flush!` the reaction queue (the push), and assert the counter
-  rose by EXACTLY 1.
-
-  `diamond-c-runs` is a plain atom (NOT a ratom) reset before each
-  measurement, and is NOT an input to any sub, so the `swap!` cannot feed
-  back into the reactive graph.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  Counting recomputes needs the PUSH path, an EAGER consumer plus a flush:
+  a single lazy deref pulls the join exactly once and cannot reveal a
+  double-compute. So a `reagent.ratom/run!` reaction stands in for a
+  mounted view."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [reagent.ratom :as ratom]
@@ -53,13 +31,11 @@
     {:adapter rf.adapter.reagent/adapter}))
 
 ;; ===========================================================================
-;; The standard-epochs diamond, replicated verbatim from the testbed
+;; The standard-epochs diamond
 ;; ===========================================================================
 ;;
-;; A classic reactive DIAMOND. `diamond-c-runs` is a plain atom (not a
-;; ratom) and is NOT an input to any sub, so the swap! cannot feed back
-;; into the graph. It is reset per measurement, not per ns-load, hence a
-;; plain `def` (the testbed uses `defonce` for its long-lived instrument).
+;; `diamond-c-runs` is a plain atom, an input to no sub, so the swap! cannot
+;; feed back into the graph; it is reset per measurement.
 
 (def diamond-c-runs (atom 0))
 
@@ -93,19 +69,12 @@
 ;; ===========================================================================
 
 (deftest diamond-join-recomputes-once
-  (testing "with an EAGER consumer of the join sub mounted
-   (an auto-running `ratom/run!` reaction standing in for a mounted view),
-   a single root bump pushes EXACTLY ONE recompute through the join node —
-   no push-based diamond double-compute. Exercising the push path (eager
-   consumer + flush!) is load-bearing: a single lazy deref pulls the join
-   once and cannot reveal a double-compute."
+  (testing "with an EAGER consumer of the join sub mounted, a single root
+   bump pushes EXACTLY ONE recompute through the join node"
     (register-diamond-subs!)
     (register-diamond-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
 
-    ;; EAGER consumer ~ a mounted view: an auto-running reaction that
-    ;; derefs the join sub. This puts the join node ON the push path, so a
-    ;; redundant intermediate recompute would show up as a second run.
     (let [driver (ratom/run! (deref (rf/subscribe [:standard-epochs/diamond-c])))]
       (try
         (ratom/flush!)
