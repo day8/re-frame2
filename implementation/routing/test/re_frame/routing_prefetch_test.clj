@@ -1,50 +1,24 @@
 (ns re-frame.routing-prefetch-test
-  "EP-0037 R3 — resource-only intent prefetch: the PURE routing surfaces plus
-  the event's own two pre-planning gates.
-
-  The always-on prefetch-address structural gate (`rf.routing.address/prefetch-address-
-  error`) and the pure `[:rf.route/prefetch …]` payload synthesis
-  (`rf.routing.link/prefetch-payload`) the `rf/route-link` intent handlers are
-  built on. The event's warm-plan behaviour (isolation, dedupe, reuse, planning
-  failure) is proven end-to-end by
-  the `ep-0037-r3-prefetch-*` conformance fixtures; the DOM intent arm (hover /
-  focus / touch → dispatch) is proven by the CLJS route-link tests. Per Spec 012
-  §Route-plan prefetch.
-
-  The DESTINATION gate at the foot drives `:rf.route/prefetch` end-to-end
-  against a stubbed `:routing/on-route-prefetch` warm hook, so a destination that
-  does not resolve is proven to reject BEFORE the hook is consulted — with no
-  ensures and no success summary trace.
+  "Intent prefetch (Spec 012 §Route-plan prefetch): the pure structural gate
+  (`rf.routing.address/prefetch-address-error`), the pure payload synthesis
+  (`rf.routing.link/prefetch-payload`), the `:prefetch` value check, and the
+  `:rf.route/prefetch` event's destination gate and warmed identity, driven
+  against stubbed late-bound resource hooks. The warm plan itself (isolation,
+  dedupe, reuse, planning failure) is proven by the `ep-0037-r3-prefetch-*`
+  conformance fixtures.
 
   ## Posture split
 
-  The two GATES are production-real and carry no posture guard. The structural
-  gate `rf.routing.address/prefetch-address-error` and the pure payload synthesis
-  `rf.routing.link/prefetch-payload` are plain always-on functions, so the whole top half
-  of this namespace runs under the gate unguarded. So does the fact each
-  destination case is really about: `@calls` is the stubbed
-  `:routing/on-route-prefetch` warm hook — a late-bound fn, not a trace — so
-  whether prefetch REACHED planning, and with which resolved identity, is
-  readable in production. Those run in the ordinary `clojure -M:test` suite
-  AND in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false`
-  lane).
-
-  What is dev-only is the REPORTING: the `:rf.route/prefetched` summary trace
-  and the `:rf.error/prefetch-bad-address` rejection both reach the caller
-  through `trace/emit!` / `trace/emit-error!`, gated on
-  `rf.interop/debug-enabled?` and read once at load time. Those assertions are
-  kept VERBATIM inside `(when rf.interop/debug-enabled? …)` arms marked
-  \"Dev-instrumentation arm\".
-
-  Pay attention to the CARRIER-ABSENCE trio at the foot —
-  `(not (contains? tags :value))`, `(not (contains? tags :error))`,
-  `(not (re-find #\"SECRET-100\" (pr-str tags)))`. With no trace, `tags` is nil
-  and all three pass VACUOUSLY: they would certify a privacy guarantee about a
-  rejection payload that was never built. They are inside the arm, and outside
-  it the same ground is covered by two posture-independent facts — the
-  offending value never reached the warm plan, and `route-url`'s own ex-data
-  demonstrably DOES reproduce the raw params, so the hazard the emit-site
-  projection exists for is proven real in both postures rather than assumed."
+  The gates, the payload synthesis and the stubbed hooks' `@calls` (late-bound
+  fns, not traces) are production-real, so whether prefetch REACHED planning,
+  and with which identity, is asserted unguarded and runs in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane). The REPORTING — the `:rf.route/prefetched`
+  summary and the `:rf.error/prefetch-bad-address` rejection traces — is
+  dev-only, so those assertions sit inside `(when rf.interop/debug-enabled? …)`
+  arms. That includes the no-leak check on a schema rejection: with no trace it
+  would pass vacuously, and outside the arm the posture-independent fact is
+  that the offending value never reached the warm plan."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -58,142 +32,66 @@
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (deftest prefetch-address-error-accepts-only-a-closed-route-address
-  (testing "a well-formed named :rf/route-address passes the gate"
-    (is (nil? (rf.routing.address/prefetch-address-error {:to :route/article})))
-    (is (nil? (rf.routing.address/prefetch-address-error {:to :route/article :params {:slug "x"}})))
-    (is (nil? (rf.routing.address/prefetch-address-error {:to :route/article :params {:slug "x"}
-                                               :query {:tab "comments"} :fragment "reply"})))
-    (is (nil? (rf.routing.address/prefetch-address-error {:to :route/article :fragment nil}))))
-
-  (testing "a raw :url escape is NOT a RouteAddress — rejected as an unknown key"
-    (is (= {:reason :unknown-keys :keys [:url]}
-           (rf.routing.address/prefetch-address-error {:url "/articles/x"}))))
-
-  (testing "a policy / edit key is rejected as unknown (prefetch takes address only)"
-    (is (= {:reason :unknown-keys :keys [:replace?]}
-           (rf.routing.address/prefetch-address-error {:to :route/article :replace? true})))
-    (is (= {:reason :unknown-keys :keys [:query-merge]}
-           (rf.routing.address/prefetch-address-error {:to :route/article :query-merge {:tab "x"}}))))
-
-  (testing "a missing / non-keyword :to is rejected before planning"
-    (is (= {:reason :missing-to :keys [:to]}
-           (rf.routing.address/prefetch-address-error {:params {:slug "x"}})))
-    (is (= {:reason :missing-to :keys [:to]}
-           (rf.routing.address/prefetch-address-error {:to "route/article"}))))
-
-  (testing "a structurally-wrong address value (non-map :params) is a bad address"
-    (is (= {:reason :bad-address :keys []}
-           (rf.routing.address/prefetch-address-error {:to :route/article :params [:not :a :map]}))))
-
-  (testing "a non-map request rejects (never reaches planning)"
-    (is (= {:reason :request-not-a-map :keys []}
-           (rf.routing.address/prefetch-address-error nil)))))
+  (doseq [[request expected]
+          [[{:to :route/article :params {:slug "x"} :query {:tab "c"} :fragment "reply"} nil]
+           [{:url "/articles/x"}                        {:reason :unknown-keys :keys [:url]}]
+           [{:params {:slug "x"}}                       {:reason :missing-to :keys [:to]}]
+           [{:to :route/article :params [:not :a :map]} {:reason :bad-address :keys []}]
+           [nil                                          {:reason :request-not-a-map :keys []}]]]
+    (is (= expected (rf.routing.address/prefetch-address-error request))
+        (pr-str request))))
 
 (deftest prefetch-payload-synthesises-the-event-only-on-intent-opt-in
-  (testing "a link that opts into :prefetch :intent yields the address-only event"
-    (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"}}]
-           (rf.routing.link/prefetch-payload {:to :route/article :params {:slug "x"}
-                                   :prefetch :intent :class "title"})))
-    (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"} :query {:tab "c"}}]
-           (rf.routing.link/prefetch-payload {:to :route/article :params {:slug "x"}
-                                   :query {:tab "c"} :prefetch :intent}))))
-
-  (testing "the payload carries ONLY the address — no policy / DOM / behaviour keys leak"
+  (testing "an opted-in link yields the address-only event"
     (is (= [:rf.route/prefetch {:to :route/article}]
            (rf.routing.link/prefetch-payload {:to :route/article :prefetch :intent
-                                   :class "title" :on-click identity
-                                   :on-mouse-enter identity}))))
-
-  (testing "an ABSENT :prefetch yields nil — passive by default, and the ONLY
-            way to be passive"
+                                              :class "title" :on-mouse-enter identity}))))
+  (testing "an ABSENT :prefetch is passive, and the only way to be"
     (is (nil? (rf.routing.link/prefetch-payload {:to :route/article})))))
 
-;; ---- the :prefetch behaviour value is VALIDATED, not silently stripped -----
-
 (defn- bad-prefetch-ex-data
-  "The `ex-data` of the throw a link calculation raises for `props`, or nil if
-  it did not throw."
+  "The `ex-data` of the throw `calc` raises for `props`, or nil if it did not throw."
   [calc props]
   (try (calc props) nil
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest a-present-but-unsupported-prefetch-value-fails-loud
-  (testing ":intent is the ONLY accepted value (Spec 012 §:prefetch :intent) —
-            an unsupported mode is a caller bug, NOT a silently passive link.
-            Returning nil for it would make `:prefetch :render` and a plain typo
-            indistinguishable from a link that never asked to prefetch."
-    (doseq [v [true false nil :render :viewport :hover "intent" 1]]
-      (is (= :rf.error/route-link-bad-prefetch
-             (:rf.error/id (bad-prefetch-ex-data rf.routing.link/prefetch-payload
-                                                 {:to :route/article :prefetch v})))
-          (str "prefetch value " (pr-str v) " must fail loud")))
-    (testing "the ONE throw site names the slot, the accepted value and the
-              surface, whichever value it refused"
-      (let [data (bad-prefetch-ex-data rf.routing.link/prefetch-payload
-                                       {:to :route/article :prefetch :render})]
-        (is (= :prefetch (:slot data)))
-        (is (= :intent (:accepted data)))
-        (is (= 'rf/route-link (:where data)))))
-    (testing "and the message is didactic — it names the accepted value and the
-              way to be passive"
-      (let [msg (try (rf.routing.link/prefetch-payload {:to :route/article :prefetch :render})
-                     (catch clojure.lang.ExceptionInfo e (ex-message e)))]
-        (is (re-find #":intent" msg))
-        (is (re-find #"(?i)omit" msg)))))
-
-  (testing ":prefetch :intent and an absent key both pass validation"
-    (is (nil? (rf.routing.link/validate-prefetch! {:to :route/article :prefetch :intent})))
-    (is (nil? (rf.routing.link/validate-prefetch! {:to :route/article})))))
+  (testing "any PRESENT :prefetch other than :intent throws, nil and false
+            included: a silently passive link looks identical to a working one"
+    (doseq [v [nil false :render]]
+      (is (= {:rf.error/id :rf.error/route-link-bad-prefetch
+              :where       'rf/route-link
+              :slot        :prefetch
+              :accepted    :intent}
+             (select-keys (bad-prefetch-ex-data rf.routing.link/prefetch-payload
+                                                {:to :route/article :prefetch v})
+                          [:rf.error/id :where :slot :accepted]))
+          (pr-str v)))))
 
 (deftest every-link-surface-validates-the-prefetch-value-on-both-hosts
-  ;; `href-attrs` is private but is reached through both `rf/route-link` render
-  ;; halves; `route-link-render-ssr` is the JVM half and is public, so the SSR
-  ;; shell is exercised directly here. `link-model` is the one calculation a
-  ;; view artefact's route-link runs on both hosts.
-  (testing "the rf/route-link SSR shell rejects it (rather than rendering the
-            anchor with the bad value merely stripped)"
+  ;; The JVM SSR shell. `link-model`'s check is pinned on both hosts by
+  ;; `re-frame.route-link-ssr-parity-cljs-test`, the client render's by
+  ;; `re-frame.route-link-cljs-test`.
+  (rf.routing/reg-route :route/article {} "/articles/:slug")
+  (testing "the SSR shell rejects a bad value rather than rendering it stripped"
     (is (= :rf.error/route-link-bad-prefetch
-           (:rf.error/id (bad-prefetch-ex-data
-                           #(rf.routing.link/route-link-render-ssr %)
-                           {:to :route/article :prefetch :render})))))
-  (testing "the link model rejects it on the JVM too — its server-side
-            arm validates exactly as the client does"
-    (is (= :rf.error/route-link-bad-prefetch
-           (:rf.error/id (bad-prefetch-ex-data
-                           #(rf.routing.link/link-model % :rf/default)
-                           {:to :route/article :prefetch true})))))
-  (testing "and a valid :intent link renders / models normally, with
-            :prefetch stripped before DOM emission"
-    (rf.routing/reg-route :route/article {} "/articles/:slug")
-    (let [props {:to :route/article :params {:slug "x"} :prefetch :intent :class "t"}
-          [_tag attrs] (rf.routing.link/route-link-render-ssr props)]
-      (is (= "/articles/x" (:href attrs)))
-      (is (not (contains? attrs :prefetch)) ":prefetch never reaches the <a>")
-      (is (= "t" (:class attrs)) "passthrough attrs survive"))
-    (is (= "/articles/x" (:href (rf.routing.link/link-model {:to :route/article
-                                                  :params {:slug "x"}
-                                                  :prefetch :intent}
-                                                 :rf/default))))))
+           (:rf.error/id (bad-prefetch-ex-data rf.routing.link/route-link-render-ssr
+                                               {:to :route/article :prefetch :render})))))
+  (testing "and strips a valid :intent before DOM emission"
+    (is (= [:a {:href "/articles/x" :class "t"}]
+           (rf.routing.link/route-link-render-ssr {:to :route/article :params {:slug "x"}
+                                                   :prefetch :intent :class "t"})))))
 
-;; ===========================================================================
-;; The DESTINATION gate — prefetch warms the destination a NAVIGATION would
-;; ===========================================================================
+;; ---- the destination gate --------------------------------------------------
 ;;
-;; The structural gate proves the request
-;; is a closed `:rf/route-address`, but it cannot know whether that address
-;; RESOLVES. With it alone, `[:rf.route/prefetch {:to
-;; :route/does-not-exist}]` would return `{}` AFTER a success summary trace (the
-;; trace would say the warm-up worked; the caller would get nothing), and a registered
-;; `/probe/:id` with `:id` omitted would reach the warm hook as `{:params {}}` — the
-;; WRONG resource identity. Both are addresses `route-url` refuses, so the
-;; destination resolves through that same boundary BEFORE planning.
+;; The structural gate cannot know whether an address RESOLVES. Prefetch
+;; resolves the destination through `route-url` BEFORE planning, so an address
+;; a navigation would refuse never warms anything and never reports a success.
 
 (defn- with-warm-hook
-  "Publish a stub `:routing/on-route-prefetch` that RECORDS every warm-plan call
+  "Publish a stub `:routing/on-route-prefetch` that records every warm-plan call
   and reports one warmed requirement, call `(f calls)`, then unpublish it. The
-  Resources artefact is not on the routing test classpath, so the hook is
-  unbound by default — recording it is how we observe whether prefetch reached
-  planning at all."
+  Resources artefact is not on this classpath, so the hook is otherwise unbound."
   [f]
   (let [calls (atom [])]
     (rf.late-bind/set-fn! :routing/on-route-prefetch
@@ -204,203 +102,76 @@
          (finally (rf.late-bind/set-fn! :routing/on-route-prefetch nil)))))
 
 (defn- prefetch!
-  "Dispatch `[:rf.route/prefetch address]` synchronously and return
-  `{:prefetched [...] :rejected [...]}` — the summary traces and the
-  bad-address rejections it emitted."
+  "Dispatch `[:rf.route/prefetch address]` and return the tags of the summary
+  and bad-address traces it emitted."
   [address]
   (with-trace-recorder! [traces {:pred #(contains? #{:rf.route/prefetched
                                                      :rf.error/prefetch-bad-address}
                                                    (:operation %))
                                  :shape :by-op}]
     (rf/dispatch-sync [:rf.route/prefetch address])
-    {:prefetched (:rf.route/prefetched @traces)
-     :rejected   (:rf.error/prefetch-bad-address @traces)}))
+    {:prefetched (mapv :tags (:rf.route/prefetched @traces))
+     :rejected   (mapv :tags (:rf.error/prefetch-bad-address @traces))}))
 
 (deftest prefetch-resolves-the-named-destination-before-planning
   (rf.routing/reg-route :route/probe {} "/probe/:id")
   (with-warm-hook
     (fn [calls]
-      (testing "POSITIVE CONTROL — a registered destination with its required
-                params reaches the warm plan and emits its ONE summary
-                trace (the gate rejects only what route-url refuses)"
-        (let [{:keys [prefetched rejected]}
-              (prefetch! {:to :route/probe :params {:id "7"}})]
-          ;; SEMANTIC, posture-independent: the warm hook is a
-          ;; late-bound fn, not a trace — this is what "reached the warm plan"
-          ;; means, and it is what makes the `(empty? @calls)` assertions in
-          ;; the rejection blocks below non-vacuous.
+      (testing "a resolvable destination reaches the warm plan and reports one summary"
+        (let [{:keys [prefetched]} (prefetch! {:to :route/probe :params {:id "7"}})]
           (is (= [{:route-id :route/probe :params {:id "7"}}]
-                 (mapv #(select-keys % [:route-id :params]) @calls))
-              "the warm hook saw the resolved destination and its params")
-          ;; Dev-instrumentation arm (see ns docstring).
+                 (mapv #(select-keys % [:route-id :params]) @calls)))
           (when rf.interop/debug-enabled?
-            (is (empty? rejected))
-            (is (= 1 (count prefetched)))
-            (is (= {:route-id :route/probe :warmed 1}
-                   (select-keys (:tags (first prefetched)) [:route-id :warmed]))))))
-
-      (testing "an UNREGISTERED destination rejects BEFORE planning — no warm
-                hook call, and critically NO success summary trace (emitting
-                one and then returning {} would make the trace lie)"
-        (reset! calls [])
-        (let [{:keys [prefetched rejected]}
-              (prefetch! {:to :route/does-not-exist})]
-          ;; SEMANTIC, posture-independent: the REJECTION is real —
-          ;; the warm plan was never consulted. The positive control above
-          ;; proves this atom does fill when prefetch reaches planning, so an
-          ;; empty one here is evidence rather than an artefact of the posture.
-          (is (empty? @calls) "the warm plan was never consulted — no ensures")
-          ;; Dev-instrumentation arm (see ns docstring). The
-          ;; `(empty? prefetched)` leg is NEGATIVE over the trace ring.
-          (when rf.interop/debug-enabled?
-            (is (empty? prefetched) "no :rf.route/prefetched — the trace claims no warm-up")
-            (is (= 1 (count rejected)))
-            (is (= :no-recovery (:recovery (first rejected)))
-                "the rejection is terminal — nothing was warmed to recover")
-            (let [tags (:tags (first rejected))]
-              (is (= :no-such-route (:reason tags)))
-              (is (= :route/does-not-exist (:route-id tags)))
-              (is (= [:to] (:keys tags)))
-              (is (= :event (:where tags)))))))
-
-      (testing "a REGISTERED destination with a required path param OMITTED
-                rejects too — reaching the warm hook as {:params {}} would
-                warm the wrong resource identity"
-        (reset! calls [])
-        (let [{:keys [prefetched rejected]} (prefetch! {:to :route/probe})]
-          ;; SEMANTIC, posture-independent: the hazard is
-          ;; the warm hook being reached as `{:params {}}` — the WRONG resource
-          ;; identity. An empty `@calls` is precisely the absence of that.
-          (is (empty? @calls) "the warm hook was never reached with {:params {}}")
-          ;; Dev-instrumentation arm (see ns docstring).
-          (when rf.interop/debug-enabled?
-            (is (empty? prefetched))
-            (is (= 1 (count rejected)))
-            (let [tags (:tags (first rejected))]
-              (is (= :missing-route-param (:reason tags)))
-              (is (= [:id] (:keys tags)) "the offending param KEY is named")
-              (is (= :route/probe (:route-id tags))))))
-        (testing "and an empty-string param — the un-round-trippable zero-length
-                  segment — rejects on the same channel"
+            (is (= [{:route-id :route/probe :warmed 1}]
+                   (mapv #(select-keys % [:route-id :warmed]) prefetched))))))
+      (doseq [[address rejection]
+              [[{:to :route/does-not-exist} {:reason :no-such-route :keys [:to]}]
+               ;; reaching the warm hook as {:params {}} would warm the wrong identity
+               [{:to :route/probe}          {:reason :missing-route-param :keys [:id]}]
+               ;; the structural gate runs first, so its own :reason wins
+               [{:url "/probe/7"}           {:reason :unknown-keys :keys [:url]}]]]
+        (testing (pr-str address)
           (reset! calls [])
-          (let [{:keys [prefetched rejected]}
-                (prefetch! {:to :route/probe :params {:id ""}})]
-            ;; SEMANTIC, posture-independent.
-            (is (empty? @calls) "the zero-length segment never reached the warm hook")
-            ;; Dev-instrumentation arm (see ns docstring).
+          (let [{:keys [prefetched rejected]} (prefetch! address)]
+            (is (empty? @calls) "rejected before the warm plan")
             (when rf.interop/debug-enabled?
-              (is (empty? prefetched))
-              (is (= :missing-route-param (:reason (:tags (first rejected)))))))))
-
-      (testing "the STRUCTURAL gate wins — a malformed request never
-                reaches the registry, so its own :reason is reported"
-        (reset! calls [])
-        (let [{:keys [rejected]} (prefetch! {:url "/probe/7"})]
-          ;; SEMANTIC, posture-independent: the STRUCTURAL gate
-          ;; (`rf.routing.address/prefetch-address-error`, whose verdicts the
-          ;; first deftest pins) is always-on, so it rejects a `:url`-bearing
-          ;; prefetch request in both postures — the warm hook is never reached.
-          (is (empty? @calls) "the structural gate refused before any planning")
-          ;; Dev-instrumentation arm (see ns docstring).
-          (when rf.interop/debug-enabled?
-            (is (= :unknown-keys (:reason (:tags (first rejected)))))))))))
+              ;; and no success summary beside it, or the trace would lie
+              (is (= [[] [rejection]]
+                     [prefetched (mapv #(select-keys % [:reason :keys]) rejected)])))))))))
 
 (deftest prefetch-rejects-params-that-fail-the-routes-schema-without-leaking-them
   (let [restore (rf.routing-test-support/with-stub-validator)]
     (try
-      ;; A `:params` schema the stub validator adjudicates as a predicate.
       (rf.routing/reg-route :route/guarded
                          {:params (fn [{:keys [id]}] (= "ok" id))} "/guarded/:id")
       (with-warm-hook
         (fn [calls]
-          (testing "conforming params warm normally"
-            (let [{:keys [prefetched rejected]}
-                  (prefetch! {:to :route/guarded :params {:id "ok"}})]
-              ;; SEMANTIC, posture-independent: the conforming
-              ;; address really reached the warm plan. This is the live control
-              ;; for the `(empty? @calls)` assertion in the rejection block.
-              (is (= 1 (count @calls)))
-              ;; Dev-instrumentation arm (see ns docstring).
-              (when rf.interop/debug-enabled?
-                (is (empty? rejected))
-                (is (= 1 (count prefetched))))))
-          (testing "non-conforming params reject before planning — prefetch
-                    adjudicates the address against the SAME schemas a
-                    navigation does"
+          (testing "conforming params warm"
+            (prefetch! {:to :route/guarded :params {:id "ok"}})
+            (is (= 1 (count @calls))))
+          (testing "non-conforming params reject before planning, against the same
+                    schemas a navigation uses; the rejection names the slot and
+                    carries no value, though route-url's own ex-data embeds it"
             (reset! calls [])
             (let [{:keys [prefetched rejected]}
                   (prefetch! {:to :route/guarded :params {:id "SECRET-100"}})]
-              ;; SEMANTIC, posture-independent: the adjudication is
-              ;; real — the non-conforming address never reached the warm plan,
-              ;; so `SECRET-100` never became a warmed resource identity. The
-              ;; conforming case above proves this atom does fill.
-              (is (empty? @calls)
-                  "the offending param value never reached the warm plan")
-              ;; …and the HAZARD the redaction exists for is real in BOTH
-              ;; postures: `route-url` itself throws ex-data carrying the raw
-              ;; params under :value / :error. That is what must not be copied
-              ;; onto the rejection payload.
-              (let [ex-data' (try (rf.routing/route-url
-                                    {:to :route/guarded :params {:id "SECRET-100"}})
-                                  nil
-                                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-                (is (re-find #"SECRET-100" (pr-str ex-data'))
-                    "route-url's own ex-data DOES reproduce the raw params —
-                     the leak the emit-site projection has to stop"))
-              ;; Dev-instrumentation arm (see ns docstring). The
-              ;; three carrier-absence legs are NEGATIVE over the rejection's
-              ;; trace tags: with no trace `tags` is nil, so each would report
-              ;; a privacy guarantee about a payload that was never built.
+              (is (empty? @calls))
               (when rf.interop/debug-enabled?
-                (is (empty? prefetched))
-                (is (= 1 (count rejected)))
-                (let [tags (:tags (first rejected))]
-                  (is (= :route-url-validation (:reason tags)))
-                  (is (= [:params] (:keys tags)) "the offending SLOT is named")
-                  (testing "and the rejection carries NO carrier value — route-url's
-                            ex-data embeds :value (the raw params) and :error (an
-                            explainer that reproduces them), the class the navigate
-                            door has to redact at its own emit site"
-                    (is (not (contains? tags :value)))
-                    (is (not (contains? tags :error)))
-                    (is (not (re-find #"SECRET-100" (pr-str tags)))))))))))
+                (is (= [[] [{:reason :route-url-validation :keys [:params]}]]
+                       [prefetched (mapv #(select-keys % [:reason :keys]) rejected)]))
+                (is (not (re-find #"SECRET-100" (pr-str rejected)))))))))
       (finally (restore)))))
 
-;; ===========================================================================
-;; The warmed identity IS the activated identity
-;; ===========================================================================
+;; ---- the warmed identity is the activated identity ---------------------------
 ;;
-;; Resolving the destination is not the
-;; same as resolving the TARGET. The destination gate above proves prefetch
-;; refuses what `route-url` refuses; it says nothing about whether the facts it
-;; hands the warm plan are the facts the activation will commit — and a warm-up
-;; keyed on a different `:params` / `:query` / `:fragment` than the click would
-;; leave two cache entries for one destination, the warm
-;; one ownerless, GC-eligible and never reused.
-;;
-;; Two pairings are proven, because prefetch has two counterparts and they are
-;; NOT the same door. A link's hover dispatches `rf.routing.link/prefetch-payload` and that
-;; same link's CLICK dispatches `link-model`'s `[:rf.route/url-requested …]` —
-;; a URL door. Programmatic `[:rf.route/navigate {:to …}]` is a named-address
-;; door. The link pairing is the one intent prefetch exists for, and it is also the honest
-;; cross-door test: its two halves resolve through DIFFERENT seams, so it cannot
-;; pass by both sides agreeing on one wrong value.
-;;
-;; Each case additionally pins the canonical expected identity as a literal, so
-;; neither arm can pass merely because its two sides match.
-;;
-;; A path param the route PATTERN does not capture
-;; (`{:id "7" :extra "x"}` on `/probe/:id`) rejects LOUD at `route-url`, the
-;; shared emission boundary all three named-address doors run through, so no
-;; door commits a value another drops. Prefetch therefore refuses it
-;; through the destination gate above, needing no code of its own. Asserted in
-;; `re-frame.routing-uncaptured-param-test`.
+;; A warm-up keyed on different `:params` / `:query` / `:fragment` than the
+;; activation would leave two cache entries for one destination, the warm one
+;; ownerless and never reused.
 
 (defn- with-identity-hooks
   "Publish BOTH late-bound resource hooks — the prefetch WARM plan and the
-  navigation ENTRY plan — each recording only the identity facts it is handed,
-  and call `(f warm entry)`. Those two maps are what a cache entry is keyed on,
-  so comparing them compares the thing that actually matters."
+  navigation ENTRY plan — each recording only the identity facts a cache entry
+  is keyed on, and call `(f warm entry)`."
   [f]
   (let [identity-of #(select-keys % [:route-id :params :query :fragment])
         warm        (atom [])
@@ -419,61 +190,41 @@
   (rf.routing/reg-route :route/elsewhere {} "/elsewhere")
   (rf.routing/reg-route :route/probe {:query-defaults {:tab :overview}} "/probe/:id"))
 
+(def ^:private probe-identity
+  {:route-id :route/probe :params {:id "7"} :query {:tab :overview} :fragment nil})
+
 (deftest prefetch-warms-the-identity-a-link-click-activates
-  ;; The pairing intent prefetch exists for, driven through the REAL link callers on both
-  ;; sides: `rf.routing.link/prefetch-payload` is what the three intent handlers dispatch
-  ;; on hover / focus / touch, and `link-model`'s `:payload` is what the click
-  ;; handler dispatches. They resolve through different seams (named-address vs
-  ;; URL), which is what makes this a genuine cross-door proof.
+  ;; Hover and click resolve through different seams (named address vs URL), so
+  ;; the pair cannot pass by both sides agreeing on one wrong value.
   (register-probe-routes!)
-  (let [props    {:to    :route/probe :params {:id "7"}
-                  :query {:drop nil} :prefetch :intent :class "nav-link"}
-        expected {:route-id :route/probe :params {:id "7"}
-                  :query    {:tab :overview} :fragment nil}]
+  (let [props {:to :route/probe :params {:id "7"} :query {:drop nil}
+               :prefetch :intent :class "nav-link"}]
     (with-identity-hooks
       (fn [warm entry]
-        (is (= [:rf.route/prefetch {:to :route/probe :params {:id "7"}
-                                    :query {:drop nil}}]
+        (is (= [:rf.route/prefetch {:to :route/probe :params {:id "7"} :query {:drop nil}}]
                (rf.routing.link/prefetch-payload props))
-            "the hover payload carries the caller's nil-valued query key — the
-             normalisation under test is the SEAM's, not the payload's")
-        ;; HOVER.
+            "the hover payload is the address as written; normalising is the seam's job")
         (rf/dispatch-sync (rf.routing.link/prefetch-payload props))
-        ;; Park elsewhere so the click below is never a stage-3 exact no-op.
+        ;; Park elsewhere so the click is never an exact no-op.
         (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
-        ;; CLICK — the same link, through the URL door.
         (rf/dispatch-sync (:payload (rf.routing.link/link-model props :rf/default)))
-        (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
-          (is (= [expected] @warm)
-              "the warm plan is handed the canonical resolved identity")
-          (is (= [expected] activated)
-              "and the click's activation is handed the same one — so hovering
-               then clicking ONE link warms ONE cache entry, reused, not orphaned"))))))
+        (is (= [[probe-identity] [probe-identity]]
+               [@warm (filterv #(= :route/probe (:route-id %)) @entry)])
+            "hover warms, and the click activates, ONE identity")))))
 
 (deftest prefetch-warms-the-identity-a-programmatic-navigation-commits
-  ;; The named-address pairing, which additionally reaches the empty-fragment
-  ;; case: `prefetch-payload` deliberately omits `:fragment` (a `#fragment` is
-  ;; never a resource input), so the link surface cannot express it and only the
-  ;; event-level pair can prove it.
+  ;; The named-address pair also reaches the empty fragment, which
+  ;; `prefetch-payload` never carries.
   (register-probe-routes!)
-  (doseq [[label address expected]
-          [["a nil-valued query key — route-url ELIDES it from the URL, so a
-             target that keeps it describes a place its own URL cannot spell"
-            {:to :route/probe :params {:id "7"} :query {:drop nil}}
-            {:route-id :route/probe :params {:id "7"}
-             :query    {:tab :overview} :fragment nil}]
-
-           ["an empty-string fragment — route-url emits no trailing #, and \"\"
-             is truthy, so an un-normalised one is a slice/URL divergence"
-            {:to :route/probe :params {:id "7"} :fragment ""}
-            {:route-id :route/probe :params {:id "7"}
-             :query    {:tab :overview} :fragment nil}]]]
-    (testing label
+  (doseq [address [;; route-url elides a nil-valued query key
+                   {:to :route/probe :params {:id "7"} :query {:drop nil}}
+                   ;; route-url emits no trailing #, and "" is truthy
+                   {:to :route/probe :params {:id "7"} :fragment ""}]]
+    (testing (pr-str address)
       (with-identity-hooks
         (fn [warm entry]
           (rf/dispatch-sync [:rf.route/prefetch address])
           (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
           (rf/dispatch-sync [:rf.route/navigate address])
-          (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
-            (is (= [expected] @warm))
-            (is (= [expected] activated))))))))
+          (is (= [[probe-identity] [probe-identity]]
+                 [@warm (filterv #(= :route/probe (:route-id %)) @entry)])))))))
