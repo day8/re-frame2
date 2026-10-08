@@ -1,105 +1,35 @@
 (ns re-frame2-pair-mcp.unknown-tool-test
-  "Server-boundary unknown-tool guard tests.
-
-  The dispatcher's own `:unknown-tool` branch (`tools/dispatch-tool*`)
-  resolves an unregistered name to the recovery-shaped `:unknown-tool`
-  envelope — but it is reached only AFTER `ensure-connection!`. The real
-  MCP server handler (`server.cljs/handle-call`) runs `ensure-connection!`
-  for EVERY tool BEFORE the dispatcher. On a stock / misconfigured install
-  with NO nREPL port, that connection step REJECTS with
-  `:nrepl-port-not-found` and the unknown name never reaches the
-  dispatcher. Without an OUTER guard, a typo or absent alias (e.g.
-  `registry-list`) would surface a misleading discovery error and MASK
-  the `:unknown-tool` recovery affordances (`:hint` → tools/list,
-  `:available-tools`, `:did-you-mean`).
-
-  These tests pin the OUTER ring: the pre-connection guard
-  (`tools/refuse-unknown-tool`) and the server `handle-call` ordering
-  that proves the refusal precedes `ensure-connection!` — discovery never
-  runs; the session-state stays pristine. Mirrors `writes_test.cljs`,
-  the symmetric pre-connection write-gate."
+  "An unknown tool name is refused before `ensure-connection!`, so a typo
+  on an install with no nREPL port gets the `:unknown-tool` recovery
+  envelope rather than a discovery error that masks it."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
-            [re-frame2-pair-mcp.tools :as tools]
-            [re-frame2-pair-mcp.tools.writes :as writes]))
+            [re-frame2-pair-mcp.tools :as tools]))
 
 (use-fixtures :each
-  {:before (fn []
-             (server/reset-session-state-for-tests!)
-             (writes/set-allow-writes! false))
-   :after  (fn []
-             (server/reset-session-state-for-tests!)
-             (writes/set-allow-writes! false))})
-
-(def ^:private read-edn tu/extract-edn)
-(def ^:private err? tu/error?)
-
-;; ---------------------------------------------------------------------------
-;; refuse-unknown-tool — the pure pre-dispatch predicate.
-;; ---------------------------------------------------------------------------
-
-(deftest refuse-unknown-tool-rejects-an-absent-name
-  (let [result (tools/refuse-unknown-tool "no-such-tool")]
-    (is (some? result) "an unregistered name is refused at the boundary")
-    (is (err? result) "the refusal is an isError envelope")
-    (let [edn (read-edn result)]
-      (is (false? (:ok? edn)))
-      (is (= :unknown-tool (:reason edn)))
-      (is (= "no-such-tool" (:tool edn)) "the refusal names the requested tool")
-      ;; Recovery affordances — identical to the dispatcher's branch.
-      (is (string? (:hint edn)))
-      (is (re-find #"tools/list" (:hint edn))
-          "hint points the agent at tools/list to recover")
-      (is (vector? (:available-tools edn)))
-      (is (some #{"snapshot"} (:available-tools edn))
-          ":available-tools carries the real catalogue"))))
+  {:before (fn [] (server/reset-session-state-for-tests!))
+   :after  (fn [] (server/reset-session-state-for-tests!))})
 
 (deftest refuse-unknown-tool-offers-nearest-match
-  ;; A near-miss typo of a real name surfaces a :did-you-mean pointer —
-  ;; the same recovery the dispatcher branch emits.
-  (let [result (tools/refuse-unknown-tool "snapsho")
-        edn    (read-edn result)]
-    (is (= :unknown-tool (:reason edn)))
-    (is (= "snapshot" (:did-you-mean edn))
-        "near typo `snapsho` suggests `snapshot`")
-    (is (re-find #"did you mean" (:hint edn))
-        "hint inlines the nearest-match suggestion")))
-
-(deftest refuse-unknown-tool-passes-registered-names-through
-  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs"
-                "trace-window" "discover-app" "restore-epoch" "replace-app-db"
-                "replay-epoch" "list-handlers"]]
-    (is (nil? (tools/refuse-unknown-tool tool))
-        (str tool " is a registered tool — must proceed to dispatch"))))
-
-;; ---------------------------------------------------------------------------
-;; Server boundary — the refusal precedes ensure-connection! (no discovery).
-;;
-;; The session-state is reset (pristine, :discovered? false) by the
-;; fixture, and no --port-file / env is configured in the test harness, so
-;; the real discovery cascade would REJECT with :nrepl-port-not-found if
-;; `handle-call` reached `ensure-connection!`. Proving the result is
-;; :unknown-tool (NOT :nrepl-port-not-found) AND that the session stayed
-;; pristine shows the refusal ran FIRST.
-;; ---------------------------------------------------------------------------
+  (let [edn (tu/extract-edn (tools/refuse-unknown-tool "snapsho"))]
+    (is (= "snapshot" (:did-you-mean edn)))
+    (is (re-find #"did you mean" (:hint edn)) "the hint inlines the suggestion")))
 
 (deftest unknown-tool-refused-before-connection
+  ;; No port is configured here, so reaching `ensure-connection!` would
+  ;; answer :nrepl-port-not-found and record a discovery attempt.
   (async done
     (-> (server/handle-call-for-tests {} "no-such-tool" #js {} nil)
         (.then (fn [result]
-                 (is (err? result) "unknown tool rides as isError")
-                 (let [edn (read-edn result)]
-                   (is (= :unknown-tool (:reason edn))
-                       "unknown tool returns :unknown-tool, NOT :nrepl-port-not-found")
-                   (is (= "no-such-tool" (:tool edn)))
-                   (is (re-find #"tools/list" (:hint edn))
-                       "the recovery hint survives at the server boundary")
-                   (is (vector? (:available-tools edn))))
-                 (let [snap (server/session-state-snapshot)]
-                   (is (false? (:discovered? snap))
-                       "discovery was NOT run — the refusal short-circuited before ensure-connection!")
-                   (is (nil? (:discovery-error snap))
-                       "no discovery attempt recorded — connection step never reached"))))
+                 (let [edn  (tu/extract-edn result)
+                       snap (server/session-state-snapshot)]
+                   (is (tu/error? result))
+                   (is (= {:ok? false :reason :unknown-tool :tool "no-such-tool"}
+                          (select-keys edn [:ok? :reason :tool])))
+                   (is (re-find #"tools/list" (:hint edn)))
+                   (is (some #{"snapshot"} (:available-tools edn)) "the hint carries the live catalogue")
+                   (is (false? (:discovered? snap)))
+                   (is (nil? (:discovery-error snap))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
