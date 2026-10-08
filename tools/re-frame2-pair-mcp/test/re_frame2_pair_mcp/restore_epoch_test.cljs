@@ -1,16 +1,9 @@
 (ns re-frame2-pair-mcp.restore-epoch-test
-  "Unit tests for the restore-epoch tool.
-
-  Time-travel undo — rewinds a frame's whole frame-state (BOTH app-db
-  and runtime-db) to a recorded prior epoch's `:frame-state-after` via
-  the Tool-Pair `restore-epoch` write primitive (`replace-frame-state!`).
-  Pins:
-
-    - the `--allow-writes` gate (default OFF returns
-      `:rf.error/writes-disabled` without touching the runtime);
-    - the EDN parse of the `epoch-id` arg, including INTEGER ids (the
-      reference runtime emits integers — `:epoch-id` is `:any`);
-    - the success / restore-rejected envelope shapes."
+  "The restore-epoch write tool: refused without touching the runtime
+  while `--allow-writes` is off, the caller's epoch id and the frame
+  reach the runtime as data, a runtime map passes through (an
+  `:ok? false` one as an error), and the raw-state posture is signalled
+  before the restore eval."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
             [clojure.string :as str]
@@ -25,40 +18,15 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; The tool issues TWO evals on the happy path: the
-;; `configure-raw-state!` signal (raw-state/signal-runtime!) and the
-;; `restore-epoch` form. The stub matches by substring — the configure
-;; eval resolves to nil (swallowed); the restore eval resolves to
-;; `canned-value`. `captured*` records the LAST non-configure form (the
-;; restore form) so the form-shape assertions work; `with-captured-all!`
-;; (below) records EVERY form for ordering tests.
-(defn- with-captured-eval!
-  [captured* canned-value body-fn]
-  (let [orig nrepl/cljs-eval-value
-        run  (fn [form-str]
-               (if (str/includes? form-str "configure-raw-state!")
-                 (js/Promise.resolve nil)
-                 (do (reset! captured* form-str)
-                     (js/Promise.resolve canned-value))))
-        stub (fn
-               ([_conn _build-id form-str] (run form-str))
-               ([_conn _build-id form-str _opts] (run form-str)))]
-    (set! nrepl/cljs-eval-value stub)
-    (raw-state/reset-runtime-signal-cache!)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (tu/restore-eval! stub orig))))))
-
-(defn- with-captured-all!
-  "Record EVERY emitted form (configure + restore) in order, so a test
-  can assert the raw-state signal precedes the restore eval."
+(defn- with-captured-forms!
+  "Record every form into `forms*`; the raw-state signal answers nil and
+  every other form `canned-value`."
   [forms* canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
         run  (fn [form-str]
                (swap! forms* conj form-str)
                (js/Promise.resolve
-                 (if (str/includes? form-str "configure-raw-state!")
-                   nil
+                 (when-not (str/includes? form-str "configure-raw-state!")
                    canned-value)))
         stub (fn
                ([_conn _build-id form-str] (run form-str))
@@ -76,184 +44,74 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (writes/set-allow-writes! prev))))))
 
-(def ^:private read-result-text tu/extract-edn)
-(def ^:private err? tu/error?)
-
-;; ---------------------------------------------------------------------------
-;; Gate — default OFF.
-;; ---------------------------------------------------------------------------
+(defn- restore! [forms canned args]
+  (with-writes-on!
+    (fn []
+      (with-captured-forms! forms canned
+        (fn [] (restore-epoch/restore-epoch-tool (fresh-conn) args))))))
 
 (deftest gated-off-by-default-without-touching-runtime
-  ;; The default-safe posture: with --allow-writes OFF the tool refuses
-  ;; before any nREPL round-trip. We install a stub that would FAIL the
-  ;; test (reset! captured) if reached — proving the gate short-circuits.
+  ;; The corpus fixture answers every eval with nil, so only this test can
+  ;; see a write sent before the refusal.
   (async done
-    (let [captured (atom :untouched)
-          prev     (writes/allow-writes-enabled?)]
+    (let [forms (atom [])
+          prev  (writes/allow-writes-enabled?)]
       (writes/set-allow-writes! false)
-      (-> (with-captured-eval! captured :should-not-reach
+      (-> (with-captured-forms! forms :should-not-reach
             (fn []
               (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
           (.then (fn [r]
-                   (is (err? r))
-                   (is (= :rf.error/writes-disabled (:reason (read-result-text r))))
-                   (is (= :untouched @captured) "runtime must NOT be contacted when gated")))
+                   (is (tu/error? r))
+                   (is (= :rf.error/writes-disabled (:reason (tu/extract-edn r))))
+                   (is (empty? @forms) "runtime must NOT be contacted when gated")))
           (.finally (fn [] (writes/set-allow-writes! prev) (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; epoch-id parsing — :any, including integers.
-;; ---------------------------------------------------------------------------
 
 (deftest passes-frame-as-second-arg
   (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured true
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn)
-                                                    #js {:epoch-id "12" :frame ":stories"})))))
+    (let [forms (atom [])]
+      (-> (restore! forms true #js {:epoch-id "12" :frame ":stories"})
           (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     ;; (rt/restore-epoch (quote 12) :stories) — frame is
-                     ;; the 2nd arg; the caller's id rides quoted.
-                     (is (= '(quote 12) (second parsed)))
-                     (is (= :stories (nth parsed 2))))
-                   (done)))))))
-
-(deftest rejects-unreadable-epoch-id
-  (async done
-    (-> (with-writes-on!
-          (fn []
-            (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "#("})))
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :invalid-epoch-id (:reason (read-result-text r))))
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Restore failure — runtime returns false.
-;; ---------------------------------------------------------------------------
-
-(deftest surfaces-restore-rejected-when-runtime-returns-false
-  ;; restore-epoch returns false on any failure (aged-out id,
-  ;; drain-in-flight, …); the app-db is unchanged. This soft failure is
-  ;; NOT a terminal-empty outcome — the write did not land — so it MUST
-  ;; ride as an isError result carrying the reason, not a success-shaped
-  ;; envelope the host reads as a landed write.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured false
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "999"})))))
-          (.then (fn [r]
-                   (is (err? r) "soft-failure rides as an isError result")
-                   (let [edn (read-result-text r)]
-                     (is (= false (:ok? edn)))
-                     (is (= false (:restored? edn)))
-                     (is (= :restore-rejected (:reason edn)))
-                     (is (= 999 (:epoch-id edn)))
-                     (is (str/includes? (:hint edn) "references/ops.md §Time-travel")
-                         "the hint routes to the table of all seven failure modes"))
+                   (is (= '(re-frame2-pair.runtime/restore-epoch (quote 12) :stories)
+                          (cljs.reader/read-string (last @forms))))
                    (done)))))))
 
 (deftest surfaces-isError-when-runtime-returns-structured-failure-map
-  ;; The runtime can return a structured
-  ;; `{:ok? false :reason :restore-rejected ...}` map (as well as a bare
-  ;; `false`). The tool MUST route a `{:ok? false ...}` map to isError —
-  ;; passing the map through to `ok-text` would report a rejected restore
-  ;; as success.
+  ;; A rejected restore can come back as a map as well as a bare `false`;
+  ;; passed to ok-text it would read as a landed write.
   (async done
-    (let [failure-envelope {:ok? false :restored? false
-                            :reason :restore-rejected
-                            :epoch-id 7 :frame :rf/default}]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! (atom nil) failure-envelope
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+    (let [failure {:ok? false :restored? false :reason :restore-rejected
+                   :epoch-id 7 :frame :rf/default}]
+      (-> (restore! (atom []) failure #js {:epoch-id "7"})
           (.then (fn [r]
-                   (is (err? r) "structured runtime failure rides as isError")
-                   (let [edn (read-result-text r)]
-                     (is (= false (:ok? edn)))
-                     (is (= :restore-rejected (:reason edn))))
+                   (is (tu/error? r))
+                   (is (= failure (tu/extract-edn r)))
                    (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Cascade summary — the runtime's restore-epoch helper returns a
-;; structured envelope on success carrying :cascade-summary +
-;; :unreplayable-effects. The tool passes the runtime map through
-;; unchanged when the runtime returned a map; falls back to a synthesised
-;; envelope when the runtime returned plain `true`.
-;; ---------------------------------------------------------------------------
 
 (deftest cascade-summary-passes-through-on-success
+  ;; A runtime map passes through whole; only a bare `true` is synthesised.
   (async done
-    (let [canned-cascade {:epoch-id 7
-                          :event-id :cart/add
-                          :event-vector [:cart/add {:sku "x"}]
-                          :frame :rf/default
-                          :outcome :ok
-                          :db-diff {:changed-paths [[:cart]]
-                                    :added-paths [] :removed-paths []}
-                          :fx-fired [:http]
-                          :subs-recomputed 2
-                          :renders 1
-                          :restore? true}
-          runtime-envelope {:ok? true :restored? true :epoch-id 7
-                            :frame :rf/default
-                            :cascade-summary canned-cascade
-                            :unreplayable-effects [{:fx-id :http :coord [:my.app.cart 42 4]}]}]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! (atom nil) runtime-envelope
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+    (let [envelope {:ok? true :restored? true :epoch-id 7 :frame :rf/default
+                    :cascade-summary {:epoch-id 7 :restore? true}
+                    :unreplayable-effects [{:fx-id :http :coord [:my.app.cart 42 4]}]}]
+      (-> (restore! (atom []) envelope #js {:epoch-id "7"})
           (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:restored? edn)))
-                     (is (= canned-cascade (:cascade-summary edn))
-                         "cascade-summary rides through verbatim")
-                     (is (= [{:fx-id :http :coord [:my.app.cart 42 4]}]
-                            (:unreplayable-effects edn))
-                         "unreplayable-effects rides through verbatim"))
+                   (is (not (tu/error? r)))
+                   (is (= envelope (tu/extract-edn r)))
                    (done)))))))
 
-;; ---------------------------------------------------------------------------
-;; Sensitive cascade-summary :event-vector egress.
-;;
-;; The runtime's restore-cascade-summary redacts the target epoch's raw
-;; :event-vector to :rf/redacted when the epoch is sensitive AND the
-;; raw-state gate is OFF (the published-build default). For that runtime
-;; redaction to fire, the tool MUST signal `configure-raw-state!` to the
-;; runtime BEFORE the restore eval — exactly like dispatch-dry-run. This
-;; test pins the WIRE boundary (the signal ordering + gate posture pushed);
-;; the runtime redaction itself is exercised by the preload's pure-core
-;; node test (skills/re-frame2-pair/tests/fixture/test/re_frame2_pair/pure_test.cljs).
-;; ---------------------------------------------------------------------------
-
 (deftest signals-raw-state-posture-before-the-restore-eval
+  ;; The runtime redacts a sensitive target epoch's `:event-vector` only
+  ;; once told the gate is off.
   (async done
     (let [forms (atom [])
-          prev  (raw-state/allow-raw-state-enabled?)]
+          prev  (raw-state/allow-raw-state-enabled?)
+          idx   (fn [s] (first (keep-indexed #(when (str/includes? %2 s) %1) @forms)))]
       (raw-state/set-allow-raw-state! false)
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-all! forms true
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+      (-> (restore! forms true #js {:epoch-id "7"})
           (.then (fn [_]
-                   (let [all      @forms
-                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
-                         rst-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "restore-epoch") i)) all))]
-                     (is (some? cfg-idx) "configure-raw-state! is signalled")
-                     (is (some? rst-idx) "the restore-epoch form is evaluated")
-                     (is (< cfg-idx rst-idx)
-                         "raw-state posture is signalled BEFORE the restore eval (so the runtime redacts a sensitive :event-vector)")
-                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
-                         "the gate-OFF posture is pushed to the runtime"))))
+                   (let [cfg (idx "configure-raw-state!")
+                         rst (idx "restore-epoch")]
+                     (is (and cfg rst (< cfg rst))
+                         "raw-state posture is signalled before the restore eval")
+                     (is (str/includes? (nth @forms cfg) ":allow-raw-state? false")))))
           (.finally (fn [] (raw-state/set-allow-raw-state! prev) (done)))))))
