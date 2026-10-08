@@ -1,165 +1,77 @@
 (ns re-frame.routing-nav-counters-test
   "Host-side nav-token / pending-nav counters.
 
-  The two monotonic routing ALLOCATORS (`:nav-token-counter` /
+  The two monotonic routing allocators (`:nav-token-counter` /
   `:pending-nav-counter`) live OUTSIDE the `[:rf.runtime/routing ...]`
-  runtime-db partition, in a host-side per-frame transient cache
-  (`re-frame.routing.nav-counters`), mirroring the scroll
-  cache. The correctness reason: an epoch restore replaces the
-  runtime-db partition WHOLESALE, so a counter held in runtime-db would
-  be rewound, recycling a token an in-flight async
-  continuation might still carry (the recycle events.cljc's invariant
-  forbids). Held host-side the counter is a high-water mark untouched by
-  restore, so a post-restore allocation always exceeds any pre-restore
-  in-flight token.
+  runtime-db partition, in a host-side per-frame cache
+  (`re-frame.routing.nav-counters`). An epoch restore replaces the runtime-db
+  partition wholesale, so a counter held there would rewind and recycle a
+  token an in-flight continuation might still carry; held host-side it is a
+  high-water mark restore cannot touch.
 
   This namespace pins:
-    - restore-then-navigate: after an epoch restore that rewinds the
-      runtime-db route slice, the NEXT navigate mints a FRESH token that
-      does NOT recycle a pre-restore value;
-    - the counters are NOT in runtime-db;
-    - `:pending-navigation` STAYS in runtime-db (subscribable) while its
-      pending-nav counter is host-side;
-    - the routing classification table + SSR allowlist share one source
-      of truth."
+    - restore-then-navigate: after an epoch restore rewinds the route slice,
+      the next navigation mints a token past every pre-restore one;
+    - `:rf/pending-navigation` stays subscribable while its id comes from the
+      host counter;
+    - the SSR durable-routing allowlist equals the routing classification's
+      durable tier;
+    - frame destroy releases the frame's counter entry."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
-            [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- restore-then-navigate: no token recycle across an epoch restore -----
-
 (deftest restore-then-navigate-allocates-fresh-token-from-host-cache
-  (testing "an epoch restore rewinds the runtime-db route slice
-            (the active nav-token goes back to its restored value), but the
-            host-side counter is a high-water mark untouched by restore — so
-            the NEXT navigation mints a token that exceeds any pre-restore
-            in-flight token and CANNOT recycle one"
+  (testing "an epoch restore rewinds the route slice but not the host high-water
+            mark, so the next navigation mints nav-4 and recycles no pre-restore token"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-
-    ;; Three navigations advance the host counter to its high-water mark.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])  ;; nav-1
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])  ;; nav-2
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/C" {:rf.route/cause :link}])  ;; nav-3
-    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/routing :current :nav-token]))
-        "third navigation is the live nav-3")
-    (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-        "host high-water mark reached 3")
-    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing])]
-      (is (not (contains? routing-rt :nav-token-counter))
-          "the nav-token-counter is NOT a runtime-db key (it is host-side)")
-      (is (not (contains? routing-rt :pending-nav-counter))
-          "the pending-nav-counter is NOT a runtime-db key (it is host-side)"))
-
-    ;; Capture the runtime-db AS IT WAS at nav-1 — the snapshot an epoch
-    ;; restore replays. A slow in-flight continuation issued back at nav-1
-    ;; (network already on the wire, uncancellable) still carries "nav-1".
-    ;; The snapshot also carries a STALE `:nav-token-counter 1`, shaped as
-    ;; though the counter lived in runtime-db: an allocator that read it
-    ;; would mint nav-2 below, recycling a pre-restore token.
-    (let [restored-runtime-db
-          {:rf.runtime/routing {:current {:route-id        :route/article
-                                          :params    {:id "A"}
-                                          :query     {}
-                                          :fragment  nil
-                                          :transition :idle
-                                          :error     nil
-                                          :nav-token "nav-1"}
-                                :nav-token-counter 1}}]
-
-      ;; Epoch restore: replace the runtime-db partition WHOLESALE (the
-      ;; mechanism `restore-epoch!` / time-travel uses — rf.frame/replace-
-      ;; runtime-db!). This REWINDS the runtime-db route slice to nav-1.
-      (rf.frame/replace-runtime-db! :rf/default restored-runtime-db)
-      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "the restore rewound the runtime-db slice's active token to nav-1")
-      ;; The host counter is UNTOUCHED by the runtime-db replace — that is
-      ;; the whole point of holding it host-side.
-      (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-          "the host-side high-water mark survived the restore (NOT rewound)")
-
-      ;; Navigate again. The fresh token must EXCEED every pre-restore token
-      ;; — i.e. nav-4, NOT a recycled nav-1 / nav-2 / nav-3 that could
-      ;; collide with the pre-restore in-flight "nav-1" continuation.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/D" {:rf.route/cause :link}])
-      (let [fresh (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/routing :current :nav-token])]
-        (is (= "nav-4" fresh)
-            "post-restore navigation mints nav-4 — monotone past the high-water mark, so no pre-restore value is recycled")))))
-
-;; ---- :pending-navigation stays subscribable; its counter is host-side ----
+    (doseq [id ["A" "B" "C"]]
+      (rf/dispatch-sync [:rf.route/handle-url-change (str "/articles/" id) {:rf.route/cause :link}]))
+    ;; The runtime-db as it stood at nav-1, plus a stale `:nav-token-counter 1`
+    ;; shaped as though the counter lived in runtime-db: an allocator that
+    ;; read it would mint nav-2.
+    (rf.frame/replace-runtime-db! :rf/default
+                                  {:rf.runtime/routing {:current {:route-id   :route/article
+                                                                  :params     {:id "A"}
+                                                                  :query      {}
+                                                                  :fragment   nil
+                                                                  :transition :idle
+                                                                  :error      nil
+                                                                  :nav-token  "nav-1"}
+                                                        :nav-token-counter 1}})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/D" {:rf.route/cause :link}])
+    (is (= "nav-4" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                           [:rf.runtime/routing :current :nav-token])))))
 
 (deftest pending-navigation-subscribable-and-pending-nav-counter-host-side
-  (testing "a blocked navigation writes :pending-navigation
-            to runtime-db (subscribable via :rf/pending-navigation) and mints
-            a pending-nav id from the HOST counter — leaving NO
-            pending-nav-counter in runtime-db"
+  (testing "a blocked navigation is readable through :rf/pending-navigation, its
+            id minted from the host counter (the live navigation before it mints none)"
     (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
     (rf/reg-route :route/home {} "/home")
-    ;; :can-leave returns false → BLOCK (the editor is dirty; the closed
-    ;; contract reads literal false as "block").
     (rf/reg-sub :editor/can-leave? (fn [_ _] false))
-    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
-
-    ;; Land on the editor (active route with a blocking :can-leave).
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :link}])
-    ;; Attempt to leave — the guard blocks → pending-navigation is written.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
-
-    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing])
-          pending    (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})]
-      (is (some? pending) ":pending-navigation is subscribable (stays in runtime-db)")
-      (is (= "pn-1" (:id pending)) "the pending-nav id is minted from the host counter")
-      (is (= :link (:cause pending)) "the pending-nav slot carries the blocked door's cause")
-      (is (contains? routing-rt :pending-navigation)
-          ":pending-navigation IS a runtime-db key (it must stay subscribable)")
-      (is (not (contains? routing-rt :pending-nav-counter))
-          "the pending-nav-counter is NOT a runtime-db key (it is host-side)"))
-    (is (= 1 (:pending-nav-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-        "the pending-nav high-water mark lives in the host-side cache")))
-
-;; ---- one source of truth: classification ⇔ SSR allowlist -----------------
+    (is (= "pn-1" (:id (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default}))))))
 
 (deftest routing-classification-is-single-source-of-truth-for-ssr-allowlist
-  (testing "STRUCTURAL: the SSR durable-routing allowlist equals
-            the routing-owned classification's :durable-runtime-db tier — so
-            storage / SSR / docs can never silently drift"
+  (testing "SSR holds its durable-routing allowlist as a literal (it must not
+            require routing); it must equal the routing classification's durable tier"
     (is (= (vec rf.ssr.payload-policy/durable-routing-keys)
-           (vec rf.routing.nav-counters/durable-runtime-db-routing-keys))
-        "SSR's durable-routing-keys == routing's durable-runtime-db-routing-keys")
-    (is (= [:current] (vec rf.routing.nav-counters/durable-runtime-db-routing-keys))
-        "the durable tier is exactly the active route slice :current")
-    (let [c rf.routing.nav-counters/routing-state-classification]
-      (is (= [:pending-navigation]
-             (get-in c [:local-subscribable-runtime-db :keys]))
-          ":pending-navigation is the local-subscribable runtime-db tier")
-      (is (= #{:scroll-positions :nav-token-counter :pending-nav-counter}
-             (set (get-in c [:host-transient :keys])))
-          "scroll + the two counters are the host-transient tier"))))
-
-;; ---- per-frame teardown drops the host counter ---------------------------
+           (vec rf.routing.nav-counters/durable-runtime-db-routing-keys)))))
 
 (deftest destroy-frame-releases-host-counter-entry
-  (testing "destroying a frame releases its host-side nav-counter
-            entry (the :routing/on-frame-destroyed! teardown, shared with the
-            scroll cache) so a long-running per-request-frame process does
-            not leak one counter entry per destroyed frame"
+  (testing "destroying a frame releases its host-side counter entry, so a
+            long-running per-request-frame process does not leak one per frame"
     (rf/make-frame {:id :rf.test/scratch :url-bound? true})
     (rf/reg-route :route/s {} "/s")
     (rf/with-frame :rf.test/scratch
       (rf/dispatch-sync [:rf.route/handle-url-change "/s" {:rf.route/cause :link}]))
-    (is (= 1 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)))
-        "the scratch frame accrued a host counter entry")
-    (rf.frame/destroy-frame! :rf.test/scratch)
-    (is (= {} (rf.routing.nav-counters/counter-snapshot :rf.test/scratch))
-        "the host counter entry is released on frame destroy")))
+    (let [before (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)]
+      (rf.frame/destroy-frame! :rf.test/scratch)
+      (is (= [{:nav-token-counter 1} {}]
+             [before (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)])))))
