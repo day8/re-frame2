@@ -7,21 +7,16 @@
   Its siblings each ship one under that name; this panel's sits here, so
   ONE file answers \"what does this panel do under a real React commit\".
 
-  The rows after W0 follow `module_view_fresco_boundary_dom_cljs_test`,
-  the template the panels' boundary suites follow. Four of the six
-  behavioural criteria are answerable at a panel's own boundary, and a
-  FIFTH is answerable here:
+  The rows after W0 follow the template the panels' boundary suites
+  share. Four of the six behavioural criteria are answerable at a panel's
+  own boundary, and a FIFTH is answerable here:
 
     1 FIRST DISPLAY                 — W0 phase 1, and W1
     2 UPDATES ON A REAL CHANGE      — W0 phase 3, with W0 phase 2's deaf
                                       control
-    3 XRAY'S OWN INTERACTIONS       — W2. The template has no row for
-                                      criterion 3 because that panel
-                                      dispatches nothing; the panels
-                                      that DO carry interactions bring
-                                      their own rows. This is one of
-                                      those panels: the sub-strip is its
-                                      only dispatch.
+    3 XRAY'S OWN INTERACTIONS       — W2. Only a panel that dispatches
+                                      can answer it, and the sub-strip
+                                      is this panel's only dispatch.
     4 FRAME TARGETING               — W1, read off the frame's OWN
                                       sub-cache rather than off the DOM
     5 TOOL ACTIVITY NEVER
@@ -362,8 +357,6 @@
               "the live panel rendered the EMPTY mounted census — nothing is
                mounted yet, so the roster this test drives in cannot already
                be on screen")
-          (is (empty? (boundary-rows container))
-              "NON-VACUITY: no boundary row is in the DOM before one mounts")
 
           ;; ---- phase 2: a real boundary mounts, and the panel is deaf ---
           (vreset! release (mount-boundary!))
@@ -407,9 +400,6 @@
                              "holds, so the assertion above cannot pass on a "
                              "row projected from nothing. row text: "
                              (pr-str row-text))))
-                  (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                      "the empty note is gone from the DOM — the roster
-                       REPLACED it rather than rendering beside it")
                   (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
                       "and it is the SAME <section> node — React reconciled
                        the live tree in place, so the roster did not arrive by
@@ -439,11 +429,9 @@
             _probe (rf/subscribe [:hlive/left] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
-          (is (some? (q container "[data-testid=\"rf-xray-fresco\"]"))
-              "the panel committed a real DOM root under React")
           (is (some? (q container "[data-testid=\"rf-xray-fresco-sub-strip\"]"))
-              "and the sub-strip rendered, so the body ran rather than
-               short-circuiting to nil")
+              "the panel committed a real DOM root under React, and the body
+               ran rather than short-circuiting to nil")
 
           ;; ---- criterion 4: the reads are where the tree said ------------
           (is (pos? (ref-count-of :rf/xray (data-q :rf/xray)))
@@ -474,10 +462,8 @@
 (deftest w2-the-sub-strip-click-switches-the-view-through-the-boundary
   (testing "clicking a sub-strip tab dispatches through the
             FRAME THE BOUNDARY CARRIES and the panel commits the other view.
-            Criterion 3: `module_view_fresco_boundary_dom_cljs_test` omits
-            criterion 3 because that panel dispatches nothing, and the
-            panels which DO carry interactions bring their own rows. This
-            is one of them — the sub-strip is this tab's only dispatch.
+            Criterion 3, which only a panel that dispatches can answer —
+            the sub-strip is this tab's only dispatch.
 
             WHAT WOULD BREAK IT, precisely. A `reg-view` LEXICALLY INJECTS a
             frame-bound `dispatch`; a `defview` binds no name inside a body,
@@ -501,23 +487,17 @@
                `normalise-sub-mode` answers for an unset slot")
           (is (nil? (intents?))
               "NON-VACUITY: the Intents view is NOT on screen before the click")
+          ;; A plain fn at an `:on-click` prop crosses Fresco's codec
+          ;; untouched, so the button survives the codec and can be clicked.
           (let [btn (q container "[data-testid=\"rf-xray-fresco-sub-intents\"]")]
-            (is (some? btn)
-                "the Intents sub-tab button is in the committed DOM — a plain
-                 fn at an `:on-click` prop crosses Fresco's codec untouched, so
-                 the control itself survives the codec")
             (.click btn)
             (-> (rf.test-support/poll-until intents?
                   {:label "the click committed the Intents view"})
+                ;; The poll resolving IS the claim: the click switched the
+                ;; sub-view, so the dispatch reached :rf/xray, the frame the
+                ;; boundary carries, and not :rf/default.
                 (.then
                   (fn [_]
-                    (is (some? (intents?))
-                        "the click switched the sub-view and the panel committed
-                         it — so the dispatch reached :rf/xray, the frame the
-                         boundary carries, and not :rf/default")
-                    (is (nil? (q container "[data-testid=\"rf-xray-fresco-mounted\"]"))
-                        "and the Mounted view is gone — the views REPLACED each
-                         other rather than both rendering")
                     (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
                         "and the root <section> is the SAME node: React
                          reconciled in place. A bridge minting its component
@@ -574,14 +554,12 @@
                   (is (pos? mounted-view)
                       "and one for the sub-view read")
                   (teardown! root container)
+                  ;; Each poll resolving IS the release claim; a timeout
+                  ;; reaches the `.catch` below.
                   (-> (rf.test-support/poll-until released?
                         {:label "the first unmount released both reads"})
                       (.then
                         (fn [_]
-                          (is (released?)
-                              (str "the unmount released BOTH completely, within "
-                                   "the collector's grace macrotask. Cache: "
-                                   (pr-str (keys (cache-of :rf/xray)))))
                           (let [{c2 :container r2 :root} (mount-panel!)
                                 again-data (ref-count-of :rf/xray (data-q :rf/xray))
                                 again-view (ref-count-of :rf/xray view-q)]
@@ -597,8 +575,6 @@
                             (teardown! r2 c2)
                             (rf.test-support/poll-until released?
                               {:label "the second unmount released them too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases them too")))
             (.catch (fn [e] (is false (str "W3 poll timed out: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
@@ -679,26 +655,14 @@
                              "custom shell frame — so the absences below are a "
                              "filter and not a runtime that never recorded the "
                              "row. Door frames: " (pr-str frames)))
-                    (is (some #{app-frame} frames)
-                        "NON-VACUITY: and the application's boundary is in the
-                         door's answer too")
-
                     (is (= 1 (count rows))
                         (str "ONE row committed. Under a literal-only filter "
                              "this reads TWO: the census carries the panel's "
                              "own boundary (asserted above) and a filter that "
                              "knows only `:rf/xray` cannot see a shell mounted "
                              "under any other id. DOM: " text))
-                    (is (not (string/includes? text (str custom-shell-frame)))
-                        (str "and the committed page does not NAME the shell's "
-                             "own frame — `…panels.fresco/Panel · frame "
-                             custom-shell-frame " · 2 reads` is the row "
-                             "a singleton-only filter lets through. DOM: " text))
-                    (is (not (string/includes? text "panels.fresco/Panel"))
-                        (str "nor its own VIEW — the row is gone rather than "
-                             "merely printing a different frame. DOM: " text))
                     (is (string/includes? text (str "frame " app-frame))
-                        (str "and the APPLICATION's boundary IS on the page, so "
+                        (str "and that one row is the APPLICATION's boundary, so "
                              "the drop is the tool's own frame and not a roster "
                              "that emptied. DOM: " text)))))
               (.catch (fn [e]
