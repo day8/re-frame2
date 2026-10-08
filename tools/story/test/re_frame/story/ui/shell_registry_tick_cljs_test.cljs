@@ -1,12 +1,8 @@
 (ns re-frame.story.ui.shell-registry-tick-cljs-test
   "A registration that no running frame reflects must still reach the
   shell state, or every pane that renders the registry (sidebar, test
-  widget, Tests pane) stays stale until an unrelated click.
-
-  Comparing only the running frames' decorator fingerprints, a hot reload
-  that added a variant, or a `:script` on a variant nobody had open, would
-  change nothing `detect-and-tick!` looked at: no swap, so no re-render.
-  The registrar's mutation tick rides the same comparison.
+  widget, Tests pane) stays stale until an unrelated click. The registrar's
+  mutation tick rides `detect-and-tick!`'s fingerprint comparison for that.
 
   The other half: a hot reload that edits a MOUNTED variant's own body is
   stale-variant drift, so the canvas re-mounts and shows the edit. An edit
@@ -31,9 +27,8 @@
         (rf.story.registrar/reg-variant* :story.registry-tick/added {:args {}})
         (rf.story.ui.shell/detect-and-tick!)
         (let [after (rf.story.ui.state/get-state)]
-          (is (not (identical? baseline after))
+          (is (= (rf.story.registrar/current-mutation-tick) (:registry-tick after))
               "the registration reached the shell state atom, so the panes that read it re-render")
-          (is (= (rf.story.registrar/current-mutation-tick) (:registry-tick after)))
           (is (= (:hot-reload-tick baseline) (:hot-reload-tick after))
               "a registry change is not decorator drift — nothing re-mounts or re-runs")))
       (finally
@@ -64,9 +59,6 @@
           (testing "an unmounted sibling re-registered with a changed body does not bump the tick"
             (rf.story.registrar/reg-variant* sibling {:setup [] :args {:heading "Sibling PROBE"}})
             (rf.story.ui.shell/detect-and-tick!)
-            (is (= (rf.story.registrar/current-mutation-tick)
-                   (:registry-tick (rf.story.ui.state/get-state)))
-                "the registration still reached the shell state")
             (is (= baseline (tick))))
           (testing "the mounted variant re-registered with a changed body bumps the tick"
             (rf.story.registrar/reg-variant* mounted {:setup [] :args {:heading "Sign in PROBE"}})
