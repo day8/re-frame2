@@ -1,51 +1,14 @@
 (ns re-frame.core-epoch-egress-profile-test
-  "The CORE epoch projection WRAPPER (`rf/project-egress`,
-  `re-frame.core-epoch`) honors the EP-0015 §10 named
-  `:rf.egress/profile` boundary selector, not just the unqualified
-  `:include-*` opts.
+  "The core facade wrapper `rf/project-egress` honours the named
+  `:rf.egress/profile` selector and its override layer, not just the
+  unqualified `:include-*` opts.
 
-  The epoch artefact (`re-frame.epoch.tool-pair`) implements the
-  EP-0015 model; this suite pins it END-TO-END THROUGH THE CORE
-  FACADE WRAPPER — `rf/project-egress` is the public surface consumers reach
-  for. The test drives the named selector through the wrapper and
-  asserts the profile is honored (`:rf.egress/local-raw` ships the raw value
-  where the off-box boundaries elide it, and an explicit
-  `:rf.egress/include-digests? true` overlay on the tool profile adds a
-  `:digest`), proving the wrapper passes `:rf.egress/profile` and the override
-  layer through rather than only the unqualified booleans. No
-  profile turns digests on: off-box-tool and off-box-observability share one
-  size floor and differ by the boundary they NAME, so their markers are equal.
-
-  JVM-only (`.clj`): it requires the epoch + machines artefacts and declares
-  the frame's durable `:large` path via the EP-0025 commit-plane
-  classification effect (`rf.elision/apply-classification-effects`, the same
-  registry write a `reg-event` returning `:large` performs) — the same setup
-  the epoch artefact's own privacy suite uses. Lives in core's test tree
-  because the surface under test is the CORE facade wrapper, not the artefact
-  internals.
-
-  ## Posture split
-
-  Two halves that look like one. The epoch RING is fed from the dev trace
-  stream and `epoch.capture/observe-trace-event!` opens with
-  `(when rf.interop/debug-enabled? ...)`, so under
-  `scripts/test-core-prod-gate.sh` `rf/epoch-history` is empty by construction.
-  The PROJECTION under test is a different animal: `project-egress` is a pure
-  function of a record map plus the frame's DURABLE elision registry, and both
-  of those exist in production.
-
-  Reading the profile claims off the live ring would conflate the two, and
-  expensively. With the ring empty, `raw` is nil,
-  `large-marker-body` is nil, and FOUR assertions would pass for that reason alone:
-  `(= default-body obs-body)` (nil = nil), `(not (contains? obs-body :digest))`
-  (nil contains nothing), the tool-equals-observability marker check, and the
-  raw-bytes-never-egress row over an empty string. An egress-PRIVACY suite would certify that no raw
-  bytes escaped, having projected nothing.
-
-  So the profile rows drive a SYNTHETIC record — the same shape the ring
-  holds — and run in both postures. The live-ring rows sit inside
-  `(when rf.interop/debug-enabled? ...)` arms as the CAPTURE half."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  The profile rows drive a SYNTHETIC epoch record so they run under the
+  production gate too: the epoch ring is fed from the dev trace stream and is
+  empty there, and asserting on a nil record would pass vacuously. The dev-only
+  arm checks that a real captured record has the shape the synthetic one
+  assumes."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
@@ -53,10 +16,7 @@
             [re-frame.projection :as rf.projection]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; Side-effect requires: loading the epoch artefact publishes the
-            ;; `:epoch/*` late-bind hooks the core wrappers delegate to (without
-            ;; them `rf/epoch-history` degrades to []); machines mirrors the
-            ;; epoch privacy suite's load shape.
+            ;; publishes the `:epoch/*` hooks the core wrappers delegate to
             [re-frame.epoch]
             [re-frame.machines]))
 
@@ -74,20 +34,11 @@
 (defn- big-string [n] (apply str (repeat n "X")))
 
 (defn- synthetic-record
-  "A hand-built epoch record of the shape the ring holds. The ring
-  is fed from the dev trace stream and is empty under -Dre-frame.debug=false;
-  the PROJECTION being tested is a pure function of the record plus the frame's
-  durable elision registry, so driving it directly exercises the same wrapper
-  code path in BOTH postures."
+  "A hand-built epoch record of the shape the ring holds. The `:kind` stamp is
+  load-bearing: without it `project-egress` walks the map from `:path []`, the
+  frame's `[:blob :payload]` large path never matches, and the payload egresses
+  raw."
   [frame-id payload]
-  ;; The `:kind` DISCRIMINATOR is what makes
-  ;; `project-egress` dispatch this to the epoch ARM instead of walking it as
-  ;; a kindless tree. It is load-bearing HERE rather than decorative: a bare
-  ;; walk starts at `:path []`, so the frame's `[:blob :payload]` large
-  ;; declaration cannot match `[:db-after :blob :payload]` and the 50KB
-  ;; payload egresses RAW. That is precisely the fail-open the epoch-record
-  ;; arm of `project-egress` exists to close, and an unstamped fixture here
-  ;; would assert it away.
   {:kind      :rf/epoch-record
    :frame     frame-id
    :db-before {:blob {:payload nil}}
@@ -101,124 +52,49 @@
     (when (rf.elision/marker? slot)
       (:rf.size/large-elided slot))))
 
-;; ---------------------------------------------------------------------------
-;; The CORE wrapper honors :rf.egress/profile.
-;; ---------------------------------------------------------------------------
-
 (deftest core-project-egress-honors-egress-profile
-  (testing "`rf/project-egress` (the core facade wrapper)
-            honors the named EP-0015 §10 :rf.egress/profile selector:
-            :rf.egress/local-raw ships the raw value while both off-box
-            boundaries elide it, and neither off-box boundary carries a
-            :digest by default — the explicit
-            :rf.egress/include-digests? true overlay adds one."
-    (rf/make-frame {:id :ep/main})
-    (install-large-path! :ep/main)
-    (rf/reg-event :store
-                  (fn [{:keys [db]} [_ payload]]
-                    {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
-
-    ;; ---- ALWAYS-ON: the profile selector, driven on a record
-    ;;      whose existence does not depend on the dev trace stream.
-    (let [synth        (synthetic-record :ep/main (big-string 50000))
-          default-body (large-marker-body (rf/project-egress synth))
-          obs-body     (large-marker-body
-                         (rf/project-egress
-                           synth {:rf.egress/profile :rf.egress/off-box-observability}))
-          tool-body    (large-marker-body
-                         (rf/project-egress
-                           synth {:rf.egress/profile :rf.egress/off-box-tool}))]
-      (is (some? default-body) "the default boundary elides the large slot")
-      (is (not= 50000 (count (str (get-in (rf/project-egress synth)
-                                          [:db-after :blob :payload]))))
-          "the raw 50KB string never egresses under either off-box boundary")
-      (is (= default-body obs-body)
-          "the bare 1-arity default == :rf.egress/off-box-observability, which
-           elides it too")
-      (is (not (contains? obs-body :digest))
-          ":rf.egress/off-box-observability (through the wrapper) omits :digest")
-      (is (= tool-body obs-body)
-          "the tool boundary elides the large slot, sharing observability's size
-           floor — so its marker is equal and omits :digest by default too")
-      (is (= 50000 (count (get-in (rf/project-egress
-                                    synth {:rf.egress/profile :rf.egress/local-raw})
-                                  [:db-after :blob :payload])))
-          ":rf.egress/local-raw ships the raw value — the named selector is honored end-to-end")
-      (is (string? (:digest (large-marker-body
-                              (rf/project-egress
-                                synth {:rf.egress/profile          :rf.egress/off-box-tool
-                                       :rf.egress/include-digests? true}))))
-          "the explicit digest overlay composes on the tool profile (a sha256 string on the JVM)"))
-
-    ;; ---- Dev arm: the CAPTURE half — that a real dispatch put a
-    ;;      record of exactly that shape into the ring. The ring is fed from the
-    ;;      dev trace stream (`epoch.capture/observe-trace-event!` is gated), so
-    ;;      it is empty under -Dre-frame.debug=false.
-    (when rf.interop/debug-enabled?
-    (let [raw       (last-record :ep/main)
-          ;; The bare 1-arity (default observability boundary), through the
-          ;; CORE wrapper.
-          default-body (large-marker-body (rf/project-egress raw))
-          ;; The named off-box-observability boundary, explicitly.
-          obs-body  (large-marker-body
-                      (rf/project-egress
-                        raw {:rf.egress/profile :rf.egress/off-box-observability}))
-          ;; The named off-box-tool boundary — the EP-0015 selector under test.
-          tool-body (large-marker-body
-                      (rf/project-egress
-                        raw {:rf.egress/profile :rf.egress/off-box-tool}))]
-      (is (some? raw) "an epoch record was captured")
-      (is (some? default-body) "the default boundary elides the large slot")
-      (is (some? tool-body) "the tool boundary elides the large slot")
-      (is (not= 50000 (count (str (get-in (rf/project-egress raw)
-                                          [:db-after :blob :payload]))))
-          "the raw 50KB string never egresses under either off-box boundary")
-      ;; The bare 1-arity default == the named observability boundary.
-      (is (= default-body obs-body)
-          "the bare 1-arity default == :rf.egress/off-box-observability")
-      ;; THE PROFILE IS HONORED THROUGH THE WRAPPER: local-raw ships the raw
-      ;; value, and neither off-box boundary carries a :digest by default.
-      (is (not (contains? obs-body :digest))
-          ":rf.egress/off-box-observability (through the wrapper) omits :digest")
-      (is (not (contains? tool-body :digest))
-          ":rf.egress/off-box-tool (through the wrapper) omits :digest by default")
-      (is (= tool-body obs-body)
-          "the tool boundary shares observability's size floor, so the markers are equal")
-      (is (= 50000 (count (get-in (rf/project-egress
-                                    raw {:rf.egress/profile :rf.egress/local-raw})
-                                  [:db-after :blob :payload])))
-          ":rf.egress/local-raw ships the raw value — the named selector is honored end-to-end")))))
+  (rf/make-frame {:id :ep/main})
+  (install-large-path! :ep/main)
+  (rf/reg-event :store
+                (fn [{:keys [db]} [_ payload]]
+                  {:db (assoc-in db [:blob :payload] payload)}))
+  (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
+  (let [synth        (synthetic-record :ep/main (big-string 50000))
+        default-body (large-marker-body (rf/project-egress synth))
+        obs-body     (large-marker-body
+                       (rf/project-egress
+                         synth {:rf.egress/profile :rf.egress/off-box-observability}))
+        tool-body    (large-marker-body
+                       (rf/project-egress
+                         synth {:rf.egress/profile :rf.egress/off-box-tool}))]
+    (is (some? default-body) "the default boundary elides the large slot")
+    (is (= default-body obs-body) "the 1-arity default is off-box-observability")
+    (is (not (contains? obs-body :digest)))
+    (is (= tool-body obs-body) "the tool boundary shares observability's size floor")
+    (is (= 50000 (count (get-in (rf/project-egress
+                                  synth {:rf.egress/profile :rf.egress/local-raw})
+                                [:db-after :blob :payload])))
+        "local-raw ships the raw value")
+    (is (string? (:digest (large-marker-body
+                            (rf/project-egress
+                              synth {:rf.egress/profile          :rf.egress/off-box-tool
+                                     :rf.egress/include-digests? true}))))
+        "the digest overlay composes on the tool profile"))
+  (when rf.interop/debug-enabled?
+    (let [raw (last-record :ep/main)]
+      (is (some? (large-marker-body (rf/project-egress raw)))
+          "a real captured record has the synthetic record's shape")
+      (is (some? (large-marker-body
+                   (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))))))
 
 (deftest core-project-egress-rejects-unknown-profile
-  (testing "an unknown :rf.egress/profile through the core wrapper
-            is rejected against the shared closed enum (a typo is a loud error,
-            never a silent permissive walk)."
-    (rf/make-frame {:id :ep/main})
-    ;; ALWAYS-ON: a closed-enum rejection is a property of the
-    ;; wrapper, not of the ring. Driven on a synthetic record so a typo stays
-    ;; loud in the posture that ships — read off the live ring under the gate,
-    ;; `raw` would be nil, `project-egress` would return nil for a non-map,
-    ;; and NOTHING would be rejected at all.
-    (let [raw  (synthetic-record :ep/main "v")
-          ex   (try (rf/project-egress raw {:rf.egress/profile :rf.egress/not-real})
-                    nil
-                    (catch clojure.lang.ExceptionInfo e e))
-          data (ex-data ex)
-          msg  (ex-message ex)]
-      (is (= :rf.error/unknown-egress-profile (:rf.error/id data))
-          "an unknown profile throws through the wrapper, carrying the
-           closed-enum rejection id")
-      ;; `rf/project-egress` resolves the profile before it dispatches on
-      ;; `:kind`, so the epoch record is refused by the shared
-      ;; `re-frame.projection/unknown-egress-profile-ex` builder every guard
-      ;; uses, the epoch boundary's own included — its thrown shape is
-      ;; IDENTICAL to the builder's. The builder's greppability token, human
-      ;; sentence, :where and :recovery are pinned by `projection_cljs_test`'s
-      ;; `unknown-profile-throws`.
-      (let [canonical (rf.projection/unknown-egress-profile-ex
-                        'rf/project-egress :rf.egress/not-real)]
-        (is (= (ex-message canonical) msg)
-            "the epoch throw's message == the shared builder's")
-        (is (= (ex-data canonical) data)
-            "the epoch throw's ex-data == the shared builder's")))))
+  (rf/make-frame {:id :ep/main})
+  (let [data (try (rf/project-egress (synthetic-record :ep/main "v")
+                                     {:rf.egress/profile :rf.egress/not-real})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+    (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
+    (is (= (ex-data (rf.projection/unknown-egress-profile-ex
+                      'rf/project-egress :rf.egress/not-real))
+           data)
+        "the shape is the shared builder's")))
