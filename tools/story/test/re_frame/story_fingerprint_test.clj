@@ -230,16 +230,6 @@
             (rf.story.fingerprint/canonicalize {:app-db {:rf/time-ms 2}}))
       "the strip is structural: :rf/time-ms in app data is semantic"))
 
-(defn- epoch-record-with-cofx
-  "A minimal `:rf/epoch-record` (`:epoch-id` + a load-bearing slot so
-  `epoch-record?` recognises the carrier) pinning a top-level `:rf.cofx`
-  replay token."
-  [cofx]
-  {:epoch-id    1
-   :db-after    {:answer 42}
-   :outcome     :ok
-   :rf.cofx     cofx})
-
 ;; Each collection canonicalizes under a structural tag, so {} / #{} / [] and
 ;; {:a 1} / [:a 1] never collapse to byte-identical forms that hash equal.
 (deftest collection-types-do-not-collide
