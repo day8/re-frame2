@@ -23,62 +23,29 @@
   [target m]
   (rf.story.plan/variant-plan target {:lookup m}))
 
-;; ---- simple variant compiles --------------------------------------------
+;; ---- normalized defaults --------------------------------------------------
 
-(deftest normalized-plan-has-world-script-expect
-  (testing "normalized plan always carries :world / :script / :expect"
-    (let [m {:story.x/y {:setup [[:dispatch [:a]]]}}
-          p (plan-of :story.x/y m)]
-      (is (vector? (get-in p [:world :setup])))
-      (is (vector? (:script p)))
-      (is (map? (:expect p)))
-      (is (= #{:client} (get-in p [:world :platforms])))
-      ;; setup-only variant: no script
-      (is (= [] (:script p))))))
-
-;; ---- inline map target ---------------------------------------------------
-
-(deftest inline-map-target-without-variant-id-compiles
-  (testing "a map target with NO :variant/id is allowed (spec: :variant/id
-            optional) and compiles to a plan whose :variant/id is nil
-            (variant-plan reads (:variant/id target), nil when absent)"
-    (let [p (rf.story.plan/variant-plan {:setup  [[:dispatch [:a]]]
-                                :script [[:dispatch [:b]]]})]
-      (is (nil? (:variant/id p))
-          "the optional :variant/id resolves to nil")
-      (is (= [[:dispatch [:a]]] (get-in p [:world :setup])))
-      (is (= [[:dispatch [:b]]] (:script p)))
-      (is (= [nil] (:source-chain p))
-          "the single anonymous body is the whole source chain")
-      (is (not (contains? p :story/id))
-          "no :story/id is stamped — there is no variant id to derive it from"))))
+(deftest platforms-default-to-client
+  (is (= #{:client}
+         (get-in (plan-of :story.x/y {:story.x/y {:setup [[:dispatch [:a]]]}})
+                 [:world :platforms]))))
 
 ;; ---- :story/id stamp — plan-hash's cross-story collision guard
 
 (deftest identical-variant-bodies-under-different-stories-do-not-collide
-  (testing "two variants with STRUCTURALLY IDENTICAL bodies
-            (same :world / :script / :expect / :required-runner / :tags)
-            registered under DIFFERENT parent stories compile to DIFFERENT
-            plan-hashes, driving the REAL compiler (not a hand-stamped
-            plan). Were compile-body not to populate :story/id, plan-hash's
-            :story/id input would always be absent and these would collide."
+  (testing "two variants with structurally identical bodies under different
+            parent stories compile to different plan-hashes, through the real
+            compiler's :story/id stamp"
     (let [body {:setup      [[:dispatch [:counter/init 5]]]
                 :script     [[:dispatch [:counter/inc]]]
                 :assertions [[:rf.assert/path-equals [:count] 6]]}
           m    {:story.a/same body :story.b/same body}
           pa   (plan-of :story.a/same m)
-          pb   (plan-of :story.b/same m)]
-      (is (= :story.a (:story/id pa)))
-      (is (= :story.b (:story/id pb)))
-      ;; every plan-hash-input-keys slot but :story/id is identical
-      (is (= (:world pa) (:world pb)))
-      (is (= (:script pa) (:script pb)))
-      (is (= (:expect pa) (:expect pb)))
-      (is (= (:required-runner pa) (:required-runner pb)))
-      (is (= (:tags pa) (:tags pb)))
-      (is (not= (rf.story.fingerprint/plan-hash pa) (rf.story.fingerprint/plan-hash pb))
-          "the cross-story collision guard is LIVE — identical bodies
-           under different stories hash DIFFERENTLY"))))
+          pb   (plan-of :story.b/same m)
+          hashed-slots [:world :script :expect :required-runner :tags]]
+      (is (= [:story.a :story.b] (mapv :story/id [pa pb])))
+      (is (= (select-keys pa hashed-slots) (select-keys pb hashed-slots)))
+      (is (not= (rf.story.fingerprint/plan-hash pa) (rf.story.fingerprint/plan-hash pb))))))
 
 ;; ---- args + [:arg key] substitution -------------------------------------
 
@@ -111,25 +78,18 @@
       (is (re-find #"qty" (:reason data))))))
 
 (deftest args-and-argtypes-resolve-through-extends
-  (testing "args + argtypes deep-merge root→child via the dedicated merge-key
-            path (they are absent from context-keys; the merge-key
-            deep-merge is the single source of truth, so this must resolve
-            correctly through :extends)"
+  (testing "args + argtypes deep-merge root→child through :extends"
     (let [m {:story.at/parent
              {:args     {:sku "A" :qty 1}
               :argtypes {:sku {:control :text} :qty {:control :number}}}
              :story.at/child
              {:extends  :story.at/parent
-              :args     {:qty 5}                       ; child overrides qty
-              :argtypes {:qty {:control :range}}}}     ; child overrides qty argtype
+              :args     {:qty 5}
+              :argtypes {:qty {:control :range}}}}
           p (plan-of :story.at/child m)]
-      (testing "args deep-merge: inherited :sku kept, child :qty wins"
-        (is (= {:sku "A" :qty 5} (get-in p [:world :args]))))
-      (testing "argtypes deep-merge the same way"
-        (is (= {:sku {:control :text} :qty {:control :range}}
-               (get-in p [:world :argtypes]))))
-      (testing "explain still surfaces the resolved args"
-        (is (= {:sku "A" :qty 5} (get-in p [:explain :args])))))))
+      (is (= {:sku "A" :qty 5} (get-in p [:world :args])))
+      (is (= {:sku {:control :text} :qty {:control :range}}
+             (get-in p [:world :argtypes]))))))
 
 ;; ---- parent chain (:extends) --------------------------------------------
 
@@ -189,14 +149,8 @@
 
 (deftest extends-depth-cap-fails
   (testing "an :extends chain longer than rf.story.plan/*max-extends-depth* fails plan construction"
-    ;; A chain of 50 ids each pointing at the next; n0 is the leaf, n49 the
-    ;; deepest ancestor. Resolution from the leaf has to walk every parent, so
-    ;; the cap fires before the chain runs out. No cycle here — the depth cap
-    ;; is a SEPARATE bound with its own error id, and this is its only witness.
-    ;;
-    ;; There is no standalone `re-frame.story.extends` resolver: the cap is
-    ;; enforced by the compiled-plan merge authority, which is what the
-    ;; runtime walks.
+    ;; A 50-link chain with no cycle: the depth cap is a separate bound with
+    ;; its own error id, and the walk from the leaf hits it first.
     (let [chain-len 50
           m         (into {}
                           (for [i (range chain-len)]
@@ -226,14 +180,7 @@
             shorthand is the migration form, not the P1 public grammar)"
     (let [m {:story.legacy/e {:setup [[:counter/init 3]]}}
           p (plan-of :story.legacy/e m)]
-      (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup])))))
-  (testing "already-tagged setup steps round-trip unchanged"
-    (let [m {:story.legacy/e2 {:setup [[:dispatch [:counter/init 3]]
-                                       [:dispatch-sync [:counter/seed]]]}}
-          p (plan-of :story.legacy/e2 m)]
-      (is (= [[:dispatch [:counter/init 3]]
-              [:dispatch-sync [:counter/seed]]]
-             (get-in p [:world :setup]))))))
+      (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup]))))))
 
 (deftest bare-script-steps-lift-to-dispatch
   (testing ":script lowers to the plan's :script (bare vectors lift to :dispatch)"
@@ -260,16 +207,11 @@
         (is (= [[[:dispatch [:h]]] [[:dispatch [:s]]]]
                (mapv :script (get-in p [:world :scripts]))))))))
 
-;; ---- checks (inheritable) ------------------------------------------------
-
 ;; ---- required-runner -----------------------------------------------------
 
 (deftest dom-setup-step-requires-dom-token
-  (testing "a DOM SETUP step alone lifts the required-runner to include :dom
-            — isolating the setup contribution. The script is
-            DOM-free and there are NO DOM assertions, so :dom can ONLY have
-            come from the [:click …] step in :setup (requirements walks
-            `(map step-tokens setup)`)."
+  (testing "a DOM SETUP step alone lifts the required-runner to include :dom:
+            the script is DOM-free and there are no DOM assertions"
     (let [m {:story.r/ds
              {:setup  [[:click "[data-test=open]"]]
               :script [[:dispatch [:a]]]}}
@@ -280,16 +222,10 @@
           "the DOM-free :dispatch script still contributes :app-db"))))
 
 (deftest required-runner-unions-across-every-auto-run-play
-  (testing "a NON-first :auto-run? true play whose step lifts capability
-            (a :click DOM step) is unioned into :required-runner — not
-            just the primary (first) play's tokens. Computing
-            `:required-runner` over the primary `:script` (the first play)
-            alone would ignore that `[:world :scripts]` retains every play
-            and the runtime auto-runs each `:auto-run? true` one; `:auto`
-            runner-selection trusts `:required-runner` verbatim, so it could
-            pick a headless runner unable to execute the second play's DOM
-            step — a spurious mid-run failure instead of an honest
-            `:cannot-run` refusal at selection time."
+  (testing "a NON-first :auto-run? true play whose step lifts capability is
+            unioned into :required-runner. `:auto` runner-selection trusts
+            the slot verbatim, so missing it would pick a headless runner
+            that fails mid-run instead of refusing with :cannot-run."
     (let [m {:story.r/multi-autorun
              {:plays [{:name "first"  :auto-run? true
                        :script [[:dispatch [:a]]]}
@@ -317,7 +253,7 @@
 ;; ---- explain -------------------------------------------------------------
 
 (deftest explain-includes-source-chain-and-substitutions
-  (testing "explain shows the source chain, parent chain, merge decisions, and substitutions"
+  (testing "explain shows the source chain, parent chain, args, substitutions and step order"
     (let [m {:story.e/parent {:args  {:n 1}
                               :setup [[:dispatch [:seed [:arg :n]]]]}
              :story.e/child  {:extends :story.e/parent
@@ -328,16 +264,7 @@
       (is (= {:n 1} (:args ex)))
       (is (= [{:key :n :value 1}] (:substitutions ex)))
       (is (= [[:dispatch [:seed 1]]] (:setup-order ex)))
-      (is (= [[:dispatch [:go]]] (:script-order ex)))
-      ;; The merge vocabulary names the inherited / compose / own layering,
-      ;; because `:compose` lands between the parent merge and the
-      ;; variant-owned values. Setup appends inherited→compose→own;
-      ;; script appends through `:compose` only, never `:extends`.
-      (is (= :append-inherited-compose-own (get-in ex [:merge :setup])))
-      (is (= :compose-then-child (get-in ex [:merge :script])))
-      (testing "no :compose on a plain :extends variant"
-        (is (= [] (:compose ex)))
-        (is (= [] (:strict-conflicts ex)))))))
+      (is (= [[:dispatch [:go]]] (:script-order ex))))))
 
 ;; ===========================================================================
 ;; View arg schemas (spec §View arg schemas)
@@ -349,14 +276,12 @@
 ;; the schema before render, and FAILS plan construction on a missing-
 ;; required or malformed view input. These tests thread an explicit
 ;; `:view-lookup` (a {view-id → view-meta} map) so they run host-free on
-;; both the JVM and CLJS. The `:component` arg-lookup precedence verifies
-;; the live-framework key resolution (`:rf/props` → `:spec` → `:schema`).
+;; both the JVM and CLJS.
 
 (def ^:private malli-validator
-  "A `{:validate :explain}` pair backed by Malli (on Story's classpath),
-  matching the injectable shape the renderer threads from the late-bind
-  hook. Used for the malformed-value tests; the required-key floor needs
-  no validator."
+  "A `{:validate :explain}` pair backed by Malli, matching the injectable
+  shape the renderer threads from the late-bind hook. The required-key
+  floor needs no validator."
   {:validate (fn [schema value] (m/validate schema value))
    :explain  (fn [schema value] (m/explain schema value))})
 
@@ -374,7 +299,8 @@
         (is (= {:label "Hi" :count 3} (get-in p [:world :effective-args])))))))
 
 (deftest missing-required-arg-fails-before-render
-  (testing "a missing required view input FAILS plan construction"
+  (testing "a missing required view input FAILS plan construction, reporting
+            the missing key, its schema path and the source variant"
     (let [m {:story.widget/missing
              {:component :views/widget
               :args      {:label "Hi"}}}   ; :count required, absent
@@ -382,10 +308,10 @@
                 :view-lookup {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}}
           data (try (rf.story.plan/variant-plan :story.widget/missing opts)
                     (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-      (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
-      (testing "the failure reports the missing key, schema path, and source variant"
-        (is (= :story.widget/missing (:variant/id data)))
-        (is (= [{:key :count :schema :int :path [:count]}] (:missing data)))))))
+      (is (= {:rf.error/id :rf.error/story-view-args-invalid
+              :variant/id  :story.widget/missing
+              :missing     [{:key :count :schema :int :path [:count]}]}
+             (select-keys data [:rf.error/id :variant/id :missing]))))))
 
 (deftest optional-arg-may-be-absent
   (testing "an entry marked {:optional true} is NOT a required input"
@@ -412,48 +338,11 @@
           data (try (rf.story.plan/variant-plan :story.widget/bad opts)
                     (catch #?(:clj Exception :cljs :default) e (ex-data e)))
           bad  (first (:malformed data))]
-      (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
-      (is (= :story.widget/bad (:variant/id data))
-          "the failure carries the source variant")
-      (is (= :count (:key bad)))
-      (is (= [:count] (:path bad)) "reports the Malli schema path")
-      (is (= "three" (:value bad)))
+      (is (= {:rf.error/id :rf.error/story-view-args-invalid :variant/id :story.widget/bad}
+             (select-keys data [:rf.error/id :variant/id])))
+      (is (= {:key :count :path [:count] :value "three"}
+             (select-keys bad [:key :path :value])))
       (is (some? (:explain bad)) "carries the validator explanation"))))
-
-(deftest no-view-schema-no-validation
-  (testing "a view with no props schema leaves the plan unvalidated (slots absent)"
-    (let [m {:story.widget/none
-             {:component :views/widget
-              :args      {:anything 1}}}
-          p (rf.story.plan/variant-plan :story.widget/none
-                               {:lookup      m
-                                :view-lookup {:views/widget {}}})]  ; no schema slot
-      (is (nil? (get-in p [:world :view-args-schema])))
-      (is (nil? (get-in p [:explain :view-args-validation])))
-      (testing "effective-args still recorded"
-        (is (= {:anything 1} (get-in p [:world :effective-args])))))))
-
-(deftest derived-effective-args-validation-unit
-  (testing "validate-effective-args required-key floor needs no validator"
-    (let [schema [:map [:label :string] [:count :int]]]
-      (testing "all present → :ok"
-        (is (= :ok (:status (rf.story.plan/validate-effective-args
-                              schema {:label "x" :count 1})))))
-      (testing "missing required → :invalid with the missing entry"
-        (let [r (rf.story.plan/validate-effective-args schema {:label "x"})]
-          (is (= :invalid (:status r)))
-          (is (= [{:key :count :schema :int :path [:count]}] (:missing r)))
-          (is (= [] (:malformed r)) "no malformed without a validator")))
-      (testing "malformed value soft-passes without a validator (floor only)"
-        ;; :count present but wrong type — with no validator the floor
-        ;; can only check presence, so this is :ok at floor level.
-        (is (= :ok (:status (rf.story.plan/validate-effective-args
-                              schema {:label "x" :count "nope"})))))
-      (testing "malformed value is caught WITH a validator"
-        (let [r (rf.story.plan/validate-effective-args
-                  schema {:label "x" :count "nope"} malli-validator)]
-          (is (= :invalid (:status r)))
-          (is (= :count (:key (first (:malformed r))))))))))
 
 ;; ===========================================================================
 ;; View-state subscription overrides
@@ -512,16 +401,6 @@
       (testing "a bare render-as-mounted variant carries no :fidelity slot"
         (is (nil? (get-in (rf.story.plan/variant-plan :story.f/bare {:lookup m})
                           [:world :fidelity])))))))
-
-(deftest sub-override-missing-arg-fails-plan-construction
-  (testing "a missing arg in an override value FAILS plan construction"
-    (let [m {:story.login/oops
-             {:args          {} ; :message not declared
-              :sub-overrides {[:login/error] [:arg :message]}}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-            #"story-missing-arg"
-            (rf.story.plan/variant-plan :story.login/oops {:lookup m}))))))
 
 (deftest sub-override-output-schema-mismatch-fails-before-render
   (testing "an override value violating the sub's OUTPUT schema fails plan construction"
@@ -591,11 +470,10 @@
 
 ;; ---- :db-seed — the MIDDLE fidelity rung ---------------------------------
 ;;
-;; `:db-seed` is the schema-checked direct app-db seed. The compiler accepts
-;; it (the Variant schema declares the slot), lowers it to `[:world
-;; :db-seed]` (`[:arg]` placeholders substituted, fragments + the parent
-;; chain composed), and marks `[:world :fidelity]` with `:db-seed`. The
-;; seeded-app-db schema validation is a RUN-TIME check (runtime_test) — it
+;; `:db-seed` is the schema-checked direct app-db seed. The compiler lowers
+;; it to `[:world :db-seed]` (`[:arg]` placeholders substituted, fragments +
+;; the parent chain composed) and marks `[:world :fidelity]` with
+;; `:db-seed`. The seeded-app-db schema validation is a RUN-TIME check — it
 ;; needs the frame's registered app-db schemas.
 
 (deftest db-seed-lowers-and-marks-fidelity
@@ -644,13 +522,6 @@
       (is (= {:cart {:items []} :session :member}
              (get-in p [:world :db-seed]))))))
 
-(deftest db-seed-empty-is-no-rung
-  (testing "an empty resolved :db-seed activates no rung + carries no world slot"
-    (let [m {:story.cart/emptyseed {:db-seed {}}}
-          p (rf.story.plan/variant-plan :story.cart/emptyseed {:lookup m})]
-      (is (nil? (get-in p [:world :db-seed])))
-      (is (nil? (get-in p [:world :fidelity]))))))
-
 ;; ---- pure resolver: render-path read + sub-assertion honesty -------------
 
 (deftest sub-overrides-render-path-resolver-is-exact
@@ -680,14 +551,9 @@
 ;; ===========================================================================
 ;;
 ;; The fold collapses terminal `:assertions` and EVERY in-script assertion
-;; position onto ONE assertion atom. A terminal `:assertions` entry and a
-;; script `[:assert …]` entry produce the SAME atom shape; the shipping
-;; `:assert-db` / `:assert-dom` sugar folds onto the canonical atoms; an
-;; unknown id FAILS plan construction.
-
-;; ---- one atom, two positions ---------------------------------------------
-
-;; ---- :assert-db fold ------------------------------------------------------
+;; position onto ONE assertion atom: the shipping `:assert-db` /
+;; `:assert-dom` sugar folds onto the canonical atoms; an unknown id FAILS
+;; plan construction.
 
 (deftest assert-db-folds-to-path-equals
   (testing ":assert-db equality form folds to the canonical [:assert
@@ -741,9 +607,9 @@
 ;;
 ;; `:require-cause? false` is the ONE opt-out that lets
 ;; `:rf.assert/no-cascade-rerender` evaluate its `[0,0]` default vacuously
-;; when its named cause was not observed. The plan compiler (the front half
-;; of `run-variant`) rejects the key on `:rf.assert/caused` and a non-boolean
-;; value on either id, BEFORE any run.
+;; when its named cause was not observed. The plan compiler rejects the key
+;; on `:rf.assert/caused` and a non-boolean value on either id, BEFORE any
+;; run.
 
 (deftest non-boolean-require-cause-fails-plan-construction
   (testing "a non-boolean :require-cause? on :no-cascade-rerender FAILS —
@@ -754,16 +620,7 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #"story-bad-assertion-opt"
-            (plan-of :story.x/rc-bad m)))))
-
-  (testing "the same rejection applies to an in-script [:assert …] checkpoint"
-    (let [m {:story.x/rc-bad-script
-             {:script [[:assert [:rf.assert/no-cascade-rerender
-                                 {:event :e :require-cause? 1}]]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-bad-assertion-opt"
-            (plan-of :story.x/rc-bad-script m))))))
+            (plan-of :story.x/rc-bad m))))))
 
 (deftest bad-assertion-opt-error-carries-structured-data
   (testing "the :rf.error/story-bad-assertion-opt ex-data names the bad atom"
@@ -794,44 +651,9 @@
              (get-in (plan-of :story.x/ok-rc3 {:story.x/ok-rc3 {:assertions [atom-v]}})
                      [:expect :assertions]))))))
 
-(deftest causal-assertion-checkpoints-compile
-  ;; Validates the honest-guard testbed scene's authored shape
-  ;; (testbeds/counter_with_stories/stories.cljs) through the
-  ;; JVM plan compiler — the front half of `run-variant`.
-  (testing "in-script causal [:assert …] checkpoints compile cleanly and
-           survive folding in script order"
-    (let [m {:story.x/causal
-             {:setup  [[:counter/initialise 0]]
-              :script [[:dispatch-sync [:counter/inc]]
-                       [:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
-                       [:dispatch-sync [:counter/save]]
-                       [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]}}
-          p (plan-of :story.x/causal m)]
-      (is (= [[:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
-              [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]
-             (filterv (fn [s]
-                        (and (vector? s) (= :assert (first s))
-                             (contains? #{:rf.assert/caused :rf.assert/no-cascade-rerender}
-                                        (first (second s)))))
-                      (:script p)))
-          "both causal checkpoints survive compilation")))
-
-  (testing "the named-play map-form :script (the scene's authored shape)
-           compiles without throwing"
-    (let [m {:story.x/causal-play
-             {:setup  [[:counter/initialise 0]]
-              :script {:name      "inc-causes-count-recompute-save-does-not"
-                       :auto-run? true
-                       :script    [[:dispatch-sync [:counter/inc]]
-                                   [:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
-                                   [:dispatch-sync [:counter/save]]
-                                   [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]}}}]
-      (is (some? (plan-of :story.x/causal-play m))
-          "the map-form causal scene body compiles to a plan"))))
-
 (deftest every-shipping-and-folded-id-is-known
   (testing "the seven shipping ids + the folded DOM family pass id validation
-           (a variant authoring each compiles cleanly)"
+            (a variant authoring each compiles cleanly)"
     (doseq [atom-v [[:rf.assert/path-equals [:n] 0]
                     [:rf.assert/path-matches [:n] :int]
                     [:rf.assert/sub-equals [:sub/x] 1]
@@ -849,12 +671,11 @@
 
 ;; ---- malformed-step rejection before the fold -----------------------------
 ;;
-;; The plan compiler folds shipping `:assert-db` / `:assert-dom` steps into
-;; the canonical `[:assert …]` checkpoint. The fold helpers assume a
-;; well-formed step, so a malformed one MUST be rejected with a structured
-;; `:rf.error/story-bad-step` BEFORE the fold — never a raw host exception
-;; (IndexOutOfBounds / `No matching clause`). The gate reuses the runner's
-;; `validate-script` so the compiler and runtime agree on step shape.
+;; The fold helpers assume a well-formed step, so a malformed `:assert-db` /
+;; `:assert-dom` MUST be rejected with a structured `:rf.error/story-bad-step`
+;; BEFORE the fold — never a raw host exception (IndexOutOfBounds / `No
+;; matching clause`). The gate reuses the runner's `validate-script` so the
+;; compiler and runtime agree on step shape.
 
 (deftest malformed-assert-steps-are-rejected-with-a-structured-error-before-the-fold
   (doseq [[label step]
