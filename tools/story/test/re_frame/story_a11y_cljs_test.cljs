@@ -1,10 +1,7 @@
 (ns re-frame.story-a11y-cljs-test
-  "CLJS smoke tests for the a11y panel.
-
-  The actual axe-core integration is a browser concern (it injects a
-  `<script>` tag from a CDN); these smoke tests cover the panel's
-  registration + state-management surface that's load-bearing in the
-  CLJS bundle without requiring a live browser."
+  "CLJS tests for the a11y panel's registration and state surface; the
+  axe-core scan itself runs in a browser. `re-frame.story-a11y-source-test`
+  checks the loader source for SRI, crossorigin and the version pin."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -27,28 +24,17 @@
 ;; ---- panel registration -------------------------------------------------
 
 (deftest a11y-panel-body
-  (testing "the a11y panel body declares :placement :right + :render"
-    (let [body (rf.story/handler-meta :story-panel rf.story.ui.a11y/panel-id)]
-      (is (= :right (:placement body)))
-      (is (= rf.story.ui.a11y/panel-render-id (:render body)))
-      (is (string? (:title body))))))
+  (let [body (rf.story/handler-meta :story-panel rf.story.ui.a11y/panel-id)]
+    (is (= [:right rf.story.ui.a11y/panel-render-id true]
+           [(:placement body) (:render body) (string? (:title body))]))))
 
 (deftest a11y-render-view-roots-in-dom-element
-  (testing "the a11y panel-render view returns hiccup whose root is a DOM
-            element keyword (`:div`), not a bare component reference.
-
-            Per Spec 006 §Source-coord annotation the annotator can only
-            attach `data-rf2-source-coord` to hiccup DOM roots; a bare
-            `[panel variant-id]` root makes the panel invisible to Story
-            Inspect Mode + Xray Inspect Mode. The `[:div]`
-            wrap is load-bearing."
-    (let [view-fn (rf/view rf.story.ui.a11y/panel-render-id)
-          out     (view-fn :story.unknown/y)]
-      (is (vector? out)
-          "panel-render returns a hiccup vector")
-      (is (= :div (first out))
-          "hiccup root is the DOM element `:div` per the source-coord-annotator
-           wrap, not a component ref"))))
+  (testing "the panel-render view's hiccup roots in a DOM element: the
+            source-coord annotator attaches `data-rf2-source-coord` only to
+            DOM roots (Spec 006 §Source-coord annotation), so a bare component
+            root would hide the panel from Story and Xray Inspect Mode"
+    (let [out ((rf/view rf.story.ui.a11y/panel-render-id) :story.unknown/y)]
+      (is (and (vector? out) (= :div (first out)))))))
 
 ;; ---- variant-root scoping -----------------------------------------------
 
@@ -60,58 +46,39 @@
            (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)))))
 
 (deftest run-axe-handles-no-variant-root
-  (testing "run-axe! sets :no-root state when no variant root resolves
-            — the default arity uses find-variant-root which returns nil
-            outside a browser DOM (node-runtime test env), so calling
-            run-axe! with just the frame-id must short-circuit cleanly
-            and surface a :no-root status to the panel."
-    (let [frame-id :story.never-mounted/x
-          ;; Mute the warn so test output stays clean.
+  (testing "with no variant root (find-variant-root is nil outside a browser
+            DOM) run-axe! still returns a Promise and records :no-root, never
+            scanning the wrong tree"
+    (let [frame-id  :story.never-mounted/x
           orig-warn js/console.warn]
       (set! js/console.warn (fn [& _] nil))
       (try
         (let [p (rf.story.ui.a11y/run-axe! frame-id)]
-          (is (some? p) "run-axe! returns a Promise even on the no-root path")
-          (is (= :no-root (rf.story.ui.a11y/status-for frame-id))
-              "run-state for an unmounted variant must be :no-root, NOT :running or :done — surfacing that the scan was not run against the wrong tree"))
+          (is (some? p))
+          (is (= :no-root (rf.story.ui.a11y/status-for frame-id))))
         (finally
           (set! js/console.warn orig-warn)
           (rf.story.ui.a11y/drop-frame-state! frame-id))))))
 
-;; ---- axe-core CDN load is opt-in only -----------------------------------
-;;
-;; The axe-core load is gated behind a persisted opt-in. These tests cover the contract surface:
-;; `set-cdn-opt-in!` grants and revokes the approval `cdn-opt-in?` reads,
-;; and `run-axe!` short-circuits to
-;; `:no-consent` when the dev hasn't approved. The companion JVM
-;; test (`re-frame.story-a11y-source-test`) checks the source for
-;; the SRI / crossorigin attributes and the consent-prompt text.
-
+;; The axe-core CDN load is gated behind a persisted opt-in.
 (deftest cdn-opt-in-roundtrips
-  (testing "set-cdn-opt-in! true persists the approval; set-cdn-opt-in!
-            false revokes it. The persistence is `localStorage`-backed
-            so a single click per browser-session is enough."
+  (testing "set-cdn-opt-in! grants and revokes the approval cdn-opt-in? reads"
     (rf.story.ui.a11y/set-cdn-opt-in! true)
     (is (true? (boolean (rf.story.ui.a11y/cdn-opt-in?))))
     (rf.story.ui.a11y/set-cdn-opt-in! false)
     (is (false? (boolean (rf.story.ui.a11y/cdn-opt-in?))))))
 
 (deftest run-axe-surfaces-no-consent-without-opt-in
-  (testing "run-axe! short-circuits to `:no-consent` when the dev
-            hasn't approved the CDN load. The panel reads this state
-            to render the consent prompt instead of triggering the
-            load, so a single panel-open never fetches remote JS."
+  (testing "without consent run-axe! records :no-consent — the state the panel
+            renders its consent prompt from — so opening the panel never
+            fetches remote JS"
     (rf.story.ui.a11y/set-cdn-opt-in! false)
     (let [frame-id :story.never-consented/x
-          ;; Pass a fake context so the call doesn't short-circuit on
-          ;; the prior `:no-root` branch.
+          ;; A context, so the call gets past the :no-root branch.
           fake-ctx #js {:nodeType 1}]
       (try
         (let [p (rf.story.ui.a11y/run-axe! frame-id fake-ctx)]
-          (is (some? p) "run-axe! returns a Promise even on :no-consent")
-          (is (= :no-consent (rf.story.ui.a11y/status-for frame-id))
-              "without consent the panel must surface :no-consent —
-               NOT :running or :loading — so the consent prompt has
-               time to render"))
+          (is (some? p))
+          (is (= :no-consent (rf.story.ui.a11y/status-for frame-id))))
         (finally
           (rf.story.ui.a11y/drop-frame-state! frame-id))))))
