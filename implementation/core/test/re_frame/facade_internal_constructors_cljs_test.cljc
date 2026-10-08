@@ -1,22 +1,9 @@
 (ns re-frame.facade-internal-constructors-cljs-test
-  "The implementation-only lowering constructors are OFF the
-  `re-frame.core` facade, on both platforms.
-
-  `make-capture-frame` and `->interceptor*` exist only so a macro expansion
-  can name a lowering seam fully-qualified. Exporting them from
-  `re-frame.core` while marking them `:tier :implementation` would be
-  the annotation-as-removal failure spec/Conventions.md §Removing or
-  demoting a facade export names. The lowering seams live in their owning
-  namespaces (`re-frame.capture-frame/make-capture-frame`,
-  `re-frame.interceptor/->interceptor*`); there is no `->interceptor` macro
-  (no library caller — the owning constructor suffices, and
-  `reg-interceptor` is the authoring form); the facade resolves none of the
-  three.
-
-  Every absence probe is paired with a presence probe through the SAME
-  instrument (`ns-resolve` on the JVM, `goog.getObjectByName` on CLJS), so a
-  probe that answers nil for the wrong reason cannot read as a clean
-  removal."
+  "The implementation-only lowering constructors (`make-capture-frame`,
+  `->interceptor*`) are off the `re-frame.core` facade on both platforms; they
+  live in their owning namespaces. Each absence probe is paired with a presence
+  probe through the same instrument, so a probe that answers nil for the wrong
+  reason cannot read as a clean removal."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]))
 
@@ -55,12 +42,7 @@
            "re-frame.core/->interceptor does not resolve"))))
 
 (deftest capture-frame-remains-the-supported-carry-primitive
-  (testing "the 1-arity lock-to-id form still returns the frame api bundle
-            (the behavioural contract is pinned in depth by
-            re-frame.capture-frame-test; this is the facade-side smoke)"
-    (let [handle (rf/capture-frame :rf/default)]
-      (is (= #{:frame :dispatch :dispatch-sync :subscribe} (set (keys handle))))
-      (is (= :rf/default (:frame handle)))
-      (is (fn? (:dispatch handle)))
-      (is (fn? (:dispatch-sync handle)))
-      (is (fn? (:subscribe handle))))))
+  (let [handle (rf/capture-frame :rf/default)]
+    (is (= #{:frame :dispatch :dispatch-sync :subscribe} (set (keys handle))))
+    (is (= :rf/default (:frame handle)))
+    (is (every? fn? (map handle [:dispatch :dispatch-sync :subscribe])))))
