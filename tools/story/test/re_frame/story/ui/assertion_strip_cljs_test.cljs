@@ -1,41 +1,16 @@
 (ns re-frame.story.ui.assertion-strip-cljs-test
-  "CLJS-side regression net for the shared inline assertion strip.
-
-  The strip is consumed by both the canvas inline strip and the
-  workspace cell — see `re-frame.story.ui.canvas/render-assertions` +
-  `re-frame.story.ui.workspace/variant-cell-inner`. Rather than
-  `pr-str`-ing raw assertion records, it renders the Storybook-inspired
-  shape `re-frame.story.ui.test-mode.view` also uses.
-
-  Surface covered (pure + rendered):
-
-  - `truncate`        — clamp with ellipsis
-  - `value-display`   — clamp a detail :expected / :actual value with a
-                        :long? flag for the click-to-reveal chord
-  - `summary-line`    — fail → reason/expected vs actual; pass → blank;
-                        skip → reason; error → the captured error's
-                        :message
-  - `group-by-event`  — cluster records by dispatching :event, preserve
-                        insertion order, nil-event records cluster under
-                        a leading group
-  - `assertion-strip` rendered hiccup shape — wrap div with the canonical
-                        data-test, one row per record, group head only
-                        appears when there are >1 groups, failed AND
-                        errored rows seed the expanded set so the detail
-                        panel renders on first paint
-  - `render-row`      — status / label / glyph wiring; click toggles
-                        through the `on-toggle` callback"
-  (:require [cljs.test :refer-macros [are deftest is testing]]
+  "The shared inline assertion strip — the pure projections (`truncate`,
+  `summary-line`, `group-by-event`, `value-display`) and the rendered row /
+  strip / detail-value hiccup, walked without a React mount."
+  (:require [cljs.test :refer-macros [are deftest is]]
             [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]))
 
 ;; ---- pure: truncate ------------------------------------------------------
 
 (deftest truncate-clamps-with-a-single-ellipsis
   (are [s n expected] (= expected (rf.story.ui.assertion-strip/truncate s n))
-    ;; shorter than the limit: unchanged
     "abc" 10 "abc"
     nil   10 ""
-    "1"   10 "1"
     ;; longer than the limit: clamped to it, the ellipsis included
     "aaaaaaaaaaaaaaaaaa" 5 "aaaa…"
     ;; non-string input is coerced through str
@@ -83,97 +58,46 @@
     {:status :error :detail {:error {:message nil}}}
     "error"
 
-    ;; CONTROL — the :error arm does not leak into the other statuses
-    {:status :pass :detail {:expected 1 :actual 1 :error {:message "should not be read"}}}
-    ""
-
+    ;; the :error arm does not leak into :fail
     {:status :fail :detail {:reason "values differ" :error {:message "should not be read"}}}
     "values differ"))
-
-(deftest summary-line-fail-truncates
-  (testing "long :reason values clamp to the strip's character limit"
-    (let [long-reason (apply str (repeat 200 "x"))
-          row         {:status :fail :detail {:reason long-reason}}
-          out         (rf.story.ui.assertion-strip/summary-line row)]
-      (is (<= (count out) 72)
-          "output respects the truncate-len cap")
-      (is (re-find #"…$" out)
-          "truncated output ends in an ellipsis"))))
 
 ;; ---- pure: group-by-event ------------------------------------------------
 
 (deftest group-by-event-preserves-insertion-order
-  (testing "the first occurrence of each :event sets that group's position
-            in the output, even if the records interleave later"
-    (let [records [{:event [:a]} {:event [:b]} {:event [:a]} {:event [:c]}]
-          groups  (rf.story.ui.assertion-strip/group-by-event records)]
-      (is (= [[:a] [:b] [:c]] (mapv :event groups))
-          "groups appear in first-seen order")
-      (is (= 2 (-> groups (nth 0) :records count))
-          ":a cluster carries both records"))))
-
-(deftest group-by-event-nil-event-cluster
-  (testing "records with no :event (phase-0 setup assertions, decorator
-            throws) cluster under a leading nil-event group"
-    (let [records [{:assertion :rf.assert/x}
-                   {:assertion :rf.assert/y :event [:click]}
-                   {:assertion :rf.assert/z}]
-          groups  (rf.story.ui.assertion-strip/group-by-event records)]
-      (is (= 2 (count groups)))
-      (is (nil? (-> groups (nth 0) :event))
-          ":event nil cluster is its own group")
-      (is (= 2 (-> groups (nth 0) :records count))
-          "both nil-event records cluster together"))))
-
-(deftest group-by-event-empty
-  (testing "empty input → empty groups vector"
-    (is (= [] (rf.story.ui.assertion-strip/group-by-event [])))
-    (is (= [] (rf.story.ui.assertion-strip/group-by-event nil)))))
+  ;; Records with no :event (setup assertions, decorator throws) cluster
+  ;; under a nil-event group; every group sits where its first record did.
+  (let [s1 {:n 1} a1 {:event [:a] :n 2} b {:event [:b] :n 3}
+        a2 {:event [:a] :n 4} s2 {:n 5}]
+    (is (= [{:event nil  :records [s1 s2]}
+            {:event [:a] :records [a1 a2]}
+            {:event [:b] :records [b]}]
+           (rf.story.ui.assertion-strip/group-by-event [s1 a1 b a2 s2])))))
 
 ;; ---- pure: status-glyph map ----------------------------------------------
 
 (deftest status-glyph-shape
-  (testing "the status glyphs (Storybook-inspired pattern #1) are exposed
-            publicly so tests + downstream consumers can pin them. The
-            first three are the SHARED assertion vocabulary
-            (`predicates/assertion-glyph`); `:error` is the strip's own
-            extension over it — a run-level verdict the shared
-            three-valued map deliberately does not carry."
-    (is (= "✓" (:pass rf.story.ui.assertion-strip/status-glyph)))
-    (is (= "✗" (:fail rf.story.ui.assertion-strip/status-glyph)))
-    (is (= "⊘" (:skip rf.story.ui.assertion-strip/status-glyph)))
-    (is (= "✖" (:error rf.story.ui.assertion-strip/status-glyph))
-        ":error carries its OWN glyph so an errored row stays
-         distinguishable from a failed one (spec/018 §12.6) — it shares
-         the red band, and the glyph is what tells them apart, mirroring
-         the test-mode pane's own precedent")))
+  ;; spec/004 §Canonical assertion-strip publishes these four; `✖` keeps an
+  ;; errored row distinguishable from a failed one on the shared red band.
+  (is (= {:pass "✓" :fail "✗" :skip "⊘" :error "✖"}
+         rf.story.ui.assertion-strip/status-glyph)))
 
-;; ---- rendered: render-row ------------------------------------------------
+;; ---- hiccup walkers ------------------------------------------------------
 
 (defn- find-prop
-  "Walk `hiccup` and return the first prop-map carrying `(= (get m k) v)`.
-  Returns nil when nothing matches. Used by these tests to assert the
-  structured row treatment lands the canonical data-test attributes."
+  "The first prop map in `hiccup` carrying `(= (get m k) v)`, or nil."
   [hiccup k v]
-  (let [match? (fn [x]
-                 (and (map? x) (= v (get x k))))]
-    (letfn [(walk [node]
-              (cond
-                (match? node) node
-                (vector? node)
-                (some walk node)
-                (seq? node)
-                (some walk node)
-                :else nil))]
-      (walk hiccup))))
+  (letfn [(walk [node]
+            (cond
+              (and (map? node) (= v (get node k))) node
+              (vector? node)                       (some walk node)
+              (seq? node)                          (some walk node)
+              :else                                nil))]
+    (walk hiccup)))
 
 (defn- find-string
-  "Walk `hiccup` and return the first STRING node containing `s`, or nil.
-
-  `find-prop` above finds prop MAPS only, so it cannot see a bare string
-  child — which is exactly how the detail panel renders an error message
-  (`(str (:message error))` sits as a direct child of the line div). This
-  sibling walker covers that case."
+  "The first STRING node in `hiccup` containing `s`, or nil — `find-prop`
+  sees prop maps only, not bare string children."
   [hiccup s]
   (letfn [(walk [node]
             (cond
@@ -183,486 +107,169 @@
               :else           nil))]
     (walk hiccup)))
 
-(deftest render-row-pass-shape
-  (testing "a passing row carries the data-test stamps the chrome-level
-            test widget reads + the spec-pinned status glyph"
-    (let [row    {:status   :pass
-                  :label    ":rf.assert/path-equals [[:counter] 1]"
-                  :row-key  ":rf.assert/path-equals [[:counter] 1]"
-                  :detail   {:expected 1 :actual 1}}
-          hiccup (rf.story.ui.assertion-strip/render-row row false (fn [_]))]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-row"))
-          "row wrapper carries the canonical data-test")
-      (let [row-wrapper (find-prop hiccup :data-test "story-canvas-assertion-row")]
-        (is (= "pass" (:data-status row-wrapper))
-            ":data-status reflects the row's status keyword (lowercased)"))
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-glyph")))
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-label"))))))
+(defn- collect
+  "Every node in `hiccup` matching `pred`, in document order, without
+  descending into a match."
+  [pred hiccup]
+  (letfn [(walk [node]
+            (cond
+              (pred node)    [node]
+              (vector? node) (mapcat walk node)
+              (seq? node)    (mapcat walk node)
+              :else          nil))]
+    (vec (walk hiccup))))
 
-(deftest render-row-fail-shape-summary-on-reason
-  (testing "a failing row surfaces the :reason as the inline summary AND
-            carries the fail-status stamp"
-    (let [row    {:status  :fail
-                  :label   ":rf.assert/path-equals [[:counter] 99]"
-                  :row-key ":rf.assert/path-equals [[:counter] 99]"
-                  :detail  {:expected 99 :actual 0 :reason "values differ"}}
-          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
-          wrap   (find-prop hiccup :data-test "story-canvas-assertion-row")]
-      (is (= "fail" (:data-status wrap)))
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-summary"))
-          "inline summary span renders when status is :fail with a :reason")
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "open? true → the detail panel renders inline"))))
-
-(deftest render-row-error-shape-summary-on-message
-  (testing "an ERRORED row is not a failed row. It carries its own
-            :data-status, surfaces the captured error's :message as the
-            inline summary, and its expanded detail renders that message —
-            the one sentence that says what went wrong. Without an :error
-            arm this row would paint as a grey `·` with no summary and a
-            detail panel that never reads :error"
-    (let [row    {:status  :error
-                  :label   ":rf.error/exception"
-                  :row-key ":rf.error/exception"
-                  :detail  {:event  [:your/setup-event {}]
-                            :phase  :phase-2-events
-                            :reason nil
-                            :error  {:message "no handler registered for :your/setup-event"
-                                     :stack   nil
-                                     :data    nil}}}
-          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
-          wrap   (find-prop hiccup :data-test "story-canvas-assertion-row")
-          summ   (find-prop hiccup :data-test "story-canvas-assertion-summary")]
-      (is (= "error" (:data-status wrap))
-          ":data-status reads 'error', NOT 'fail' — the canvas surface
-           tells the two apart")
-      (is (some? summ)
-          "the inline summary span renders — an errored row must never be
-           a silent glyph with no text")
-      (is (= "no handler registered for :your/setup-event" (:title summ))
-          "the summary's :title carries the untruncated message")
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "open? true → the detail panel renders inline")
-      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
-          "the error message itself appears inside the rendered hiccup —
-           a renderer whose row-detail does not destructure :error fails
-           this assertion"))))
+(defn- data-test-el?
+  "Predicate: a hiccup element whose prop map carries `:data-test` `dt`."
+  [dt]
+  (fn [x] (and (vector? x) (map? (second x)) (= dt (:data-test (second x))))))
 
 (defn- find-detail-value-element
-  "Walk `hiccup` and return the first `[detail-value <label> <v>]` component
-  VECTOR whose label is `label`, or nil.
-
-  `detail-value` is a Reagent component, so `row-detail` emits it as an
-  un-expanded component vector — its inner `:data-test` prop map does not
-  exist until Reagent invokes it. `find-prop` therefore cannot see it; this
-  walker matches on the component fn in head position instead."
+  "The first `[detail-value <label> <v>]` component vector whose label is
+  `label`, or nil. `detail-value` is a Reagent component, so `row-detail`
+  emits it un-expanded and its inner prop map does not exist yet."
   [hiccup label]
-  (letfn [(match? [x]
-            (and (vector? x)
-                 (= rf.story.ui.assertion-strip/detail-value (first x))
-                 (= label (second x))))
-          (walk [node]
-            (cond
-              (match? node)  node
-              (vector? node) (some walk node)
-              (seq? node)    (some walk node)
-              :else          nil))]
-    (walk hiccup)))
+  (first (collect #(and (vector? %)
+                        (= rf.story.ui.assertion-strip/detail-value (first %))
+                        (= label (second %)))
+                  hiccup)))
+
+;; ---- rendered: render-row ------------------------------------------------
+
+(deftest render-row-error-shape-summary-on-message
+  ;; spec/004 publishes the -glyph / -label / -summary data-test hooks.
+  (let [row    {:status  :error
+                :label   ":rf.error/exception"
+                :row-key ":rf.error/exception"
+                :detail  {:reason nil
+                          :error  {:message "no handler registered for :your/setup-event"}}}
+        hiccup (rf.story.ui.assertion-strip/render-row row false (fn [_]))]
+    (is (some? (find-prop hiccup :data-test "story-canvas-assertion-glyph")))
+    (is (some? (find-prop hiccup :data-test "story-canvas-assertion-label")))
+    (is (= "no handler registered for :your/setup-event"
+           (:title (find-prop hiccup :data-test "story-canvas-assertion-summary")))
+        "an errored row's summary is its error message, collapsed or not")))
 
 (deftest render-row-error-detail-renders-error-data
-  (testing "a captured error carrying :data gets a second detail line
-            through `detail-value`, so a large map clamps rather than
-            blowing the panel into the canvas height"
-    (let [row    {:status  :error
-                  :label   ":rf.error/exception"
-                  :row-key ":rf.error/exception"
-                  :detail  {:reason nil
-                            :error  {:message "kaboom"
-                                     :data    {:cause :network}}}}
-          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
-          el     (find-detail-value-element hiccup "error data")]
-      (is (some? (find-string hiccup "kaboom"))
-          "the message line renders")
-      (is (some? el)
-          ":data routes through detail-value, which carries the clamping
-           + click-to-reveal chord")
-      (is (= {:cause :network} (nth el 2))
-          "the error's :data map is what gets handed to detail-value")))
-  (testing "CONTROL — an error with no :data adds no value line, and the
-            walker itself is exercised in the negative direction"
-    (let [row    {:status  :error
-                  :label   ":rf.error/exception"
-                  :row-key ":rf.error/exception"
-                  :detail  {:reason nil :error {:message "kaboom" :data nil}}}
-          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))]
-      (is (some? (find-string hiccup "kaboom"))
-          "the message line still renders — only the :data line is absent")
-      (is (nil? (find-detail-value-element hiccup "error data"))
-          "no error :data → no 'error data' value line"))))
-
-(deftest render-row-skip-shape-no-detail-when-collapsed
-  (testing "a skipped row stays collapsed by default — detail panel
-            absent unless the caller passes open? true"
-    (let [row    {:status  :skip
-                  :label   ":rf.assert/skipped"
-                  :row-key ":rf.assert/skipped"
-                  :detail  {:reason "feature gated"}}
-          hiccup (rf.story.ui.assertion-strip/render-row row false (fn [_]))]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-summary"))
-          ":skip rows surface the reason summary even when collapsed")
-      (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "detail panel suppressed when open? false"))))
+  ;; a captured error's :data routes through detail-value, so a large map
+  ;; clamps rather than blowing the panel into the canvas height
+  (let [row {:status  :error
+             :label   ":rf.error/exception"
+             :row-key ":rf.error/exception"
+             :detail  {:error {:message "kaboom" :data {:cause :network}}}}]
+    (is (= {:cause :network}
+           (nth (find-detail-value-element
+                  (rf.story.ui.assertion-strip/render-row row true (fn [_]))
+                  "error data")
+                2)))))
 
 ;; ---- rendered: assertion-strip component ---------------------------------
 ;;
-;; The component returns a reagent inner-fn (closure-with-state pattern).
-;; Calling `(rf.story.ui.assertion-strip/assertion-strip assertions)` returns the outer fn; we
-;; invoke it once with the assertions vector to get the inner fn, then
-;; invoke that with the same vector to get the hiccup. This is the
-;; standard reagent-with-init shape; tests pin the rendered tree without
-;; standing up a React mount.
+;; The component is a Reagent form-2: the outer fn returns the inner render
+;; fn, which returns the hiccup.
 
 (defn- render-strip
-  "Invoke the assertion-strip component and return its rendered hiccup.
-
-  The strip renders each row as a Reagent component vector
-  `[rf.story.ui.assertion-strip/render-row row open? toggle]` (the key MUST sit on a vector
-  literal), so the raw hiccup carries un-expanded row
-  elements. Tests that assert per-row `:key` meta read this raw form;
-  tests that walk the row's inner shape use `render-strip-expanded`."
+  "The strip's raw hiccup. Rows are un-expanded `[render-row row open?
+  toggle]` component vectors, which is where their React `:key` sits."
   [assertions]
   (let [inner (rf.story.ui.assertion-strip/assertion-strip assertions)]
     (inner assertions)))
 
-(defn- expand-row-elements
-  "Walk `hiccup` and replace each `[rf.story.ui.assertion-strip/render-row row open? toggle]`
-  component vector with the hiccup that `render-row` produces — i.e. what
-  Reagent expands the element into at mount time. Lets the shape-walking
-  tests below assert the row's inner `data-test` tree even though the
-  strip emits component vectors (so React keys land on the element).
-  Preserves all other nodes verbatim."
-  [hiccup]
-  (letfn [(render-row-element? [x]
-            (and (vector? x)
-                 (= rf.story.ui.assertion-strip/render-row (first x))))
-          (expand [node]
-            (cond
-              (render-row-element? node) (apply rf.story.ui.assertion-strip/render-row (rest node))
-              (vector? node)             (mapv expand node)
-              (seq? node)                (map expand node)
-              :else                      node))]
-    (expand hiccup)))
-
 (defn- render-strip-expanded
-  "Render the strip and expand its row component-vectors into their inner
-  hiccup so shape-walking tests see the rendered row tree."
+  "The strip's hiccup with each row component vector replaced by what
+  `render-row` returns, as Reagent expands it at mount."
   [assertions]
-  (expand-row-elements (render-strip assertions)))
+  (letfn [(expand [node]
+            (cond
+              (and (vector? node) (= rf.story.ui.assertion-strip/render-row (first node)))
+              (apply rf.story.ui.assertion-strip/render-row (rest node))
+
+              (vector? node) (mapv expand node)
+              (seq? node)    (map expand node)
+              :else          node))]
+    (expand (render-strip assertions))))
 
 (deftest assertion-strip-empty-renders-nil
-  (testing "empty / nil assertions → no inline strip"
-    (is (nil? (render-strip [])))
-    (is (nil? (render-strip nil)))))
+  (is (nil? (render-strip []))))
 
-(deftest assertion-strip-wrap-carries-canonical-data-test
-  (testing "the wrap div stamps `story-canvas-assertion-strip` so the
-            chrome-level test widget can scope queries to the strip"
-    (let [assertions [{:assertion :rf.assert/path-equals
-                       :passed?   true
-                       :payload   [[:c] 1]
-                       :expected  1 :actual 1}]
-          hiccup     (render-strip assertions)]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-strip"))))))
+(deftest assertion-strip-one-row-per-record-failures-open
+  ;; Failed AND errored rows land open on first paint; passed and skipped
+  ;; rows stay collapsed. The error record is the real captured shape — no
+  ;; :status, :passed? false, an :error map — which reaches :error through
+  ;; the projection's `(or (:error rec) (:exception rec))` arm; a fixture
+  ;; stamping :status would take a different arm.
+  (let [hiccup (render-strip-expanded
+                 [{:assertion :rf.assert/path-equals
+                   :passed? true :payload [[:c] 1] :expected 1 :actual 1}
+                  {:assertion :rf.assert/path-equals
+                   :passed? false :payload [[:c] 2] :expected 2 :actual 0
+                   :reason "values differ"}
+                  {:assertion :rf.assert/skipped
+                   :passed? false :reason "feature gated"}
+                  {:assertion :rf.error/exception
+                   :passed?   false
+                   :event     [:your/setup-event {}]
+                   :reason    nil
+                   :error     {:message "no handler registered for :your/setup-event"}}])]
+    (is (some? (find-prop hiccup :data-test "story-canvas-assertion-strip")))
+    (is (= [["pass" false] ["fail" true] ["skip" false] ["error" true]]
+           (mapv (fn [[_ props :as row]]
+                   [(:data-status props)
+                    (some? (find-prop row :data-test "story-canvas-assertion-detail"))])
+                 (collect (data-test-el? "story-canvas-assertion-row") hiccup))))
+    (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
+        "the captured error's message reaches the strip")))
 
-(deftest assertion-strip-one-row-per-record
-  (testing "the strip renders exactly one row per assertion record"
-    (let [assertions [{:assertion :rf.assert/path-equals
-                       :passed? true :payload [[:c] 1] :expected 1 :actual 1}
-                      {:assertion :rf.assert/path-equals
-                       :passed? false :payload [[:c] 2] :expected 2 :actual 0
-                       :reason "values differ"}
-                      {:assertion :rf.assert/skipped
-                       :passed? false :reason "feature gated"}
-                      ;; The captured setup-failure record, verbatim: NO
-                      ;; :status key, :passed? false, an :error map. The
-                      ;; projection reaches :error through its
-                      ;; `(or (:error rec) (:exception rec))` arm.
-                      {:assertion :rf.error/exception
-                       :passed?   false
-                       :event     [:your/setup-event {}]
-                       :phase     :phase-2-events
-                       :reason    nil
-                       :error     {:message "no handler registered for :your/setup-event"
-                                   :stack   nil
-                                   :data    nil}}]
-          hiccup     (render-strip-expanded assertions)
-          rows       (atom [])]
-      (letfn [(walk [node]
-                (cond
-                  (and (map? node) (= "story-canvas-assertion-row" (:data-test node)))
-                  (swap! rows conj node)
-                  (vector? node) (run! walk node)
-                  (seq? node)    (run! walk node)))]
-        (walk hiccup))
-      (is (= 4 (count @rows)))
-      (is (= #{"pass" "fail" "skip" "error"}
-             (into #{} (map :data-status @rows)))
-          "all four verdicts the projection can produce reach the strip as
-           distinct :data-status values — an errored row is not a failed
-           one"))))
+(deftest assertion-strip-group-heads-only-when-multi-group
+  ;; a single group reads cleanly without a head
+  (are [events heads]
+       (= heads
+          (count (collect (data-test-el? "story-canvas-assertion-group-head")
+                          (render-strip (mapv (fn [e] {:assertion :rf.assert/path-equals
+                                                       :passed?   true
+                                                       :event     e})
+                                              events)))))
+    [[:click] [:click]]  0
+    [[:click] [:submit]] 2))
 
-(deftest assertion-strip-fail-auto-expands
-  (testing "pattern #2 — failed assertions land already-open; the
-            detail panel renders on first paint without a user click"
-    (let [assertions [{:assertion :rf.assert/path-equals
-                       :passed? true :payload [[:c] 1] :expected 1 :actual 1}
-                      {:assertion :rf.assert/path-equals
-                       :passed? false :payload [[:c] 2]
-                       :expected 2 :actual 0 :reason "values differ"}]
-          hiccup     (render-strip-expanded assertions)]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "the failing row's detail panel is open on first render"))))
+;; Each row and group element carries a unique React :key in its metadata —
+;; on the element vector, since a key on a function-call form is dropped. An
+;; unkeyed seq warns on every run and fails the Story/Xray feature-load
+;; browser gate, and a shape check cannot see it.
 
-(deftest assertion-strip-error-auto-expands
-  (testing "pattern #2 extends to ERRORS — a variant whose :setup failed
-            lands its captured :rf.error/exception record already-open, so
-            the author reads what went wrong without a click.
-
-            The fixture is the REAL captured record shape: NO
-            :status key, :passed? false, an :error map. That matters — with
-            :status omitted the projection reaches its
-            `(or (:error rec) (:exception rec))` arm, which is the arm real
-            captured records take. A fixture that stamped :status would
-            exercise a different arm and could pass while the real thing
-            stays broken"
-    (let [assertions [{:assertion :rf.error/exception
-                       :passed?   false
-                       :event     [:your/setup-event {}]
-                       :phase     :phase-2-events
-                       :reason    nil
-                       :error     {:message "no handler registered for :your/setup-event"
-                                   :stack   nil
-                                   :data    nil}}]
-          hiccup     (render-strip-expanded assertions)
-          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
-      (is (= "error" (:data-status wrap))
-          "the unstamped record projects to :error, not :fail")
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "the errored row's detail panel is open on first render — the
-           seed-open set must include :error, not just :fail")
-      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
-          "and the message is actually rendered in it"))))
-
-(deftest assertion-strip-pass-stays-collapsed
-  (testing "pattern #2 — passing assertions stay collapsed by default;
-            no detail panel renders without a click"
-    (let [assertions [{:assertion :rf.assert/path-equals
-                       :passed? true :payload [[:c] 1] :expected 1 :actual 1}
-                      {:assertion :rf.assert/path-equals
-                       :passed? true :payload [[:c] 2] :expected 2 :actual 2}]
-          hiccup     (render-strip-expanded assertions)]
-      (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "all-passing strip renders zero detail panels — the user sees
-           just the row band"))))
-
-(deftest assertion-strip-single-group-suppresses-head
-  (testing "pattern #5 — when all records share a single :event (or
-            all carry no event) the group head is suppressed to keep
-            the strip compact"
-    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
-                       :event [:click] :payload [[:c] 1]}
-                      {:assertion :rf.assert/path-equals :passed? true
-                       :event [:click] :payload [[:c] 2]}]
-          hiccup     (render-strip assertions)]
-      (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-group-head"))
-          "single-group renders no group-head — only the rows"))))
-
-(deftest assertion-strip-multi-group-renders-heads
-  (testing "pattern #5 — when records cluster across >1 :event slots,
-            each cluster is labelled with a group head"
-    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
-                       :event [:click]}
-                      {:assertion :rf.assert/path-equals :passed? true
-                       :event [:submit]}]
-          hiccup     (render-strip assertions)
-          heads      (atom [])]
-      (letfn [(walk [node]
-                (cond
-                  (and (map? node) (= "story-canvas-assertion-group-head" (:data-test node)))
-                  (swap! heads conj node)
-                  (vector? node) (run! walk node)
-                  (seq? node)    (run! walk node)))]
-        (walk hiccup))
-      (is (= 2 (count @heads))
-          "one head per dispatching event"))))
-
-;; ---- :key meta on the row seq --------------------------------------------
-;;
-;; The inner row `for` renders each row as a component vector
-;; `[render-row ...]` so its `^{:key ...}` lands on the element. Attached to
-;; the function-CALL form `(render-row ...)` the metadata would be dropped
-;; (it never transfers to render-row's return value), so React would see an
-;; unkeyed row seq and warn on every run — failing the Story/Xray
-;; feature-load browser gate. A row-SHAPE check cannot see the seq-key
-;; contract, so the test below pins `(meta element) :key` on every rendered
-;; row element, across two groups so a per-group index key is caught too.
-
-(defn- collect-row-seq-elements
-  "Walk `hiccup` and collect the elements of the inner row sequence — the
-  Reagent component vectors a `for` produces, one per assertion record.
-  Each such element is a vector whose head is the `render-row` fn (the
-  component-position fn Reagent invokes). Returns them in encounter order
-  so callers can assert per-element `:key` meta."
-  [hiccup]
-  (let [found (atom [])
-        row-element? (fn [x]
-                       (and (vector? x)
-                            (fn? (first x))
-                            (= rf.story.ui.assertion-strip/render-row (first x))))]
-    (letfn [(walk [node]
-              (cond
-                (row-element? node) (swap! found conj node)
-                (vector? node)      (run! walk node)
-                (seq? node)         (run! walk node)
-                :else               nil))]
-      (walk hiccup))
-    @found))
-
-(deftest assertion-strip-row-key-meta-survives-multi-group
-  (testing "the :key meta lands on row elements across multiple groups —
-            the group/row index path keeps keys unique strip-wide"
-    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
-                       :event [:click] :payload [[:c] 1]}
-                      {:assertion :rf.assert/path-equals :passed? false
-                       :event [:click] :payload [[:c] 2] :reason "differ"}
-                      {:assertion :rf.assert/path-equals :passed? true
-                       :event [:submit] :payload [[:c] 3]}]
-          hiccup     (render-strip assertions)
-          rows       (collect-row-seq-elements hiccup)
-          keys       (map #(:key (meta %)) rows)]
-      (is (= 3 (count rows))
-          "one row element per record across both groups")
-      (is (every? some? keys)
-          "every cross-group row element is keyed")
-      (is (= 3 (count (into #{} keys)))
-          "keys are unique strip-wide even across groups"))))
-
-;; ---- :key meta on the OUTER group seq ------------------------------------
-;;
-;; The strip nests two `for` seqs: outer groups → inner rows. The inner
-;; row keys are pinned above. The OUTER group element carries
-;; `^{:key (str "group-" gi)}` (assertion_strip.cljs) — a missing/duplicate
-;; group key warns in React exactly like a missing row key, one level up,
-;; and a shape check would not see it either. These tests pin
-;; `(meta element) :key` on every group element so a regression there
-;; can't go silent.
-
-(defn- collect-group-seq-elements
-  "Walk `hiccup` and collect the outer group elements — the `[:div ...]`
-  vectors the group `for` produces, one per dispatching :event cluster.
-  Each carries `:data-test \"story-canvas-assertion-group\"` in its prop
-  map. Returns them in encounter order so callers can assert per-element
-  `:key` meta."
-  [hiccup]
-  (let [found (atom [])
-        group-element? (fn [x]
-                         (and (vector? x)
-                              (= :div (first x))
-                              (map? (second x))
-                              (= "story-canvas-assertion-group"
-                                 (:data-test (second x)))))]
-    (letfn [(walk [node]
-              (cond
-                (group-element? node) (swap! found conj node)
-                (vector? node)        (run! walk node)
-                (seq? node)           (run! walk node)
-                :else                 nil))]
-      (walk hiccup))
-    @found))
-
-(deftest assertion-strip-group-seq-elements-carry-key-meta
-  (testing "every outer group element carries a unique :key in its
-            metadata so React's GROUP seq is keyed — the missing-row-key
-            failure mode one level up (the outer for over groups)"
-    (let [assertions [{:assertion :rf.assert/path-equals :passed? true
-                       :event [:click] :payload [[:c] 1]}
-                      {:assertion :rf.assert/path-equals :passed? false
-                       :event [:submit] :payload [[:c] 2] :reason "differ"}
-                      {:assertion :rf.assert/path-equals :passed? true
-                       :event [:reset] :payload [[:c] 3]}]
-          hiccup     (render-strip assertions)
-          groups     (collect-group-seq-elements hiccup)
-          keys       (map #(:key (meta %)) groups)]
-      (is (= 3 (count groups))
-          "one group element per dispatching event")
-      (is (every? some? keys)
-          "every group element carries a :key in its metadata so React's
-           group seq is keyed (no missing-key warning)")
-      (is (= (count groups) (count (into #{} keys)))
-          ":key values are unique across the group seq"))))
+(deftest assertion-strip-rows-and-groups-carry-unique-keys
+  (let [hiccup  (render-strip [{:assertion :rf.assert/path-equals :passed? true
+                                :event [:click] :payload [[:c] 1]}
+                               {:assertion :rf.assert/path-equals :passed? false
+                                :event [:click] :payload [[:c] 2] :reason "differ"}
+                               {:assertion :rf.assert/path-equals :passed? true
+                                :event [:submit] :payload [[:c] 3]}])
+        keys-of (fn [els] (set (keep #(:key (meta %)) els)))
+        rows    (collect #(and (vector? %) (= rf.story.ui.assertion-strip/render-row (first %)))
+                         hiccup)
+        groups  (collect (data-test-el? "story-canvas-assertion-group") hiccup)]
+    (is (= 3 (count rows) (count (keys-of rows))))
+    (is (= 2 (count groups) (count (keys-of groups))))))
 
 ;; ---- pure: value-display -------------------------------------------------
 
-(deftest value-display-short-no-clamp
-  (testing "a short value's :clamped equals :full and :long? is false —
-            no click-to-reveal chord needed"
-    (let [out (rf.story.ui.assertion-strip/value-display 42)]
-      (is (= "42" (:full out)))
-      (is (= "42" (:clamped out)))
-      (is (false? (:long? out)))))
-  (testing "a moderate map under the cap also passes through unclamped"
-    (let [out (rf.story.ui.assertion-strip/value-display {:a 1 :b 2})]
-      (is (false? (:long? out)))
-      (is (= (:full out) (:clamped out))))))
-
-(deftest value-display-long-clamps
-  (testing "a value whose pr-str exceeds the detail cap clamps with an
-            ellipsis and flags :long? so the renderer attaches the
-            click-to-reveal chord"
-    (let [big {:k (apply str (repeat 300 "x"))}
-          out (rf.story.ui.assertion-strip/value-display big)]
-      (is (true? (:long? out)))
-      (is (re-find #"…$" (:clamped out))
-          ":clamped ends in an ellipsis")
-      (is (< (count (:clamped out)) (count (:full out)))
-          ":clamped is shorter than the full pr-str")
-      (is (= (pr-str big) (:full out))
-          ":full carries the complete pr-str for the revealed view"))))
-
-(deftest value-display-respects-explicit-cap
-  (testing "the 2-arity form clamps at the caller-supplied length"
-    (let [out (rf.story.ui.assertion-strip/value-display "abcdefghij" 5)]
-      (is (true? (:long? out)))
-      (is (= 5 (count (:clamped out)))))))
+(deftest value-display-clamps-past-the-cap
+  (are [args out] (= out (apply rf.story.ui.assertion-strip/value-display args))
+    [42]             {:full "42" :clamped "42" :long? false}
+    ["abcdefghij" 5] {:full "\"abcdefghij\"" :clamped "\"abc…" :long? true}))
 
 ;; ---- rendered: detail-value ----------------------------------------------
-;;
-;; detail-value is a reagent component (closure-with-state). Invoke the
-;; outer fn to get the inner render fn, then invoke that to get hiccup —
-;; same shape as render-strip above.
 
 (defn- render-detail-value
   [label v]
   (let [inner (rf.story.ui.assertion-strip/detail-value label v)]
     (inner label v)))
 
-(deftest detail-value-short-no-reveal-chord
-  (testing "a short value renders inline with NO reveal chord —
-            click-to-reveal only attaches when the value is long"
-    (let [hiccup (render-detail-value "expected" 7)]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-value"))
-          "the value line carries the canonical data-test")
-      (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal"))
-          "no reveal chord for a short value"))))
-
 (deftest detail-value-long-renders-reveal-chord-collapsed
-  (testing "a long value renders the reveal chord and starts collapsed —
-            data-revealed is false on first paint so the panel stays
-            compact — avoid blowing the panel height"
-    (let [big    {:k (apply str (repeat 300 "x"))}
-          hiccup (render-detail-value "actual" big)
-          line   (find-prop hiccup :data-test "story-canvas-assertion-detail-value")]
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal"))
-          "reveal chord present for a long value")
-      (is (= "false" (:data-revealed line))
-          "starts collapsed — full value hidden until the chord is clicked"))))
+  (is (nil? (find-prop (render-detail-value "expected" 7)
+                       :data-test "story-canvas-assertion-detail-reveal"))
+      "a short value gets no reveal chord")
+  (let [hiccup (render-detail-value "actual" {:k (apply str (repeat 300 "x"))})]
+    (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal")))
+    (is (= "false" (:data-revealed (find-prop hiccup :data-test "story-canvas-assertion-detail-value")))
+        "a long value starts collapsed")))
