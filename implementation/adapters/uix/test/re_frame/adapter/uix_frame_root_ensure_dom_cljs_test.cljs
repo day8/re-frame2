@@ -1,31 +1,11 @@
 (ns re-frame.adapter.uix-frame-root-ensure-dom-cljs-test
-  "UIx DOM/browser coverage for the NATIVE `frame-root` `defui`'s ENSURE
-  (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam.
-
-  WHY THIS EXISTS. `re-frame.adapter.uix/frame-root` is a native UIx `defui`
-  (the ENSURE component, beside the SCOPE-only `frame-provider`). The
-  SCOPE-only `frame-provider` is pinned end-to-end through `$` by
-  `frame-provider-trailing-children-propagate-frame`
-  (uix_use_sub_dom_cljs_test). The ENSURE `frame-root` config through `$` — the
-  `:id` KEYWORD, the nested `:initial-events` / `:images` vectors, the
-  `:url-bound?` boolean — reconstructed by `glue-args` into the clean CLJS props
-  map before the `defui` hands props to `frame-boundary/frame-root-react-element`
-  needs its own pin. ENSURE BEHAVIOUR is covered at the SHARED / core level
-  (`frame-root-fc` built with raw `createElement`; the reagent scenario-6
-  HOT-RELOAD GATE), but those do not touch UIx's `$` → `glue-args`
-  reconstruction of the ENSURE config.
-
-  These tests mount the public ENSURE call shape
-  (`($ frame-root {:id … :initial-events [[…]] …} ($ child))`) through the real
-  `$` under `act`, and assert the frame is CREATED live (at COMMIT, via the
-  two-pass `useLayoutEffect`) with the config-seeded durable state AND a
-  descendant `use-sub` reads it — the structural proof that the ENSURE
-  config survived `$` marshalling intact.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
-  `-dom-cljs-test$`) discovers it for the real DOM assertions; `:node-test`'s
-  `cljs-test$` regex also matches, where each test self-gates on `(browser?)`
-  and no-ops cleanly."
+  "The native UIx `frame-root` ENSURE config through `$` → `glue-args`: the
+  `:id` keyword, the nested `:initial-events` and `:images` vectors and the
+  `:url-bound?` boolean must reach `frame-root-react-element` intact. ENSURE
+  behaviour itself is covered at the core level with raw `createElement`; this
+  mounts the public call shape and reads the created frame, its seeded
+  app-db, and a descendant `use-sub`. `frame-provider`'s twin is
+  `frame-provider-trailing-children-propagate-frame`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -40,9 +20,6 @@
     {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- side-channel atom + descendant probe ---------------------------------
-;; The probe is a top-level `defui` reading the ENSURED frame's value via the
-;; 1-arg `use-sub` (which resolves through the surrounding provider's
-;; React context — the ENSURE provider provides the created frame's id there).
 
 (def ^:private ensure-observed (atom []))
 
@@ -51,11 +28,8 @@
     (swap! ensure-observed conj v)
     ($ :div (str "k=" v))))
 
-;; Inline image carrying the ENSURE `:images`-arm registrations. A real
-;; `rf/image` value (a CLJS record/map inside a vector) — precisely the
-;; nested structure the `$` → `glue-args` seam must round-trip without
-;; mangling. The inline `:reg-event` seeds durable app-db; the frame created
-;; from this image runs it via `:initial-events` at construction.
+;; A real `rf/image` value inside a vector — the nested structure `glue-args`
+;; must round-trip; its inline `:reg-event` is what `:initial-events` runs.
 (def ^:private ensure-image
   (rf/image
     {:id :rf.uix-ensure/image
@@ -79,16 +53,9 @@
       (let [act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
-          ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
-          ;; 1-arg `use-sub` in ProbeEnsure resolves through the ENSURE
-          ;; provider's React-context tier (the created frame), not a
-          ;; shadowing dynamic frame. Mirrors the SCOPE-arm test's note.
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (reset! ensure-observed [])
-            ;; Register the layer-1 db-reader the descendant reads. Default
-            ;; image (no `:images`) → the ENSURE frame's generation projects
-            ;; this + the framework `:rf/set-db` standard.
             (rf/reg-sub :rf.uix-ensure/k (fn [db _] (:k db)))
             (let [frame-kw   :rf.uix-ensure/frame
                   mount-node (.createElement js/document "div")
@@ -96,33 +63,17 @@
               (try
                 (act-fn
                   (fn []
-                    ;; The public ENSURE call shape through the real `$`:
-                    ;; `:id` KEYWORD, a nested `:initial-events` vector-of-
-                    ;; vectors carrying the NAMESPACED `:rf/set-db` keyword +
-                    ;; a nested seed map, and a `:url-bound?` boolean — all
-                    ;; must survive `glue-args` before the `defui` hands them
-                    ;; to `frame-root-react-element`.
                     (.render root
                       ($ rf.adapter.uix/frame-root
                          {:id             frame-kw
                           :initial-events [[:rf/set-db {:k :ensured}]]
                           :url-bound?     false}
                          ($ ProbeEnsure)))))
-                ;; :id survived $ as a KEYWORD — a stringified id would have
-                ;; thrown :rf.error/frame-root-missing-id, and the frame would
-                ;; not be registered under the keyword.
-                (is (some? (rf.frame/frame frame-kw))
-                    "ENSURE created a live frame under the keyword :id (proves :id survived $ as a keyword)")
-                ;; The nested [[:rf/set-db {:k :ensured}]] vector + namespaced
-                ;; keyword + nested map survived glue-args: the seed ran at
-                ;; construction into the durable app-db.
-                (is (= {:k :ensured} (rf/app-db-value frame-kw))
-                    ":initial-events seeded durable app-db (proves the nested vector-of-vectors + namespaced keyword + nested map survived $/glue-args)")
-                ;; End-to-end: a descendant riding the native `$` trailing-
-                ;; children channel read the ENSURED frame's value through the
-                ;; provided React context.
-                (is (some #{:ensured} @ensure-observed)
-                    "descendant use-sub read the ENSURED frame's seeded value through the provided React context")
+                (is (= [true {:k :ensured} true]
+                       [(some? (rf.frame/frame frame-kw))
+                        (rf/app-db-value frame-kw)
+                        (boolean (some #{:ensured} @ensure-observed))])
+                    "[live-frame? app-db descendant-read?]: the keyword :id, the nested :initial-events seed and the provided context all survived $/glue-args")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
@@ -143,25 +94,14 @@
               (try
                 (act-fn
                   (fn []
-                    ;; `:images [ensure-image]` — a vector holding a real
-                    ;; `rf/image` value — plus `:initial-events` referencing
-                    ;; the image's inline event. If the image value were
-                    ;; mangled to a bare JS object by `$`, make-frame's
-                    ;; validate-images! would throw here; if the inline event
-                    ;; id were lost, the seed would not apply below.
                     (.render root
                       ($ rf.adapter.uix/frame-root
                          {:id             frame-kw
                           :images         [ensure-image]
                           :initial-events [[:rf.uix-ensure/seed :img-ensured]]}
                          ($ :div "ensure-images-child")))))
-                (is (some? (rf.frame/frame frame-kw))
-                    "ENSURE created a live frame under the keyword :id")
-                ;; The image's inline :reg-event resolved in the ensured
-                ;; frame's generation and the :initial-events dispatch seeded
-                ;; durable state through it — the decisive proof the :images
-                ;; vector + its image value survived $ marshalling.
-                (is (= :img-ensured (:img (rf/app-db-value frame-kw)))
-                    ":images [inline-image] survived $ marshalling — the image's inline :reg-event resolved and :initial-events seeded through it")
+                (is (= [true :img-ensured]
+                       [(some? (rf.frame/frame frame-kw)) (:img (rf/app-db-value frame-kw))])
+                    ":images [inline-image] survived $ marshalling — the image's inline :reg-event seeded the ensured frame")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
