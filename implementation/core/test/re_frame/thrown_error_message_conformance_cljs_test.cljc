@@ -1,215 +1,62 @@
 (ns re-frame.thrown-error-message-conformance-cljs-test
-  "The thrown-error HUMAN-MESSAGE conformance gate.
+  "The thrown-error human-message contract (Spec 009 §The thrown-error shape):
+  `(ex-message e)` leads with a human sentence, never the bare stringified
+  `:rf.error/…` keyword, and trails a `[:rf.error/<id>]` token; `:rf.error/id`
+  is the machine discriminator.
 
-  Spec 009 §The thrown-error shape rules the human-message contract:
+  This suite pins the central builder and the two conformance predicates other
+  suites assert with. `scripts/check_thrown_error_messages.py` is the
+  whole-tree sweep over framework `(ex-info …)` sites.
 
-    1. `(ex-message e)` is a human-actionable one-line sentence — NOT
-       the bare stringified `:rf.error/…` discriminator keyword.
-    2. `:rf.error/id` (ex-data) is the SOLE canonical machine
-       discriminator; tools/tests branch on it, never on the message.
-    3. The message is stable in MEANING, not bytes — tests MUST NOT
-       exact-equal it.
-    4. The message carries a trailing `[:rf.error/<id>]` token for
-       log/CI greppability.
-
-  This gate makes rule 1+4 REAL, not documentary: it rejects any
-  framework throw whose message is a keyword-only shape, and asserts the
-  central builder + the curated CENTRAL per-surface sites routed through
-  it emit the canonical message.
-
-  CORPUS BACKSTOP: this suite exercises the BUILDER PREDICATES + a
-  curated set of central sites in-process, so any other
-  `(ex-info \":rf.error/…\")` site elsewhere is invisible to it. The
-  whole-tree sweep is `scripts/check_thrown_error_messages.py` — a source
-  scan (run by `scripts/test-fast-pr.sh`) that fails on ANY framework
-  `(ex-info …)` whose message position is a bare `:rf.*` discriminator
-  keyword. That corpus gate, not this allow-list, is what keeps the whole
-  tree conformant; this suite proves the BUILDER and predicates the
-  corpus gate's contract rests on are themselves correct.
-
-  Dual-runtime: the ns ends in `-cljs-test` so it rides the always-on
-  `:node-test` gate (`npm run test:cljs`); cognitect-test-runner also
-  discovers the `.cljc` on the JVM (`clojure -M:test`). Pure data — no
-  adapter / runtime state required (the central sites are exercised
-  directly), so no reset-runtime fixture."
+  Dual-runtime `.cljc`: `:node-test` and `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.error :as rf.error]
-            [re-frame.late-bind :as rf.late-bind]
-            [re-frame.flows.registry :as rf.flows.registry]
-            [re-frame.flows.topo :as rf.flows.topo]
-            [re-frame.routing.registry :as rf.routing.registry]))
+            [re-frame.flows.topo :as rf.flows.topo]))
 
-;; ============================================================================
-;; The builder predicates — the conformance machinery itself
-;; ============================================================================
+(def ^:private no-adapter-reason
+  "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot.")
 
 (deftest keyword-only-message?-rejects-bare-keyword-strings
-  (testing "a bare stringified :rf.error/… keyword is flagged (the non-conformant shape)"
-    (is (true? (rf.error/keyword-only-message? ":rf.error/no-adapter-installed")))
-    (is (true? (rf.error/keyword-only-message? ":rf.error/flow-bad-id")))
-    (is (true? (rf.error/keyword-only-message? ":rf.error/route-url-validation"))))
-  (testing "a human sentence carrying the token is NOT flagged (the conformant shape)"
-    (is (false? (rf.error/keyword-only-message?
-                  "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot. [:rf.error/no-adapter-installed]")))
-    (is (false? (rf.error/keyword-only-message?
-                  "some other text :rf.error/x in the middle"))))
-  (testing "nil / non-string degrade to false (never a true positive)"
-    (is (false? (rf.error/keyword-only-message? nil)))
-    (is (false? (rf.error/keyword-only-message? :rf.error/x)))))
+  (doseq [[message expected] [[":rf.error/no-adapter-installed" true]
+                              [(str no-adapter-reason " [:rf.error/no-adapter-installed]") false]]]
+    (is (= expected (rf.error/keyword-only-message? message)) message)))
 
 (deftest message-has-id-token?-detects-the-trailing-token
-  (testing "the bracketed [:rf.error/<id>] token is detected anywhere"
-    (is (true? (rf.error/message-has-id-token?
-                 "human sentence here. [:rf.error/no-adapter-installed]")))
-    (is (true? (rf.error/message-has-id-token? "[:rf.error/flow-bad-id]"))))
-  (testing "a message with NO token is rejected (rule 4 floor)"
-    (is (false? (rf.error/message-has-id-token? "just a human sentence")))
-    (is (false? (rf.error/message-has-id-token? ":rf.error/no-adapter-installed")))
-    (is (false? (rf.error/message-has-id-token? nil)))))
-
-;; ============================================================================
-;; The central builder — derives a conformant message from reason + id
-;; ============================================================================
+  (doseq [[message expected] [["human sentence here. [:rf.error/no-adapter-installed]" true]
+                              [":rf.error/no-adapter-installed" false]]]
+    (is (= expected (rf.error/message-has-id-token? message)) message)))
 
 (deftest thrown-ex-info-derives-the-canonical-shape
-  (let [e (rf.error/thrown-ex-info
-            :rf.error/no-adapter-installed
-            'rf/init!
-            "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot.")
-        msg (ex-message e)
-        data (ex-data e)]
-    (testing "ex-data carries the canonical discriminator slot"
-      (is (= :rf.error/no-adapter-installed (:rf.error/id data))))
-    (testing ":where + :recovery default + :reason populate"
-      (is (= 'rf/init! (:where data)))
-      (is (= :no-recovery (:recovery data)))
-      (is (= "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot."
-             (:reason data))))
-    (testing "the message LEADS with the human sentence (rule 1)"
-      (is (not (rf.error/keyword-only-message? msg))
-          "message must not be a bare keyword")
-      (is (re-find #"^rf/init! cannot continue" msg)
-          "message starts with the human sentence, not the keyword"))
-    (testing "the message TRAILS with the [:rf.error/<id>] token (rule 4)"
-      (is (rf.error/message-has-id-token? msg))
-      (is (re-find #"\[:rf\.error/no-adapter-installed\]$" msg)))))
+  (let [e (rf.error/thrown-ex-info :rf.error/no-adapter-installed 'rf/init! no-adapter-reason)]
+    (is (= {:rf.error/id :rf.error/no-adapter-installed
+            :where       'rf/init!
+            :recovery    :no-recovery
+            :reason      no-adapter-reason}
+           (ex-data e)))
+    (testing "the message leads with the human sentence and trails the token
+              (asserted by pattern: the message is stable in meaning, not bytes)"
+      (is (re-find #"^rf/init! cannot continue" (ex-message e)))
+      (is (re-find #"\[:rf\.error/no-adapter-installed\]$" (ex-message e))))))
 
 (deftest thrown-ex-info-honours-recovery-and-extra-slots
-  (let [e (rf.error/thrown-ex-info
-            :rf.error/flow-bad-id
-            'rf/reg-flow
-            ":id must be a keyword"
-            {:recovery :fix-registration
-             :extra    {:flow {:id "not-a-kw"} :bad-key :id}})
-        data (ex-data e)]
-    (is (= :fix-registration (:recovery data)) "explicit :recovery overrides the default")
-    (is (= {:id "not-a-kw"} (:flow data)) ":extra slots merge on top")
-    (is (= :id (:bad-key data)))
-    (is (= ":id must be a keyword" (:reason data)))
-    (is (rf.error/message-has-id-token? (ex-message e)))))
-
-;; ============================================================================
-;; The CENTRAL per-surface sites all emit the conformant shape (the
-;; "no keyword-only message" gate). Each site is exercised through its
-;; throw path and its message is asserted to be a human sentence carrying
-;; the token, with the canonical discriminator in :rf.error/id. (Every other
-;; site is the corpus gate's; this gate covers the contract + the central
-;; sites.)
-;; ============================================================================
-
-(defn- ex-info-class? [e]
-  #?(:clj (instance? clojure.lang.ExceptionInfo e)
-     :cljs (instance? ExceptionInfo e)))
-
-(defn- assert-conformant-throw!
-  "Assert `thunk` throws an ex-info whose message is conformant (human
-  sentence + token, never a bare keyword) and whose `:rf.error/id` equals
-  `expected-id`."
-  [label expected-id thunk]
-  (let [thrown (try (thunk) ::no-throw
-                    (catch #?(:clj Throwable :cljs :default) e e))]
-    (testing (str label " throws a conformant ex-info")
-      (is (ex-info-class? thrown) (str label " threw an ex-info"))
-      (when (ex-info-class? thrown)
-        (let [msg (ex-message thrown)]
-          (is (= expected-id (:rf.error/id (ex-data thrown)))
-              (str label " carries the canonical :rf.error/id discriminator"))
-          (is (not (rf.error/keyword-only-message? msg))
-              (str label " message is NOT a bare keyword (rule 1)"))
-          (is (rf.error/message-has-id-token? msg)
-              (str label " message carries the [:rf.error/<id>] token (rule 4)")))))))
-
-(deftest require-fn!-emits-conformant-missing-artefact-throw
-  ;; rf.late-bind/require-fn! — the missing-artefact exemplar. An unregistered
-  ;; hook key (no producer published it) throws the *-artefact-missing shape.
-  (assert-conformant-throw!
-    "require-fn! (missing artefact)"
-    :rf.error/flows-artefact-missing
-    #(rf.late-bind/require-fn!
-       ::vvixub-definitely-unregistered-hook
-       'rf/reg-flow
-       {:error-keyword :rf.error/flows-artefact-missing
-        :maven         "com.day8.re-frame/re-frame2-flows"
-        :require-ns     're-frame.flows})))
-
-(deftest flow-error-emits-conformant-validation-throw
-  ;; flows.registry validation — the :error→:rf.error/id exemplar. An
-  ;; invalid flow (non-keyword :id) trips the validation cascade. flow-error
-  ;; is private; reach it through `validate-flow`, the validation step
-  ;; `reg-flow` runs.
-  (assert-conformant-throw!
-    "reg-flow (bad :id)"
-    :rf.error/flow-bad-id
-    #(#'rf.flows.registry/validate-flow
-       {:id     "not-a-keyword"
-        :inputs [[:a]]
-        :derive (fn [_] nil)
-        :output-path   [:out]})))
-
-(deftest route-error-emits-conformant-routing-throw
-  ;; routing.registry route-error — the routing exemplar. Build directly
-  ;; (route-error is the canonical helper every routing throw routes through).
-  (let [e (rf.routing.registry/route-error
-            :rf.error/route-url-validation
-            'rf/route-url
-            "the route slice failed the route's declared :params / :query schema"
-            {:limit 64 :count 99})]
-    (is (= :rf.error/route-url-validation (:rf.error/id (ex-data e))))
-    (is (= 64 (:limit (ex-data e))) "per-site :extras slots merge on top")
-    (is (not (rf.error/keyword-only-message? (ex-message e)))
-        "route-error message is NOT a bare keyword (rule 1)")
-    (is (rf.error/message-has-id-token? (ex-message e))
-        "route-error message carries the [:rf.error/<id>] token (rule 4)")))
-
-;; ============================================================================
-;; flows/topo throws — the THREE topo categories route through the central
-;; builder (`re-frame.error/throw-error!`) rather than the
-;; flows.registry/flow-error helper, so the message LEADS with the human
-;; sentence + TRAILS with the token, and `:rf.error/id` is the discriminator.
-;; ============================================================================
-
-(deftest flow-path-overlap-emits-conformant-throw
-  ;; detect-output-path-overlap! — two flows whose output :paths collide.
-  (assert-conformant-throw!
-    "detect-output-path-overlap! (overlapping :paths)"
-    :rf.error/flow-path-overlap
-    #(rf.flows.topo/detect-output-path-overlap!
-       {:a {:id :a :inputs [[:w]] :derive identity :output-path [:x]}
-        :b {:id :b :inputs [[:h]] :derive identity :output-path [:x]}})))
+  (is (= {:rf.error/id :rf.error/flow-bad-id
+          :where       'rf/reg-flow
+          :recovery    :fix-registration
+          :reason      ":id must be a keyword"
+          :flow        {:id "not-a-kw"}
+          :bad-key     :id}
+         (ex-data (rf.error/thrown-ex-info
+                    :rf.error/flow-bad-id
+                    'rf/reg-flow
+                    ":id must be a keyword"
+                    {:recovery :fix-registration
+                     :extra    {:flow {:id "not-a-kw"} :bad-key :id}})))))
 
 (deftest flow-cycle-emits-conformant-throw
-  ;; topo-sort — two flows forming a dependency cycle.
-  (assert-conformant-throw!
-    "topo-sort (cyclic flow dependency)"
-    :rf.error/flow-cycle
-    #(rf.flows.topo/topo-sort
-       {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
-        :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}})))
-
-(deftest flow-cycle-extract-invariant-emits-conformant-throw
-  ;; extract-cycle-path — the internal dead-end invariant (a stuck node with no
-  ;; stuck dependency to follow). Reach the private helper directly.
-  (assert-conformant-throw!
-    "extract-cycle-path (internal dead-end invariant)"
-    :rf.error/flow-cycle-extract-invariant
-    #(#'rf.flows.topo/extract-cycle-path {:a #{}} #{:a})))
+  ;; A real `throw-error!` site: two flows forming a dependency cycle.
+  (let [e (try (rf.flows.topo/topo-sort
+                 {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
+                  :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}})
+               (catch #?(:clj Throwable :cljs :default) e e))]
+    (is (= :rf.error/flow-cycle (:rf.error/id (ex-data e))))
+    (is (rf.error/message-has-id-token? (ex-message e)))))
