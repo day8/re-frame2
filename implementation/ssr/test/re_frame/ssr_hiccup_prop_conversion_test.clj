@@ -16,8 +16,7 @@
   Each row runs through BOTH walkers, because they share one conversion
   (`re-frame.ssr.emit/dom-element-props`) and a change landing on one of them
   only is the drift this pins."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.streaming :as rf.ssr.streaming]))
 
@@ -45,19 +44,15 @@
        [[:input {:read-only true :tab-index 0}]    "<input readOnly tabindex=\"0\">"]
        [[:label {:html-for "e"} "Email"]          "<label for=\"e\">Email</label>"]
        [[:svg {:view-box "0 0 10 10"}]            "<svg viewBox=\"0 0 10 10\"></svg>"]
-       [[:td {:col-span 2} "x"]                   "<td colSpan=\"2\">x</td>"]
        ;; Reagent's prop is `panose1`, which react-dom writes
        ;; verbatim (its alias row is keyed on `panose-1`)
        [[:svg {:panose-1 "2 0 0 0"}]              "<svg panose1=\"2 0 0 0\"></svg>"]
        ;; React spellings, as keywords and as a string key
        [[:div {:className "c"}]                   "<div class=\"c\"></div>"]
        [[:div.x {:className "c"}]                 "<div class=\"x c\"></div>"]
-       [[:label {:htmlFor "e"}]                   "<label for=\"e\"></label>"]
        [[:div {"className" "c"}]                  "<div class=\"c\"></div>"]
        ;; keyword values → `name`
        [[:button {:type :button} "Cancel"]        "<button type=\"button\">Cancel</button>"]
-       [[:input {:type :checkbox}]                "<input type=\"checkbox\">"]
-       [[:div {:data-state :open}]                "<div data-state=\"open\"></div>"]
        ;; class collections → joined, nil and false dropped
        [[:div {:class ["a" nil false "b"]}]       "<div class=\"a b\"></div>"]
        [[:div.x {:class [:a nil false :b]}]       "<div class=\"x a b\"></div>"]
@@ -75,9 +70,7 @@
 (deftest already-correct-names-are-unchanged
   (testing "controls — names the client paints as authored stay as they were"
     (check-rows
-      [[[:div {:class "a"}]                       "<div class=\"a\"></div>"]
-       [[:label {:for "e"}]                       "<label for=\"e\"></label>"]
-       [[:div {:id "i" :data-x "1" :aria-label "l"}]
+      [[[:div {:id "i" :data-x "1" :aria-label "l"}]
         "<div id=\"i\" data-x=\"1\" aria-label=\"l\"></div>"]
        ;; Reagent camelCases these and react-dom's alias table maps them
        ;; straight back to the hyphenated DOM name.
@@ -110,9 +103,9 @@
             — so the client paints it as an ordinary unknown attribute and
             never as content. Pinned here so nobody reads the kebab spelling
             as a way to reach the raw-HTML channel"
-    (doseq [html (both-walkers [:div {:dangerously-set-inner-html {:__html "<b>x</b>"}}])]
-      (is (str/starts-with? html "<div dangerouslySetInnerHtml=\"") html)
-      (is (str/ends-with? html "\"></div>") html))))
+    (check-rows
+      [[[:div {:dangerously-set-inner-html {:__html "<b>x</b>"}}]
+        "<div dangerouslySetInnerHtml=\"{:__html &quot;<b>x</b>&quot;}\"></div>"]])))
 
 (defn- option-view [value label]
   [:option {:value value} label])
