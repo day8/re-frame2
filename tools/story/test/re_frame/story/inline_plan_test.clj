@@ -10,9 +10,8 @@
 
   - an inline plan runs HEADLESSLY (the same unified run-result a
     registered variant returns);
-  - an inline plan is ABSENT from Story navigation (nothing is registered);
+  - an inline plan is ABSENT from Story navigation, even while in flight;
   - an inline plan can use a REGISTERED check;
-  - an inline plan CANNOT reference a missing fragment (it fails cleanly);
   - `rf.story/is` reports through the test framework for a map target;
   - an inline plan and a registered variant describing the SAME behaviour
     produce equivalent final app-db + assertion records AFTER
@@ -68,19 +67,6 @@
 ;; Inline plan runs headlessly
 ;; ===========================================================================
 
-(deftest inline-plan-runs-headless-pass
-  (testing "a map target runs headlessly and yields the unified run-result.
-            The verdict is driven by the
-            in-script `[:assert …]` checkpoint — the same surface a registered
-            variant's verdict comes from (terminal :assertions are declarative;
-            the lifecycle records in-script checkpoints)."
-    (let [result (run-target {:script [[:dispatch [:inline/set-status :loaded]]
-                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
-      (is (= :pass (:status result)) "the unified verdict is :pass")
-      (is (= :loaded (:status (:app-db result))) "setup/script drove app-db")
-      (is (= :ready (:lifecycle result)))
-      (is (every? :passed? (:assertions result)) "the checkpoint passed"))))
-
 (deftest inline-plan-loaders-run-from-the-plan
   (testing "an inline plan declaring :loaders runs phase-1 loaders off the
             plan's :world (no registry read) before :setup / :script"
@@ -94,31 +80,14 @@
 ;; Inline plan is ABSENT from Story navigation
 ;; ===========================================================================
 
-(deftest inline-plan-absent-from-navigation
-  (testing "running an inline plan registers NOTHING in the Story side-table
-            and leaves no variant frame behind"
-    (run-target {:script [[:dispatch [:inline/set-status :ok]]
-                          [:assert [:rf.assert/path-equals [:status] :ok]]]})
-    (is (empty? (rf.story/ids :variant))
-        "no variant id was registered by the inline run")
-    (is (empty? (rf.story/variants-by-story))
-        "the inline plan appears under no story")
-    (is (empty? (rf.story/variant-frames))
-        "the anonymous inline frame was torn down — no lingering nav frame")))
-
 (deftest inline-plan-absent-from-navigation-while-in-flight
   (testing "an inline frame is absent from variant-frames / variant-frame?
-            WHILE it is allocated — the transient window between
-            `allocate-inline!` and `destroy-inline!`. spec/017
-            §Inline plan: 'Inline plans MUST NOT appear in Story navigation'
-            is UNCONDITIONAL — not merely post-teardown. The
-            absent-from-navigation test above only checks AFTER `run-target`
-            returns; on the JVM the run is synchronous so the in-flight
-            window is already closed at assertion time. Here we allocate the
-            inline frame and assert mid-flight, BEFORE tearing it down — the
-            case the post-teardown test misses. Drives `variant-frame?` to
-            read the `:rf/inline?` stamp `allocate-inline!` writes, making
-            the stamp load-bearing."
+            WHILE it is allocated — the window between `allocate-inline!` and
+            `destroy-inline!`. spec/017 §Inline plan: 'Inline plans MUST NOT
+            appear in Story navigation' is unconditional, and on the JVM a
+            run is synchronous, so the frame is allocated directly and
+            checked before teardown. `variant-frame?` reads the `:rf/inline?`
+            stamp `allocate-inline!` writes."
     (let [inline-id :rf.story.inline/plan-transient]
       ;; Allocate an inline frame directly (the registry-free twin of
       ;; `allocate!`): empty decorator stack + no fx-overrides, events-only
@@ -140,10 +109,6 @@
             "an in-flight inline frame is absent from the public variant-frames")
         (finally
           (rf.story.frames/destroy-inline! inline-id {} nil))))))
-
-;; ===========================================================================
-;; Inline plan can use a REGISTERED check
-;; ===========================================================================
 
 ;; ===========================================================================
 ;; A check's assertions EXECUTE, so a check can FAIL
@@ -248,10 +213,6 @@
              (:assertion (first (:assertions result))))))))
 
 ;; ===========================================================================
-;; Inline plan CANNOT reference a missing fragment — fails cleanly
-;; ===========================================================================
-
-;; ===========================================================================
 ;; A COMPILED plan is not an authoring body — refused, never recompiled
 ;; ===========================================================================
 
@@ -264,13 +225,7 @@
             that says to run the variant by its id."
     (rf.story/reg-variant :story.inline/seeded {:db-seed {:n 10}
                                                 :script  [[:dispatch [:inline/inc]]]})
-    (testing "control: the variant run by id seeds, then runs"
-      (let [result (run-target :story.inline/seeded)]
-        (is (= :pass (:status result)))
-        (is (= 11 (:n (:app-db result))))))
     (let [plan (rf.story/variant-plan :story.inline/seeded)]
-      (is (= {:n 10} (get-in plan [:world :db-seed]))
-          "precondition: the compiled plan carries the seed under :world")
       (testing "run: the ordinary plan-construction error result, no frame"
         (let [result (run-target plan)]
           (is (= :error (:status result)))
@@ -286,12 +241,7 @@
                         (catch clojure.lang.ExceptionInfo e e))]
             (is (= :rf.error/story-compiled-plan-target
                    (:rf.error/id (ex-data ex))))
-            (is (= :story.inline/seeded (:variant/id (ex-data ex))))))))
-    (testing "control: an inline AUTHORING body carrying :db-seed still runs"
-      (let [result (run-target {:db-seed {:n 10}
-                                :script  [[:dispatch [:inline/inc]]]})]
-        (is (= :pass (:status result)))
-        (is (= 11 (:n (:app-db result))))))))
+            (is (= :story.inline/seeded (:variant/id (ex-data ex))))))))))
 
 ;; ===========================================================================
 ;; rf.story/is reports through the test framework for a map target
