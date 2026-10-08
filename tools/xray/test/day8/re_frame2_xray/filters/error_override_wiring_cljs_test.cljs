@@ -1,28 +1,18 @@
 (ns day8.re-frame2-xray.filters.error-override-wiring-cljs-test
-  "Sub-level wiring for the error-override filter bypass.
-
-  The pure algebra lives in `error_override_cljs_test.cljc`; this drives the
-  PRODUCTION `:rf.xray/filtered-event-bundles` sub end-to-end so the
-  integration is proven: the config plumbs through `configure!` → the
-  `:rf.xray/filters-auto-hide-error-overrides?` sub → the filtered-event-bundle
-  chain, and the error classifier reaches the bundle through `group-by-event`
-  (the errored trace lands in the bundle's `:other` bucket).
-
-  spec/018-Event-Spine.md §7 Error overrides: an errored event a filter would
-  hide is surfaced anyway (default `true`); with the bypass off, filters hide
-  it too."
+  "Sub-level wiring for the error-override filter bypass (spec/018 §7):
+  the config flag reaches the production `:rf.xray/filtered-event-bundles`
+  sub, and the errored trace reaches the bundle through `group-by-event`.
+  The pure algebra is in `error_override_cljs_test.cljc`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
-  ;; `:post-reset` runs during fixture setup (before each test body), so it
-  ;; restores the error-override config to its default (`true`) — a prior
-  ;; test that flipped it off can't leak.
+  ;; `:post-reset` runs before each test body, restoring the flag's default
+  ;; so a test that turned it off cannot leak.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (config/set-filters-auto-hide-error-overrides! nil))}))
 
@@ -45,10 +35,8 @@
                :rf.event/v           event-v}})
 
 (defn- error-trace-ev
-  "An `:rf.error/*` trace event (`:op-type :error`) carrying the SAME
-  dispatch-id so `group-by-event` buckets it into that cascade's `:other`
-  slot — the canonical 'this event errored' signal (mirrors
-  `shell_cljs_test/error-trace-ev`)."
+  "An error trace on dispatch-id `id`, which `group-by-event` buckets into
+  that bundle's `:other` slot."
   [id]
   {:id        (+ id 2000)
    :op-type   :error
@@ -65,37 +53,27 @@
     @(rf/subscribe [:rf.xray/filtered-event-bundles])))
 
 (deftest errored-event-survives-an-out-pill-that-would-hide-it
-  (testing "with the default bypass ON, an errored event an OUT
-            pill would hide is surfaced anyway (spec/018 §7); a CLEAN event the
-            same pill matches IS hidden (the pill still works)"
+  (testing "with the default bypass ON, an errored event an OUT pill matches
+            is surfaced anyway and tagged; a clean event the same pill
+            matches IS hidden"
     (setup!)
-    ;; cascade 1 — clean :cart/add; cascade 2 — errored :auth/login.
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:auth/login]))
     (trace-collector/seed-trace-for-test! (error-trace-ev 2))
-    (is (= #{1 2} (set (map :dispatch-id (filtered-bundles))))
-        "sanity: both cascades visible with no filter")
-    ;; OUT-pill BOTH event-ids. The clean one drops; the errored one survives.
     (out-pill! :cart/add :auth/login)
     (let [bundles (filtered-bundles)]
-      (is (= [2] (mapv :dispatch-id bundles))
-          "the clean OUT-matched cascade is hidden; the errored OUT-matched
-           cascade is surfaced anyway")
-      (is (true? (:rf.xray/filter-bypassed? (first bundles)))
-          "the surfaced errored bundle is tagged for the filter-bypass cue"))))
+      (is (= [2] (mapv :dispatch-id bundles)))
+      (is (true? (:rf.xray/filter-bypassed? (first bundles)))))))
 
 (deftest disabled-config-lets-filters-hide-errored-events
-  (testing "with the bypass explicitly OFF
-            (:rf.xray/filters-auto-hide-error-overrides? false) an OUT pill
-            hides the errored event too (opt-out honoured through the sub)"
-    ;; Set BEFORE the first sub read so the config sub computes against false.
+  (testing "with the bypass OFF an OUT pill hides the errored event too"
+    ;; Set before the first sub read so the config sub computes against false.
     (config/set-filters-auto-hide-error-overrides! false)
     (setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:auth/login]))
     (trace-collector/seed-trace-for-test! (error-trace-ev 2))
     (out-pill! :auth/login)
-    (is (empty? (filtered-bundles))
-        "the errored event is hidden when the bypass is disabled")))
+    (is (empty? (filtered-bundles)))))
 
 (deftest configure-plumbs-the-error-override-flag
   (testing "configure! round-trips the config key + resets on nil"
