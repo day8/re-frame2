@@ -1,70 +1,43 @@
 (ns re-frame.spawn-destroyed-frame-atomicity-test
-  "Destroyed-/unknown-frame spawn atomicity.
-
-  `spawn-fx*` (the accepted-spawn body of `:rf.machine/spawn`) reads the
-  frame's runtime-db once as `old-rt`; for a DESTROYED or never-created
-  frame that read is nil, and the fallback id-allocator yields a nil
-  `spawned-id` (the `:else` branch).
-
-  The WHOLE accepted-spawn cascade — the `:rf.machine.spawn/spawned`
-  trace, the snapshot / spawn-slot install, and the `:start`
-  (or synthetic) dispatch — is gated on `(and (not rejected?) old-rt)`, so
-  a dead-frame spawn is a clean no-op: no trace, no install, no dispatch,
-  nil returned. This keeps the spawn atomic — there is never a phantom
-  `spawned` trace or a `[nil <start>]` dispatch for an actor that was not
-  installed."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "A spawn into a destroyed or never-created frame is a clean no-op: no
+  `:rf.machine.spawn/spawned` trace, no install, no `:start` dispatch, nil
+  returned."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-;; touch the artefact so the machines registration hook is wired even when
-;; this ns is run in isolation (`re-frame.machines` require has side effects).
+;; Wires the machines registration hook when this ns runs alone.
 (def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 (deftest destroyed-frame-spawn-fires-no-trace-no-dispatch
-  (testing "spawning into a never-created / destroyed frame installs nothing,
-            emits no :rf.machine.spawn/spawned trace, and dispatches nothing"
-    (rf/reg-machine :rf2-g13nm2/ghost-child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    (let [spawned-traces (atom [])
-          dispatches     (atom [])
-          ghost-frame    :rf2-g13nm2/never-created-frame
-          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-      (rf.trace.tooling/register-listener!
-        ::ghost-spawn
-        (fn [ev]
-          (when (= :rf.machine.spawn/spawned (:operation ev))
-            (swap! spawned-traces conj ev))))
-      ;; Wrap the dispatch hook so any dispatch the spawn fx attempts is
-      ;; captured (and NOT actually routed — a [nil <start>] dispatch would
-      ;; otherwise blow up downstream).
-      (rf.late-bind/set-fn! :router/dispatch!
-                         (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-      (try
-        (let [ret (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame ghost-frame}
-                                  {:machine-id :rf2-g13nm2/ghost-child
-                                   :start      [:go]})]
-          (is (nil? ret)
-              "spawn-fx returns nil for a dead-frame spawn (no id allocated)")
-          (is (empty? @spawned-traces)
-              "no :rf.machine.spawn/spawned trace fired for the dead-frame spawn")
-          (is (empty? @dispatches)
-              "no :start dispatch fired for an actor that was never installed")
-          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value ghost-frame))
-                            [:rf.runtime/machines :snapshots]))
-              "no snapshot was installed into the dead frame"))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::ghost-spawn)
-          (when orig-dispatch!
-            (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))))
+  (rf/reg-machine :rf2-g13nm2/ghost-child
+    {:initial :running
+     :data    {}
+     :states  {:running {:on {:go :done}}
+               :done    {:final? true}}})
+  (let [dispatches     (atom [])
+        ghost-frame    :rf2-g13nm2/never-created-frame
+        orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
+    ;; Capture instead of route: a `[nil <start>]` dispatch would blow up downstream.
+    (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
+    (try
+      (let [ret (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame ghost-frame}
+                                                         {:machine-id :rf2-g13nm2/ghost-child
+                                                          :start      [:go]})]
+        (is (= [nil [] [] nil]
+               [ret
+                (rf.machines.test-support/events-of :rf.machine.spawn/spawned)
+                @dispatches
+                (get-in (:rf.db/runtime (rf/frame-state-value ghost-frame))
+                        [:rf.runtime/machines :snapshots])])))
+      (finally
+        (when orig-dispatch!
+          (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
