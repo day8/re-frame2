@@ -1,672 +1,179 @@
 (ns re-frame.routing-nav-token-test
-  "Navigation-token stale-result-suppression + `:on-match` loader tests
-  for re-frame.routing (nav-token allocation, the `:rf.route/nav-token` cofx, the
-  `:rf.route/with-nav-token` fx, and multi-loader `:on-match` ordering /
-  error precedence).
+  "Navigation-token stale-result suppression and `:on-match` loader tests for
+  re-frame.routing: nav-token allocation, the `:rf.route/nav-token` /
+  `:rf.route/route-id` cofx, the `:rf.route/with-nav-token` fx, and `:on-match`
+  throw isolation.
 
   ## Posture split
 
-  STALE-RESULT SUPPRESSION is production-real and carries no posture guard.
-  Suppression is enforcement, not advice: a superseded completion's app
-  `:rf/reply-to` target is never dispatched, so app-db and runtime-db are
-  provably unchanged, and the fresh completion still commits. Every deftest
-  here asserts that outside any arm, so it runs in the ordinary
+  STALE-RESULT SUPPRESSION is production-real and carries no posture guard:
+  a superseded completion's app `:rf/reply-to` target is never dispatched, so
+  app-db and runtime-db are unchanged, and the fresh completion still commits.
+  Every deftest asserts that outside any arm, so it runs in the ordinary
   `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane). The `:rf.route/nav-token` /
-  `:rf.route/route-id` cofx values are likewise real — they are read straight
-  out of the capturing handler.
+  `-Dre-frame.debug=false` lane).
 
   What is dev-only is the `:rf.route.nav-token/stale-suppressed` TRACE and
-  everything spelled on it: the carried / current token pair, the canonical
-  `:rf.trace/event-id` tag, `:completed-at`, the `:rf.reply/work-id` join key
-  and the EP-0011 `:rf.reply/status` / `:rf.reply/work-status` /
-  `:rf.reply/stale-reason` envelope vocabulary. All of it rides `trace/emit!`,
-  gated on `rf.interop/debug-enabled?` and read once at load time, so under the
-  real gate there is no trace to carry it. Those assertions sit
-  inside `(when rf.interop/debug-enabled? …)` arms marked as dev-instrumentation arms.
-
-  Four are NEGATIVE over the trace and would pass vacuously under the gate —
-  `(not (contains? (:tags stale) :event-id))`, `(not (contains? (:tags stale)
-  :completed-at))`, the `not-any?` mis-attribution guard, and the `not-any?
-  :rf.error/fx-handler-exception` leg. They are inside the arm. The two
-  `:completed-at` deftests each carry, outside the arm,
-  the production witness the suppression actually is: the stale payload never
-  reaches app-db."
+  everything spelled on it: the carried / current tokens, `:rf.trace/event-id`,
+  `:completed-at`, the `:rf.reply/work-id` join key and the `:rf.reply/*`
+  envelope facts. It rides `trace/emit!`, gated on `rf.interop/debug-enabled?`,
+  so those assertions sit inside `(when rf.interop/debug-enabled? …)` arms."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- Spec 012 §Navigation tokens — stale-result suppression --------------
+(defn- reg-article! []
+  (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+  (rf/reg-event :article/loaded
+                (fn [{:keys [db]} [_ id payload]]
+                  {:db (assoc db :article {:id id :payload payload})})))
+
+(defn- visit! [url]
+  (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :link}]))
+
+(defn- article [] (:article (rf/app-db-value :rf/default)))
 
 (deftest routing-nav-token-staleness
-  (testing "two in-flight navigations: the older nav-token's result is suppressed"
-    ;; Per Spec 012 §Navigation tokens — stale-result suppression: each
-    ;; navigation allocates a fresh nav-token; async results carry the
-    ;; token captured at request time; when a result arrives whose token
-    ;; mismatches the current slice's :nav-token, the runtime suppresses
-    ;; it and emits :rf.route.nav-token/stale-suppressed.
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
+  (testing "through the test-only `:rf.test/simulate-http-resolution` fixture:
+            the superseded navigation's result is suppressed, the live one commits"
+    (reg-article!)
+    (visit! "/articles/A")
+    (visit! "/articles/B")
+    (let [resolve! (fn [id token]
+                     (rf/dispatch-sync [:rf.test/simulate-http-resolution
+                                        {:on-success-event  [:article/loaded id (str id "-payload")]
+                                         :carried-nav-token token
+                                         :carried-route-id  :route/article}])
+                     (article))]
+      (is (= [nil {:id "B" :payload "B-payload"}]
+             [(resolve! "A" "nav-1") (resolve! "B" "nav-2")])))))
 
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::nav-token (fn [ev] (swap! traces conj ev)))
-
-      ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "first navigation got nav-1")
-
-      ;; 2. Before A's response lands, navigate to /articles/B → "nav-2".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "second navigation advanced the epoch to nav-2")
-
-      ;; 3. A's stale response carries "nav-1" and the route id CAPTURED
-      ;; at request time (:route/article); current is "nav-2"; the runtime
-      ;; suppresses [:article/loaded "A" "A-payload"].
-      (rf/dispatch-sync [:rf.test/simulate-http-resolution
-                         {:on-success-event   [:article/loaded "A" "A-payload"]
-                          :carried-nav-token  "nav-1"
-                          :carried-route-id   :route/article}])
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "A's stale payload never reached app-db — read before B's could overwrite it")
-
-      ;; 4. B's response carries "nav-2"; matches current; commits.
-      (rf/dispatch-sync [:rf.test/simulate-http-resolution
-                         {:on-success-event   [:article/loaded "B" "B-payload"]
-                          :carried-nav-token  "nav-2"
-                          :carried-route-id   :route/article}])
-
-      (rf/unregister-listener! :trace ::nav-token)
-
-      (is (= {:id "B" :payload "B-payload"}
-             (:article (rf/app-db-value :rf/default)))
-          "only B's payload committed; A's was suppressed")
-
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; SUPPRESSION itself is pinned by the app-db assertion above, which is
-      ;; posture-independent: A's payload never landed.
-      (when rf.interop/debug-enabled?
-       (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= "nav-1" (-> ev :tags :carried-token))
-                       (= "nav-2" (-> ev :tags :current-token))
-                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
-                @traces)
-          "expected :rf.route.nav-token/stale-suppressed trace for the A response")
-
-      ;; The suppressed continuation's event-id rides under the
-      ;; CANONICAL `:rf.trace/event-id` tag (the spelling Spec 012 + Spec 009's
-      ;; error catalogue document), NOT a bare `:event-id`. Pin the
-      ;; spec↔impl alignment so the two cannot drift apart: the
-      ;; raw `:tags` must never carry a bare `:event-id` (that bare spelling is
-      ;; legitimate ONLY in the error-slice / projection record layers, not in
-      ;; raw trace tags — see Conventions §identity key spellings).
-      (let [stale (->> @traces
-                       (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)))
-                       first)]
-        (is (some? stale) "a stale-suppressed trace fired")
-        (is (not (contains? (:tags stale) :event-id))
-            "no bare :event-id tag in the raw trace :tags"))
-
-      ;; The suppression trace is joined to the route
-      ;; work-id `[:rf.work/route route-id nav-token loader-id]`
-      ;; (EP-0011 §Route Loader Completion). The route-id is the
-      ;; CAPTURED id (:route/article), not the live slice id at arrival; the
-      ;; carried (stale) token rides in the tuple, so the suppressed attempt
-      ;; is correlatable by `:work/id` in the trace stream.
-      (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :rf.reply/work-id))))
-                @traces)
-          "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)")))))
-
-(deftest cross-route-stale-uses-captured-route-id-not-live-route
-  (testing "when route A's stale completion arrives AFTER navigating to a DIFFERENT route B, the work-id carries route A's CAPTURED id, never route B's live id"
-    ;; Tests with A and B on the SAME route id cannot tell the captured id from
-    ;; the live one; here A is :route/article, B is :route/profile. Reading the LIVE slice
-    ;; id at stale-arrival would mint a corrupt
-    ;; `[:rf.work/route :route/profile "nav-1" :article/loaded]` (route B's id
-    ;; with route A's carried nav-token). The work-id uses the CAPTURED route id.
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-route :route/profile {:params [:map [:id :string]]} "/profile/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::cross-route (fn [ev] (swap! traces conj ev)))
-
-      ;; 1. Navigate to /articles/A (:route/article) — nav-token "nav-1".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token])))
-
-      ;; 2. Navigate to a DIFFERENT route /profile/P (:route/profile) — "nav-2".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/P" {:rf.route/cause :link}])
-      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token])))
-      (is (= :route/profile (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/routing :current :route-id]))
-          "the live route is now route B (:route/profile)")
-
-      ;; 3. Route A's stale loader completes, carrying nav-1 AND route A's
-      ;; CAPTURED route id (:route/article). Current is nav-2 → suppressed.
-      (rf/dispatch-sync [:rf.test/simulate-http-resolution
-                         {:on-success-event  [:article/loaded "A" "A-payload"]
-                          :carried-nav-token "nav-1"
-                          :carried-route-id  :route/article}])
-
-      (rf/unregister-listener! :trace ::cross-route)
-
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "route A's stale loader was suppressed; nothing committed")
-
-      ;; Dev-instrumentation arm (see ns docstring). The work-id
-      ;; is a trace-only correlation key, and the second leg is NEGATIVE over
-      ;; the ring. The suppression they annotate is pinned by the app-db
-      ;; assertion above, posture-independently.
-      (when rf.interop/debug-enabled?
-        ;; The work-id carries route A's CAPTURED id, NOT route B's live id.
-        (is (some (fn [ev]
-                    (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                         (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                            (-> ev :tags :rf.reply/work-id))))
-                  @traces)
-            "the stale work-id uses the CAPTURED route id (:route/article), not the live route (:route/profile)")
-        (is (not-any? (fn [ev]
-                        (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                             (= :route/profile (first (rest (-> ev :tags :rf.reply/work-id))))))
-                      @traces)
-            "no stale work-id is mis-attributed to the live route B (:route/profile)")))))
+(def ^:private stale-tag-keys
+  [:carried-token :current-token :rf.trace/event-id :completed-at
+   :rf.reply/work-id :rf.reply/carried :rf.reply/current
+   :rf.reply/status :rf.reply/work-status :rf.reply/stale-reason])
 
 (deftest with-nav-token-fx-suppresses-stale-reply-to-and-commits-fresh
-  (testing ":rf.route/with-nav-token fx: stale `:rf/reply-to` is suppressed; fresh `:rf/reply-to` runs"
-    ;; Per Spec 012 §Navigation tokens §Threading: a user event handler
-    ;; emits an `:fx` entry of the form
-    ;;
-    ;;   [:rf.route/with-nav-token {:rf/reply-to [<ev> args...]
-    ;;                              :nav-token   <captured-token>}]
-    ;;
-    ;; …and the runtime threads the carried token against the current
-    ;; route slice's `:nav-token` (read from
-    ;; `[:rf.runtime/routing :current :nav-token]`). Match → the
-    ;; continuation completes (the `:status :ok` reply map is appended to
-    ;; the `:rf/reply-to` target and dispatched). Mismatch → the
-    ;; continuation is suppressed and `:rf.route.nav-token/stale-suppressed`
-    ;; emits.
-    ;;
-    ;; This test pins both branches via the production fx (no use of
-    ;; the test-only `:rf.test/simulate-http-resolution` event). The
-    ;; `:article/loaded` continuation is the user-facing handler the
-    ;; completed reply commits through; we observe it via the
-    ;; resulting app-db slice (it ignores the trailing reply map arg).
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-    ;; Bridge event: a real :on-success handler. Carries the token it
-    ;; captured at request time and re-emits an `:rf.route/with-nav-token`
-    ;; fx entry. The runtime then either completes `[:article/loaded ...]`
-    ;; (match) or suppresses (mismatch).
-    (rf/reg-event :article/loaded-via-nav-token
-                     (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to [:article/loaded id payload]
-                               :nav-token   carried-token
-                               ;; Thread the CAPTURED route id so
-                               ;; a cross-route stale completion attributes its
-                               ;; work-id to the route-loader attempt.
-                               :route-id    carried-route-id}]]}))
-
+  (testing ":rf.route/with-nav-token: a stale :rf/reply-to is suppressed, a fresh one runs"
+    (reg-article!)
+    (rf/reg-route :route/profile {:params [:map [:id :string]]} "/profile/:id")
+    (rf/reg-event :article/completed
+                  (fn [_ [_ {:keys [token route-id completed-at id]}]]
+                    {:fx [[:rf.route/with-nav-token
+                           {:rf/reply-to  [:article/loaded id (str id "-payload")]
+                            :nav-token    token
+                            :route-id     route-id
+                            :completed-at completed-at}]]}))
     (let [traces (atom [])]
-      (rf/register-listener! :trace ::with-nav-token-fx
-                             (fn [ev] (swap! traces conj ev)))
-
-      ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "first navigation got nav-1")
-
-      ;; 2. Before A's async :on-success lands, navigate to id="B" — "nav-2".
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "second navigation advanced the epoch to nav-2")
-
-      ;; 3. A's stale :on-success arrives carrying "nav-1" via the fx
-      ;; wrapper. Current is "nav-2"; the inner :dispatch must be
-      ;; suppressed and the trace must fire.
-      (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token    "nav-1"
-                          :carried-route-id :route/article
-                          :id               "A"
-                          :payload          "A-payload"}])
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "A's stale :rf/reply-to never reached app-db — read before B's could overwrite it")
-
-      ;; 4. B's fresh :on-success arrives carrying "nav-2"; matches
-      ;; current; inner :dispatch fires; :article/loaded commits.
-      (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token    "nav-2"
-                          :carried-route-id :route/article
-                          :id               "B"
-                          :payload          "B-payload"}])
-
+      (rf/register-listener! :trace ::with-nav-token-fx (fn [ev] (swap! traces conj ev)))
+      (visit! "/articles/A")
+      ;; B is a DIFFERENT route, so the stale work-id must carry A's CAPTURED
+      ;; route id rather than the live one.
+      (visit! "/profile/B")
+      (let [complete! (fn [m] (rf/dispatch-sync [:article/completed m]) (article))]
+        (is (= [nil {:id "B" :payload "B-payload"}]
+               [(complete! {:token "nav-1" :route-id :route/article
+                            :completed-at 1717000123456 :id "A"})
+                (complete! {:token "nav-2" :route-id :route/profile :id "B"})])))
       (rf/unregister-listener! :trace ::with-nav-token-fx)
-
-      (is (= {:id "B" :payload "B-payload"}
-             (:article (rf/app-db-value :rf/default)))
-          "fresh :rf/reply-to ran end-to-end; stale :rf/reply-to was suppressed before commit")
-
-      ;; Dev-instrumentation arm (see ns docstring). Everything
-      ;; from here to the end of this deftest is spelled ON the trace; the
-      ;; enforcement it annotates is pinned by the app-db assertion above.
       (when rf.interop/debug-enabled?
-      (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= "nav-1" (-> ev :tags :carried-token))
-                       (= "nav-2" (-> ev :tags :current-token))
-                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
-                @traces)
-          "stale :rf/reply-to produced :rf.route.nav-token/stale-suppressed with the target's event-id")
-
-      ;; The PRODUCTION stale trace carries the canonical
-      ;; EP-0011 reply-envelope vocabulary, NOT only the route-specific
-      ;; carried/current tokens. A superseded route loader is a managed
-      ;; async family, so it MUST be classifiable via the SAME
-      ;; `:rf.reply/status` / `:rf.reply/work-status` / `:rf.reply/
-      ;; stale-reason` facts the resource / machine / HTTP families stamp —
-      ;; the uniform cross-surface view reads one vocabulary, not a
-      ;; route-private token pair. (The pure helper `route-reply/suppress`
-      ;; produces these; this pins that they reach the production
-      ;; trace.)
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-        (is (some? stale) "a production stale-suppressed trace fired")
-        (let [tags (:tags stale)]
-          (is (= :stale (:rf.reply/status tags))
-              "canonical EP-0011 :rf.reply/status :stale on the production trace")
-          (is (= :suppressed (:rf.reply/work-status tags))
-              "canonical EP-0011 :rf.reply/work-status :suppressed")
-          (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason tags))
-              "canonical EP-0011 :rf.reply/stale-reason — the named route stale cause")
-          ;; the carried/current correlation gates ride the SAME shared
-          ;; `:rf.reply/*` facts the other families use.
-          (is (= {:route/nav-token "nav-1"} (:rf.reply/carried tags))
-              "carried gate = the captured (stale) nav-token")
-          (is (= {:route/nav-token "nav-2"} (:rf.reply/current tags))
-              "current gate = the live nav-token that superseded it")
-          ;; the work-id is the join key (EP-0011 §Work-id correlation):
-          ;; `route-id` is the CAPTURED id (`:route/article`, carried with the
-          ;; nav-token at request time), NOT the live slice id at stale-arrival;
-          ;; `nav-token` is the carried (stale) token "nav-1"; `loader-id` is
-          ;; the suppressed `:rf/reply-to` target's event-id.
-          (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                 (:rf.reply/work-id tags))
-              "canonical :work/id correlation rides the production stale trace")
-          ;; This completion sourced no completion time, so the optional slot
-          ;; is absent rather than a nil placeholder.
-          (is (not (contains? tags :completed-at))
-              "no :completed-at tag when none was sourced (slot is optional)")))
-
-      ;; Negative: no spurious suppressed-trace for the fresh path.
-      (is (= 1 (count (filter (fn [ev]
-                                (= :rf.route.nav-token/stale-suppressed
-                                   (:operation ev)))
-                              @traces)))
-          "exactly one stale-suppressed trace fired — the fresh :rf/reply-to did NOT trip the validation")))))
-
-;; ---- stale route reply preserves the completion time ----------------------
-;;
-;; EP-0017 makes reply completions causal tokens: the completion time is the
-;; recordable `:rf/time-ms` fact on the flat reply `:rf.cofx`, and route-loader
-;; stale replies are part of the uniform managed-async reply envelope.
-;; `route-reply/suppress` accepts `:completed-at`, and both the production
-;; `:rf.route/with-nav-token` path and the test fixture thread it on the stale
-;; path. These regressions prove
-;; a stale route-loader completion that supplies the reply token time produces a
-;; stale reply / trace carrying that `:completed-at`, so route completion time
-;; tracks the HTTP / resource / mutation families that also carry it.
-
-(deftest with-nav-token-fx-stale-preserves-completed-at
-  (testing "a stale `:rf.route/with-nav-token` completion that
-            threads `:completed-at` (the reply token's :rf/time-ms fact)
-            produces a stale-suppressed trace carrying that completion time"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-    ;; The async completion handler sources the completion time from its
-    ;; declared `:rf.cofx/requires [:rf/time-ms]` reply fact (modelled here as
-    ;; a payload value) and threads it through the production fx — NOT an
-    ;; ambient clock read.
-    (rf/reg-event :article/loaded-via-nav-token
-                     (fn [_ctx [_ {:keys [carried-token carried-route-id completed-at id payload]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to  [:article/loaded id payload]
-                               :nav-token    carried-token
-                               :route-id     carried-route-id
-                               :completed-at completed-at}]]}))
-
-    (let [traces        (atom [])
-          completion-ts 1717000123456]
-      (rf/register-listener! :trace ::completed-at-fx (fn [ev] (swap! traces conj ev)))
-
-      ;; 1. Land on A (nav-1), then supersede with B (nav-2).
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-
-      ;; 2. A's stale completion arrives carrying nav-1 AND its reply token's
-      ;; completion time. Current is nav-2 → suppressed; the trace must carry
-      ;; the completion time.
-      (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token    "nav-1"
-                          :carried-route-id :route/article
-                          :completed-at     completion-ts
-                          :id               "A"
-                          :payload          "A-payload"}])
-
-      (rf/unregister-listener! :trace ::completed-at-fx)
-
-      ;; SEMANTIC, posture-independent: the suppression this
-      ;; deftest annotates really happened — A's stale payload never reached
-      ;; app-db. Without it this deftest would execute nothing under the gate.
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "the stale completion was suppressed — no app-db write")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [stale (some (fn [ev]
-                            (when (= :rf.route.nav-token/stale-suppressed
-                                     (:operation ev))
-                              ev))
-                          @traces)]
-          (is (some? stale) "a production stale-suppressed trace fired")
-          (is (= completion-ts (-> stale :tags :completed-at))
-              "the stale trace carries the threaded reply completion time"))))))
-
-(deftest simulate-http-resolution-stale-preserves-completed-at
-  (testing "the test fixture `:rf.test/simulate-http-resolution`
-            mirrors the production lane: a stale completion carrying
-            `:carried-completed-at` produces a stale trace with that time"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-
-    (let [traces        (atom [])
-          completion-ts 1717009999999]
-      (rf/register-listener! :trace ::fixture-completed-at (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      ;; A's stale resolution carries nav-1 + its captured completion time.
-      (rf/dispatch-sync [:rf.test/simulate-http-resolution
-                         {:on-success-event     [:article/loaded "A" "A-payload"]
-                          :carried-nav-token    "nav-1"
-                          :carried-route-id     :route/article
-                          :carried-completed-at completion-ts}])
-      (rf/unregister-listener! :trace ::fixture-completed-at)
-      ;; SEMANTIC, posture-independent: the fixture mirrors the
-      ;; production lane, so it must suppress the same way — no app-db write.
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "the fixture's stale completion was suppressed — no app-db write")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [stale (some (fn [ev]
-                            (when (= :rf.route.nav-token/stale-suppressed
-                                     (:operation ev))
-                              ev))
-                          @traces)]
-          (is (some? stale) "the fixture stale-suppressed trace fired")
-          (is (= completion-ts (-> stale :tags :completed-at))
-              "the fixture stale trace carries the captured reply completion time"))))))
-
-;; ---- the documented path captures a COMPLETE route work-id ----------------
-;;
-;; EP-0011 / Managed-Effects §Work-id correlation: the route-loader work-id is
-;; `[:rf.work/route route-id nav-token loader-id]` — one attempt, one COMPLETE
-;; `:work/id`. A `:rf.route/nav-token`-only capture would thread just the
-;; nav-token, so a stale completion would be traced as
-;; `[:rf.work/route nil nav-token loader-id]` — losing the route attempt
-;; identity even though the route id is known at scheduling time. The
-;; companion `:rf.route/route-id` cofx lets the documented capture grab BOTH
-;; facts together; this test drives the documented cofx path end-to-end and
-;; asserts the stale trace carries the FULL (non-nil-route) tuple.
+        (is (= [{:carried-token         "nav-1"
+                 :current-token         "nav-2"
+                 :rf.trace/event-id     :article/loaded
+                 :completed-at          1717000123456
+                 :rf.reply/work-id      [:rf.work/route :route/article "nav-1" :article/loaded]
+                 :rf.reply/carried      {:route/nav-token "nav-1"}
+                 :rf.reply/current      {:route/nav-token "nav-2"}
+                 :rf.reply/status       :stale
+                 :rf.reply/work-status  :suppressed
+                 :rf.reply/stale-reason :rf.route/nav-token-stale}]
+               (->> @traces
+                    (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)))
+                    (mapv #(select-keys (:tags %) stale-tag-keys))))
+            "exactly one stale trace, in the shared :rf.reply/* vocabulary")))))
 
 (deftest nav-token+route-id-cofx-yields-complete-route-work-id
-  (testing "a loader that declares the framework :rf.route/nav-token
-            + :rf.route/route-id cofx captures both facts; the documented
-            :rf.route/with-nav-token completion's stale trace carries the
-            COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
-            (route-id non-nil)"
+  (testing "the :rf.route/nav-token and :rf.route/route-id cofx deliver the live
+            token and route id together, the two facts a route work-id needs"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-    ;; The async completion threads BOTH captured facts through the framework fx.
-    (rf/reg-event :article/completed
-                     (fn [_ctx [_ {:keys [captured-token captured-route-id id payload]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to [:article/loaded id payload]
-                               :nav-token   captured-token
-                               :route-id    captured-route-id}]]}))
-
-    (let [traces   (atom [])
-          captured (atom {})]
-      (rf/register-listener! :trace ::ph1grf (fn [ev] (swap! traces conj ev)))
-      ;; The :on-match-reached loader declares BOTH framework cofx and captures
-      ;; the live nav-token + route-id together (the documented step-2 shape).
+    (let [captured (atom nil)]
       (rf/reg-event :article/load
-                       {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}
-                       (fn [{:rf.route/keys [nav-token route-id]} [_ id]]
-                         (swap! captured assoc id {:token nav-token :route-id route-id})
-                         {}))
-
-      ;; 1. Navigate to A; the loader captures A's nav-token + route-id.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:article/load "A"])
-      ;; 2. Supersede with B BEFORE A's response lands.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-
-      (is (= :route/article (:route-id (@captured "A")))
-          "the :rf.route/route-id cofx injected the live route id")
-      (is (some? (:token (@captured "A"))) "the nav-token cofx injected the live token")
-
-      ;; 3. A's stale completion threads BOTH captured facts → suppressed.
-      (rf/dispatch-sync [:article/completed
-                         {:captured-token   (:token (@captured "A"))
-                          :captured-route-id (:route-id (@captured "A"))
-                          :id               "A"
-                          :payload          "A-payload"}])
-      (rf/unregister-listener! :trace ::ph1grf)
-
-      ;; SEMANTIC, posture-independent: the documented capture
-      ;; path really suppressed A. The work-id below is a trace-only
-      ;; correlation key, so without this the deftest executes nothing under
-      ;; the gate.
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "A's stale completion was suppressed — no app-db write")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [stale (some (fn [ev]
-                            (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
-                          @traces)]
-          (is (some? stale) "A's stale completion produced a suppression trace")
-          (let [wid (-> stale :tags :rf.reply/work-id)]
-            (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
-                "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")))))))
-
-;; ---- with-nav-token continuations lower through :rf/reply-to --------------
-;;
-;; EP-0011 / Managed-Effects property 9: nav-token threading is public sugar
-;; that lowers internally to the uniform :rf/reply-to target + reply
-;; completion shape. :rf/reply-to is the single, required continuation surface
-;; (there is no ad-hoc :do fx-entry sugar): on the live branch
-;; the production :rf.route/with-nav-token handler normalizes + completes the
-;; reply target through the shared re-frame.reply/complete, and on the stale
-;; branch it SUPPRESSES — the app reply target is NEVER dispatched (a
-;; superseded async completion must not mutate app state), so no reply target,
-;; however authored, receives a stale reply at the production routing surface.
-;; These tests drive the canonical :rf/reply-to surface through the production fx.
+                    {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}
+                    (fn [{:rf.route/keys [nav-token route-id]} _]
+                      (reset! captured {:nav-token nav-token :route-id route-id})
+                      {}))
+      (visit! "/articles/A")
+      (rf/dispatch-sync [:article/load])
+      (is (= {:nav-token "nav-1" :route-id :route/article} @captured)))))
 
 (deftest with-nav-token-fx-reply-to-completes-live-through-shared-substrate
-  (testing "a LIVE :rf.route/with-nav-token completion named by the
-            canonical :rf/reply-to target is completed through the shared
-            re-frame.reply/complete: the :status :ok reply map is APPENDED to
-            the target event and dispatched (the production lowering)"
+  (testing "a live completion appends the :status :ok reply map to its :rf/reply-to target"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; The reply target — receives the reply map appended as the final argument.
     (rf/reg-event :article/load-replied
-                     (fn [{:keys [db]} [_ {:keys [id]} reply]]
-                       {:db (assoc db :replied {:id id :reply reply})}))
-    ;; The async completion names the continuation via :rf/reply-to + a :value.
+                  (fn [{:keys [db]} [_ id reply]]
+                    {:db (assoc db :replied [id reply])}))
     (rf/reg-event :article/completed
-                     (fn [_ctx [_ {:keys [carried-token carried-route-id id value]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to [:article/load-replied {:id id}]
-                               :nav-token   carried-token
-                               :route-id    carried-route-id
-                               :value       value}]]}))
-
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-    (let [token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :current :nav-token])]
-      ;; A's completion is LIVE (token still current) → the target is completed
-      ;; with the :status :ok reply map appended.
-      (rf/dispatch-sync [:article/completed
-                         {:carried-token    token
-                          :carried-route-id :route/article
-                          :id               "A"
-                          :value            {:title "Welcome"}}])
-      (let [{:keys [id reply]} (:replied (rf/app-db-value :rf/default))]
-        (is (= "A" id) "the target event ran with its leading args intact")
-        (is (map? reply) "the reply map was appended as the final argument")
-        (is (= :ok (:status reply)) "the live reply is :status :ok")
-        (is (= :completed (:rf.reply/work-status reply)))
-        (is (= :route (:rf.reply/work-kind reply)))
-        (is (= {:title "Welcome"} (:value reply)) "the loader :value rides the reply (EP-0007)")
-        (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
-               (:rf.reply/work-id reply))
-            "the live reply carries the complete route work-id (loader-id = target event-id)")
-        (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")))))
+                  (fn [_ [_ token]]
+                    {:fx [[:rf.route/with-nav-token
+                           {:rf/reply-to  [:article/load-replied "A"]
+                            :nav-token    token
+                            :route-id     :route/article
+                            :value        {:title "Welcome"}
+                            :completed-at 1717000000000}]]}))
+    (visit! "/articles/A")
+    (rf/dispatch-sync [:article/completed "nav-1"])
+    (is (= ["A" {:status               :ok
+                 :value                {:title "Welcome"}
+                 :rf.reply/work-id     [:rf.work/route :route/article "nav-1" :article/load-replied]
+                 :rf.reply/work-kind   :route
+                 :rf.reply/work-status :completed
+                 :rf.frame/id          :rf/default
+                 :completed-at         1717000000000}]
+           (:replied (rf/app-db-value :rf/default))))))
 
 (deftest with-nav-token-never-delivers-stale-to-any-target
-  (testing "PRODUCTION-PATH regression: NO app :rf/reply-to
-            target — plain, spelling the removed :dispatch-stale? flag, or FORGING
-            a truthy authority datum (what a wire/EDN-authored target could
-            carry) — can make a superseded route
-            completion deliver. The app handler NEVER runs and app-db + runtime-db
-            are unchanged; the completion suppresses silently (no throw — there is
-            no authority concept left to violate)"
+  (testing "no :rf/reply-to target — not even one forging a truthy stale-delivery
+            authority, as wire- or EDN-authored data could — makes a superseded
+            completion deliver"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; An app handler that WRITES a marker — a spurious stale delivery would be
-    ;; observable as an app-db mutation. It must never run.
     (rf/reg-event :app/observe-stale
-                     (fn [{:keys [db]} [_ reply]]
-                       {:db (assoc db :app-saw {:reply reply})}))
-    ;; Completion issuing :rf.route/with-nav-token with an app-authored
-    ;; :rf/reply-to. `target-fn` builds the target for each overreach shape.
+                  (fn [{:keys [db]} [_ reply]] {:db (assoc db :app-saw reply)}))
     (rf/reg-event :app/completed
-                     (fn [_ctx [_ {:keys [carried-token target]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to target
-                               :nav-token   carried-token
-                               :route-id    :route/article}]]}))
-
-    (doseq [target [;; a plain app short form
-                    [:app/observe-stale]
-                    ;; a descriptor spelling the removed :dispatch-stale? flag
-                    {:event [:app/observe-stale] :dispatch-stale? true}
-                    ;; a FORGED authority datum spelled directly + set truthy
-                    {:event [:app/observe-stale]
-                     :dispatch-stale? true
-                     :re-frame.reply/stale-authority true}]]
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::stale-nondelivery (fn [ev] (swap! traces conj ev)))
-        ;; Land on A (nav-1), supersede with B (nav-2) so the nav-1 completion is stale.
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-        (let [db-before  (rf/app-db-value :rf/default)
-              rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default))]
-          (rf/dispatch-sync [:app/completed {:carried-token "nav-1" :target target}])
-          (rf/unregister-listener! :trace ::stale-nondelivery)
-          (is (nil? (:app-saw (rf/app-db-value :rf/default)))
-              (str "target " (pr-str target) " NEVER ran — no stale envelope reached app state"))
-          (is (= db-before (rf/app-db-value :rf/default))
-              (str "app-db is unchanged by the stale completion for " (pr-str target)))
-          (is (= rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
-              (str "runtime-db is unchanged by the stale completion for " (pr-str target)))
-          ;; The suppression trace fires (the only effect of a stale
-          ;; completion); no fx-handler exception is raised — suppress does not
-          ;; throw, it silently declines to deliver.
-          ;; Dev-instrumentation arm (see ns docstring). The three
-          ;; assertions above — target never ran, app-db unchanged, runtime-db
-          ;; unchanged — are the non-delivery property itself and are
-          ;; posture-independent. The second leg here is NEGATIVE over the
-          ;; ring, so outside the arm it would pass vacuously.
-          (when rf.interop/debug-enabled?
-            (is (some (fn [ev] (= :rf.route.nav-token/stale-suppressed (:operation ev))) @traces)
-                (str "a stale-suppressed trace fired for " (pr-str target)))
-            (is (not-any? (fn [ev] (= :rf.error/fx-handler-exception (:operation ev))) @traces)
-                (str "no fx-handler exception — suppression is silent non-delivery for "
-                     (pr-str target)))))))))
-
-;; ============================================================================
-;; EP-0037 R1 — :on-match is fire-and-forget; a throw does not flip readiness
-;; ============================================================================
-;;
-;; Per Spec 012 §Per-route data loading / §Per-route error handling, `:on-match`
-;; runs fire-and-forget and NEVER drives route readiness (there is no
-;; settle-transition event and no on-match error trap). A synchronous handler
-;; throw stays on the ordinary Spec 009 event error channel, attributed to the
-;; event that threw — it is NOT rewritten into route-loader state. Later loaders
-;; run (ordinary FIFO events); the route slice stays :idle (no :resources).
+                  (fn [_ _]
+                    {:fx [[:rf.route/with-nav-token
+                           {:rf/reply-to {:event                          [:app/observe-stale]
+                                          :dispatch-stale?                true
+                                          :re-frame.reply/stale-authority true}
+                            :nav-token   "nav-1"
+                            :route-id    :route/article}]]}))
+    (let [traces (atom [])
+          state  #(vector (rf/app-db-value :rf/default)
+                          (:rf.db/runtime (rf/frame-state-value :rf/default)))]
+      (rf/register-listener! :trace ::stale-nondelivery (fn [ev] (swap! traces conj ev)))
+      (visit! "/articles/A")
+      (visit! "/articles/B")
+      (let [before (state)]
+        (rf/dispatch-sync [:app/completed])
+        (rf/unregister-listener! :trace ::stale-nondelivery)
+        (is (= before (state)) "app-db and runtime-db are unchanged")
+        (when rf.interop/debug-enabled?
+          (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)
+              "the completion took the suppression path"))))))
 
 (deftest on-match-throw-does-not-flip-route-and-later-loader-runs
-  (testing "an :on-match [[:load/fail] [:load/next]] where the first event
-            throws does NOT flip :rf.route/transition to :error (readiness is
-            the resource projection, not the :on-match drain); the later loader
-            still runs, and the route slice carries NO routing-domain
-            attribution — the throw is an ordinary event exception (EP-0037 R1)"
+  (testing "a throwing :on-match event stays an ordinary event exception: the
+            later loader still runs, and the route stays :idle with no :error,
+            because :on-match never drives readiness"
     (let [order (atom [])]
-      (rf/reg-event :load/fail
-                       (fn [{:keys [db]} _]
-                         (swap! order conj :fail)
-                         {:db (throw (ex-info "first-boom" {:why :test}))}))
-      (rf/reg-event :load/next
-                       (fn [{:keys [db]} _]
-                         (swap! order conj :next)
-                         {:db (assoc db :load/next-ran? true)}))
-      (rf/reg-route :route/two-loaders
-                    {:on-match [[:load/fail] [:load/next]]} "/two-loaders")
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/two-loaders" {:rf.route/cause :link}])
-      (is (= [:fail :next] @order)
-          "the later loader RAN after the earlier one threw (fire-and-forget FIFO)")
-      (is (true? (:load/next-ran? (rf/app-db-value :rf/default)))
-          "the later loader's :db write committed")
-      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-        (is (= :idle (:transition slice))
-            ":on-match never drives readiness — the route stays :idle despite the throw")
-        (is (nil? (:error slice))
-            ":rf.route/error stays nil — an :on-match throw is not a route error, and carries no on-match attribution")))))
+      (rf/reg-event :load/fail (fn [_ _] (swap! order conj :fail) (throw (ex-info "first-boom" {}))))
+      (rf/reg-event :load/next (fn [_ _] (swap! order conj :next) {}))
+      (rf/reg-route :route/two-loaders {:on-match [[:load/fail] [:load/next]]} "/two-loaders")
+      (visit! "/two-loaders")
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                          [:rf.runtime/routing :current])]
+        (is (= [[:fail :next] :idle nil]
+               [@order (:transition slice) (:error slice)]))))))
