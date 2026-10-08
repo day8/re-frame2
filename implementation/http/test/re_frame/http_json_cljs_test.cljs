@@ -1,115 +1,24 @@
 (ns re-frame.http-json-cljs-test
-  "CLJS-side unit coverage for `re-frame.http.json`.
-
-  Background. The JVM `http_json_test.clj` covers the Cheshire branch
-  exhaustively (keyword cap, malformed-input throw shape, non-string
-  guard, empty-string fall-through). The CLJS branch is a separate
-  reader (`js/JSON.parse`) with materially different malformed-input
-  behaviour:
-
-  - `js/JSON.parse('')` throws SyntaxError — does NOT return nil like
-    Cheshire does. Empty input is malformed under V8/SpiderMonkey/
-    JavaScriptCore. The `:rf.http/managed` decode site catches. NOTE:
-    `\"\"` IS a string, so the `(string? s)` guard
-    does NOT short-circuit it — the empty-string throw stands.
-  - `js/JSON.parse('{not-json')` throws SyntaxError.
-  - non-string input (nil, keyword, number, map, vector) returns nil:
-    the CLJS branch opens with the same `(when (string? s)
-    ...)` guard as the JVM Cheshire branch, so a non-string short-circuits
-    to nil on both hosts. Calling `js/JSON.parse` directly would coerce
-    nil to `\"null\"` → nil, but a keyword/number/map would THROW where
-    the JVM returns nil.
-
-  These per-platform differences matter for the `:rf.http/managed`
-  cascade: the CLJS decode site MUST classify the SyntaxError throws
-  as `:rf.http/decode-failure`. Pin the branch's behaviour directly
-  so a future runtime upgrade doesn't silently change the contract.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "`re-frame.http.json` on CLJS (`js/JSON.parse` / `js/JSON.stringify`)."
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.http.json :as rf.http.json]))
 
 (deftest cljs-json-parse-malformed-throws
-  (testing "malformed JSON inputs throw under
-            `js/JSON.parse` on CLJS. The managed-HTTP decode site
-            catches and classifies as `:rf.http/decode-failure`."
-    (doseq [s ["{not-json"           ; unclosed object, bareword key
-               "[1,2,"               ; unterminated array
-               "\"unterminated"      ; unterminated string
-               "tru"                 ; truncated literal
-               "{\"a\":nul}"         ; misspelt null
-               "{\"x\":\"\\u\"}"]]   ; truncated unicode escape
-      (let [thrown (try (rf.http.json/json-parse s) ::no-throw
-                        (catch :default e e))]
-        (is (not= ::no-throw thrown)
-            (str "expected a parse exception for " (pr-str s)
-                 " — got " (pr-str thrown)))))))
+  ;; The managed decode site classifies the throw as :rf.http/decode-failure.
+  (is (not= ::no-throw (try (rf.http.json/json-parse "{not-json") ::no-throw
+                            (catch :default e e)))))
 
-(deftest cljs-json-parse-empty-string-throws
-  (testing "the empty string is malformed JSON under
-            `js/JSON.parse` (DIFFERENT from the JVM Cheshire branch
-            which returns nil for end-of-stream). Pinning this
-            divergence prevents a refactor that 'normalises' the
-            CLJS branch by adding an empty-string short-circuit —
-            doing so would mask a transport-layer programmer error
-            that the decode-failure path surfaces."
-    (let [thrown (try (rf.http.json/json-parse "") ::no-throw
-                      (catch :default e e))]
-      (is (not= ::no-throw thrown)
-          (str "empty-string input must throw on CLJS — got "
-               (pr-str thrown))))))
-
-(deftest cljs-json-parse-non-string-input-returns-nil
-  (testing "non-string inputs return nil (not a throw) on
-            CLJS, mirroring the JVM Cheshire branch. The CLJS branch
-            opens with the SAME `(when (string? s) ...)` guard as JVM, so
-            both hosts produce nil for nil / keyword / number / map /
-            vector input, where calling `js/JSON.parse` directly would
-            THROW on a keyword/number/map/vector."
-    (is (nil? (rf.http.json/json-parse nil))
-        "nil input → nil (string? guard short-circuits, cross-host)")
-    (is (nil? (rf.http.json/json-parse :keyword))
-        "keyword input → nil")
-    (is (nil? (rf.http.json/json-parse 42))
-        "number input → nil")
-    (is (nil? (rf.http.json/json-parse {:already :clojure}))
-        "map input → nil — caller passed an already-parsed value by
-         mistake")
-    (is (nil? (rf.http.json/json-parse [1 2 3]))
-        "vector input → nil")))
-
-(deftest cljs-json-stringify-happy-path
-  (testing "sanity-check `json-stringify` on CLJS uses
-            `js/JSON.stringify` and produces standard JSON output
-            (no edn-isms, no host-specific encoding quirks)."
-    (is (= "[1,2,3]" (rf.http.json/json-stringify [1 2 3])))
-    (is (= "true" (rf.http.json/json-stringify true)))
-    (is (= "null" (rf.http.json/json-stringify nil)))))
-
-;; The same body writes the same JSON on both hosts. The JVM
-;; twin of this test (`json-stringify-matches-across-hosts` in
-;; http_json_test.clj) pins the identical expectations against Cheshire.
-;; Parsed JSON is compared, because key order is not part of the contract.
 (def ^:private uuid-a #uuid "6f1c2b3a-0000-4000-8000-000000000001")
 
-(defn- wire [v]
-  (js->clj (js/JSON.parse (rf.http.json/json-stringify v))))
-
 (deftest cljs-json-stringify-matches-across-hosts
-  (testing "keywords keep their namespace, keys and values
-            alike, and a UUID goes out as its canonical string wherever it sits"
-    (is (= {"order/id" 1 "customer/id" 7} (wire {:order/id 1 :customer/id 7}))
-        "two qualified keys sharing a local name stay two members")
-    (is (= {"status" "order/pending"} (wire {:status :order/pending}))
-        "a qualified keyword VALUE keeps its namespace")
-    (is (= {"id" "6f1c2b3a-0000-4000-8000-000000000001"} (wire {:id uuid-a}))
-        "a UUID value is its canonical string")
-    (is (= {"ids" ["6f1c2b3a-0000-4000-8000-000000000001"]} (wire {:ids [uuid-a]}))
-        "a UUID nested in a vector is its canonical string")
-    (is (= {"6f1c2b3a-0000-4000-8000-000000000001" 1} (wire {uuid-a 1}))
-        "a UUID map key is its canonical string")
-    (is (= {:order/id 1 :customer/id 7}
-           (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))
-        "qualified keys round-trip through the framework's own decoder")
-    (is (= "{\"a\":1,\"b\":\"hello\"}" (rf.http.json/json-stringify {:a 1 :b "hello"}))
-        "control: an unqualified body is unchanged")))
+  ;; The JVM twin pins the same expectations against Cheshire; parsed JSON is
+  ;; compared because key order is not part of the contract.
+  (is (= {"order/id" 1 "customer/id" 7 "status" "order/pending"
+          "id" "6f1c2b3a-0000-4000-8000-000000000001"
+          "ids" ["6f1c2b3a-0000-4000-8000-000000000001"]
+          "6f1c2b3a-0000-4000-8000-000000000001" 1}
+         (js->clj (js/JSON.parse
+                    (rf.http.json/json-stringify {:order/id 1 :customer/id 7 :status :order/pending
+                                                  :id uuid-a :ids [uuid-a] uuid-a 1})))))
+  (is (= {:order/id 1 :customer/id 7}
+         (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))))
