@@ -188,11 +188,13 @@ known_red=(
   #
   #    A NAMESPACE CAN LOOK LIKE 100% DEV INSTRUMENTATION AND NOT BE.
   #    `sub-dispose-trace-test` carries PRODUCTION sub-cache claims — that a
-  #    synchronous dispose leaves a resubscribe rebuilding a FRESH reaction,
-  #    and that one input's throwing release does not abort the walk over the
-  #    others — inline with dispose-emit assertions that are red under the
-  #    gate. Both are about `interop/dispose!` and the cache map, neither
-  #    needs the trace, and both are left UNTAGGED, so they are in the lane.
+  #    substrate dispose keeps a slot an explicit subscribe still holds until
+  #    its unsubscribe evicts it and its inputs, and that one input's throwing
+  #    release does not abort the walk over the others — beside dispose-emit
+  #    assertions that hold only in dev and so sit behind
+  #    `interop/debug-enabled?`. Both claims are about `interop/dispose!` and
+  #    the cache map, neither needs the trace, and both deftests are left
+  #    UNTAGGED, so they are in the lane.
   #    Read the whole namespace before accepting "it is all instrumentation".
   #
   #    THE FILES THAT ALREADY LOOK GREEN ARE WHERE THE ROT IS. A namespace
