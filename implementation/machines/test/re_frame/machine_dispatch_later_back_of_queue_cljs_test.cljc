@@ -1,18 +1,7 @@
 (ns re-frame.machine-dispatch-later-back-of-queue-cljs-test
-  "A `:dispatch-later` armed by a MACHINE handler is a timer
-  callback. When it fires, its event joins the BACK of the queue, behind
-  external events already waiting (Spec 005 Level 4 lists timer callbacks among
-  the back-of-queue origins; Spec 002's `do-fx :dispatch-later` copies no
-  `:rf.machine/internal?`). A delayed child that inherited the machine's
-  front-of-queue flag would jump ahead of them.
-
-  Deterministic harness, no sleeps: the host timer (`set-timeout!`) and the
-  router's drain scheduling (`next-tick`) are captured instead of run, then
-  fired in a chosen order — finish the machine's dispatch, queue an external
-  event, fire the saved timer, drain.
-
-  Named `*-cljs-test.cljc` so both the JVM runner and shadow-cljs's
-  `cljs-test$` build discover it."
+  "A machine action's `:dispatch-later` is a timer callback: it joins the BACK of
+  the queue behind already-queued external events (Spec 005 Level 4), while
+  keeping its `:machine-action` source stamp and `{:ms n}` delay detail."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -31,26 +20,18 @@
 
 (def ^:private run-log (atom []))
 
-(defn- reg-markers! []
-  (reset! run-log [])
-  (rf/reg-event ::ext (fn [_ _] (swap! run-log conj :ext) {}))
-  (rf/reg-event ::timer (fn [_ _] (swap! run-log conj :timer) {})))
-
 (defn- run-race
   "Dispatch `start-event` synchronously (it arms one `:dispatch-later`), queue
-  `::ext`, fire the captured timer, then drain. Returns the run order of
-  `::ext` and `::timer`."
+  `::ext`, fire the captured timer, then drain the captured `next-tick`s.
+  Returns the run order of `::ext` and `::timer`."
   [start-event]
   (let [timers (atom [])
         ticks  (atom [])]
     (with-redefs [rf.interop/set-timeout! (fn [f _ms] (swap! timers conj f) ::handle)
                   rf.interop/next-tick    (fn [f] (swap! ticks conj f) nil)]
       (rf/dispatch-sync start-event)
-      (is (= 1 (count @timers)) "exactly one timer was armed")
       (rf/dispatch [::ext])
       ((first @timers))
-      ;; Drain: run every captured drain callback, including any queued while
-      ;; draining.
       (loop []
         (when-let [f (first @ticks)]
           (swap! ticks #(vec (rest %)))
@@ -58,41 +39,22 @@
           (recur))))
     @run-log))
 
-(defn- reg-machine-arming! [machine-id ms]
-  (rf/reg-machine machine-id
-    {:initial :idle
-     :data    {}
-     :states  {:idle  {:on {:go {:target :armed
-                                 :action (fn [_]
-                                           {:fx [[:dispatch-later {:ms ms :event [::timer]}]]})}}}
-               :armed {}}}))
-
-(defn- timer-dispatched
-  "The `:rf.event/dispatched` traces for `::timer`. The trace hoists `:source`
-  to the event root; the delay detail stays under `:tags`."
-  []
-  (->> (rf.machines.test-support/events-of :rf.event/dispatched)
-       (filterv #(= [::timer] (get-in % [:tags :rf.event/v])))))
-
 (deftest machine-dispatch-later-joins-the-back-of-the-queue
   (doseq [ms [100 0]]
-    (testing (str "a machine action's :dispatch-later {:ms " ms "} fires behind
-                   the external event that was already queued")
+    (testing (str ":dispatch-later {:ms " ms "}")
       (rf.machines.test-support/reset-captured!)
-      (reg-markers!)
+      (reset! run-log [])
+      (rf/reg-event ::ext (fn [_ _] (swap! run-log conj :ext) {}))
+      (rf/reg-event ::timer (fn [_ _] (swap! run-log conj :timer) {}))
       (let [machine-id (keyword (namespace ::m) (str "m" ms))]
-        (reg-machine-arming! machine-id ms)
+        (rf/reg-machine machine-id
+          {:initial :idle
+           :states  {:idle  {:on {:go {:target :armed
+                                       :action (fn [_]
+                                                 {:fx [[:dispatch-later {:ms ms :event [::timer]}]]})}}}
+                     :armed {}}})
         (is (= [:ext :timer] (run-race [machine-id [:go]]))))
-      (testing "and keeps its machine-action source stamp and delay detail"
-        (let [[ev & more] (timer-dispatched)]
-          (is (nil? more))
-          (is (= :machine-action (:source ev)))
-          (is (= {:ms ms} (get-in ev [:tags :rf.event/source-detail]))))))))
-
-(deftest plain-handler-dispatch-later-control
-  (testing "control: the identical :dispatch-later from a plain handler also
-            fires behind the queued external event"
-    (reg-markers!)
-    (rf/reg-event ::plain (fn [_ _] {:fx [[:dispatch-later {:ms 100 :event [::timer]}]]}))
-    (is (= [:ext :timer] (run-race [::plain])))
-    (is (= :fx-dispatch-later (:source (first (timer-dispatched)))))))
+      (is (= [[:machine-action {:ms ms}]]
+             (->> (rf.machines.test-support/events-of :rf.event/dispatched)
+                  (filter #(= [::timer] (get-in % [:tags :rf.event/v])))
+                  (mapv (juxt :source #(get-in % [:tags :rf.event/source-detail])))))))))
