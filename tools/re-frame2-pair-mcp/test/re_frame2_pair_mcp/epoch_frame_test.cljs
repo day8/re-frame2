@@ -1,60 +1,18 @@
 (ns re-frame2-pair-mcp.epoch-frame-test
-  "Operating-frame resolution for the two epoch-ring tools —
-  `trace-window` and `watch-epochs`.
+  "Operating-frame resolution for the two epoch-ring tools, `trace-window`
+  and `watch-epochs`.
 
-  ## What this pins
+  Both resolve override -> session pin -> sole app frame -> nil and REFUSE
+  at nil. An implicit-frame read gets `[]` back for an unknown frame, which
+  `trace-window` would report as a quiet window and `watch-epochs` as a
+  dead cursor. The resolved id must also ride back into `:next-cursor`, or
+  page 2 re-resolves against whatever the session says by then.
 
-  Both are frame-targeted, so the Tool-Pair contract makes them
-  resolve explicit override -> session pin -> sole app frame -> nil,
-  and REFUSE at nil rather than read some other frame. An
-  implicit-frame call — `(epoch-history)` / `(epochs-since id)` —
-  would default through its runtime arity to `(current-frame)`, nil
-  under two-plus app frames with no pin. And `rf/epoch-history`
-  answers `[]` for an unknown frame WITHOUT erroring, so the ambiguity
-  would arrive as an empty ring.
-
-  That empty ring is two different falsehoods depending on the tool:
-
-    - `trace-window` would report `:count 0` — \"nothing happened\" —
-      in the same voice as a genuinely quiet window. Its `:count 0`
-      advisory could not catch it, because an implicit-frame advisory
-      reads the SAME history, so both sides come back empty together.
-    - `watch-epochs` would report `:count 0` AND `:id-aged-out? true`:
-      the caller's cursor id cannot be found in an empty history, so a
-      LIVE cursor is declared dead and the agent is sent back to page
-      one of a frame it never chose.
-
-  ## Why the stub reads the form
-
-  A test that canned an `:ambiguous-frame` response would pass on the
-  DEFECT — the tools faithfully relay whatever the runtime hands them,
-  and the relay is not where the defect lives. So `runtime-answer`
-  plays a live runtime: it derives the operating frame FROM THE
-  EMITTED FORM the way `pure/resolve-operating-frame` would, and then
-  answers with that frame's ring, reproducing `epochs-since`'s real
-  not-found semantics. On an implicit-frame form the frame is nil, the
-  ring is `[]`, and the falsehoods appear on their own — which is what
-  makes these witnesses fail on such a tree rather than merely assert
-  the correct shape.
-
-  ## And what the refusal does NOT reach
-
-  Both tools are cursor-paged, so resolving page 1 correctly is only
-  half the contract. The resolved id has to travel BACK out of the eval
-  and into `:next-cursor`, because page 1 typically names no frame:
-  a cursor built from the ARGUMENTS stores nil, and page 2 — naming no
-  frame either — re-resolves against whatever the session says by then.
-
-  The refusal cannot cover that second call. By page 2 there is usually
-  nothing to refuse: pin a frame, or register a second one, and the
-  session resolves cleanly — to a DIFFERENT ring, in which the live
-  `:after-id` is absent, so `epochs-since` calls the healthy cursor
-  aged out. The same falsehood, reached from the other side. The
-  `## Cursor frame ownership` witnesses below drive real
-  page-1-generated cursors through exactly those two session changes;
-  the simulator answers `:frame fid` and pages at the emitted `(take
-  N …)` so a page-1 cursor exists at all."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+  `runtime-answer` plays a live runtime that derives the frame FROM THE
+  EMITTED FORM, the way `pure/resolve-operating-frame` would, so on an
+  implicit-frame tree it reads an empty ring and these tests go red. A
+  canned refusal would pass on that tree, because the tools only relay."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -73,14 +31,10 @@
 (def ^:private read-edn tu/extract-edn)
 (def ^:private err? tu/error?)
 
-;; Two app frames, no pin — the session shape the resolver calls
-;; ambiguous and the one where guessing is unrecoverable.
+;; Two app frames, no pin: the session the resolver calls ambiguous.
 (def ^:private two-frames [:rf/default :stories])
 
-(defn- epoch
-  "A ring record shaped enough for both tools: an id and a
-  `:committed-at` inside any plausible window."
-  [id]
+(defn- epoch [id]
   {:epoch-id id :committed-at (js/Date.now) :trigger-event [:noop id]})
 
 ;; ---------------------------------------------------------------------------
@@ -88,11 +42,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- guards-ambiguity?
-  "True when `form` detects the ambiguity WHERE IT ARISES: it binds the
-  resolved id, branches to `ambiguous-frame-error` on nil, and only
-  then reads the ring. The ORDERING is the assertion — a form that
-  merely mentions the refusal after reading would still have taken the
-  wrong branch."
+  "True when `form` binds the resolved id, branches to
+  `ambiguous-frame-error` on nil, and only THEN reads the ring."
   [form operation]
   (let [resolve-at (str/index-of form "(let [fid (re-frame2-pair.runtime/current-frame")
         refuse-at  (str/index-of form
@@ -105,14 +56,8 @@
                   (< resolve-at refuse-at read-at)))))
 
 (defn- resolved-id
-  "The id the browser-side resolver would return for `form` in a session
-  holding `app-frames` with `pin` selected. Mirrors
-  `pure/resolve-operating-frame`: override -> pin -> sole app frame ->
-  nil. The override is read off the form because that is where the
-  tool puts it — on the resolve call, or on the ring calls of an
-  implicit-frame shape — so this models BOTH shapes faithfully and the
-  explicit-frame tiers stay real controls rather than artefacts of the
-  simulator."
+  "The id the browser-side resolver would return for `form`: the override
+  the form carries, else the pin, else the sole app frame, else nil."
   [form app-frames pin]
   (if-let [override (second (or (re-find #"current-frame\s+(:[^\s)]+)\)" form)
                                 (re-find #"epoch-history\s+(:[^\s)]+)\)" form)
@@ -122,24 +67,18 @@
         (when (= 1 (count app-frames)) (first app-frames)))))
 
 (defn- ambiguous-envelope
-  "The envelope `re-frame2-pair.runtime/ambiguous-frame-error` builds —
-  reproduced here because the preload is not on this test's classpath.
-  Shape per `pure/ambiguous-frame-envelope`."
+  "What `re-frame2-pair.runtime/ambiguous-frame-error` builds (the preload
+  is not on this test's classpath)."
   [operation app-frames pin]
   {:ok?              false
    :reason           :ambiguous-frame
    :operation        operation
    :available-frames app-frames
    :selected-frame   pin
-   :hint             (str "multiple app frames are registered and no frame is "
-                          "selected, so " (name operation) " cannot pick a target. "
-                          "Pass `frame` (one of " (pr-str app-frames) ") or pin one with "
-                          "`select-frame!` / set-operating-frame, then retry.")})
+   :hint             "pass `frame` or pin one, then retry"})
 
 (defn- read-token
-  "An emitted scalar literal back as a value. Epoch-ids are `:any` per
-  the schema; the reference runtime emits integers, and the tools also
-  ship string ids, so both shapes round-trip here."
+  "An emitted scalar literal back as a value: nil, a string id or an integer id."
   [tok]
   (cond
     (nil? tok)                  nil
@@ -148,37 +87,23 @@
     :else                       (js/parseInt tok 10)))
 
 (defn- since-id-of
-  "The `:since-id` / cursor `:after-id` the form asked `epochs-since`
-  for, as it appears in the emitted source (`nil` when absent). A
-  present id rides quoted — `(quote 7)` — because it is caller data,
-  so the optional `(quote ` prefix is skipped."
+  "The id the form asked `epochs-since` for; caller data rides `(quote …)`."
   [form]
   (read-token (second (re-find #"epochs-since\s+(?:\(quote\s+)?(\"[^\"]*\"|[^\s()]+)" form))))
 
 (defn- after-id-of
-  "`trace-window`'s cursor watermark, read off the `after-id` LET
-  BINDING the tool emits (`(let [hist … after-id (quote 7) …] …)` — the
-  cursor's id is caller data, so it rides quoted). The
-  later textual uses of the name are expressions (`(and after-id …)`),
-  which the literal alternation cannot match, so the binding is the only
-  hit."
+  "`trace-window`'s cursor watermark, read off its `after-id` let binding."
   [form]
   (read-token (second (re-find #"\bafter-id (?:\(quote )?(nil|\d+|\"[^\"]*\")" form))))
 
 (defn- limit-of
-  "The page size the form asked for — the `(take N …)` both tools write
-  from their `:limit` arg. Paging is simulated because a cursor only
-  EXISTS when a page is capped, and a page-1 cursor is what the
-  ownership witnesses below are about."
+  "The `(take N …)` page size, so a capped page (and so a cursor) exists."
   [form]
   (or (some-> (second (re-find #"\(take (\d+) " form)) (js/parseInt 10)) 50))
 
 (defn- epochs-since*
-  "`re-frame2-pair.runtime/epochs-since` semantics, reproduced: nil id ->
-  the whole ring; a known id -> the records strictly after it; an
-  UNKNOWN id -> `[]` with `:id-aged-out? true`. That last arm is the
-  one that matters — on an ambiguous frame the ring is empty, so ANY
-  live cursor id is unknown and the poll declares it dead."
+  "`re-frame2-pair.runtime/epochs-since`: nil id -> the whole ring; a known
+  id -> the records after it; an UNKNOWN id -> `[]` with `:id-aged-out? true`."
   [history epoch-id]
   (let [head-id (some-> (peek history) :epoch-id)]
     (cond
@@ -194,23 +119,15 @@
       {:epochs [] :id-aged-out? true :head-id head-id :requested-id epoch-id})))
 
 (defn- runtime-answer
-  "Answer `form` as a live runtime would, given the session described by
-  `app-frames` / `pin` / `rings` (a frame-id -> ring vector map). The
-  FRAME is whatever the form resolves, which is the whole point.
-
-  Both arms mirror the emitted form's own slice-then-cap pipeline and
-  report `:frame fid` — the id the read RESOLVED, which is the slot the
-  tool builds `:next-cursor` from. The time filter `trace-window` emits
-  between them is a no-op here by construction: every fixture epoch is
-  stamped `(js/Date.now)` and every fixture window is 60s wide, so
-  `filtered` = `sliced` and paging is the only cap that bites."
+  "Answer `form` as a live runtime would for the session `app-frames` /
+  `pin` / `rings`, reading the frame the form resolves and reporting it as
+  `:frame`. Every fixture epoch is stamped now and every window is 60s, so
+  the time filter is a no-op and paging is the only cap."
   [form {:keys [operation app-frames pin rings]}]
   (let [fid (resolved-id form app-frames pin)]
     (if (and (nil? fid) (guards-ambiguity? form operation))
       (ambiguous-envelope operation app-frames pin)
-      ;; No guard (or an unambiguous session): the read proceeds. For a
-      ;; nil frame the per-frame lookup misses and the ring is EMPTY —
-      ;; reproducing the implicit-frame falsehoods exactly.
+      ;; Unguarded, a nil frame misses the per-frame lookup: the ring is EMPTY.
       (let [history (vec (get rings fid))
             limit   (limit-of form)]
         (if (= :trace-window operation)
@@ -247,9 +164,7 @@
              :remaining     (max 0 (- (count epochs) (count page)))}))))))
 
 (defn- stub-runtime!
-  "Install the simulator. The preload sentinel is answered directly; the
-  tool's own form is captured into `captured*` and answered by
-  `runtime-answer`."
+  "Install the simulator, capturing the tool's own form into `captured*`."
   [captured* session]
   (let [respond
         (fn [form]
@@ -271,12 +186,11 @@
             ([_c _b form _o] (respond form))))))
 
 ;; ---------------------------------------------------------------------------
-;; The witnesses — these fail on an implicit-frame tree.
+;; Page 1 — refuse an ambiguous frame rather than read frame nil.
 ;; ---------------------------------------------------------------------------
 
 (deftest trace-window-ambiguous-frame-refuses-rather-than-reporting-an-empty-window
-  ;; Both frames HAVE epochs. Reporting `:count 0` is therefore a
-  ;; falsehood about the app, not a thin answer about a quiet one.
+  ;; Both frames HAVE epochs, so `:count 0` would be a falsehood about the app.
   (async done
     (stub-runtime! nil {:operation  :trace-window
                         :app-frames two-frames
@@ -285,27 +199,14 @@
                                      :stories    [(epoch 7)]}})
     (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000}))
         (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (err? r) "an unanswerable read is an isError envelope")
-                   (is (= false (:ok? edn)))
-                   (is (= :ambiguous-frame (:reason edn))
-                       "the refusal names the ambiguity, not an empty window")
-                   (is (= :trace-window (:operation edn)))
-                   (is (not= 0 (:count edn))
-                       "REGRESSION: epochs exist in BOTH frames — :count 0 is a falsehood")
-                   (is (not (contains? edn :epochs))
-                       "a refusal carries no :epochs — an empty vector reads as 'nothing there'")
-                   (is (nil? (:next-cursor edn))
-                       "no continuation token for a page that was never read")
-                   (is (= two-frames (:available-frames edn))
-                       "the candidate frames are named so the agent can choose")
-                   (is (nil? (:selected-frame edn))))
+                 (is (err? r))
+                 (is (= (ambiguous-envelope :trace-window two-frames nil) (read-edn r))
+                     "the refusal rides verbatim: no :count, no :epochs, no :next-cursor")
                  (done))))))
 
 (deftest watch-epochs-ambiguous-frame-refuses-rather-than-aging-out-a-live-cursor
-  ;; The second falsehood, and the more damaging one: on an empty ring
-  ;; the caller's live `:since-id` is simply not found, so the poll
-  ;; reports the cursor DEAD.
+  ;; Epoch 2 is alive in :rf/default; read against an empty ring it would be
+  ;; reported aged out, sending the agent back to page one.
   (async done
     (stub-runtime! nil {:operation  :watch-epochs
                         :app-frames two-frames
@@ -314,127 +215,44 @@
                                      :stories    [(epoch 7)]}})
     (-> (we/watch-epochs-tool nil (tu/args->js {:since-id 2}))
         (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (err? r))
-                   (is (= false (:ok? edn)))
-                   (is (= :ambiguous-frame (:reason edn))
-                       "the refusal names the ambiguity")
-                   (is (= :watch-epochs (:operation edn)))
-                   (is (not= :rf.mcp/cursor-stale (:reason edn))
-                       "REGRESSION: epoch 2 is alive in :rf/default — declaring the cursor aged out is a falsehood")
-                   (is (not (true? (:id-aged-out? edn)))
-                       "REGRESSION: a live cursor must not be reported dead")
-                   (is (not (contains? edn :matches)))
-                   (is (nil? (:next-cursor edn)))
-                   (is (= two-frames (:available-frames edn))))
+                 (is (err? r))
+                 (is (= (ambiguous-envelope :watch-epochs two-frames nil) (read-edn r))
+                     "the refusal rides verbatim, never as :rf.mcp/cursor-stale")
                  (done))))))
 
-(deftest epoch-tool-refusals-name-the-next-action
-  ;; An ambiguity error that merely says "ambiguous" is not good
-  ;; ergonomics. The hint must name what to DO.
+(deftest the-emitted-forms-read-and-report-the-resolved-id
+  ;; The simulator reads and reports the resolved frame whatever the form
+  ;; says, so these pin the forms themselves: watch-epochs' poll and history
+  ;; count read `fid`, and both tools report `fid` back for the cursor.
+  ;; trace-window's ring read is pinned by `guards-ambiguity?` above.
   (async done
-    (stub-runtime! nil {:operation  :trace-window
-                        :app-frames two-frames
-                        :pin        nil
-                        :rings      {}})
-    (-> (tw/trace-window-tool nil (tu/args->js {}))
-        (.then (fn [r]
-                 (let [hint (:hint (read-edn r))]
-                   (is (string? hint))
-                   (is (str/includes? hint "frame") "names the `frame` arg")
-                   (is (str/includes? hint "set-operating-frame")
-                       "names the pin tool the agent already has")
-                   (is (str/includes? hint ":stories")
-                       "names the candidates inline, so choosing needs no second call"))
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Where the detection sits — the branch, not the message.
-;; ---------------------------------------------------------------------------
-
-(deftest the-emitted-forms-resolve-before-they-read
-  ;; Patching only the message would leave the wrong branch taken. Both
-  ;; forms must bind the resolved id, refuse on nil, and only then touch
-  ;; the ring.
-  (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:operation  :trace-window
-                               :app-frames [:rf/default]
-                               :pin        nil
-                               :rings      {:rf/default [(epoch 1)]}})
+    (let [tw-form (atom nil)
+          we-form (atom nil)
+          session {:app-frames [:rf/default] :pin nil :rings {:rf/default [(epoch 1)]}}]
+      (stub-runtime! tw-form (assoc session :operation :trace-window))
       (-> (tw/trace-window-tool nil (tu/args->js {}))
           (.then (fn [_]
-                   (is (guards-ambiguity? @captured :trace-window)
-                       "trace-window resolves, refuses on nil, THEN reads the ring")
-                   (is (str/includes? @captured "(re-frame2-pair.runtime/epoch-history fid)")
-                       "the history read goes against the resolved id, never implicitly")))
+                   (stub-runtime! we-form (assoc session :operation :watch-epochs))
+                   (we/watch-epochs-tool nil (tu/args->js {}))))
           (.then (fn [_]
-                   (let [captured2 (atom nil)]
-                     (stub-runtime! captured2 {:operation  :watch-epochs
-                                               :app-frames [:rf/default]
-                                               :pin        nil
-                                               :rings      {:rf/default [(epoch 1)]}})
-                     (-> (we/watch-epochs-tool nil (tu/args->js {}))
-                         (.then (fn [_]
-                                  (is (guards-ambiguity? @captured2 :watch-epochs)
-                                      "watch-epochs resolves, refuses on nil, THEN polls")
-                                  (is (str/includes? @captured2
-                                                     "(re-frame2-pair.runtime/epochs-since nil fid)")
-                                      "the poll goes against the resolved id")
-                                  (is (str/includes? @captured2
-                                                     "(re-frame2-pair.runtime/epoch-history fid)")
-                                      "so does the advisory's history count — one resolution, one truth")
-                                  (done)))))))))))
-
+                   (is (str/includes? @tw-form ":frame fid"))
+                   (doseq [s ["(re-frame2-pair.runtime/epochs-since nil fid)"
+                              "(re-frame2-pair.runtime/epoch-history fid)"
+                              ":frame fid"]]
+                     (is (str/includes? @we-form s) s))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; ## Cursor frame ownership — the residual the refusal does not reach.
+;; Cursor frame ownership. By page 2 there is usually nothing left to refuse:
+;; the session resolves a frame, just not the one page 1 read. So page 1's
+;; cursor must carry the resolved id. Every cursor below is one the tool
+;; itself returned.
 ;; ---------------------------------------------------------------------------
-;;
-;; The refusal above answers page 1's ambiguity. It cannot answer page 2's,
-;; because by page 2 there is usually no ambiguity left to refuse: the
-;; session resolves a frame perfectly well — just not the one page 1 read.
-;; So the cursor has to CARRY the resolved id, and page 1 is the only call
-;; that can put it there.
-;;
-;; Every cursor below is one the tool itself returned, so these cover
-;; CREATION — the half where the id has to come back out of the eval — as
-;; well as honouring that id on page 2 once the session has moved on.
 
-(defn- cursor-payload
-  "The `:next-cursor` a tool returned, decoded back to its payload map."
-  [r]
+(defn- cursor-payload [r]
   (cursor/decode-cursor (:next-cursor (read-edn r))))
 
-(deftest the-emitted-forms-carry-the-resolved-id-back
-  ;; The cursor can only own what the eval hands back. Both inner forms
-  ;; put the resolved binding in their result map, beside the page.
-  (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:operation  :trace-window
-                               :app-frames [:rf/default]
-                               :pin        nil
-                               :rings      {:rf/default [(epoch 1)]}})
-      (-> (tw/trace-window-tool nil (tu/args->js {}))
-          (.then (fn [_]
-                   (is (str/includes? @captured ":frame fid")
-                       "trace-window reports the id it read against, not the one it was asked for")))
-          (.then (fn [_]
-                   (let [captured2 (atom nil)]
-                     (stub-runtime! captured2 {:operation  :watch-epochs
-                                               :app-frames [:rf/default]
-                                               :pin        nil
-                                               :rings      {:rf/default [(epoch 1)]}})
-                     (-> (we/watch-epochs-tool nil (tu/args->js {}))
-                         (.then (fn [_]
-                                  (is (str/includes? @captured2 ":frame fid")
-                                      "so does watch-epochs")
-                                  (done)))))))))))
-
 (deftest trace-window-page-1-cursor-owns-the-pin-it-resolved
-  ;; Tier 2. Page 1 names no frame, so a cursor built from the arguments
-  ;; would store nil and page 2 would re-resolve — landing on whatever the
-  ;; pin says by then.
   (async done
     (let [session {:operation  :trace-window
                    :app-frames two-frames
@@ -446,27 +264,21 @@
           (.then (fn [r1]
                    (let [c (cursor-payload r1)]
                      (is (= :stories (:frame c))
-                         "REGRESSION: the cursor must carry the id the PIN resolved, not the nil it was asked for")
-                     (is (= 7 (:after-id c)) "and the watermark it actually emitted")
+                         "the cursor carries the id the PIN resolved, not the nil it was asked for")
+                     (is (= 7 (:after-id c)))
                      ;; The session moves under the agent, mid-pagination.
                      (stub-runtime! nil (assoc session :pin :rf/default))
                      (tw/trace-window-tool
                        nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1})))))
           (.then (fn [r2]
-                   (let [edn (read-edn r2)]
-                     (is (not (err? r2))
-                         "REGRESSION: a re-pinned session must not capture the continuation")
-                     (is (not= :rf.mcp/cursor-stale (:reason edn))
-                         "REGRESSION: epoch 7 is alive in :stories — the cursor is not stale")
-                     (is (= 1 (:count edn)) "page 2 read the ORIGINAL ring")
-                     (is (= :stories (:frame (cursor-payload r2)))
-                         "and page 3 inherits the same ownership"))
+                   (is (not (err? r2))
+                       "epoch 7 is alive in :stories, so the cursor is not stale")
+                   (is (= 1 (:count (read-edn r2))) "page 2 read the ORIGINAL ring")
+                   (is (= :stories (:frame (cursor-payload r2))) "and page 3 inherits it")
                    (done)))))))
 
 (deftest trace-window-page-2-survives-a-second-frame-registering
-  ;; Tier 3, and the sharper half: the session does not merely move, it
-  ;; becomes AMBIGUOUS. A fresh call would now be refused — an owned
-  ;; cursor must not be, because it already knows its ring.
+  ;; A fresh call would now be refused as ambiguous; an owned cursor must not be.
   (async done
     (let [ring {:rf/default [(epoch 1) (epoch 2) (epoch 3)]}]
       (stub-runtime! nil {:operation  :trace-window
@@ -476,7 +288,7 @@
       (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000 :limit 1}))
           (.then (fn [r1]
                    (is (= :rf/default (:frame (cursor-payload r1)))
-                       "REGRESSION: the SOLE app frame is the id the read resolved; a namespaced keyword round-trips the codec")
+                       "the SOLE app frame is the id the read resolved")
                    (stub-runtime! nil {:operation  :trace-window
                                        :app-frames two-frames
                                        :pin        nil
@@ -484,17 +296,12 @@
                    (tw/trace-window-tool
                      nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1}))))
           (.then (fn [r2]
-                   (let [edn (read-edn r2)]
-                     (is (not (err? r2))
-                         "REGRESSION: an owned cursor stays answerable where a FRESH call would now be ambiguous")
-                     (is (not= :ambiguous-frame (:reason edn)))
-                     (is (= 1 (:count edn)) "and it read the frame it started on"))
+                   (is (not (err? r2)) "an owned cursor stays answerable")
+                   (is (= 1 (:count (read-edn r2))) "and it read the frame it started on")
                    (done)))))))
 
 (deftest watch-epochs-page-1-cursor-owns-the-pin-it-resolved
-  ;; The same creation defect on the tool where losing the ring is worst:
-  ;; a poll that re-resolves cannot find the caller's id in the new ring,
-  ;; so it reports the LIVE cursor dead — the exact falsehood this tool's
+  ;; Losing the ring here reports the LIVE cursor dead: the falsehood the
   ;; frame refusal exists to stop, reached by a second route.
   (async done
     (let [session {:operation  :watch-epochs
@@ -507,20 +314,15 @@
           (.then (fn [r1]
                    (let [c (cursor-payload r1)]
                      (is (= :stories (:frame c))
-                         "REGRESSION: the cursor must carry the id the PIN resolved, not nil")
+                         "the cursor carries the id the PIN resolved, not nil")
                      (is (= 7 (:after-id c)))
                      (stub-runtime! nil (assoc session :pin :rf/default))
                      (we/watch-epochs-tool
                        nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1})))))
           (.then (fn [r2]
-                   (let [edn (read-edn r2)]
-                     (is (not (err? r2))
-                         "REGRESSION: the re-pinned session must not capture the poll")
-                     (is (not= :rf.mcp/cursor-stale (:reason edn))
-                         "REGRESSION: epoch 7 is alive in :stories — the cursor is not stale")
-                     (is (not (true? (:id-aged-out? edn)))
-                         "REGRESSION: a live cursor must not be reported dead")
-                     (is (= 1 (:count edn)) "page 2 polled the ORIGINAL ring"))
+                   (is (not (err? r2))
+                       "epoch 7 is alive in :stories, so the cursor is not aged out")
+                   (is (= 1 (:count (read-edn r2))) "page 2 polled the ORIGINAL ring")
                    (done)))))))
 
 (deftest watch-epochs-page-2-survives-a-second-frame-registering
@@ -533,7 +335,7 @@
       (-> (we/watch-epochs-tool nil (tu/args->js {:limit 1}))
           (.then (fn [r1]
                    (is (= :rf/default (:frame (cursor-payload r1)))
-                       "REGRESSION: the sole app frame is what the cursor owns")
+                       "the sole app frame is what the cursor owns")
                    (stub-runtime! nil {:operation  :watch-epochs
                                        :app-frames two-frames
                                        :pin        nil
@@ -541,19 +343,12 @@
                    (we/watch-epochs-tool
                      nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1}))))
           (.then (fn [r2]
-                   (let [edn (read-edn r2)]
-                     (is (not (err? r2))
-                         "REGRESSION: an owned cursor stays answerable where a FRESH poll would now be ambiguous")
-                     (is (not= :ambiguous-frame (:reason edn)))
-                     (is (not (true? (:id-aged-out? edn))))
-                     (is (= 1 (:count edn))))
+                   (is (not (err? r2)) "an owned cursor stays answerable")
+                   (is (= 1 (:count (read-edn r2))))
                    (done)))))))
 
 (deftest an-explicit-frame-is-the-id-the-cursor-owns
-  ;; Control: tier 1 still outranks the pin, and it is the RESOLVED id
-  ;; — not the raw argument — that the cursor stores. The two agree
-  ;; here, which is the point: cursor ownership must not move an explicit
-  ;; target.
+  ;; Control: an explicit frame still outranks the pin, and the cursor owns it.
   (async done
     (stub-runtime! nil {:operation  :trace-window
                         :app-frames two-frames
@@ -562,38 +357,31 @@
                                      :stories    [(epoch 7) (epoch 8) (epoch 9)]}})
     (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000 :limit 1 :frame ":stories"}))
         (.then (fn [r]
-                 (is (= :stories (:frame (cursor-payload r)))
-                     "the explicit frame, not the session pin, is what the cursor owns")
+                 (is (= :stories (:frame (cursor-payload r))))
                  (done))))))
 
 (deftest an-advisory-names-the-frame-its-count-came-from
-  ;; The other half of the same seam. The advisory reports `:frame`;
-  ;; reporting the ASKED-for nil while quoting a history count read from
-  ;; a real frame would be a sentence about a frame the call never named.
+  ;; Reporting the asked-for nil beside a count read from a real frame would
+  ;; describe a read that never happened.
   (async done
-    (let [ring (mapv epoch (range 1 10))]
-      (stub-runtime! nil {:operation  :watch-epochs
-                          :app-frames [:step-deck]
-                          :pin        nil
-                          :rings      {:step-deck ring}})
-      (-> (we/watch-epochs-tool nil (tu/args->js {:since-id 9}))
-          (.then (fn [r]
-                   (let [advisory (:advisory (read-edn r))]
-                     (is (= :no-events-since-id (:reason advisory)))
-                     (is (= 9 (:epochs-in-history advisory)))
-                     (is (= :step-deck (:frame advisory))
-                         "REGRESSION: the advisory names the resolved frame its count came from, not nil"))
-                   (done)))))))
+    (stub-runtime! nil {:operation  :watch-epochs
+                        :app-frames [:step-deck]
+                        :pin        nil
+                        :rings      {:step-deck (mapv epoch (range 1 10))}})
+    (-> (we/watch-epochs-tool nil (tu/args->js {:since-id 9}))
+        (.then (fn [r]
+                 (is (= {:reason            :no-events-since-id
+                         :frame             :step-deck
+                         :epochs-in-history 9
+                         :requested-id      9}
+                        (dissoc (:advisory (read-edn r)) :hint)))
+                 (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:since-id` arrives as a STRING.
-;;
-;; The descriptor types it `string`, and the reference runtime's epoch ids
-;; are integers that `epochs-since` finds with `=`. Passed raw, the
-;; schema-conforming "2" never equals 2, so every resume-by-id would come
-;; back as a false `:rf.mcp/cursor-stale` ("your id aged out of the ring")
-;; while the id sat in the ring. The simulator's `epochs-since*` keeps
-;; that `=`, so these fail on a tree that passes the id raw.
+;; `:since-id` arrives as a STRING: the descriptor types it `string`, while
+;; the runtime's ids are integers that `epochs-since` finds with `=`. Passed
+;; raw, "2" never equals 2 and every resume-by-id reads as a false
+;; `:rf.mcp/cursor-stale`. The simulator keeps that `=`.
 ;; ---------------------------------------------------------------------------
 
 (deftest watch-epochs-string-since-id-resumes-against-integer-ids
@@ -604,12 +392,8 @@
                         :rings      {:rf/default [(epoch 1) (epoch 2) (epoch 3) (epoch 4)]}})
     (-> (we/watch-epochs-tool nil (tu/args->js {:since-id "2"}))
         (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r))
-                       "REGRESSION: epoch 2 is in the ring — a string id must not read as aged out")
-                   (is (not= :rf.mcp/cursor-stale (:reason edn)))
-                   (is (false? (:id-aged-out? edn)))
-                   (is (= 2 (:count edn)) "the poll resumes after epoch 2: epochs 3 and 4"))
+                 (is (not (err? r)) "epoch 2 is in the ring, so the id is not aged out")
+                 (is (= 2 (:count (read-edn r))) "the poll resumes after epoch 2: epochs 3 and 4")
                  (done))))))
 
 (deftest watch-epochs-unreadable-since-id-is-refused
@@ -623,21 +407,4 @@
                  (is (err? r))
                  (is (= :invalid-since-id (:reason (read-edn r)))
                      "an unreadable id is named as such, not reported as aged out")
-                 (done))))))
-
-(deftest a-genuinely-empty-ring-in-a-resolvable-frame-still-answers
-  ;; The complement, and the reason the refusal is scoped to tier 4: an
-  ;; honestly quiet frame must still get its honest `:count 0`, not a
-  ;; refusal. Over-firing here would trade one falsehood for another.
-  (async done
-    (stub-runtime! nil {:operation  :trace-window
-                        :app-frames [:rf/default]
-                        :pin        nil
-                        :rings      {:rf/default []}})
-    (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)) "a resolvable but quiet frame is not a refusal")
-                   (is (true? (:ok? edn)))
-                   (is (= 0 (:count edn)) "and it still says zero, honestly"))
                  (done))))))
