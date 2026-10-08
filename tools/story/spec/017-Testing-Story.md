@@ -388,7 +388,7 @@ interceptor id**, resolved per-key under the strict-conflict ladder
 
 Per EP-0022 (registered interceptors), re-frame2 interceptor chains carry
 **serializable references only** — an event/frame chain names interceptors
-by id (`{:interceptors [:rf/redact-interceptor :app/unwrap]}`), and an
+by id (`{:interceptors [:app/audit :app/unwrap]}`), and an
 inline interceptor value in a chain is rejected loud at registration with
 `:rf.error/inline-interceptor-removed`. An interceptor is authored once
 with `reg-interceptor` and referenced by its id everywhere; the lowering

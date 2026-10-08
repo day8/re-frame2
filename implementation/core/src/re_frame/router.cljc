@@ -2462,26 +2462,17 @@
                             prepended-chain))
         base-chain      (when (and (live?) (some? resolved-chain))
                           (apply-icpt-overrides resolved-chain icpt-overrides live?))
-        ;; Fused single-pass collection of the frame-declared
-        ;; sensitive-path overlap (`:schema-paths`) AND the user-installed
-        ;; `(rf/redact-interceptor paths)` paths (`:user-paths`) over the
-        ;; SAME `base-chain` — one chain walk, not two. User-installed
-        ;; redact interceptors expose
-        ;; their paths on the interceptor map so the pre-chain trace
-        ;; projection (`:run-start`, `emit-pipeline-trailers`) honours them
-        ;; too. Each user `:before` ALSO runs during chain execution and
-        ;; extends `:rf/redacted-event` in-chain, which is what the schema-
-        ;; redaction interceptor (when also installed) composes with. The
-        ;; union here is the OUT-OF-CHAIN projection used by emit sites that
-        ;; fire BEFORE the chain.
+        ;; The frame-declared sensitive-path overlap with the chain's
+        ;; `:path` slices. It feeds both the in-chain schema-redaction
+        ;; interceptor and the OUT-OF-CHAIN projection (`:emit-event`) that
+        ;; emit sites firing BEFORE the chain read (`:run-start`,
+        ;; `emit-pipeline-trailers`).
         redaction-result (when (and (live?) (some? base-chain))
                            (call-while-exact-owner
                              frame owner-token
-                             #(rf.privacy/collect-redaction-paths frame base-chain)))
-        {redaction-paths :schema-paths
-         user-paths      :user-paths} (when-not (= ::stale-incarnation
-                                                  redaction-result)
-                                       redaction-result)
+                             #(rf.privacy/schema-redaction-paths frame base-chain)))
+        redaction-paths (when-not (= ::stale-incarnation redaction-result)
+                          redaction-result)
         redacted-chain  (if (seq redaction-paths)
                           (into [(rf.privacy/schema-redaction-interceptor
                                    redaction-paths)]
@@ -2512,8 +2503,7 @@
                                envelope frame frame-record handler-meta
                                fx-overrides live?)))
         initial-ctx     (when-not (= ::stale-incarnation initial-result)
-                          initial-result)
-        all-paths       (into (vec redaction-paths) user-paths)]
+                          initial-result)]
     (when (and (live?) (some? initial-ctx))
       {:full-chain   full-chain
      :initial-ctx  initial-ctx
@@ -2529,8 +2519,8 @@
      ;; matcher must walk `resolved-chain`. Pure + feeds only the dev-only
      ;; run-start emit, so it DCEs in `:advanced` production.
      :override-summary (override-summary resolved-chain icpt-overrides)
-     :emit-event   (if (seq all-paths)
-                     (rf.privacy/redact-event (:event envelope) all-paths)
+     :emit-event   (if (seq redaction-paths)
+                     (rf.privacy/redact-event (:event envelope) redaction-paths)
                      (:event envelope))
      ;; `:schema-sensitive?` (named like the `schema-redaction-paths` fn
      ;; it derives from — see `re-frame.privacy` — though neither is
@@ -2539,9 +2529,8 @@
      ;; registry written by the commit-plane classification effects, not
      ;; schema-attached slot props nor a frame annotation). It
      ;; drives the scope-meta `:sensitive?` stamp on every emitted trace
-     ;; event. User `redact-interceptor` does NOT stamp `:sensitive?`;
-     ;; sensitivity is path-marked via the frame's app-db classification
-     ;; (there is no handler-meta annotation).
+     ;; event. Sensitivity is path-marked via the frame's app-db
+     ;; classification (there is no handler-meta annotation).
        :schema-sensitive? (boolean (seq redaction-paths))})))
 
 (defn- run-chain

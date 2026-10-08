@@ -143,7 +143,6 @@ known_red=(
   re-frame.live-run-frame-resolution-cljs-test
   re-frame.machine-handler-meta-test
   re-frame.partitioned-commit-test
-  re-frame.redact-interceptor-test
   re-frame.sensitive-stamping-test
   re-frame.subs-image-local-classification-cljs-test
 
