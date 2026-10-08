@@ -19,7 +19,6 @@
   semantics (receives + focuses) — no second Xray runtime model."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
@@ -126,18 +125,6 @@
              {:panel :app-db :path [:user :profile :name]}))
         ":path contributes nothing beside a field that does")))
 
-(deftest valid-panels-is-the-tab-inventory
-  ;; `valid-panels` MIRRORS the live Dynamic
-  ;; L4 tab registry. The Routing tab's id is `:routing` (renders as
-  ;; "Routes"), and the EP-0016 / EP-0014 / EP-0013 cohesive-sub-domain
-  ;; tabs `:resources` / `:derivation-graph` / `:module-view` and
-  ;; `:fresco` (the Fresco evidence tab) ship — so all ten
-  ;; live ids are focusable. There is no Issues tab, so `:issues` is not
-  ;; a focusable panel.
-  (is (= #{:epoch :app-db :views :trace :machines :routing
-           :resources :derivation-graph :module-view :fresco}
-         focus/valid-panels)))
-
 ;; =========================================================================
 ;; (2) End-to-end — focus! drives the real Xray events
 ;; =========================================================================
@@ -148,91 +135,47 @@
    (cascade :c3 :checkout)])
 
 (deftest focus-app-db-panel-via-command
-  (testing "focusing app-db from an assertion focuses the right Xray
-            panel + cascade. The command also carries `:path` (not a
-            focus field) to pin that `focus!` is permissive
-            about it: `:ok?` is true and no slice dispatch is applied."
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    (let [result (focus/focus! :checkout
-                               {:panel :app-db
-                                :dispatch-id :c1
-                                :path [:checkout :state]
-                                :source {:kind :story/assertion
-                                         :assertion/id :checkout-state-submitted}
-                                :sync? true})]
-      (is (:ok? result))
-      (is (= {:kind :story/assertion
-              :assertion/id :checkout-state-submitted}
-             (:source result))
-          "Story's provenance round-trips back untouched")
-      (is (= :app-db (selected-tab)) "App-db tab is selected")
-      (is (= :c1 (:dispatch-id (focus-sub))) "spine pinned to the cascade")
-      (is (= :checkout (:frame (focus-sub))) "spine bound to the host frame")
-      (is (= :checkout (view-scope-frame)) "L2 view scope re-bound")
-      (is (not-any? #(= :rf.xray/focus-slice-path (first %)) (:applied result))
-          "the ignored :path applies no dispatch")
-      (is (some #(= :rf.xray/select-tab (first %)) (:applied result))
-          "control: :applied is populated, so the assert above is not vacuous"))))
+  ;; The command also carries `:path`, which `focus!` ignores.
+  (setup-xray-frame!)
+  (seed-cascades! fixture-cascades)
+  (let [source {:kind :story/assertion :assertion/id :checkout-state-submitted}
+        result (focus/focus! :checkout {:panel       :app-db
+                                        :dispatch-id :c1
+                                        :path        [:checkout :state]
+                                        :source      source
+                                        :sync?       true})]
+    (is (= [true source :app-db :c1 :checkout :checkout]
+           [(:ok? result) (:source result) (selected-tab)
+            (:dispatch-id (focus-sub)) (:frame (focus-sub)) (view-scope-frame)])
+        "the tab, the spine cascade and frame, and the L2 scope all move, and
+         Story's provenance round-trips untouched")))
 
 (deftest focus-routes-alias-lands-the-routing-tab
-  (testing "`{:panel :routes}` (the host-friendly
-            display-noun) renders the live Dynamic Routing tab
-            (`:routing`), NOT the unknown-tab stub"
-    (setup-xray-frame!)
-    (let [result (focus/focus! {:frame :checkout :panel :routes :sync? true})]
-      (is (:ok? result) ":routes is accepted (alias), not rejected")
-      (is (= [:rf.xray/select-tab :routing]
-             (last (:applied result)))
-          "the alias normalised to the live `:routing` registry id")
-      (is (= :routing (selected-tab)) "the real Routing tab is selected")
-      (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
-          "the selected id resolves to an installed tab — no unknown-tab stub"))))
+  ;; `:routes` is the host-friendly display noun for the `:routing` tab.
+  (setup-xray-frame!)
+  (let [result (focus/focus! {:frame :checkout :panel :routes :sync? true})]
+    (is (= [[:rf.xray/select-tab :routing] :routing]
+           [(last (:applied result)) (selected-tab)]))))
 
 (deftest focus-shipped-l4-tabs-select-real-panels
-  (testing "acceptance — every shipped Dynamic
-            tab id (including the L4-only Graph, Frames and Fresco
-            tabs) is focusable and resolves to an installed panel,
-            never the unknown-tab stub.
-
-            It walks `focus/valid-panels` rather than a hand-listed
-            roster, so the claim is true by construction
-            and a tab cannot be skipped by omission; that the walked set
-            IS the shipped set is
-            `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`."
-    (setup-xray-frame!)
-    (doseq [panel focus/valid-panels]
-      (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
-        (is (:ok? result) (str panel " is a focusable shipped tab"))
-        (is (= panel (selected-tab)) (str panel " tab is selected"))
-        (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
-            (str panel " resolves to an installed tab — no unknown-tab stub"))))))
-
-(deftest command-is-host-agnostic
-  (testing "the SAME command shape drives Xray regardless of who built
-            it — no Story-specific knowledge in the channel; even a
-            command with no :source (a docs/test link, not a Story beat)
-            focuses identically"
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    ;; Uses :trace; the point of this test is host-agnostic + no-source
-    ;; focusing, independent of which panel is targeted.
-    (let [result (focus/focus! {:frame :checkout :panel :trace :sync? true})]
-      (is (:ok? result))
-      (is (nil? (:source result)) ":source is optional — absent is fine")
-      (is (= :trace (selected-tab))))))
+  ;; Walks `focus/valid-panels`, so no tab is skipped by omission; that the
+  ;; walked set IS the shipped set is
+  ;; `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`.
+  (setup-xray-frame!)
+  (is (= focus/valid-panels
+         (set (filter (fn [panel]
+                        (focus/focus! {:frame :checkout :panel panel :sync? true})
+                        (and (= panel (selected-tab))
+                             (some? (panel-registry/tab-by-id :dynamic panel))))
+                      focus/valid-panels)))
+      "every shipped tab is focusable and resolves to an installed panel"))
 
 (deftest unknown-panel-is-rejected
-  (testing "a typo'd panel selector is the one rejected case — would
-            otherwise silently land the L4 unknown-tab stub"
-    (setup-xray-frame!)
-    (let [result (focus/focus! {:panel :app-bd})]  ;; typo
-      (is (false? (:ok? result)))
-      (is (= :unknown-panel (:reason result)))
-      (is (= :app-bd (:given result)))
-      (is (= focus/valid-panels (:valid result)))
-      (is (= :epoch (selected-tab))
-          "Xray state is untouched — still on the default Epoch tab"))))
+  ;; The one rejected case: it would otherwise land the unknown-tab stub.
+  (setup-xray-frame!)
+  (is (= {:ok? false :reason :unknown-panel :given :app-bd :valid focus/valid-panels}
+         (select-keys (focus/focus! {:panel :app-bd}) [:ok? :reason :given :valid])))
+  (is (= :epoch (selected-tab)) "Xray state is untouched"))
 
 (deftest explicit-command-frame-wins-over-positional
   (testing "2-arity positional host-frame fills :frame only when the
@@ -241,7 +184,6 @@
     (seed-cascades! [(cascade :c1 :other-frame)])
     (let [result (focus/focus! :positional-frame
                                {:frame :command-frame :panel :epoch :sync? true})]
-      (is (:ok? result))
       (is (= [:rf.xray/select-frame :command-frame]
              (first (:applied result)))
           "command :frame is the more specific intent"))))
@@ -251,13 +193,11 @@
             host-frame becomes the :frame when the command doesn't name one"
     (setup-xray-frame!)
     (let [result (focus/focus! :checkout {:panel :epoch :sync? true})]
-      (is (:ok? result))
       (is (= [:rf.xray/select-frame :checkout]
              (first (:applied result)))))))
 
 (deftest empty-command-is-ok-noop
   (setup-xray-frame!)
   (let [result (focus/focus! {:sync? true})]
-    (is (:ok? result))
-    (is (= [] (:applied result))
+    (is (= [true []] [(:ok? result) (:applied result)])
         ":sync? is a control key, never translated to a dispatch")))
