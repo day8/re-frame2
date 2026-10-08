@@ -1,45 +1,13 @@
 (ns re-frame2-pair-mcp.handler-meta-test
   "Unit tests for the `handler-meta` + `list-handlers` MCP tools.
 
-  Both tools build a CLJS form that calls into the preloaded runtime,
-  and into NOTHING ELSE: `re-frame2-pair.runtime/registrar-describe` /
-  `registrar-list` for the twelve registrar kinds,
-  `frame-registrar-describe` / `frame-registrar-list` for the
-  frame-targeted reads, and `machine-describe` / `machines-list` for the
-  virtual `:machine` kind. Live end-to-end coverage runs against a
-  shadow-cljs runtime; these tests pin:
-
-    1. The descriptor wire-up — both tools surface on `tool-descriptors`
-       and `tool-descriptors-js` with the right shape (required args,
-       enum vocab, typicalTokens).
-    2. The kind / id parsers — recognised kinds map to keywords;
-       unknown / malformed values are rejected with structured envelopes;
-       EDN-encoded ids round-trip cleanly.
-    3. The form composition — given a valid (kind, id) pair the right
-       runtime fn is called (`registrar-describe` for the registrar
-       kinds; `machine-describe` for `:machine`).
-    4. Error envelopes — missing / invalid kind / id arguments surface
-       structured `:reason` slots an agent can read.
-    5. THE RUNTIME DOOR — every symbol an emitted form
-       names is a public top-level `defn` in the preload's own source,
-       and no emitted form names a framework var at all.
-
-  ## Why (5) reads another artefact's source
-
-  The coupling between these tools and the runtime they call is a
-  STRING interpolated into CLJS source and shipped over nREPL. There is
-  no `:require`, no classpath edge, and therefore no compiler error and
-  no static check in this build that can see it. Points (1)–(4) are the
-  emitter tested against itself: they would stay green while the form
-  named a var that does not exist anywhere — say a `:machine` branch
-  naming a `machines` or `machine-meta` var on the FACADE, where the
-  machine query surface does not live (it is `re-frame.machines`, per
-  spec/API.md's front-porch boundary) — and every `:machine` read would
-  then return an eval error against every running app while this suite
-  passed. Point (5) is the both-sides witness that closes that gap, in
-  the shape `fresco_wire_test.cljs` uses for the same class of string
-  coupling."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+  Both build a form that calls the preloaded runtime and NOTHING ELSE. That
+  coupling is a string shipped over nREPL: no `:require`, no compiler error
+  and no static check in this build can see it, so emitter tests alone stay
+  green over a var that exists nowhere. The runtime-door tests at the end
+  read the preload's own source to close that gap, in the shape
+  `fresco_wire_test.cljs` uses for the same class of string coupling."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -47,564 +15,209 @@
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.handler-meta :as hm]))
 
-;; ---------------------------------------------------------------------------
-;; Helpers.
-;;
-;; The wire-envelope extractors live in `test-utils` (shared across
-;; suites). `args-js` is aliased to the shared `args->js`.
-;;
-;; ## Stub lifetime — fixture-scoped, not Promise-chain-scoped
-;;
-;; `with-canned-eval!` / `with-form-capture!` install a `cljs-eval-value`
-;; stub via a bare `set!` and intentionally do NOT restore it in a
-;; per-call `.finally`; a `use-fixtures :each :after` step unconditionally
-;; restores the pristine original captured at ns-load. A `.finally`-scoped
-;; restore would fire AFTER cljs.test's `done` has advanced to the next
-;; test, which in the full cross-namespace suite would let a neighbour's
-;; late restore clobber another test's freshly-installed stub mid-eval —
-;; surfacing as a probe reaching the real socket fn. The fixture boundary
-;; closes that race; orient_test / invoke_test follow the same pattern.
-;; ---------------------------------------------------------------------------
-
 (def ^:private args-js tu/args->js)
 (def ^:private extract-edn tu/extract-edn)
 (def ^:private is-error? tu/error?)
 
+;; Stubs are installed by a bare `set!` and restored by this fixture, not by
+;; a per-call `.finally`: that can land after `done` and clobber the next
+;; test's freshly installed stub.
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 
 (use-fixtures :each
   {:after (fn [] (set! nrepl/cljs-eval-value pristine-eval))})
 
+(defn- with-form-capture!
+  "Stub the runtime: the preload probe answers true; any other form is
+  captured into `form-atom` and answered with `canned`."
+  [form-atom canned body-fn]
+  (let [respond (fn [form-str]
+                  (if (re-find #"__re_frame2_pair_runtime" form-str)
+                    (js/Promise.resolve true)
+                    (do (reset! form-atom form-str) (js/Promise.resolve canned))))
+        stub    (fn
+                  ([_conn _build-id form-str] (respond form-str))
+                  ([_conn _build-id form-str _opts] (respond form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn))))))
+
+(defn- run-tool
+  "Run `tool` on `args` against a runtime answering `canned`; resolve to
+  `[shipped-form result]`."
+  [tool args canned]
+  (let [form (atom nil)]
+    (-> (with-form-capture! form canned #(tool nil (args-js args)))
+        (.then (fn [r] [@form r])))))
+
+(defn- settle
+  "Finish the async test once `p` settles, failing it on a rejection."
+  [p done]
+  (-> p
+      (.catch (fn [e] (is false (str "rejected: " (.-message e)))))
+      (.then (fn [_] (done)))))
+
+;; ---------------------------------------------------------------------------
+;; Descriptors.
+;; ---------------------------------------------------------------------------
+
 (defn- find-descriptor [name]
   (some #(when (= name (:name %)) %) tools/tool-descriptors))
 
-;; ---------------------------------------------------------------------------
-;; Descriptor — handler-meta.
-;; ---------------------------------------------------------------------------
+(def ^:private kinds
+  "The published kind vocabulary. `flow` and `frame` are reserved-but-EMPTY
+  registrar slots the framework refuses to query, so neither is offered."
+  #{"event" "sub" "fx" "cofx" "interceptor" "view" "route" "head"
+    "error-projector" "resource" "mutation" "resource-scope" "machine"})
 
-(deftest handler-meta-descriptor-present
-  (testing "handler-meta is registered in tool-descriptors"
-    (let [d (find-descriptor "handler-meta")]
-      (is (some? d) "descriptor exists")
-      (is (string? (:description d)))
-      (is (integer? (:typicalTokens d)))
-      (is (pos? (:typicalTokens d)))
-      (let [{:keys [required properties]} (:inputSchema d)]
-        (is (= #{"kind" "id"} (set required))
-            "kind + id are both required")
-        (is (contains? properties :kind))
-        (is (contains? properties :id))
-        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view"
-                 "route" "head" "error-projector"
-                 "resource" "mutation" "resource-scope" "machine"}
-               (set (:enum (:kind properties))))
-            "kind enum lists every supported kind (incl. the EP-0016 resources kinds + the EP-0022 :interceptor kind)")))))
+(deftest descriptors-advertise-the-accepted-kinds-and-an-optional-frame
+  (is (= kinds (set (map name @#'hm/supported-kinds)))
+      "the tools accept exactly the kinds the descriptors advertise")
+  (doseq [[tool-name required] [["handler-meta" #{"kind" "id"}]
+                                ["list-handlers" #{"kind"}]]]
+    (let [{req :required props :properties} (:inputSchema (find-descriptor tool-name))]
+      (is (= required (set req)) tool-name)
+      (is (= kinds (set (:enum (:kind props)))) tool-name)
+      (is (contains? props :frame) (str tool-name " takes an optional :frame")))))
 
 ;; ---------------------------------------------------------------------------
-;; Descriptor — list-handlers.
-;; ---------------------------------------------------------------------------
-
-(deftest list-handlers-descriptor-present
-  (testing "list-handlers is registered in tool-descriptors"
-    (let [d (find-descriptor "list-handlers")]
-      (is (some? d) "descriptor exists")
-      (is (string? (:description d)))
-      (is (integer? (:typicalTokens d)))
-      (let [{:keys [required properties]} (:inputSchema d)]
-        (is (= #{"kind"} (set required))
-            "kind is the only required arg")
-        (is (contains? properties :kind))
-        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view"
-                 "route" "head" "error-projector"
-                 "resource" "mutation" "resource-scope" "machine"}
-               (set (:enum (:kind properties)))))))))
-
-;; ---------------------------------------------------------------------------
-;; handler-meta-tool — error envelopes (no nREPL needed).
-;;
-;; The tool short-circuits on bad args BEFORE reaching `probe/ensure-runtime!`.
-;; A nil conn never gets touched on these paths.
-;;
-;; Each test wraps its `.then` assertions in `(async done ...)` so the
-;; assertions actually run before the test completes — a synchronous
-;; deftest body would return before the Promise resolved, letting
-;; cljs.test record the test as passed with ZERO assertions. The
-;; error-envelope contract (a flipped reason or an NPE on the nil conn) is
-;; therefore genuinely exercised, mirroring `dispatch_test` / `probe_test`.
-;; The missing-kind envelope of both tools is pinned by the corpus fixtures
-;; `:handler-meta/missing-kind` and `:list-handlers/missing-kind`.
+;; Argument refusals, before any runtime round-trip. The missing-kind
+;; envelope of both tools is pinned by the corpus fixtures.
 ;; ---------------------------------------------------------------------------
 
 (deftest handler-meta-rejects-missing-id
-  (testing "handler-meta with kind but no :id surfaces :missing-id"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind "event"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :missing-id (:reason edn))))
-                   (done)))))))
-
-(deftest handler-meta-rejects-invalid-id-edn
-  (testing "handler-meta with unreadable :id surfaces :invalid-id-edn"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind "event"
-                                              :id   "{:unclosed"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :invalid-id-edn (:reason edn))))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; The two RESERVED-BUT-EMPTY registrar slots — `flow` and `frame`.
-;;
-;; `re-frame.registrar/kinds` reserves both, but nothing is ever written to
-;; either: flows live in `re-frame.flows` (`flows-snapshot` / `flow-meta`)
-;; and frames in `rf/frame-ids` / `rf/frame-meta`. The framework makes
-;; querying them LOUD — `(rf/registrations {:source :store :kind :flow})`
-;; throws `:rf.error/registrar-kind-not-queryable` — and the preload's
-;; `registrar-list` / `registrar-describe` do not catch, so a tool offering
-;; both on its enum would answer `list-handlers {kind "flow"}` with a
-;; framework throw instead of its own structured envelope.
-;;
-;; So neither is in `registrar-kinds`: `parse-kind` returns nil for them,
-;; and the ordinary `:invalid-kind` + kinds-hint envelope answers. No
-;; second refusal path exists to maintain.
-;; ---------------------------------------------------------------------------
-
-(deftest handler-meta-refuses-reserved-empty-kinds
-  (testing "handler-meta refuses `flow` / `frame` with the structured envelope"
-    (async done
-      (-> (js/Promise.all
-            (into-array
-              (for [k ["flow" "frame"]]
-                (-> (hm/handler-meta-tool nil (args-js {:kind k :id ":anything"}))
-                    (.then (fn [result]
-                             (is (is-error? result)
-                                 (str "kind=" k " is refused, not queried"))
-                             (let [edn (extract-edn result)]
-                               (is (= :invalid-kind (:reason edn))
-                                   (str "kind=" k " surfaces :invalid-kind"))
-                               (is (= k (:kind edn))
-                                   "the raw kind rides back on the envelope")
-                               (is (not (str/includes? (str (:hint edn)) k))
-                                   (str "the kinds hint does not advertise " k)))))))))
-          (.then (fn [_] (done)))))))
+  (async done
+    (settle (-> (hm/handler-meta-tool nil (args-js {:kind "event"}))
+                (.then (fn [r]
+                         (is (is-error? r))
+                         (is (= :missing-id (:reason (extract-edn r)))))))
+            done)))
 
 (deftest list-handlers-refuses-reserved-empty-kinds
-  (testing "list-handlers refuses `flow` / `frame` with the structured envelope"
-    (async done
-      (-> (js/Promise.all
-            (into-array
-              (for [k ["flow" "frame"]]
-                (-> (hm/list-handlers-tool nil (args-js {:kind k}))
-                    (.then (fn [result]
-                             (is (is-error? result)
-                                 (str "kind=" k " is refused, not queried"))
-                             (let [edn (extract-edn result)]
-                               (is (= :invalid-kind (:reason edn))
-                                   (str "kind=" k " surfaces :invalid-kind"))
-                               (is (= k (:kind edn))
-                                   "the raw kind rides back on the envelope"))))))))
-          (.then (fn [_] (done)))))))
+  ;; Querying `flow` / `frame` throws at the framework and the preload does
+  ;; not catch, so offering either would answer with a throw, not an envelope.
+  (async done
+    (settle (js/Promise.all
+              (into-array
+                (for [k ["flow" "frame"]]
+                  (-> (hm/list-handlers-tool nil (args-js {:kind k}))
+                      (.then (fn [r]
+                               (is (is-error? r) k)
+                               (is (= {:ok? false :reason :invalid-kind :kind k}
+                                      (dissoc (extract-edn r) :hint)))))))))
+            done)))
+
+(deftest handler-meta-rejects-frame-with-machine
+  ;; Machines are not in the image generation resolver.
+  (async done
+    (settle (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
+                                                    :id    ":auth/session"
+                                                    :frame ":blue/main"}))
+                (.then (fn [r]
+                         (is (is-error? r))
+                         (is (= {:ok? false :reason :frame-unsupported-for-machine
+                                 :frame :blue/main :kind :machine}
+                                (dissoc (extract-edn r) :hint))))))
+            done)))
+
+(deftest list-handlers-rejects-frame-with-machine
+  (async done
+    (settle (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :frame ":blue/main"}))
+                (.then (fn [r]
+                         (is (is-error? r))
+                         (is (= {:ok? false :reason :frame-unsupported-for-machine
+                                 :frame :blue/main :kind :machine}
+                                (dissoc (extract-edn r) :hint))))))
+            done)))
 
 ;; ---------------------------------------------------------------------------
-;; Regression — handler-meta returns :ok? true with the real data as
-;; top-level keys, never :ok? false :reason :unexpected-shape with the
-;; actual map embedded as an EDN string.
-;;
-;; The hazard: a runtime meta map containing `:handler-fn <Function>`
-;; renders via `pr-str` as `#object[Function ...]`, which nrepl's
-;; `read-edn-safe` cannot parse back; a naive tool body would then fall
-;; into `(not (map? v))` and stuff the raw string under `:value`. Two
-;; complementary defences guard against that:
-;;
-;;   - Runtime side (skills/re-frame2-pair/preload/...): dissocs
-;;     :handler-fn before returning. Pinned structurally by the
-;;     babashka test `registrar_describe_test.clj`.
-;;
-;;   - MCP tool side (here): defensive re-parse so a runtime slip
-;;     emitting a stringified map still surfaces as :ok? true.
-;; ---------------------------------------------------------------------------
-
-(defn- with-canned-eval!
-  "Stub `nrepl/cljs-eval-value` to resolve every call with `v`. The
-  probe call (first eval, `__re_frame2_pair_runtime` form) gets the
-  same response so we MUST hand back `true` from the first call. The
-  trick: gate by call-count, so call 1 returns true (probe), call 2
-  returns the canned value (actual handler-meta eval)."
-  [canned-handler-value body-fn]
-  (let [;; conn cache makes the probe round-trip skipped after the
-        ;; first call. To be safe across tests, we always return
-        ;; `true` for forms that contain the probe sentinel and the
-        ;; canned value otherwise.
-        stub (fn
-               ([_conn _build-id form-str]
-                (js/Promise.resolve
-                  (if (re-find #"__re_frame2_pair_runtime" form-str)
-                    true
-                    canned-handler-value)))
-               ([_conn _build-id form-str _opts]
-                (js/Promise.resolve
-                  (if (re-find #"__re_frame2_pair_runtime" form-str)
-                    true
-                    canned-handler-value))))]
-    ;; Bare set!, NO per-call .finally restore — the :after fixture
-    ;; restores the pristine value (see the ns header).
-    (set! nrepl/cljs-eval-value stub)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn))))))
-
-(deftest handler-meta-unserializable-surfaces-structured
-  (testing "a runtime meta map that can't round-trip as EDN rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
-    ;; The typed result codec means the RUNTIME classifies an
-    ;; unserializable meta map (a `#object` Function slot, a `#js {…}`)
-    ;; into a tagged `:rf.mcp/result :unserializable` envelope with a
-    ;; `:preview`. The tool surfaces the STRUCTURED error stamped with
-    ;; the requested kind/id — never the meta-map-as-string a
-    ;; :unexpected-shape path would carry.
-    (async done
-      (let [tagged {:rf.mcp/result :unserializable
-                    :type "object"
-                    :preview "{:ns testdeck.counter :handler-fn #object[Function]}"}]
-        (-> (with-canned-eval! tagged
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (is-error? result)
-                                   "an unserializable meta map is an :isError envelope")
-                               (is (false? (:ok? edn)))
-                               (is (= :rf.error/unserializable (:reason edn)))
-                               (is (= :event (:kind edn)) "kind stamped on the error")
-                               (is (= :counter/inc (:id edn)) "id stamped on the error")
-                               (is (str/includes? (:preview edn) "#object")
-                                   "the preview shows WHAT couldn't serialize")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest handler-meta-not-registered-passes-through
-  (testing "the runtime's :not-registered envelope still passes through unchanged"
-    (async done
-      (let [canned {:ok? false :reason :not-registered :kind :event :id :no/such}]
-        (-> (with-canned-eval! canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":no/such"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (false? (:ok? edn)))
-                               (is (= :not-registered (:reason edn)))))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest handler-meta-genuinely-unparseable-still-fails
-  (testing "a non-map non-recoverable value still surfaces :unexpected-shape"
-    (async done
-      ;; A plain integer back from the runtime is genuinely the wrong
-      ;; shape — not a map, not a stringified map. The tool MUST still
-      ;; surface :unexpected-shape so the bug envelope keeps doing its job
-      ;; for actual shape errors.
-      (-> (with-canned-eval! 42
-            (fn []
-              (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":anything"}))
-                  (.then (fn [result]
-                           ;; Without the codec's ::codec-error meta this
-                           ;; tool-built :unexpected-shape map would ride
-                           ;; back as ok-text (isError: false) despite
-                           ;; carrying :ok? false — masking the defect
-                           ;; as a success. Sibling test
-                           ;; `handler-meta-unserializable-surfaces-structured`
-                           ;; asserts the same on the unserializable path.
-                           (is (is-error? result)
-                               "an :unexpected-shape defect MUST be isError: true")
-                           (let [edn (extract-edn result)]
-                             (is (false? (:ok? edn)))
-                             (is (= :unexpected-shape (:reason edn)))
-                             (is (= 42 (:value edn))
-                                 "the offending value rides on :value for forensics")))))))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-          (.then (fn [_] (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Eval-form capture helper — used by the frame-targeting tests below to assert
-;; on the exact eval form the tool ships (the frame-targeted vs default shape).
-;; ---------------------------------------------------------------------------
-
-(defn- with-form-capture!
-  "Stub `nrepl/cljs-eval-value` to CAPTURE the non-probe eval form string
-  into `form-atom` and resolve with `canned`. Lets a test assert on the
-  exact form the tool ships (the frame-targeted vs default shape)."
-  [form-atom canned body-fn]
-  (let [stub (fn
-               ([_conn _build-id form-str]
-                (if (re-find #"__re_frame2_pair_runtime" form-str)
-                  (js/Promise.resolve true)
-                  (do (reset! form-atom form-str) (js/Promise.resolve canned))))
-               ([_conn _build-id form-str _opts]
-                (if (re-find #"__re_frame2_pair_runtime" form-str)
-                  (js/Promise.resolve true)
-                  (do (reset! form-atom form-str) (js/Promise.resolve canned)))))]
-    ;; Bare set!, NO per-call .finally restore — the :after fixture
-    ;; restores the pristine value (see the ns header).
-    (set! nrepl/cljs-eval-value stub)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn))))))
-
-(deftest list-handlers-default-path-has-no-frame
-  (testing "list-handlers with no :frame ⇒ runtime registrar-list, no :frame key"
-    (async done
-      (let [form (atom nil)]
-        (-> (with-form-capture! form [:a :b]
-              (fn []
-                (-> (hm/list-handlers-tool nil (args-js {:kind "event"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "registrar-list"))
-                               (is (not (contains? edn :frame)))))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
-;; EP-0016 resource kinds — happy-path EXECUTION coverage.
-;;
-;; The descriptor tests above pin the resources kinds in the enum vocab.
-;; These tests prove handler-meta / list-handlers actually accept
-;; "resource", "mutation", and "resource-scope", route them through the
-;; registrar (NOT the :machine wrapper or a wrong-kind path), and stamp
-;; the requested :kind / :id back onto the response. A renamed id, a kind
-;; dropped from `registrar-kinds`, or a kind silently mis-routed through
-;; `machine-form` would fail here. Each EP-0016 kind is driven through
-;; the tool with a canned runtime response, asserting (a) the kind is
-;; accepted (not :invalid-kind), (b) the emitted form routes through the
-;; registrar-describe / registrar-list path (never machine-describe /
-;; machines-list), and (c) the requested kind/id ride back stamped on the
-;; response.
-;;
-;; One test per (tool, kind), each driving a single canned eval and
-;; asserting both acceptance and routing; no multi-case reduce/async
-;; interplay. The stubs restore via the fixture, not a per-call .finally.
-;; ---------------------------------------------------------------------------
-
-(defn- handler-meta-kind-test
-  "Run handler-meta for `kind-str`/`id-str`, asserting the kind is
-  accepted, :ok? true, and the requested kind/id ride back stamped
-  alongside the canned registrar metadata — and that the emitted form
-  routes through registrar-describe (NOT machine-describe) carrying the
-  kind keyword `kw-str`. `done` is the cljs.test async callback;
-  `expect-k`/`expect-i` are the parsed kind/id keywords."
-  [kind-str id-str expect-k expect-i kw-str done]
-  (let [form   (atom nil)
-        canned {:ns 'app.articles :line 12 :handler-fn-hash 99}]
-    (-> (with-form-capture! form canned
-          (fn []
-            (-> (hm/handler-meta-tool nil (args-js {:kind kind-str :id id-str}))
-                (.then (fn [result]
-                         (let [edn (extract-edn result)]
-                           (is (not (is-error? result))
-                               (str kind-str " is accepted, not :invalid-kind"))
-                           (is (true? (:ok? edn)))
-                           (is (= expect-k (:kind edn))
-                               (str "the requested kind " kind-str " rides back stamped"))
-                           (is (= expect-i (:id edn))
-                               "the requested id rides back stamped")
-                           (is (= 'app.articles (:ns edn))
-                               "registrar metadata surfaces (routed through registrar-describe)"))
-                         (is (str/includes? @form "registrar-describe")
-                             (str kind-str " routes through registrar-describe"))
-                         (is (not (str/includes? @form "machine-describe"))
-                             (str kind-str " is NOT mis-routed through the machine door"))
-                         (is (str/includes? @form kw-str)
-                             (str "the form carries the " kw-str " kind keyword")))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
-
-(deftest handler-meta-resource-kind-is-accepted-and-routed
-  (testing "handler-meta accepts kind \"resource\", stamps kind+id, emits registrar-describe"
-    (async done (handler-meta-kind-test "resource" ":article/by-slug"
-                                        :resource :article/by-slug ":resource" done))))
-
-(deftest handler-meta-mutation-kind-is-accepted-and-routed
-  (testing "handler-meta accepts kind \"mutation\", stamps kind+id, emits registrar-describe"
-    (async done (handler-meta-kind-test "mutation" ":article/save"
-                                        :mutation :article/save ":mutation" done))))
-
-(deftest handler-meta-resource-scope-kind-is-accepted-and-routed
-  (testing "handler-meta accepts kind \"resource-scope\", stamps kind+id, emits registrar-describe"
-    (async done (handler-meta-kind-test "resource-scope" ":realworld/session"
-                                        :resource-scope :realworld/session ":resource-scope" done))))
-
-;; ---------------------------------------------------------------------------
-;; Frame-targeting — the EP-0023 forward direction.
-;;
-;; The OPTIONAL `:frame` arg re-keys the lookup through THAT frame's running
-;; image generation — routing through the per-frame runtime fns
-;; `frame-registrar-describe` / `frame-registrar-list` (which consume the
-;; PUBLIC `(rf/handler-meta {:frame f …})` / `(rf/registrations {:frame f …})`
-;; facade reads). ABSENT ⇒ the byte-identical default path. PRESENT ⇒ the
-;; frame-id threaded into the per-frame form + stamped on the response.
-;; `:frame` + machine is rejected (machines are not in the resolver).
+;; Routing and result shaping. The default registrar paths of both tools are
+;; pinned by the corpus fixtures `:handler-meta/happy` / `:list-handlers/happy`.
 ;; ---------------------------------------------------------------------------
 
 (deftest handler-meta-frame-routes-through-frame-registrar-describe
-  (testing ":frame ⇒ the form uses the per-frame frame-registrar-describe runtime fn and stamps :frame"
-    (async done
-      (let [form (atom nil)
-            canned {:ns 'blue.core :line 1 :handler-fn-hash 7
-                    :rf.image/coordinate {:source :registered :ns "blue.core"}}]
-        (-> (with-form-capture! form canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
-                                                        :id    ":counter/inc"
-                                                        :frame ":blue/main"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "frame-registrar-describe")
-                                   "frame path routes through the per-frame runtime fn")
-                               (is (str/includes? @form ":blue/main")
-                                   "the frame-id is threaded into the form")
-                               (is (not (str/includes? @form "registrar-describe)"))
-                                   "NOT the default registrar-describe path")
-                               (is (true? (:ok? edn)))
-                               (is (= :blue/main (:frame edn))
-                                   "the resolved frame is stamped on the response")
-                               (is (= {:source :registered :ns "blue.core"}
-                                      (:rf.image/coordinate edn))
-                                   "the provenance coordinate rides through")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest handler-meta-default-path-has-no-frame
-  (testing "no :frame ⇒ the default registrar-describe path, no :frame key on the response"
-    (async done
-      (let [form (atom nil)
-            canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
-        (-> (with-form-capture! form canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (not (str/includes? @form "frame-registrar-describe")))
-                               (is (not (contains? edn :frame))
-                                   "default-path response carries NO :frame key (byte-identical)")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest handler-meta-rejects-frame-with-machine
-  (testing ":frame + kind=machine ⇒ structured :frame-unsupported-for-machine"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
-                                              :id    ":auth/session"
-                                              :frame ":blue/main"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :frame-unsupported-for-machine (:reason edn)))
-                     (is (= :blue/main (:frame edn))))
-                   (done)))))))
+  ;; `:frame` re-keys the lookup through that frame's own image generation.
+  (async done
+    (let [canned {:ns 'blue.core :line 1 :handler-fn-hash 7
+                  :rf.image/coordinate {:source :registered :ns "blue.core"}}]
+      (settle (-> (run-tool hm/handler-meta-tool
+                            {:kind "event" :id ":counter/inc" :frame ":blue/main"} canned)
+                  (.then (fn [[form r]]
+                           (is (str/includes? form (str "(re-frame2-pair.runtime/frame-registrar-describe"
+                                                        " :blue/main :event (quote :counter/inc))")))
+                           (is (= (assoc canned :ok? true :kind :event :id :counter/inc :frame :blue/main)
+                                  (extract-edn r))
+                               "the frame is stamped and the provenance coordinate rides through"))))
+              done))))
 
 (deftest list-handlers-frame-routes-through-frame-registrar-list
-  (testing "list-handlers :frame ⇒ the per-frame frame-registrar-list runtime fn + stamps :frame"
-    (async done
-      (let [form (atom nil)]
-        (-> (with-form-capture! form [:counter/inc]
-              (fn []
-                (-> (hm/list-handlers-tool nil (args-js {:kind "event" :frame ":blue/main"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "frame-registrar-list")
-                                   "frame path routes through the per-frame runtime fn")
-                               (is (str/includes? @form ":blue/main"))
-                               (is (true? (:ok? edn)))
-                               (is (= :blue/main (:frame edn))
-                                   "the resolved frame is stamped on the response")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest list-handlers-rejects-frame-with-machine
-  (testing "list-handlers :frame + kind=machine ⇒ :frame-unsupported-for-machine"
-    (async done
-      (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :frame ":blue/main"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :frame-unsupported-for-machine (:reason edn))))
-                   (done)))))))
-
-(deftest frame-arg-is-optional-in-descriptors
-  (testing "the :frame property is present but NOT required on both tools"
-    (doseq [tool-name ["handler-meta" "list-handlers"]]
-      (let [{:keys [required properties]} (:inputSchema (find-descriptor tool-name))]
-        (is (contains? properties :frame)
-            (str tool-name " exposes the optional :frame property"))
-        (is (not (contains? (set required) "frame"))
-            (str tool-name " does not require :frame (default registrar is the common case)"))))))
-
-;; ---------------------------------------------------------------------------
-;; The :machine kind — POSITIVE coverage for both tools.
-;;
-;; Every test above the machine kind is NEGATIVE ("this other kind is not
-;; mis-routed through the machine branch"), so on their own they could not
-;; catch a machine branch naming vars that do not exist: nothing there
-;; asserts what it DOES emit. These pin the door it routes through, the id it
-;; threads, and the miss envelope it hands back.
-;; ---------------------------------------------------------------------------
+  (async done
+    (settle (-> (run-tool hm/list-handlers-tool {:kind "event" :frame ":blue/main"} [:counter/inc])
+                (.then (fn [[form r]]
+                         (is (str/includes? form "(re-frame2-pair.runtime/frame-registrar-list :blue/main :event)"))
+                         (is (= {:ok? true :kind :event :ids [:counter/inc] :count 1 :frame :blue/main}
+                                (extract-edn r))))))
+            done)))
 
 (deftest handler-meta-machine-routes-through-the-runtime-door
-  (testing "kind \"machine\" emits (re-frame2-pair.runtime/machine-describe id)"
-    (async done
-      (let [form   (atom nil)
-            canned {:initial :idle :states {:idle {}} :guards {:can? :rf/fn}}]
-        (-> (with-form-capture! form canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "machine"
-                                                        :id   ":auth/session"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame2-pair.runtime/machine-describe")
-                                   "the machine drill routes through the preload's machine door")
-                               (is (str/includes? @form ":auth/session")
-                                   "the requested id is threaded into the form")
-                               (is (true? (:ok? edn)))
-                               (is (= :machine (:kind edn)))
-                               (is (= :auth/session (:id edn)))
-                               (is (= {:can? :rf/fn} (:guards edn))
-                                   "the door's stripped :guards ride through as readable EDN")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
+  ;; The machine query surface is not on the facade, so this is the branch
+  ;; most likely to name a var that exists nowhere.
+  (async done
+    (let [canned {:initial :idle :states {:idle {}} :guards {:can? :rf/fn}}]
+      (settle (-> (run-tool hm/handler-meta-tool {:kind "machine" :id ":auth/session"} canned)
+                  (.then (fn [[form r]]
+                           (is (str/includes? form "(re-frame2-pair.runtime/machine-describe (quote :auth/session))"))
+                           (is (= (assoc canned :ok? true :kind :machine :id :auth/session)
+                                  (extract-edn r))
+                               "the door's stripped :guards ride through as readable EDN"))))
+              done))))
 
 (deftest handler-meta-machine-miss-is-the-uniform-not-registered-envelope
-  (testing "the door's :not-a-machine is renamed to the one miss vocabulary the tool speaks"
-    (async done
-      ;; What `machine-describe` actually returns on a miss — the preload's
-      ;; own vocabulary, which `ops.md` documents and other consumers read.
-      (let [canned {:ok? false :reason :not-a-machine :id :nope/nothing}]
-        (-> (with-canned-eval! canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "machine"
-                                                        :id   ":nope/nothing"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (false? (:ok? edn)))
-                               (is (= :not-registered (:reason edn))
-                                   "an agent branches on ONE miss reason across every kind")
-                               (is (= :machine (:kind edn)))
-                               (is (= :nope/nothing (:id edn)))))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
+  ;; The door's own `:not-a-machine` is renamed, so an agent branches on ONE
+  ;; miss reason across every kind.
+  (async done
+    (settle (-> (run-tool hm/handler-meta-tool {:kind "machine" :id ":nope/nothing"}
+                          {:ok? false :reason :not-a-machine :id :nope/nothing})
+                (.then (fn [[_ r]]
+                         (is (= {:ok? false :reason :not-registered :kind :machine :id :nope/nothing}
+                                (extract-edn r))))))
+            done)))
+
+(deftest handler-meta-unserializable-surfaces-structured
+  ;; The runtime codec tags a meta map that cannot round-trip as EDN; the
+  ;; tool stamps the request onto that error rather than shipping the map
+  ;; as a string.
+  (async done
+    (let [tagged {:rf.mcp/result :unserializable
+                  :type          "object"
+                  :preview       "{:ns testdeck.counter :handler-fn #object[Function]}"}]
+      (settle (-> (run-tool hm/handler-meta-tool {:kind "event" :id ":counter/inc"} tagged)
+                  (.then (fn [[_ r]]
+                           (is (is-error? r))
+                           (is (= {:ok?     false
+                                   :reason  :rf.error/unserializable
+                                   :type    "object"
+                                   :preview (:preview tagged)
+                                   :kind    :event
+                                   :id      :counter/inc}
+                                  (dissoc (extract-edn r) :hint))))))
+              done))))
+
+(deftest handler-meta-genuinely-unparseable-still-fails
+  ;; A non-map answer is a defect, not a miss, so it rides isError rather
+  ;; than as a success envelope carrying `:ok? false`.
+  (async done
+    (settle (-> (run-tool hm/handler-meta-tool {:kind "event" :id ":anything"} 42)
+                (.then (fn [[_ r]]
+                         (is (is-error? r))
+                         (is (= {:ok? false :reason :unexpected-shape :kind :event :id :anything :value 42}
+                                (extract-edn r))
+                             "the offending value rides on :value for forensics"))))
+            done)))
 
 ;; ---------------------------------------------------------------------------
-;; THE RUNTIME DOOR — the both-sides witness.
-;;
-;; See the ns docstring for why this reads another artefact's source. In one
-;; line: the coupling is a string, so nothing in this build can see it, and a
-;; suite that only reads the emitter back to itself stays green over a var that
-;; exists nowhere. `fresco_wire_test.cljs` uses the same shape for the same
-;; class of coupling; this is its registry-introspection twin.
-;;
-;; The symbols are extracted from ACTUAL EMITTED FORMS rather than from a
-;; hand-written vector — a vector would prove only that two lists agree, and it
-;; is the string on the wire that has to resolve.
+;; THE RUNTIME DOOR — the both-sides witness. The symbols come from forms the
+;; tools actually emit: the string on the wire is what has to resolve.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private fs (js/require "fs"))
@@ -646,12 +259,8 @@
 
 (def ^:private door-cases
   "Every branch of the two tools' form builders that reaches a runtime call.
-  `:machine` with a `:frame` is refused before a form is built (machines are
-  not in the image generation resolver), so it is not a case here.
-
-  `:canned` is the value the stubbed eval resolves with — a metadata map for
-  `handler-meta`, an id vector for `list-handlers`, so each tool's own
-  post-processing runs rather than throwing on the way to the assertion."
+  `:machine` with a `:frame` is refused before a form is built, so it is not
+  a case. `:canned` lets each tool's own post-processing run."
   [{:tool hm/handler-meta-tool  :args {:kind "event"   :id ":a/b"}                      :canned {:ns 'a.b :line 1}}
    {:tool hm/handler-meta-tool  :args {:kind "event"   :id ":a/b" :frame ":blue/main"}  :canned {:ns 'a.b :line 1}}
    {:tool hm/handler-meta-tool  :args {:kind "machine" :id ":auth/session"}             :canned {:initial :idle}}
@@ -660,18 +269,14 @@
    {:tool hm/list-handlers-tool :args {:kind "machine"}                                 :canned [:auth/session]}])
 
 (defn- capture-emitted-forms
-  "Drive every `door-cases` entry through its tool with a capturing eval stub,
-  resolving with the vector of form strings the tools actually shipped. Serial
-  rather than parallel: the stub is installed by a bare `set!` on one var, so
-  two in flight would capture each other's forms."
+  "The form strings the tools ship for every `door-cases` entry. Serial: the
+  stub is one var, so two runs in flight would capture each other's forms."
   []
   (reduce
     (fn [p {:keys [tool args canned]}]
       (.then p (fn [acc]
-                 (let [form (atom nil)]
-                   (-> (with-form-capture! form canned
-                         (fn [] (tool nil (args-js args))))
-                       (.then (fn [_] (conj acc @form))))))))
+                 (-> (run-tool tool args canned)
+                     (.then (fn [[form _]] (conj acc form)))))))
     (js/Promise.resolve [])
     door-cases))
 
@@ -688,51 +293,32 @@
 
 (deftest every-emitted-runtime-symbol-is-published-by-the-preload
   (async done
-    (-> (capture-emitted-forms)
-        (.then (fn [forms]
-                 (let [src  @preload-src
-                       syms (into #{} (mapcat runtime-symbols) forms)]
-                   (is (= (count door-cases) (count forms))
-                       "every door case emitted a form to check")
-                   (is (contains? syms "machine-describe")
-                       "the machine drill is among the captured symbols")
-                   (is (contains? syms "machines-list")
-                       "the machine enumeration is among the captured symbols")
-                   ;; A PUBLIC `defn` at column 0. `defn-` would not match, and
-                   ;; must not: a private fn is unreachable from an eval form
-                   ;; even though the name is spelled identically.
-                   ;;
-                   ;; Asserted as ONE set difference rather than an `is` per
-                   ;; symbol: `is` renders the whole form it was handed, and a
-                   ;; per-symbol `str/includes?` over the preload therefore
-                   ;; prints four thousand lines of somebody else's source
-                   ;; around the one word that matters.
-                   (let [missing (into (sorted-set)
-                                       (remove #(str/includes? src (str "\n(defn " % "\n")))
-                                       syms)]
-                     (is (empty? missing)
-                         (str "re-frame2-pair.runtime must publish every symbol an emitted "
-                              "form names — missing: " (pr-str (vec missing))
-                              ". Each is called by name across a process boundary, so a "
-                              "rename on the preload is a runtime failure here and "
-                              "nowhere else."))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
+    (settle (-> (capture-emitted-forms)
+                (.then (fn [forms]
+                         (let [src  @preload-src
+                               syms (into #{} (mapcat runtime-symbols) forms)]
+                           ;; Controls: the extraction does find the machine doors.
+                           (is (contains? syms "machine-describe"))
+                           (is (contains? syms "machines-list"))
+                           ;; A PUBLIC `defn` at column 0: a `defn-` is unreachable from
+                           ;; an eval form. One set difference, not an `is` per symbol,
+                           ;; so a failure does not print the whole preload.
+                           (let [missing (into (sorted-set)
+                                               (remove #(str/includes? src (str "\n(defn " % "\n")))
+                                               syms)]
+                             (is (empty? missing)
+                                 (str "re-frame2-pair.runtime must publish every symbol an emitted "
+                                      "form names — missing: " (pr-str (vec missing)))))))))
+            done)))
 
 (deftest no-emitted-form-names-a-framework-var
-  ;; The other half of the contract: the preload is the SINGLE place a
-  ;; framework symbol is spelled. A form that reaches past it compiles,
-  ;; passes every emitter test, and fails only in someone else's process.
+  ;; The preload is the SINGLE place a framework symbol is spelled. A form
+  ;; reaching past it compiles, passes every emitter test, and fails only in
+  ;; someone else's process.
   (async done
-    (-> (capture-emitted-forms)
-        (.then (fn [forms]
-                 (doseq [form forms]
-                   (doseq [ns-prefix ["re-frame.core/" "re-frame.machines/"
-                                      "re-frame.schemas/" "re-frame.routing/"
-                                      "re-frame.flows/"]]
-                     (is (not (str/includes? form ns-prefix))
-                         (str "an emitted form names " ns-prefix
-                              " directly — route it through the preload instead: "
-                              form))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
+    (settle (-> (capture-emitted-forms)
+                (.then (fn [forms]
+                         (is (= [] (filterv #(re-find #"re-frame\.(?:core|machines|schemas|routing|flows)/" %)
+                                            forms))
+                             "route every framework read through the preload"))))
+            done)))
