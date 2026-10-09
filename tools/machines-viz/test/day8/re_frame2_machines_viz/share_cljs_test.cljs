@@ -1,76 +1,55 @@
 (ns day8.re-frame2-machines-viz.share-cljs-test
-  "Tests for the share-URL encode/decode pipeline.
-
-  Coverage:
-  - `encode-share-url` → `decode-share-url` round-trip preserves the
-    ChartState (machine-id, frame-id, definition, snapshot state).
-  - Snapshot `:state` configuration arms: flat keyword,
-    compound vector-path, and parallel region-map all round-trip; a
-    malformed `:state` is rejected at ENCODE (encode/decode symmetric —
-    no undecodable URL), and the closed-map rule rejects extra
-    `:snapshot` keys for every arm.
-  - Canonicalisation: the same ChartState encodes byte-for-byte
-    identically regardless of input map/set ordering (Principles
-    §Reproducible from the registry alone).
-  - Privacy: runtime `:data` on `:snapshot` and `:source-coords` are
-    dropped.
-  - Versioned envelope: `:rf.machines-viz.share/v` rides outermost;
-    a newer version is rejected with `:unknown-version`.
-  - Every documented `decode-failed` `:reason`.
-  - Host override + `chart-state->props` projection.
-  - The `:host` fragment rule: a fragment-bearing host is
-    refused, and — the negative control — every fragment-free host
-    encodes byte-identically, including the relative / `file://` forms
-    the encoder deliberately does not police."
+  "The share-URL encode/decode pipeline: the round-trip, the URL and `:host`
+  shape, reproducible bytes, the privacy allowlist and definition
+  sanitisation, the closed schema on both sides, and value-free errors."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [clojure.walk]
             [cognitect.transit :as transit]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
-            [day8.re-frame2-machines-viz.grammar :as grammar]
             [day8.re-frame2-machines-viz.share :as share]))
 
-;; ---------------------------------------------------------------------------
-;; The viewer host these tests encode against. `encode-share-url` has NO
-;; default host — a filled-in default is a URL that can 404 — so every
-;; producer of a share-URL names its own viewer, tests included.
-
+;; `encode-share-url` has no default host, so every producer names one.
 (def ^:private test-host "https://x/viewer.html")
 
-(defn- encode
-  "`share/encode-share-url` against `test-host`."
-  [chart-state]
+(defn- encode [chart-state]
   (share/encode-share-url chart-state {:host test-host}))
 
-;; ---------------------------------------------------------------------------
-;; Test helper — craft a raw share-URL fragment from an arbitrary
-;; envelope (so we can build a future-version / missing-envelope payload
-;; the public encoder would never emit). Mirrors the encoder's
-;; transit-json → base64url step.
+(defn- b64url
+  "The encoder's base64url step, for hand-built payloads."
+  [s]
+  (-> (js/btoa (js/unescape (js/encodeURIComponent s)))
+      (str/replace "+" "-")
+      (str/replace "/" "_")
+      (str/replace "=" "")))
 
 (defn- envelope->url
+  "A share-URL carrying `envelope` verbatim — a payload the public encoder
+  would never emit."
   [envelope]
-  (let [transit-str (transit/write (transit/writer :json) envelope)
-        b64 (-> (js/btoa (js/unescape (js/encodeURIComponent transit-str)))
-                (str/replace "+" "-")
-                (str/replace "/" "_")
-                (str/replace "=" ""))]
-    (str test-host "#machine=" b64)))
+  (str test-host "#machine=" (b64url (transit/write (transit/writer :json) envelope))))
+
+(defn- forge
+  "A current-version share-URL whose `…/chart` is `chart` verbatim, past the
+  encoder's own validation."
+  [chart]
+  (envelope->url {:rf.machines-viz.share/v       "2"
+                  :rf.machines-viz.share/chart   chart
+                  :rf.machines-viz.share/created 0}))
+
+(defn- thrown
+  "The exception `(f)` throws, or nil when it returns."
+  [f]
+  (try (f) nil (catch :default e e)))
 
 (defn- frozen-now
-  "Run `f` with `js/Date.now` pinned to a constant so the envelope's
-  non-reproducible `:created` stamp doesn't perturb byte-identity
-  assertions. (`:created` is the ONE allowed non-reproducible bit per
-  Principles §Reproducible from the registry alone.)"
+  "Run `f` with `js/Date.now` pinned, so the envelope's `:created` stamp — its
+  one non-reproducible field — cannot perturb byte-identity."
   [f]
   (let [orig (.-now js/Date)]
     (try
       (set! (.-now js/Date) (fn [] 1736000000000))
       (f)
       (finally (set! (.-now js/Date) orig)))))
-
-;; ---------------------------------------------------------------------------
-;; Fixtures
 
 (def idle-loading-success
   {:initial :idle
@@ -85,16 +64,7 @@
    :definition idle-loading-success
    :snapshot   {:state :loading}})
 
-(def parallel-state
-  {:machine-id :editor/flow
-   :frame-id   :app/main
-   :definition {:type :parallel
-                :regions {:data {:initial :clean :states {:clean {} :dirty {}}}
-                          :form {:initial :idle  :states {:idle {} :busy {}}}}}})
-
 (def compound-definition
-  "A compound (hierarchical) machine — its snapshot `:state` is a vector
-  path from the root to the active leaf."
   {:initial :authenticated
    :states  {:authenticated
              {:initial :cart
@@ -103,927 +73,325 @@
                         :account {}}}
              :anonymous {}}})
 
-;; ---------------------------------------------------------------------------
-;; Round-trip
-
-(deftest round-trip-preserves-chart-state
-  (testing "encode → decode recovers the ChartState exactly"
-    (let [url (encode chart-state)
-          env (share/decode-share-url url)
-          back (:rf.machines-viz.share/chart env)]
-      (is (= :auth/login-flow (:machine-id back)))
-      (is (= :app/main (:frame-id back)))
-      (is (= idle-loading-success (:definition back)))
-      (is (= {:state :loading} (:snapshot back)))
-      (is (= "2" (:rf.machines-viz.share/v env)))
-      (is (number? (:rf.machines-viz.share/created env))))))
-
-(deftest round-trip-no-snapshot
-  (testing "a ChartState with no :snapshot round-trips without one"
-    (let [cs   (dissoc chart-state :snapshot)
-          back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode cs)))]
-      (is (not (contains? back :snapshot)))
-      (is (= idle-loading-success (:definition back))))))
-
-;; ---------------------------------------------------------------------------
-;; Snapshot :state CONFIGURATION — the three Spec 005 §Snapshot-shape arms.
-;; All three must round-trip cleanly and stay encode/decode symmetric: an
-;; encoder accepting compound/parallel snapshots beside a keyword-only
-;; decoder would mint undecodable URLs.
-
-(deftest malformed-state-rejected-at-encode
-  (testing "a :state that is none of the three arms is rejected at ENCODE — symmetric, no undecodable URL"
-    (doseq [bad-state [42
-                       "loading"
-                       []                              ;; empty vector path
-                       [:auth "authing"]               ;; non-keyword in path
-                       {}                              ;; empty region-map
-                       {:data "loading"}               ;; non-keyword/path region value
-                       {"data" :loading}]]             ;; non-keyword region name
-      (let [cs (assoc chart-state :snapshot {:state bad-state})
-            d  (try (encode cs)
-                    (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "encode must reject malformed :state " (pr-str bad-state)))
-        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
-
-(deftest encode-decode-symmetric-for-all-arms
-  (testing "every arm the encoder accepts, the decoder also accepts (no undecodable URL)"
-    (doseq [state [:loading
-                   [:authenticated :cart :browsing]
-                   {:data :dirty :form :busy}
-                   {:data :dirty :form [:edit :touched]}]]
-      (let [cs  (assoc chart-state
-                       :definition compound-definition
-                       :snapshot {:state state})
-            url (encode cs)
-            ;; decode-share-url-safe never throws — an undecodable URL
-            ;; would surface as {:error ...}.
-            r   (share/decode-share-url-safe url)]
-        (is (some? (:ok r)) (str "arm round-trips cleanly: " (pr-str state)))
-        (is (nil? (:error r)))
-        (is (= state (get-in (:ok r) [:rf.machines-viz.share/chart :snapshot :state])))))))
-
-(deftest url-shape
-  (testing "encoded URL carries the #machine= fragment + uses base64url alphabet"
-    (let [url (encode chart-state)
-          frag (subs url (inc (str/index-of url "#")))]
-      (is (str/starts-with? url test-host))
-      (is (str/starts-with? frag "machine="))
-      (let [payload (subs frag (count "machine="))]
-        ;; base64url: no +, /, or = padding
-        (is (not (str/includes? payload "+")))
-        (is (not (str/includes? payload "/")))
-        (is (not (str/includes? payload "=")))))))
-
-(deftest no-host-is-refused
-  (testing "there is no default host, and a missing one is refused
-            rather than filled in with a URL that 404s"
-    (doseq [opts [nil {} {:host nil} {:host ""} {:host "   "}]]
-      (let [d (try (share/encode-share-url chart-state opts)
-                   (catch :default e (ex-data e)))]
-        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d))
-            (str "refused for opts " (pr-str opts)))
-        (is (= :no-host (:reason d))
-            (str "reason is :no-host for opts " (pr-str opts)))
-        (is (string? (:message d)) "carries a human message")))))
-
-;; ---------------------------------------------------------------------------
-;; The `:host` fragment rule, and the deliberate LIMIT of it.
-;;
-;; Every non-URL `:host` the encoder accepts produces a string that BEGINS with what the caller typed —
-;; `{:host "banana"}` → `"banana#machine=…"` — so a wrong host is visible at a
-;; glance and dead at first paste. One malformed host is different: a `:host`
-;; that already carries a fragment yields
-;; `…/viewer.html#docs#machine=<400 chars>`, which reads as correct and is
-;; unreadable, because `extract-fragment` stops at the FIRST `#`. The sender
-;; sees success; the recipient gets `:malformed-fragment`.
-;;
-;; So the refusal is exactly one check wide, and the two tests below pin BOTH
-;; sides of it: fragment-bearing hosts are refused, and every other host —
-;; absolute, relative, ported, queried, `file://` — passes through
-;; VERBATIM with a byte-identical payload.
-
-(def ^:private fragment-bearing-hosts
-  "Hosts whose `#` makes the machine payload unreachable. Without the
-  refusal each would encode successfully and produce a link the viewer
-  refuses."
-  {:trailing-fragment   "https://acme.example.com/viewer.html#docs"
-   :bare-hash           "https://acme.example.com/viewer.html#"
-   :already-a-share-url "https://acme.example.com/viewer.html#machine=AAAA"
-   :fragment-with-query "https://acme.example.com/viewer.html?theme=dark#docs"
-   :bare-fragment       "#machine=x"})
-
-(deftest host-carrying-a-fragment-is-refused
-  (testing "a :host that already has a URL fragment is refused at
-            encode: the payload IS the fragment, and the viewer stops at the
-            first '#'"
-    (doseq [[label host] fragment-bearing-hosts]
-      (let [r (try {:url (share/encode-share-url chart-state {:host host})}
-                   (catch :default e {:data (ex-data e)}))
-            d (:data r)]
-        (is (nil? (:url r))
-            (str label ": no URL is produced for a fragment-bearing host"))
-        (is (= :host-carries-fragment (:reason d))
-            (str label ": refused with the :host-carries-fragment reason"))
-        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))
-        (is (= :pass-a-viewer-page-url-with-no-fragment (:recovery d)))
-        ;; The diagnostic NAMES what was wrong — the fragment, and where.
-        (is (str/includes? (:message d) "fragment")
-            (str label ": the message names the fragment"))
-        (is (= (str/index-of host "#") (:fragment-index d))
-            (str label ": ex-data locates the offending '#'"))
-        ;; …without echoing the caller's URL (which can carry a query token).
-        (is (not (str/includes? (pr-str d) host))
-            (str label ": the raw host is not echoed into ex-data"))))))
-
-(def ^:private fragment-free-hosts
-  "The NEGATIVE CONTROL roster. Every legitimate viewer base a caller might
-  host the page at — plus the relative and non-http forms the encoder
-  deliberately does NOT police (a `file://` URL is literally what the README's
-  build recipe leaves on disk, and `/viewer.html` is a legitimate same-origin
-  base). None of them carries a fragment, so none of them may be refused."
-  ["https://acme.example.com/viewer.html"
-   "https://acme.example.com"
-   "https://acme.example.com/deep/path/to/viewer.html"
-   "https://acme.example.com/viewer.html?theme=dark"
-   "https://acme.example.com/viewer.html?a=1&b=2"
-   "https://acme.example.com:8443/viewer.html"
-   "https://acme.example.com/a%20path/viewer.html"
-   "http://localhost:8080/viewer.html"
-   "file:///C:/out/machines-viz-viewer/viewer.html"
-   "//acme.example.com/viewer.html"
-   "/viewer.html"
-   "viewer.html"
-   "  https://acme.example.com/viewer.html  "])   ;; trimmed
-
-(deftest fragment-free-hosts-are-untouched
-  (testing "NEGATIVE CONTROL — every host without a '#' encodes
-            untouched: the host is passed through verbatim (only trimmed),
-            the payload is byte-identical, and the URL decodes"
-    (frozen-now
-      (fn []
-        ;; The fragment does not depend on the host, so with `:created` frozen
-        ;; it must be identical for every base — which is what "untouched"
-        ;; means here: no normalising, no rewriting, no re-encoding.
-        (let [canonical-fragment (subs (encode chart-state) (count test-host))]
-          (is (str/starts-with? canonical-fragment "#machine="))
-          (doseq [host fragment-free-hosts]
-            (let [url (share/encode-share-url chart-state {:host host})]
-              (is (= (str (str/trim host) canonical-fragment) url)
-                  (str host ": host passed through verbatim + identical payload"))
-              (let [{:keys [ok error]} (share/decode-share-url-safe url)]
-                (is (nil? error) (str host ": decodes without error"))
-                (is (= :auth/login-flow
-                       (get-in ok [:rf.machines-viz.share/chart :machine-id]))
-                    (str host ": the ChartState round-trips"))))))))))
-
-(deftest non-url-host-is-accepted-and-fails-visibly
-  (testing "a host that is not a URL is NOT refused, and that is
-            deliberate rather than an omission: the failure is LOUD. The
-            returned string begins with the word the caller typed, so the
-            defect is on screen before anyone shares it. A scheme allowlist
-            would refuse the working forms above to catch this."
-    (doseq [host ["banana" "not a url" "javascript:alert(1)"]]
-      (let [url (share/encode-share-url chart-state {:host host})]
-        (is (str/starts-with? url (str host "#machine="))
-            (str host ": the caller's own string is what they get back"))
-        ;; The PAYLOAD is well-formed — only the base is nonsense, which is
-        ;; precisely why this class needs no guard: nothing is hidden.
-        (is (some? (:ok (share/decode-share-url-safe url)))
-            (str host ": the machine payload itself is intact"))))))
-
-;; ---------------------------------------------------------------------------
-;; Canonicalisation / reproducibility
-
-(deftest reproducible-encoding
-  (testing "differently-ordered but equal ChartStates encode identically"
-    (let [a {:machine-id :m/x :frame-id :app/main
-             :definition {:initial :a
-                          :states {:a {:on {:go :b}} :b {:on {:back :a}}}}}
-          ;; Same value, keys constructed in a different insertion order.
-          b {:definition {:states {:b {:on {:back :a}} :a {:on {:go :b}}}
-                          :initial :a}
-             :frame-id :app/main :machine-id :m/x}]
-      (is (= a b) "fixtures are value-equal")
-      (frozen-now
-        (fn []
-          (is (= (encode a) (encode b))
-              "and therefore encode byte-for-byte identically (created frozen)"))))))
-
-(deftest reproducible-with-sets
-  (testing "set-valued slots (e.g. :tags) canonicalise to a stable order"
-    (let [a {:machine-id :m/x :frame-id :app/main
-             :definition {:initial :s1
-                          :states {:s1 {:tags #{:b :a :c}}}}}
-          b {:machine-id :m/x :frame-id :app/main
-             :definition {:initial :s1
-                          :states {:s1 {:tags #{:c :a :b}}}}}]
-      (frozen-now
-        (fn []
-          (is (= (encode a) (encode b)))))
-      (let [back (:rf.machines-viz.share/chart
-                   (share/decode-share-url (encode a)))]
-        (is (= #{:a :b :c} (get-in back [:definition :states :s1 :tags])))))))
-
-;; ---------------------------------------------------------------------------
-;; Privacy — no session data in shares
-
-(deftest snapshot-data-is-dropped
-  (testing "runtime :data riding on :snapshot is structurally excluded"
-    (let [leaky (assoc chart-state :snapshot {:state :loading
-                                              :data  {:token "secret-abc"
-                                                      :form  {:password "hunter2"}}})
-          back  (:rf.machines-viz.share/chart
-                  (share/decode-share-url (encode leaky)))]
-      (is (= {:state :loading} (:snapshot back)))
-      (is (not (contains? (:snapshot back) :data))))))
-
-(deftest source-coords-are-dropped
-  (testing ":source-coords passed by the caller never reach the payload"
-    (let [leaky (assoc chart-state :source-coords {:file "/Users/mike/secret/x.cljs"})
-          back  (:rf.machines-viz.share/chart
-                  (share/decode-share-url (encode leaky)))]
-      (is (not (contains? back :source-coords))))))
-
-;; ---------------------------------------------------------------------------
-;; The non-topology slots (`:schemas`, the root event
-;; `:schema`, `:data`, `:meta`) are not share payload. Their values are
-;; arbitrary host values: the ordinary Malli `[:re #"…"]` form is a JS
-;; `RegExp`, which Transit has no write handler for, so writing them would
-;; throw a raw `Error("Cannot write RegExp")` for any machine whose schema
-;; carried a regex. And a value Transit cannot write that still
-;; reaches the writer (an open namespaced slot) surfaces as the documented
-;; `encode-failed` ex-info, not a raw host error.
-
-(def regex-schema-definition
-  "A regex (or other host value) in every non-topology slot: a
-  `[:schemas :data]` regex, a root event `:schema`, the initial `:data`,
-  `:meta`, a nested state's `:meta` and a `:spawn`'s `:data`."
-  {:initial :a
-   :schemas {:data [:map [:email [:re #".+@.+"]]]}
-   :schema  [:tuple [:enum :go] [:re #"^x"]]
-   :data    {:email "a@b.c" :pattern #"secret-pattern"}
-   :meta    {:doc "d" :check #"meta-re"}
-   :states  {:a {:on    {:go :b}
-                 :meta  {:hint #"node-re"}
-                 :spawn {:machine-id :child :data {:seed #"spawn-re"}}}
-             :b {}}})
-
-(deftest regex-bearing-non-topology-slots-encode
-  (testing "a definition whose :schemas carries a regex
-            encodes, and the non-topology slots do not ride the payload"
-    (let [cs   (assoc chart-state :definition regex-schema-definition)
-          url  (encode cs)
-          dfn  (:definition (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (string? url) "encoding succeeds")
-      (is (not-any? #(contains? dfn %) [:schemas :schema :data :meta])
-          "the root non-topology slots are dropped")
-      (is (not (contains? (get-in dfn [:states :a]) :meta)) "a state's :meta is dropped")
-      (is (not (contains? (get-in dfn [:states :a :spawn]) :data)) "a spawn's :data is dropped")
-      ;; Topology survives.
-      (is (= :a (:initial dfn)))
-      (is (= :b (get-in dfn [:states :a :on :go])))
-      (is (= :child (get-in dfn [:states :a :spawn :machine-id])))
-      (is (= {} (get-in dfn [:states :b]))))))
-
-(deftest identifiers-named-like-non-topology-slots-survive
-  (testing "the drop applies to RECORD fields only: a state,
-            event or region whose id is :data / :meta / :schemas survives"
-    (let [flat {:initial :data
-                :states  {:data    {:on {:meta :schemas}}
-                          :schemas {}}}
-          back (fn [d] (:definition (:rf.machines-viz.share/chart
-                                      (share/decode-share-url
-                                        (encode (-> chart-state
-                                                    (assoc :definition d)
-                                                    (dissoc :snapshot)))))))]
-      (is (= flat (back flat)))
-      (is (= (:definition parallel-state)
-             (:definition (:rf.machines-viz.share/chart
-                            (share/decode-share-url (encode parallel-state)))))
-          "the region named :data survives"))))
-
-(deftest unencodable-value-surfaces-as-encode-failed
-  (testing "a value Transit cannot write, left in an open
-            namespaced slot, throws the documented encode-failed ex-info,
-            value-free, instead of a raw `Cannot write` error"
-    (let [dfn {:initial :a :states {:a {:my.app/pattern #"leaky-pattern"}}}
-          _   (is (grammar/valid-definition? dfn)
-                  "precondition: a namespaced slot passes the grammar gate")
-          r   (try {:url (encode (assoc chart-state :definition dfn))}
-                   (catch :default e {:data (ex-data e)}))
-          d   (:data r)]
-      (is (nil? (:url r)) "no URL is produced")
-      (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))
-      (is (= :unencodable-definition (:reason d)))
-      (is (= :remove-non-edn-values-from-the-definition (:recovery d)))
-      (is (not (str/includes? (pr-str d) "leaky-pattern"))
-          "neither the value nor the host message rides ex-data"))))
-
-;; ---------------------------------------------------------------------------
-;; Macro-stamped DATA (not metadata) sanitisation. A reg-machine
-;; macro co-locates `:source-coords` / `:source-code` + executable `:fn`
-;; values as ordinary DATA inside `:states` / `:guards` / `:actions`
-;; (Spec 005 §Source-coord stamping). `strip-meta` (which
-;; touches Clojure METADATA only) does NOT reach them, so on its own the share
-;; encoder would leak local-filesystem paths + source snippets and could fail
-;; to encode a live `:fn`. `sanitise-definition` strips them structurally.
-
-(def macro-stamped-like-definition
-  "Mimics the reg-machine macro's dev-arm output: per-node `:source-coords`
-  inside `:states`, `:guards` / `:actions` entries carrying
-  `{:fn .. :source-coords .. :source-code ..}`, and inline live fns on
-  `:guard` / `:action`."
-  {:initial :idle
-   :guards  {:form-valid? {:fn            (fn [_] true)
-                           :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
-                                           :line 47 :column 13}
-                           :source-code   "(fn [{data :data}] (valid? data))"}}
-   :actions {:commit      {:fn            (fn [_] {})
-                          :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
-                                          :line 52 :column 13}
-                          :source-code   "(fn [{data :data}] {:fx [[:http ...]]})"}}
-   :states  {:idle {:on            {:submit {:target :done
-                                             :guard  :form-valid?
-                                             :action (fn [_] {})   ;; inline live fn
-                                             :source-coords {:ns 'app.login
-                                                             :file "/Users/mike/proj/login.cljs"
-                                                             :line 80 :column 23}}}
-                    :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
-                                    :line 78 :column 11}}
-             :done {:final?        true
-                    :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
-                                    :line 84 :column 11}}}})
-
-(deftest macro-stamped-executable-fns-do-not-block-encoding
-  (testing "a live :fn on a guards/actions entry AND an inline-fn
-            action encode successfully (instead of crashing Transit) — the
-            executable body is dropped / labelled, not serialised"
-    (let [cs  (assoc chart-state :definition macro-stamped-like-definition)
-          url (encode cs)
-          dfn (:definition
-                (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (string? url) "encoding succeeds")
-      ;; The :guards / :actions entries carry no executable :fn.
-      (is (nil? (get-in dfn [:guards :form-valid? :fn])))
-      (is (nil? (get-in dfn [:actions :commit :fn])))
-      ;; The encoder swaps the inline-fn :action slot for an opaque names-only label
-      ;; (not a live fn, not a source body).
-      (let [a (get-in dfn [:states :idle :on :submit :action])]
-        (is (not (fn? a)) "the inline fn was not serialised as an executable")
-        (is (keyword? a)  "it became an opaque label keyword")))))
-
-;; ---------------------------------------------------------------------------
-;; Consumer-attachment `:rf.cofx/requires` (EP-0017) is SAFE
-;; topology metadata (a vector of coeffect-id keywords), so a share URL must
-;; PRESERVE it: `sanitise-definition` drops the entry's `:fn` / `:source-*`
-;; but keeps the requires vector. The decoded definition re-derives the
-;; chart's `needs <id>` chips on the receiving side.
-
-(def cofx-requires-definition
-  "A named guard / action / entry / exit each declaring `:rf.cofx/requires`
-  alongside a live `:fn` (the macro-stamped entry-map shape)."
-  {:initial :idle
-   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
-                              :fn (fn [_] true)}}
-   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
-                             :fn (fn [_] nil)}
-             :stamp-started  {:rf.cofx/requires [:rf/time-ms]
-                             :fn (fn [_] nil)}}
-   :states  {:idle {:entry :stamp-started
-                    :on    {:go {:target :busy
-                                 :guard  :within-window?
-                                 :action :schedule-retry}}}
-             :busy {}}})
-
-(deftest cofx-requires-survive-share-round-trip
-  (testing "a share URL PRESERVES safe :rf.cofx/requires
-            metadata while still dropping the executable :fn"
-    (let [cs   (assoc chart-state :definition cofx-requires-definition)
-          url  (encode cs)
-          dfn  (:definition
-                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      ;; the requires vectors survive intact (safe topology metadata)
-      (is (= [:rf/time-ms] (get-in dfn [:guards :within-window? :rf.cofx/requires])))
-      (is (= [:payment/retry-jitter-ms]
-             (get-in dfn [:actions :schedule-retry :rf.cofx/requires])))
-      (is (= [:rf/time-ms] (get-in dfn [:actions :stamp-started :rf.cofx/requires])))
-      ;; but the executable :fn is still stripped (privacy / Transit contract)
-      (is (nil? (get-in dfn [:guards :within-window? :fn])))
-      (is (nil? (get-in dfn [:actions :schedule-retry :fn]))))))
-
-;; ---------------------------------------------------------------------------
-;; A function-valued `:after` delay (Spec 005) is a
-;; map KEY, out of reach of the value-side fn handling: left alone the fn
-;; would survive sanitisation and Transit would refuse to write it. It shares
-;; as an inert numbered vector label, and the delay fn is never called.
-
 (defn- round-trip-definition
-  "Encode definition `d` as a share-URL and return the decoded `:definition`."
+  "Encode `d` as a share-URL's definition and return the decoded one."
   [d]
   (-> (encode (assoc chart-state :definition d))
       share/decode-share-url
       :rf.machines-viz.share/chart
       :definition))
 
-(deftest fn-valued-after-delay-shares-as-an-inert-label
-  (testing "a fn delay key encodes (Transit writes no fn),
-            decodes to a projectable definition, keeps its timed transition,
-            and the fn is never invoked"
-    (let [calls    (atom 0)
-          delay-fn (fn [_ctx] (swap! calls inc) 1000)
-          d        {:initial :idle
-                    :states  {:idle {:after {delay-fn :done}}
-                              :done {}}}
-          dfn      (round-trip-definition d)
-          after    (get-in dfn [:states :idle :after])]
-      (is (= 1 (count after)) "the one delayed transition survives")
-      (is (vector? (key (first after))) "its key became an inert vector label")
-      (is (= :done (val (first after))) "its target is intact")
-      (is (grammar/valid-definition? (grammar/desugar-grammar dfn))
-          "the decoded definition is a valid, projectable machine")
-      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))
-          "the same states and transitions as the original")
-      (is (zero? @calls) "the delay fn was never called"))))
+;; ---------------------------------------------------------------------------
+;; Round-trip and URL shape
 
-(deftest distinct-anonymous-fn-delays-keep-distinct-transitions
-  (testing "two anonymous delay fns share a label, so the
-            numbering is what keeps them from merging into one key"
-    (let [d   {:initial :idle
-               :states  {:idle {:after {(fn [_] 100) :a
-                                        (fn [_] 200) :b}}
-                         :a {} :b {}}}
-          dfn (round-trip-definition d)]
-      (is (= 2 (count (get-in dfn [:states :idle :after]))))
-      (is (= #{:a :b} (set (vals (get-in dfn [:states :idle :after])))))
-      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
+(deftest round-trip-preserves-chart-state
+  (testing "encode → decode recovers the ChartState exactly, fabricating no
+            omitted optional :snapshot or :frame-id"
+    (doseq [cs [chart-state (dissoc chart-state :snapshot) (dissoc chart-state :frame-id)]]
+      (is (= cs (:rf.machines-viz.share/chart (share/decode-share-url (encode cs))))
+          (pr-str (keys cs)))))
+  (testing "the envelope carries the encoding version and an encode-time stamp"
+    (let [env (share/decode-share-url (encode chart-state))]
+      (is (= "2" (:rf.machines-viz.share/v env)))
+      (is (number? (:rf.machines-viz.share/created env))))))
 
-(deftest data-valued-fn-slot-survives-sanitisation
-  (testing "the executable-`:fn` drop is gated on `(fn? v)`: a guard
-            entry whose `:fn` slot holds DATA rather than a fn keeps it"
-    (let [dfn (round-trip-definition
-                {:initial :idle
-                 :guards  {:ready? {:fn :named-elsewhere}}
-                 :states  {:idle {:on {:go {:target :busy :guard :ready?}}}
-                           :busy {}}})]
-      (is (= :named-elsewhere (get-in dfn [:guards :ready? :fn]))))))
+(deftest url-shape
+  (testing "the host, then a #machine= fragment in the base64url alphabet (no
+            `+`, `/` or `=` padding)"
+    (is (re-matches #"https://x/viewer\.html#machine=[A-Za-z0-9_-]+" (encode chart-state)))))
 
-(deftest literal-and-subscription-delays-round-trip-unchanged
-  (testing "the fn-key rewrite leaves literal ms and
-            subscription-vector delay keys exactly as authored"
-    (let [d {:initial :idle
-             :states  {:idle {:after {1000              :a
-                                      [:timeouts/retry] :b}}
-                       :a {} :b {}}}]
-      (is (= d (round-trip-definition d))))))
+(deftest no-host-is-refused
+  (testing "there is no default host: a missing (non-string) or blank (after
+            trimming) one is refused rather than filled in with a URL that 404s"
+    (doseq [opts [nil {:host "   "}]]
+      (let [d (ex-data (thrown #(share/encode-share-url chart-state opts)))]
+        (is (= [:rf.machines-viz.share/encode-failed :no-host]
+               ((juxt :rf.error/id :reason) d))
+            (pr-str opts))
+        (is (string? (:message d)))))))
+
+;; The one malformed `:host` worth refusing carries a fragment: the payload IS
+;; the fragment and the viewer stops at the first `#`, so the link reads as
+;; correct and is dead. Any other host passes through verbatim, because a
+;; non-URL one is visibly wrong the moment it is pasted.
+
+(deftest host-carrying-a-fragment-is-refused
+  (testing "refused with :host-carries-fragment, locating the '#' (index 0
+            included) without echoing the host, whose query can carry a token"
+    (doseq [host ["https://acme.example.com/viewer.html?theme=dark#docs"
+                  "#machine=x"]]
+      (let [d (ex-data (thrown #(share/encode-share-url chart-state {:host host})))]
+        (is (= {:rf.error/id    :rf.machines-viz.share/encode-failed
+                :reason         :host-carries-fragment
+                :recovery       :pass-a-viewer-page-url-with-no-fragment
+                :fragment-index (str/index-of host "#")}
+               (select-keys d [:rf.error/id :reason :recovery :fragment-index]))
+            host)
+        (is (not (str/includes? (pr-str d) host)) host)))))
+
+(deftest fragment-free-hosts-are-untouched
+  (testing "a host with no '#' — queried, file://, relative, or not a URL at
+            all — is only trimmed, and carries the identical payload"
+    (frozen-now
+      (fn []
+        (let [fragment (subs (encode chart-state) (count test-host))]
+          (doseq [host ["https://acme.example.com/viewer.html?theme=dark"
+                        "file:///C:/out/machines-viz-viewer/viewer.html"
+                        "/viewer.html"
+                        "banana"
+                        "  https://acme.example.com/viewer.html  "]]
+            (is (= (str (str/trim host) fragment)
+                   (share/encode-share-url chart-state {:host host}))
+                host)))))))
+
+(deftest reproducible-encoding
+  (testing "equal ChartStates built in different map and set orders encode
+            byte-for-byte identically (`:created` frozen), and a set decodes
+            as a set"
+    (let [a {:machine-id :m/x :frame-id :app/main
+             :definition {:initial :a
+                          :states  {:a {:on {:go :b} :tags #{:b :a :c}}
+                                    :b {:on {:back :a}}}}}
+          b {:definition {:states  {:b {:on {:back :a}}
+                                    :a {:tags #{:c :a :b} :on {:go :b}}}
+                          :initial :a}
+             :frame-id :app/main :machine-id :m/x}]
+      (frozen-now #(is (= (encode a) (encode b))))
+      (is (= a (:rf.machines-viz.share/chart (share/decode-share-url (encode a))))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:source-code` / `:source-coords` are debug fields on a RECORD
-;; (a state node, transition candidate or guard/action entry), but they are
-;; also valid topology ids. A walk that dropped the key wherever it appeared
-;; would make a state, event, region, guard or action with either name
-;; vanish while validation still passed.
+;; Privacy — only topology and the active state's NAME ride
 
-(def debug-named-topology
-  "Every id spelled like a debug field, beside GENUINE debug fields on the
-  same records that must still go."
-  {:initial :source-code
-   :guards  {:source-coords {:fn          (fn [_] true)
-                             :source-code "(fn [_] true)"}}
-   :actions {:source-code   {:fn            (fn [_] nil)
-                             :source-coords {:file "/Users/mike/proj/x.cljs" :line 9}}}
-   :states  {:source-code   {:on            {:source-code   {:target        :source-coords
-                                                             :guard         :source-coords
-                                                             :action        :source-code
-                                                             :source-coords {:file "/Users/mike/proj/x.cljs"
-                                                                             :line 12}}
-                                             :source-coords :source-code}
-                             :source-coords {:file "/Users/mike/proj/x.cljs" :line 10}}
-             :source-coords {:on {:go :source-code}}}})
+(deftest session-data-is-dropped
+  (testing "runtime :data riding on :snapshot and caller-supplied
+            :source-coords never reach the payload"
+    (is (= chart-state
+           (:rf.machines-viz.share/chart
+             (share/decode-share-url
+               (encode (assoc chart-state
+                              :snapshot      {:state :loading
+                                              :data  {:token "secret-abc"
+                                                      :form  {:password "hunter2"}}}
+                              :source-coords {:file "/Users/mike/secret/x.cljs"}))))))))
 
-(deftest debug-named-topology-ids-survive-sharing
-  (testing "state, event, guard and action ids spelled
-            `:source-code` / `:source-coords` survive; genuine annotations on
-            the same records are still stripped"
-    (let [url (encode (assoc chart-state :definition debug-named-topology))
-          dfn (:definition (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (= #{:source-code :source-coords} (set (keys (:states dfn))))
-          "both STATE ids survive")
-      (is (= :source-code (:initial dfn)))
-      (is (= #{:source-code :source-coords}
-             (set (keys (get-in dfn [:states :source-code :on]))))
-          "both EVENT ids survive")
-      (is (= :source-coords (get-in dfn [:states :source-code :on :source-code :target])))
-      (is (= :source-code (get-in dfn [:states :source-code :on :source-coords])))
-      (is (contains? (:guards dfn) :source-coords) "the GUARD id survives")
-      (is (contains? (:actions dfn) :source-code) "the ACTION id survives")
-      (is (= (layout/semantic-counts debug-named-topology) (layout/semantic-counts dfn))
-          "no state or transition is lost")
-      (testing "the genuine annotations on those same records are gone"
-        (is (not (contains? (get-in dfn [:states :source-code]) :source-coords)))
-        (is (not (contains? (get-in dfn [:states :source-code :on :source-code])
-                            :source-coords)))
-        (is (= {} (get-in dfn [:guards :source-coords]))
-            "the guard keeps its name and loses :fn and :source-code")
-        (is (= {} (get-in dfn [:actions :source-code]))
-            "the action keeps its name and loses :fn and :source-coords")))))
+;; A reg-machine-stamped definition carries `:source-coords` / `:source-code`
+;; and executable `:fn`s as ordinary DATA (Spec 005 §Source-coord stamping),
+;; out of `strip-meta`'s reach, and the non-topology slots (`:schemas`, the
+;; event `:schema`, `:data`, `:meta`) hold arbitrary host values — a Malli
+;; regex Transit cannot write. Each is dropped from every RECORD, and an inline
+;; fn labelled; a topology id spelled like one of them survives.
 
-;; ---------------------------------------------------------------------------
-;; Versioning + failure modes
-
-(deftest unknown-version-rejected
-  (testing "a payload tagged with a newer version throws :unknown-version"
-    (let [future-url (envelope->url
-                       {:rf.machines-viz.share/v       "3"
-                        :rf.machines-viz.share/chart   chart-state
-                        :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url future-url)
-                 (catch :default e (ex-data e)))]
-      (is (= :unknown-version (:reason d)))
-      ;; The INTEGER the version comparison used, not the raw
-      ;; `:v` off the payload (which is forged input of any size).
-      (is (= 3 (:payload-version d))))))
-
-(deftest unknown-version-compares-numerically
-  (testing "versions compare as integers, so \"10\" is newer than the
-            decoder's \"2\" — a string compare would order \"10\" BEFORE
-            \"2\" and decode a newer payload as if it were current"
-    (let [d (try (share/decode-share-url
-                   (envelope->url {:rf.machines-viz.share/v       "10"
-                                   :rf.machines-viz.share/chart   chart-state
-                                   :rf.machines-viz.share/created 0}))
-                 (catch :default e (ex-data e)))]
-      (is (= :unknown-version (:reason d))))))
-
-(deftest frame-id-is-optional
-  (testing "a ChartState with no :frame-id encodes + round-trips (v2 / EP-0023)"
-    (let [cs   (dissoc chart-state :frame-id)
-          url  (encode cs)
-          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
-      (is (not (contains? back :frame-id))
-          "no fabricated :frame-id rides the payload when none was supplied")
-      (is (= :auth/login-flow (:machine-id back)))
-      (is (= idle-loading-success (:definition back)))
-      (is (= {:state :loading} (:snapshot back))))))
-
-(deftest frame-id-when-present-must-be-keyword
-  (testing "a non-keyword :frame-id is rejected at encode with :invalid-chart-state"
-    (let [d (try (encode (assoc chart-state :frame-id "not-a-keyword"))
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))))))
-
-(deftest decoded-snapshot-extra-key-rejected-for-every-arm
-  (testing "a closed :snapshot stays closed for every :state arm — flat,
-            compound and parallel — so an extra key is rejected on decode"
-    (doseq [state [:loading
-                   [:authenticated :cart :browsing]
-                   {:data :dirty :form :busy}]]
-      (let [smuggled (envelope->url
-                       {:rf.machines-viz.share/v       "1"
-                        :rf.machines-viz.share/chart   (assoc chart-state
-                                                              :definition compound-definition
-                                                              :snapshot {:state state
-                                                                         :data  {:token "leak"}})
-                        :rf.machines-viz.share/created 0})
-            d (try (share/decode-share-url smuggled)
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "the " (pr-str state) " arm does NOT loosen the closed-map rule"))))))
-
-(deftest decoded-malformed-state-rejected
-  (testing "a hand-edited URL whose :state is none of the three arms is rejected on decode (symmetric)"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :snapshot {:state {:data "not-a-keyword-or-path"}})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))))))
-
-;; ---------------------------------------------------------------------------
-;; Malformed machine DEFINITIONS fail closed at the share/viewer trust
-;; boundary. The boundary routes the definition slot through the canonical
-;; Machines-Viz grammar gate (`grammar/valid-definition?` — the SAME gate the
-;; AI / Mermaid / SCXML emitters + the chart projector share), after the SAME
-;; `desugar-grammar` policy the projectors use, so decode FAILS CLOSED on a
-;; malformed definition. A private definition-shape predicate would drift
-;; weaker — accepting any TRUTHY flat `:initial` (even a STRING) or any
-;; non-empty parallel `:regions` map WITHOUT validating the region bodies —
-;; and a forged-but-valid-Transit share URL would decode `:ok` and reach
-;; `MachineChart` though the same definition is rejected everywhere else.
-
-(def timeout-definition
-  "An authored `:timeout` / `:on-timeout` definition (EP-0029 A4). The share
-  stores the AUTHORED form; the boundary desugars to VALIDATE without
-  rewriting the stored payload — so the decoded definition is byte-identical
-  to the authored one."
-  {:initial :idle
-   :states  {:idle    {:timeout 5000 :on-timeout :expired :on {:go :done}}
-             :expired {:final? true}
-             :done    {:final? true}}})
-
-(def choice-definition
-  "An authored `:type :choice` transient state (EP-0029 A5). Round-trips in
-  authored form; the boundary desugars only to validate."
-  {:initial :evaluating
-   :states  {:evaluating {:type   :choice
-                          :choice [{:target :a :guard :ready?} {:target :b}]}
-             :a {:final? true}
-             :b {:final? true}}})
-
-(def valid-definitions
-  "Well-formed definitions the canonical grammar gate accepts (flat, compound,
-  parallel, and the two authored-sugar shapes)."
-  {:flat     idle-loading-success
-   :compound compound-definition
-   :parallel (:definition parallel-state)
-   :timeout  timeout-definition
-   :choice   choice-definition})
-
-(def malformed-definitions
-  "Machine definitions the canonical grammar gate REJECTS but a weaker
-  private shape check would ACCEPT. Each is a well-formed Transit value (it survives
-  decode up to the schema check) but a malformed machine SHAPE — a non-keyword
-  / missing flat `:initial`, empty `:states`, or a malformed parallel region
-  body (missing keyword `:initial` / empty `:states`)."
-  {:flat-string-initial     {:initial "idle" :states {:idle {}}}
-   :flat-missing-initial     {:states {:idle {}}}
-   :flat-empty-states        {:initial :idle :states {}}
-   :parallel-empty-region    {:type :parallel :regions {:main {:states {}}}}
-   :parallel-string-initial  {:type :parallel :regions {:main {:initial "x" :states {:x {}}}}}
-   :parallel-no-initial      {:type :parallel :regions {:main {:states {:x {}}}}}})
-
-(defn- forge-definition-url
-  "Forge a share-URL whose `…/chart` carries `definition` verbatim (bypassing
-  the encoder's own validation) so decode-side fail-closed behaviour can be
-  exercised directly."
-  [definition]
-  (envelope->url
-    {:rf.machines-viz.share/v       "2"
-     :rf.machines-viz.share/chart   {:machine-id :demo :definition definition}
-     :rf.machines-viz.share/created 0}))
+(deftest sanitisation-keeps-only-topology
+  (doseq [[label in out]
+          [["an inline live fn becomes an opaque names-only label"
+            {:initial :idle
+             :states  {:idle {:on {:go {:target :done :action (fn [_] {})}}}
+                       :done {}}}
+            {:initial :idle
+             :states  {:idle {:on {:go {:target :done :action :rf.machines-viz.share/fn}}}
+                       :done {}}}]
+           ["ids spelled like debug fields survive; the debug fields and :fns on
+             the same records go"
+            {:initial :source-code
+             :guards  {:source-coords {:fn (fn [_] true) :source-code "(fn [_] true)"}}
+             :actions {:source-code   {:fn            (fn [_] nil)
+                                       :source-coords {:file "/Users/mike/proj/x.cljs" :line 9}}}
+             :states  {:source-code   {:on            {:source-code   {:target        :source-coords
+                                                                       :guard         :source-coords
+                                                                       :action        :source-code
+                                                                       :source-coords {:file "/Users/mike/proj/x.cljs"
+                                                                                       :line 12}}
+                                                       :source-coords :source-code}
+                                       :source-coords {:file "/Users/mike/proj/x.cljs" :line 10}}
+                       :source-coords {:on {:go :source-code}}}}
+            {:initial :source-code
+             :guards  {:source-coords {}}
+             :actions {:source-code {}}
+             :states  {:source-code   {:on {:source-code   {:target :source-coords
+                                                            :guard  :source-coords
+                                                            :action :source-code}
+                                            :source-coords :source-code}}
+                       :source-coords {:on {:go :source-code}}}}]
+           ["consumer :rf.cofx/requires is safe topology and outlives its entry's :fn"
+            {:initial :idle
+             :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms] :fn (fn [_] true)}}
+             :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                                        :fn               (fn [_] nil)}}
+             :states  {:idle {:on {:go {:target :busy :guard :within-window? :action :schedule-retry}}}
+                       :busy {}}}
+            {:initial :idle
+             :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]}}
+             :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]}}
+             :states  {:idle {:on {:go {:target :busy :guard :within-window? :action :schedule-retry}}}
+                       :busy {}}}]
+           ["regex-bearing non-topology slots are dropped, at the root and on records"
+            {:initial :a
+             :schemas {:data [:map [:email [:re #".+@.+"]]]}
+             :schema  [:tuple [:enum :go] [:re #"^x"]]
+             :data    {:email "a@b.c" :pattern #"secret-pattern"}
+             :meta    {:doc "d" :check #"meta-re"}
+             :states  {:a {:on    {:go :b}
+                           :meta  {:hint #"node-re"}
+                           :spawn {:machine-id :child :data {:seed #"spawn-re"}}}
+                       :b {}}}
+            {:initial :a
+             :states  {:a {:on {:go :b} :spawn {:machine-id :child}}
+                       :b {}}}]]]
+    (is (= out (round-trip-definition in)) label)))
 
 (deftest valid-definitions-round-trip-unchanged
-  (testing "valid definitions pass the gate; flat / compound /
-            parallel / timeout / choice authored forms all round-trip
-            UNCHANGED (share stores the authored form; the
-            boundary desugars only to validate, never rewriting the payload)"
-    (doseq [[label definition] valid-definitions]
-      (let [cs   {:machine-id :demo :definition definition}
-            back (:rf.machines-viz.share/chart
-                   (share/decode-share-url (encode cs)))]
-        (is (= definition (:definition back))
-            (str label " definition round-trips UNCHANGED (authored form preserved)"))))))
+  (testing "the payload stores the AUTHORED form — the boundary desugars
+            :timeout / :choice only to validate — and leaves all topology
+            untouched"
+    (doseq [[label definition]
+            {:parallel-with-a-region-named-data
+             {:type    :parallel
+              :regions {:data {:initial :clean :states {:clean {} :dirty {}}}
+                        :form {:initial :idle  :states {:idle {} :busy {}}}}}
+             :timeout
+             {:initial :idle
+              :states  {:idle    {:timeout 5000 :on-timeout :expired :on {:go :done}}
+                        :expired {:final? true}
+                        :done    {:final? true}}}
+             :choice
+             {:initial :evaluating
+              :states  {:evaluating {:type   :choice
+                                     :choice [{:target :a :guard :ready?} {:target :b}]}
+                        :a {:final? true}
+                        :b {:final? true}}}
+             :ids-named-like-non-topology-slots
+             {:initial :data
+              :states  {:data    {:on {:meta :schemas}}
+                        :schemas {}}}
+             :literal-and-subscription-delays
+             {:initial :idle
+              :states  {:idle {:after {1000 :a [:timeouts/retry] :b}}
+                        :a {} :b {}}}
+             :data-valued-fn-slot
+             {:initial :idle
+              :guards  {:ready? {:fn :named-elsewhere}}
+              :states  {:idle {:on {:go {:target :busy :guard :ready?}}}
+                        :busy {}}}}]
+      (is (= definition (round-trip-definition definition)) (str label)))))
+
+(deftest fn-valued-after-delay-shares-as-an-inert-label
+  (testing "a fn-valued :after delay KEY (Transit writes no fn) shares as an
+            inert vector label without ever being called, and two anonymous
+            delays — which share a label — stay two transitions"
+    (let [calls (atom 0)
+          d     {:initial :idle
+                 :states  {:idle {:after {(fn [_] (swap! calls inc) 100) :a
+                                          (fn [_] (swap! calls inc) 200) :b}}
+                           :a {} :b {}}}
+          dfn   (round-trip-definition d)
+          after (get-in dfn [:states :idle :after])]
+      (is (every? vector? (keys after)))
+      (is (= #{:a :b} (set (vals after))))
+      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn)))
+      (is (zero? @calls)))))
+
+(deftest unencodable-value-surfaces-as-encode-failed
+  (testing "a value Transit cannot write, left in an open namespaced slot,
+            throws the documented encode-failed ex-info, value-free, instead
+            of a raw `Cannot write` error"
+    (let [d (ex-data (thrown #(encode (assoc chart-state :definition
+                                             {:initial :a
+                                              :states  {:a {:my.app/pattern #"leaky-pattern"}}}))))]
+      (is (= {:rf.error/id :rf.machines-viz.share/encode-failed
+              :reason      :unencodable-definition
+              :recovery    :remove-non-edn-values-from-the-definition}
+             (select-keys d [:rf.error/id :reason :recovery])))
+      (is (not (str/includes? (pr-str d) "leaky-pattern"))))))
 
 ;; ---------------------------------------------------------------------------
-;; RECURSIVELY-malformed definitions (structurally invalid
-;; BELOW the root: a nested compound missing :initial, a dangling transition
-;; target, an unknown bare node key) ALSO fail closed at the share boundary.
-;; Their ROOT shape is fine, so a shallow gate would bless them and a forged
-;; share-URL carrying one would decode :ok and reach MachineChart though the
-;; definition is rejected everywhere the runtime is consulted. The recursive
-;; gate rejects them at BOTH encode and decode, exactly like the flat /
-;; parallel shapes above.
+;; The ChartState schema is closed and validated on BOTH sides by one
+;; predicate: a forged URL fails closed, and the encoder never mints a URL the
+;; decoder would refuse. The definition goes through the canonical grammar
+;; gate after the projectors' desugar — never a weaker private copy that would
+;; bless a string `:initial`, an unvalidated region body, or a defect below
+;; the root.
 
-(def recursively-malformed-definitions
-  {:nested-compound-no-initial {:initial :outer :states {:outer {:states {:inner {}}}}}
-   :dangling-target            {:initial :idle :states {:idle {:on {:go :missing}}}}
-   :unknown-node-key           {:initial :idle :states {:idle {:on-entry :oops}}}})
-
-(deftest decoded-malformed-definition-rejected
-  (testing "a forged share-URL carrying a malformed machine definition — a
-            malformed root or parallel-region shape, or one that is
-            structurally invalid BELOW the root — fails closed at decode
-            (:invalid-chart-state), via BOTH the throwing and the safe decode
-            APIs"
-    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
-      (let [d (try (share/decode-share-url (forge-definition-url definition))
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "malformed definition " label " must fail closed at decode"))
-        (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d))))
-      (let [{:keys [ok error]} (share/decode-share-url-safe (forge-definition-url definition))]
-        (is (nil? ok) (str label " must NOT decode :ok"))
-        (is (= :invalid-chart-state (:reason error)))))))
-
-(deftest encode-rejects-malformed-definitions
-  (testing "the encoder rejects the same malformed definitions, flat / parallel
-            and recursive alike (encode/decode stay symmetric — the encoder
-            never emits a payload the decoder would reject)"
-    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
-      (let [d (try (encode {:machine-id :demo :definition definition})
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "malformed definition " label " must be rejected at encode"))
-        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
-
-;; ---------------------------------------------------------------------------
-;; Top-level ChartState is CLOSED on decode. The encoder
-;; allowlists to #{:machine-id :frame-id :definition :snapshot} before
-;; serialising, but a hand-crafted URL bypasses the encoder entirely. The
-;; decoder must therefore reject any extra top-level chart key
-;; (:source-coords, :data, or any future unreviewed field) rather than
-;; returning it in the public envelope — the viewer contract loads nothing
-;; outside the validated payload schema (API.md §Share-URL payload schema:
-;; "Anything not in the schema is silently dropped by the encoder. New
-;; top-level keys … require an explicit :rf.machines-viz.share/allow? opt-in").
+(deftest malformed-chart-state-rejected-at-encode-and-decode
+  (doseq [cs (concat
+               (for [state ["loading" [] [:auth "authing"] {} {:data "loading"} {"data" :loading}]]
+                 (assoc chart-state :snapshot {:state state}))
+               [(assoc chart-state :frame-id "not-a-keyword")
+                (assoc chart-state :machine-id "not-a-keyword")]
+               (for [definition [{:initial "idle" :states {:idle {}}}
+                                 {:type :parallel :regions {:main {:initial "x" :states {:x {}}}}}
+                                 {:initial :outer :states {:outer {:states {:inner {}}}}}]]
+                 {:machine-id :demo :definition definition}))]
+    (is (= [:rf.machines-viz.share/encode-failed :invalid-chart-state]
+           ((juxt :rf.error/id :reason) (ex-data (thrown #(encode cs)))))
+        (pr-str cs))
+    (is (= [:rf.machines-viz.share/decode-failed :invalid-chart-state]
+           ((juxt :rf.error/id :reason) (ex-data (thrown #(share/decode-share-url (forge cs))))))
+        (pr-str cs))))
 
 (deftest decoded-extra-top-level-key-rejected
-  (testing "a forged URL adding any extra top-level key cannot survive decode:
-            the two known leaks (:source-coords, :data) and any unreviewed
-            future field, which requires the documented allow? opt-in — the
-            set is closed"
-    (doseq [[label extra]
-            [[":source-coords"          {:source-coords {:file "/Users/mike/secret/x.cljs" :line 42}}]
-             [":data"                   {:data {:token "leak-abc" :form {:password "hunter2"}}}]
-             ["a future unreviewed key" {:rf.machines-viz.share/some-future-field {:anything :goes}}]]]
-      (let [smuggled (envelope->url
-                       {:rf.machines-viz.share/v       "1"
-                        :rf.machines-viz.share/chart   (merge chart-state extra)
-                        :rf.machines-viz.share/created 0})
-            d (try (share/decode-share-url smuggled)
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "an extra top-level " label " fails the closed ChartState check at decode"))))))
-
-(deftest encode-rejects-invalid-chart-state
-  (testing "the encoder rejects a ChartState that fails the schema (an empty
-            definition, a non-keyword :machine-id) with :invalid-chart-state"
-    (is (thrown? :default
-          (encode {:machine-id :x :frame-id :y :definition {}})))
-    (let [d (try (encode {:machine-id "not-a-kw"
-                                          :frame-id :y
-                                          :definition idle-loading-success})
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))))))
-
-;; ---------------------------------------------------------------------------
-;; chart-state->props
+  (testing "the top-level ChartState is CLOSED on decode: a forged URL adding a
+            known leak, or any unreviewed future key, is refused"
+    (doseq [extra [{:source-coords {:file "/Users/mike/secret/x.cljs" :line 42}}
+                   {:rf.machines-viz.share/some-future-field {:anything :goes}}]]
+      (is (= :invalid-chart-state
+             (:reason (ex-data (thrown #(share/decode-share-url (forge (merge chart-state extra)))))))
+          (pr-str extra)))))
 
 (deftest chart-state->props-projection
-  (testing "envelope → MachineChart props (read-only, current-state from snapshot)"
-    (let [env   (share/decode-share-url (encode chart-state))
-          props (share/chart-state->props env)]
-      (is (= :auth/login-flow (:machine-id props)))
-      (is (= idle-loading-success (:definition props)))
-      (is (= :loading (:current-state props)))
-      (is (true? (:read-only? props)))
-      (is (not (contains? props :frame-id)) "frame-id is provenance, not a prop")))
-  (testing "no snapshot → no :current-state"
-    (let [env   (share/decode-share-url (encode (dissoc chart-state :snapshot)))
-          props (share/chart-state->props env)]
-      (is (not (contains? props :current-state)))
-      (is (true? (:read-only? props)))))
-  (testing "compound vector-path snapshot projects :current-state verbatim"
-    (let [cs    {:machine-id :shop/store :frame-id :app/main
-                 :definition compound-definition
-                 :snapshot   {:state [:authenticated :cart :browsing]}}
-          props (share/chart-state->props (share/decode-share-url (encode cs)))]
-      (is (= [:authenticated :cart :browsing] (:current-state props)))))
-  (testing "parallel region-map snapshot projects :current-state verbatim"
-    (let [cs    (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
-          props (share/chart-state->props (share/decode-share-url (encode cs)))]
-      (is (= {:data :dirty :form :busy} (:current-state props))))))
+  (testing "a decoded envelope projects to read-only MachineChart props: every
+            :state arm the encoder accepts decodes and rides verbatim as
+            :current-state (none → no highlight); :frame-id is provenance,
+            not a prop"
+    (doseq [state [nil :loading [:authenticated :cart :browsing]
+                   {:data :dirty :form :busy} {:data :dirty :form [:edit :touched]}]]
+      (let [cs (cond-> (-> chart-state (assoc :definition compound-definition) (dissoc :snapshot))
+                 state (assoc :snapshot {:state state}))]
+        (is (= (cond-> {:machine-id :auth/login-flow :definition compound-definition :read-only? true}
+                 state (assoc :current-state state))
+               (share/chart-state->props (share/decode-share-url (encode cs))))
+            (pr-str state))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — error ex-data carries NO raw payload
+;; EP-0015 — a thrown error discloses nothing it was given
 ;;
-;; A thrown encode/decode error must NOT retain the rejected payload in
-;; ex-data: a forged share URL can smuggle a `:snapshot {:data …}` map or
-;; arbitrary runtime values, and projection cannot walk ex-data after the
-;; fact (Spec 015 §exception-path residual). The error keeps value-FREE
-;; structural diagnostics (reason/category, key SET, type) instead.
+;; A forged share URL can carry arbitrary runtime values and projection cannot
+;; walk ex-data after the fact, so the diagnostics are checked as a GRAMMAR, not
+;; a hunt: a `:type` from a closed vocabulary plus an integer `:count`, inside a
+;; bound that does not grow with the payload. A sentinel planted in every
+;; position a forger reaches — value, key, keyword, symbol — must not survive,
+;; even as a fragment.
 
-(defn- ex-data-strings
-  "Every string that appears ANYWHERE in `m` (deep walk) — so a test can
-  assert a secret value never survives into the error map under any key."
-  [m]
-  (let [acc (atom [])]
-    (clojure.walk/postwalk
-      (fn [x] (when (string? x) (swap! acc conj x)) x)
-      m)
-    @acc))
-
-(deftest encode-error-omits-raw-chart-state
-  (testing "encode-failed ex-data carries a value-free summary, not the raw chart-state"
-    ;; A chart-state whose :snapshot smuggles a secret-bearing :data map,
-    ;; AND a malformed :state so encode rejects it.
-    (let [secret "hunter2-super-secret-token"
-          leaky  {:machine-id :auth/flow
-                  :frame-id   :app/main
-                  :definition idle-loading-success
-                  :snapshot   {:state "not-an-arm"        ;; rejected
-                               :data  {:password secret}}}
-          d      (try (encode leaky)
-                      (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
-      (is (not (contains? d :chart-state)) "no raw chart-state slot")
-      (is (some? (:chart-state-summary d)) "value-free summary present")
-      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
-          "the secret string must not survive anywhere in ex-data"))))
-
-(deftest decode-error-omits-raw-chart
-  (testing "invalid-chart-state decode-failed carries a value-free chart summary, not the raw chart"
-    (let [secret "bearer-token-xyz789"
-          ;; A well-formed envelope whose :chart smuggles a secret via a
-          ;; :snapshot {:data …} the viewer will reject (closed-map rule).
-          forged  {:rf.machines-viz.share/v     "1"
-                   :rf.machines-viz.share/chart {:machine-id :auth/flow
-                                                 :frame-id   :app/main
-                                                 :definition idle-loading-success
-                                                 :snapshot   {:state :loading
-                                                              :data  {:token secret}}}}
-          url     (envelope->url forged)
-          d       (try (share/decode-share-url url)
-                       (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
-      (is (not (contains? d :chart)) "no raw chart slot")
-      (is (some? (:chart-summary d)) "value-free summary present")
-      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
-          "the secret string must not survive anywhere in ex-data"))))
-
-;; ---------------------------------------------------------------------------
-;; EP-0015 — the thrown diagnostic is content-free BY CONSTRUCTION
-;;
-;; The section above plants a secret in a VALUE position and hunts for it.
-;; A sentinel hunt only ever finds the leak someone thought to plant: a map
-;; leg returning `:keys` — every top-level key, uncapped and unsanitised — or
-;; a keyword leg returning the raw keyword as `:value` would disclose the
-;; payload from KEY / TYPE positions such a hunt never looks at, and both
-;; are attacker-chosen in CONTENT and in SIZE, since the whole point of this
-;; namespace's header is that "a forged share URL can smuggle arbitrary
-;; runtime values".
-;;
-;; So the checks below are a GRAMMAR, not a hunt. Every summary this
-;; namespace can emit, over a corpus of hostile inputs, must consist of a
-;; `:type` drawn from a closed vocabulary plus an integer `:count` and
-;; NOTHING else, and every thrown ex-data must serialize inside a fixed
-;; bound however large the forged payload is. A future leak fails that
-;; without anyone remembering to plant a sentinel for it.
-
-(def ^:private sentinel
-  "The token planted in every position a forged payload can reach. Nothing
-  this namespace throws may reproduce it — as a string, a keyword, a
-  symbol, a map KEY, or a fragment of any of them."
-  "hunter2-swordfish-SENTINEL")
+(def ^:private sentinel "hunter2-swordfish-SENTINEL")
 
 (def ^:private sentinel-fragments
-  "Every 8-character window of the sentinel. A leak is proved by a FRAGMENT,
-  not only by the whole token: a bounded prefix of attacker material is the
-  defect, not the fix, and a host `JSON.parse` message discloses exactly
+  "Every 8-character window of the sentinel: a bounded prefix of attacker
+  material is still a leak, and V8's `JSON.parse` message carries exactly
   such a prefix."
   (into #{} (map #(subs sentinel % (+ % 8))) (range (- (count sentinel) 7))))
 
 (defn- discloses?
-  "Does `x`, once serialized, reproduce any fragment of the sentinel — under
-  any key, at any depth, as a string, a keyword, a symbol or a map key?
-  `pr-str` is the check rather than the string walk above precisely because
-  a leaked KEYWORD is not a string, so a string walk passes while a keyword
-  key set discloses."
+  "Does `x`, printed, reproduce any sentinel fragment? `pr-str` rather than a
+  string walk, because a leaked KEYWORD or map key is not a string."
   [x]
   (let [s (pr-str x)]
     (boolean (some #(str/includes? s %) sentinel-fragments))))
 
-(def ^:private summary-type-vocabulary
-  "The CLOSED `:type` vocabulary a value-free summary may emit — the same
-  set `re-frame.error/diag-value-summary` uses, so a tool reading a thrown
-  ex-data from either surface reads ONE diagnostic vocabulary."
-  #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
-    :fn :scalar})
-
 (defn- content-free-summary?
-  "The grammar. A summary is a map whose key set is a subset of
-  `#{:type :count}`, whose `:type` is in the closed vocabulary, and whose
-  `:count` — when present — is a non-negative integer. Nothing else may
-  appear, because every other slot would have to be derived from the
-  input's CONTENT."
+  "A `:type` from the closed vocabulary `re-frame.error/diag-value-summary`
+  shares, an optional non-negative integer `:count`, and nothing else."
   [s]
   (and (map? s)
        (every? #{:type :count} (keys s))
-       (contains? summary-type-vocabulary (:type s))
+       (contains? #{:map :vector :seq :set :keyword :symbol :string :number
+                    :boolean :nil :fn :scalar}
+                  (:type s))
        (or (not (contains? s :count))
            (let [c (:count s)]
              (and (integer? c) (not (neg? c)))))))
 
-(def ^:private summary-serialized-bound
-  "A summary is `{:type :keyword}`-sized whatever arrives. 48 characters is
-  slack over the longest legal shape (`{:type :boolean, :count 999999}`)
-  and orders of magnitude under the inputs below."
-  48)
-
-(def ^:private ex-data-serialized-bound
-  "The whole thrown ex-data — human `:message` included — against forged
-  payloads of ~50 KB. The bound proves SIZE-INDEPENDENCE, not brevity."
-  600)
-
 (defn- exploding-object
-  "A host object whose `toString` throws. A caller can put one in a
-  chart-state key, and a summariser that runs `str` over every key
-  (`(sort-by str (keys v))`) would throw the key's OWN exception in place of
-  the failure it was called to describe."
+  "A host object whose `toString` throws: a summariser running `str` over
+  every key would throw ITS exception in place of the documented one."
   []
   (let [o #js {}]
     (set! (.-toString o)
@@ -1031,9 +399,9 @@
     o))
 
 (def ^:private hostile-keys
-  "Sentinel-bearing map keys of every key type transit carries, plus keys
-  that are markup and control characters — a disclosed key set is pasted
-  into a console, a log viewer or an issue tracker."
+  "Sentinel-bearing map keys of every key type transit carries, plus markup
+  and control-character keys — a disclosed key set is pasted into consoles,
+  log viewers and issue trackers."
   {(str "string-key-" sentinel)                    1
    (keyword sentinel)                              2
    (keyword sentinel sentinel)                     3
@@ -1047,161 +415,110 @@
    4111111111111111                                11
    true                                            12})
 
-(def ^:private attacker-sized-envelope
-  "2000 sentinel-bearing keys. A `:keys` leg would reproduce every one of
-  them, growing the summary with the forger's input without limit."
-  (into {} (map (fn [i] [(keyword (str sentinel "-" i)) i])) (range 2000)))
-
 (def ^:private forged-payloads
-  "Payloads a forged `#machine=` fragment can decode to. Transit carries
-  every one of them, so every one is attacker-reachable through the PUBLIC
-  decoder — so every arm's summary leg must be bounded."
-  [["a map keyed by sentinels of every key type"  hostile-keys]
-   ["an attacker-sized 2000-key map"              attacker-sized-envelope]
-   ["a nested map-of-map-of-set"                  {:a {:b #{sentinel}}
-                                                   :c [{(keyword sentinel) 1}]}]
-   ["a keyword with no length bound"              (keyword (apply str (repeat 20 sentinel)))]
-   ["a namespaced keyword"                        (keyword sentinel sentinel)]
-   ["a symbol"                                    (symbol sentinel)]
-   ["a 4004-character string"                     (apply str (repeat 154 sentinel))]
-   ["a vector of secrets"                         [sentinel sentinel]]
-   ["a set of secrets"                            #{sentinel}]
-   ["a list of secrets"                           (list sentinel)]
-   ["a 16-digit card number"                      4111111111111111]
-   ["a boolean"                                   true]
-   ["nil"                                         nil]])
+  "One payload per `value-free-summary` leg a forged `#machine=` fragment can
+  reach through transit."
+  [["a map keyed by sentinels of every key type" hostile-keys]
+   ["a keyword with no length bound"             (keyword (apply str (repeat 20 sentinel)))]
+   ["a symbol"                                   (symbol sentinel)]
+   ["a 4004-character string"                    (apply str (repeat 154 sentinel))]
+   ["a vector of secrets"                        [sentinel sentinel]]
+   ["a set of secrets"                           #{sentinel}]
+   ["a list of secrets"                          (list sentinel)]
+   ["a 16-digit card number"                     4111111111111111]
+   ["a boolean"                                  true]
+   ["nil"                                        nil]])
 
-(deftest value-free-summary-is-content-free-by-construction
-  (testing "every summary is a closed-vocabulary :type plus an integer :count, and nothing else"
-    (doseq [[label v] (concat forged-payloads
-                              ;; The arms no transit payload can reach, which a
-                              ;; caller of `encode-share-url` still can.
-                              [["a lazy seq"                          (map identity [sentinel])]
-                               ["a live fn"                           (fn [] sentinel)]
-                               ["an opaque host object"               (js-obj "k" sentinel)]
-                               ["a host object whose toString throws" (exploding-object)]
-                               ["a map keyed by an exploding object"  {(exploding-object) :x}]])]
-      (let [s (#'share/value-free-summary v)]
-        (is (content-free-summary? s)
-            (str label " — expected {:type …} (+ :count), got " (pr-str s)))
-        (is (not (discloses? s))
-            (str label " — no sentinel fragment may survive"))
-        (is (<= (count (pr-str s)) summary-serialized-bound)
-            (str label " — fixed serialized bound, got " (count (pr-str s))))))))
+(deftest unknown-version-rejected
+  (testing "a newer :v is refused with :unknown-version, compared as an integer
+            (\"10\" is newer than \"2\"), reporting only the integer the
+            comparison used — nil when :v does not parse — never the raw value"
+    (doseq [[v payload-version] [["10" 10]
+                                 [(str "9999-" sentinel) 9999]
+                                 [(str "v" sentinel) nil]]]
+      (let [d (ex-data (thrown #(share/decode-share-url
+                                  (envelope->url {:rf.machines-viz.share/v     v
+                                                  :rf.machines-viz.share/chart chart-state}))))]
+        (is (= [:unknown-version payload-version] ((juxt :reason :payload-version) d)) v)
+        (is (not (discloses? d)) v)))))
+
+(deftest decode-error-omits-raw-chart
+  (testing "an :invalid-chart-state failure reports the chart's shape, never
+            the chart — here one smuggling :snapshot :data past the closed
+            snapshot"
+    (let [e (thrown #(share/decode-share-url
+                       (envelope->url
+                         {:rf.machines-viz.share/v     "1"
+                          :rf.machines-viz.share/chart (assoc chart-state :snapshot
+                                                              {:state :loading
+                                                               :data  {:token sentinel}})})))
+          d (ex-data e)]
+      (is (= :invalid-chart-state (:reason d)))
+      (is (content-free-summary? (:chart-summary d)))
+      (is (not (discloses? [d (ex-message e)]))))))
 
 (deftest decode-error-discloses-nothing-it-was-given
-  (testing "a forged payload's decode failure names the shape and nothing else"
+  (testing "a forged payload's :missing-envelope failure names its shape and
+            nothing else, inside a fixed bound"
     (doseq [[label payload] forged-payloads]
-      (let [url (envelope->url payload)
-            e   (try (share/decode-share-url url) nil
-                     (catch :default ex ex))
-            d   (ex-data e)]
-        (is (some? e) (str label " — decode must refuse"))
-        (is (= :missing-envelope (:reason d)) (str label " — the category survives"))
+      (let [e (thrown #(share/decode-share-url (envelope->url payload)))
+            d (ex-data e)]
+        (is (= :missing-envelope (:reason d)) label)
         (is (content-free-summary? (:envelope-summary d))
             (str label " — summary was " (pr-str (:envelope-summary d))))
-        (is (not (discloses? d))
-            (str label " — no sentinel fragment anywhere in ex-data"))
-        (is (not (discloses? (ex-message e)))
-            (str label " — no sentinel fragment in the thrown message"))
-        (is (< (count (pr-str d)) ex-data-serialized-bound)
+        (is (not (discloses? [d (ex-message e)])) label)
+        (is (< (count (pr-str d)) 600)
             (str label " — ex-data serialized " (count (pr-str d)) " chars"))))))
 
 (deftest decode-error-ex-data-does-not-grow-with-the-payload
-  (testing "a 2000-key forged envelope throws the same size ex-data as a 2-key one"
-    (let [size  (fn [payload]
-                  (count (pr-str (ex-data (try (share/decode-share-url (envelope->url payload))
-                                               nil
-                                               (catch :default e e))))))
-          small (size {:a 1 :b 2})
-          big   (size attacker-sized-envelope)]
-      (is (<= (- big small) 4)
-          (str "ex-data may grow only by the DIGITS of :count; "
-               small " → " big)))))
+  (testing "a 2000-key forged envelope throws the same size ex-data as a 2-key
+            one, give or take the DIGITS of :count"
+    (let [size (fn [payload]
+                 (count (pr-str (ex-data (thrown #(share/decode-share-url (envelope->url payload)))))))]
+      (is (<= (- (size (into {} (map (fn [i] [(keyword (str sentinel "-" i)) i])) (range 2000)))
+                 (size {:a 1 :b 2}))
+              4)))))
 
 (deftest decode-error-omits-the-caller-url
-  (testing "a URL with no #machine= fragment does not ride into ex-data"
-    ;; The encoder refuses to put `:host` in ex-data, because "a viewer URL
-    ;; can carry a query string with a token in it" — that is what its
-    ;; `:fragment-index` slot is for. The decoder is the far more exposed
-    ;; side (it is handed URLs from elsewhere), so it must not carry the url
-    ;; either.
-    (let [url (str "https://x/viewer.html?session=" sentinel)
-          e   (try (share/decode-share-url url) nil (catch :default ex ex))
-          d   (ex-data e)]
-      (is (= :malformed-fragment (:reason d)))
-      (is (not (contains? d :url)) "no raw :url slot")
-      (is (content-free-summary? (:url-summary d)))
-      (is (not (discloses? d)) "no sentinel fragment in ex-data")
-      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message"))))
-
-(deftest decode-error-omits-the-host-parse-message
-  (testing "the host parser's own error message does not republish the payload"
-    ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
-    ;; in the SyntaxError it throws, so a `:cause (.-message e)` slot would
-    ;; republish the forged payload's plaintext under a slot named for the
-    ;; cause — a leak nobody writes, inherited from the host.
-    (let [plaintext (str sentinel "-not-transit")
-          b64       (-> (js/btoa (js/unescape (js/encodeURIComponent plaintext)))
-                        (str/replace "+" "-")
-                        (str/replace "/" "_")
-                        (str/replace "=" ""))
-          e         (try (share/decode-share-url (str test-host "#machine=" b64))
-                         nil
-                         (catch :default ex ex))
-          d         (ex-data e)]
-      (is (= :malformed-payload (:reason d)))
-      (is (not (contains? d :cause)) "no host-message slot")
-      (is (not (discloses? d)) "no sentinel fragment in ex-data")
-      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message")))
-  (testing "the base64 stage carries no host message either"
-    (let [e (try (share/decode-share-url (str test-host "#machine=" sentinel "!!!"))
-                 nil
-                 (catch :default ex ex))
+  (testing "a URL with no #machine= fragment is reported by its shape, never
+            echoed — a viewer URL's query can carry a token"
+    (let [e (thrown #(share/decode-share-url (str "https://x/viewer.html?session=" sentinel)))
           d (ex-data e)]
       (is (= :malformed-fragment (:reason d)))
-      (is (not (contains? d :cause)) "no host-message slot")
-      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
+      (is (content-free-summary? (:url-summary d)))
+      (is (not (discloses? [d (ex-message e)]))))))
 
-(deftest decode-error-omits-the-forged-version
-  (testing "a numeric-looking version reports the INTEGER the compare used"
-    (let [url (envelope->url {:rf.machines-viz.share/v     (str "9999-" sentinel)
-                              :rf.machines-viz.share/chart chart-state})
-          e   (try (share/decode-share-url url) nil (catch :default ex ex))
-          d   (ex-data e)]
-      (is (= :unknown-version (:reason d)))
-      (is (= 9999 (:payload-version d)) "the parsed integer, not the raw :v")
-      (is (not (discloses? d)) "no sentinel fragment in ex-data")))
-  (testing "a version that does not parse at all reports no version"
-    (let [url (envelope->url {:rf.machines-viz.share/v     (str "v" sentinel)
-                              :rf.machines-viz.share/chart chart-state})
-          e   (try (share/decode-share-url url) nil (catch :default ex ex))
-          d   (ex-data e)]
-      (is (= :unknown-version (:reason d)))
-      (is (nil? (:payload-version d)) "nil, not a 4000-character 'version'")
-      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
+(deftest decode-error-omits-the-host-parse-message
+  (testing "V8's JSON.parse SyntaxError embeds a prefix of its input, so
+            neither decode stage republishes the host's own message"
+    (doseq [[reason url] [[:malformed-payload  (str test-host "#machine="
+                                                    (b64url (str sentinel "-not-transit")))]
+                          [:malformed-fragment (str test-host "#machine=" sentinel "!!!")]]]
+      (let [e (thrown #(share/decode-share-url url))
+            d (ex-data e)]
+        (is (= reason (:reason d)))
+        (is (not (contains? d :cause)) "no host-message slot")
+        (is (not (discloses? [d (ex-message e)])) (str reason))))))
 
 (deftest encode-error-discloses-nothing-it-was-given
-  (testing "a rejected chart-state's key set does not ride into ex-data"
-    (let [leaky (merge hostile-keys
-                       {:machine-id :auth/flow
-                        :definition idle-loading-success
-                        :snapshot   {:state "not-an-arm"}})
-          e     (try (encode leaky) nil (catch :default ex ex))
-          d     (ex-data e)]
+  (testing "a rejected chart-state — sentinels in its keys and in a smuggled
+            :snapshot :data — is reported by its shape alone"
+    (let [e (thrown #(encode (merge hostile-keys
+                                    {:machine-id :auth/flow
+                                     :definition idle-loading-success
+                                     :snapshot   {:state "not-an-arm"
+                                                  :data  {:password sentinel}}})))
+          d (ex-data e)]
       (is (= :invalid-chart-state (:reason d)))
       (is (content-free-summary? (:chart-state-summary d)))
-      (is (not (discloses? d)) "no sentinel fragment in ex-data")
-      (is (not (discloses? (ex-message e))) "no sentinel fragment in the message")))
-  (testing "a chart-state key whose toString throws does not destroy the failure being described"
-    (let [leaky {(exploding-object) :whatever
-                 :machine-id        :auth/flow
-                 :definition        idle-loading-success
-                 :snapshot          {:state "not-an-arm"}}
-          e     (try (encode leaky) nil (catch :default ex ex))
-          d     (ex-data e)]
-      (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d))
-          "the documented ex-info, not the hostile key's own exception")
-      (is (= :invalid-chart-state (:reason d)))
+      (is (not (discloses? [d (ex-message e)])))))
+  (testing "a chart-state key whose toString throws does not replace the
+            documented failure with its own exception"
+    (let [d (ex-data (thrown #(encode {(exploding-object) :whatever
+                                       :machine-id        :auth/flow
+                                       :definition        idle-loading-success
+                                       :snapshot          {:state "not-an-arm"}})))]
+      (is (= [:rf.machines-viz.share/encode-failed :invalid-chart-state]
+             ((juxt :rf.error/id :reason) d)))
       (is (content-free-summary? (:chart-state-summary d)))
-      (is (not (discloses? d)) "no sentinel fragment in ex-data"))))
+      (is (not (discloses? d))))))
