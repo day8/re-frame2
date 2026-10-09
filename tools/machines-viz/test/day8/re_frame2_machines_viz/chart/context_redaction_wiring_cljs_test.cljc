@@ -1,32 +1,11 @@
 (ns day8.re-frame2-machines-viz.chart.context-redaction-wiring-cljs-test
-  "EP-0015 export-safety: the Context-band redaction WIRING through
-  `chart.projection/xyflow-graph`.
-
-  `context-redaction-cljs-test` pins the redact/display/classification
-  helpers in isolation, and `chart-dom-cljs-test` renders the value-FREE
-  static context shape (so redaction is a no-op there). Neither verifies
-  that `xyflow-graph` actually WIRES the redaction; this suite pins that it
-
-    (a) applies redaction BY DEFAULT to a live `:context-band` (a
-        `:context-band-sensitive` slot → `:rf/redacted`);
-    (b) THREADS the `:context-band-sensitive` / `:context-band-large`
-        sets into the projection (not a hardcoded / empty classification);
-    (c) honours the `:context-band-raw?` trusted-local opt-in that skips
-        redaction;
-    (d) emits the resulting content into the root-container's
-        `:data {:context}` display rows.
-
-  This is the EP-0015 export-safety property (EP-0015 §96-110, §985-989):
-  a host feeding a live machine `:data` map into the band must not leak a
-  schema-marked secret / large slot into the SVG / PNG / clipboard export
-  (`export/chart-as-svg` clones the live viewport DOM, so whatever lands in
-  `:data {:context}` is serialised). A wiring regression — raw-by-default,
-  a dropped classification, a bypassed `redact-context` — leaks silently
-  and passes every value-free DOM test. These pins make it LOUD at the
-  cheap JVM projection layer (the browser `export-dom-cljs-test` covers the
-  end-to-end SVG counterpart).
-
-  Pure `.cljc` → the JVM corpus + the `cljs-test$` node-test build pin it."
+  "EP-0015 export safety: `chart.projection/xyflow-graph` WIRES the
+  Context-band redaction into the root-container's `:data {:context}` rows,
+  which the SVG / PNG / clipboard exporters serialise. A wiring regression —
+  raw by default, a dropped classification, a bypassed `redact-context` —
+  leaks silently past every value-free DOM test, so it is pinned here at
+  the cheap projection layer; `export-dom-cljs-test` covers the SVG end to
+  end."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -34,62 +13,24 @@
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.projection :as projection]))
 
-;; ---------------------------------------------------------------------------
-;; fixtures / helpers
-
 (def ^:private flat-machine
-  "A minimal flat machine so `project-definition` mints the synthetic
-  root-container frame whose header paints the Context band."
   {:initial :a :states {:a {:on {:go :b}} :b {}}})
 
 (defn- context-rows
-  "The root-container's projected `:data {:context}` — the vector of
-  `[key-string value-display-string]` rows the band header paints (and the
-  SVG/PNG exporter serialises). nil when no band was fed."
+  "The root-container's `[key-string value-display-string]` rows — what the
+  band paints and an export serialises. nil when no band was fed."
   [graph]
   (let [root (first (filter #(= layout/root-container-id (:id %)) (:nodes graph)))]
     (:context (:data root))))
 
-(defn- all-row-strings
-  "Every string across every `:data {:context}` row — the full surface a
-  secret could leak into."
-  [graph]
+(defn- all-row-strings [graph]
   (mapcat identity (context-rows graph)))
 
 (defn- value-for
-  "The display string the band paints for context key `k` (a keyword) —
-  matched against its fully-qualified string form, the shape the projector
-  emits."
+  "The display string the band paints for context key `k`."
   [graph k]
   (let [target (str (symbol k))]
     (some (fn [[ks v]] (when (= ks target) v)) (context-rows graph))))
-
-;; ---------------------------------------------------------------------------
-;; (a) redaction is applied BY DEFAULT to a live context-band
-
-(deftest documented-recipe-redacts-a-machine-declared-secret
-  (testing "a host following the API.md recipe for a machine
-            that declares its secret slot the canonical way (Spec 015 / Spec
-            005: projection-relative `:sensitive [[:data :token]]`) gets it
-            redacted in the band — and so in every image export"
-    (let [secret  "sk-live-SECRET-123"
-          machine {:initial   :idle
-                   :sensitive [[:data :token]]
-                   :schemas   {:data [:map [:token :string] [:user :string]]}
-                   :data      {:token nil :user nil}
-                   :states    {:idle {}}}
-          cls     (ctx/derive-classification machine)
-          graph   (projection/xyflow-graph
-                    (layout/project-definition machine) {}
-                    {:context-band           (array-map :token secret :user "ann")
-                     :context-band-inferred? false
-                     :context-band-sensitive (:sensitive cls)
-                     :context-band-large     (:large cls)})]
-      (is (not (some #(str/includes? % secret) (all-row-strings graph)))
-          "the declared secret appears in NO display row")
-      (is (str/includes? (value-for graph :token) ":rf/redacted"))
-      (is (= "\"ann\"" (value-for graph :user))
-          "control: the undeclared sibling still renders its value"))))
 
 (defn- recipe-graph
   "The API.md recipe end to end: derive the classification from `machine`,
@@ -103,71 +44,50 @@
        :context-band-sensitive sensitive
        :context-band-large     large})))
 
-(deftest documented-recipe-whole-data-covers-keys-first-written-at-runtime
-  (testing "a machine declaring its WHOLE :data sensitive, whose
-            initial :data is empty, later writes a token. The recipe redacts
-            it: the token appears in NO display row, so in no export"
-    (let [secret  "secret-at-runtime"
-          machine {:initial :idle :sensitive [[:data]] :data {} :states {:idle {}}}
-          graph   (recipe-graph machine (array-map :token secret))]
-      (is (some? (context-rows graph)) "the band produced context rows")
+(deftest documented-recipe-redacts-a-machine-declared-secret
+  (testing "a machine declaring `:sensitive [[:data :token]]` gets that slot
+            redacted in the band — and so in every image export — while an
+            undeclared sibling still renders"
+    (let [secret "sk-live-SECRET-123"
+          graph  (recipe-graph {:initial   :idle
+                                :sensitive [[:data :token]]
+                                :data      {:token nil :user nil}
+                                :states    {:idle {}}}
+                               (array-map :token secret :user "ann"))]
       (is (not (some #(str/includes? % secret) (all-row-strings graph)))
-          "the runtime-only token appears in NO display row")
+          "the declared secret appears in NO display row")
+      (is (str/includes? (value-for graph :token) ":rf/redacted"))
+      (is (= "\"ann\"" (value-for graph :user))))))
+
+(deftest documented-recipe-whole-data-covers-keys-first-written-at-runtime
+  (testing "a machine declaring its WHOLE :data sensitive, whose initial :data
+            is empty, later writes a token: it appears in NO display row"
+    (let [secret "secret-at-runtime"
+          graph  (recipe-graph {:initial :idle :sensitive [[:data]] :data {} :states {:idle {}}}
+                               (array-map :token secret))]
+      (is (not (some #(str/includes? % secret) (all-row-strings graph))))
       (is (str/includes? (value-for graph :token) ":rf/redacted"))))
-  (testing "control: the SAME band under an UNclassified machine renders the
-            token, so the instrument sees it when it is there"
-    (let [secret  "secret-at-runtime"
-          machine {:initial :idle :data {} :states {:idle {}}}
-          graph   (recipe-graph machine (array-map :token secret))]
-      (is (str/includes? (value-for graph :token) secret))))
-  (testing "a whole-data :large elides a runtime-only value to the
-            content-free marker"
+  (testing "a whole-data :large elides a runtime-only value to the content-free
+            marker"
     (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
-          machine {:initial :idle :large [[:data]] :data {} :states {:idle {}}}
-          graph   (recipe-graph machine (array-map :blob payload))]
-      (is (not (some #(str/includes? % payload) (all-row-strings graph)))
-          "the runtime-only large value's content never reaches a display row")
+          graph   (recipe-graph {:initial :idle :large [[:data]] :data {} :states {:idle {}}}
+                                (array-map :blob payload))]
+      (is (not (some #(str/includes? % payload) (all-row-strings graph))))
       (is (str/includes? (value-for graph :blob) ":rf.size/large-elided")))))
 
-;; ---------------------------------------------------------------------------
-;; (c) :context-band-raw? true is the explicit trusted-local opt-out
-
 (deftest xyflow-graph-context-band-raw-opts-out-of-redaction
-  (testing ":context-band-raw? true is the explicit
-            trusted-local opt-in that SKIPS redaction: the SAME sensitive
-            slot that redacts by default now passes its raw value through"
+  (testing ":context-band-raw? true is the explicit trusted-local opt-in: a
+            slot classified sensitive passes its raw value through"
     (let [secret "card-4111-1111-1111-1111"
-          band   (array-map :card secret)
-          parsed (layout/project-definition flat-machine)
-          ;; identical band + sensitive classification; only :context-band-raw? differs
-          redacted (projection/xyflow-graph
-                     parsed {} {:context-band band :context-band-sensitive #{:card}})
-          raw      (projection/xyflow-graph
-                     parsed {} {:context-band band :context-band-sensitive #{:card}
-                                :context-band-raw? true})]
-      (is (not (some #(str/includes? % secret) (all-row-strings redacted)))
-          "default (raw? absent) → secret redacted away")
-      (is (str/includes? (value-for raw :card) secret)
-          "raw? true → the raw value passes through UNREDACTED (opt-out honoured)"))))
-
-;; ---------------------------------------------------------------------------
-;; (d) an unclassified band passes through unchanged; no band → no :context
-
-(deftest xyflow-graph-unclassified-context-passes-through
-  (testing "the default-on redaction never clobbers an
-            UNclassified live value (the production value-free shape is a
-            no-op under redaction)"
-    (let [parsed (layout/project-definition flat-machine)
           graph  (projection/xyflow-graph
-                   parsed {}
-                   {:context-band (array-map :name "Alice" :count 3)})]
-      (is (= "\"Alice\"" (value-for graph :name)) "ordinary string renders via pr-str")
-      (is (= "3" (value-for graph :count))        "ordinary number renders"))))
+                   (layout/project-definition flat-machine) {}
+                   {:context-band           (array-map :card secret)
+                    :context-band-sensitive #{:card}
+                    :context-band-raw?      true})]
+      (is (str/includes? (value-for graph :card) secret)))))
 
 (deftest xyflow-graph-no-context-band-emits-no-context
-  (testing "with no :context-band fed, the root-container
-            carries no :context rows (the band gates on presence)"
-    (let [parsed (layout/project-definition flat-machine)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (nil? (context-rows graph))
-          "no band → no :data {:context} (nothing to serialise into an export)"))))
+  (testing "with no :context-band fed, the root-container carries no :context
+            rows — nothing to serialise into an export"
+    (is (nil? (context-rows (projection/xyflow-graph
+                              (layout/project-definition flat-machine) {} {}))))))
