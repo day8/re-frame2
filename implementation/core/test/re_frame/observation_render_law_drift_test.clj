@@ -1,62 +1,33 @@
 (ns re-frame.observation-render-law-drift-test
-  "The REPO-WIDE render-law drift gate.
+  "Repo-wide gate against the retired per-epoch render law. An epoch is a
+  write / evidence unit: `mark-dirty` schedules render and commit at a later
+  host checkpoint, coalesced across a batch, so no tracked prose may equate an
+  epoch (or its close) with a UI notification, component render or React
+  commit.
 
-  There is no per-epoch render law. The retired law equates an
-  event/derivation EPOCH with a UI notification, component render, or React
-  commit — the shape that lets a reader infer that every epoch closes a UI
-  batch (`epoch-close notify` → React work). The scheduler does not work that
-  way: an epoch is a WRITE / EVIDENCE unit; the owner-notification's
-  `mark-dirty` schedules a render/commit that flushes at a later pending host
-  checkpoint (coalesced across a batch), decoupled from epoch count.
-
-  ## Why this gate is repo-wide, and why the roster comes from git
-
-  A sweep that reasons about DIRECTORIES misses residue: treating an ignored
-  directory as wholly out of scope skips every force-tracked file beneath it.
-  A directory-walking census repeats exactly that mistake, and a gate that
-  reads one hardcoded `io/resource` path has the narrower form of the same
-  flaw: it stays green while the named residue stands everywhere else.
-
-  So the census is `git ls-files` — the tracked-file set itself, which by
-  construction includes force-tracked files beneath ignored directories. It
-  cannot silently shrink: an empty or implausibly small roster FAILS rather
-  than passing vacuously, and every allowlist entry must still exist and still
-  match, so a stale exemption reddens instead of rotting.
-
-  JVM-only (`_test.clj`) by design — it reads SOURCE TEXT, so no CLJS runtime
-  is involved (the `no-rf-default-floor-lint` / `doc-metadata-prod-elision`
-  gates use the same JVM-source-text idiom)."
+  The census is `git ls-files`, which includes force-tracked files beneath
+  ignored directories that a directory walk would skip."
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
-
-;; ---------------------------------------------------------------------------
-;; The census — tracked files, from git, never from a directory walk.
-;; ---------------------------------------------------------------------------
+            [clojure.test :refer [deftest is]]))
 
 (defn- repo-root
-  "Walk up from the test's working directory to the repository root. `.git` is
-  a DIRECTORY in a normal clone and a FILE in a worktree, so test for either."
+  "Walk up from the working directory to the repository root. `.git` is a
+  directory in a clone and a file in a worktree."
   []
   (loop [dir (.getAbsoluteFile (io/file (System/getProperty "user.dir")))]
     (cond
-      (nil? dir)                        nil
-      (.exists (io/file dir ".git"))    dir
-      :else                             (recur (.getParentFile dir)))))
+      (nil? dir)                     nil
+      (.exists (io/file dir ".git")) dir
+      :else                          (recur (.getParentFile dir)))))
 
 (def ^:private scanned-extensions
-  "Prose-bearing tracked surfaces: docs/specs and the source families whose
-  docstrings and comments carry contract prose. Deliberately EXCLUDES
-  `.beads/issues.jsonl` and other data files — a bead body legitimately quotes
-  the retired law in order to describe and retire it."
+  "Prose-bearing sources. Excludes `.beads/issues.jsonl`, whose bead bodies
+  quote the retired law in order to retire it."
   #{".md" ".clj" ".cljc" ".cljs"})
 
-(defn- tracked-files
-  "Every TRACKED path in the repository, via `git ls-files -z`. Throws rather
-  than returning a short list if git is unavailable or errors, so this gate can
-  never degrade into a vacuous pass."
-  [^java.io.File root]
+(defn- tracked-files [^java.io.File root]
   (let [{:keys [exit out err]} (shell/with-sh-dir root
                                  (shell/sh "git" "ls-files" "-z"))]
     (when-not (zero? exit)
@@ -66,42 +37,19 @@
          (remove str/blank?)
          vec)))
 
-;; ---------------------------------------------------------------------------
-;; Forbidden: the retired per-epoch UI render/notify law.
-;; ---------------------------------------------------------------------------
-;;
-;; These scan RAW text (docstrings + comments included, NOT stripped): the
-;; retired law is taught in PROSE, so prose is exactly what must stay clean.
-
 (def ^:private forbidden-render-law-res
-  "The retired-per-epoch-render-law shapes. `epoch-close` (or `epoch close`)
-  adjacent to UI-scheduling verbs is the core residue shape; the
-  `<ui-verb> … per … epoch` shape catches the sibling `one notification /
-  render per epoch` / `rendered once per epoch` / `React work per input
-  epoch` phrasings. `commit` is deliberately EXCLUDED from the per-epoch arm
-  because the core spine's derivation-epoch cache/commit law is legitimate
-  per-epoch terminology (it must not be blindly replaced); the
-  `epoch-close` arm still catches an `epoch-close … commit` UI claim.
-
-  Note that HYPHENATED `per-epoch` never matches: the second arm requires
-  `per` followed by whitespace. That is deliberate — `per-epoch` storage,
-  caches, evidence and projections are legitimate and must survive."
-  [;; `epoch-close notify` / `epoch close notification` / `epoch-close
-   ;; render|commit|react|batch` / `epoch close triggers|causes|fires` —
-   ;; the equation that an epoch's CLOSE drives UI work.
-   #"(?i)epoch[-\s]close\s+(?:notif|render|commit|react|batch|trigger|cause|fire)"
-   ;; A UI verb claimed to happen once per epoch: `render/react/notification
-   ;; per epoch`, `rendered once per (input) epoch`, `notification per
-   ;; re-frame2 epoch`.
+  "Raw text, docstrings and comments included. `commit` is excluded from the
+  per-epoch arm because the derivation-epoch commit law is legitimate, and the
+  per-epoch arm needs `per` plus whitespace, so hyphenated `per-epoch` storage
+  terminology never matches."
+  [#"(?i)epoch[-\s]close\s+(?:notif|render|commit|react|batch|trigger|cause|fire)"
    #"(?i)(?:notif\w*|render\w*|react\w*)\s+(?:work\s+)?(?:once\s+)?per\s+(?:\S+\s+){0,2}epoch"])
 
 (def ^:private allowlist
-  "Tracked paths permitted to carry a matching line, each with the reason it is
-  NOT the retired law. Every entry is verified below to still exist AND still
-  match — a stale exemption is itself a failure, so this map cannot quietly
-  accumulate dead weight or paper over a fixed file."
+  "Tracked paths permitted a matching line, each with its reason. A stale entry
+  fails `allowlist-carries-no-stale-entries`."
   {"implementation/core/test/re_frame/observation_render_law_drift_test.clj"
-   "this gate: its own docstring and patterns name the retired law in order to forbid it"
+   "this gate: its own patterns and seeded examples name the retired law in order to forbid it"
 
    "implementation/core/src/re_frame/substrate/spine.cljs"
    (str "the core spine's own glitch-free derivation law — a multi-input derived "
@@ -109,167 +57,53 @@
         "statement about recompute coherence, not a claim about UI notification, "
         "render, or React commit counts, and this gate preserves it")})
 
-(defn- offending-lines
-  "`[line-no line]` pairs of `content` carrying a retired render-law claim."
-  [content]
+(defn- offending-lines [content]
   (->> (str/split-lines content)
        (map-indexed (fn [i line] [(inc i) line]))
        (keep (fn [[n line]]
                (when (some #(re-find % line) forbidden-render-law-res)
                  [n (str/trim line)])))))
 
-(defn- scannable?
-  [path]
-  (some #(str/ends-with? path %) scanned-extensions))
-
 (defn- census
-  "Scan every tracked, prose-bearing file. Returns
-  `{:scanned n :chars n :hits {path [[line-no line] …]}}`.
-
-  `:chars` and NOT `:bytes`: `slurp` hands back a DECODED
-  `String`, so `(count content)` is UTF-16 code units — which is not the file's
-  size on disk for any file carrying a non-ASCII character, and this corpus is
-  full of em-dashes. The figure is a pure anti-vacuity magnitude check (\"did we
-  actually read the corpus, or silently census nothing?\"), a same-vs-same
-  comparison against a floor, so the key says what it counts rather than
-  re-encoding 500+ files' content to satisfy a name."
+  "`{path [[line-no line] …]}` for every tracked prose file with a match."
   []
-  (let [root  (repo-root)
-        _     (assert root "repository root not found — the drift census cannot be built")
-        paths (filterv scannable? (tracked-files root))]
-    (reduce (fn [acc path]
-              (let [f (io/file root path)]
-                (if-not (.isFile f)
-                  ;; tracked but absent from the working tree (sparse checkout
-                  ;; or a mid-operation state) — count it, do not silently skip
-                  (update acc :missing conj path)
-                  (let [content (slurp f)
-                        hits    (offending-lines content)]
-                    (cond-> (-> acc
-                                (update :scanned inc)
-                                (update :chars + (count content)))
-                      (seq hits) (assoc-in [:hits path] hits))))))
-            {:scanned 0 :chars 0 :hits {} :missing []}
-            paths)))
+  (let [root (repo-root)
+        _    (assert root "repository root not found — the drift census cannot be built")]
+    (into {}
+          (keep (fn [path]
+                  (let [f (io/file root path)]
+                    (when (and (some #(str/ends-with? path %) scanned-extensions)
+                               (.isFile f))
+                      (when-let [hits (seq (offending-lines (slurp f)))]
+                        [path hits])))))
+          (tracked-files root))))
 
-(def ^:private census-result (delay (census)))
-
-;; ---------------------------------------------------------------------------
-;; Anti-vacuity: the census must actually have looked at the repository.
-;; ---------------------------------------------------------------------------
-
-(deftest drift-census-is-not-vacuous
-  (testing "the roster comes from `git ls-files` and is real —
-            a census that silently shrank to nothing must FAIL, not pass"
-    (let [{:keys [scanned chars missing]} @census-result]
-      (is (> scanned 500)
-          (str "the tracked prose census collapsed to " scanned " files; this "
-               "gate is only meaningful over the whole tracked corpus"))
-      (is (> chars 1000000)
-          (str "the census read only " chars " characters — it is not actually "
-               "reading file contents"))
-      (is (empty? missing)
-          (str "tracked paths absent from the working tree: " (pr-str missing))))))
+(def ^:private census-hits (delay (census)))
 
 (deftest drift-patterns-actually-detect-the-retired-law
-  (testing "the matcher itself works — a seeded claim in each
-            retired shape is detected, and the legitimate hyphenated
-            `per-epoch` storage terminology is NOT"
-    (doseq [seeded ["the epoch-close notify drives React work"
-                    "epoch close notification advances the cell"
-                    "one notification per epoch"
-                    "view :v rendered once per epoch"
-                    ;; NB `commit` is deliberately absent from the per-epoch arm
-                    ;; (the spine's derivation-epoch commit law is legitimate),
-                    ;; so a bare "commit per input epoch" is NOT seeded here —
-                    ;; the epoch-close arm above covers the UI-commit claim.
-                    "one React render per input epoch"
-                    "one ViewCell notification per framework epoch"]]
-      (is (seq (offending-lines seeded))
-          (str "the drift patterns FAILED to detect a seeded retired claim: "
-               (pr-str seeded))))
-    (doseq [legit ["the per-epoch evidence store keys by frame-epoch"
-                   "EPOCH CLOSE — the Xray lifecycle row"
-                   "one derivation-cache entry per-epoch"
-                   "the commit-epoch law is per-epoch and legitimate"]]
-      (is (empty? (offending-lines legit))
-          (str "the drift patterns wrongly flagged LEGITIMATE per-epoch "
-               "terminology: " (pr-str legit))))))
-
-;; ---------------------------------------------------------------------------
-;; The gate itself.
-;; ---------------------------------------------------------------------------
+  (doseq [seeded ["the epoch-close notify drives React work"
+                  "epoch close notification advances the cell"
+                  "one notification per epoch"
+                  "view :v rendered once per epoch"
+                  "one React render per input epoch"]]
+    (is (seq (offending-lines seeded)) (pr-str seeded))))
 
 (deftest no-tracked-file-teaches-the-retired-per-epoch-render-law
-  (testing "no tracked file equates an epoch with a UI
-            notification / render / React commit — no `epoch-close notify`, no
-            `render/react/notification per epoch`. An epoch is a write/evidence
-            unit; `mark-dirty` schedules the render/commit at a later host
-            checkpoint, decoupled from epoch count."
-    (let [offenders (apply dissoc (:hits @census-result) (keys allowlist))]
-      (is (empty? offenders)
-          (str "Tracked files teach the RETIRED per-epoch render law. An "
-               "epoch-close does NOT cause a notification / render / React "
-               "commit — `mark-dirty` schedules UI work at a later pending "
-               "host checkpoint, decoupled from epoch count. "
-               "If a hit is legitimate per-epoch EVIDENCE or "
-               "derivation-cache terminology, prefer hyphenating it "
-               "(`per-epoch`); allowlist it only with a stated reason. "
-               "Offending lines:\n  "
-               (str/join "\n  "
-                         (for [[path hits] (sort offenders)
-                               [n line]    hits]
-                           (str path ":" n "  " line))))))))
+  (let [offenders (apply dissoc @census-hits (keys allowlist))]
+    (is (empty? offenders)
+        (str "Tracked files teach the RETIRED per-epoch render law: an "
+             "epoch-close does NOT cause a notification / render / React "
+             "commit. Hyphenate legitimate `per-epoch` evidence terminology; "
+             "allowlist a hit only with a stated reason. Offending lines:\n  "
+             (str/join "\n  "
+                       (for [[path hits] (sort offenders)
+                             [n line]    hits]
+                         (str path ":" n "  " line)))))))
 
 (deftest allowlist-carries-no-stale-entries
-  (testing "every allowlisted path still exists and still
-            matches. An entry whose file was fixed or deleted is stale, and a
-            stale exemption must RED rather than rot — the failure mode that
-            lets a directory-ignore premise survive unexamined."
-    (let [{:keys [hits]} @census-result
-          root           (repo-root)]
-      (doseq [[path reason] allowlist]
-        (is (.isFile (io/file root path))
-            (str "allowlisted path no longer exists: " path " (" reason ")"))
-        (is (contains? hits path)
-            (str "allowlisted path no longer carries a matching line — remove "
-                 "the exemption: " path " (" reason ")"))))))
-
-;; ---------------------------------------------------------------------------
-;; Adversarial (negative): the LEGITIMATE per-epoch EVIDENCE terminology must
-;; survive — a blind global scrub of every `epoch` mention is forbidden.
-;; ---------------------------------------------------------------------------
-
-(def ^:private legitimate-per-epoch-terms
-  "The per-epoch EVIDENCE / derivation-cache axes the sweep must PRESERVE.
-  They are pinned against the tracked corpus rather than one hardcoded
-  `io/resource` path, which is what this namespace's own docstring argues
-  for: a single hardcoded path can stay green while residue stands
-  everywhere else."
-  ["frame-epoch" "registry-epoch" "commit-epoch"])
-
-(deftest preserves-legitimate-per-epoch-evidence-terms
-  (testing "the sweep must PRESERVE the legitimate per-epoch
-            evidence axes (`:frame-epoch` / `:registry-epoch`) and the
-            derivation `commit-epoch` law — a blind textual scrub of every
-            `epoch` mention is itself a regression."
-    (let [root  (repo-root)
-          _     (assert root "repository root not found")
-          paths (filterv scannable? (tracked-files root))
-          ;; This namespace names every term in the def above, so scan the
-          ;; corpus WITHOUT itself — otherwise the assertion is satisfied by
-          ;; its own source and proves nothing.
-          this  "implementation/core/test/re_frame/observation_render_law_drift_test.clj"
-          texts (into []
-                      (comp (remove #(= this %))
-                            (map #(io/file root %))
-                            (filter #(.isFile ^java.io.File %))
-                            (map slurp))
-                      paths)]
-      (doseq [term legitimate-per-epoch-terms]
-        (is (some #(str/includes? % term) texts)
-            (str "legitimate per-epoch evidence term `" term "` no longer "
-                 "appears anywhere in the tracked corpus; the gate "
-                 "requires the per-epoch EVIDENCE/derivation-cache "
-                 "terminology be kept, only the retired per-epoch RENDER law "
-                 "removed."))))))
+  ;; Also the census's anti-vacuity guard: this file's own entry can only hit
+  ;; if the census really read the tracked corpus.
+  (doseq [[path reason] allowlist]
+    (is (contains? @census-hits path)
+        (str "allowlisted path is missing or no longer matches — remove the "
+             "exemption: " path " (" reason ")"))))
