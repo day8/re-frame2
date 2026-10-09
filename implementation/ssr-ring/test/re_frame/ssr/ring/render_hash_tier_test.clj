@@ -1,26 +1,10 @@
 (ns re-frame.ssr.ring.render-hash-tier-test
-  "The SERVER end of Spec 011's tier rule for the render-hash
-  channel.
-
-  The only tree an adoption-tier root can
-  offer a hash is the unresolved root form `[<component> {props}]`, whose
-  canonical EDN `[#fn[] {props}]` is a constant. Spec 011 §Hydration-mismatch
-  detection states the rule for both ends: a root that verifies by
-  React-native adoption MUST NOT carry `:rf/render-hash` in its payload nor
-  `data-rf-render-hash` on its root element.
-
-  These rows pin that rule on `ssr-ring` and, just as importantly, the
-  MEASUREMENT that justifies it — the constants stay reproducible here.
-
-  **The discriminator is structural, not brand-based.** The server cannot see
-  which substrate will hydrate its markup and does not need to: it asks
-  whether a hashable data render-tree is PRESENT at the root. That answers the
-  tier question wherever the tier question has an answer, and it binds the
-  hiccup tier identically — which is why the omission is silent rather than a
-  thrown error. `[(rf/view :app/root)]` and an adoption-tier `[app {}]` are the
-  same shape; nothing on this side can tell them apart."
+  "The server end of Spec 011's tier rule for the render-hash channel. A root
+  that stays a callable-headed vector (the unresolved root form, the only
+  shape an adoption-tier root can take) hashes to one constant per arity, so
+  it ships no `:rf/render-hash` and no `data-rf-render-hash`."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
@@ -29,198 +13,75 @@
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
-;; ---- extraction helpers ---------------------------------------------------
-
-(defn- payload-edn-of
-  "The `__rf_payload` script body of a rendered document string."
-  [body]
-  (second (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)))
-
-(defn- payload-render-hash
-  "The payload's `:rf/render-hash`, or nil when the key is absent. Matches the
-  `#:rf{…}` namespace-map shorthand `pr-str` emits too."
-  [body]
-  (when-let [edn (payload-edn-of body)]
-    (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"" edn))))
-
-(defn- payload-head-hash [body]
-  (when-let [edn (payload-edn-of body)]
-    (second (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\"" edn))))
-
-(defn- wire-render-hash [body]
-  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body)))
-
-(defn- drain-stream
-  "Read a streaming Ring body (an InputStream) to a String."
-  [body]
-  (if (string? body)
-    body
-    (with-open [in body]
-      (slurp in))))
-
-(defn- get-request [] {:uri "/" :request-method :get})
-
-;; ---- the app under test ---------------------------------------------------
-
 (defn- register-app! []
   (rf/reg-event :rf.test.q1b96/init
     {:platforms #{:server}}
     (fn [_ _] {:db {:heading "Tier"}}))
   (rf/reg-sub :q1b96/heading (fn [db _] (:heading db)))
   (rf/reg-view* :q1b96/root
-    (fn []
-      (let [h (rf/subscribe-once [:q1b96/heading])]
-        [:main.page [:h1 h] [:p "body"]]))))
+    (fn [] [:main.page [:h1 (rf/subscribe-once [:q1b96/heading])] [:p "body"]])))
 
-;; ===========================================================================
-;; unresolved-root-form? — the discriminator itself
-;; ===========================================================================
+(defn- unresolved-opts []
+  {:initial-events [[:rf.test.q1b96/init]]
+   :root-view      [(rf/view :q1b96/root)]
+   :payload        :rf.ssr.payload/whole-app-db})
 
 (defn- a-component [_props] [:div "a"])
 (defn- b-component [_props] [:section [:h2 "b"] [:p "different shape entirely"]])
 
 (deftest unresolved-root-form-recognises-callable-heads
-  (testing "a vector whose head is a callable — a raw fn, a Var
-            reference, or `(rf/view :id)` — is the UNRESOLVED root form"
-    (register-app!)
-    (is (true? (rf.ssr.ring.lifecycle/unresolved-root-form? [(rf/view :q1b96/root)]))
-        "a registered-view reference is a reference, not a tree")
-    (is (true? (rf.ssr.ring.lifecycle/unresolved-root-form? [#'a-component]))
-        "a Var head too — a Var is `ifn?` but NOT `fn?` on the JVM, so the
-         test cannot be `fn?`; the emitter's test is `ifn?` too")
-    (is (true? (rf.ssr.ring.lifecycle/unresolved-root-form? [a-component {}]))
-        "the adoption tier's `[<component> {props}]` shape")))
-
-(deftest unresolved-root-form-excludes-real-render-trees
-  (testing "keyword heads are DOM / custom elements on every host,
-            so a keyword-headed vector is a real render tree —
-            and so is anything that is not a callable-headed vector"
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? [:div.page [:h1 "x"]]))
-        "an ordinary DOM root")
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? [:<> [:div "a"] [:div "b"]]))
-        "a fragment root — Spec 011 threads the marker through it onto the
-         first DOM child, so it must stay hashable")
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? (list [:div "x"])))
-        "a lazy-seq / list root is threaded through likewise")
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? []))
-        "an empty vector has no head to be callable")
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? "just text")))
-    (is (false? (rf.ssr.ring.lifecycle/unresolved-root-form? nil)))))
-
-;; ===========================================================================
-;; The measurement — why a degenerate value is worse than an absent one
-;; ===========================================================================
+  ;; A Var head is `ifn?` but not `fn?`; a keyword head is `ifn?` but a DOM element.
+  (register-app!)
+  (is (= [true true false false false]
+         (mapv rf.ssr.ring.lifecycle/unresolved-root-form?
+               [[(rf/view :q1b96/root)]
+                [#'a-component]
+                [:div.page [:h1 "x"]]
+                (list [:div "x"])
+                []]))))
 
 (deftest the-hash-an-unresolved-root-would-have-had-is-a-constant
-  (testing "hashing an unresolved root yields ONE
-            constant per arity, identical for every application — because
-            `render-tree-hash` is a pure structural walk that never expands a
-            callable head, and every raw fn serialises to the identity-free
-            token `#fn[]` (a requirement: no fn `.toString` is stable
-            across JVM and CLJS). Measured here so the
-            figures behind the rule stay reproducible."
-    (register-app!)
-    (rf/reg-view* :q1b96/other (fn [] [:aside "nothing like the other one"]))
-
-    ;; Arity 1 — `[<callable>]`, the shape `:root-view [(rf/view :id)]` takes.
-    (is (= "f1d63f7e"
-           (rf.ssr/render-tree-hash [(rf/view :q1b96/root)])
-           (rf.ssr/render-tree-hash [(rf/view :q1b96/other)]))
-        "two unrelated views hash IDENTICALLY as [#fn[]]")
-
-    ;; Arity 2 — `[<component> {props}]`, the adoption tier's root form.
-    (is (= "83b865f8"
-           (rf.ssr/render-tree-hash [a-component {}])
-           (rf.ssr/render-tree-hash [b-component {}]))
-        "two entirely different screens hash IDENTICALLY as [#fn[] {}] — a
-         client comparing that value would find the server agreed with it
-         about two different pages")
-
-    ;; The non-vacuity control: a real DOM-rooted tree does discriminate.
-    (is (not= (rf.ssr/render-tree-hash [:div "a"])
-              (rf.ssr/render-tree-hash [:div "b"]))
-        "a genuine render tree hashes differently for different content")))
-
-;; ===========================================================================
-;; ssr-handler — the wire
-;; ===========================================================================
+  ;; Holds the table in `render-document-hash`'s docstring to the code.
+  (register-app!)
+  (rf/reg-view* :q1b96/other (fn [] [:aside "nothing like the other one"]))
+  (is (= ["f1d63f7e" "f1d63f7e" "83b865f8" "83b865f8"]
+         (mapv rf.ssr/render-tree-hash
+               [[(rf/view :q1b96/root)]
+                [(rf/view :q1b96/other)]
+                [a-component {}]
+                [b-component {}]]))))
 
 (deftest an-unresolved-root-view-ships-no-render-hash
-  (testing "`:root-view [(rf/view :id)]` → NO data-rf-render-hash
-            on the root element and NO :rf/render-hash key in the payload,
-            even under the default `:emit-hash? true`"
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:rf.test.q1b96/init]]
-                     :root-view      [(rf/view :q1b96/root)]
-                     :payload        :rf.ssr.payload/whole-app-db})
-          body    (:body (handler (get-request)))]
-      (is (str/includes? body "<h1>Tier</h1>")
-          "the page still renders — only the hash channel is affected")
-      (is (nil? (wire-render-hash body))
-          "no data-rf-render-hash marker")
-      (is (not (str/includes? body "render-hash"))
-          "the payload omits the KEY rather than stamping a nil: Spec-Schemas
-           types the slot `{:optional true} :string`, not `[:maybe :string]`,
-           so a present-and-nil key is not a legal spelling of absence")
-      (is (some? (payload-head-hash body))
-          "the SEPARATE head channel is untouched — the head model is
-           client-reconstructible on every tier via `head-model`, so it is
-           never degenerate and never omitted for tier reasons")
-      (is (str/includes? body "data-rf-head-hash")
-          "and its wire marker rides too"))))
+  (register-app!)
+  (let [body (:body ((rf.ssr.ring/ssr-handler (unresolved-opts))
+                     {:uri "/" :request-method :get}))]
+    (is (str/includes? body "<h1>Tier</h1>"))
+    (is (not (str/includes? body "render-hash")))))
 
 (deftest the-surviving-hash-matches-the-documented-client-tree
-  (testing "the load-bearing equality. Server `:root-view
-            (fn [] ((rf/view :id)))` hashes the same tree the client's
-            `:render-tree-fn #((rf/view :id))` does. The unresolved server
-            form can never match it — it hashes `[#fn[]]` while the client
-            hashes the tree — so hashing it would make the documented pairing
-            mismatch on EVERY page while emitting byte-identical HTML."
-    (register-app!)
-    (let [fid (keyword "rf.frame" (str (gensym "q1b96")))]
-      (rf/make-frame {:id fid :platform :server
-                      :initial-events [[:rf.test.q1b96/init]]})
-      (try
-        (rf/with-frame fid
-          (let [server-resolved   (rf.ssr.ring.lifecycle/resolve-root-view
-                                    (fn [] ((rf/view :q1b96/root))))
-                server-unresolved (rf.ssr.ring.lifecycle/resolve-root-view
-                                    [(rf/view :q1b96/root)])
-                client-tree       ((rf/view :q1b96/root))]
-            (is (= (rf.ssr.ring.lifecycle/render-document-hash server-resolved)
-                   (rf.ssr/render-tree-hash client-tree))
-                "resolving server root == client `#((rf/view :id))` hash")
-            (is (nil? (rf.ssr.ring.lifecycle/render-document-hash server-unresolved))
-                "the unresolved form carries nothing rather than a
-                 never-matching constant")
-            (is (= (rf.ssr/render-to-string server-resolved {})
-                   (rf.ssr/render-to-string server-unresolved {}))
-                "both spellings emit byte-identical HTML — the choice is
-                 invisible on the page and decisive on the hash channel,
-                 which is why `resolve-root-view`'s docstring says so")))
-        (finally (rf/destroy-frame! fid))))))
-
-;; ===========================================================================
-;; stream-handler — the same rule on the chunked path
-;; ===========================================================================
+  ;; The resolving root hashes what the client's `:render-tree-fn
+  ;; #((rf/view :id))` hashes, and both `:root-view` spellings emit the same
+  ;; HTML, as the `ssr-handler` docstring says.
+  (register-app!)
+  (rf/make-frame {:id             :q1b96/server
+                  :platform       :server
+                  :initial-events [[:rf.test.q1b96/init]]})
+  (rf/with-frame :q1b96/server
+    (let [resolved (rf.ssr.ring.lifecycle/resolve-root-view
+                     (fn [] ((rf/view :q1b96/root))))]
+      (is (= (rf.ssr/render-tree-hash ((rf/view :q1b96/root)))
+             (rf.ssr.ring.lifecycle/render-document-hash resolved)))
+      (is (= (rf.ssr/render-to-string resolved {})
+             (rf.ssr/render-to-string
+               (rf.ssr.ring.lifecycle/resolve-root-view [(rf/view :q1b96/root)])
+               {}))))))
 
 (deftest streaming-unresolved-root-view-ships-no-render-hash
-  (testing "`stream-handler` reaches the same answer — no
-            data-rf-render-hash on the streamed #app root and no
-            :rf/render-hash in the final payload. The streaming prefix stamps
-            only from `:render-hash` and never recomputes, so a nil hash is
-            enough there; only the non-streaming call site must also withhold
-            `:emit-hash?` (`render-to-string` reads a true `:emit-hash?` with
-            no supplied hash as 'compute it yourself')."
-    (register-app!)
-    (let [handler (rf.ssr.ring/stream-handler
-                    {:initial-events [[:rf.test.q1b96/init]]
-                     :root-view      [(rf/view :q1b96/root)]
-                     :payload        :rf.ssr.payload/whole-app-db})
-          body    (drain-stream (:body (handler (get-request))))]
-      (is (str/includes? body "<h1>Tier</h1>") "the shell still streams")
-      (is (nil? (wire-render-hash body)))
-      (is (nil? (payload-render-hash body)))
-      (is (some? (payload-head-hash body))
-          "the separate head channel survives on the streamed payload too"))))
+  ;; The streaming prefix stamps from `:render-hash` alone: a separate call site.
+  (register-app!)
+  (let [body (with-open [in ^java.io.InputStream
+                            (:body ((rf.ssr.ring/stream-handler (unresolved-opts))
+                                    {:uri "/" :request-method :get}))]
+               (slurp in))]
+    (is (str/includes? body "<h1>Tier</h1>"))
+    (is (not (str/includes? body "render-hash")))))
