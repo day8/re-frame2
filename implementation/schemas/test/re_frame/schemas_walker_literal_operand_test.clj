@@ -8,7 +8,7 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
-            [re-frame.schemas.walker-literal-operand-fixtures :as fixtures]
+            [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
@@ -16,9 +16,10 @@
 (def ^:private tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp})
 
 (deftest opacity-walk-classifies-the-shared-corpus
-  (doseq [s fixtures/not-opaque-forms]
+  (doseq [s rf.schemas.walker-literal-operand-fixtures/not-opaque-forms]
     (is (false? (rf.schemas/schema-has-opaque-child? s)) (pr-str s)))
-  (doseq [s (concat fixtures/opaque-forms fixtures/registry-ref-forms)]
+  (doseq [s (concat rf.schemas.walker-literal-operand-fixtures/opaque-forms
+                    rf.schemas.walker-literal-operand-fixtures/registry-ref-forms)]
     (is (true? (rf.schemas/schema-has-opaque-child? s)) (pr-str s))))
 
 (deftest nested-registry-ref-warns-walker-opaque-as-unknown
@@ -42,7 +43,7 @@
     (is (not= :rf/redacted (-> trace :tags :explain)))))
 
 (deftest redact-validation-tags-registry-ref-redacts-and-stamps
-  (doseq [schema fixtures/registry-ref-forms]
+  (doseq [schema rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
     (is (= {:value :rf/redacted :received :rf/redacted :explain :rf/redacted :sensitive? true}
            (rf.schemas/redact-validation-tags schema tags))
         (pr-str schema))))

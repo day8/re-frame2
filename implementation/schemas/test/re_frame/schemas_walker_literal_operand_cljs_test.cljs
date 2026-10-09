@@ -3,10 +3,11 @@
   here exactly as on the JVM, compiled Malli values included."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.walker-literal-operand-fixtures :as fixtures]))
+            [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]))
 
 (deftest cljs-opacity-walk-classifies-the-shared-corpus
-  (doseq [s fixtures/not-opaque-forms]
+  (doseq [s rf.schemas.walker-literal-operand-fixtures/not-opaque-forms]
     (is (false? (rf.schemas/schema-has-opaque-child? s)) (pr-str s)))
-  (doseq [s (concat fixtures/opaque-forms fixtures/registry-ref-forms)]
+  (doseq [s (concat rf.schemas.walker-literal-operand-fixtures/opaque-forms
+                    rf.schemas.walker-literal-operand-fixtures/registry-ref-forms)]
     (is (true? (rf.schemas/schema-has-opaque-child? s)) (pr-str s))))
