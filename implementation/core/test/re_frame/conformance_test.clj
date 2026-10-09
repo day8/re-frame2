@@ -5,8 +5,10 @@
   handed to it as a host map: fixture loading from disk, the inter-fixture
   reset (`clear-all!` + `(require … :reload)`), and trace-listener access.
 
-  The runner's self-tests live here only: the runner is one `.cljc`, so a
-  check that it bites on the JVM is the same check on CLJS."
+  The runner's self-tests live here: the runner is one `.cljc`, so a check
+  that it bites on the JVM is the same check on CLJS. The classification-op
+  guard keeps a CLJS mirror too, because the FixtureFile schema in
+  spec/Spec-Schemas.md names both as its durable negative."
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
