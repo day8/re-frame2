@@ -60,9 +60,9 @@
 
 (defn- pin-from-json-text
   "Pull the version string for `pkg` out of a chunk of package.json text
-  (`\"pkg\": \"value\"` → `\"value\"`). Returns nil when absent. Shared
-  by both the source-of-truth reader below and the emitted-package.json
-  `extract-pin` — one regex shape, written once."
+  (`\"pkg\": \"value\"` → `\"value\"`). Returns nil when absent. Reads both
+  the source of truth below and the emitted package.json — one regex
+  shape, written once."
   [text pkg]
   (let [pin-re (re-pattern (str "\"" pkg "\":\\s*\"([^\"]+)\""))]
     (some-> (re-find pin-re text) second)))
@@ -152,12 +152,6 @@
 ;; recovers them. One harness drives every emission rather than a
 ;; per-test re-implementation of the `org.corfield.new/create` opts map.
 
-(defn- extract-pin
-  "Pull `\"pkg\": \"value\"` out of the emitted package.json text.
-  Thin wrapper over the shared `pin-from-json-text`."
-  [pj-text pkg]
-  (pin-from-json-text pj-text pkg))
-
 (defn- extract-rf2-version
   "Pull `'day8/re-frame2 {:mvn/version \"...\"}` out of the emitted
   deps.edn text."
@@ -199,8 +193,8 @@
         (testing "Template's :react-version literal matches implementation/package.json"
           (let [pkg-react     (read-package-json-pin "react")
                 pkg-react-dom (read-package-json-pin "react-dom")
-                tpl-react     (extract-pin pj-text "react")
-                tpl-react-dom (extract-pin pj-text "react-dom")]
+                tpl-react     (pin-from-json-text pj-text "react")
+                tpl-react-dom (pin-from-json-text pj-text "react-dom")]
             ;; impl tree must keep react / react-dom in lockstep with
             ;; each other; if they ever diverge, the rationale should
             ;; be in DESIGN-RATIONALE and this test updates accordingly.
@@ -216,7 +210,7 @@
                      "implementation/package.json :react-dom (" pkg-react-dom ")"))))
         (testing "Template's :shadow-version literal matches implementation/package.json"
           (let [pkg-shadow (read-package-json-pin "shadow-cljs")
-                tpl-shadow (extract-pin pj-text "shadow-cljs")]
+                tpl-shadow (pin-from-json-text pj-text "shadow-cljs")]
             (is (= pkg-shadow tpl-shadow)
                 (str "Template :shadow-version (" tpl-shadow ") must match "
                      "implementation/package.json :shadow-cljs (" pkg-shadow ") — "
@@ -226,7 +220,7 @@
           (doseq [[pkg literal] [["@xyflow/react" ":xyflow-version"]
                                  ["elkjs"         ":elkjs-version"]]]
             (let [impl-pin (read-package-json-pin pkg)
-                  tpl-pin  (extract-pin pj-text pkg)]
+                  tpl-pin  (pin-from-json-text pj-text pkg)]
               (is (= (base-version impl-pin) tpl-pin)
                   (str "Template " literal " (" tpl-pin ") must match "
                        "implementation/package.json " pkg " (" impl-pin ") — P5 "
@@ -245,87 +239,42 @@
 
 ;; --- substrate + clojure(script) lockstep --------------------------------
 ;;
-;; The emitted deps.edn is valid EDN, so we read the pin straight off the
-;; parsed map rather than regexing the text. `emit-deps-pin` generates
-;; the per-substrate scaffold once and pulls the `:mvn/version` for a
-;; coord out of its `:deps`.
+;; Each `_<substrate>/deps.edn` carries its OWN literal copy of the clojure
+;; and clojurescript pins and of its view library's pin, so every
+;; substrate's emission is read: one copy drifting alone is exactly the
+;; drift this guards. The substrates come off `hooks.clj`'s
+;; `substrate-registry` (the single roster), so one added there is graded
+;; here with no edit to this file.
 
-(defn- emit-deps-pin
-  "Generate the `substrate` scaffold into `tmp`, read its emitted
-  deps.edn, and return the `:mvn/version` string for coord `sym` (nil if
-  absent). Caller owns the tmp lifecycle so a single emission can be
-  reused for several coord assertions."
-  [tmp substrate sym]
-  (let [root (run-template! tmp "acme/my-app" substrate)
-        deps (read-edn (io/file root "deps.edn"))]
-    (get-in deps [:deps sym :mvn/version])))
+(def ^:private substrate-lib-sources
+  "Substrate -> its view library and the implementation deps.edn pinning it.
+  Stock Reagent is a dep of the Reagent adapter artefact only: core stays
+  Reagent-free because re-frame.views late-binds via the
+  `:adapter/current-component` hook. com.pitch/uix.dom has no row, and that
+  is the point rather than an omission: the emitted app mounts through
+  `rf.adapter.uix/client-root` + `render!`, so uix.dom is not on its
+  classpath and there is nothing to keep in step. `template_test.clj`
+  carries the absence assertion, in `retired-coords`."
+  {:reagent ['reagent/reagent    "implementation/adapters/reagent/deps.edn"]
+   :uix     ['com.pitch/uix.core "implementation/adapters/uix/deps.edn"]})
 
-(deftest substrate-lib-lockstep
-  (testing "Template's substrate-lib pins match the implementation adapter tree"
-    ;; reagent/reagent — impl source of truth is
-    ;; adapters/reagent/deps.edn :deps. Stock Reagent is a dep of the
-    ;; Reagent adapter artefact only (the sole artefact that requires
-    ;; reagent.core/ratom/dom.client); core stays Reagent-free because
-    ;; re-frame.views late-binds via the `:adapter/current-component`
-    ;; hook. So the pin rides the adapter, alongside uix below.
-    (let [impl-reagent (read-impl-deps-pin "implementation/adapters/reagent/deps.edn"
-                                           'reagent/reagent)
-          tmp          (tmp-dir "rf2-template-lockstep-reagent-")]
-      (try
-        (let [tpl-reagent (emit-deps-pin tmp :reagent 'reagent/reagent)]
-          (is (= impl-reagent tpl-reagent)
-              (str "Template reagent/reagent pin (" tpl-reagent ") must match "
-                   "implementation/adapters/reagent/deps.edn (" impl-reagent ") — P5 "
-                   "lockstep. Bump reagent in the _reagent/deps.edn "
-                   "template resource.")))
-        (finally (delete-recursively tmp))))
-
-    ;; com.pitch/uix.core — impl source of truth is adapters/uix/deps.edn :deps.
-    ;; com.pitch/uix.dom has NO lockstep row, and that is the point rather
-    ;; than an omission: the emitted app mounts through
-    ;; `rf.adapter.uix/client-root` + `render!`, so uix.dom is not on its
-    ;; classpath and there is nothing to keep in step. `template_test.clj`
-    ;; carries the absence assertion, in `retired-coords`.
-    (let [impl-uix-core (read-impl-deps-pin "implementation/adapters/uix/deps.edn"
-                                            'com.pitch/uix.core)
-          tmp           (tmp-dir "rf2-template-lockstep-uix-")]
-      (try
-        (let [root         (run-template! tmp "acme/my-app" :uix)
-              tpl-deps     (read-edn (io/file root "deps.edn"))
-              tpl-uix-core (get-in tpl-deps [:deps 'com.pitch/uix.core :mvn/version])]
-          (is (= impl-uix-core tpl-uix-core)
-              (str "Template com.pitch/uix.core pin (" tpl-uix-core ") must "
-                   "match implementation/adapters/uix/deps.edn (" impl-uix-core
-                   ") — P5 lockstep. Bump uix.core in the _uix/deps.edn "
-                   "template resource.")))
-        (finally (delete-recursively tmp))))))
-
-(def ^:private substrates
-  "Every substrate the template emits, read off `hooks.clj`'s
-  `substrate-registry` (the single roster), so a substrate added there is
-  graded here with no edit to this file."
-  (sort (keys @#'hooks/substrate-registry)))
-
-(deftest clojure-version-lockstep
-  (testing "Every substrate's clojure + clojurescript pins match implementation/core/deps.edn"
-    ;; Both pins ride the impl core deps.edn :deps. Each
-    ;; _<substrate>/deps.edn carries its OWN literal copy of the two lines,
-    ;; so every substrate's emission is read: one copy drifting alone is
-    ;; exactly the drift this guards.
-    (let [impl-pins (into {} (for [sym '[org.clojure/clojure org.clojure/clojurescript]]
-                               [sym (read-impl-deps-pin "implementation/core/deps.edn" sym)]))]
-      (is (seq substrates)
-          "the substrate registry is non-empty, so the loop below grades something")
-      (doseq [substrate substrates]
-        (let [tmp (tmp-dir (str "rf2-template-lockstep-clj-" (name substrate) "-"))]
+(deftest substrate-deps-lockstep
+  (testing "Every substrate's view-library, clojure and clojurescript pins match the implementation tree"
+    (let [core-deps "implementation/core/deps.edn"
+          clj-pins  (for [sym '[org.clojure/clojure org.clojure/clojurescript]]
+                      [sym core-deps (read-impl-deps-pin core-deps sym)])]
+      (doseq [substrate (sort (keys @#'hooks/substrate-registry))]
+        (let [tmp (tmp-dir (str "rf2-template-lockstep-" (name substrate) "-"))]
           (try
             (let [deps (read-edn (io/file (run-template! tmp "acme/my-app" substrate)
-                                          "deps.edn"))]
-              (doseq [[sym impl-pin] impl-pins
+                                          "deps.edn"))
+                  lib  (when-let [[sym src] (substrate-lib-sources substrate)]
+                         [sym src (read-impl-deps-pin src sym)])]
+              (doseq [[sym src impl-pin] (cons lib clj-pins)
+                      :when sym
                       :let [tpl-pin (get-in deps [:deps sym :mvn/version])]]
                 (is (= impl-pin tpl-pin)
                     (str "Template " sym " pin for " substrate " (" tpl-pin ") must "
-                         "match implementation/core/deps.edn (" impl-pin ") — P5 "
-                         "lockstep. Bump it in the _" (name substrate) "/deps.edn "
-                         "template resource."))))
+                         "match " src " (" impl-pin ") — P5 lockstep. Bump it in the _"
+                         (name substrate) "/deps.edn template resource."))))
             (finally (delete-recursively tmp))))))))
