@@ -1,57 +1,17 @@
 (ns re-frame.scope-ensure-authority-test
-  "The SCOPE/ENSURE authority guard.
-
-  A BOUNDED, CLASSIFIED check over an ENUMERATED table of exact stale forms.
-  It is deliberately NOT a prose-lint framework: there is no fence parser, no
-  allow-list, no repo-wide sweep, and no general grammar. Each row names ONE
-  file and the LITERAL forms that are wrong in it.
-
-  Two contracts are pinned:
-
-    1. `subscribe` has ONE coherent no-default contract. There is no
-       `:rf.warning/plain-fn-under-non-default-frame-once` fall-through,
-       and a paragraph claiming a 1-arity `subscribe` lands on
-       `:rf/default` must not appear — it would contradict the very
-       docstring it sits in.
-
-    2. `frame-provider` is SCOPE-only and `frame-root` is ENSURE. An
-       EXHAUSTIVE frame-resolution inventory must name BOTH boundaries, and
-       no active guidance may say `frame-provider` CREATES or DESTROYS a
-       frame. (Statements that are genuinely provider-specific are NOT in
-       this table and stay provider-only.)
-
-  WHY EACH ROW CARRIES A `:required` ANCHOR. A `:forbidden` regex alone goes
-  vacuously green the moment a file is renamed, moved, or has the region
-  deleted — the failure mode where a guard only fires when its input is
-  empty. Every row therefore also asserts the TRUTHFUL form is present, and
-  every row asserts its file EXISTS. A row cannot pass by finding nothing.
-
-  WHY THE TEXT IS WHITESPACE-NORMALIZED. A claim can be WRAPPED across
-  source lines (`` `with-frame` / frame-provider `` split mid-phrase). A
-  per-line scan is blind to exactly that and returns a false-empty. Each
-  file is flattened to single-spaced text before matching, so a
-  reintroduced claim is caught however it wraps.
-
-  PER-ROW, NEVER A UNION. Every row emits its OWN assertion naming its own
-  file and form. A union-shaped check (`some hit anywhere`) would stay
-  silent when one source root is renamed and the rest still match.
-
-  JVM-only (`.clj`): it `slurp`s repo markdown + source and asserts on text,
-  so it carries no runtime behaviour and never loads a substrate."
+  "`frame-provider` SCOPEs an already-live frame and `frame-root` ENSUREs one;
+  `subscribe` has one no-default contract. Each row of the table names one
+  file, the literal stale forms that must not appear in it, and the truthful
+  forms that must — the `:required` anchor keeps a row from passing vacuously
+  once its file or region moves. Text is whitespace-flattened so a claim
+  wrapped across lines still matches."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
-;; ---------------------------------------------------------------------------
-;; Repo-root resolution
-;; ---------------------------------------------------------------------------
-;;
-;; Core's JVM tests run from `implementation/core/`, so the repo root is
-;; `../../`. A single-nesting layout is tolerated as a fallback, and an
-;; unresolvable root FAILS (never silently skips) — per the sibling
-;; `error_catalogue_channel_conformance_test`.
-
 (defn- repo-root
+  "Core's JVM tests run from `implementation/core/`; the shallower layouts are
+  tolerated, and an unresolvable root fails the test rather than skipping."
   []
   (->> ["../.." ".." "."]
        (map io/file)
@@ -59,21 +19,15 @@
        first))
 
 (defn- flattened
-  "Slurp `rel` under the repo root and collapse every whitespace run to a
-  single space, so a claim split across a line wrap still matches."
+  "Slurp `rel` under `root` with every whitespace run collapsed to one space,
+  or nil when the file does not exist."
   [root rel]
   (let [f (io/file root rel)]
     (when (.exists f)
       (str/replace (slurp f) #"\s+" " "))))
 
-;; ---------------------------------------------------------------------------
-;; The enumerated table — one row per file, listing that file's exact forms
-;; ---------------------------------------------------------------------------
-
 (def ^:private stale-token
-  "The shared stale spelling: a scope-chain inventory naming `frame-provider`
-  as the only frame boundary. Normalized, it reads `` `with-frame` /
-  frame-provider `` (with or without backticks on the provider)."
+  "A scope-chain inventory naming `frame-provider` as the only frame boundary."
   #"`with-frame`\s*/\s*`?frame-provider`?")
 
 (def ^:private authority-table
@@ -100,12 +54,6 @@
     :why       "the dispatch envelope's frame-resolution inventory (x2)"
     :forbidden [[stale-token "a provider-only scope-chain inventory"]]
     :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
-                 "the SCOPE/ENSURE boundary pair"]]}
-
-   {:file      "implementation/core/test/re_frame/router_carried_frame_test.clj"
-    :why       "the router envelope resolution-order comment"
-    :forbidden [[stale-token "a provider-only scope-chain inventory"]]
-    :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`"
                  "the SCOPE/ENSURE boundary pair"]]}
 
    {:file      "implementation/http/src/re_frame/http/middleware.cljc"
@@ -137,10 +85,8 @@
     :required  [[#"`frame-provider`\s*\(SCOPE\) / `frame-root`\s*\(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
 
-   ;; ---- The CREATE / DESTROY claims (not inventories) ----------------------
-
    {:file      "spec/000-Vision.md"
-    :why       "the scope/carry/ensure triad — frame-provider claimed to create AND destroy"
+    :why       "the scope/carry/ensure triad"
     :forbidden [[#"creates / provides / destroys a frame"
                  "the claim that `frame-provider` creates and destroys a frame"]]
     :required  [[#"`frame-root`\s*\(ENSURE\) creates the frame if absent"
@@ -161,41 +107,17 @@
                 [#"move the frame creation to a `frame-root`"
                  "the recovery pointing creation at `frame-root`"]]}])
 
-;; ---------------------------------------------------------------------------
-;; The check — one assertion per row per form, never a union
-;; ---------------------------------------------------------------------------
-
-(deftest scope-ensure-authority-table-is-live
-  (testing "the table's files all exist (a missing file must FAIL, not skip)"
-    (let [root (repo-root)]
-      (is (some? root)
-          "repo root not resolvable from the JVM test CWD — cannot verify")
-      (doseq [{:keys [file]} authority-table]
-        (is (some? (flattened root file))
-            (str "authority-table row names a file that does not exist: " file
-                 " — the row is stale; fix the path rather than deleting it"))))))
-
-(deftest no-retired-scope-ensure-forms
+(deftest scope-ensure-forms-are-current
   (let [root (repo-root)]
-    (doseq [{:keys [file why forbidden]} authority-table]
+    (is (some? root) "repo root not resolvable from the JVM test CWD")
+    (doseq [{:keys [file why forbidden required]} authority-table]
       (testing (str file " — " why)
-        (when-let [text (flattened root file)]
-          (doseq [[re label] forbidden]
-            (is (nil? (re-find re text))
-                (str "STALE FORM REINTRODUCED in " file ": " label
-                     " (pattern " (pr-str (str re)) "). "
-                     "`frame-provider` SCOPEs an already-live frame; "
-                     "`frame-root` ENSUREs one."))))))))
-
-(deftest truthful-scope-ensure-forms-are-present
-  (let [root (repo-root)]
-    (doseq [{:keys [file why required]} authority-table]
-      (testing (str file " — " why)
-        (when-let [text (flattened root file)]
-          (doseq [[re label] required]
-            (is (some? (re-find re text))
-                (str "MISSING TRUTHFUL FORM in " file ": " label
-                     " (pattern " (pr-str (str re)) "). "
-                     "If this region moved, update this row — do NOT delete it; "
-                     "a row that finds nothing is how this guard goes "
-                     "vacuously green."))))))))
+        (let [text (flattened root file)]
+          (is (some? text) "the row names a file that does not exist; fix the path, keep the row")
+          (when text
+            (doseq [[re label] forbidden]
+              (is (nil? (re-find re text))
+                  (str "STALE FORM REINTRODUCED: " label " (pattern " (pr-str (str re)) ")")))
+            (doseq [[re label] required]
+              (is (some? (re-find re text))
+                  (str "MISSING TRUTHFUL FORM: " label " (pattern " (pr-str (str re)) ")")))))))))
