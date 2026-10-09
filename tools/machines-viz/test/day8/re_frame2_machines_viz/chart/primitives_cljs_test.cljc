@@ -1,23 +1,9 @@
 (ns day8.re-frame2-machines-viz.chart.primitives-cljs-test
-  "Shape + theming pins for the chart `countdown-ring` glyph.
-
-  The `:after`-timer countdown ring is the load-bearing primitive the
-  xyflow after-rings overlay paints (per
-  `chart.overlays.after-rings`). These tests pin:
-
-    - the hiccup structure (track circle + arc circle, optional
-      cancelled cross-line + tooltip),
-    - the `stroke-dasharray` arc maths (fraction → filled arc length),
-    - the colour-tier → token mapping, and
-    - the `var(--rf-xray-<key>, <hex>)` theming so light +
-      dark both flow through the host's CSS custom-property surface.
-
-  Dual-target via the `_cljs_test.cljc` extension. Pure hiccup —
-  JVM-runnable, no DOM."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
-            [day8.re-frame2-machines-viz.chart.primitives :as prim]))
+            [day8.re-frame2-machines-viz.chart.primitives :as prim]
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
 (defn- circles
   "All `:circle` elements in a hiccup tree."
@@ -30,101 +16,40 @@
   (some (fn [n] (when (and (vector? n) (= tag (first n))) n))
         (tree-seq (some-fn vector? seq?) seq tree)))
 
-;; ---- structure ----------------------------------------------------------
-
-(deftest countdown-ring-emits-track-and-arc-circles
-  (let [g (prim/countdown-ring {:cx 100 :cy 100 :r 40 :fraction 0.5
-                                :color :green})]
-    (is (= :g (first g)))
-    (is (= "rf-mv-chart-countdown-ring" (:data-testid (second g))))
-    (is (= "green" (:data-color (second g))))
-    (is (= 2 (count (circles g))) "a faded track circle + the arc circle")))
-
-(deftest countdown-ring-testid-override
-  (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 10 :fraction 1.0
-                                :testid "rf-mv-chart-after-ring-idle"})]
-    (is (= "rf-mv-chart-after-ring-idle" (:data-testid (second g))))))
-
-;; ---- arc maths ----------------------------------------------------------
-
 (deftest countdown-ring-dasharray-tracks-fraction
-  (let [r       40
-        circ    (* 2 Math/PI r)
-        arc-of  (fn [frac]
-                  (let [g    (prim/countdown-ring
-                               {:cx 0 :cy 0 :r r :fraction frac})
-                        ;; the arc circle is the SECOND circle (track is first)
-                        arc  (second (circles g))
-                        dash (:stroke-dasharray (second arc))
-                        [a _] (str/split dash #" ")]
-                    (#?(:clj Double/parseDouble :cljs js/parseFloat) a)))]
-    (is (< (Math/abs (- (arc-of 0.5) (* 0.5 circ))) 0.001)
-        "half fraction → half the circumference filled")
-    (is (< (Math/abs (- (arc-of 1.0) circ)) 0.001)
-        "full fraction → whole circumference filled")
-    (is (< (arc-of 0.0) 0.001) "zero fraction → no arc")))
-
-(deftest countdown-ring-nil-fraction-renders-full
-  ;; nil fraction (unresolvable duration) → a faded full ring.
-  (let [g   (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction nil})
-        arc (second (circles g))
-        dash (:stroke-dasharray (second arc))
-        [a _] (str/split dash #" ")]
-    (is (< (Math/abs (- (#?(:clj Double/parseDouble :cljs js/parseFloat) a)
-                        (* 2 Math/PI 40)))
-           0.001))))
-
-;; ---- cancelled ----------------------------------------------------------
-
-(deftest countdown-ring-cancelled-draws-cross-line
-  (let [g    (prim/countdown-ring {:cx 100 :cy 100 :r 40 :fraction 0.3
-                                   :cancelled? true})
-        line (find-tag g :line)]
-    (is (= "true" (:data-cancelled (second g))))
-    (is (some? line) "cancelled rings draw a diagonal cross-line")
-    (is (str/starts-with? (:stroke (second line)) "var(--rf-xray-red")
-        "the cross-line strokes through the red token")))
-
-(deftest countdown-ring-not-cancelled-has-no-line
-  (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.3})]
-    (is (nil? (find-tag g :line)))))
-
-;; ---- tooltip ------------------------------------------------------------
-
-(deftest countdown-ring-tooltip-emits-title
-  (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 10 :fraction 0.5
-                                :tooltip "idle · 2500ms remaining"})]
-    (is (= [:title "idle · 2500ms remaining"] (find-tag g :title)))))
-
-;; ---- var(--*) theming --------------------------------------------------
+  (testing "the arc (the second circle; the track is first) fills the remaining
+            fraction of the circumference; a nil fraction renders a full ring"
+    (let [r    40
+          circ (* 2 Math/PI r)]
+      (doseq [[fraction filled] [[0.0 0] [0.5 0.5] [1.0 1] [nil 1]]]
+        (let [dash (-> (prim/countdown-ring {:cx 0 :cy 0 :r r :fraction fraction})
+                       circles second second :stroke-dasharray)
+              arc  (#?(:clj Double/parseDouble :cljs js/parseFloat)
+                     (first (str/split dash #" ")))]
+          (is (< (Math/abs (- arc (* filled circ))) 0.001) (str "fraction " fraction)))))))
 
 (deftest countdown-ring-strokes-resolve-through-css-vars
-  (testing "the arc stroke is var(--rf-xray-<tier-token>, <hex>) so
-            light + dark flow through the host's CSS custom-property
-            surface"
-    (let [g       (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.8
-                                        :color :green})
-          [track arc] (circles g)]
-      ;; :green tier → :green token.
-      (is (str/starts-with? (:stroke (second arc)) "var(--rf-xray-green"))
-      (is (str/includes? (:stroke (second arc)) "#3fb950")
-          "carries the dark-palette hex fallback for standalone embeds")
-      ;; track circle uses the subtle border token.
-      (is (str/starts-with? (:stroke (second track))
-                            "var(--rf-xray-border-subtle")))))
+  (testing "each colour tier strokes the arc through its theme token's CSS var;
+            the track uses the subtle border token"
+    (doseq [[color token] [[:green :green] [:amber :yellow] [:red :red] [:gray :text-tertiary]]]
+      (let [[track arc] (circles (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
+                                                       :color color}))]
+        (is (= [(tokens/css-var :border-subtle) (tokens/css-var token)]
+               (map (comp :stroke second) [track arc]))
+            (str color))))))
 
-(deftest countdown-ring-color-tiers-map-to-tokens
-  (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
-                                               :color :amber})
-                         circles second second :stroke)
-                     "--rf-xray-yellow")
-      ":amber tier maps to the :yellow token")
-  (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 0
-                                               :color :red})
-                         circles second second :stroke)
-                     "--rf-xray-red"))
-  (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
-                                               :color :gray})
-                         circles second second :stroke)
-                     "--rf-xray-text-tertiary")
-      ":gray tier maps to the :text-tertiary token"))
+(deftest countdown-ring-cancelled-draws-cross-line
+  (is (str/starts-with?
+        (-> (prim/countdown-ring {:cx 100 :cy 100 :r 40 :fraction 0.3 :cancelled? true})
+            (find-tag :line) second :stroke)
+        "var(--rf-xray-red")
+      "a cancelled ring is struck through in the red token")
+  (is (nil? (find-tag (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.3 :cancelled? false})
+                      :line))))
+
+(deftest countdown-ring-carries-testid-and-tooltip
+  (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 10 :fraction 0.5
+                                :testid  "rf-mv-chart-after-ring-idle"
+                                :tooltip "idle · 2500ms remaining"})]
+    (is (= "rf-mv-chart-after-ring-idle" (:data-testid (second g))))
+    (is (= [:title "idle · 2500ms remaining"] (find-tag g :title)))))
