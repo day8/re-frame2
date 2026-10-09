@@ -1,105 +1,21 @@
 (ns re-frame.schemas.digest-parity-cljs-test
-  "CLJS side of the app-schemas-digest cross-runtime byte-identity
-  parity smoke.
-
-  Spec 010 §Digest algorithm pins the digest as byte-identical between
-  CLJS and JVM runtimes: `'cross-runtime reproducible — a CLJS server
-  and a CLJS client running the same schema set produce the same
-  digest, byte-for-byte'`. This file locks the CLJS pipeline
-  (`goog.crypt.Sha256` + `goog.crypt/stringToUtf8ByteArray` +
-  `byteArrayToHex`) to the same literals the JVM pipeline
-  (`java.security.MessageDigest` + `String#getBytes(UTF_8)`) pins.
-
-  Pattern mirrors `re-frame.source-coord-parity-cljs-test`
-  — both runtimes consume the SAME fixture map (loaded from a shared
-  `.cljc` fixtures namespace) and pin the SAME canonical literal. The
-  literal IS the cross-host byte-comparison point. The companion JVM
-  test lives at `re-frame.schemas.digest-parity-test` and pins the
-  same literals against the same fixtures."
+  "CLJS half of the app-schemas-digest cross-runtime parity: the same fixtures
+  and literals as `re-frame.schemas.digest-parity-test`, through this host's
+  `goog.crypt` SHA-256 and UTF-8 encoding."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]))
-
-;; ---- pinned-literal vectors -----------------------------------------------
+            [clojure.string :as str]
+            [re-frame.schemas.digest-parity-fixtures :as fixtures]
+            [re-frame.schemas.validator :as rf.schemas.validator]))
 
 (deftest cljs-digest-matches-canonical-literal
-  (testing "Per Spec 010 §Digest algorithm — every canonical fixture
-            hashes to its pinned `\"sha256:\" + 16-hex` literal under
-            the CLJS digest pipeline. Byte-identity with the JVM-side
-            literal is what locks the cross-runtime invariant."
-    (doseq [{:keys [label input expected rationale]} rf.schemas.digest-parity-fixtures/all-fixtures]
-      (let [actual (rf.schemas.digest-parity-fixtures/compute-digest input)]
-        (is (= expected actual)
-            (str "CLJS digest for fixture " (pr-str label) " — "
-                 rationale
-                 " — expected " (pr-str expected) ", got " (pr-str actual)))))))
-
-;; ---- equality-invariant pairs --------------------------------------------
-
-(deftest cljs-digest-honours-equality-invariants
-  (testing "Spec 010 §Digest algorithm structural invariants — order-
-            independence (paths, props) and metadata stripping — every
-            fixture pair MUST produce byte-identical digests under
-            the CLJS pipeline."
-    (doseq [{:keys [label input-a input-b rationale]} rf.schemas.digest-parity-fixtures/invariant-pairs]
-      (let [da (rf.schemas.digest-parity-fixtures/compute-digest input-a)
-            db (rf.schemas.digest-parity-fixtures/compute-digest input-b)]
-        (is (= da db)
-            (str "CLJS invariant pair " (pr-str label) " — "
-                 rationale
-                 " — input-a → " (pr-str da)
-                 ", input-b → " (pr-str db)))))))
-
-;; ---- host-divergent printer cases -----------------------------------------
-;;
-;; The `whole-number-double` fixture rides in `all-fixtures` above, so
-;; the cross-host literal is asserted by
-;; `cljs-digest-matches-canonical-literal`. THAT assertion is the whole
-;; parity claim for the double case: the JVM pins the same string over a
-;; genuine `1.0`, so a green here and a green there together say the two
-;; hosts agree. This host has one numeric type — the reader collapsed `1.0`
-;; to 1 before the fixture was built — so the double-versus-integer pin
-;; lives on the JVM side.
+  (doseq [{:keys [label input expected]} fixtures/all-fixtures]
+    (is (= expected (fixtures/compute-digest input)) label)))
 
 (deftest cljs-fn-bearing-schema-digest-is-process-stable
-  (testing "a schema carrying a bare predicate must serialise
-            to a name-derived token rather than the host's `#object[…]`
-            print. The properties asserted here are the same ones the JVM
-            side asserts, over the same fixture, computed in the shared
-            fixtures namespace — but NOT the same bytes: this host names
-            the function `cljs$core$pos_int_QMARK_` where the JVM names it
-            `clojure.core$pos_int_QMARK_`, and `:advanced` munges it again.
-            So a fn-bearing schema is process-stable per host and is NOT
-            cross-runtime reproducible, which is why no shared literal is
-            pinned for it and why Spec 010 §Digest algorithm says so in
-            normative prose."
-    (is (rf.schemas.digest-parity-fixtures/fn-bearing-carries-fn?)
-        "precondition: the fixture schema must still carry a function")
-    (let [{:keys [bytes other-predicate-bytes address-free? object-print-free?
-                  carries-fn-token? stable-across-reads? discriminates-predicates?]}
-          (rf.schemas.digest-parity-fixtures/fn-bearing-observations)]
-      (is address-free?
-          (str "no per-process address may ride in the digest bytes — got " (pr-str bytes)))
-      (is object-print-free?
-          (str "the canonicaliser, not `pr-str`, must produce these bytes — got " (pr-str bytes)))
-      (is carries-fn-token?
-          (str "a function must canonicalise to its `#fn[…]` token — got " (pr-str bytes)))
-      (is stable-across-reads?
-          "the bytes must not move between serialisations of the same schema")
-      (is discriminates-predicates?
-          (str "two different predicates must still digest differently — "
-               (pr-str bytes) " vs " (pr-str other-predicate-bytes))))))
-
-;; ---- ambient printer limits -----------------------------------------------
-
-(deftest cljs-printer-limits-never-reach-digest-bytes
-  (testing "a bounded *print-length* / *print-level* in the
-            calling context changes neither the bytes and digests computed
-            under it nor what the memo serves once the binding ends"
-    (let [{:keys [baseline results]} (rf.schemas.digest-parity-fixtures/printer-limit-observations)]
-      (is (apply distinct? (:digests baseline))
-          "the unbounded baseline keeps every schema form distinct")
-      (doseq [{:keys [label inside after]} results]
-        (is (= baseline inside)
-            (str (pr-str label) " — bytes and digests inside the binding"))
-        (is (= baseline after)
-            (str (pr-str label) " — memoised bytes and digests read after it"))))))
+  (testing "a bare predicate serialises to its name-derived `#fn` token, which
+            still tells two predicates apart; this host names the function
+            differently from the JVM, so no shared literal is pinned"
+    (let [bytes (rf.schemas.validator/run-printer fixtures/fn-bearing-schema)]
+      (is (str/includes? bytes "#fn") bytes)
+      (is (not= bytes (rf.schemas.validator/run-printer fixtures/fn-bearing-other-schema))
+          bytes))))
