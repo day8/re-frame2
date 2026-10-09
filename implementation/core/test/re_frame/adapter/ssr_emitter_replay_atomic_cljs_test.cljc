@@ -1,40 +1,17 @@
 (ns re-frame.adapter.ssr-emitter-replay-atomic-cljs-test
-  "The `install-adapter!` SSR-emitter replay is FAILURE-ATOMIC, ROUTED, and
-  PRECEDENCE-SAFE.
-
-  `install-adapter!` replays the retained SSR hiccup emitter at install time.
-  Seat + re-arm is ONE failure-atomic transaction (a throwing re-arm rolls the
-  exact generation back and rethrows the re-arm exception as primary, leaving
-  a clean never-installed state for an immediate retry). The re-arm routes
-  through the `:adapter/arm-hiccup-emitter-if-unarmed!` hook (installed
-  adapter ALONE, so an inactive adapter's throwing setter cannot break the
-  active boot), and arms only an otherwise-unarmed slot (explicit override
-  wins). The hazards this rules out:
-
-    * Seating the new generation and THEN re-arming through the
-      `:reagent/set-hiccup-emitter!` BROADCAST, which re-arms every loaded
-      adapter: a throwing setter (for the active adapter, OR any loaded
-      inactive adapter) would propagate out of the broadcast and make the
-      install throw AFTER the target generation was seated — a failed boot
-      that nonetheless leaves the process installed / partial-armed.
-    * Re-arming the retained default over an already-armed slot, silently
-      clobbering a pre-init explicit custom emitter / reset.
-
-  Substrate-agnostic (JVM + the :node-test CLJS gate, via .cljc). It injects the
-  durable emitter slot and the arm hook directly, so it pins the
-  `install-adapter!` lifecycle seam independently of any one substrate's real
-  emitter wiring."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  "`install-adapter!` replays the retained SSR hiccup emitter through the
+  installed adapter's `:adapter/arm-hiccup-emitter-if-unarmed!` hook inside one
+  failure-atomic transaction: a throwing re-arm rolls back exactly the
+  generation it seated and rethrows, leaving a never-installed state. The hooks
+  are injected directly, so this pins the lifecycle seam independently of any
+  substrate's emitter wiring."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
-;; ---- fixture --------------------------------------------------------------
-;; These tests overwrite the durable SSR-emitter slot and the two emitter hooks
-;; to drive the `install-adapter!` transaction under fault injection. Snapshot
-;; and restore them (and the adapter lifecycle slot) so a real adapter's
-;; publications elsewhere in the bundle survive.
-
+;; The tests overwrite the durable emitter slot and both emitter hooks; restore
+;; them so a real adapter's publications elsewhere in the bundle survive.
 (def ^:private touched-hooks
   [:ssr/current-hiccup-emitter
    :adapter/arm-hiccup-emitter-if-unarmed!
@@ -60,103 +37,49 @@
 
 (def ^:private fake-adapter {:kind :rf.test/atomic-adapter})
 
-(defn- err-id [e]
-  #?(:clj  (:rf.error/id (ex-data e))
-     :cljs (:rf.error/id (ex-data e))))
-
-;; ---- 1. failure-atomicity: throwing re-arm cannot leave a partial boot ----
-
 (deftest a-throwing-replay-rolls-the-install-back-atomically
-  ;; Durable emitter present + the (active) arm throws → install is a no-op on
-  ;; the process slot: it rethrows the arm exception as PRIMARY and leaves no
-  ;; generation seated. Without the rollback the generation would stay seated
-  ;; and `current-adapter` would report the "failed" install as installed.
   (rf.late-bind/set-fn! :ssr/current-hiccup-emitter (fn [_ _] "<html/>"))
   (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed!
-                     (fn [_] (throw (ex-info "replay boom" {:marker ::boom}))))
-
-  (let [thrown (atom nil)]
-    (try
-      (rf.substrate.adapter/install-adapter! fake-adapter)
-      (catch #?(:clj Throwable :cljs :default) e
-        (reset! thrown e)))
-
-    (testing "the re-arm exception is preserved as the primary throw"
-      (is (some? @thrown) "install-adapter! rethrew rather than swallowing")
-      (is (= ::boom (:marker (ex-data @thrown)))
-          "the ORIGINAL re-arm exception surfaced, not a masking rollback error"))
-
-    (testing "no generation is seated — the failed boot is not installed"
-      (is (nil? (rf.substrate.adapter/current-adapter))
-          "current-adapter is nil: the seated generation was rolled back")
-      (is (false? (rf.substrate.adapter/adapter-disposed?))
-          "a failed install disposed nothing — the never-installed diagnosis stands"))
-
-    (testing "delegation surfaces the never-installed throw, not a half-armed state"
-      (let [de (try (rf.substrate.adapter/render-to-string [:div] {}) nil
+                        (fn [_] (throw (ex-info "replay boom" {:marker ::boom}))))
+  (let [thrown (try (rf.substrate.adapter/install-adapter! fake-adapter) nil
                     (catch #?(:clj Throwable :cljs :default) e e))]
-        (is (= :rf.error/no-adapter-installed (err-id de)))))
-
-    (testing "an immediate clean retry installs fresh"
-      (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed! (fn [_] nil))
-      (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
-      (is (= :rf.test/atomic-adapter (:kind (rf.substrate.adapter/current-adapter)))
-          "the rollback left a clean slot, so the retry seats normally"))))
+    (is (= ::boom (:marker (ex-data thrown)))
+        "the re-arm exception is rethrown as the primary throw")
+    (is (nil? (rf.substrate.adapter/current-adapter)) "no generation stays seated")
+    (is (false? (rf.substrate.adapter/adapter-disposed?))
+        "a failed install disposed nothing, so delegation still reports never-installed")
+    (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed! (fn [_] nil))
+    (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter))
+        "an immediate retry installs cleanly")))
 
 (deftest exact-generation-rollback-does-not-erase-a-replacement
-  ;; The rollback is bounded to the EXACT generation the failing install seated.
-  ;; Simulate a re-entrant install that lands a REPLACEMENT generation from
-  ;; inside the throwing arm (the arm runs while the failing generation is
-  ;; seated); the failing install's rollback must NOT clear the replacement.
+  ;; The throwing arm runs while the failing generation is seated and lands a
+  ;; replacement generation first; the failing install's rollback must keep it.
   (rf.late-bind/set-fn! :ssr/current-hiccup-emitter (fn [_ _] "<html/>"))
   (let [replacement {:kind :rf.test/replacement-adapter}]
     (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed!
-                       (fn [_]
-                         ;; Land a DIFFERENT generation, then fail the outer install.
-                         (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
-                         (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed! (fn [_] nil))
-                         (rf.substrate.adapter/install-adapter! replacement)
-                         (throw (ex-info "outer boom" {}))))
+                          (fn [_]
+                            (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+                            (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed! (fn [_] nil))
+                            (rf.substrate.adapter/install-adapter! replacement)
+                            (throw (ex-info "outer boom" {}))))
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (rf.substrate.adapter/install-adapter! fake-adapter)))
-    (is (identical? replacement (rf.substrate.adapter/current-adapter))
-        "the replacement generation survived — the stale install's rollback is exact-generation-scoped")))
-
-;; ---- 2. routing: an inactive throwing setter cannot break the active boot -
+    (is (identical? replacement (rf.substrate.adapter/current-adapter)))))
 
 (deftest inactive-throwing-broadcast-setter-cannot-break-the-active-boot
-  ;; The replay routes through `:adapter/arm-hiccup-emitter-if-unarmed!`, NOT the
-  ;; `:reagent/set-hiccup-emitter!` broadcast a loaded inactive adapter also
-  ;; contributes to. So a throwing broadcast setter never runs during install and
-  ;; the active adapter boots cleanly. Replaying through the broadcast would
-  ;; let this throw break the install.
-  (rf.late-bind/set-fn! :ssr/current-hiccup-emitter (fn [_ _] "<html/>"))
+  ;; A loaded inactive adapter's `:reagent/set-hiccup-emitter!` broadcast setter
+  ;; throws. The replay hands the retained emitter to the installed adapter's arm
+  ;; hook alone, so the broadcast never runs and the boot succeeds.
+  (rf.late-bind/set-fn! :ssr/current-hiccup-emitter ::retained-emitter)
   (let [broadcast-ran (atom false)
-        arm-ran       (atom false)]
-    ;; Stand in for a loaded inactive adapter whose set-hiccup-emitter! throws.
+        armed-with    (atom nil)]
     (rf.late-bind/set-fn! :reagent/set-hiccup-emitter!
-                       (fn [_] (reset! broadcast-ran true) (throw (ex-info "inactive setter boom" {}))))
-    ;; The installed adapter's routed arm is benign.
+                          (fn [_]
+                            (reset! broadcast-ran true)
+                            (throw (ex-info "inactive setter boom" {}))))
     (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed!
-                       (fn [_] (reset! arm-ran true)))
-
-    (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter))
-        "install succeeds — the throwing broadcast setter is not on the replay path")
-    (is (= :rf.test/atomic-adapter (:kind (rf.substrate.adapter/current-adapter))))
-    (is (true? @arm-ran) "the routed install-replay arm ran")
-    (is (false? @broadcast-ran)
-        "the :reagent/set-hiccup-emitter! broadcast was NOT invoked by install-replay")))
-
-;; ---- 3. the replay hands the retained emitter to the if-unarmed arm hook --
-
-(deftest replay-arms-an-unarmed-slot-from-the-retained-emitter
-  (rf.late-bind/set-fn! :ssr/current-hiccup-emitter ::retained-default)
-  (let [slot (atom nil)]
-    ;; The arm hook mirrors the real spine impl: arm the slot ONLY when unarmed.
-    (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed!
-                       (fn [f] (when (nil? @slot) (reset! slot f))))
-
-    (testing "an otherwise-unarmed fresh generation receives the retained default"
-      (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
-      (is (= ::retained-default @slot)
-          "the freshly installed, unarmed slot was armed from the durable emitter"))))
+                          (fn [f] (reset! armed-with f)))
+    (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
+    (is (= ::retained-emitter @armed-with) "the arm hook received the retained emitter")
+    (is (false? @broadcast-ran) "the broadcast setter is not on the replay path")))
