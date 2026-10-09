@@ -1,93 +1,17 @@
 (ns re-frame.flows-concurrency-stress-test
-  "JVM concurrency stress coverage for the flows surface
-  (`reg-flow` / `clear-flow` / dirty-check / topo / failed-flow).
-  Mirrors the machine-actor and router stress patterns: many threads
-  running independent per-frame cycles in lockstep, asserting **no event
-  dropped** and **no double-action** invariants on counters that the
-  deterministic single-shot suite cannot detect.
+  "Flows under parallel registration, dirty evaluation and clear. Each thread
+  owns its own frame (drain locks are per frame, Spec 002 §Rules rule 1, and
+  same-frame `dispatch-sync` from two threads is refused) and runs
+  reg-flow, then `stress-iters` input changes, then a cycle probe, then
+  clear. The invariants: each dirty evaluation runs `:derive` exactly once
+  (per thread and in total, so a drop on one thread cannot hide behind a
+  double on another), the cycle detector still throws under contention, and
+  teardown leaves no registry row, dirty-check row or `:flow` registrar slot.
 
-  The deterministic flow tests in `flows_test.clj` cover correctness
-  single-shot; this namespace pins the surface under parallel
-  registration, dirty-evaluation, and clear from many threads. The
-  invariants are the ones those stress suites pin: every dispatched
-  event ran exactly once (no drops) and every flow `:derive` invocation
-  fired exactly once per dirty evaluation (no doubles).
-
-  The shape — per Spec 013 §Frame-scoping + Spec 002 §Rules rule 1
-  (frames are independent state machines, their drain-locks don't
-  share):
-
-    - **N threads run in parallel**, each owning its own frame
-      (`:ztw5p.stress/f<i>`). Independent frames parallelise cleanly;
-      same-frame multi-thread `dispatch-sync` would hit
-      `:rf.error/dispatch-sync-in-handler` via the `:in-sync-drain?`
-      guard, so we deliberately partition by frame. Per-frame `flows`
-      / `last-inputs` slots are independent, and under the single store
-      they are the SOLE store — the `:flow` registrar slot
-      is RESERVED-but-empty, so no frame-blind slot is shared between
-      threads (Spec 013 §Frame-scoping).
-    - **Per iter**, the thread runs the reg-flow → dispatch-drain →
-      clear-flow cycle against a per-thread namespaced flow id
-      (`:ztw5p.stress/double-f<i>`) whose `:derive` action increments a
-      per-thread counter atom AND a shared `AtomicLong` global counter
-      both bumping exactly once per dirty evaluation.
-        1. `(rf/reg-flow ...)` against the per-thread frame —
-           per-thread namespaced `:id` keeps each thread's `:derive`
-           closure and its per-thread assertions independently
-           attributable.
-        2. `(rf/dispatch-sync [:bump-input] {:frame F})` — drives one
-           dirty evaluation. The `:derive` fn bumps the global atomic
-           AND the per-thread counter atom. Both bump exactly once
-           per dirty evaluation (the dirty-check guarantees `:derive`
-           runs once per input change).
-        3. `(rf/clear :flow ...)` against the per-thread frame — must
-           dissoc the flow's per-frame registry slot, pruning the
-           frame-id key once its last flow is cleared. Cleanup is the
-           leak-invariant test surface.
-
-  Invariants asserted:
-
-    1. **No event dropped (per-thread counter sum).** Sum of per-thread
-       counters across all threads = `(N × iters)`. Tracks observation
-       locally per thread; aggregation is the global cross-check that
-       no thread silently lost work.
-
-    2. **No double-action (global atomic counter).** `AtomicLong` is
-       bumped once per `:derive` invocation. After all threads finish,
-       its value must EXACTLY match `(N × iters)`. Higher = a flow ran
-       twice for one dispatch (double-action); lower = a dirty
-       evaluation was dropped before `:derive` ran.
-
-    3. **Ordering stable / cycle detection works under contention.**
-       Per-thread cycle-detection probe: each thread, mid-stress, does
-       a `try`/`catch` `reg-flow` of a flow whose registration would
-       close a two-flow cycle. The detector MUST throw
-       `:rf.error/flow-cycle` under contention; a race in topo-sort's
-       snapshot read that missed the prospective edge would silently
-       admit the cycle. The probe is deterministic — every
-       attempt MUST be detected — so the shared atomic counter for
-       cycle hits MUST equal exactly `n-threads` (each thread did one
-       probe).
-
-    4. **Clean registry — no leak.** After all threads finish and
-       every per-thread cycle is cleared, the per-frame flow registry
-       (read via `flows/flows-snapshot`) holds zero entries for every
-       test frame, the dirty-check `last-inputs` map (read via
-       `flows/last-inputs-snapshot`) holds zero entries for every
-       per-thread flow id, and the reserved `:flow` registrar slot
-       reads `nil` for every per-thread flow id (it is never written
-       under the single store, so per Spec 013 §Frame-scoping there is
-       nothing to vacate).
-
-  Threads start in lockstep via `CountDownLatch.countDown` — the same
-  shape the machine-actor and router stress suites use to maximise
-  contention. Per-thread iters default to 5000 (the stress-suite standard);
-  env-overridable via `RF2_ZTW5P_STRESS_ITERS`.
-
-  CLJS is single-threaded; the JVM is the only runtime where the flows
-  reg/clear/eval lifecycle CAN race across threads. This test is
-  JVM-only by design."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  Tagged `^:stress`, so it runs in the `:slow-test` lane only.
+  `RF2_ZTW5P_STRESS_ITERS` overrides the per-thread iteration count.
+  JVM-only: CLJS has no threads."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.registrar :as rf.registrar]
@@ -96,244 +20,66 @@
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; ---- per-test reset -------------------------------------------------------
-;;
-;; The standard runtime reset is owned by `make-reset-runtime-fixture`. It
-;; clears BOTH the flow registry AND the paired `last-inputs` containers in
-;; lockstep through the `:flows/reset-flows!` hook (per Spec 013 §Dirty-check
-;; semantics), so cross-test state cannot leak in either direction, and binds
-;; `:rf/default` as the ambient scope (EP-0002) for the bodies below.
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Per-thread iteration count. The standard 5000 keeps CI under ~60s
-;; wall-clock with the default thread count. Operators dial up via the
-;; env override; CI dials down by lowering it (e.g.
-;; `RF2_ZTW5P_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_ZTW5P_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — higher contention than the typical 4-core CI
-;; box; the per-frame partitioning means
-;; we're not over-saturating any one drain-lock, we're driving N
-;; independent reg/eval/clear cycles in parallel and asserting the
-;; flow-id allocator + registrar lookup + per-frame registry write
-;; don't tangle across frames.
 (def ^:private n-threads 8)
 
-;; ---- the stress test ------------------------------------------------------
+(defn- stress-id [prefix i] (keyword "ztw5p.stress" (str prefix i)))
 
 (deftest ^:stress flow-reg-eval-clear-stress
-  ;; The two pinned counter invariants: every dispatched event ran exactly
-  ;; once (no drops) and every transition / `:derive` invocation fired
-  ;; exactly once per
-  ;; dispatch (no doubles). Two distinct counter views (per-thread
-  ;; atom + global AtomicLong) detect them independently — divergence
-  ;; between the two would indicate the per-thread observation lost
-  ;; track, even when the global total happened to balance.
-  ;;
-  ;; Two additional invariants pin the flows-specific surface:
-  ;; cycle-detection-under-contention (every prospective cyclic
-  ;; registration must throw, even when topo-sort is reading from a
-  ;; concurrently-mutating per-frame slot) and clean-registry-
-  ;; teardown (the per-frame registry and the dirty-check `last-inputs`
-  ;; map both clear after the matching `clear-flow`, and the reserved
-  ;; `:flow` registrar slot stays empty throughout).
-  (testing (str n-threads " threads × " stress-iters
-                " iters reg-flow / dirty-eval / clear-flow — "
-                "no drops, no doubles, cycles still detected, no leaks")
-    (let [global-counter      (AtomicLong. 0)
-          cycle-hits          (AtomicLong. 0)
-          per-thread-counters (vec (repeatedly n-threads #(atom 0)))
-          ;; Per-thread frame + per-thread namespaced flow ids.
-          ;; Independent frames parallelise across CPUs (Spec 002
-          ;; §Rules rule 1 — frames are independent state machines,
-          ;; their drain-locks don't share). Per-thread flow-ids let
-          ;; each thread's `:derive` fn close over THIS thread's
-          ;; per-thread counter atom — `reg-flow` writes the per-frame
-          ;; store, keyed `[frame-id flow-id]`, so each thread's frame
-          ;; and id bind independently.
-          per-thread
-          (vec
-            (for [i (range n-threads)]
-              {:idx        i
-               :frame-id   (keyword "ztw5p.stress" (str "f" i))
-               :flow-id    (keyword "ztw5p.stress" (str "double-f" i))
-               ;; Cycle-probe pair: registering the SECOND closes the
-               ;; cycle. Per-thread namespaced so each thread's probe
-               ;; is independent — a probe on thread 0 cannot
-               ;; accidentally satisfy thread 1's cycle expectation.
-               :cyc-a      (keyword "ztw5p.stress" (str "cyc-a-f" i))
-               :cyc-b      (keyword "ztw5p.stress" (str "cyc-b-f" i))
-               :counter    (nth per-thread-counters i)}))]
-      ;; Set up the frames on the main thread before any futures
-      ;; launch. The frame-registry write is serialised here; the
-      ;; futures only READ from `frame/frames` (per-frame state lives
-      ;; in independent app-db containers).
-      (doseq [{:keys [frame-id]} per-thread]
-        (rf/make-frame {:id frame-id :doc "per-thread frame for flows stress test"}))
-      ;; Per-thread :seed event (writes :n once so the flow has an
-      ;; input value) and :bump-input event (changes :n every iter so
-      ;; the dirty-check fires). These events are global (registrar
-      ;; is global) but each thread reads from its own frame's
-      ;; app-db, so the writes don't tangle.
-      (rf/reg-event :ztw5p.stress/seed
-                       (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-      (rf/reg-event :ztw5p.stress/bump-input
-                       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-
-      (let [latch   (CountDownLatch. 1)
-            futures (vec
-                      (for [{:keys [idx frame-id flow-id cyc-a cyc-b counter]} per-thread]
-                        (future
-                          (.await latch)
-                          ;; Per-thread cycle: register flow → drive
-                          ;; many dirty evaluations → clear flow.
-                          ;; `dispatch-sync` settles the drain
-                          ;; (including the outermost-`:after` flow
-                          ;; transform) before returning so the `:derive` fn runs to
-                          ;; completion before this thread observes
-                          ;; the next iter.
-                          (rf/reg-flow flow-id {:frame frame-id :inputs [[:n]] :output-path [:doubled]} (fn [n]
-                                                  (.incrementAndGet global-counter)
-                                                  (swap! counter inc)
-                                                  (* 2 (or n 0))))
-                          ;; Drive `stress-iters` dirty evaluations.
-                          ;; Use the loop counter (i+1) as the input
-                          ;; value so each iter's :n is distinct from
-                          ;; the previous iter's — guarantees the
-                          ;; dirty-check fires every iter (no
-                          ;; value-equal skip path).
-                          (dotimes [i stress-iters]
-                            (rf/dispatch-sync [:ztw5p.stress/bump-input (inc i)]
-                                              {:frame frame-id}))
-                          ;; Mid-stress cycle-detection probe.
-                          ;; Register `:cyc-a` (depends on `:cyc-b`),
-                          ;; then attempt `:cyc-b` (depends on
-                          ;; `:cyc-a`). The second registration MUST
-                          ;; throw `:rf.error/flow-cycle`; if topo-
-                          ;; sort's snapshot read raced and missed
-                          ;; the prospective edge, the throw would
-                          ;; silently fail to fire. The cycle-hits
-                          ;; atomic counts every confirmed throw.
-                          (rf/reg-flow cyc-a {:frame frame-id :inputs [[cyc-b]] :output-path [cyc-a]} identity)
-                          (try
-                            (rf/reg-flow cyc-b {:frame frame-id :inputs [[cyc-a]] :output-path [cyc-b]} identity)
-                            ;; If we reach here, the cycle was NOT
-                            ;; detected — leave cycle-hits unbumped
-                            ;; and let invariant 3 fail loudly.
-                            (catch Throwable t
-                              (when (re-find #":rf.error/flow-cycle"
-                                             (or (ex-message t) ""))
-                                (.incrementAndGet cycle-hits))))
-                          ;; Clear the cycle-probe registration so
-                          ;; the leak invariant can pass. (`:cyc-b`
-                          ;; never registered because the cycle
-                          ;; throw rolled it back.)
-                          (rf/clear :flow cyc-a {:frame frame-id})
-                          ;; Clear the main flow so the leak
-                          ;; invariant can pass.
-                          (rf/clear :flow flow-id {:frame frame-id})
-                          ;; Surface the thread idx for diagnostics
-                          ;; if a future hangs.
-                          idx)))]
-        ;; Release all threads simultaneously — maximises lock-step
-        ;; contention on the shared per-frame `flows` / `last-inputs`
-        ;; atoms (every thread is swapping the same two atoms during
-        ;; reg/clear, each under its own frame-id key).
-        (.countDown latch)
-        ;; Bounded join — if a cycle ever hangs (e.g. a clear-flow
-        ;; that doesn't fire under contention), we want a visible
-        ;; failure rather than a stuck CI run. 120s gives ample
-        ;; headroom for 8 × 5000 cycles on a slow box; a race that
-        ;; dropped events would surface as either a counter mismatch
-        ;; OR a future hanging at a downstream dispatch.
-        (doseq [f futures]
-          (let [v (deref f 120000 ::timeout)]
-            (is (not= ::timeout v)
-                "thread completed within 120s wall-clock")))
-
-        ;; --- Invariant 1: no event dropped (per-thread sum) -------
-        (let [per-thread-totals (mapv deref per-thread-counters)
-              actual-sum        (reduce + per-thread-totals)
-              expected-sum      (* n-threads stress-iters)]
-          (is (= expected-sum actual-sum)
-              (str "Per-thread counter sum: expected "
-                   expected-sum " (= " n-threads " threads × "
-                   stress-iters " iters); got " actual-sum
-                   ". Per-thread breakdown: " per-thread-totals))
-          ;; And each thread should have hit EXACTLY stress-iters —
-          ;; if one thread silently dropped half its events while
-          ;; another somehow doubled up, the sum could still balance.
-          ;; This per-thread check rules that out.
-          (is (every? #(= stress-iters %) per-thread-totals)
-              (str "Each thread must have processed exactly "
-                   stress-iters " :derive invocations; got "
-                   per-thread-totals)))
-
-        ;; --- Invariant 2: no double-action (global atomic) --------
-        (let [global-actual   (.get global-counter)
-              global-expected (* n-threads stress-iters)]
-          (is (= global-expected global-actual)
-              (str "Global AtomicLong: expected "
-                   global-expected " :derive invocations (no double-"
-                   "action); got " global-actual)))
-
-        ;; --- Invariant 3: cycle detection stable under contention --
-        ;; Every per-thread probe MUST have closed its cycle and the
-        ;; throw MUST have fired. cycle-hits = n-threads exactly.
-        (let [hits (.get cycle-hits)]
-          (is (= n-threads hits)
-              (str "Cycle-detection probe: expected " n-threads
-                   " confirmed `:rf.error/flow-cycle` throws (one "
-                   "per thread); got " hits ". A short count means "
-                   "topo-sort missed a prospective cyclic edge "
-                   "under contention.")))
-
-        ;; --- Invariant 4: clean registry — no leak. After every
-        ;;     thread cleared its flow, the per-frame registry must
-        ;;     have the frame-id key fully PRUNED for every test frame,
-        ;;     the `last-inputs` map must hold no entries for any
-        ;;     per-thread flow id, and the reserved `:flow` registrar slot
-        ;;     must read `nil` for every per-thread flow id (never written
-        ;;     under the single store, per Spec 013 §Frame-scoping).
-        ;;
-        ;; Each per-thread frame had ALL its flows cleared, so clearing the
-        ;; last one prunes the frame-id key entirely — the slot is strictly
-        ;; `nil`, never a `{frame-id {}}` empty husk.
-        (let [flows-snapshot       (rf.flows/flows-snapshot)
-              last-inputs-snapshot (rf.flows/last-inputs-snapshot)]
-          (doseq [{:keys [frame-id flow-id cyc-a cyc-b]} per-thread]
-            (let [per-frame-slot (get flows-snapshot frame-id)]
-              (is (nil? per-frame-slot)
-                  (str "Frame " frame-id ": expected the per-frame flow "
-                       "registry key to be PRUNED after teardown "
-                       "(no {frame-id {}} husk); got "
-                       (pr-str per-frame-slot))))
-            (is (not (contains? last-inputs-snapshot flow-id))
-                (str "Flow id " flow-id " must not retain a "
-                     "`last-inputs` entry after clear-flow; got "
-                     (pr-str (get last-inputs-snapshot flow-id))))
-            (is (not (contains? last-inputs-snapshot cyc-a))
-                (str "Cycle-probe id " cyc-a " must not retain a "
-                     "`last-inputs` entry after clear-flow"))
-            ;; `:cyc-b` never registered (cycle throw rolled it
-            ;; back) so it should never have appeared in
-            ;; `last-inputs`. Pin it explicitly so a regression that
-            ;; populates it before the cycle check fails loudly.
-            (is (not (contains? last-inputs-snapshot cyc-b))
-                (str "Cycle-probe id " cyc-b " never registered "
-                     "(cycle rolled back); must not "
-                     "appear in `last-inputs`"))
-            ;; SINGLE-STORE: the `:flow` registrar slot is
-            ;; RESERVED-but-empty — never written — so it is `nil` throughout,
-            ;; not "vacated on last release". The per-frame store check above is
-            ;; the real cleanup assertion.
-            (is (nil? (rf.registrar/lookup :flow flow-id))
-                (str ":flow registrar slot for " flow-id
-                     " is RESERVED-but-empty"))
-            (is (nil? (rf.registrar/lookup :flow cyc-a))
-                (str ":flow registrar slot for cycle-probe " cyc-a
-                     " is RESERVED-but-empty"))))))))
+  (let [global-counter (AtomicLong. 0)
+        cycle-hits     (AtomicLong. 0)
+        threads        (vec (for [i (range n-threads)]
+                              {:frame-id (stress-id "f" i)
+                               :flow-id  (stress-id "double-f" i)
+                               ;; Registering :cyc-b after :cyc-a closes a cycle.
+                               :cyc-a    (stress-id "cyc-a-f" i)
+                               :cyc-b    (stress-id "cyc-b-f" i)
+                               :counter  (atom 0)}))
+        latch          (CountDownLatch. 1)]
+    (doseq [{:keys [frame-id]} threads]
+      (rf/make-frame {:id frame-id}))
+    (rf/reg-event :ztw5p.stress/bump-input (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [futures
+          (mapv (fn [{:keys [frame-id flow-id cyc-a cyc-b counter]}]
+                  (future
+                    (.await latch)
+                    (rf/reg-flow flow-id {:frame frame-id :inputs [[:n]] :output-path [:doubled]}
+                      (fn [n]
+                        (.incrementAndGet global-counter)
+                        (swap! counter inc)
+                        (* 2 (or n 0))))
+                    ;; A distinct :n each iteration, so no dirty check skips.
+                    (dotimes [i stress-iters]
+                      (rf/dispatch-sync [:ztw5p.stress/bump-input (inc i)] {:frame frame-id}))
+                    (rf/reg-flow cyc-a {:frame frame-id :inputs [[cyc-b]] :output-path [cyc-a]} identity)
+                    (try
+                      (rf/reg-flow cyc-b {:frame frame-id :inputs [[cyc-a]] :output-path [cyc-b]} identity)
+                      (catch Throwable t
+                        (when (re-find #":rf.error/flow-cycle" (or (ex-message t) ""))
+                          (.incrementAndGet cycle-hits))))
+                    (rf/clear :flow cyc-a {:frame frame-id})
+                    (rf/clear :flow flow-id {:frame frame-id})))
+                threads)]
+      (.countDown latch)
+      (is (not-any? #{::timeout} (map #(deref % 120000 ::timeout) futures))
+          "every thread finished within 120s"))
+    (let [ids (mapcat (juxt :flow-id :cyc-a :cyc-b) threads)]
+      (is (= {:per-thread    (repeat n-threads stress-iters)
+              :total         (* n-threads stress-iters)
+              :cycle-hits    n-threads
+              :frame-rows    (repeat n-threads nil)
+              :last-inputs   {}
+              :registrar     (repeat (* 2 n-threads) nil)}
+             {:per-thread    (map (comp deref :counter) threads)
+              :total         (.get global-counter)
+              :cycle-hits    (.get cycle-hits)
+              :frame-rows    (map #(get (rf.flows/flows-snapshot) (:frame-id %)) threads)
+              :last-inputs   (select-keys (rf.flows/last-inputs-snapshot) ids)
+              :registrar     (mapcat #(map (partial rf.registrar/lookup :flow) [(:flow-id %) (:cyc-a %)])
+                                     threads)})))))
