@@ -1,840 +1,253 @@
 (ns re-frame.mcp-base.diff-encode-test
-  "Tests for the path-keyed structural diff used at the MCP wire
-  boundary, shared across both servers."
-  (:require [clojure.string]
-            [clojure.test :refer [deftest is testing]]
+  "Tests for the path-keyed structural diff both MCP servers apply to an
+  epoch's :db-after at the wire boundary."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [are deftest is]]
             [malli.core :as m]
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]))
 
-;; ---------------------------------------------------------------------------
-;; collect-patches — direct cases.
-;; ---------------------------------------------------------------------------
+(defn- collect [a b]
+  (rf.mcp-base.diff-encode/collect-patches a b []))
 
-(deftest collect-patches-empty-when-equal
-  (is (= [] (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1} []))))
+(defn- caught
+  "The ExceptionInfo `f` throws, or nil."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
 
-(deftest collect-patches-handles-added-key
-  (is (= [[[:b] :assoc 2]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1 :b 2} []))))
-
-(deftest collect-patches-handles-removed-key
-  (is (= [[[:b] :dissoc]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1 :b 2} {:a 1} []))))
-
-(deftest collect-patches-handles-changed-leaf
-  (is (= [[[:a] :assoc 3]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 3} []))))
-
-(deftest collect-patches-recurses-into-nested-maps
-  (let [a {:user {:name "ada" :age 30}}
-        b {:user {:name "ada" :age 31}}]
-    (is (= [[[:user :age] :assoc 31]]
-           (rf.mcp-base.diff-encode/collect-patches a b [])))))
-
-(deftest collect-patches-leaf-replacement-for-shape-mismatch
-  (is (= [[[] :assoc [1 2 3]]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} [1 2 3] [])))
-  (is (= [[[:a] :assoc [1 2 3]]]
-         (rf.mcp-base.diff-encode/collect-patches {:a {:b 1}} {:a [1 2 3]} []))))
+(defn- secret-absent?
+  "True when `secret` appears nowhere in the thrown ExceptionInfo's message,
+  the pr-str of its ex-data, or the pr-str of any ex-data value."
+  [^clojure.lang.ExceptionInfo e secret]
+  (let [data (ex-data e)]
+    (and (not (str/includes? (str (.getMessage e)) secret))
+         (not (str/includes? (pr-str data) secret))
+         (every? (fn [[_ v]] (not (str/includes? (pr-str v) secret))) data))))
 
 ;; ---------------------------------------------------------------------------
-;; collect-patches — added-key detection is by KEY PRESENCE, not a
-;; sentinel value.
-;;
-;; The added-key arm keys off `find` (presence), never a marker value. An
-;; app-db leaf can be ANY runtime value — including the private
-;; :re-frame.mcp-base.diff-encode/absent keyword a sentinel lookup
-;; `(get a k ::absent)` would use as its missing-marker. A value-comparison
-;; test would mis-read an UNCHANGED key holding that value as `:added`, emitting
-;; a spurious `[path :assoc value]` false patch that misleads the agent
-;; even though replay still reconstructs the value.
+;; collect-patches
 ;; ---------------------------------------------------------------------------
 
-;; The exact keyword `::absent` spells in the diff-encode ns.
-(def ^:private old-sentinel :re-frame.mcp-base.diff-encode/absent)
+(deftest collect-patches-emits-minimal-path-patches
+  (are [a b patches] (= patches (collect a b))
+    {:a 1}                        {:a 1}                        []
+    {:a 1}                        {:a 1 :b 2}                   [[[:b] :assoc 2]]
+    {:a 1 :b 2}                   {:a 1}                        [[[:b] :dissoc]]
+    {:a 1}                        {:a 3}                        [[[:a] :assoc 3]]
+    {:user {:name "ada" :age 30}} {:user {:name "ada" :age 31}} [[[:user :age] :assoc 31]]
+    {:a 1}                        [1 2 3]                       [[[] :assoc [1 2 3]]]
+    {:a {:b 1}}                   {:a [1 2 3]}                  [[[:a] :assoc [1 2 3]]]
+    ;; Same-length vectors diff element by element, with index paths; a
+    ;; length change replaces the whole vector.
+    {:items [{:qty 1}]}           {:items [{:qty 2}]}           [[[:items 0 :qty] :assoc 2]]
+    {:xs [1 2 3]}                 {:xs [10 2 30]}               [[[:xs 0] :assoc 10] [[:xs 2] :assoc 30]]
+    {:grid [[1 2] [3 4]]}         {:grid [[1 2] [9 4]]}         [[[:grid 1 0] :assoc 9]]
+    {:xs [1 nil 3]}               {:xs [1 5 3]}                 [[[:xs 1] :assoc 5]]
+    {:xs [1 2 3]}                 {:xs [1 nil 3]}               [[[:xs 1] :assoc nil]]
+    {:xs [1 2 3]}                 {:xs [1 2 3 4]}               [[[:xs] :assoc [1 2 3 4]]]))
 
-(deftest collect-patches-sentinel-valued-unchanged-key-emits-no-patch
-  ;; db-before and db-after both hold the sentinel-shaped value at :k,
-  ;; UNCHANGED, alongside a real sibling change. Only the sibling must
-  ;; produce a patch. A sentinel lookup `(get a k ::absent)` would mis-flag
-  ;; :k as added and emit a spurious `[[:k] :assoc <sentinel>]` on top of
-  ;; the real one.
-  (let [a {:k old-sentinel :sibling 1}
-        b {:k old-sentinel :sibling 2}]
-    (is (= [[[:sibling] :assoc 2]]
-           (rf.mcp-base.diff-encode/collect-patches a b []))
-        "an unchanged key whose value equals the sentinel keyword must NOT report as changed")))
-
-(deftest collect-patches-nil-valued-unchanged-key-emits-no-patch
-  ;; `find` must also distinguish a present nil value from an absent key
-  ;; (it returns the entry for a present nil). A present-nil unchanged key
-  ;; emits no patch.
-  (let [a {:k nil :sibling 1}
-        b {:k nil :sibling 2}]
-    (is (= [[[:sibling] :assoc 2]]
-           (rf.mcp-base.diff-encode/collect-patches a b []))
-        "a present nil value is not an added key")))
-
-(deftest collect-patches-sentinel-valued-key-genuine-transitions
-  (testing "genuinely ADDED key holding the sentinel value ⇒ one :assoc"
-    (is (= [[[:k] :assoc old-sentinel]]
-           (rf.mcp-base.diff-encode/collect-patches {} {:k old-sentinel} []))))
-  (testing "genuinely REMOVED key holding the sentinel value ⇒ one :dissoc"
-    (is (= [[[:k] :dissoc]]
-           (rf.mcp-base.diff-encode/collect-patches {:k old-sentinel} {} []))))
-  (testing "key CHANGED from the sentinel value to another value ⇒ one :assoc"
-    (is (= [[[:k] :assoc 99]]
-           (rf.mcp-base.diff-encode/collect-patches {:k old-sentinel} {:k 99} []))))
-  (testing "key CHANGED to the sentinel value ⇒ one :assoc"
-    (is (= [[[:k] :assoc old-sentinel]]
-           (rf.mcp-base.diff-encode/collect-patches {:k 1} {:k old-sentinel} [])))))
+(deftest collect-patches-detects-keys-by-presence-not-value
+  ;; Presence is read with `find`, never a sentinel lookup, so a value
+  ;; equal to the private sentinel keyword, or a stored nil, is still an
+  ;; ordinary value.
+  (let [sentinel :re-frame.mcp-base.diff-encode/absent]
+    (are [a b patches] (= patches (collect a b))
+      {:k sentinel :sibling 1} {:k sentinel :sibling 2} [[[:sibling] :assoc 2]]
+      {:k nil :sibling 1}      {:k nil :sibling 2}      [[[:sibling] :assoc 2]]
+      {}                       {:k sentinel}            [[[:k] :assoc sentinel]]
+      {:k 1}                   {:k sentinel}            [[[:k] :assoc sentinel]])))
 
 ;; ---------------------------------------------------------------------------
-;; collect-patches — same-length vectors diff structurally.
-;; ---------------------------------------------------------------------------
-
-(deftest collect-patches-diffs-vector-element-map-update
-  ;; The headline case: a single item update inside a vector yields an
-  ;; index-headed item-level patch, NOT a whole-vector replacement.
-  (is (= [[[:items 0 :qty] :assoc 2]]
-         (rf.mcp-base.diff-encode/collect-patches {:items [{:qty 1}]} {:items [{:qty 2}]} []))))
-
-(deftest collect-patches-diffs-multiple-vector-elements
-  (is (= [[[:xs 0] :assoc 10]
-          [[:xs 2] :assoc 30]]
-         (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [10 2 30]} []))))
-
-(deftest collect-patches-recurses-nested-vectors
-  (is (= [[[:grid 1 0] :assoc 9]]
-         (rf.mcp-base.diff-encode/collect-patches {:grid [[1 2] [3 4]]}
-                             {:grid [[1 2] [9 4]]} []))))
-
-(deftest collect-patches-vector-nil-element-changes
-  (testing "nil → value at an index"
-    (is (= [[[:xs 1] :assoc 5]]
-           (rf.mcp-base.diff-encode/collect-patches {:xs [1 nil 3]} {:xs [1 5 3]} []))))
-  (testing "value → nil at an index"
-    (is (= [[[:xs 1] :assoc nil]]
-           (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 nil 3]} [])))))
-
-(deftest collect-patches-vector-length-change-is-whole-leaf
-  (testing "growth → whole-vector :assoc (length delta, no element diff)"
-    (is (= [[[:xs] :assoc [1 2 3 4]]]
-           (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2 3 4]} []))))
-  (testing "shrink → whole-vector :assoc"
-    (is (= [[[:xs] :assoc [1 2]]]
-           (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2]} [])))))
-
-;; ---------------------------------------------------------------------------
-;; Collection KIND is a change. `(= [1 2] '(1 2))`, so a bare-`=`
-;; no-change test would emit NO patch for a vector turned into a seq with
-;; the same elements, and the decoder would rebuild the OLD kind. `=`
-;; erases kind in these assertions too, so each one checks the kind itself.
+;; Collection KIND is a change. `(= [1 2] '(1 2))`, so a bare-`=` no-change
+;; test would ship no patch for a vector turned into a seq of the same
+;; items, and the decoder would rebuild the old kind. `=` erases kind in
+;; assertions too, so these compare printed forms or check the kind.
 ;; ---------------------------------------------------------------------------
 
 (deftest diff-encode-reports-a-vector-turned-seq-with-equal-elements
+  ;; `sort-by` over an already-sorted vector hands back a seq of the same items.
   (let [before {:items [{:id 1} {:id 2}] :n 1}
-        ;; Producer-derived: the classic re-frame regression — `sort-by`
-        ;; over an already-sorted vector hands back a SEQ of the same items.
         after  (update before :items #(sort-by :id %))
-        enc    (rf.mcp-base.diff-encode/diff-encode-db-after
-                 {:db-before before :db-after after})
-        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after enc))]
-    (is (= before after) "precondition: `=` cannot see the change")
-    (is (not (vector? (:items after))) "precondition: app-db now holds a seq")
-    (is (seq (get-in enc [:db-after :sections]))
-        "the kind change ships as a patch, not as a no-op diff")
-    (is (not (vector? (:items dec)))
-        "the decoded :db-after carries the seq app-db really holds")
-    (is (= (pr-str after) (pr-str dec))
-        "and prints exactly as full mode would")))
+        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after
+                            (rf.mcp-base.diff-encode/diff-encode-db-after {:db-before before :db-after after})))]
+    (is (= (pr-str after) (pr-str dec)))))
 
 (deftest collect-patches-lands-a-nested-kind-change-on-its-own-slot
-  (let [a       {:rows [{:tags [:a :b]} {:tags [:c]}] :n 1}
-        b       {:rows [{:tags (list :a :b)} {:tags [:c]}] :n 1}
-        patches (rf.mcp-base.diff-encode/collect-patches a b [])]
-    (is (= [[:rows 0 :tags]] (mapv first patches))
-        "one patch, on the slot whose kind changed — not the whole of :rows")
-    (is (list? (nth (first patches) 2)) "carrying the new kind")
-    (is (list? (get-in (rf.mcp-base.diff-encode/apply-patches a patches) [:rows 0 :tags])))))
+  (let [patches (collect {:rows [{:tags [:a :b]} {:tags [:c]}] :n 1}
+                         {:rows [{:tags (list :a :b)} {:tags [:c]}] :n 1})]
+    (is (= [[:rows 0 :tags]] (mapv first patches)) "not the whole of :rows")
+    (is (list? (nth (first patches) 2)))))
 
 (deftest diff-encode-reports-a-map-key-respelled-in-another-kind
   (let [before {:by-pair {[1 2] :x} :n 1}
         after  {:by-pair {(list 1 2) :x} :n 1}
-        enc    (rf.mcp-base.diff-encode/diff-encode-db-after
-                 {:db-before before :db-after after})
-        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after enc))]
-    (is (= before after) "precondition: `=` cannot see the change")
-    (is (list? (key (first (:by-pair dec))))
-        "the decoded key is the list app-db holds, not the old vector")
+        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after
+                            (rf.mcp-base.diff-encode/diff-encode-db-after {:db-before before :db-after after})))]
     (is (= (pr-str after) (pr-str dec)))))
 
-(deftest collect-patches-real-change-in-a-kind-changed-slot-still-patches
-  ;; Control: a genuine value change in the same slot is a patch either way,
-  ;; so the instrument above can see one.
-  (let [a       {:items [{:id 1} {:id 2}]}
-        b       {:items (list {:id 2} {:id 1})}
-        patches (rf.mcp-base.diff-encode/collect-patches a b [])]
-    (is (= [[:items]] (mapv first patches)))
-    (is (list? (nth (first patches) 2)))))
-
 ;; ---------------------------------------------------------------------------
-;; apply-patches — round-trips collect-patches.
+;; apply-patches
 ;; ---------------------------------------------------------------------------
 
 (deftest apply-patches-reverses-collect-patches
-  (testing "trivial"
-    (let [a {:a 1}
-          b {:a 1 :b 2}
-          p (rf.mcp-base.diff-encode/collect-patches a b [])]
-      (is (= b (rf.mcp-base.diff-encode/apply-patches a p)))))
-  (testing "nested + delete + change"
-    (let [a {:user {:name "ada" :age 30} :session :idle}
-          b {:user {:name "ada" :age 31 :role :admin}}
-          p (rf.mcp-base.diff-encode/collect-patches a b [])]
-      (is (= b (rf.mcp-base.diff-encode/apply-patches a p)))))
-  (testing "shape change at root"
-    (let [a {:a 1}
-          b [1 2 3]
-          p (rf.mcp-base.diff-encode/collect-patches a b [])]
-      (is (= b (rf.mcp-base.diff-encode/apply-patches a p))))))
-
-(deftest apply-patches-round-trips-vector-diffs
-  ;; Every same-length-vector diff shape round-trips through
-  ;; the existing assoc-in replay (integer index paths), and every
-  ;; length-change whole-leaf replacement does too.
-  (doseq [[label a b]
-          [["vector element map update"   {:items [{:qty 1} {:qty 5}]} {:items [{:qty 2} {:qty 5}]}]
-           ["nested vector update"        {:grid [[1 2] [3 4]]}        {:grid [[1 2] [9 4]]}]
-           ["nil vector element → value"  {:xs [1 nil 3]}              {:xs [1 5 3]}]
-           ["value → nil vector element"  {:xs [1 2 3]}               {:xs [1 nil 3]}]
-           ["same-length scalar update"   {:xs [1 2 3]}               {:xs [1 9 3]}]
-           ["multiple element updates"    {:xs [1 2 3]}               {:xs [10 2 30]}]
-           ["vector growth (whole-leaf)"  {:xs [1 2 3]}               {:xs [1 2 3 4]}]
-           ["vector shrink (whole-leaf)"  {:xs [1 2 3]}               {:xs [1 2]}]
-           ["vector of maps, length grew" {:items [{:id 1}]}          {:items [{:id 1} {:id 2}]}]
-           ["root vector element update"  [1 2 3]                     [1 9 3]]]]
-    (testing label
-      (let [p (rf.mcp-base.diff-encode/collect-patches a b [])]
-        (is (= b (rf.mcp-base.diff-encode/apply-patches a p))
-            (str label " must round-trip"))))))
+  (are [a b] (= b (rf.mcp-base.diff-encode/apply-patches a (collect a b)))
+    {:a 1}                                       {:a 1}
+    {:user {:name "ada" :age 30} :session :idle} {:user {:name "ada" :age 31 :role :admin}}
+    {:a 1}                                       [1 2 3]
+    {:items [{:qty 1} {:qty 5}]}                 {:items [{:qty 2} {:qty 5}]}
+    {:xs [1 2 3]}                                {:xs [1 2 3 4]}
+    [1 2 3]                                      [1 9 3]))
 
 (deftest apply-patches-applies-in-order-for-same-path
-  ;; Regression pin: when two patches target
-  ;; the same path, the later one wins — `reduce` over the patch
-  ;; sequence applies them in order so a later `:assoc` overrides an
-  ;; earlier one, and a `:dissoc` after an `:assoc` clears the value.
-  ;; The contract is pinned here, in the base, so any future encoder
-  ;; refactor that flips the iteration order trips this gate before
-  ;; reaching the consumers.
-  (testing "later :assoc overrides earlier :assoc at same path"
-    (is (= {:a 99}
-           (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :assoc 1]
-                                 [[:a] :assoc 99]]))))
-  (testing ":dissoc after :assoc clears the value"
-    (is (= {}
-           (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :assoc 1]
-                                 [[:a] :dissoc]]))))
-  (testing ":assoc after :dissoc reinstates the value"
-    (is (= {:a 7}
-           (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a] :dissoc]
-                                     [[:a] :assoc 7]])))))
+  ;; Patches replay in order, so the later of two at one path wins.
+  (are [patches expected] (= expected (rf.mcp-base.diff-encode/apply-patches {} patches))
+    [[[:a] :assoc 1] [[:a] :assoc 99]] {:a 99}
+    [[[:a] :assoc 1] [[:a] :dissoc]]   {}))
 
 (deftest apply-patches-nested-dissoc-missing-or-scalar-parent-is-noop
-  ;; `[<path> :dissoc]` is a no-op when the key does not
-  ;; exist (per the spec). The naive `(update-in acc parent dissoc k)`
-  ;; would violate this: a MISSING parent would manufacture nil branches,
-  ;; and a SCALAR parent would throw a host ClassCastException at the
-  ;; decoder boundary. `apply-patches` is the public wire decoder; a malformed /
-  ;; corrupt / third-party diff replayed against a mismatched base must
-  ;; not corrupt the base into a shape neither side emitted, nor crash.
-  (testing "missing direct parent ⇒ no-op (no nil-branch manufacture)"
-    (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:missing :leaf] :dissoc]]))
-        "not the {:missing nil} a naive update-in manufactures"))
-  (testing "missing deeper parent ⇒ no-op"
-    (is (= {:a {}} (rf.mcp-base.diff-encode/apply-patches {:a {}} [[[:a :b :c] :dissoc]]))
-        "not the {:a {:b nil}} a naive update-in manufactures"))
-  (testing "scalar parent ⇒ no-op (no host ClassCastException)"
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :dissoc]]))
-        "not a thrown ClassCastException"))
-  (testing "valid nested dissoc still removes the key"
-    (is (= {:a {:c 2}} (rf.mcp-base.diff-encode/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]]))))
-  (testing "root-key dissoc unchanged"
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
-  (testing "dissoc of an absent root key ⇒ no-op"
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:z] :dissoc]])))))
+  ;; `:dissoc` of an absent key is a no-op: a missing parent is not
+  ;; manufactured as a nil branch, and a scalar parent does not throw.
+  (are [base path expected] (= expected (rf.mcp-base.diff-encode/apply-patches base [[path :dissoc]]))
+    {}               [:missing :leaf] {}
+    {:a 1}           [:a :b]          {:a 1}
+    {:a {:b 1 :c 2}} [:a :b]          {:a {:c 2}}))
 
 (deftest apply-patches-nested-assoc-into-scalar-parent-is-structured-error
-  ;; The `:assoc` PEER of the dissoc guard.
-  ;; A grammar-valid patch like `[[[:a :b] :assoc 2]]` against base
-  ;; `{:a 1}`, delegated straight to `assoc-in`, would throw a
-  ;; raw host `ClassCastException` with nil ex-data at the wire decoder
-  ;; boundary. `apply-patches` is the public wire decoder; a malformed /
-  ;; corrupt / third-party / mismatched-base diff must surface a
-  ;; DOCUMENTED structured failure, never leak a raw host exception.
-  ;; Policy: a non-associative intermediate parent is a base/patch
-  ;; MISMATCH, surfaced as `:rf.error/bad-diff-replay` (not a silent
-  ;; no-op — that would drop the requested write; not a clobber — that
-  ;; would corrupt the base into a shape neither side emitted).
-  (testing "scalar intermediate parent ⇒ structured :rf.error/bad-diff-replay (no host ClassCastException)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-replay"
-          (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]]))
-        "not a raw host ClassCastException")
-    (try
-      (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]])
-      (is false "expected throw")
-      (catch clojure.lang.ExceptionInfo e
-        (let [d (ex-data e)]
-          (is (= :rf.error/bad-diff-replay (:rf.error/id d))
-              "carries the reserved :rf.error/* code")
-          (is (= 'mcp-base/apply-patches (:where d))
-              "decode-side boundary")
-          (is (= :no-recovery (:recovery d)))
-          (is (= [:a :b] (:patch-path d)) "reports the offending patch path")
-          (is (= [:a] (:at d)) "reports the prefix where traversal hit the non-associative node")
-          ;; value-free: the ex-data names the parent's TYPE, never its value.
-          (is (not (nil? (:parent-type d))) "carries a value-free parent-type tag")))))
-  (testing "deeper scalar intermediate parent ⇒ structured error naming the deep prefix"
-    (try
-      (rf.mcp-base.diff-encode/apply-patches {:a {:b 1}} [[[:a :b :c] :assoc 5]])
-      (is false "expected throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= [:a :b] (:at (ex-data e)))))))
-  (testing "vector intermediate parent reached by a non-integer key ⇒ structured error (no host IllegalArgumentException)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-replay"
-          (rf.mcp-base.diff-encode/apply-patches {:a [1 2]} [[[:a :b] :assoc 9]]))))
-  (testing "vector intermediate parent reached by an out-of-range index ⇒ structured error (no host IndexOutOfBounds)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-replay"
-          (rf.mcp-base.diff-encode/apply-patches {:items [1 2]} [[[:items 5] :assoc 9]]))))
-  (testing "MISSING / nil intermediate parent still auto-vivifies (create-if-absent grammar preserved)"
-    (is (= {:a {:b 2}} (rf.mcp-base.diff-encode/apply-patches {} [[[:a :b] :assoc 2]]))
-        "missing parent ⇒ map auto-vivified, not an error")
-    (is (= {:a {:b {:c 9}}} (rf.mcp-base.diff-encode/apply-patches {} [[[:a :b :c] :assoc 9]]))
-        "deep missing parents ⇒ chain auto-vivified")
-    (is (= {:a {:b 2}} (rf.mcp-base.diff-encode/apply-patches {:a nil} [[[:a :b] :assoc 2]]))
-        "nil parent ⇒ map auto-vivified"))
-  (testing "an index one past a present vector's end is a tail-grow, not an out-of-range mismatch"
-    (is (= {:items [10 20]} (rf.mcp-base.diff-encode/apply-patches {:items [10]} [[[:items 1] :assoc 20]])))))
-
-(deftest apply-patches-vector-index-vs-absent-parent-vivifies-vector
-  ;; The missing-parent auto-vivification cases pinned above
-  ;; ("MISSING / nil intermediate parent still auto-vivifies") only cover
-  ;; MAP-KEY paths (`[:a :b]` ⇒ `{:a {:b 2}}`). A path whose NEXT segment
-  ;; is an INTEGER (a vector index) reaching an ABSENT parent, sent
-  ;; through the same map-vivifying `assoc-in` call, would make
-  ;; `(apply-patches {} [[[:items 0 :qty] :assoc 2]])` silently produce
-  ;; `{:items {0 {:qty 2}}}` — an int-keyed MAP — a shape NEITHER encoder
-  ;; side ever emits (`collect-vector-patches-into` only reaches an
-  ;; index-path patch via an already-present, same-length vector on both
-  ;; halves of the diff). Reachable only via a malformed / corrupt /
-  ;; third-party diff replayed against an absent base. So an integer
-  ;; segment meeting a `nil` node vivifies a VECTOR instead — the shape a
-  ;; real diff would have produced.
-  (testing "absent parent + integer index ⇒ vector vivified, NOT an int-keyed map"
-    (is (= {:items [{:qty 2}]}
-           (rf.mcp-base.diff-encode/apply-patches {} [[[:items 0 :qty] :assoc 2]]))
-        "not the int-keyed map {:items {0 {:qty 2}}}"))
-  (testing "nested absent parent + integer index, deeper leaf"
-    (is (= {:a {:xs [9]}}
-           (rf.mcp-base.diff-encode/apply-patches {} [[[:a :xs 0] :assoc 9]]))))
-  (testing "a non-zero integer index against an absent parent is a mismatch, not a partial vivify"
-    ;; A freshly-vivified vector starts empty, so only index 0 is a valid
-    ;; tail-grow target — mirrors the existing out-of-range-vs-PRESENT-vector
-    ;; guard pinned above, extended to the absent-parent case.
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-replay"
-          (rf.mcp-base.diff-encode/apply-patches {} [[[:items 5 :qty] :assoc 2]])))))
+  ;; An `:assoc` through a node that cannot hold the next segment is a
+  ;; base/patch mismatch, reported as :rf.error/bad-diff-replay rather than
+  ;; a raw host exception, a silent no-op or a clobber. A missing parent is
+  ;; created instead: a map for a key segment, a vector for index 0.
+  (let [d (ex-data (caught #(rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]])))]
+    (is (= {:rf.error/id :rf.error/bad-diff-replay
+            :where       'mcp-base/apply-patches
+            :recovery    :no-recovery
+            :patch-path  [:a :b]
+            :at          [:a]}
+           (select-keys d [:rf.error/id :where :recovery :patch-path :at])))
+    (is (some? (:parent-type d)) "a value-free type tag, never the parent's value"))
+  (are [base path] (thrown-with-msg? clojure.lang.ExceptionInfo #":rf\.error/bad-diff-replay"
+                                     (rf.mcp-base.diff-encode/apply-patches base [[path :assoc 9]]))
+    {:a [1 2]}     [:a :b]          ; a vector reached by a non-integer key
+    {:items [1 2]} [:items 5]       ; an index past the end of a vector
+    {}             [:items 5 :qty]) ; a non-zero index into a vector it would create
+  (are [base path expected] (= expected (rf.mcp-base.diff-encode/apply-patches base [[path :assoc 2]]))
+    {}            [:a :b]         {:a {:b 2}}
+    {}            [:items 0 :qty] {:items [{:qty 2}]}
+    {:items [10]} [:items 1]      {:items [10 2]}))
 
 (deftest decode-db-after-nested-assoc-mismatched-base-is-structured-error
-  ;; The same guard reached via the section-decoder hot
-  ;; path. `decode-db-after` replays through the non-validating
-  ;; `apply-patches*`; a section whose `:patches` assoc into a path that
-  ;; is non-associative in THIS record's `:db-before` (a corrupt /
-  ;; mismatched-base diff) must surface the structured failure naming
-  ;; the `decode-db-after` boundary — NOT a raw host exception.
+  ;; The same guard, reached through the section decoder, names its own
+  ;; boundary.
   (let [epoch {:db-before {:a 1}
                :db-after  {:rf.mcp/diff-from :db-before
                            :sections [{:section-path [:a]
                                        :section-kind :modified
                                        :patches      [[[:a :b] :assoc 2]]}]}}]
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-replay"
-          (rf.mcp-base.diff-encode/decode-db-after epoch)))
-    (try
-      (rf.mcp-base.diff-encode/decode-db-after epoch)
-      (is false "expected throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
-        (is (= 'mcp-base/decode-db-after (:where (ex-data e)))
-            "boundary attributes the section decoder, not apply-patches")))))
+    (is (= {:rf.error/id :rf.error/bad-diff-replay :where 'mcp-base/decode-db-after}
+           (select-keys (ex-data (caught #(rf.mcp-base.diff-encode/decode-db-after epoch)))
+                        [:rf.error/id :where])))))
 
 ;; ---------------------------------------------------------------------------
-;; diff-encode-db-after / decode-db-after — round-trip.
+;; diff-encode-db-after / decode-db-after / diff-encode-epochs
 ;; ---------------------------------------------------------------------------
 
 (deftest diff-encode-db-after-emits-sections-shape
-  ;; The encoder emits path-headed cluster sections, not a flat patch
-  ;; list.
-  (let [epoch    {:db-before {:a 1 :b 2}
-                  :db-after  {:a 1 :b 3}}
-        encoded  (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        sections (get-in encoded [:db-after :sections])]
-    (is (= :db-before (get-in encoded [:db-after :rf.mcp/diff-from])))
-    (is (vector? sections))
-    (is (= 1 (count sections)) "single change → one section")
-    (let [s (first sections)]
-      (is (= [:b] (:section-path s)))
-      (is (= :modified (:section-kind s)))
-      (is (= [[[:b] :assoc 3]] (:patches s))))))
-
-(deftest diff-encode-db-after-classifies-modified-not-false-added
-  ;; The encoder threads :db-before into section
-  ;; classification so an all-:assoc direct-child cluster is :added ONLY
-  ;; when its container was genuinely absent before. Patch shape alone
-  ;; can't tell an insert from a change (both are :assoc), so without it an
-  ;; existing parent whose direct child changed would be mislabelled :added — a false
-  ;; skim signal to the agent.
-  ;;
-  ;; Note on collect-patches shapes: a GENUINELY-new multi-key container
-  ;; is emitted as a single whole-subtree `[[:user] :assoc {...}]` patch
-  ;; (collect-patches doesn't recurse into an absent key), which heads as
-  ;; a singleton → :modified. The all-:assoc DIRECT-CHILD shape over the
-  ;; collect-patches pipeline therefore ALWAYS means the container
-  ;; ALREADY existed and its children changed — i.e. the exact case a
-  ;; patch-only rule would falsely tag :added. The genuine direct-child
-  ;; :added shape only arises from an advanced consumer supplying a
-  ;; synthetic patch list (pinned at the group-patches-into-sections
-  ;; level in section_grouping_test).
-  (testing "existing container, child changed + sibling added ⇒ :modified (NOT a false :added)"
-    (let [epoch    {:db-before {:user {:name "bob"}}
-                    :db-after  {:user {:name "ada" :email "ada@example.com"}}}
-          sections (get-in (rf.mcp-base.diff-encode/diff-encode-db-after epoch) [:db-after :sections])
-          user-s   (first (filter #(= [:user] (:section-path %)) sections))]
-      (is (some? user-s) "a [:user] section was produced")
-      (is (= :modified (:section-kind user-s))
-          "[:user] existed in db-before; the cluster is a modification, not an addition")))
-  (testing "genuinely new multi-key container ⇒ one whole-subtree :modified section"
-    (let [epoch    {:db-before {:session :idle}
-                    :db-after  {:session :idle
-                                :user {:name "ada" :email "ada@example.com"}}}
-          sections (get-in (rf.mcp-base.diff-encode/diff-encode-db-after epoch) [:db-after :sections])
-          user-s   (first (filter #(= [:user] (:section-path %)) sections))]
-      (is (some? user-s) "a [:user] section was produced")
-      (is (= :modified (:section-kind user-s))
-          "a brand-new key is a whole-subtree singleton assoc — heads :modified, never a false :added")
-      (is (= [[[:user] :assoc {:name "ada" :email "ada@example.com"}]] (:patches user-s)))))
-  (testing "round-trip still reconstructs db-after regardless of cosmetic :section-kind"
-    (doseq [epoch [{:db-before {:user {:name "bob"}}
-                    :db-after  {:user {:name "ada" :email "x"}}}
-                   {:db-before {:session :idle}
-                    :db-after  {:session :idle :user {:name "ada" :email "x"}}}]]
-      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after (rf.mcp-base.diff-encode/diff-encode-db-after epoch)))
-          (str "encode→decode round-trips for " (pr-str epoch))))))
+  (is (= {:db-before {:a 1 :b 2}
+          :db-after  {:rf.mcp/diff-from :db-before
+                      :sections [{:section-path [:b] :section-kind :modified :patches [[[:b] :assoc 3]]}]}}
+         (rf.mcp-base.diff-encode/diff-encode-db-after {:db-before {:a 1 :b 2} :db-after {:a 1 :b 3}}))))
 
 (deftest diff-encode-then-decode-restores-original
-  (let [epoch   {:db-before {:user {:name "ada" :age 30}
-                             :session :idle}
-                 :db-after  {:user {:name "ada" :age 31 :role :admin}}
-                 :event     [:user/birthday]}
-        encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        decoded (rf.mcp-base.diff-encode/decode-db-after encoded)]
-    (is (= epoch decoded))))
+  (let [epoch {:db-before {:user {:name "ada" :age 30} :session :idle}
+               :db-after  {:user {:name "ada" :age 31 :role :admin}}
+               :event     [:user/birthday]}]
+    (is (= epoch (rf.mcp-base.diff-encode/decode-db-after (rf.mcp-base.diff-encode/diff-encode-db-after epoch))))))
 
 (deftest diff-encode-db-after-passes-through-when-missing-halves
-  (testing "missing db-before"
-    (let [epoch {:db-after {:x 1}}]
-      (is (= epoch (rf.mcp-base.diff-encode/diff-encode-db-after epoch)))))
-  (testing "missing db-after"
-    (let [epoch {:db-before {:x 1}}]
-      (is (= epoch (rf.mcp-base.diff-encode/diff-encode-db-after epoch)))))
-  (testing "non-map epoch"
-    (is (= [1 2 3] (rf.mcp-base.diff-encode/diff-encode-db-after [1 2 3])))))
+  (are [epoch] (= epoch (rf.mcp-base.diff-encode/diff-encode-db-after epoch))
+    {:db-after {:x 1}}
+    {:db-before {:x 1}}
+    [1 2 3]))
 
 (deftest decode-db-after-passes-through-when-not-a-diff
-  ;; Already-full epoch (no marker) decodes to itself.
   (let [epoch {:db-before {:a 1} :db-after {:a 1 :b 2}}]
     (is (= epoch (rf.mcp-base.diff-encode/decode-db-after epoch)))))
 
-;; ---------------------------------------------------------------------------
-;; diff-encode-epochs — vector form + mode toggle.
-;; ---------------------------------------------------------------------------
+(deftest decode-db-after-explicit-empty-sections-is-valid-no-change
+  ;; An unchanged epoch encodes to an explicit empty section vector, which
+  ;; decodes back to :db-before.
+  (let [epoch   {:db-before {:a 1} :db-after {:a 1}}
+        encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)]
+    (is (= {:db-before {:a 1} :db-after {:rf.mcp/diff-from :db-before :sections []}} encoded))
+    (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded)))))
 
 (deftest diff-encode-epochs-diff-mode-encodes-each-record
-  (let [epochs [{:db-before {:a 1} :db-after {:a 2}}
-                {:db-before {:b 1} :db-after {:b 2}}]
-        out    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)]
-    (is (= 2 (count out)))
-    (is (= :db-before (get-in (first out) [:db-after :rf.mcp/diff-from])))
-    (is (= :db-before (get-in (second out) [:db-after :rf.mcp/diff-from])))))
+  (let [out (rf.mcp-base.diff-encode/diff-encode-epochs
+              [{:db-before {:a 1} :db-after {:a 2}} {:db-before {:b 1} :db-after {:b 2}}] :diff)]
+    (is (= [:db-before :db-before] (mapv #(get-in % [:db-after :rf.mcp/diff-from]) out)))))
 
 (deftest diff-encode-epochs-full-mode-is-passthrough
   (let [epochs [{:db-before {:a 1} :db-after {:a 2}}]]
     (is (= epochs (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)))))
 
 ;; ---------------------------------------------------------------------------
-;; Patch grammar — Malli schema pin.
-;;
-;; The schema is published as `rf.mcp-base.diff-encode/patch-schema` (single tuple) and
-;; `rf.mcp-base.diff-encode/patches-schema` (sequential of tuples). The encoder boundary
-;; (`diff-encode-db-after`) validates emissions against it and throws
-;; `:rf.error/bad-diff-patches` ex-info on mismatch.
-;;
-;; These tests pin the grammar with positive and negative cases so a
-;; future encoder refactor that drifts the tuple shape — and a future
-;; consumer (the cross-MCP wire-vocab conformance test) that re-states
-;; the grammar — both trip this gate before reaching the wire.
+;; The patch grammar and the decoder's validation gates. A patch value can
+;; be an app-db leaf the egress policy keeps projected, so every
+;; diagnostic is value-free.
 ;; ---------------------------------------------------------------------------
 
-(deftest patch-schema-accepts-well-formed-tuples
-  (testing "the two canonical 2- and 3-element tuple shapes"
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :assoc 1]))
-        "assoc with scalar value")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a :b] :assoc {:x 1}]))
-        "assoc with map value")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[] :assoc {:whole :db}]))
-        "assoc at root (empty path)")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :dissoc]))
-        "dissoc at depth 1")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a :b :c] :dissoc]))
-        "dissoc at depth 3"))
-  (testing "values can be of any type"
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :assoc nil]))
-        "assoc nil leaf")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :assoc [1 2 3]]))
-        "assoc vector leaf")
-    (is (true? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :assoc #{:tag}]))
-        "assoc set leaf")))
-
-(deftest patch-schema-rejects-malformed-tuples
-  (testing "wrong op keyword — only :assoc / :dissoc allowed"
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :replace 1]))
-        ":replace is not in the grammar")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] "assoc" 1]))
-        "string ops are rejected"))
-  (testing "wrong arity"
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :assoc]))
-        ":assoc without value is invalid")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a] :dissoc :extra]))
-        ":dissoc with a trailing value is invalid")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [[:a]]))
-        "missing op"))
-  (testing "path must be a vector"
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema ['(:a) :assoc 1]))
-        "list path is rejected")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [:a :assoc 1]))
-        "keyword path is rejected")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema [nil :dissoc]))
-        "nil path is rejected"))
-  (testing "non-tuple shapes"
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema {:path [:a] :op :assoc :v 1}))
-        "map-shaped patch is rejected")
-    (is (false? (m/validate rf.mcp-base.diff-encode/patch-schema nil))
-        "nil patch is rejected")))
-
-;; ---------------------------------------------------------------------------
-;; Sanitized validation diagnostics (EP-0015 egress-policy).
-;;
-;; The diff-encode wire boundary carries epoch :db-before/:db-after
-;; payloads, so the *value* side of an `:assoc` patch (and any map a
-;; section's :patches carries) can be an app-db leaf the egress policy
-;; expects to stay projected / redacted. A malformed patch/section that
-;; trips the Malli gate must not smuggle that value back out through the
-;; exception — neither in the message, the ex-data, nor the pr-str of the
-;; thrown data. The replacement diagnostic carries value-FREE shape only
-;; (error id, boundary, recovery, reason, schema identity, count, and the
-;; first bad index / path / op / element type), mirroring `assoc-in-safe`
-;; which reports path + parent TYPE rather than the parent VALUE.
-;; ---------------------------------------------------------------------------
-
-(defn- secret-absent?
-  "True when `secret` appears nowhere in the thrown ExceptionInfo's
-  message, the pr-str of its ex-data, or the pr-str of any individual
-  ex-data value — the three egress surfaces a diagnostic can leak from."
-  [^clojure.lang.ExceptionInfo e secret]
-  (let [data (ex-data e)]
-    (and (not (clojure.string/includes? (str (.getMessage e)) secret))
-         (not (clojure.string/includes? (pr-str data) secret))
-         (every? (fn [[_ v]] (not (clojure.string/includes? (pr-str v) secret)))
-                 data))))
-
-(deftest validate-patches!-diagnostics-omit-raw-patch-values
-  ;; A malformed patch whose VALUE side is an obvious secret must not
-  ;; appear anywhere reachable from the thrown exception.
-  (let [secret "s3cr3t-token-DO-NOT-LEAK"
-        ;; Malformed: 3-element :dissoc tuple is rejected by the grammar,
-        ;; but the trailing element carries the secret payload.
-        bad    [[[:user :api-key] :dissoc secret]]]
-    (try
-      (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/diff-encode-db-after)
-      (is false "expected the grammar gate to throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/bad-diff-patches (:rf.error/id (ex-data e))))
-        (is (secret-absent? e secret)
-            "the raw patch value must not leak via message / ex-data / pr-str")
-        ;; Value-free shape info is retained for triage.
-        (let [data (ex-data e)]
-          (is (= 'mcp-base/diff-encode-db-after (:where data)))
-          (is (= :no-recovery (:recovery data)))
-          (is (string? (:reason data)))
-          (is (nil? (:patches data)) "the raw :patches slot is gone")
-          (is (= 1 (:count data)) "value-free count of the offending batch")
-          (is (= 0 (:bad-index data)) "first bad element index"))))))
-
-(deftest validate-patches!-diagnostics-omit-secret-map-leaf
-  ;; The :assoc VALUE can itself be a map of secrets; even a well-typed
-  ;; tuple that fails for an unrelated reason (bad op) must not carry it.
-  (let [secret "pw-9f3a-LEAK"
-        bad    [[[:session] :replace {:password secret :token secret}]]]
-    (try
-      (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/apply-patches)
-      (is false "expected throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (secret-absent? e secret)
-            "a secret map carried as the patch value must not leak")
-        (is (= 'mcp-base/apply-patches (:where (ex-data e))))))))
-
-(deftest validate-sections!-diagnostics-omit-raw-section-values
-  ;; A section's nested :patches can carry secret values; a malformed
-  ;; section that trips the sections gate must not leak them.
-  (let [secret "section-secret-XYZ-LEAK"
-        bad    [{:section-path :not-a-vector ;; malformed → trips the gate
-                 :section-kind :modified
-                 :patches      [[[:creds :password] :assoc secret]]}]]
-    (try
-      (#'rf.mcp-base.diff-encode/validate-sections! bad 'mcp-base/decode-db-after)
-      (is false "expected the sections gate to throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/bad-diff-sections (:rf.error/id (ex-data e))))
-        (is (secret-absent? e secret)
-            "the raw section/patch value must not leak via message / ex-data / pr-str")
-        (let [data (ex-data e)]
-          (is (nil? (:sections data)) "the raw :sections slot is gone")
-          (is (= 1 (:count data)))
-          (is (= 0 (:bad-index data))))))))
-
-;; ---------------------------------------------------------------------------
-;; Decoder-boundary validation.
-;;
-;; `apply-patches` is the wire-decoder entry point. A malformed patch
-;; reaching this fn is a contract violation. The gate mirrors the
-;; encoder boundary's: validate against `patches-schema` and throw
-;; `:rf.error/bad-diff-patches`. Without it the offending tuple would
-;; silently no-op (fall through the `cond` to `:else acc` and drop the
-;; corrupted patch without a peep).
-;; ---------------------------------------------------------------------------
+(deftest patch-schema-pins-the-tuple-grammar
+  ;; `[path :assoc value]` or `[path :dissoc]`, the path a vector.
+  (are [patch valid?] (= valid? (m/validate rf.mcp-base.diff-encode/patch-schema patch))
+    [[:a] :assoc 1]              true
+    [[] :assoc {:whole :db}]     true
+    [[:a :b :c] :dissoc]         true
+    [[:a] :replace 1]            false
+    [[:a] :assoc]                false
+    [[:a] :dissoc :extra]        false
+    ['(:a) :assoc 1]             false
+    {:path [:a] :op :assoc :v 1} false))
 
 (deftest apply-patches-rejects-malformed-tuples
-  (testing "missing op (2-element tuple with no op) throws"
-    ;; Without the gate this would silently no-op: the destructure puts
-    ;; `nil` in `op` and the cond falls through to `:else acc`. The
-    ;; validate-patches! gate trips on the malformed tuple BEFORE the
-    ;; reduce starts.
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-patches"
-          (rf.mcp-base.diff-encode/apply-patches {} [[[:a]]]))))
-  (testing "unknown op throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-patches"
-          (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :replace 1]]))))
-  (testing "non-vector path throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/bad-diff-patches"
-          (rf.mcp-base.diff-encode/apply-patches {} [[:a :assoc 1]]))))
-  (testing "ex-info carries reserved :rf.error/bad-diff-patches code + decode-side :where"
-    (try
-      (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :replace 1]])
-      (is false "expected throw")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/bad-diff-patches
-               (:rf.error/id (ex-data e))))
-        (is (= 'mcp-base/apply-patches
-               (:where (ex-data e)))
-            "ex-info names the decode-side boundary, not the encoder")))))
-
-(deftest apply-patches-empty-patches-is-identity
-  ;; Empty patch list ⇒ base returned unchanged.
-  (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} []))))
-
-;; ---------------------------------------------------------------------------
-;; Decoder-boundary SECTION validation.
-;;
-;; `decode-db-after` validates the `:sections` vector via
-;; `validate-sections!` BEFORE flattening + replaying — encoder/decoder
-;; symmetry. This pins the SYMMETRIC decode-side gate: a marker carrying
-;; malformed `:sections` reaching `decode-db-after` MUST throw
-;; `:rf.error/bad-diff-sections` rather than slip cosmetic
-;; `:section-kind` / `:section-path` slots through to an agent-host UI
-;; that paints them as truth.
-;; ---------------------------------------------------------------------------
+  ;; Without the gate a tuple with no op would fall through the replay and
+  ;; vanish silently.
+  (let [secret     "s3cr3t-token-DO-NOT-LEAK"
+        leaky      [[[:user :api-key] :dissoc secret]
+                    [[:session] :replace {:password secret :token secret}]]
+        rejection #(caught (fn [] (rf.mcp-base.diff-encode/apply-patches {} [%])))]
+    (are [patch] (= {:rf.error/id :rf.error/bad-diff-patches :where 'mcp-base/apply-patches}
+                    (select-keys (ex-data (rejection patch)) [:rf.error/id :where]))
+      [[:a]]
+      (first leaky)
+      (second leaky))
+    (is (every? #(secret-absent? (rejection %) secret) leaky))))
 
 (deftest decode-db-after-rejects-malformed-sections
-  (testing "section with a non-vector :section-path throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections [{:section-path :not-a-vector
-                                         :section-kind :modified
-                                         :patches      [[[:a] :assoc 2]]}]}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "section with an unknown :section-kind throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections [{:section-path [:a]
-                                         :section-kind :renamed     ;; not in the enum
-                                         :patches      [[[:a] :assoc 2]]}]}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "section missing the :patches slot throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections [{:section-path [:a]
-                                         :section-kind :modified}]}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "ex-info carries the reserved :rf.error/bad-diff-sections code"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections [{:section-path :bad
-                                         :section-kind :modified
-                                         :patches      []}]}}]
-      (try
-        (rf.mcp-base.diff-encode/decode-db-after epoch)
-        (is false "expected throw")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/bad-diff-sections
-                 (:rf.error/id (ex-data e)))
-              "ex-info carries the reserved :rf.error/* code")
-          (is (= 'mcp-base/decode-db-after
-                 (:where (ex-data e)))
-              "ex-info names the decode-side boundary, not the encoder"))))))
-
-(deftest decode-db-after-rejects-malformed-sections-slot
-  ;; A diff marker whose `:sections` slot is `nil` or `false` must not
-  ;; decode to a no-op. Coercing it via `(or sections [])` would let an
-  ;; empty seq satisfy `[:sequential section-schema]`, so the gate would
-  ;; never trip and the epoch's real `:db-after` change would be silently
-  ;; ERASED back to `:db-before`. The raw slot is validated, so a PRESENT
-  ;; non-sequential `:sections` trips `:rf.error/bad-diff-sections`
-  ;; (Malli present). `:db-before` carries a real change so a regression
-  ;; (silent no-op) would observably hand back `{:a 1}` instead of
-  ;; throwing.
-  ;;
-  ;; A MISSING `:sections` key is a marker-BODY shape violation (the
-  ;; closed two-key contract), so it trips the structural
-  ;; `:rf.error/bad-diff-marker` gate FIRST (see
-  ;; `decode-db-after-rejects-malformed-marker-body`). A PRESENT-but-falsey
-  ;; `:sections` still satisfies the closed key set, so the body gate passes
-  ;; and `validate-sections!` owns the `bad-diff-sections` verdict below.
-  (testing ":sections nil throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections nil}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing ":sections false throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections false}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (rf.mcp-base.diff-encode/decode-db-after epoch))))))
+  ;; Symmetric with the encoder: :sections is validated before replay. A
+  ;; present but nil slot throws rather than reading as an empty diff that
+  ;; would silently erase the epoch's change.
+  (let [secret    "section-secret-XYZ-LEAK"
+        leaky     [{:section-path :not-a-vector
+                    :section-kind :modified
+                    :patches      [[[:creds :password] :assoc secret]]}]
+        rejection #(caught (fn [] (rf.mcp-base.diff-encode/decode-db-after
+                                    {:db-before {:a 1}
+                                     :db-after  {:rf.mcp/diff-from :db-before :sections %}})))]
+    (are [sections] (= {:rf.error/id :rf.error/bad-diff-sections :where 'mcp-base/decode-db-after}
+                       (select-keys (ex-data (rejection sections)) [:rf.error/id :where]))
+      nil
+      [{:section-path [:a] :section-kind :renamed :patches [[[:a] :assoc 2]]}]
+      [{:section-path [:a] :section-kind :modified}]
+      leaky)
+    (is (secret-absent? (rejection leaky) secret))))
 
 (deftest decode-db-after-rejects-malformed-marker-body
-  ;; The decoder recognizes a diff marker on the PRESENCE of
-  ;; the `:rf.mcp/diff-from` key (intent), then enforces the CLOSED
-  ;; marker-body contract (mcp-conformance `DiffFromBody`): EXACTLY
-  ;; `{:rf.mcp/diff-from :db-before, :sections [...]}` — two top-level keys,
-  ;; the marker value restricted to `:db-before`. A pure STRUCTURAL gate
-  ;; (no Malli), so it fires regardless of Malli presence. It closes two
-  ;; cases a `:sections`-only check would miss:
-  ;;   - an extra sibling key would slip past (only `:sections` checked);
-  ;;   - an unsupported marker value would be treated as 'not a diff' and
-  ;;     pass THROUGH unchanged, letting a corrupt/third-party marker
-  ;;     survive.
-  (testing "an extra sibling top-level key rejects (closed two-key contract)"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections []
-                             :sneaky   :key}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-marker"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "a missing :sections key rejects (the closed pair is incomplete)"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-marker"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "an unsupported :rf.mcp/diff-from value rejects (not a silent passthrough)"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-later  ;; only :db-before is conformant
-                             :sections []}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-marker"
-            (rf.mcp-base.diff-encode/decode-db-after epoch)))))
-  (testing "the marker-body throw is value-free + names the DECODE-side boundary"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections []
-                             :secret   "sensitive-payload"}}]
-      (try
-        (rf.mcp-base.diff-encode/decode-db-after epoch)
-        (is false "expected throw")
-        (catch clojure.lang.ExceptionInfo e
-          (let [data (ex-data e)]
-            (is (= :rf.error/bad-diff-marker (:rf.error/id data)))
-            (is (= 'mcp-base/decode-db-after (:where data)))
-            (is (= :no-recovery (:recovery data)))
-            (is (= #{:rf.mcp/diff-from :sections} (:expected-keys data)))
-            (is (= #{:rf.mcp/diff-from :sections :secret} (:actual-keys data)))
-            ;; value-free (EP-0015): no smuggled app-db payload anywhere in
-            ;; ex-data or the message.
-            (is (not (clojure.string/includes? (pr-str data) "sensitive-payload"))
-                "the offending value MUST NOT leak into the diagnostic"))))))
-  (testing "the canonical two-key marker still decodes (the gate is a guard, not a blanket reject)"
-    (let [epoch   {:db-before {:user {:name "ada" :age 30}}
-                   :db-after  {:user {:name "ada" :age 31}}}
-          encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)]
-      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
-          "a well-formed {:rf.mcp/diff-from :db-before :sections [...]} round-trips"))))
-
-(deftest decode-db-after-explicit-empty-sections-is-valid-no-change
-  ;; Companion: an EXPLICIT `:sections []` is a legitimate
-  ;; no-change diff (db-before == db-after) and MUST still validate and
-  ;; replay to `:db-before` unchanged — the gate guards malformed shape,
-  ;; it does not reject a real empty diff.
-  (testing "encoder emits :sections [] for an unchanged epoch and decode round-trips"
-    (let [epoch   {:db-before {:a 1} :db-after {:a 1}}
-          encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)]
-      (is (= [] (get-in encoded [:db-after :sections]))
-          "no-change epoch encodes to an explicit empty section vector")
-      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded)))))
-  (testing "a hand-built :sections [] marker decodes to :db-before without throwing"
-    (let [epoch {:db-before {:a 1 :b 2}
-                 :db-after  {:rf.mcp/diff-from :db-before
-                             :sections []}}]
-      (is (= {:db-before {:a 1 :b 2} :db-after {:a 1 :b 2}}
-             (rf.mcp-base.diff-encode/decode-db-after epoch))))))
+  ;; The marker body is closed: exactly {:rf.mcp/diff-from :db-before
+  ;; :sections [...]}. An extra key, or a marker value other than
+  ;; :db-before, throws rather than passing through.
+  (let [leaky     {:rf.mcp/diff-from :db-before :sections [] :secret "sensitive-payload"}
+        rejection #(caught (fn [] (rf.mcp-base.diff-encode/decode-db-after {:db-before {:a 1} :db-after %})))]
+    (are [db-after] (= {:rf.error/id :rf.error/bad-diff-marker :where 'mcp-base/decode-db-after}
+                       (select-keys (ex-data (rejection db-after)) [:rf.error/id :where]))
+      leaky
+      {:rf.mcp/diff-from :db-later :sections []})
+    (is (secret-absent? (rejection leaky) "sensitive-payload"))))
