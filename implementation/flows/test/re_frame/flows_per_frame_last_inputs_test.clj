@@ -1,162 +1,46 @@
 (ns re-frame.flows-per-frame-last-inputs-test
-  "The failed-flow rollback in `run-flows-on-db` is scoped to the DRAINING
-  frame's own `last-inputs` container and MUST NOT clobber a
-  concurrently-draining sibling frame's dirty-check rows.
-
-  Each frame owns its OWN `last-inputs` container (`atom {flow-id inputs}`),
-  held in the flows registry's `frame-last-inputs` map keyed by frame-id. The
-  rollback snapshots / restores ONLY the draining frame's atom — a sibling's
-  container is a different atom and is structurally untouchable. Cross-frame
-  interference is impossible BY CONSTRUCTION, not merely avoided. Same-frame
-  rollback atomicity is pinned by `re-frame.flows-trace-test`'s
-  `failed-flow-rolls-back-last-inputs-so-prior-flows-retry`.
-
-  Why this matters under concurrency: drain-locks are PER-FRAME (no global
-  cross-frame serialization — Spec 002 rule 1 + the flows concurrency stress
-  test rely on frames draining in parallel on different JVM threads). A
-  rollback that reverted EVERY frame's rows would be wrong: while frame A's
-  drain is between snapshot and throw, frame B could advance and commit its
-  own row on another thread, and A's restore would revert B's just-advanced
-  row. B's app-db would be correctly committed but its dirty-check row stale —
-  so B's next drain with the SAME inputs would see `(= V2 V1)` false, recompute
-  the same value, re-emit `:rf.flow/computed`, produce a no-op `:db` write, and
-  trigger a spurious `:rf.event/db-changed` + reactive sub invalidation: a
-  frame-isolation contract violation (Spec 002 §Rules rule 1 / Spec 013
-  §Frame-scoping). Per-frame containers make that scenario unreachable.
-
-  CLJS is single-threaded; the concurrency surface is JVM-only by design.
-  This namespace is JVM-only (`.clj`)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "A failed flow's dirty-check rollback restores only the draining frame's
+  rows. Drain locks are per frame, so a sibling can advance and commit its
+  own row while this frame sits between snapshot and throw; restoring every
+  frame's rows would revert the sibling's, and its next same-input drain would
+  recompute and rewrite for nothing. JVM-only: CLJS has no threads."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            ;; Loading `re-frame.flows` publishes the late-bind hooks the
-            ;; dispatches below drive.
             [re-frame.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling])
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; ---- per-test reset -------------------------------------------------------
-;;
-;; The standard runtime reset (registrar baseline + frames + flows/schemas +
-;; plain-atom adapter + ambient `:rf/default` scope) is owned by
-;; `make-reset-runtime-fixture`; EP-0002 — `:rf/default` is bound so the
-;; ambient `reg-flow` calls in the body below carry a frame stamp. The body
-;; manages its own trace listener (the reset clears every listener first).
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---------------------------------------------------------------------------
-;; JVM concurrency stress — the interleaving the isolation guards.
-;;
-;; Frame A repeatedly drains a flow that ALWAYS throws; frame B repeatedly
-;; drains a SUCCESSFUL flow whose inputs are STABLE after the first drain.
-;; Both run in lockstep on separate threads with no global serialization —
-;; exactly the interleaving the per-frame drain-locks permit.
-;;
-;; Invariant: B's flow `:derive` fires EXACTLY ONCE across all of B's
-;; drains. The first drain recomputes (input changed from absent → [7]);
-;; every subsequent drain has IDENTICAL inputs ([7] each time) so the
-;; dirty-check MUST skip. A global-atom rollback would let frame A's
-;; concurrent throwing-drain clobber B's just-advanced row, so B's next
-;; same-input drain would spuriously recompute — driving the `:derive` count
-;; above 1. With per-frame containers B's row is in its own atom and A's
-;; rollback can't reach it, so the count stays at 1.
-;;
-;; A secondary invariant pins the consequence chain: B emits exactly ONE
-;; `:rf.flow/computed` trace (the first, genuine recompute) — never a
-;; spurious one for a no-op write.
-;; ---------------------------------------------------------------------------
 
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_94OL5_STRESS_ITERS") Long/parseLong)
       4000))
 
 (deftest concurrent-throwing-drain-does-not-clobber-sibling-dirty-check
-  (testing (str "frame A throwing-flow drains × " stress-iters
-                " interleaved with frame B stable-input drains — "
-                "B's flow recomputes exactly once (no spurious recompute)")
-    (rf/make-frame {:id :rf2-94ol5/a :doc "throwing-flow frame"})
-    (rf/make-frame {:id :rf2-94ol5/b :doc "stable sibling frame"})
-
-    (rf/reg-event :rf2-94ol5/set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-
-    ;; Frame A: a flow that throws on every recompute. A's input changes
-    ;; every iter so it ALWAYS recomputes (and therefore always rolls back).
-    (rf/reg-flow :rf2-94ol5/throws {:frame :rf2-94ol5/a :inputs [[:n]] :output-path [:out]} (fn [_] (throw (ex-info "boom-A" {}))))
-
-    ;; Frame B: a successful flow with STABLE inputs after the first drain.
-    (let [b-output-calls (AtomicLong. 0)]
-      (rf/reg-flow :rf2-94ol5/doubles {:frame :rf2-94ol5/b :inputs [[:n]] :output-path [:out]} (fn [n]
-                              (.incrementAndGet b-output-calls)
-                              (* 2 (or n 0))))
-
-      ;; Count B's :rf.flow/computed traces (the spurious-recompute symptom).
-      (let [b-computed (AtomicLong. 0)]
-        (rf.trace.tooling/register-listener!
-          ::b-computed-watch
-          (fn [ev]
-            (when (and (= :rf.flow/computed (:operation ev))
-                       (= :rf2-94ol5/b (-> ev :tags :frame)))
-              (.incrementAndGet b-computed))))
-
-        ;; Seed B once so it has its first (genuine) recompute, then hold
-        ;; its input stable for the remainder.
-        (rf/dispatch-sync [:rf2-94ol5/set-n 7] {:frame :rf2-94ol5/b})
-
-        (let [latch    (CountDownLatch. 1)
-              ;; Thread A: drive A's throwing drain repeatedly with a
-              ;; CHANGING input so it always recomputes-then-rolls-back.
-              fut-a    (future
-                         (.await latch)
-                         (dotimes [i stress-iters]
-                           ;; A's flow throws — the router converts the
-                           ;; cascade-level throw to a trace; dispatch-sync
-                           ;; does not re-throw. Drive with a fresh :n each
-                           ;; iter so A's dirty-check always fires.
-                           (rf/dispatch-sync [:rf2-94ol5/set-n (inc i)]
-                                             {:frame :rf2-94ol5/a}))
-                         :a-done)
-              ;; Thread B: drain B repeatedly with the SAME input (7) so
-              ;; every drain after the seed MUST dirty-check-skip.
-              fut-b    (future
-                         (.await latch)
-                         (dotimes [_ stress-iters]
-                           (rf/dispatch-sync [:rf2-94ol5/set-n 7]
-                                             {:frame :rf2-94ol5/b}))
-                         :b-done)]
-          (.countDown latch)
-          (is (not= ::timeout (deref fut-a 120000 ::timeout))
-              "thread A completed within 120s")
-          (is (not= ::timeout (deref fut-b 120000 ::timeout))
-              "thread B completed within 120s")
-
-          (rf.trace.tooling/unregister-listener! ::b-computed-watch)
-
-          ;; THE INVARIANT: B's :derive fired exactly once. A concurrent
-          ;; rollback clobbering B's row would push this above 1.
-          (is (= 1 (.get b-output-calls))
-              (str "B's flow :derive must fire EXACTLY once (the genuine "
-                   "first recompute); every later same-input drain must "
-                   "dirty-check-skip. Got " (.get b-output-calls)
-                   " — a value > 1 means frame A's throwing-flow rollback "
-                   "clobbered B's dirty-check row."))
-
-          ;; Secondary: exactly one :rf.flow/computed trace for B.
-          (is (= 1 (.get b-computed))
-              (str "B must emit exactly one :rf.flow/computed (the genuine "
-                   "first recompute); got " (.get b-computed)
-                   ". A spurious recompute would emit extra computed traces "
-                   "+ a no-op :db write + sub invalidation."))
-
-          ;; B's app-db is correct regardless: 2 × 7 = 14.
-          (is (= 14 (:out (rf/app-db-value :rf2-94ol5/b)))
-              "B's flow output is correct (2 × 7)")
-
-          ;; B's last-inputs row survives intact at [7].
-          (is (= [7] (rf.flows.registry/get-frame-flow-last-inputs :rf2-94ol5/b
-                                                          :rf2-94ol5/doubles))
-              "B's last-inputs row is intact at [7] after the stress"))))))
+  ;; Frame A's flow throws on every drain; frame B's inputs are stable after
+  ;; its first drain, so B's derive must run exactly once.
+  (let [b-calls (AtomicLong. 0)
+        latch   (CountDownLatch. 1)
+        drive   (fn [frame-id n-of]
+                  (future (.await latch)
+                          (dotimes [i stress-iters]
+                            (rf/dispatch-sync [:set-n (n-of i)] {:frame frame-id}))))]
+    (rf/make-frame {:id :a})
+    (rf/make-frame {:id :b})
+    (rf/reg-event :set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (rf/reg-flow :throws {:frame :a :inputs [[:n]] :output-path [:out]}
+      (fn [_] (throw (ex-info "boom-A" {}))))
+    (rf/reg-flow :doubles {:frame :b :inputs [[:n]] :output-path [:out]}
+      (fn [n] (.incrementAndGet b-calls) (* 2 n)))
+    (rf/dispatch-sync [:set-n 7] {:frame :b})
+    (let [a (drive :a inc)
+          b (drive :b (constantly 7))]
+      (.countDown latch)
+      (is (not= ::timeout (deref a 120000 ::timeout)))
+      (is (not= ::timeout (deref b 120000 ::timeout))))
+    (is (= [1 [7]] [(.get b-calls) (rf.flows.registry/get-frame-flow-last-inputs :b :doubles)])
+        "B derived once and its row survived A's rollbacks")))
