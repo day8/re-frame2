@@ -1,28 +1,14 @@
 (ns re-frame.warn-once-clear-governance-test
-  "JVM source-enumeration half of the warn-once-clear governance gate.
-  The CLJS half
-  (`re-frame.warn-once-clear-governance-cljs-test`) proves, at runtime,
-  that firing the canonical `:adapter/clear-warn-once-caches!` chain wipes
-  every cache enrolled in the `warn-once-clear-registry`. This half proves,
-  at the source level, that there is exactly ONE way to enrol a cache into
-  that chain — the chokepoint `register-warn-once-clear-fn!` — so a future
-  cache cannot quietly chain itself with a bare `chain-fn!` (which would
-  chain it WITHOUT recording it in the registry, where the CLJS gate cannot
-  see it).
-
-  SINGLE CHOKEPOINT assertion — no source file other than
-  `re-frame.late-bind` itself (which DEFINES the chokepoint) may call
-  `(chain-fn! :adapter/clear-warn-once-caches! ...)` directly. Every
-  contributor goes through `register-warn-once-clear-fn!` (core/views) or
-  `install-clear-warn-once-step!` (the spine/adapter seam, itself a thin
-  delegator). This guarantees enrolment-and-chaining are atomic: you
-  cannot chain without registering.
-
-  Walks the same source tree as `re-frame.late-bind-drift-test`.")
-
-(require '[clojure.java.io :as io]
-         '[clojure.string :as str]
-         '[clojure.test :refer [deftest is testing]])
+  "The source half of the warn-once-clear governance gate. Only
+  `re-frame.late-bind` may `chain-fn!` the `:adapter/clear-warn-once-caches!`
+  key directly; every contributor enrols through `register-warn-once-clear-fn!`
+  (or the `install-clear-warn-once-step!` seam), so chaining and registry
+  enrolment are atomic. A raw `chain-fn!` would chain a cache without recording
+  it, out of sight of `re-frame.warn-once-clear-governance-cljs-test`, which
+  proves at runtime that the chain wipes every ENROLLED cache."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]))
 
 (def ^:private repo-implementation-root
   (-> (io/file "..") .getCanonicalFile))
@@ -42,47 +28,25 @@
                    (and (str/includes? norm "/src/")
                         (not (str/includes? norm "/test/"))))))))
 
-(defn- ns-name-of
-  "Best-effort `(ns ...)` symbol of a source file (first ns form)."
-  [content]
-  (when-let [m (re-find #"\(ns\s+([a-zA-Z][a-zA-Z0-9.\-]*)" content)]
-    (second m)))
+(defn- ns-name-of [content]
+  (second (re-find #"\(ns\s+([a-zA-Z][a-zA-Z0-9.\-]*)" content)))
 
-;; ---------------------------------------------------------------------------
-;; 1. Single chokepoint — only re-frame.late-bind may chain the key directly
-;; ---------------------------------------------------------------------------
-
+;; Both alias spellings, `rf.late-bind/` and `late-bind/`: a spelling the gate
+;; cannot see is an offender it would wave through.
 (def ^:private raw-chain-re
-  "Match a direct `chain-fn!` (qualified or not) on the warn-once-clear
-  key. The chokepoint `register-warn-once-clear-fn!` (in re-frame.late-bind)
-  is the ONLY legitimate such call site.
-
-  Both alias spellings match — the canonical `rf.late-bind`
-  (spec/Conventions.md §Require-alias dialect) and a bare `late-bind`
-  alias. This gate FORBIDS a call
-  shape, so a spelling it cannot see is an offender it would wave through."
   #"\((?:(?:rf\.)?late-bind/)?chain-fn!\s+:adapter/clear-warn-once-caches!")
 
 (deftest only-the-chokepoint-chains-the-warn-once-clear-key
-  (testing "no source file other than re-frame.late-bind calls
-            (chain-fn! :adapter/clear-warn-once-caches! ...) directly —
-            every contributor enrols through register-warn-once-clear-fn!
-            so chaining and registry-enrolment are atomic"
-    (let [offenders
-          (for [^java.io.File f (source-files)
-                :let [content (slurp f)]
-                :when (re-find raw-chain-re content)
-                :let [ns-sym (ns-name-of content)]
-                :when (not= "re-frame.late-bind" ns-sym)]
-            (str ns-sym " (" (.getPath f) ")"))]
-      (is (empty? offenders)
-          (str "These source files chain :adapter/clear-warn-once-caches! "
-               "with a RAW chain-fn! instead of the canonical chokepoint "
-               "re-frame.late-bind/register-warn-once-clear-fn! (or the "
-               "spine seam install-clear-warn-once-step!). A raw chain-fn! "
-               "wires the cache into the fixture chain WITHOUT recording it "
-               "in the warn-once-clear-registry, so the CLJS governance "
-               "assertion cannot see it — the unchained warn-once "
-               "cache defect. Route through the "
-               "chokepoint:\n  "
-               (str/join "\n  " (sort offenders)))))))
+  (let [offenders
+        (for [^java.io.File f (source-files)
+              :let [content (slurp f)]
+              :when (re-find raw-chain-re content)
+              :let [ns-sym (ns-name-of content)]
+              :when (not= "re-frame.late-bind" ns-sym)]
+          (str ns-sym " (" (.getPath f) ")"))]
+    (is (empty? offenders)
+        (str "These source files chain :adapter/clear-warn-once-caches! with a "
+             "RAW chain-fn!, so the cache is chained without being recorded in "
+             "the warn-once-clear-registry. Route through "
+             "re-frame.late-bind/register-warn-once-clear-fn!:\n  "
+             (str/join "\n  " (sort offenders))))))
