@@ -158,19 +158,19 @@ known_red=(
   #    `replay-epoch!` by id. Dispatches, reads the ring back
   #    and re-dispatches from a retained record; under the gate the ring
   #    never fills and `replay-epoch!` returns `false` by design (pinned in
-  #    `epoch-jvm-prod-gate-test` / `epoch-elision-prod-test`). Class A.
+  #    `epoch-jvm-prod-gate-test`). Class A.
   re-frame.epoch-replay-cljs-test
   #    Concurrency stress over recording, restore and listener fan-out: its
   #    scenarios wait on records the gate never assembles, so they time out red.
   re-frame.epoch-concurrency-stress-test
 
   # ── CLASS B · PUBLICATION ELIDED (6).  Different mechanism, same verdict, and
-  #    worth separating because the failure ratios invite the wrong conclusion —
-  #    `lineage-285` fails 68 of 3608 assertions, which reads like a suite that
-  #    almost runs.  It nearly does: the LEDGER these suites drive
+  #    worth separating because a partial failure invites the wrong conclusion —
+  #    run here, `lineage-285` passes most of its assertions, which reads like a
+  #    suite that almost runs.  It nearly does: the LEDGER these suites drive
   #    (`re-frame.epoch.state`) carries no `debug-enabled?` gate at all, so its
-  #    arithmetic is posture-INDEPENDENT and its thousands of assertions pass
-  #    here for the same reason they pass in dev.  What the gate erases is the
+  #    arithmetic is posture-INDEPENDENT and those assertions pass here for the
+  #    same reason they pass in dev.  What the gate erases is the
   #    PUBLICATION — `listeners.cljc`'s `on-frame-destroyed!` and the fan-out
   #    around it are gated — and the emitted silencing trace is the observable
   #    every one of these suites is actually about.

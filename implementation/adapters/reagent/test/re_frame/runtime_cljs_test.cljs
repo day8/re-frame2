@@ -742,12 +742,12 @@
 ;; the rewound value through Reagent's reactive graph, exactly as
 ;; it does for a normal event commit.
 ;;
-;; The JVM-side epoch_test.clj covers subscribe-once / pinned-reaction
-;; semantics under the plain-atom adapter (every deref recomputes,
-;; so observable equivalence is straightforward). This test pins the
-;; same contract under the Reagent reactive substrate where the
-;; reaction itself caches and only re-runs when its source changes
-;; by =.
+;; The JVM-side epoch_test.clj holds a sub across a restore under the
+;; plain-atom adapter, where every deref recomputes. This test pins the
+;; contract under the Reagent reactive substrate, where the reaction
+;; itself caches and only re-runs when its source changes by =: a
+;; reaction held across a restore of its frame sees the rewound value,
+;; and one held in another frame keeps its own.
 
 (deftest restore-reagent-frame-isolation
   (testing "restoring frame A does not cause frame B's reactions to
