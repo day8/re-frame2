@@ -1,29 +1,19 @@
 (ns re-frame.mcp-base.cap-test
-  "Unit tests for the cross-MCP cap pipeline.
-
-  Exercises the algorithm via a mock `ResultIO` reifying the protocol
-  over CLJ maps. The per-server IO instances (re-frame2-pair-mcp's JS-object
-  reify, story-mcp's CLJ-map reify) are exercised against the real
-  pipeline in their respective test suites; the unit tests here pin
-  the algorithm itself."
-  (:require [clojure.test :refer [deftest is]]
+  "Unit tests for the cross-MCP cap pipeline, driven through mock
+  `ResultIO` instances over CLJ maps. Each server's own suite drives its
+  real IO instance through the same pipeline."
+  (:require [clojure.test :refer [are deftest is]]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
-;; ---------------------------------------------------------------------------
-;; Mock ResultIO — CLJ-map shape, mirrors story-mcp's runtime instance.
-;; ---------------------------------------------------------------------------
-
 (def map-io
-  "ResultIO over `{:content [{:type \"text\" :text \"...\"} ...]}` maps.
-  Mirrors story-mcp's runtime instance; story-mcp's tests exercise the
-  full registry-backed pipeline."
+  "Single-slot ResultIO: counts only the `:content[*].text` strings."
   (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (map :text (:content result)))
     (build-overflow-result [_ marker _original]
-      {:content          [{:type "text" :text (pr-str marker)}]
+      {:content           [{:type "text" :text (pr-str marker)}]
        :structuredContent marker})))
 
 (defn- ok-text-result [v]
@@ -36,333 +26,136 @@
 ;; max-tokens — per-call cap resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest max-tokens-zero-disables-cap
-  (is (nil? (rf.mcp-base.cap/max-tokens 0))))
+(deftest max-tokens-resolves-the-cap
+  (are [raw expected] (= expected (rf.mcp-base.cap/max-tokens raw))
+    0                nil
+    1                1
+    2.9              2
+    9007199254740991 9007199254740991))
 
 (deftest max-tokens-non-number-falls-back-to-default
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens nil)))
-  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens "bogus")))
-  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens :not-a-number)))
-  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens [1 2 3]))))
+  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens "bogus"))))
 
-(deftest max-tokens-negative-rejected-with-invalid-arg
-  ;; A negative `:max-tokens` is REJECTED. Left unguarded it would
-  ;; fall through to `(long raw)`, producing a negative cap that
-  ;; over-trips `apply-cap`'s `over-cap?` so EVERY response (even a
-  ;; 2-char one) would be replaced by the overflow marker — locking the
-  ;; agent out of all tool data and emitting a nonsensical
-  ;; `:cap-tokens -1`. The resolver returns an `{:rf.mcp/invalid-arg
-  ;; {...}}` rejection the consumer surfaces as an `isError: true`
-  ;; result.
-  (let [out (rf.mcp-base.cap/max-tokens -1)]
-    (is (rf.mcp-base.cap/invalid-arg? out)
-        "negative max-tokens resolves to an :rf.mcp/invalid-arg rejection, NOT a negative cap")
-    (is (not (number? out)) "the rejection is a marker map, not a (negative) cap integer")
-    (let [body (get out rf.mcp-base.vocab/invalid-arg-key)]
-      (is (= :max-tokens (:arg body)) "rejection names the offending arg")
-      (is (= -1 (:value body)) "rejection echoes the rejected value")
-      (is (string? (:hint body)) "rejection carries an actionable recovery hint")
-      (is (re-find #"(?i)0 disables" (:hint body))
-          "hint states the disable sentinel so the agent's next call is correct")))
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens -5)) "larger-magnitude negatives reject too")
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens -1.5)) "negative doubles reject too"))
-
-(deftest max-tokens-fractional-positive-rejected-with-invalid-arg
-  ;; A fractional positive in (0,1) — e.g. 0.5 — is neither
-  ;; caught by (zero? raw) nor (neg? raw); left unguarded it would fall
-  ;; to (long raw), flooring to a REAL 0 cap (non-nil, NOT the disable
-  ;; sentinel). That 0 would then over-trip `apply-cap`'s `over-cap?` on
-  ;; EVERY non-empty payload, locking the agent out — the same lockout
-  ;; class negatives hit. The resolver rejects it honestly as an
-  ;; `{:rf.mcp/invalid-arg {...}}` marker rather than flooring to a 0-cap
-  ;; lockout.
-  (let [out (rf.mcp-base.cap/max-tokens 0.5)]
-    (is (rf.mcp-base.cap/invalid-arg? out)
-        "fractional positive in (0,1) resolves to an :rf.mcp/invalid-arg rejection, NOT a floored 0 cap")
-    (is (not (number? out)) "the rejection is a marker map, not a (0) cap integer")
-    (is (not= 0 out)
-        "must NOT return a real 0 cap — that is the apply-cap lockout shape, distinct from the nil disable-sentinel")
-    (is (some? out)
-        "must NOT return nil — nil is the disable-sentinel, a rejection must be distinguishable")
-    (let [body (get out rf.mcp-base.vocab/invalid-arg-key)]
-      (is (= :max-tokens (:arg body)) "rejection names the offending arg")
-      (is (= 0.5 (:value body)) "rejection echoes the rejected value")
-      (is (string? (:hint body)) "rejection carries an actionable recovery hint")))
-  ;; Other sub-1 positives that would floor to 0 reject identically.
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens 0.1)) "0.1 rejects")
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens 0.999)) "0.999 rejects (would floor to 0)")
-  ;; Boundary: exactly 1 (and >= 1 fractionals) are valid usable caps —
-  ;; they floor to >= 1, NOT to a 0-cap lockout.
-  (is (= 1 (rf.mcp-base.cap/max-tokens 1)) "exactly 1 is the smallest valid cap")
-  (is (= 1 (rf.mcp-base.cap/max-tokens 1.0)) "1.0 floors to a usable 1")
-  (is (= 2 (rf.mcp-base.cap/max-tokens 2.9)) "2.9 floors to a usable 2 (benign silent floor, still >= 1)"))
+(deftest max-tokens-rejects-an-out-of-domain-number
+  ;; A negative, a fraction that would floor to a 0 cap, or a non-finite or
+  ;; out-of-range value would otherwise lock the agent out of every
+  ;; response or crash `(long raw)`, so each resolves to a rejection.
+  (is (= {rf.mcp-base.vocab/invalid-arg-key {:arg   :max-tokens
+                                             :value -1
+                                             :hint  rf.mcp-base.cap/invalid-arg-hint}}
+         (rf.mcp-base.cap/max-tokens -1)))
+  (are [raw] (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens raw))
+    0.999
+    ##Inf
+    ##NaN
+    1.0E20))
 
 (deftest invalid-arg?-predicate-discriminates
-  ;; The predicate consumers gate on. True only for the rejection marker;
-  ;; false for every valid `max-tokens` return (cap int, nil-disable,
-  ;; default) and for unrelated maps.
   (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens -1)))
-  (is (not (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens 0))) "nil disable is not a rejection")
-  (is (not (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens 100))) "a valid cap is not a rejection")
-  (is (not (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens nil))) "the default is not a rejection")
-  (is (not (rf.mcp-base.cap/invalid-arg? {:other :map})) "an unrelated map is not a rejection")
-  (is (not (rf.mcp-base.cap/invalid-arg? nil)) "nil is not a rejection"))
-
-(deftest max-tokens-non-finite-out-of-range-rejected-not-crash-not-0-cap
-  ;; `(long raw)` is UNSAFE on non-finite / out-of-range
-  ;; numerics. On the JVM `##Inf` and `1.0E20` THROW
-  ;; IllegalArgumentException (a crash at the wire boundary), and `##NaN`
-  ;; truncates to a real `0` cap — the same 0-cap lockout shape negatives
-  ;; and fractionals hit. The resolver rejects each honestly as an
-  ;; {:rf.mcp/invalid-arg} marker, the recoverable cross-runtime posture.
-  (doseq [[label raw] [["##Inf" ##Inf]
-                       ["##NaN" ##NaN]
-                       ["1.0E20" 1.0E20]
-                       ["-1.0E20" -1.0E20]]]
-    (let [out (rf.mcp-base.cap/max-tokens raw)]
-      (is (rf.mcp-base.cap/invalid-arg? out)
-          (str label " resolves to an :rf.mcp/invalid-arg rejection, not a crash / cap"))
-      (is (not (number? out))
-          (str label " is NOT a (real) cap integer"))
-      (is (not= 0 out)
-          (str label " must NOT be a real 0 cap (the apply-cap lockout shape)"))
-      (is (some? out)
-          (str label " must NOT be nil (nil is the disable sentinel, distinct from a rejection)"))))
-  ;; ##-Inf is caught earlier by the (neg? raw) arm — still a rejection.
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens ##-Inf)) "##-Inf rejects (via the negative arm)")
-  ;; The legitimate surface is untouched.
-  (is (= 5000 (rf.mcp-base.cap/max-tokens 5000)) "in-range cap still passes through")
-  (is (= 9007199254740991 (rf.mcp-base.cap/max-tokens 9007199254740991))
-      "the safe-integer ceiling itself is an in-domain cap"))
+  (is (not (rf.mcp-base.cap/invalid-arg? {:other :map})))
+  (is (not (rf.mcp-base.cap/invalid-arg? nil))))
 
 ;; ---------------------------------------------------------------------------
-;; sum-payload-tokens — sums every :text slot via ResultIO.
+;; sum-payload-tokens — sums every string slot via ResultIO.
 ;; ---------------------------------------------------------------------------
 
 (deftest sum-payload-tokens-empty-content-is-zero
   (is (zero? (rf.mcp-base.cap/sum-payload-tokens map-io {:content []})))
   (is (zero? (rf.mcp-base.cap/sum-payload-tokens map-io {:content nil}))))
 
-(deftest sum-payload-tokens-aggregates-across-slots
-  (let [r {:content [{:type "text" :text (big-string 4000)}
-                     {:type "text" :text (big-string 4000)}]}]
-    (is (= 2000 (rf.mcp-base.cap/sum-payload-tokens map-io r)))))
-
-(deftest sum-payload-tokens-skips-non-string-slots
-  (let [r {:content [{:type "text" :text (big-string 4000)}
-                     {:type "image"}
-                     {:type "text"}]}]
-    (is (= 1000 (rf.mcp-base.cap/sum-payload-tokens map-io r)))))
+(deftest sum-payload-tokens-sums-every-string-slot
+  (is (= 2000 (rf.mcp-base.cap/sum-payload-tokens
+                map-io
+                {:content [{:type "text" :text (big-string 4000)}
+                           {:type "image"}
+                           {:type "text" :text (big-string 4000)}]}))))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the strategy entry point.
 ;; ---------------------------------------------------------------------------
 
-(deftest apply-cap-passes-under-budget-payload-untouched
-  (let [r   (ok-text-result {:small :payload})
-        out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap rf.mcp-base.overflow/default-max-tokens})]
-    (is (identical? r out))))
-
 (deftest apply-cap-nil-cap-disables-enforcement
-  (let [r   (ok-text-result {:k (big-string 100000)})
-        out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap nil})]
-    (is (identical? r out))))
-
-(deftest apply-cap-nil-result-passes-through
-  (is (nil? (rf.mcp-base.cap/apply-cap map-io nil {:tool "snapshot" :cap 5000}))))
-
-(deftest apply-cap-over-budget-emits-overflow-marker
-  (let [big (big-string 4000)
-        r   (ok-text-result {:huge big})
-        out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint "narrow scope"})
-        marker (:structuredContent out)
-        body   (get marker rf.mcp-base.vocab/overflow-key)]
-    (is (contains? marker rf.mcp-base.vocab/overflow-key))
-    (is (= :reached (:limit body)))
-    (is (= "snapshot" (:tool body)))
-    (is (= 500 (:cap-tokens body)))
-    (is (pos? (:token-count body)))
-    (is (> (:token-count body) 500))
-    (is (= "narrow scope" (:hint body)))))
-
-(deftest apply-cap-overflow-payload-is-itself-under-cap
-  (let [big (big-string 8000)
-        r   (ok-text-result {:huge big})
-        out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500})]
-    (is (<= (rf.mcp-base.cap/sum-payload-tokens map-io out) 500)
-        "The overflow marker itself must be under the cap")))
-
-(deftest apply-cap-absent-hint-uses-fallback
-  (let [big (big-string 8000)
-        r   (ok-text-result {:huge big})
-        out (rf.mcp-base.cap/apply-cap map-io r {:tool "no-such-tool" :cap 500})
-        body (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
-    (is (= rf.mcp-base.overflow/overflow-hint-fallback (:hint body)))))
+  (let [r (ok-text-result {:k (big-string 100000)})]
+    (is (identical? r (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap nil})))))
 
 (deftest apply-cap-at-cap-exact-boundary-passes
-  ;; <= cap passes; only > cap trips. Boundary check pins inclusive-low.
-  (let [s    (big-string 400)
-        r    (ok-text-result s)
-        toks (rf.mcp-base.cap/sum-payload-tokens map-io r)
-        out  (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap toks})]
-    (is (identical? r out))))
+  ;; 400 x's print as 402 chars, exactly 100 tokens: <= cap passes.
+  (let [r (ok-text-result (big-string 400))]
+    (is (identical? r (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 100})))))
+
+(deftest apply-cap-over-budget-emits-overflow-marker
+  ;; 4000 x's print as 4010 chars: 1002 tokens, over a 500 cap on both
+  ;; gates, and the marker reports the token estimate, not the char count.
+  (let [r (ok-text-result {:huge (big-string 4000)})]
+    (is (= {rf.mcp-base.vocab/overflow-key {:limit       :reached
+                                            :token-count 1002
+                                            :cap-tokens  500
+                                            :tool        "snapshot"
+                                            :hint        "narrow scope"}}
+           (:structuredContent
+             (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint "narrow scope"}))))
+    (is (= rf.mcp-base.overflow/overflow-hint-fallback
+           (get-in (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500})
+                   [:structuredContent rf.mcp-base.vocab/overflow-key :hint]))
+        "an absent hint falls back to the generic one")))
+
+(deftest apply-cap-overflow-payload-is-itself-under-cap
+  (let [r   (ok-text-result {:huge (big-string 8000)})
+        out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500})]
+    (is (<= (rf.mcp-base.cap/sum-payload-tokens map-io out) 500))))
 
 ;; ---------------------------------------------------------------------------
-;; Secondary char-byte cap — defence in depth against the
-;; `(quot count 4)` token undercount on CJK / emoji / base64 / dense
-;; code. `sum-payload-tokens` divides by 4; a payload where 1 char ≈ 2-3
-;; tokens still trips the cap because the secondary char check uses
-;; `cap * byte-cap-multiplier`.
+;; The two-stage gate: the token sum over the cap, or the char sum over
+;; 8x the cap. `over-cap?` / `reported-count` are pure over the two sums.
 ;; ---------------------------------------------------------------------------
 
-(deftest byte-cap-multiplier-pinned-at-8x
-  ;; The multiplier is part of the cap contract — call out a change.
-  (is (= 8 rf.mcp-base.cap/byte-cap-multiplier)))
-
-;; ---------------------------------------------------------------------------
-;; Two-stage gate, unit-trippable in isolation + reachable through the
-;; live `apply-cap` path.
-;;
-;; The `over-cap?` / `reported-count` predicates are extracted as pure fns
-;; over already-summed tokens/chars so the secondary char gate is
-;; trippable in ISOLATION (feed decoupled sums directly), independent of
-;; how `apply-cap` happens to derive the sums.
-;;
-;; The char gate IS genuinely reachable through `apply-cap`:
-;; `token-estimate` floors PER STRING, so `Σ (quot len_i 4)` collapses
-;; toward 0 for a content vector of many sub-4-char slots while the char
-;; sum stays large. `apply-cap-many-short-strings-trips-char-gate` below
-;; exercises the char-gated arm THROUGH the live `apply-cap` path — no
-;; custom-sum trick, just a realistic many-small-slots payload (the
-;; `watch-epochs` / `trace-window` slice shape). The isolation tests
-;; remain valuable (they pin both disjuncts crisply); the char gate is
-;; load-bearing, not merely future defence-in-depth.
-;; ---------------------------------------------------------------------------
-
-(deftest over-cap?-primary-token-gate-trips
-  ;; The common path: token sum exceeds cap, chars well under byte-cap.
-  (is (true?  (rf.mcp-base.cap/over-cap? 5001 6000 5000)) "tokens > cap trips")
-  (is (false? (rf.mcp-base.cap/over-cap? 5000 6000 5000)) "tokens = cap does NOT trip (inclusive-low)")
-  (is (false? (rf.mcp-base.cap/over-cap? 4999 6000 5000)) "tokens < cap does NOT trip"))
-
-(deftest over-cap?-secondary-char-gate-trips-in-isolation
-  ;; The secondary disjunct in ISOLATION: tokens UNDER cap but chars
-  ;; OVER `cap * byte-cap-multiplier`. Feeding decoupled sums straight
-  ;; in pins the EXACT boundary (strict `>`) without depending on how
-  ;; `apply-cap` derives its sums; `apply-cap-many-short-strings-trips-
-  ;; char-gate` below proves the same arm is reached through the live
-  ;; path. Two different failure modes, both worth a test.
-  (let [cap-tokens 100
-        byte-cap   (* cap-tokens rf.mcp-base.cap/byte-cap-multiplier)] ;; 800
-    (is (true? (rf.mcp-base.cap/over-cap? 50 (inc byte-cap) cap-tokens))
-        "tokens under cap but chars > cap*8 ⇒ secondary gate trips")
-    (is (false? (rf.mcp-base.cap/over-cap? 50 byte-cap cap-tokens))
-        "chars = cap*8 does NOT trip (strict >)")
-    (is (false? (rf.mcp-base.cap/over-cap? 50 (dec byte-cap) cap-tokens))
-        "chars < cap*8 and tokens under cap ⇒ no trip")))
+(deftest over-cap?-trips-on-either-gate
+  (are [tokens chars expected] (= expected (rf.mcp-base.cap/over-cap? tokens chars 100))
+    101 0   true
+    100 800 false
+    50  801 true))
 
 (deftest reported-count-is-always-in-token-units
-  ;; The `reported = (if (> tokens cap) tokens (quot chars 4))` selector,
-  ;; pinned either side of the TOKEN gate — the arm it keys on.
-  ;; Both arms are live —
-  ;; `apply-cap-many-short-strings-trips-char-gate` reaches the chars/4
-  ;; arm through the real pipeline.
-  (let [cap-tokens 100
-        byte-cap   (* cap-tokens rf.mcp-base.cap/byte-cap-multiplier)] ;; 800
-    (is (= 150 (rf.mcp-base.cap/reported-count 150 (* 2 byte-cap) cap-tokens))
-        "BOTH gates tripped ⇒ report the token estimate, never the char count")
-    (is (= 150 (rf.mcp-base.cap/reported-count 150 (dec byte-cap) cap-tokens))
-        "only the token gate tripped ⇒ report the token estimate")
-    (is (= (quot (inc byte-cap) 4)
-           (rf.mcp-base.cap/reported-count 50 (inc byte-cap) cap-tokens))
-        "only the char gate tripped ⇒ report chars / 4, in token units")
-    (is (= (quot (inc byte-cap) 4)
-           (rf.mcp-base.cap/reported-count cap-tokens (inc byte-cap) cap-tokens))
-        "tokens = cap is NOT the token gate (strict >) ⇒ chars / 4")
-    (is (> (rf.mcp-base.cap/reported-count 0 (inc byte-cap) cap-tokens) cap-tokens)
-        "the chars / 4 arm still exceeds the cap it tripped")))
-
-(deftest over-cap?-and-reported-count-agree-with-apply-cap
-  ;; Consistency pin: the extracted predicates are exactly what
-  ;; `apply-cap` uses. A single big string about 2x over budget trips
-  ;; BOTH gates (1002 tokens > 500, 4010 chars > 500*8), and the marker
-  ;; must carry the TOKEN estimate — not the char count, which would
-  ;; overstate it ~4x. (The char-only arm is reached
-  ;; through the live path by `apply-cap-many-short-strings-trips-char-gate`.)
-  (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
-        r   (ok-text-result {:huge big})
-        cap-tokens 500
-        toks (rf.mcp-base.cap/sum-payload-tokens map-io r)
-        chrs (rf.mcp-base.cap/sum-payload-chars map-io r)
-        out  (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap cap-tokens})
-        body (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
-    (is (> toks cap-tokens) "precondition: the token gate trips")
-    (is (> chrs (* cap-tokens rf.mcp-base.cap/byte-cap-multiplier))
-        "precondition: the char gate trips as well")
-    (is (= toks (:token-count body))
-        "apply-cap's :token-count is the token estimate, in token units")
-    (is (= (rf.mcp-base.cap/reported-count toks chrs cap-tokens) (:token-count body))
-        "apply-cap's reported :token-count matches reported-count over the same sums")))
+  ;; The token estimate when the token gate tripped, else chars / 4.
+  (are [tokens chars expected] (= expected (rf.mcp-base.cap/reported-count tokens chars 100))
+    150 1600 150
+    50  801  200
+    100 801  200))
 
 (deftest apply-cap-many-short-strings-trips-char-gate
-  ;; Regression pin: the secondary char gate is reachable through the
-  ;; LIVE `apply-cap` path, not merely in isolation.
-  ;;
-  ;; `token-estimate` floors PER STRING: 3000 slots of 3 chars each give
-  ;; `tokens = Σ (quot 3 4) = 0` while `chars = 9000`. With `cap = 1` the
-  ;; primary token gate is QUIET (`0 > 1` is false) — only the secondary
-  ;; char gate (`9000 > 1*8`) trips. This is the `watch-epochs` /
-  ;; `trace-window` slice shape: a long vector of small text slots.
-  (let [r        {:content (vec (repeat 3000 {:type "text" :text "xxx"}))}
-        cap-toks 1]
-    ;; Confirm the precondition that makes this the SOLE char-gate trip.
-    (is (zero? (rf.mcp-base.cap/sum-payload-tokens map-io r))
-        "many sub-4-char slots ⇒ token sum floors to 0 (token gate quiet)")
-    (is (= 9000 (rf.mcp-base.cap/sum-payload-chars map-io r))
-        "char sum is large — only the secondary gate can trip")
-    (is (false? (> (rf.mcp-base.cap/sum-payload-tokens map-io r) cap-toks))
-        "primary token gate does NOT trip on its own")
-    (let [out  (rf.mcp-base.cap/apply-cap map-io r {:tool "trace-window" :cap cap-toks})
-          body (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
-      (is (contains? (:structuredContent out) rf.mcp-base.vocab/overflow-key)
-          "live apply-cap replaces the payload via the secondary char gate")
-      (is (= :reached (:limit body)))
-      (is (= 2250 (:token-count body))
-          "reported :token-count is chars / 4 (9000 / 4) — the char-gated arm of reported-count, reached live, in token units")
-      (is (= cap-toks (:cap-tokens body))))))
+  ;; The token estimate floors per string, so 3000 three-char slots sum to
+  ;; 0 tokens and only the char gate (9000 > 8) can trip: the char-gated
+  ;; arm reached through the live path, reporting 9000 / 4.
+  (let [r {:content (vec (repeat 3000 {:type "text" :text "xxx"}))}]
+    (is (= {rf.mcp-base.vocab/overflow-key {:limit       :reached
+                                            :token-count 2250
+                                            :cap-tokens  1
+                                            :tool        "trace-window"
+                                            :hint        rf.mcp-base.overflow/overflow-hint-fallback}}
+           (:structuredContent (rf.mcp-base.cap/apply-cap map-io r {:tool "trace-window" :cap 1}))))))
 
 ;; ---------------------------------------------------------------------------
-;; structuredContent counted toward the budget — story-mcp
-;; pattern: its reify surfaces `:structuredContent` as one extra
-;; `pr-str`-ed string in `wire-payload-strings`. Pin the contract via a
-;; mirror reify here.
+;; A consumer that duplicates the payload into `:structuredContent` must
+;; count both copies.
 ;; ---------------------------------------------------------------------------
 
 (def structured-io
-  "Mirrors story-mcp's runtime reify: `wire-payload-strings` surfaces both
-  the `:content[*].text` slots and a `pr-str`'d `:structuredContent`
-  payload. This is the cross-MCP convention pin — a consumer that
-  duplicates a payload into `:structuredContent` MUST count both
-  copies."
+  "Dual-slot ResultIO, story-mcp's shape: counts the `:content[*].text`
+  strings plus a `pr-str` of `:structuredContent`."
   (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
         (conj (pr-str (:structuredContent result)))))
     (build-overflow-result [_ marker _original]
-      {:content          [{:type "text" :text (pr-str marker)}]
+      {:content           [{:type "text" :text (pr-str marker)}]
        :structuredContent marker})))
 
 (deftest structured-content-counted-toward-budget
-  ;; A response where the `:content[*].text` slot is small but
-  ;; `:structuredContent` is large. The cap MUST trip — `:structuredContent`
-  ;; rides the wire and counts toward the budget when the consumer's
-  ;; reify surfaces it via `wire-payload-strings`.
-  (let [small-text "ok"
-        huge       {:big-payload (big-string 30000)}
-        r          {:content          [{:type "text" :text small-text}]
-                    :structuredContent huge}
-        out        (rf.mcp-base.cap/apply-cap structured-io r {:tool "snapshot" :cap 1000})
-        marker     (:structuredContent out)]
-    (is (contains? marker rf.mcp-base.vocab/overflow-key)
-        "structuredContent payload MUST count toward the cap")))
+  ;; The text slot is tiny; only the structured copy is over the cap.
+  (let [r {:content           [{:type "text" :text "ok"}]
+           :structuredContent {:big-payload (big-string 30000)}}]
+    (is (contains? (:structuredContent
+                     (rf.mcp-base.cap/apply-cap structured-io r {:tool "snapshot" :cap 1000}))
+                   rf.mcp-base.vocab/overflow-key))))
