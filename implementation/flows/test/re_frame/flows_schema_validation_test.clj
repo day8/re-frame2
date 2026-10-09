@@ -1,63 +1,28 @@
 (ns re-frame.flows-schema-validation-test
-  "JVM coverage for Spec 013 §Flow output validation.
+  "Spec 013 §Flow output validation: a flow's computed value is validated
+  against its optional `:schema` on every recompute, dev-only, through the
+  pluggable validator seam. A failure emits `:rf.error/schema-validation-failure
+  :where :flow-output` and the value is still written. When the frame's
+  elision registry classifies the output, `:explain` (which re-ships the whole
+  value) is redacted whole if sensitive, else replaced by a size marker if
+  large.
 
-  Pins the `:schema` flow-map key as load-bearing: a flow's computed
-  `:derive` value is validated against its optional `:schema` on every
-  recompute, dev-only, via the pluggable validator seam the rest of
-  Spec 010 uses (`:schemas/validate-with-registered-fn` /
-  `:schemas/explain-with-registered-fn`).
-
-  The tests register a predicate-based validator via
-  `set-schema-fns!` rather than depending on Malli being on the
-  classpath — the seam is pluggable per Spec 010 §Non-Malli validators,
-  so a tiny `(fn [schema value] (schema value))` validator exercises the
-  exact production code path while keeping the test self-contained.
-
-  Contract pinned:
-    - conforming output: no error trace; value written as normal.
-    - non-conforming output: `:rf.error/schema-validation-failure
-      :where :flow-output` emitted with `:rf.flow/id` / `:path` /
-      `:value` / `:explain` / `:recovery :no-recovery`; the value is
-      STILL written (observational, not a rollback).
-    - an output the frame's elision registry classifies sensitive:
-      `:explain` redacted whole and `:sensitive? true` stamped, while
-      `:value` stays path-precise.
-    - an output the registry classifies large (and nothing sensitive):
-      `:explain` replaced whole by a `:rf.size/large-elided` marker for the
-      output at its `:output-path`, and `:large? true` stamped.
-    - no `:schema`: validator never consulted.
-    - no validator registered: soft-pass (no error trace).
-    - production gate: with `debug-enabled?` false the registered
-      validator is never consulted, and the value is still written."
+  A predicate validator stands in for Malli (Spec 010 §Non-Malli validators)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
-            ;; Loading `re-frame.flows` wires the flow late-bind hooks the
-            ;; `rf/reg-flow` bodies below drive (the flow-output validation
-            ;; path this suite pins).
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; ---- per-test reset / schema-violation recorder --------------------------
-;;
-;; The standard runtime reset (registrar baseline + frames + flows/schemas +
-;; plain-atom adapter + ambient `:rf/default` scope) is owned by
-;; `make-reset-runtime-fixture`. Layered AROUND it, a concern-specific
-;; fixture resets the pluggable schema-validator seam (which the standard
-;; reset does not touch) and records `:rf.error/schema-validation-failure`
-;; traces for the body to assert against.
-
 (def ^:dynamic ^:private *captured* nil)
 
 (defn- with-schema-violation-recorder
-  "Reset the pluggable schema validator, bind `*captured*`, and record every
-  schema-validation-failure trace for the duration of one test; unregister
-  the recorder and reset the validator again afterwards so no validator
-  leaks into a sibling suite."
+  "Reset the validator seam around the test, and record every
+  schema-validation-failure trace into `*captured*`."
   [test-fn]
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (let [captured (atom [])]
@@ -77,350 +42,188 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   with-schema-violation-recorder)
 
-;; A trivial pluggable validator: a schema here is a 1-arg predicate fn.
-;; This exercises the `:schemas/validate-with-registered-fn` seam without
-;; pulling Malli onto the test classpath (Spec 010 §Non-Malli validators).
-(defn- install-predicate-validator! []
-  (rf.schemas/set-schema-fns!
-    {:validate (fn [schema value] (boolean (schema value)))
-     :explain  (fn [schema value]
-                 (when-not (schema value)
-                   {:failed value}))}))
-
 (defn- violations [] @*captured*)
 
-;; ---------------------------------------------------------------------------
-;; 2. Non-conforming output: violation emitted, value STILL written.
-;; ---------------------------------------------------------------------------
-
-(deftest non-conforming-output-emits-violation-but-still-writes
-  (testing "a flow whose output violates :schema emits :where :flow-output and STILL writes (observational)"
-    (install-predicate-validator!)
-    ;; Output is negative; the schema demands a non-negative integer.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h -4}}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:seed])
-    (is (= -12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "the output is STILL written — flow validation is observational, not a rollback")
-    (let [vs (violations)]
-      (is (= 1 (count vs))
-          "exactly one violation fired for the non-conforming output")
-      (let [ev   (first vs)
-            tags (:tags ev)]
-        (is (= :error      (:op-type ev))          "op-type :error")
-        (is (= :flow-output (:where tags))         ":where :flow-output")
-        (is (= :area        (:rf.flow/id tags))    ":rf.flow/id names the failing flow")
-        (is (= :area        (:failing-id tags))    ":failing-id mirrors the flow id")
-        (is (= [:rect :area] (:path tags))         ":path is the flow's output path")
-        ;; EP-0015 fail-closed — the flow's `:schema` here is a
-        ;; PREDICATE FN (`(fn [v] ...)`), which is OPAQUE to the pure-data
-        ;; walker (`walker/schema-opaque?`: non-vector, non-keyword). The
-        ;; shared redaction seam (`:schemas/redact-validation-tags`) the
-        ;; flow-output emit-site routes through fails CLOSED on an opaque
-        ;; schema: it cannot prove the value is non-sensitive (an opaque
-        ;; compiled/fn schema may carry a `{:sensitive? true}` slot the walker
-        ;; can't see), so it scrubs every value-bearing slot to `:rf/redacted`
-        ;; and stamps `:sensitive? true`. The failing value is therefore NOT
-        ;; carried verbatim on the trace — but it IS still written to app-db
-        ;; (asserted above: validation is observational, not a rollback). The
-        ;; supported route to surface the raw value is registering the VECTOR
-        ;; Malli form (walkable, provably flag-free), per the
-        ;; `:rf.warning/schema-walker-opaque` nudge.
-        (is (= :rf/redacted (:value tags))         ":value redacted fail-closed (opaque fn schema)")
-        ;; `build-event` hoists `:recovery` AND `:sensitive?` from `:tags` to
-        ;; the event's top level (per the trace error-shape hoist contract —
-        ;; `trace/build-event` dissocs both from `:tags` and re-stamps them at
-        ;; the top so Spec 009 §Privacy's top-level-only `:sensitive?` read
-        ;; sees the fail-closed redaction signal).
-        (is (= true         (:sensitive? ev))      ":sensitive? stamped (hoisted to top level) by fail-closed redaction")
-        (is (= :no-recovery (:recovery ev))        ":recovery :no-recovery (hoisted to top level)")
-        (is (= :rf/default  (:frame tags))         ":frame stamped")
-        ;; `:explain` is a value-bearing slot — scrubbed to the sentinel by the
-        ;; same fail-closed redaction (it carried `{:failed -12}` pre-redaction).
-        (is (= :rf/redacted (:explain tags))       ":explain redacted symmetrically with :value")
-        (is (string? (:reason tags))               ":reason is a human-readable string")))))
-
-;; ---------------------------------------------------------------------------
-;; 3. No :schema: validator never consulted.
-;; ---------------------------------------------------------------------------
-
-(deftest absent-schema-skips-validation
-  (testing "a flow without :schema never consults the validator (no violation even on a 'bad' value)"
-    (let [validator-calls (atom 0)]
-      (rf.schemas/set-schema-fns!
-        {:validate (fn [_ _] (swap! validator-calls inc) false)})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-      (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-      (rf/dispatch-sync [:seed])
-      (is (zero? @validator-calls)
-          "no :schema means the validator is never invoked")
-      (is (empty? (violations))
-          "no :schema means no violation regardless of output value"))))
-
-;; ---------------------------------------------------------------------------
-;; 4. No validator registered: soft-pass.
-;; ---------------------------------------------------------------------------
-
-(deftest no-validator-soft-passes
-  (testing "with the validator set to nil, a :schema flow soft-passes (no violation)"
-    ;; nil validator => the `:schemas/validate-with-registered-fn` seam
-    ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
-    (rf.schemas/set-schema-fns! {:validate nil})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject everything IF consulted
-    (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "value written")
-    (is (empty? (violations))
-        "no registered validator => soft-pass, no violation")))
-
-;; ---------------------------------------------------------------------------
-;; 5. Production gate: the validator is never consulted under
-;;    debug-enabled? false. The gate is witnessed at the validator itself:
-;;    a no-violation assertion cannot fail here, because `emit-error!` is
-;;    itself debug-gated, so no failure trace reaches the recorder under
-;;    debug false whatever the validator decides.
-;; ---------------------------------------------------------------------------
-
-(deftest production-gate-elides-validation
-  (testing "with debug-enabled? false a :schema flow never consults the registered validator, and its value is still written"
-    (let [consulted (atom 0)]
-      (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-      (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h)))
-      (with-redefs [rf.interop/debug-enabled? false]
-        (rf/dispatch-sync [:seed]))
-      (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-          "the flow still evaluates and writes its value")
-      (is (zero? @consulted)
-          "the registered validator is never consulted in production"))))
-
-;; ---------------------------------------------------------------------------
-;; 6. Declaration presence is KEY-presence, not value truthiness.
-;;    A flow registered with an explicit {:schema nil} DELEGATES the exact
-;;    nil token to the registered validator (the value is opaque per Spec
-;;    010); only an ABSENT key skips validation (case 3 above is the
-;;    control).
-;; ---------------------------------------------------------------------------
-
-(deftest present-nil-schema-is-delegated-not-skipped
-  (testing "an explicit {:schema nil} flow declaration reaches the validator
-            verbatim; the false verdict emits :where :flow-output"
-    (let [seen (atom [])]
-      (rf.schemas/set-schema-fns!
-        {:validate (fn [schema _value] (swap! seen conj schema) false)})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-      (rf/reg-flow :area
-                   {:inputs [[:w] [:h]] :output-path [:rect :area] :schema nil}
-                   (fn [w h] (* w h)))
-      (rf/dispatch-sync [:seed])
-      (is (= [nil] @seen)
-          "the EXACT nil token reached the validator, exactly once")
-      (is (= 1 (count (violations)))
-          "the false verdict emitted exactly one flow-output violation")
-      (is (= :flow-output (get-in (first (violations)) [:tags :where]))
-          ":where :flow-output — the flow surface's own discriminator")
-      (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-          "the value is still written — flow validation stays observational"))))
-
-;; ---------------------------------------------------------------------------
-;; 7. The frame's elision registry reaches `:explain`.
-;;    A Malli explanation re-ships the checked value whole (`:value`, and
-;;    every `:errors[*].:value`), and it is not path-anchored, so it cannot
-;;    be walked against `:output-path` the way `:value` is. The schema-aware
-;;    seam reads `:sensitive?` props in the SCHEMA — never the registry — so
-;;    were it the only redactor, an output the flow itself classified
-;;    `:sensitive [[]]` would ship `:value :rf/redacted` beside an `:explain`
-;;    carrying the same secret raw, with no top-level `:sensitive?` for the
-;;    egress gate to drop it on.
-;;    The schemas are VECTOR Malli forms (walkable, with no `:sensitive?`
-;;    prop), so the seam's opaque-schema fail-closed arm — which case 2
-;;    above rides — cannot be what redacts them.
-;; ---------------------------------------------------------------------------
-
 (defn- violation-for
-  "The single recorded violation for `flow-id`, or nil."
+  "The single recorded violation for `flow-id`."
   [flow-id]
   (let [vs (filter #(= flow-id (get-in % [:tags :rf.flow/id])) (violations))]
     (is (= 1 (count vs)) (str "exactly one violation for " flow-id))
     (first vs)))
 
+(defn- area-flow!
+  "`:area` = :w × :h at [:rect :area], seeded 3 × 4, with `extra` metadata."
+  [extra]
+  (rf/reg-event :seed (fn [_ _] {:db {:w 3 :h 4}}))
+  (rf/reg-flow :area (merge {:inputs [[:w] [:h]] :output-path [:rect :area]} extra)
+    (fn [w h] (* w h)))
+  (rf/dispatch-sync [:seed]))
+
+(defn- area [] (get-in (rf/app-db-value :rf/default) [:rect :area]))
+
+(deftest non-conforming-output-emits-violation-but-still-writes
+  (rf.schemas/set-schema-fns!
+    {:validate (fn [schema value] (boolean (schema value)))
+     :explain  (fn [schema value] (when-not (schema value) {:failed value}))})
+  (rf/reg-event :seed (fn [_ _] {:db {:w 3 :h -4}}))
+  (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]
+                      :schema (fn [v] (and (integer? v) (not (neg? v))))}
+    (fn [w h] (* w h)))
+  (rf/dispatch-sync [:seed])
+  (is (= -12 (area)) "validation is observational, not a rollback")
+  (let [ev (violation-for :area)]
+    ;; A predicate-fn schema is opaque to the redaction walker, which fails
+    ;; closed: every value-bearing slot is redacted and the event stamped.
+    (is (= {:where :flow-output :rf.flow/id :area :failing-id :area :path [:rect :area]
+            :value :rf/redacted :explain :rf/redacted :frame :rf/default}
+           (select-keys (:tags ev) [:where :rf.flow/id :failing-id :path :value :explain :frame])))
+    (is (= [:error true :no-recovery] ((juxt :op-type :sensitive? :recovery) ev)))
+    (is (string? (get-in ev [:tags :reason])))))
+
+(deftest present-nil-schema-is-delegated-not-skipped
+  ;; Declaration presence is KEY presence: an explicit `{:schema nil}` reaches
+  ;; the validator verbatim, and an absent key never consults it.
+  (let [seen (atom [])]
+    (rf.schemas/set-schema-fns! {:validate (fn [schema _] (swap! seen conj schema) false)})
+    (rf/reg-flow :no-schema {:inputs [[:w]] :output-path [:plain]} identity)
+    (area-flow! {:schema nil})
+    (is (= [nil] @seen) "only the nil token reached the validator, once")
+    (is (= [[:area :flow-output]] (mapv (comp (juxt :rf.flow/id :where) :tags) (violations))))
+    (is (= 12 (area)))))
+
+(deftest no-validator-soft-passes
+  (rf.schemas/set-schema-fns! {:validate nil})
+  (area-flow! {:schema (fn [_] false)})
+  (is (= [12 []] [(area) (violations)])))
+
+(deftest production-gate-elides-validation
+  ;; Witnessed at the validator: the failure trace is itself debug-gated, so
+  ;; its absence could not fail here.
+  (let [consulted (atom 0)]
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
+    (with-redefs [rf.interop/debug-enabled? false]
+      (area-flow! {:schema (fn [_] false)}))
+    (is (= [12 0] [(area) @consulted]))))
+
+;; The schemas below are walkable vector Malli forms with no `:sensitive?`
+;; prop, so the seam's opaque-schema fail-closed arm cannot be what redacts
+;; them: the frame's elision registry decides.
+
 (deftest registry-sensitive-output-redacts-explain
-  (testing "a flow output classified :sensitive by the flow itself fails a
-            walkable :schema: no secret anywhere in the trace, and a
-            top-level :sensitive? stamp"
-    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
-    ;; The whole output, and (a second flow) only a sub-path of it.
-    (rf/reg-flow :p2/token
-                 {:inputs [[:secret]] :output-path [:auth :token]
-                  :sensitive [[]] :schema [:map [:token :int]]}
-                 (fn [s] {:token s}))
-    (rf/reg-flow :p2/token-leaf
-                 {:inputs [[:secret]] :output-path [:auth :token-leaf]
-                  :sensitive [[:token]] :schema [:map [:token :int]]}
-                 (fn [s] {:token s}))
-    (rf/dispatch-sync [:seed])
-    (is (= "hunter2-SECRET" (get-in (rf/app-db-value :rf/default) [:auth :token :token]))
-        "the output is still written — validation stays observational")
-    (doseq [[flow-id value] [[:p2/token      :rf/redacted]
-                             [:p2/token-leaf {:token :rf/redacted}]]]
-      (let [ev (violation-for flow-id)]
-        (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
-            (str flow-id ": the secret appears nowhere in the failure trace"))
-        (is (= true (:sensitive? ev))
-            (str flow-id ": top-level :sensitive? so the egress gate drops it"))
-        (is (= value (get-in ev [:tags :value]))
-            (str flow-id ": :value stays path-precise"))
-        (is (= :rf/redacted (get-in ev [:tags :explain]))
-            (str flow-id ": :explain is redacted whole"))))))
+  (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
+  (rf/reg-flow :p2/token
+               {:inputs [[:secret]] :output-path [:auth :token]
+                :sensitive [[]] :schema [:map [:token :int]]}
+               (fn [s] {:token s}))
+  (rf/reg-flow :p2/token-leaf
+               {:inputs [[:secret]] :output-path [:auth :token-leaf]
+                :sensitive [[:token]] :schema [:map [:token :int]]}
+               (fn [s] {:token s}))
+  (rf/dispatch-sync [:seed])
+  (is (= "hunter2-SECRET" (get-in (rf/app-db-value :rf/default) [:auth :token :token])))
+  (doseq [[flow-id value] [[:p2/token      :rf/redacted]
+                           [:p2/token-leaf {:token :rf/redacted}]]]
+    (let [ev (violation-for flow-id)]
+      (is (not (str/includes? (pr-str ev) "hunter2-SECRET")) (str flow-id))
+      (is (= [true value :rf/redacted]
+             [(:sensitive? ev) (get-in ev [:tags :value]) (get-in ev [:tags :explain])])
+          (str flow-id ": stamped, :value path-precise, :explain redacted whole")))))
 
 (deftest registry-sensitive-index-free-declaration-redacts-explain
-  (testing "a declaration that reaches the output only through the walker's
-            :map-of coordinate skip redacts :explain too — the decision is
-            the walker's, not a path-prefix test"
-    ;; `[:users :password]` matches `[:users <key> :password]` for any map
-    ;; key, so it governs `[:users :current :password]` — yet it is neither
-    ;; a prefix nor an extension of the output path `[:users :current]`.
-    (rf/reg-event :classify (fn [_ _] {:sensitive [[:users :password]]}))
-    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
-    (rf/reg-flow :p2/current-user
-                 {:inputs [[:secret]] :output-path [:users :current]
-                  :schema [:map [:password :int]]}
-                 (fn [s] {:password s}))
-    (rf/dispatch-sync [:classify])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:seed])
-    (let [ev (violation-for :p2/current-user)]
-      (is (= {:password :rf/redacted} (get-in ev [:tags :value]))
-          "the walker redacts the password inside :value")
-      (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
-          "so :explain may not carry it either")
-      (is (= true (:sensitive? ev)))
-      (is (= :rf/redacted (get-in ev [:tags :explain]))))))
+  ;; `[:users :password]` governs `[:users <key> :password]`, so it reaches the
+  ;; output `[:users :current]` without being a prefix or extension of it.
+  (rf/reg-event :classify (fn [_ _] {:sensitive [[:users :password]]}))
+  (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
+  (rf/reg-flow :p2/current-user
+               {:inputs [[:secret]] :output-path [:users :current]
+                :schema [:map [:password :int]]}
+               (fn [s] {:password s}))
+  (rf/dispatch-sync [:classify])
+  (reset! *captured* [])
+  (rf/dispatch-sync [:seed])
+  (let [ev (violation-for :p2/current-user)]
+    (is (not (str/includes? (pr-str ev) "hunter2-SECRET")))
+    (is (= [true {:password :rf/redacted} :rf/redacted]
+           [(:sensitive? ev) (get-in ev [:tags :value]) (get-in ev [:tags :explain])]))))
 
 (deftest unclassified-output-keeps-its-explanation
-  (testing "CONTROL: a :sensitive and a :large declaration on unrelated paths
-            leave an unclassified output's raw :value and :explain alone, with
-            no :sensitive? or :large? stamp — neither redaction is blanket"
-    (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
-    (rf/reg-event :classify-elsewhere (fn [_ _] {:sensitive [[:elsewhere]]
-                                                 :large     [[:out-other]]}))
-    (rf/reg-flow :p2/plain
-                 {:inputs [[:plain]] :output-path [:out]
-                  :schema [:map [:token :int]]}
-                 (fn [s] {:token s}))
-    ;; Declarations on unrelated paths do not reach this one.
-    (rf/dispatch-sync [:classify-elsewhere])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:seed])
-    (let [ev (violation-for :p2/plain)]
-      (is (nil? (:sensitive? ev)))
-      (is (nil? (get-in ev [:tags :large?])))
-      (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
-      (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
-          ":explain is the registered explainer's output, unredacted"))))
-
-;; ---------------------------------------------------------------------------
-;; 8. The frame's elision registry reaches `:explain` on the SIZE
-;;    axis too. The `:value` slot rides the wire walker, so an output the
-;;    registry classifies `:large` ships a `:rf.size/large-elided` marker
-;;    there. Left alone, `:explain` would re-ship the whole value
-;;    (Malli's `:value` and every `:errors[*].:value`), so the declared-large
-;;    blob would go out anyway. `:explain` is not path-anchored, so it is replaced
-;;    WHOLE by a marker for the output at its `:output-path` and the trace is
-;;    stamped `:large? true` — Spec 010's validation size-safety arm, with the
-;;    registry rather than the schema as the classifier.
-;; ---------------------------------------------------------------------------
+  ;; Declarations on unrelated paths leave an unclassified output's `:value`
+  ;; and `:explain` raw and unstamped: neither redaction is blanket.
+  (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
+  (rf/reg-event :classify-elsewhere (fn [_ _] {:sensitive [[:elsewhere]]
+                                               :large     [[:out-other]]}))
+  (rf/reg-flow :p2/plain
+               {:inputs [[:plain]] :output-path [:out]
+                :schema [:map [:token :int]]}
+               (fn [s] {:token s}))
+  (rf/dispatch-sync [:classify-elsewhere])
+  (reset! *captured* [])
+  (rf/dispatch-sync [:seed])
+  (let [ev (violation-for :p2/plain)]
+    (is (= [nil nil {:token "not-an-int"} {:token "not-an-int"}]
+           [(:sensitive? ev) (get-in ev [:tags :large?])
+            (get-in ev [:tags :value]) (get-in ev [:tags :explain :value])]))))
 
 (def ^:private blob
   "A distinctive payload, so a test can ask whether it rode the trace at all."
   (apply str (repeat 40 "BLOB-")))
 
 (deftest registry-large-output-size-elides-explain
-  (testing "an output the registry classifies :large fails a walkable :schema:
-            :explain is the size marker, and the blob rides nowhere"
-    (rf/reg-event :seed (fn [_ _] {:db {:blob blob :n "not-an-int"}}))
-    ;; The flow's own declaration over the WHOLE output ...
-    (rf/reg-flow :size/whole
-                 {:inputs [[:blob] [:n]] :output-path [:reports :whole]
-                  :large [[]] :schema [:map [:n :int]]}
-                 (fn [b n] {:blob b :n n}))
-    ;; ... and a commit-plane `:large` effect over ONE slot of another output.
-    (rf/reg-event :classify (fn [_ _] {:large [[:reports :part :blob]]}))
-    (rf/reg-flow :size/part
-                 {:inputs [[:blob] [:n]] :output-path [:reports :part]
-                  :schema [:map [:n :int]]}
-                 (fn [b n] {:blob b :n n}))
-    (rf/dispatch-sync [:classify])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:seed])
-    (is (= blob (get-in (rf/app-db-value :rf/default) [:reports :whole :blob]))
-        "the output is still written — validation stays observational")
-    (let [ev     (violation-for :size/whole)
-          tags   (:tags ev)
-          marker (get-in tags [:value :rf.size/large-elided])]
-      (is (not (str/includes? (pr-str ev) "BLOB-BLOB"))
-          ":size/whole: the blob appears nowhere in the failure trace")
-      (is (= [:reports :whole] (:path marker))
-          ":size/whole: :value is the walker's marker for the output")
-      (is (= :flow (:reason marker))
-          ":size/whole: the marker names the flow's own declaration")
-      (is (= (:value tags) (:explain tags))
-          ":size/whole: :explain carries that same marker")
-      (is (= true (:large? tags)) ":size/whole: :large? stamped")
-      (is (nil? (:sensitive? ev)) ":size/whole: a size marker is not a redaction"))
-    (let [ev     (violation-for :size/part)
-          tags   (:tags ev)
-          output {:blob blob :n "not-an-int"}
-          marker (get-in tags [:explain :rf.size/large-elided])]
-      (is (not (str/includes? (pr-str ev) "BLOB-BLOB"))
-          ":size/part: the blob appears nowhere in the failure trace")
-      (is (= "not-an-int" (get-in tags [:value :n]))
-          ":size/part: :value stays path-precise")
-      (is (= [:reports :part :blob]
-             (get-in tags [:value :blob :rf.size/large-elided :path]))
-          ":size/part: :value marks only the declared slot")
-      (is (= [:reports :part] (:path marker))
-          ":size/part: the :explain marker describes the output where it lives")
-      (is (= [:rf.elision/at [:reports :part]] (:handle marker))
-          ":size/part: its handle re-fetches that output")
-      (is (= :map (:type marker)) ":size/part: :type is the output's")
-      ;; ASCII, so the printed length is the UTF-8 byte count.
-      (is (= (count (pr-str output)) (:bytes marker))
-          ":size/part: :bytes counts the output")
-      (is (= :effect (:reason marker))
-          ":size/part: :reason is the declaring source the walker's marker carries")
-      (is (= true (:large? tags)) ":size/part: :large? stamped")
-      (is (nil? (:sensitive? ev)) ":size/part: a size marker is not a redaction"))))
+  ;; `:explain` is not path-anchored, so a large output's explanation is
+  ;; replaced whole by a marker for the output at its `:output-path`.
+  (rf/reg-event :seed (fn [_ _] {:db {:blob blob :n "not-an-int"}}))
+  (rf/reg-event :classify (fn [_ _] {:large [[:reports :part :blob]]}))
+  ;; The flow's own declaration over the whole output ...
+  (rf/reg-flow :size/whole
+               {:inputs [[:blob] [:n]] :output-path [:reports :whole]
+                :large [[]] :schema [:map [:n :int]]}
+               (fn [b n] {:blob b :n n}))
+  ;; ... and a commit-plane `:large` effect over one slot of another output.
+  (rf/reg-flow :size/part
+               {:inputs [[:blob] [:n]] :output-path [:reports :part]
+                :schema [:map [:n :int]]}
+               (fn [b n] {:blob b :n n}))
+  (rf/dispatch-sync [:classify])
+  (reset! *captured* [])
+  (rf/dispatch-sync [:seed])
+  (is (= blob (get-in (rf/app-db-value :rf/default) [:reports :whole :blob])))
+  (testing "a declaration over the whole output reuses the walker's marker"
+    (let [ev (violation-for :size/whole) tags (:tags ev)]
+      (is (not (str/includes? (pr-str ev) "BLOB-BLOB")))
+      (is (= {:path [:reports :whole] :reason :flow}
+             (select-keys (get-in tags [:value :rf.size/large-elided]) [:path :reason])))
+      (is (= [(:value tags) true nil] [(:explain tags) (:large? tags) (:sensitive? ev)]))))
+  (testing "a narrower declaration yields a marker for the whole output"
+    (let [ev (violation-for :size/part) tags (:tags ev)]
+      (is (not (str/includes? (pr-str ev) "BLOB-BLOB")))
+      (is (= ["not-an-int" [:reports :part :blob]]
+             [(get-in tags [:value :n]) (get-in tags [:value :blob :rf.size/large-elided :path])])
+          ":value stays path-precise, marking only the declared slot")
+      (is (= {:path   [:reports :part] :handle [:rf.elision/at [:reports :part]] :type :map
+              :bytes  (count (pr-str {:blob blob :n "not-an-int"})) :reason :effect}
+             (select-keys (get-in tags [:explain :rf.size/large-elided])
+                          [:path :handle :type :bytes :reason])))
+      (is (= [true nil] [(:large? tags) (:sensitive? ev)])))))
 
 (deftest sensitive-and-large-output-still-redacts-explain
-  (testing "sensitive wins over large: an output classified both ways keeps
-            the redacted :explain and :sensitive? true, with no size marker"
-    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET" :blob blob}}))
-    ;; Both axes over the whole output.
-    (rf/reg-flow :both/whole
-                 {:inputs [[:secret] [:blob]] :output-path [:both :whole]
-                  :sensitive [[]] :large [[]] :schema [:map [:token :int]]}
-                 (fn [s b] {:token s :blob b}))
-    ;; Each axis over its own slot.
-    (rf/reg-flow :both/slots
-                 {:inputs [[:secret] [:blob]] :output-path [:both :slots]
-                  :sensitive [[:token]] :large [[:blob]] :schema [:map [:token :int]]}
-                 (fn [s b] {:token s :blob b}))
-    ;; Registry-large, schema-SENSITIVE: the schemas seam redacts, and the
-    ;; size arm may not re-dress its `:explain` as a marker.
-    (rf/reg-flow :both/schema-sensitive
-                 {:inputs [[:secret] [:blob]] :output-path [:both :schema]
-                  :large [[]] :schema [:map [:token {:sensitive? true} :int]]}
-                 (fn [s b] {:token s :blob b}))
-    (rf/dispatch-sync [:seed])
-    (doseq [flow-id [:both/whole :both/slots :both/schema-sensitive]]
-      (let [ev (violation-for flow-id)]
-        (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
-            (str flow-id ": the secret appears nowhere in the failure trace"))
-        (is (= true (:sensitive? ev))
-            (str flow-id ": top-level :sensitive? so the egress gate drops it"))
-        (is (= :rf/redacted (get-in ev [:tags :explain]))
-            (str flow-id ": :explain is the redacted sentinel, not a size marker"))
-        (is (nil? (get-in ev [:tags :large?]))
-            (str flow-id ": no :large? stamp on a sensitive failure"))))))
+  ;; Sensitive wins over large, whether the registry or the schema says so.
+  (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET" :blob blob}}))
+  (rf/reg-flow :both/whole
+               {:inputs [[:secret] [:blob]] :output-path [:both :whole]
+                :sensitive [[]] :large [[]] :schema [:map [:token :int]]}
+               (fn [s b] {:token s :blob b}))
+  (rf/reg-flow :both/slots
+               {:inputs [[:secret] [:blob]] :output-path [:both :slots]
+                :sensitive [[:token]] :large [[:blob]] :schema [:map [:token :int]]}
+               (fn [s b] {:token s :blob b}))
+  (rf/reg-flow :both/schema-sensitive
+               {:inputs [[:secret] [:blob]] :output-path [:both :schema]
+                :large [[]] :schema [:map [:token {:sensitive? true} :int]]}
+               (fn [s b] {:token s :blob b}))
+  (rf/dispatch-sync [:seed])
+  (doseq [flow-id [:both/whole :both/slots :both/schema-sensitive]]
+    (let [ev (violation-for flow-id)]
+      (is (not (str/includes? (pr-str ev) "hunter2-SECRET")) (str flow-id))
+      (is (= [true :rf/redacted nil]
+             [(:sensitive? ev) (get-in ev [:tags :explain]) (get-in ev [:tags :large?])])
+          (str flow-id ": stamped, :explain redacted, no size marker")))))
