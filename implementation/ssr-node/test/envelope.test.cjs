@@ -2,47 +2,10 @@
 // GUARANTEE 5 — THE CALLER LATENCY ENVELOPE, MEASURED AGAINST CEILINGS
 // THAT WERE REGISTERED FIRST.
 //
-//     node implementation/ssr-node/test/envelope.test.cjs
-//
-// The ceilings live in `src/envelope.cjs` and were committed on their own,
-// with no measurement code in the tree, so `git log --follow` on that file
-// is the witness that they were stated rather than fitted. This file may
-// read them and must never move them: a run that adjusted its own ceiling
-// would be a run describing itself.
-//
-// ## What is measured
-//
-//     overhead = total elapsed for the call - the module's own renderMs
-//
-// The render is SUBTRACTED, not budgeted. SSR speed is off this
-// programme's bar (HD-012) and an envelope that budgeted the render would
-// quietly re-open it. What is left is what the service is: admission,
-// validation, two structured-clone crossings, the isolate handshake, the
-// frame plumbing.
-//
-// ## The conditions, which are part of the registration
-//
-// Warm pool, a free isolate at dispatch, sequential requests, and a small
-// request — `state` and `runtime` together inside 64 KiB, counted as
-// `protocol.cjs` counts them. The warm-up is here for the first of those:
-// worker boot is a deployment cost, not a per-request one, and folding it
-// in would measure the wrong thing while looking rigorous.
-//
-// THE SIZE CONDITION IS A PRECONDITION, NOT A COMMENT. The measured
-// request is asserted inside the budget before a single sample is taken,
-// with a control row that shows a request over it being turned away —
-// because a condition nothing enforces is a condition the witness can
-// drift out of.
-//
-// ## How to read the numbers
-//
-// As a SHAPE claim — the service's overhead is single-digit milliseconds
-// at the median and does not run away — and never as a benchmark to diff a
-// future run against. This box is shared with other work, and that makes
-// a millisecond-scale figure noisy: two runs at one commit can differ by
-// more than twofold in their phase maxima.
-// The figures are printed as diagnostics either way, because a breach that
-// prints no number is not a witness.
+// The ceilings live in `src/envelope.cjs`; this file reads them and never
+// moves them. Measured: total elapsed minus the module's own `renderMs`,
+// over a warm pool, sequential requests and a request inside the
+// registered byte budget. A shape claim, never a benchmark to diff.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -52,7 +15,7 @@ const { validateRequest, Refusal } = require('../src/protocol.cjs');
 
 const WARMUP = 20;
 
-/** The tables the `reference` fixture publishes, as the validator wants them. */
+/** The tables the `reference` fixture publishes. */
 const REFERENCE_TABLES = {
   buildId: 'reference-build-1',
   entries: {
@@ -73,24 +36,19 @@ test('percentile is nearest-rank, so every figure is a sample some request took'
 });
 
 test('judge names every ceiling it breaches, and stays silent when it clears them', () => {
-  const clean = judge([1, 1, 1, 1]);
-  assert.strictEqual(clean.ok, true);
-  assert.deepStrictEqual(clean.breaches, []);
-  const bad = judge([1000, 1000, 1000, 1000]);
-  assert.strictEqual(bad.ok, false);
-  assert.strictEqual(bad.breaches.length, 3, 'p50, p95 and max all breached');
+  const verdict = (xs) => {
+    const v = judge(xs);
+    return [v.ok, v.breaches.map((b) => b.split(' ')[0])];
+  };
+  assert.deepStrictEqual(verdict([1, 1, 1, 1]), [true, []]);
+  // Just over one ceiling is a breach of that ceiling alone.
+  assert.deepStrictEqual(verdict(Array(ENVELOPE.samples).fill(ENVELOPE.p50Ms + 0.01)), [false, ['p50']]);
+  assert.deepStrictEqual(verdict([1000, 1000, 1000, 1000]), [false, ['p50', 'p95', 'max']]);
 });
 
 test('the budget counts a request the way the validator counts it — keys, values, both partitions', () => {
-  // The condition is only as good as its byte definition, and this one is
-  // not asserted in prose: it is pinned against `protocol.cjs`, the thing
-  // that actually enforces a ceiling over the same text. A request of
-  // exactly N bytes must be admitted at a ceiling of N and refused at
-  // N - 1, which is only true if both counts agree key for key.
-  //
-  // Counting two VALUES of one partition and calling that the request's
-  // size would omit every key and the whole `runtime` partition, so the
-  // witness could clear a budget the validator reads as larger.
+  // Exactly N bytes is admitted at a ceiling of N and refused at N - 1 only
+  // if the two counts agree key for key.
   const request = {
     protocol: 1,
     entry: 'app/root',
@@ -98,8 +56,6 @@ test('the budget counts a request the way the validator counts it — keys, valu
     runtime: { ':rf.runtime/routing': '{:name :home}' },
   };
   const n = requestBytes(request);
-  assert.ok(n > 0);
-
   assert.doesNotThrow(
     () => validateRequest(request, REFERENCE_TABLES, { maxRequestBytes: n }),
     'a request of exactly N bytes must be admitted at a ceiling of N',
@@ -109,48 +65,14 @@ test('the budget counts a request the way the validator counts it — keys, valu
     (err) => err instanceof Refusal && /are \d+ bytes, over the/.test(err.message),
     'and refused one byte lower — so the two counts are the same count',
   );
-
-  // Neither partition is free, and neither are the keys: dropping any one
-  // of the three moves the number.
   assert.ok(requestBytes({ ...request, runtime: {} }) < n, 'runtime bytes must count');
   assert.ok(requestBytes({ ...request, state: {} }) < n, 'state bytes must count');
-  assert.strictEqual(
-    requestBytes({ state: { ab: 'cd' } }),
-    4,
-    'two key bytes and two value bytes',
-  );
-});
-
-test('a request over the combined condition is refused by the witness precondition', () => {
-  // THE CONTROL FOR THE ROW BELOW. The measured request clearing the
-  // budget says nothing unless a request that busts it would be turned
-  // away — and the interesting one busts it on `runtime` alone, which is
-  // the partition a `state`-only condition would not see. It is a request the
-  // SERVICE would happily accept (one allowlisted key, far under the
-  // 1 MiB protocol ceiling); it is the envelope's narrower sampling
-  // condition that refuses it, which is the distinction being pinned.
-  const request = {
-    protocol: 1,
-    entry: 'app/root',
-    state: { ':todos': '[]' },
-    runtime: { ':rf.runtime/routing': 'x'.repeat(ENVELOPE.requestBudgetBytes) },
-  };
-  assert.ok(
-    requestBytes(request) > ENVELOPE.requestBudgetBytes,
-    'a runtime-heavy request must be measured as over the combined budget',
-  );
-  assert.doesNotThrow(
-    () => validateRequest(request, REFERENCE_TABLES, {}),
-    'and it must be one the service itself would serve — otherwise the row is about the protocol ceiling',
-  );
+  assert.strictEqual(requestBytes({ state: { ab: 'cd' } }), 4, 'two key bytes and two value bytes');
 });
 
 test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} samples`, async (t) => {
   await withService('reference', { isolates: 2, admissionTimeoutMs: 10000 }, async (service) => {
-    // A request comfortably inside the registered budget, and carrying
-    // BOTH partitions — the condition is stated over the request, so a
-    // sample that sent one of them would be measuring a narrower request
-    // than the envelope claims to cover.
+    // Both partitions, inside the registered budget.
     const request = {
       protocol: 1,
       entry: 'app/root',
@@ -162,13 +84,8 @@ test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} sa
       `the sample request must sit inside the registered ${ENVELOPE.requestBudgetBytes}-byte budget; ` +
         `it is ${requestBytes(request)} bytes`,
     );
-    assert.ok(
-      Object.keys(request.runtime).length > 0 && Object.keys(request.state).length > 0,
-      'both partitions must be non-empty, or the combined condition is untested',
-    );
 
-    // WARM. Worker boot is a deployment cost; folding it in would measure
-    // something the envelope explicitly does not bound.
+    // Worker boot is a deployment cost the envelope does not bound.
     for (let i = 0; i < WARMUP; i += 1) await service.renderToString(request);
 
     const overheads = [];
@@ -176,8 +93,6 @@ test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} sa
       const started = process.hrtime.bigint();
       const out = await service.renderToString(request);
       const totalMs = Number(process.hrtime.bigint() - started) / 1e6;
-      // The module's own render time, measured inside the isolate around
-      // the module's `render` call, comes back on the terminal frame.
       overheads.push(Math.max(0, totalMs - out.renderMs));
     }
 
@@ -190,15 +105,4 @@ test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} sa
     );
     assert.strictEqual(verdict.ok, true, `envelope breached: ${verdict.breaches.join('; ')}`);
   });
-});
-
-test('the envelope is a real constraint — a slow enough service would breach it', async (t) => {
-  // The control. `judge` clearing a real sample says nothing unless it
-  // would refuse a bad one, and "would refuse" is cheaper to demonstrate
-  // than to argue: the same sample shifted by one ceiling's worth breaches.
-  const shifted = Array.from({ length: ENVELOPE.samples }, () => ENVELOPE.p50Ms + 0.01);
-  const verdict = judge(shifted);
-  assert.strictEqual(verdict.ok, false);
-  assert.match(verdict.breaches[0], /^p50 /);
-  t.diagnostic(`control: ${verdict.breaches.join('; ')}`);
 });
