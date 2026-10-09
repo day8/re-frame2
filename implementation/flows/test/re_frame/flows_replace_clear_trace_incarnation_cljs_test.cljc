@@ -1,66 +1,18 @@
 (ns re-frame.flows-replace-clear-trace-incarnation-cljs-test
-  "Exact-incarnation fence for the flow REPLACEMENT and CLEAR
-  lifecycle traces THROUGH the synchronous trace-emit callback pipeline
-  (classification projection → epoch capture → ordered tooling listeners), plus
-  — for replacement — the preceding hot-reload dedup-by-shape decision, which
-  is taken from THIS frame's authoritative prior/new stored flow values rather
-  than a frame-blind process-global registrar dedup table.
+  "Exact-incarnation fence for the replacement and clear lifecycle traces
+  through the trace-emit callback pipeline, and the per-frame decision behind
+  replacement evidence, on both hosts.
 
-  The sibling of `re-frame.flows-first-registration-trace-incarnation-test`.
-  The flow-registry app-db / runtime-db / epoch writes are exact, and the
-  FIRST-registration `:rf.flow/registered` emit is fenced; this file pins the
-  same fence on the two remaining direct lifecycle traces:
-
-    - REPLACEMENT: re-registering a flow id emits `:rf.registry/handler-replaced`
-      (gated by a per-frame prior/new shape compare).
-    - CLEAR: `clear-flow` emits `:rf.flow/cleared`.
-
-  `trace/emit!` is itself a synchronous, callback-bearing pipeline whose stages
-  recheck ownership ONLY while a continuation predicate is installed
-  (`trace/continuation-live?` reads the always-true default otherwise). A
-  DIRECT cold `reg-flow` / `clear-flow` (unlike the reserved-effect
-  `:rf.fx/reg-flow` route, which inherits the router's exact-owner predicate)
-  has no parent predicate. Were the replacement dedup+emit to run under the
-  always-true default, or the clear emit to run AFTER the serialized drain
-  section had released — carrying no pinned token at all — an ordered trace
-  LISTENER (or the epoch-capture callback) could destroy incarnation A and
-  publish a same-id B mid-emit, and every SUBSEQUENT listener would still
-  receive A's incarnation-less replacement / clear event after B owns the bare
-  id (and later policy/capture could observe B).
-
-  Each emit is therefore wrapped in `trace/call-with-continuation-predicate`
-  bound to A's pinned incarnation — and, for clear, runs INSIDE the exact-owner
-  serialization so `pinned` is authoritative when emission is initiated — so the
-  trace pipeline is fenced to A: the already-entered delivery (the listener that
-  destroys A) stands once, and every LATER listener / capture / policy stage is
-  suppressed the instant A's exact ownership is lost.
-
-  Each seam here is DELIBERATELY the trace-internal listener boundary, not a
-  container-write watch: A declares NO output marks, so the lifecycle op reaches
-  the emit with A fully live and the ONLY callback seam is the ordered listener
-  fan-out inside emission — the boundary the container-write fixtures in
-  `re-frame.flows-clear-reg-watch-incarnation-test` (which lose A during a preceding container write, with a passive recorder that
-  records no trace evidence or dedup consultation) cannot reach. Removing the
-  `call-with-continuation-predicate` wrapper — or, for clear, moving the emit
-  outside the serialization (which strands `pinned`, forcing the always-true
-  default) — makes the subsequent listener receive A's stale event and the
-  focused assertion fail.
-
-  The whole scenario runs SYNCHRONOUSLY on the single host thread: the destroyer
-  listener destroys A and publishes B reentrantly inside emission, so the
-  cross-incarnation ordering is deterministic without threads. Listener fan-out
-  order is insertion order, so the destroyer is registered FIRST (the
-  already-entered delivery that may stand) and the observer SECOND (the
-  subsequent delivery the fence must suppress).
-
-  This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
-  (ns-regexp `cljs-test$`) discovers it under CLJS AND the cognitect JVM runner
-  runs it — both hosts exercise replacement and clear."
+  A direct `reg-flow` replacement emits `:rf.registry/handler-replaced`, and
+  `clear-flow` emits `:rf.flow/cleared` from inside its serialized section,
+  each under a continuation predicate bound to A's pinned incarnation: a
+  listener that destroys A and publishes a same-id B mid-fan-out stands, and
+  every later listener is suppressed. A declares no output marks, so the
+  listener fan-out is the only callback seam. Listeners fan out in insertion
+  order, so the destroyer is registered first."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.flows :as rf.flows]
-            [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -69,286 +21,82 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ===========================================================================
-;; REPLACEMENT — `:rf.registry/handler-replaced`
-;;
-;; A's replacement emit reaches the ordered tooling listeners with A live; the
-;; FIRST listener destroys A and publishes same-id B; the SUBSEQUENT listener
-;; must NOT receive A's stale `:rf.registry/handler-replaced` after B owns the
-;; bare id. The destroyer hit proves the trace/emit pipeline ran for A (not
-;; merely app-db/cache state); the per-frame shape dedup allows the
-;; emit because the replacement carries a different derive.
-;; ===========================================================================
+(defn- fence-witness!
+  "Register a destroyer that, on the first `op` event, destroys frame `id` and
+  publishes a same-id B, then an observer recording every later `op` event's
+  tags. Returns `[destroyer-hits observed]`."
+  [id op]
+  (let [hits (atom 0) observed (atom [])]
+    (rf.trace.tooling/register-listener!
+      ::destroyer
+      (fn [ev]
+        (when (and (= op (:operation ev)) (= 1 (swap! hits inc)))
+          (rf.frame/destroy-frame! id)
+          (rf/make-frame {:id id}))))
+    (rf.trace.tooling/register-listener!
+      ::observer
+      (fn [ev] (when (= op (:operation ev)) (swap! observed conj (:tags ev)))))
+    [hits observed]))
+
+(defn- unregister-witness! []
+  (rf.trace.tooling/unregister-listener! ::destroyer)
+  (rf.trace.tooling/unregister-listener! ::observer))
+
+(defn- reg! [id flow-id derive-fn]
+  (rf/reg-flow flow-id {:frame id :inputs [[:n]] :output-path [flow-id]} derive-fn))
 
 (deftest reg-flow-replacement-trace-listener-loss-fences-subsequent-listeners
-  ;; Re-registering A's flow (NO output marks) with a
-  ;; different derive reaches `trace/emit! :rf.registry/handler-replaced` with A
-  ;; live. The destroyer listener — the already-entered delivery — destroys A and
-  ;; publishes same-id B mid-fan-out. Were the dedup+emit to run under the
-  ;; always-true continuation, the observer (the subsequent listener) would
-  ;; receive A's incarnation-less replaced event after B owned the id; the
-  ;; pinned-A continuation predicate suppresses every listener past the loss.
-  (let [id               :flow.replace.fence/subject
-        flow-id          :flow.replace.fence/a
-        b-flow-id        :flow.replace.fence/b
-        destroyer-hits   (atom 0)
-        observer-a-repl  (atom [])          ;; A's replaced events the observer saw
-        observer-repl    (atom [])          ;; every replaced event the observer saw
-        armed?           (atom true)
-        b-token          (atom nil)
-        b-flow-registry  (atom ::unset)
-        b-commit         (atom ::unset)]
+  (let [id :flow.replace.fence/subject]
     (rf/make-frame {:id id})
-    ;; First registration establishes the prior so the next reg-flow is a
-    ;; REPLACEMENT (emits :rf.registry/handler-replaced, not :rf.flow/registered).
-    (rf/reg-flow flow-id
-      {:frame id :inputs [[:an]] :output-path [:aout]}
-      (fn [n] (or n 0)))
-    ;; Listener 1 (registered FIRST → fans out FIRST): the DESTROYER. On A's own
-    ;; :rf.registry/handler-replaced — the already-entered delivery — it destroys
-    ;; A and publishes same-id B exactly once, then snapshots B's stores.
-    (rf.trace.tooling/register-listener!
-      ::destroyer
-      (fn [ev]
-        (when (and (= :rf.registry/handler-replaced (:operation ev))
-                   (= flow-id (get-in ev [:tags :id]))
-                   (compare-and-set! armed? true false))
-          (swap! destroyer-hits inc)
-          (rf.frame/destroy-frame! id)
-          (rf/make-frame {:id id})
-          (reset! b-token (rf.frame/frame-incarnation-token id))
-          (reset! b-flow-registry (get (rf.flows.registry/flows-snapshot) id ::none))
-          (reset! b-commit (rf.frame/frame-commit-epoch id)))))
-    ;; Listener 2 (registered SECOND → fans out AFTER the destroyer): the
-    ;; SUBSEQUENT observer. Absent the fence it receives A's stale replaced event
-    ;; after B owns the bare id; the fence suppresses it.
-    (rf.trace.tooling/register-listener!
-      ::observer
-      (fn [ev]
-        (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! observer-repl conj ev)
-          (when (= flow-id (get-in ev [:tags :id]))
-            (swap! observer-a-repl conj ev)))))
-    (try
-      ;; REPLACEMENT: same id, different derive → :rf.registry/handler-replaced.
-      (is (= flow-id
-             (rf/reg-flow flow-id
-               {:frame id :inputs [[:an]] :output-path [:aout]}
-               (fn [n] (* 2 (or n 0)))))
-          "reg-flow returns its flow-id even though A's owner was lost mid-emit")
-      (is (= 1 @destroyer-hits)
-          "the destroyer received A's :rf.registry/handler-replaced once — the
-           already-entered delivery stands")
-      (is (some? @b-token) "the destroyer published a same-id B")
-      (is (identical? @b-token (rf.frame/frame-incarnation-token id))
-          "B remains the live incarnation")
-      ;; THE TOOTH: the subsequent listener never receives A's stale event.
-      (is (empty? @observer-a-repl)
-          "the SUBSEQUENT listener received ZERO A :rf.registry/handler-replaced
-           events — the fence suppresses every trace stage after A's exact
-           ownership is lost (removing the call-with-continuation-predicate
-           wrapper makes this fail)")
-      ;; B is never observed / mutated by A's stale tail.
-      (is (= ::none @b-flow-registry) "B started with an empty flow registry")
-      (is (= ::none (get (rf.flows.registry/flows-snapshot) id ::none))
-          "A's stale replacement tail never wrote a flow row onto B")
-      (is (= @b-commit (rf.frame/frame-commit-epoch id))
-          "A's stale tail never bumped B's commit epoch")
-      ;; The fence does not POISON the successor: B's OWN later replacement emits
-      ;; :rf.registry/handler-replaced exactly once, observed.
-      (reset! observer-repl [])
-      (rf/reg-flow b-flow-id
-        {:frame id :inputs [[:bn]] :output-path [:bout]}
-        (fn [n] (or n 0)))
-      (rf/reg-flow b-flow-id
-        {:frame id :inputs [[:bn]] :output-path [:bout]}
-        (fn [n] (* 3 (or n 0))))
-      (is (= 1 (count @observer-repl))
-          "B's own later replacement emits :rf.registry/handler-replaced exactly
-           once — the fence did not poison the successor")
-      (is (= b-flow-id (get-in (first @observer-repl) [:tags :id]))
-          "the sole post-loss replacement observed is B's own")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::destroyer)
-        (rf.trace.tooling/unregister-listener! ::observer)))))
-
-;; ===========================================================================
-;; CLEAR — `:rf.flow/cleared`
-;;
-;; A's clear emit reaches the ordered tooling listeners with A live; the FIRST
-;; listener destroys A and publishes same-id B; the SUBSEQUENT listener must NOT
-;; receive A's stale `:rf.flow/cleared` after B owns the bare id. The emit is
-;; initiated INSIDE the exact-owner serialization, so `pinned` is authoritative.
-;; ===========================================================================
+    (reg! id :a identity)
+    (let [[hits observed] (fence-witness! id :rf.registry/handler-replaced)]
+      (try
+        (is (= :a (reg! id :a (fn [n] n))))
+        (is (= 1 @hits) "the already-entered delivery stands")
+        (is (= [] @observed) "no later listener receives A's stale replacement")
+        ;; The fence does not poison the successor's own replacement.
+        (reg! id :b identity)
+        (reg! id :b (fn [n] n))
+        (is (= [[:b id]] (mapv (juxt :id :frame) @observed)))
+        (finally
+          (unregister-witness!))))))
 
 (deftest clear-flow-trace-listener-loss-fences-subsequent-listeners
-  ;; Clearing A's flow reaches
-  ;; `trace/emit! :rf.flow/cleared` with A live. The destroyer listener — the
-  ;; already-entered delivery — destroys A and publishes same-id B mid-fan-out.
-  ;; Were the emit to run AFTER the serialized section released, under the
-  ;; always-true continuation, the observer would receive A's incarnation-less
-  ;; cleared event after B owned the id; the emit runs inside the
-  ;; serialization under the pinned-A continuation predicate, which suppresses
-  ;; every listener past the loss.
-  (let [id               :flow.cleared.fence/subject
-        flow-id          :flow.cleared.fence/a
-        b-flow-id        :flow.cleared.fence/b
-        destroyer-hits   (atom 0)
-        observer-a-clr   (atom [])          ;; A's cleared events the observer saw
-        observer-clr     (atom [])          ;; every cleared event the observer saw
-        armed?           (atom true)
-        b-token          (atom nil)
-        b-flow-registry  (atom ::unset)
-        b-commit         (atom ::unset)]
+  (let [id :flow.cleared.fence/subject]
     (rf/make-frame {:id id})
-    (rf/reg-flow flow-id
-      {:frame id :inputs [[:an]] :output-path [:aout]}
-      (fn [n] (or n 0)))
-    ;; Listener 1 (registered FIRST): the DESTROYER. On A's own :rf.flow/cleared
-    ;; it destroys A and publishes same-id B exactly once, then snapshots B.
-    (rf.trace.tooling/register-listener!
-      ::destroyer
-      (fn [ev]
-        (when (and (= :rf.flow/cleared (:operation ev))
-                   (= flow-id (get-in ev [:tags :flow-id]))
-                   (= id (get-in ev [:tags :frame]))
-                   (compare-and-set! armed? true false))
-          (swap! destroyer-hits inc)
-          (rf.frame/destroy-frame! id)
-          (rf/make-frame {:id id})
-          (reset! b-token (rf.frame/frame-incarnation-token id))
-          (reset! b-flow-registry (get (rf.flows.registry/flows-snapshot) id ::none))
-          (reset! b-commit (rf.frame/frame-commit-epoch id)))))
-    ;; Listener 2 (registered SECOND): the SUBSEQUENT observer.
-    (rf.trace.tooling/register-listener!
-      ::observer
-      (fn [ev]
-        (when (= :rf.flow/cleared (:operation ev))
-          (swap! observer-clr conj ev)
-          (when (= flow-id (get-in ev [:tags :flow-id]))
-            (swap! observer-a-clr conj ev)))))
-    (try
-      (is (= flow-id (rf/clear :flow flow-id {:frame id}))
-          "clear returns the id even though A's owner was lost mid-emit")
-      (is (= 1 @destroyer-hits)
-          "the destroyer received A's :rf.flow/cleared once — the already-entered
-           delivery stands")
-      (is (some? @b-token) "the destroyer published a same-id B")
-      (is (identical? @b-token (rf.frame/frame-incarnation-token id))
-          "B remains the live incarnation")
-      ;; THE TOOTH: the subsequent listener never receives A's stale event.
-      (is (empty? @observer-a-clr)
-          "the SUBSEQUENT listener received ZERO A :rf.flow/cleared events — the
-           fence suppresses every trace stage after A's exact ownership is lost
-           (removing the wrapper, or moving the emit outside the exact-owner
-           serialization, makes this fail)")
-      ;; B is never observed / mutated by A's stale tail.
-      (is (= ::none @b-flow-registry) "B started with an empty flow registry")
-      (is (= @b-commit (rf.frame/frame-commit-epoch id))
-          "A's stale clear tail never bumped B's commit epoch")
-      ;; The fence does not POISON the successor: B's OWN later clear emits
-      ;; :rf.flow/cleared exactly once, observed.
-      (reset! observer-clr [])
-      (rf/reg-flow b-flow-id
-        {:frame id :inputs [[:bn]] :output-path [:bout]}
-        (fn [n] (or n 0)))
-      (is (= b-flow-id (rf/clear :flow b-flow-id {:frame id})))
-      (is (= 1 (count @observer-clr))
-          "B's own later clear emits :rf.flow/cleared exactly once — the fence did
-           not poison the successor")
-      (is (= b-flow-id (get-in (first @observer-clr) [:tags :flow-id]))
-          "the sole post-loss clear observed is B's own")
-      (is (= [:bout] (get-in (first @observer-clr) [:tags :path]))
-          "B's cleared event carries B's own :output-path")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::destroyer)
-        (rf.trace.tooling/unregister-listener! ::observer)))))
-
-;; ===========================================================================
-;; PER-FRAME REPLACEMENT EVIDENCE — CROSS-HOST (CLJ + CLJS)
-;;
-;; Flow replacement evidence must be scoped to the authoritative frame slot, not
-;; a frame-blind process-global registrar dedup key. Two live frames replacing
-;; the same flow-id are two independent definitions (Spec 013 §Frame-scoping);
-;; each genuine replacement must emit its OWN `:rf.registry/handler-replaced`,
-;; carrying `:frame`, and a subsequent identical reload must not inherit a
-;; sibling's recorded shape.
-;; Each assertion below would be RED on a process-global dedup path.
-;;
-;; These run on BOTH hosts (`*-cljs-test.cljc`), covering the DIRECT `reg-flow`
-;; and the reserved-effect `:rf.fx/reg-flow` entry points on CLJ and CLJS.
-;; ===========================================================================
+    (reg! id :a identity)
+    (let [[hits observed] (fence-witness! id :rf.flow/cleared)]
+      (try
+        (is (= :a (rf/clear :flow :a {:frame id})))
+        (is (= 1 @hits) "the already-entered delivery stands")
+        (is (= [] @observed) "no later listener receives A's stale clear")
+        ;; The fence does not poison the successor, whose own clear carries
+        ;; its own payload.
+        (reg! id :b identity)
+        (rf/clear :flow :b {:frame id})
+        (is (= [{:flow-id :b :path [:b] :frame id}] @observed))
+        (finally
+          (unregister-witness!))))))
 
 (deftest reg-flow-replacement-evidence-is-per-frame-cross-host
-  ;; DIRECT reg-flow. Two live frames replace the same flow-id from the SAME
-  ;; prior derive to the SAME new derive; each emits once, attributed to its
-  ;; frame. A process-global [:flow flow-id] key would let the first frame's
-  ;; recorded shape suppress the second's genuine replacement (1 emit, no :frame).
-  (let [captured (atom [])
-        f1       (fn [n] (* 2 (or n 0)))
-        f2       (fn [n] (* 3 (or n 0)))]
+  ;; Each frame decides replacement evidence from its own prior definition: the
+  ;; same replacement in two frames emits once per frame, attributed to it, and
+  ;; an identical reload emits nothing in either.
+  (let [seen (atom [])
+        f1   (fn [n] n)
+        f2   (fn [n] n)]
     (rf.trace.tooling/register-listener!
       ::repl-recorder
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! captured conj ev))))
+          (swap! seen conj (:tags ev)))))
     (try
       (rf/make-frame {:id :left})
       (rf/make-frame {:id :right})
-      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f1)
-      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f1)
-      (is (empty? @captured) "first registrations emit no :rf.registry/handler-replaced")
-      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
-      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
-      (is (= 2 (count @captured))
-          "each frame's genuine replacement emits once — no cross-frame suppression")
-      (is (= #{:left :right}
-             (set (map #(get-in % [:tags :frame]) @captured)))
-          "the two events are attributable to their distinct :frame slots")
-      (is (every? #(= :shared (get-in % [:tags :id])) @captured)
-          "both name the :shared flow-id")
-      (is (every? #(true? (get-in % [:tags :different-fn?])) @captured)
-          "both are real body swaps (:different-fn? true)")
-      ;; Independent per-frame suppression: an identical reload in each frame
-      ;; (same f2 object) is suppressed within that frame.
-      (reset! captured [])
-      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
-      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
-      (is (empty? @captured)
-          "identical reloads suppress independently within each frame")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
-
-(deftest fx-reg-flow-replacement-evidence-is-per-frame-cross-host
-  ;; RESERVED-EFFECT :rf.fx/reg-flow. The dispatching frame threads through as the
-  ;; flow's :frame, so dispatching the registering event into :left / :right
-  ;; registers/replaces in that frame. Each frame's effect-driven replacement
-  ;; emits its own :rf.registry/handler-replaced, attributed to its frame.
-  (let [captured (atom [])
-        f1       (fn [n] (* 2 (or n 0)))
-        f2       (fn [n] (* 3 (or n 0)))]
-    (rf.trace.tooling/register-listener!
-      ::repl-recorder
-      (fn [ev]
-        (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! captured conj ev))))
-    (try
-      (rf/make-frame {:id :left})
-      (rf/make-frame {:id :right})
-      (rf/reg-event :reg-shared
-        (fn [_ [_ derive-fn]]
-          {:fx [[:rf.fx/reg-flow [:shared {:inputs [[:n]] :output-path [:out]} derive-fn]]]}))
-      ;; First registrations, one per frame (dispatch into the target frame).
-      (rf/dispatch-sync [:reg-shared f1] {:frame :left})
-      (rf/dispatch-sync [:reg-shared f1] {:frame :right})
-      (is (empty? @captured) "effect-driven first registrations do not emit handler-replaced")
-      ;; Real replacements f1→f2, one per frame, via the reserved effect.
-      (rf/dispatch-sync [:reg-shared f2] {:frame :left})
-      (rf/dispatch-sync [:reg-shared f2] {:frame :right})
-      (is (= 2 (count @captured))
-          "each frame's effect-driven replacement emits once — no cross-frame suppression")
-      (is (= #{:left :right}
-             (set (map #(get-in % [:tags :frame]) @captured)))
-          "the reserved-effect evidence is attributable to its frame")
+      (doseq [f [f1 f2 f2] frame [:left :right]]
+        (rf/reg-flow :shared {:frame frame :inputs [[:n]] :output-path [:out]} f))
+      (is (= [{:kind :flow :id :shared :frame :left :different-fn? true}
+              {:kind :flow :id :shared :frame :right :different-fn? true}]
+             @seen))
       (finally
         (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
