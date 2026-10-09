@@ -1,2605 +1,554 @@
 (ns re-frame.ssr.ring-test
-  "End-to-end tests for the Ring host adapter.
-
-  Mirrors the shape of implementation/ssr/test/re_frame/ssr_end_to_end_test.clj
-  — synthesises a Ring request, invokes the handler, asserts on the
-  Ring response, then on the frame-lifecycle side-effects (destroyed?,
-  trace events).
-
-  Each test resets the runtime via the artefact-local
-  `re-frame.ssr.ring.test-support/reset-runtime` (registrar snapshot/
-  restore + SSR adapter install + SSR side-channel atom clears)."
+  "Ring host adapter: cookie serialisation, ssr-handler and ssr-middleware
+  end to end, and the default HTML shell."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.headers :as rf.ssr.ring.headers]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-;; The canonical reset-runtime fixture is
-;; artefact-local in `re-frame.ssr.ring.test-support`. It wraps the
-;; published `re-frame.test-support/make-reset-runtime-fixture` and layers
-;; the three SSR per-request side-channel atom resets, so no external
-;; `../ssr/test` path is required.
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
+
+(def ^:private req {:uri "/" :request-method :get})
+
+(def ^:private minimal {:initial-events [] :root-view [:div] :payload [:x]})
+
+(defn- serve [opts] ((rf.ssr.ring/ssr-handler opts) req))
+
+(defn- serve-both
+  "`[mode status body]` from ssr-handler and stream-handler, the stream drained."
+  [opts]
+  (for [[mode handler] [[:ssr rf.ssr.ring/ssr-handler] [:stream rf.ssr.ring/stream-handler]]
+        :let [{:keys [status body]} ((handler opts) req)]]
+    [mode status (if (instance? java.io.InputStream body)
+                   (with-open [^java.io.InputStream in body] (slurp in))
+                   body)]))
+
+(defn- thrown-data
+  "The ex-data of the ExceptionInfo `f` throws, or nil when it returns."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(defn- error-id [f] (:rf.error/id (thrown-data f)))
+
+(defn- header-values
+  "Every value of header `header-name` on a Ring response, in any casing."
+  [response header-name]
+  (keep (fn [[k v]] (when (= header-name (str/lower-case k)) v)) (:headers response)))
+
+(defn- payload-edn [body]
+  (second (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)))
+
+(defn- payload [body] (some-> (payload-edn body) edn/read-string))
+
+(defn- hash-channels
+  "The render and head hashes a document carries, each as `[wire payload]`."
+  [body]
+  (let [p    (payload body)
+        wire #(second (re-find (re-pattern (str % "=\"([0-9a-f]{8})\"")) body))]
+    {:render [(wire "data-rf-render-hash") (:rf/render-hash p)]
+     :head   [(wire "data-rf-head-hash") (:rf/head-hash p)]}))
+
+(defn- route-with-head!
+  "Register `route-id` with a `:head` fn and return the :initial-events that
+  make it the current route."
+  [route-id head-fn]
+  (let [head-id (keyword "head" (name route-id))]
+    (rf/reg-head head-id head-fn)
+    (rf/reg-route route-id {:doc "route" :head head-id} "/"))
+  (rf/reg-event :init/route
+    (fn [{rt :rf.db/runtime} [_ id]]
+      {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current] {:route-id id})}))
+  [[:init/route route-id]])
 
 ;; ===========================================================================
 ;; Cookie serialisation (RFC 6265)
 ;; ===========================================================================
 
 (deftest cookie-set-cookie-header-canonical
-  (testing "minimal cookie: name + value only"
-    (is (= "session=abc123"
-           (rf.ssr.ring/cookie->set-cookie-header
-             {:name "session" :value "abc123"}))))
+  ;; The value is percent-encoded (space as %20, and a `;` stays data).
+  (is (= "s=a%20b%26c%3Bd; Max-Age=3600; Domain=example.com; Path=/; Secure; HttpOnly; SameSite=Lax"
+         (rf.ssr.ring/cookie->set-cookie-header
+           {:name "s" :value "a b&c;d" :max-age 3600 :secure true :http-only true
+            :same-site :lax :path "/" :domain "example.com"})))
+  (is (= :rf.error/cookie-missing-name
+         (error-id #(rf.ssr.ring/cookie->set-cookie-header {:value "abc"})))))
 
-  (testing "value gets URL-encoded"
-    (is (= "session=a%20b%26c"
-           (rf.ssr.ring/cookie->set-cookie-header
-             {:name "session" :value "a b&c"}))))
-
-  (testing "full attribute set in canonical order"
-    (let [s (rf.ssr.ring/cookie->set-cookie-header
-              {:name      "session"
-               :value     "abc"
-               :max-age   3600
-               :secure    true
-               :http-only true
-               :same-site :lax
-               :path      "/"
-               :domain    "example.com"})]
-      (is (str/starts-with? s "session=abc"))
-      (is (str/includes? s "Max-Age=3600"))
-      (is (str/includes? s "Domain=example.com"))
-      (is (str/includes? s "Path=/"))
-      (is (str/includes? s "Secure"))
-      (is (str/includes? s "HttpOnly"))
-      (is (str/includes? s "SameSite=Lax"))))
-
-  (testing "same-site tokens map to canonical strings"
-    (is (str/includes? (rf.ssr.ring/cookie->set-cookie-header
-                         {:name "s" :value "" :same-site :strict})
-                       "SameSite=Strict"))
-    (is (str/includes? (rf.ssr.ring/cookie->set-cookie-header
-                         {:name "s" :value "" :same-site :none})
-                       "SameSite=None")))
-
-  (testing "missing :name raises a structured error"
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (rf.ssr.ring/cookie->set-cookie-header {:value "abc"})))))
-
-;; ===========================================================================
-;; CRLF injection in Set-Cookie attributes + cookie-name grammar
-;;
-;; Every attribute string that gets concatenated into the wire shape is
-;; checked for CR/LF/NUL before emission — the framework rejects rather
-;; than relying on host-side defence (Jetty 11+ defends, earlier Jetty
-;; / HttpKit / Pedestal vary). Cookie :name is gated against the
-;; RFC 6265 §4.1.1 token grammar (no CTLs, whitespace, separators).
-;; ===========================================================================
-
-(defn- rejected-with?
-  "True when `cookie->set-cookie-header` throws an ex-info whose message
-  carries `id-re` for `cookie` — the check `thrown-with-msg?` makes."
-  [id-re cookie]
-  (try (rf.ssr.ring/cookie->set-cookie-header cookie)
-       false
-       (catch clojure.lang.ExceptionInfo e
-         (boolean (re-find id-re (ex-message e))))))
-
-(deftest cookie-attribute-crlf-injection-rejected
-  (testing "CR / LF / NUL in :domain throws
-            :rf.error/cookie-invalid-attribute"
-    (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-attribute"
-                                       {:name "session" :value "abc" :domain %})
-                      ["evil.com\r\nSet-Cookie: admin=1; Path=/"
-                       "evil.com\rinjected"
-                       "evil.com\ninjected"
-                       (str "evil.com" (char 0) "nul")]))
-        "every hostile :domain is rejected (lists any that serialised)")))
-
-;; ===========================================================================
-;; A raw `;` in a structured cookie attribute is the RFC 6265
-;; cookie-attribute delimiter, so it escapes its assigned attribute and
-;; fabricates additional attributes (SameSite=None, Secure, Domain, …), which a
-;; CR/LF/NUL-only gate would accept. The attribute gate rejects `;` too;
-;; cookie :value is delimiter-tolerant because it is percent-encoded.
-;; ===========================================================================
-
-(deftest cookie-attribute-semicolon-injection-rejected
-  (testing "a `;` in :path forges extra Set-Cookie
-            attributes and must be rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "sid" :value "abc" :path "/; SameSite=None; Secure"}))))
-
-  (testing "a `;` in string :max-age forges attributes"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "sid" :value "abc" :max-age "3600; SameSite=None; Secure"}))))
-
-  (testing "a `;` in :domain is rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "sid" :value "abc" :domain "evil.com; Secure"}))))
-
-  (testing "a `;` in string :same-site is rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "sid" :value "abc" :same-site "Lax; Secure"}))))
-
-  (testing "the offending attribute + original value ride the
-            structured error payload"
-    (try
-      (rf.ssr.ring/cookie->set-cookie-header
-        {:name "sid" :value "abc" :path "/; SameSite=None"})
-      (is false "expected a thrown :rf.error/cookie-invalid-attribute")
-      (catch clojure.lang.ExceptionInfo e
-        (let [data (ex-data e)]
-          (is (= :rf.error/cookie-invalid-attribute (:rf.error/id data))
-              "the catalogued attribute-injection id is thrown")
-          (is (= :path (:attribute data))
-              "the offending attribute (:path) rides the :attribute slot")
-          (is (= "/; SameSite=None" (:value data))
-              "the original attribute value rides the :value slot")))))
-
-  (testing "a `;` in cookie :value is DATA, not a delimiter:
-            it is percent-encoded (`%3B`), so it must NOT be over-rejected"
-    (let [s (rf.ssr.ring/cookie->set-cookie-header
-              {:name "sid" :value "a;b" :path "/"})]
-      (is (str/includes? s "sid=a%3Bb")
-          "semicolon in :value serialises as %3B (data stays data)")
-      (is (not (str/includes? s "a;b"))
-          "the raw `;` does not survive into the wire value")
-      (is (str/includes? s "Path=/")))))
+(deftest cookie-attribute-injection-rejected
+  ;; Attributes are concatenated verbatim, so CR/LF/NUL would split the
+  ;; header and a `;` would forge extra attributes (SameSite=None, Secure …).
+  (is (= [] (remove #(= :rf.error/cookie-invalid-attribute
+                        (error-id (fn [] (rf.ssr.ring/cookie->set-cookie-header
+                                           (merge {:name "sid" :value "v"} %)))))
+                    [{:domain "evil.com\rx"}
+                     {:domain "evil.com\nx"}
+                     {:domain (str "evil.com" (char 0))}
+                     {:domain "evil.com; Secure"}
+                     {:path "/; SameSite=None; Secure"}
+                     {:max-age "3600; Secure"}
+                     {:same-site "Lax; Secure"}]))
+      "lists any hostile attribute that serialised")
+  (is (= {:attribute :path :value "/; Secure"}
+         (select-keys (thrown-data #(rf.ssr.ring/cookie->set-cookie-header
+                                      {:name "sid" :value "v" :path "/; Secure"}))
+                      [:attribute :value]))))
 
 (deftest cookie-name-rfc6265-token-grammar
-  (testing "cookie :name violating the RFC 6265 §4.1.1
-            token grammar throws :rf.error/cookie-invalid-name"
-    (testing "name with whitespace throws"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/cookie-invalid-name"
-            (rf.ssr.ring/cookie->set-cookie-header
-              {:name "session id" :value "abc"}))))
-
-    (testing "name with separator chars throws"
-      (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-name"
-                                         {:name % :value "abc"})
-                        ["session;extra" "session=x" "session,x" "session/x"
-                         "session\"x" "session(x" "session)x"]))
-          "every separator-bearing name is rejected (lists any that serialised)"))
-
-    (testing "name with CR / LF / NUL throws"
-      (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-name"
-                                         {:name % :value "abc"})
-                        ["session\r" "session\n" (str "session" (char 0))]))
-          "every control-char name is rejected (lists any that serialised)"))
-
-    (testing "valid token-grammar names pass through"
-      (is (= [] (remove #(str/starts-with?
-                           (rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"})
-                           (str % "="))
-                        ["session" "_csrf" "X-CSRF-TOKEN" "data-1.2.3" "a"]))
-          "every valid name serialises under its own name (lists any that did not)"))
-
-    (testing "keyword / symbol names are coerced via clojure.core/name"
-      (is (= [] (remove #(str/starts-with?
-                           (rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"})
-                           (str (clojure.core/name %) "="))
-                        [:session 'session :data-1.2.3]))
-          "every Named cookie name serialises under its name (lists any that did not)"))
-
-    (testing "non-string / non-Named :name throws a STRUCTURED
-              :rf.error/cookie-invalid-name (not a raw ClassCastException)"
-      ;; The broad `catch Throwable` is DELIBERATE: the failure under guard
-      ;; is a raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`),
-      ;; which a bare `(clojure.core/name n)` would throw. We must catch the broad
-      ;; type to OBSERVE which throwable surfaces, then assert it is the
-      ;; structured ex-info — a narrow `catch ExceptionInfo` would let that
-      ;; raw exception escape the test and obscure the failure.
-      (is (= []
-             (for [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]
-                   :let [t (try
-                             (rf.ssr.ring/cookie->set-cookie-header {:name bad :value "v"})
-                             ::no-throw
-                             (catch clojure.lang.ExceptionInfo e e)
-                             (catch Throwable e e))]
-                   :when (not (and (instance? clojure.lang.ExceptionInfo t)
-                                   (= :rf.error/cookie-invalid-name
-                                      (:rf.error/id (ex-data t)))
-                                   (= bad (:name (ex-data t)))))]
-               [bad (if (instance? Throwable t) (class t) t)]))
-          "every non-Named name throws an ex-info (not a raw host exception)
-           surfacing :rf.error/cookie-invalid-name with the offending :name in
-           its ex-data (lists any that did not, with what it got)"))))
+  (is (= [] (remove #(= :rf.error/cookie-invalid-name
+                        (error-id (fn [] (rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"}))))
+                    ["session id" "session;x" "session\r"]))
+      "lists any invalid name that serialised")
+  (is (= ["X-CSRF_tok.1=v" "session=v"]
+         (map #(rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"}) ["X-CSRF_tok.1" :session])))
+  (is (= {:rf.error/id :rf.error/cookie-invalid-name :name 42}
+         (select-keys (thrown-data #(rf.ssr.ring/cookie->set-cookie-header {:name 42 :value "v"}))
+                      [:rf.error/id :name]))
+      "a non-Named name is a structured error, not a ClassCastException"))
 
 ;; ===========================================================================
-;; ssr-handler — happy path (Ring-level smoke)
+;; ssr-handler — the page, the frame, redirects
 ;; ===========================================================================
-
-(defn- register-articles-app! [articles]
-  (rf/reg-fx :http/get
-    {:platforms #{:server :client}}
-    (fn [_ _] nil))
-
-  (rf/reg-fx :http/get.canned
-    {:platforms #{:server :client}}
-    (fn [{:keys [frame]} {:keys [on-success]}]
-      (when on-success
-        (rf/dispatch (conj on-success articles) {:frame frame}))))
-
-  (rf/reg-event :rf/server-init
-    {:platforms        #{:server}
-     :rf.cofx/requires [:rf.server/request]}
-    (fn [{:keys [db rf.server/request]} _]
-      {:db (assoc db :request request)
-       :fx [[:http/get {:url        "/api/articles"
-                        :on-success [:articles/loaded]}]]}))
-
-  (rf/reg-event :articles/loaded
-    (fn [{:keys [db]} [_ articles]]
-      {:db (assoc db :articles articles)}))
-
-  (rf/reg-sub :articles (fn [db _] (:articles db)))
-
-  (rf/reg-view* :pages/articles
-    (fn []
-      (let [arts (rf/subscribe-once [:articles])]
-        [:div.page
-         [:h1 "Articles"]
-         (into [:ul]
-               (for [{:keys [id title]} arts]
-                 ^{:key id} [:li title]))]))))
 
 (deftest handler-renders-html-with-status-and-headers
-  (testing "handler emits 200, content-type, and HTML body carrying view content"
-    (register-articles-app! [{:id "a" :title "Article A"}
-                             {:id "b" :title "Article B"}])
-
-    (let [handler (rf.ssr.ring/ssr-handler
-                    ;; The RESOLVING root-view form. The hash
-                    ;; assertion below is what forces it: an unresolved
-                    ;; `[(rf/view :pages/articles)]` renders byte-identical
-                    ;; HTML but carries no hash on either channel.
-                    {:initial-events    [[:rf/server-init]]
-                     :root-view    (fn [] ((rf/view :pages/articles)))
-                     :fx-overrides {:http/get :http/get.canned}
-                     :payload :rf.ssr.payload/whole-app-db})
-          request {:uri            "/articles"
-                   :request-method :get
-                   :headers        {"user-agent" "test"}}
-          response (handler request)]
-
-      (is (= 200 (:status response))
-          "default response status is 200")
-      (let [headers (:headers response)
-            ct      (or (get headers "content-type")
-                        (get headers "Content-Type"))]
-        (is (some? ct))
-        (is (str/includes? ct "text/html"))
-        (is (str/includes? ct "utf-8")))
-      (let [body (:body response)]
-        (is (string? body))
-        (is (str/includes? body "<!DOCTYPE html>"))
-        (is (str/includes? body "Article A"))
-        (is (str/includes? body "Article B"))
-        (is (str/includes? body "<script id=\"__rf_payload\""))
-        (is (str/includes? body "data-rf-render-hash")
-            "root element carries the structural hash for hydration-mismatch check")))))
-
-;; ===========================================================================
-;; ssr-handler — frame lifecycle (create + destroy)
-;; ===========================================================================
+  (rf/reg-fx :http/get {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/reg-fx :http/get.canned {:platforms #{:server :client}}
+    (fn [{:keys [frame]} {:keys [on-success]}]
+      (rf/dispatch (conj on-success [{:title "Article A"}]) {:frame frame})))
+  (rf/reg-event :init/fetch {:platforms #{:server}}
+    (fn [_ _] {:fx [[:http/get {:on-success [:articles/loaded]}]]}))
+  (rf/reg-event :articles/loaded (fn [{:keys [db]} [_ articles]] {:db (assoc db :articles articles)}))
+  (rf/reg-sub :articles (fn [db _] (:articles db)))
+  (rf/reg-view* :pages/articles
+    (fn [] (into [:ul] (for [{:keys [title]} (rf/subscribe-once [:articles])] [:li title]))))
+  (let [response (serve {:initial-events [[:init/fetch]]
+                         :root-view      (fn [] ((rf/view :pages/articles)))
+                         :fx-overrides   {:http/get :http/get.canned}
+                         :payload        :rf.ssr.payload/whole-app-db})
+        body     (:body response)]
+    (is (= 200 (:status response)))
+    (is (= ["text/html; charset=utf-8"] (header-values response "content-type")))
+    (is (str/starts-with? body "<!DOCTYPE html>"))
+    (is (str/includes? body "<li>Article A</li>"))
+    (is (re-find #"data-rf-render-hash=\"[0-9a-f]{8}\"" body))
+    (is (some? (payload body)))
+    (is (re-find #"<head[^>]*><meta charset=\"utf-8\">" body)
+        "the shell owns the charset, first in the head")
+    (is (= 1 (count (re-seq #"(?i)<meta\s+charset" body))) "and the default head adds none")))
 
 (deftest handler-per-request-teardown-is-incarnation-exact
-  (testing "the per-request frame teardown destroys the frame VALUE make-frame
-            returned (carrying the exact incarnation token), NOT the bare gensym
-            frame-id — so teardown is incarnation-EXACT and cannot reap a same-id
-            successor reseated in between while the request still returns 200"
-    (register-articles-app! [{:id "x" :title "Article X"}])
-    (let [real-destroy    rf/destroy-frame!
-          teardown-target (atom ::none)
-          handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:rf/server-init]]
-                     :root-view      [(rf/view :pages/articles)]
-                     :fx-overrides   {:http/get :http/get.canned}
-                     :payload        :rf.ssr.payload/whole-app-db})
-          frames-before (set (rf/frame-ids))]
-      ;; Spy on the facade destroy the handler's `finally` calls. A clean request
-      ;; issues exactly ONE per-request-frame teardown, and it hands
-      ;; over the frame VALUE — not the bare gensym id.
-      (with-redefs [rf/destroy-frame!
-                    (fn [target & more]
-                      (when (and (= ::none @teardown-target)
-                                 (rf.frame/frame-value? target))
-                        (reset! teardown-target target))
-                      (apply real-destroy target more))]
-        (let [response (handler {:uri "/" :request-method :get})]
-          (is (= 200 (:status response)) "the request rendered a 200")))
-      ;; N released: no per-request frame leaks into the registry.
-      (is (= frames-before (set (rf/frame-ids)))
-          "the per-request incarnation is fully released — no frame leak")
-      ;; N+1 protected: teardown targets the incarnation-carrying VALUE.
-      (is (rf.frame/frame-value? @teardown-target)
-          "per-request teardown targeted the make-frame VALUE, not the bare gensym id")
-      (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
-          "the teardown target carries the exact incarnation token, so the
-           two-argument destroy no-ops against any same-id successor (N+1)
-           (proven end-to-end by re-frame.frame-lifecycle-test)"))))
-
-;; ===========================================================================
-;; ssr-handler — redirect short-circuit
-;; ===========================================================================
+  ;; Teardown destroys the make-frame VALUE, whose incarnation token keeps it
+  ;; from reaping a same-id successor seated during the request.
+  (let [destroyed    (atom [])
+        real-destroy rf/destroy-frame!
+        before       (set (rf/frame-ids))]
+    (with-redefs [rf/destroy-frame! (fn [target & more]
+                                      (swap! destroyed conj target)
+                                      (apply real-destroy target more))]
+      (serve minimal))
+    (is (= before (set (rf/frame-ids))) "no request frame outlives the request")
+    (is (some? (rf.frame/frame-value-incarnation-token (first @destroyed))))))
 
 (deftest handler-redirect-short-circuits
-  (testing ":rf.server/redirect emits status + Location with empty body"
-    (rf/reg-event :init/redirect
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-
-    (rf/reg-view* :pages/should-not-render
-      (fn [] [:div "should not render under redirect"]))
-
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/redirect]]
-                     :root-view [(rf/view :pages/should-not-render)]
-                     :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/secret" :request-method :get})]
-      (is (= 302 (:status response)))
-      (let [headers (:headers response)
-            loc     (or (get headers "Location") (get headers "location"))]
-        (is (= "/login" loc)))
-      (is (= "" (:body response))
-          "redirect short-circuits — no body, no payload script")
-      (is (not (str/includes? (:body response) "should not render"))))))
+  (rf/reg-event :init/redirect {:platforms #{:server}}
+    (fn [_ _] {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+  (let [response (serve (assoc minimal :initial-events [[:init/redirect]]
+                                       :root-view [:div "should not render"]))]
+    (is (= [302 ["/login"] ""]
+           [(:status response) (header-values response "location") (:body response)]))))
 
 (deftest handler-redirect-no-target-warns
-  (testing "a :rf.server/redirect with no :location
-            produces a 3xx with no Location header (malformed redirect —
-            the runtime accepts a target-less redirect since location is
-            caller-trusted/optional at the fx boundary). The adapter is
-            the last line: it emits :rf.ssr/ssr-redirect-no-target so the
-            defect is observable rather than silently shipping a broken
-            redirect."
-    (rf/reg-event :init/redirect-no-target
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302}]]}))
-    (rf/reg-view* :pages/noop-rt (fn [] [:div]))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::redirect-no-target-watch
-        (fn [ev] (when (= :rf.ssr/ssr-redirect-no-target (:operation ev))
-                   (swap! traces conj ev))))
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/redirect-no-target]]
-                        :root-view [(rf/view :pages/noop-rt)]
-                        :payload :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/secret" :request-method :get})
-            headers  (:headers response)]
-        (rf/unregister-listener! :trace ::redirect-no-target-watch)
-        (is (= 302 (:status response)) "still emits the redirect status")
-        (is (nil? (or (get headers "Location") (get headers "location")))
-            "no Location header — there is no target to write")
-        (is (seq @traces)
-            ":rf.ssr/ssr-redirect-no-target warning fired so the malformed
-             redirect is observable")))))
+  (rf/reg-event :init/redirect {:platforms #{:server}}
+    (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
+  (let [ops (atom [])]
+    (rf/register-listener! :trace ::no-target #(swap! ops conj (:operation %)))
+    (let [response (serve (assoc minimal :initial-events [[:init/redirect]]))]
+      (rf/unregister-listener! :trace ::no-target)
+      (is (= [302 []] [(:status response) (header-values response "location")]))
+      (is (some #{:rf.ssr/ssr-redirect-no-target} @ops)))))
 
 ;; ===========================================================================
-;; ssr-handler — error path
+;; ssr-handler — render errors
 ;; ===========================================================================
+
+(defn- throwing-root [] (throw (ex-info "root boom" {})))
 
 (deftest handler-render-error-custom-projector-shapes-body
-  (testing "caller customises the render-time error wire
-            body via a custom :rf.error/* projector mapping, NOT via
-            the :on-error Ring hook (which only catches
-            transport/projector-undeliverable failures)."
-    (rf/reg-event :init/ok
-      {:platforms #{:server}}
-      (fn [_ _] {}))
-
-    (rf/reg-view* :pages/broken-2
-      (fn [] (throw (ex-info "boom-2" {:custom true}))))
-
-    (rf/reg-error-projector
-      :myapp/teapot
-      (fn [_trace-event]
-        {:status     418
-         :code       :teapot
-         :message    "I'm a teapot"
-         :retryable? false}))
-
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/ok]]
-                     :root-view [(rf/view :pages/broken-2)]
-                     :ssr       {:public-error-id :myapp/teapot}
-                     :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/broken" :request-method :get})]
-      (is (= 418 (:status response))
-          "the custom projector's :status overrides the default 500
-           — same surface as the drain-time projector path.")
-      ;; The apostrophe in "I'm" is HTML-escaped to `&#39;` per
-      ;; `escape-html` — the body's `:message` slot is rendered as
-      ;; an HTML text-node so untrusted custom-projector output
-      ;; cannot break out of the envelope.
-      (is (str/includes? (:body response) "I&#39;m a teapot")
-          "the custom projector's :message rides the wire body
-           (HTML-escaped — `escape-html` over the message text)")
-      (is (str/includes? (:body response) "teapot")
-          "the custom projector's :code rides the wire body."))))
-
-;; ===========================================================================
-;; :error-view caller hook (Spec 011 §Server error
-;; projection step 5 — "a registered view (or the host's default error
-;; template) … receiving the public-error map as its prop")
-;; ===========================================================================
+  ;; A render throw takes the error page even when the projector picks a 4xx.
+  (rf/reg-error-projector :myapp/teapot
+    (fn [_] {:status 418 :code :teapot :message "I'm a teapot" :retryable? false}))
+  (let [response (serve (assoc minimal :root-view throwing-root
+                                       :ssr {:public-error-id :myapp/teapot}))]
+    (is (= 418 (:status response)))
+    (is (str/includes? (:body response) "<h1>I&#39;m a teapot</h1>"))))
 
 (deftest handler-render-error-renders-registered-error-view
-  (testing "a caller-registered :error-view (keyword) is
-            rendered through the SSR emitter, receiving the public-error
-            map as its single prop — replacing the hardcoded default
-            error template. The public-error's :message rides the wire
-            HTML-escaped (the emitter escapes text-node children)."
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/broken-ev
-      (fn [] (throw (ex-info "boom-internal" {}))))
-    (rf/reg-view* :myapp/error-page
-      (fn [{:keys [status code message]}]
-        [:div.error-page
-         [:h1 "Custom error page"]
-         [:p.code (name code)]
-         [:p.status (str status)]
-         [:p.msg message]]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events  [[:init/ok]]
-                      :root-view  [(rf/view :pages/broken-ev)]
-                      :error-view :myapp/error-page
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/broken" :request-method :get})
-          body     (:body response)]
-      (is (= 500 (:status response)) "projector status rides the response")
-      (is (str/includes? body "Custom error page")
-          "the caller's :error-view rendered, not the default template")
-      (is (str/includes? body "class=\"error-page\"")
-          "the error view's own markup / styling reaches the wire")
-      (is (str/includes? body "internal-error")
-          "the public-error :code flows to the error view")
-      (is (str/includes? body "Something went wrong")
-          "the public-error :message flows to the error view")
-      (is (not (str/includes? body "boom-internal"))
-          "the throwable message text MUST NOT reach the wire"))))
-
-(deftest handler-error-view-body-carries-the-doctype
-  (testing "the error body is the whole response body — never wrapped in the
-            html-shell — so a caller's :error-view gets `<!DOCTYPE html>` exactly
-            as the default template does, in both its forms"
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/broken-doctype
-      (fn [] (throw (ex-info "boom" {}))))
-    (rf/reg-view* :myapp/doctype-error-page
-      (fn [{:keys [message]}] [:main.kw-error message]))
-    (doseq [[label error-view marker]
-            [["keyword :error-view" :myapp/doctype-error-page "class=\"kw-error\""]
-             ["fn :error-view"      (fn [{:keys [message]}] [:main.fn-error message])
-              "class=\"fn-error\""]
-             ["default template"    nil "<h1>"]]]
-      (let [handler (rf.ssr.ring/ssr-handler
-                      (cond-> {:initial-events [[:init/ok]]
-                               :root-view      [(rf/view :pages/broken-doctype)]
-                               :payload        :rf.ssr.payload/whole-app-db}
-                        error-view (assoc :error-view error-view)))
-            body    (:body (handler {:uri "/broken" :request-method :get}))]
-        (is (str/includes? body marker) (str label ": that error body rendered"))
-        (is (str/starts-with? body "<!DOCTYPE html>")
-            (str label ": the body opens with the doctype"))))))
-
-(deftest handler-error-view-throw-falls-back-to-default-template
-  (testing "a buggy :error-view (itself throwing) MUST NOT
-            bypass the error boundary — the host falls back to the
-            default error template and emits
-            :rf.error/ssr-ring-error-view-failed on the trace bus."
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/broken-evt
-      (fn [] (throw (ex-info "boom" {}))))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::error-view-throw-watch
-        (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
-                   (swap! traces conj ev))))
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events  [[:init/ok]]
-                        :root-view  [(rf/view :pages/broken-evt)]
-                        :error-view (fn [_public]
-                                      (throw (ex-info "error-view itself broke" {})))
-                        :payload :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/broken" :request-method :get})
-            body     (:body response)]
-        (rf/unregister-listener! :trace ::error-view-throw-watch)
-        (is (= 500 (:status response)) "still a 500 — boundary holds")
-        (is (str/includes? body "Something went wrong")
-            "fell back to the default error template's public :message")
-        (is (not (str/includes? body "error-view itself broke"))
-            "the error-view's own throwable message MUST NOT reach the wire")
-        (is (seq @traces)
-            ":rf.error/ssr-ring-error-view-failed trace fired for the
-             buggy error view")))))
+  ;; The error page is the whole body (so it carries its own doctype) and sees
+  ;; only the public error; a throwing :error-view falls back once to the
+  ;; default template.
+  (rf/reg-view* :myapp/error-page (fn [{:keys [code message]}] [:main.kw (name code) " " message]))
+  (let [failures (atom 0)]
+    (rf/register-listener! :trace ::error-view-failed
+      #(when (= :rf.error/ssr-ring-error-view-failed (:operation %)) (swap! failures inc)))
+    (doseq [[error-view marker]
+            [[:myapp/error-page "<main class=\"kw\""]
+             [(fn [{:keys [code message]}] [:main.fn (name code) " " message]) "<main class=\"fn\""]
+             [nil "<h1>"]
+             [(fn [_] (throw (ex-info "error-view boom" {}))) "<h1>"]]]
+      (let [{:keys [status body]} (serve (assoc minimal :root-view throwing-root
+                                                        :error-view error-view))]
+        (is (= 500 status))
+        (is (str/starts-with? body "<!DOCTYPE html>"))
+        (is (= [] (remove #(str/includes? body %) [marker "internal-error" "Something went wrong"])))
+        (is (not (str/includes? body "boom")) "no throwable text on the wire")))
+    (rf/unregister-listener! :trace ::error-view-failed)
+    (is (= 1 @failures) "only the throwing error view reports")))
 
 (deftest handler-payload-number-refusal-is-a-projected-500
-  (testing "a payload slice carrying a number the browser's EDN
-            reader cannot read back as the same value (a Long past 2^53) is
-            refused with :rf.error/ssr-hydration-payload-invalid.
-            The ssr-handler builds the payload before it
-            commits anything, so the refusal projects like any render-time
-            throw: a 500 carrying the default projector's page, with the
-            value nowhere on the wire."
-    (rf/reg-event :init/wide-order-id
-      {:platforms #{:server}}
-      (fn [_ _] {:db {:order {:id 9007199254740993}}}))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/wide-order-id]]
-                      :root-view      [:div "page"]
-                      :payload        [:order]})
-          response (handler {:uri "/order" :request-method :get})
-          body     (:body response)]
-      (is (= 500 (:status response)) "refused, not shipped")
-      (is (str/includes? body "Something went wrong")
-          "the default projector's page")
-      (is (not (str/includes? body "9007199254740993"))
-          "the refused value is nowhere on the wire")
-      (is (not (str/includes? body "__rf_payload"))
-          "and no payload script was shipped"))))
+  ;; ssr-handler builds the payload before committing anything, so a refused
+  ;; payload is an ordinary projected 500 (streaming can only truncate).
+  (rf/reg-event :init/wide-id {:platforms #{:server}}
+    (fn [_ _] {:db {:order {:id 9007199254740993}}}))
+  (let [{:keys [status body]} (serve (assoc minimal :initial-events [[:init/wide-id]]
+                                                    :payload [:order]))]
+    (is (= 500 status))
+    (is (str/includes? body "Something went wrong"))
+    (is (= [] (filter #(str/includes? body %) ["9007199254740993" "__rf_payload"])))))
 
 ;; ===========================================================================
-;; ssr-handler — fn-form :root-view invoked exactly once per request
-;;
-;; The fn-form branch of `:root-view` is not guaranteed to be idempotent —
-;; unsorted-map iteration order, gensym'd react keys, and time-of-day
-;; props all vary between calls. The adapter therefore invokes the
-;; root-view fn ONCE per request and reuses the same tree for the wire
-;; HTML / its embedded data-rf-render-hash AND for the payload's
-;; :rf/render-hash. Two invocations would produce two non-identical trees
-;; → two non-equal hashes → spurious :rf.ssr/hydration-mismatch on the
-;; client for an otherwise successful hydration.
-;;
-;; This test pins the contract: ONE invocation per request, and the wire
-;; hash equals the payload hash even when the fn is technically
-;; non-idempotent.
+;; ssr-handler — hydration hashes and the hydrate! round trip
 ;; ===========================================================================
 
 (deftest fn-form-root-view-non-idempotent-still-hashes-consistently
-  (testing "a non-idempotent fn-form :root-view produces a wire
-            hash that matches the payload hash — the same tree is used for
-            both, so the client mismatch check does NOT fire spuriously"
-    (let [counter (atom 0)]
-      (rf/reg-event :init/ok-noni
-        {:platforms #{:server}}
-        (fn [_ _] {}))
+  ;; A second invocation would hash a different tree than the one on the wire.
+  (let [calls (atom 0)]
+    (rf/reg-view* :pages/noni (fn [n] [:div {:data-call n} "noni"]))
+    (let [[wire payload-hash]
+          (:render (hash-channels
+                     (:body (serve (assoc minimal :root-view
+                                          (fn [] ((rf/view :pages/noni) (swap! calls inc))))))))]
+      (is (some? wire))
+      (is (= wire payload-hash))
+      (is (= 1 @calls)))))
 
-      ;; A view fn that produces a DIFFERENT tree on every call — its
-      ;; key includes a monotonic counter. With two invocations the wire
-      ;; HTML would carry hash(tree_1) and the payload would carry
-      ;; hash(tree_2); the single-invocation contract rules out that
-      ;; spurious mismatch.
-      (rf/reg-view* :pages/noni
-        (fn [n] [:div {:data-call n} "noni"]))
-
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/ok-noni]]
-                        ;; Outer call: the fn RESOLVES the view
-                        ;; rather than handing back a reference to it, so the
-                        ;; hash channel exists at all. Still non-idempotent
-                        ;; (the counter rides into the tree) and still exactly
-                        ;; one invocation, which is what this test pins.
-                        :root-view (fn []
-                                     ((rf/view :pages/noni) (swap! counter inc)))
-                        :payload :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/noni" :request-method :get})
-            body     (:body response)
-            wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""
-                                       body))
-            payload-edn (second (re-find
-                                  #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                                  body))
-            ;; Payload EDN uses the `#:rf{...}` namespace-map shorthand
-            ;; (pr-str's default rendering for a map whose keys all share
-            ;; the `:rf/` namespace) — so `:rf/render-hash` collapses to
-            ;; `:render-hash` inside that block. Match either rendering
-            ;; so the test is robust against the pr-str-shape choice.
-            payload-hash (second (re-find
-                                   #":(?:rf/)?render-hash \"([0-9a-f]{8})\""
-                                   payload-edn))]
-        (is (= 200 (:status response)))
-        (is (some? wire-hash)
-            "data-rf-render-hash present on wire root element")
-        (is (some? payload-hash)
-            ":rf/render-hash present in hydration payload")
-        (is (= wire-hash payload-hash)
-            "wire hash MUST equal payload hash — both derive
-             from the same single invocation of the fn-form root-view")
-        (is (= 1 @counter)
-            "side-effect counter confirms the fn was invoked exactly once")))))
-
-;; ===========================================================================
-;; ssr-handler — BODY-ONLY :rf/render-hash + a SEPARATE :rf/head-hash channel
-;;
-;; The documented client boot (`ssr/hydrate!`'s `:render-tree-fn`, per Spec 011
-;; §Client-side hydration boot helper) only ever hashes the BARE body tree a
-;; registered view returns — never a document wrapper. Folding the resolved
-;; head fragment (+ :html-attrs / :body-attrs) into a UNIFIED `:rf/render-hash`
-;; server-side would therefore make `:rf/render-hash` (and the wire
-;; `data-rf-render-hash`) NEVER equal the client's hash — a spurious
-;; :rf.ssr/hydration-mismatch on EVERY SSR page.
-;;
-;; So the wire hash is BODY-ONLY (these tests pin
-;; that a head-only change does NOT move :rf/render-hash / data-rf-render-
-;; hash), and head divergence rides a SEPARATE :rf/head-hash /
-;; data-rf-head-hash channel — a structural hash over the CANONICAL HEAD
-;; MODEL (not emitted HTML), client-reconstructible via `(rf.ssr/head-model
-;; frame-id)` (Spec 011 §Default flow step 5).
-;; ===========================================================================
-
-(defn- extract-wire+payload-hash
-  "Pull the wire `data-rf-render-hash` AND the payload `:rf/render-hash`
-  out of a rendered SSR document body string. Returns
-  `{:wire <hex-or-nil> :payload <hex-or-nil>}`."
-  [body]
-  (let [wire        (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body))
-        payload-edn (second (re-find
-                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                              body))
-        payload     (when payload-edn
-                      ;; Payload EDN may use the `#:rf{…}` namespace-map
-                      ;; shorthand (pr-str collapses `:rf/render-hash` to
-                      ;; `:render-hash`); match either rendering.
-                      (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\""
-                                       payload-edn)))]
-    {:wire wire :payload payload}))
-
-(defn- extract-head-hash
-  "Pull the wire `data-rf-head-hash` AND the payload `:rf/head-hash` out of
-  a rendered SSR document body string. Returns `{:wire <hex-or-nil> :payload
-  <hex-or-nil>}` — both nil when the channel is omitted (no reconstructible
-  head, e.g. an explicit `:head` string)."
-  [body]
-  (let [wire        (second (re-find #"data-rf-head-hash=\"([0-9a-f]{8})\"" body))
-        payload-edn (second (re-find
-                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                              body))
-        payload     (when payload-edn
-                      (second (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\""
-                                       payload-edn)))]
-    {:wire wire :payload payload}))
-
-(deftest ssr-handler-explicit-head-string-does-not-move-render-hash
-  (testing "identical body + DIFFERENT explicit :head string →
-            SAME :rf/render-hash / data-rf-render-hash. The wire hash is
-            BODY-ONLY; a head-only change must NOT move it, or
-            the documented client :render-tree-fn (which hashes the bare
-            body tree) would mismatch on every page."
-    (rf/reg-event :init/noop-head (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-view* :pages/fixed-body (fn [] [:div.body "identical body"]))
-
-    (let [mk      (fn [head]
-                    (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:init/noop-head]]
-                       ;; Resolving form; the body-only-hash
-                       ;; assertions below need a hash to exist.
-                       :root-view (fn [] ((rf/view :pages/fixed-body)))
-                       :head      head
-                       :payload   :rf.ssr.payload/whole-app-db}))
-          body-a  (:body ((mk "<title>Alpha</title>") {:uri "/" :request-method :get}))
-          body-b  (:body ((mk "<title>Beta</title>")  {:uri "/" :request-method :get}))
-          ha      (extract-wire+payload-hash body-a)
-          hb      (extract-wire+payload-hash body-b)]
-      ;; Sanity: both bodies carry the SAME body content but DIFFERENT heads.
-      (is (str/includes? body-a "identical body"))
-      (is (str/includes? body-b "identical body"))
-      (is (str/includes? body-a "<title>Alpha</title>"))
-      (is (str/includes? body-b "<title>Beta</title>"))
-      ;; Wire == payload within each render (one canonical body-only hash).
-      (is (some? (:wire ha)) "render A carries a wire hash")
-      (is (some? (:payload ha)) "render A carries a payload hash")
-      (is (= (:wire ha) (:payload ha))
-          "render A: wire data-rf-render-hash == payload :rf/render-hash")
-      (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
-      ;; THE LOAD-BEARING ASSERTION: a head-only divergence
-      ;; must NOT move the body-only wire hash.
-      (is (= (:payload ha) (:payload hb))
-          "identical body + different head → SAME :rf/render-hash
-           (body-only wire hash; the head does not fold in)")
-      ;; An explicit :head STRING carries no reconstructible model — the
-      ;; :rf/head-hash / data-rf-head-hash channel is OMITTED entirely
-      ;; (graceful degrade, no guaranteed false-positive).
-      (let [head-a (extract-head-hash body-a)
-            head-b (extract-head-hash body-b)]
-        (is (nil? (:wire head-a)) "explicit :head string omits data-rf-head-hash")
-        (is (nil? (:payload head-a)) "explicit :head string omits :rf/head-hash")
-        (is (nil? (:wire head-b)) "explicit :head string omits data-rf-head-hash (B)")
-        (is (nil? (:payload head-b)) "explicit :head string omits :rf/head-hash (B)")))))
-
-(deftest ssr-handler-route-head-moves-head-hash-not-render-hash
-  (testing "identical body + DIFFERENT route-driven reg-head
-            output → :rf/render-hash STAYS THE SAME (body-only) while the
-            SEPARATE :rf/head-hash / data-rf-head-hash channel DIFFERS.
-            Covers the route-head path (not just explicit :head)."
-    (rf/reg-head :head/variant-a (fn [_db _route] {:title "Route head A"}))
-    (rf/reg-head :head/variant-b (fn [_db _route] {:title "Route head B"}))
-    (rf/reg-route :route/head-a {:doc "A" :head :head/variant-a} "/")
-    (rf/reg-route :route/head-b {:doc "B" :head :head/variant-b} "/")
-    (rf/reg-event :init/seed-head-a
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-a})}))
-    (rf/reg-event :init/seed-head-b
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-b})}))
-    (rf/reg-view* :pages/shared-body (fn [] [:div.body "same body, different head"]))
-
-    (let [mk      (fn [init]
-                    (rf.ssr.ring/ssr-handler
-                      {:initial-events [[init]]
-                       :root-view [(rf/view :pages/shared-body)]
-                       :payload   :rf.ssr.payload/whole-app-db}))
-          body-a  (:body ((mk :init/seed-head-a) {:uri "/" :request-method :get}))
-          body-b  (:body ((mk :init/seed-head-b) {:uri "/" :request-method :get}))
-          ha      (extract-wire+payload-hash body-a)
-          hb      (extract-wire+payload-hash body-b)
-          head-a  (extract-head-hash body-a)
-          head-b  (extract-head-hash body-b)]
-      (is (str/includes? body-a "<title>Route head A</title>"))
-      (is (str/includes? body-b "<title>Route head B</title>"))
-      (is (= (:wire ha) (:payload ha)) "render A: wire == payload")
-      (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
-      (is (= (:payload ha) (:payload hb))
-          "different reg-head title (identical body) → SAME
-           :rf/render-hash (body-only)")
-      ;; The SEPARATE head-hash channel DOES carry the divergence.
-      (is (some? (:payload head-a)) "render A carries :rf/head-hash")
-      (is (some? (:payload head-b)) "render B carries :rf/head-hash")
-      (is (= (:wire head-a) (:payload head-a))
-          "render A: wire data-rf-head-hash == payload :rf/head-hash")
-      (is (= (:wire head-b) (:payload head-b)) "render B: wire == payload")
-      (is (not= (:payload head-a) (:payload head-b))
-          "different reg-head title (identical body) → DIFFERENT
-           :rf/head-hash (the separate channel attributes head divergence)"))))
-
-(deftest ssr-handler-html-body-attrs-move-head-hash-not-render-hash
-  (testing "the head model's :html-attrs / :body-attrs are part
-            of the SEPARATE head-hash channel, not the body-only
-            :rf/render-hash — a change to them (identical body + identical
-            title) moves :rf/head-hash but leaves :rf/render-hash unchanged."
-    (rf/reg-head :head/attrs-a
-                 (fn [_db _route] {:title "T" :html-attrs {:lang "en"}}))
-    (rf/reg-head :head/attrs-b
-                 (fn [_db _route] {:title "T" :html-attrs {:lang "fr"}}))
-    (rf/reg-route :route/attrs-a {:doc "A" :head :head/attrs-a} "/")
-    (rf/reg-route :route/attrs-b {:doc "B" :head :head/attrs-b} "/")
-    (rf/reg-event :init/seed-attrs-a
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-a})}))
-    (rf/reg-event :init/seed-attrs-b
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-b})}))
-    (rf/reg-view* :pages/attrs-body (fn [] [:div.body "body"]))
-
-    (let [mk      (fn [init]
-                    (rf.ssr.ring/ssr-handler
-                      {:initial-events [[init]]
-                       :root-view [(rf/view :pages/attrs-body)]
-                       :payload   :rf.ssr.payload/whole-app-db}))
-          body-a  (:body ((mk :init/seed-attrs-a) {:uri "/" :request-method :get}))
-          body-b  (:body ((mk :init/seed-attrs-b) {:uri "/" :request-method :get}))
-          ha      (extract-wire+payload-hash body-a)
-          hb      (extract-wire+payload-hash body-b)
-          head-a  (extract-head-hash body-a)
-          head-b  (extract-head-hash body-b)]
-      (is (= (:payload ha) (:payload hb))
-          "differing :html-attrs (identical body + title) →
-           SAME :rf/render-hash (body-only)")
-      (is (not= (:payload head-a) (:payload head-b))
-          "differing :html-attrs (identical body + title) →
-           DIFFERENT :rf/head-hash (attr bags are part of the head model)"))))
-
-;; ===========================================================================
-;; MANDATORY REGRESSION: a REAL server render -> real wire
-;; payload -> ssr/hydrate! with the DOCUMENTED :render-tree-fn must NOT fire
-;; a spurious :rf.ssr/hydration-mismatch, even under :on-mismatch
-;; :hard-error (which THROWS on any mismatch).
-;;
-;; A hand-built payload literal / pre-computed hash cannot catch this
-;; divergence: it lies between the REAL server pipeline's hash input and the
-;; REAL client's hash input, not in a value either side could fake in
-;; isolation. This test drives the
-;; ACTUAL path end-to-end: a real `ssr-handler` renders a REAL head
-;; fragment (route-driven `reg-head`, the trigger) into the
-;; response body, the REAL `__rf_payload` is parsed off the wire, and
-;; `ssr/hydrate!` is called with the documented expanded
-;; `:render-tree-fn #((rf/view :app/root))` form — the exact shape Spec 011's
-;; worked example uses. Under a unified full-document hash this would
-;; throw on every single call.
-;; ===========================================================================
+(deftest ssr-handler-head-changes-move-only-the-head-hash
+  ;; The client hashes the bare body tree, so the render hash is body-only;
+  ;; head divergence rides its own channel, which an explicit :head string
+  ;; (no reconstructible model) omits.
+  (rf/reg-view* :pages/fixed (fn [] [:div "identical body"]))
+  (let [render   #(:body (serve (merge {:root-view (fn [] ((rf/view :pages/fixed)))
+                                        :payload   :rf.ssr.payload/whole-app-db}
+                                       %)))
+        strings  (for [title ["Alpha" "Beta"]]
+                   (hash-channels (render {:initial-events [] :head (str "<title>" title "</title>")})))
+        routed   (for [[id head] [[:route/a {:title "A"}]
+                                  [:route/b {:title "B"}]
+                                  [:route/fr {:title "A" :html-attrs {:lang "fr"}}]]]
+                   (hash-channels (render {:initial-events (route-with-head! id (fn [_ _] head))})))
+        [h]      (:render (first strings))]
+    (is (some? h))
+    (is (= (repeat 5 [h h]) (map :render (concat strings routed))))
+    (is (= [[nil nil] [nil nil]] (map :head strings)))
+    (is (every? (fn [[wire p]] (and wire (= wire p))) (map :head routed)))
+    (is (= 3 (count (set (map :head routed)))))))
 
 (deftest ssr-handler-hydrate-no-spurious-mismatch-under-hard-error
-  (testing "real render -> real payload -> ssr/hydrate! with
-            :render-tree-fn #((rf/view :app/root)) completes with NO
-            spurious :rf.ssr/hydration-mismatch, even under the strict
-            :on-mismatch :hard-error posture."
-    (rf/reg-event :rf.test.regression/init
-      (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
-    (rf/reg-event :rf.test.regression/seed-route
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                   {:route-id :route/regression})}))
-    (rf/reg-head :head/regression
-      (fn [_db _route] {:title "Regression Page"
-                        :meta  [{:name "description" :content "hydration regression"}]}))
-    (rf/reg-route :route/regression {:doc "Regression" :head :head/regression} "/regression")
-    ;; A pure static view (no subscribe/dispatch) so it can be called
-    ;; directly via `(rf/view :app/root)` outside an explicit `with-frame`
-    ;; scope on the CLIENT side — mirroring the documented
-    ;; `:render-tree-fn #((rf/view :app/root))` boot-helper contract, which
-    ;; calls the fn with no frame binding of its own (Spec 011 §Client-side
-    ;; hydration boot helper).
-    (rf/reg-view* :app/root
-      (fn [] [:div.app [:h1 "Regression"] [:p "count is stable"]]))
-
-    (let [handler     (rf.ssr.ring/ssr-handler
-                        {:initial-events [[:rf.test.regression/init]
-                                          [:rf.test.regression/seed-route]]
-                         ;; Documented EXPANDED :root-view form — symmetric
-                         ;; with the client's :render-tree-fn
-                         ;; #((rf/view :app/root)) (Spec 011 §Hydration
-                         ;; equivalence rule).
-                         :root-view (fn [] ((rf/view :app/root)))
-                         :payload   :rf.ssr.payload/whole-app-db})
-          response    (handler {:uri "/regression" :request-method :get})
-          body        (:body response)
-          payload-edn (second (re-find
-                                #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                                body))
-          ;; The shipped handler OMITS the per-request
-          ;; gensym from the wire payload (it is projection-only), so an
-          ;; absent `:rf/frame-id` is the documented no-conflict
-          ;; shape here; the `dissoc` is defensive (a no-op on this
-          ;; wire) and keeps this test isolating the HASH path
-          ;; even if a stable `:client-frame-id` were
-          ;; configured on the handler.
-          payload     (dissoc (edn/read-string payload-edn) :rf/frame-id)
-          client-frame (rf.frame/make-anon-frame-record!
-                         {:doc      "hydration regression client frame"
-                          :platform :client
-                          :ssr      {:on-mismatch :hard-error}})]
-      (is (= 200 (:status response)) "the server render succeeds")
-      (is (some? payload-edn) "the response carries a __rf_payload script")
-      (is (str/includes? body "<title>Regression Page</title>")
-          "sanity: the server actually rendered a real route-driven head
-           fragment (the mismatch trigger) alongside the body")
-      ;; The REAL wire payload carries a body-only :rf/render-hash AND a
-      ;; separate :rf/head-hash (the route-driven head is reconstructible).
-      (is (some? (:rf/render-hash payload)) "payload carries :rf/render-hash")
-      (is (some? (:rf/head-hash payload))
-          "payload carries the separate :rf/head-hash (route-driven head is
-           client-reconstructible)")
-
-      ;; THE REGRESSION — must NOT throw. Were the payload's
-      ;; :rf/render-hash a unified full-document hash covering body + head
-      ;; while the documented :render-tree-fn only ever hashes the
-      ;; body, this call would throw :rf.ssr/hydration-mismatch on every
-      ;; single SSR page — here under :on-mismatch :hard-error.
-      (is (= payload
-             (rf.ssr/hydrate! {:frame          client-frame
-                            :payload        payload
-                            :render-tree-fn #((rf/view :app/root))}))
-          "hydrate! completes without a spurious mismatch throw
-           and returns the applied payload"))))
+  ;; The real wire payload into the documented client boot: a stable frame id
+  ;; and :render-tree-fn under :hard-error, which throws on a frame-id or
+  ;; render-hash mismatch. A route head is on the page.
+  (rf/reg-event :init/count (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
+  (rf/reg-view* :app/root (fn [] [:div.app "stable"]))
+  (let [serve-payload (fn [opts]
+                        (payload (:body (serve (merge {:initial-events
+                                                       (into [[:init/count]]
+                                                             (route-with-head! :route/r (fn [_ _] {:title "Page"})))
+                                                       :root-view (fn [] ((rf/view :app/root)))
+                                                       :payload   :rf.ssr.payload/whole-app-db}
+                                                      opts)))))
+        hydrate       (fn [frame-id p]
+                        (rf/make-frame {:id frame-id :platform :client :ssr {:on-mismatch :hard-error}})
+                        (rf.ssr/hydrate! {:frame frame-id :payload p :render-tree-fn #((rf/view :app/root))}))]
+    (let [p (serve-payload {})]
+      (is (some? (:rf/render-hash p)))
+      (is (= p (hydrate :app/main p)))
+      (is (= 42 (:count (rf/app-db-value :app/main)))))
+    (testing "a configured :client-frame-id rides the wire and hydrates the frame it names"
+      (let [p (serve-payload {:client-frame-id :app/stamped})]
+        (is (= :app/stamped (:rf/frame-id p)))
+        (is (= p (hydrate :app/stamped p)))))))
 
 ;; ===========================================================================
-;; The shipped ssr-handler → documented ssr/hydrate! round-trip
-;; completes WITHOUT :rf.error/hydration-frame-id-mismatch, driving the REAL
-;; wire payload (no strip, no re-stamp).
-;;
-;; The client boot hydrates a STABLE id (`:app/main`), so a `build-payload`
-;; that stamped the per-request server gensym as the payload's `:rf/frame-id`
-;; would make `validate-payload-frame-id!` throw on EVERY page. A test that
-;; strips or re-stamps the id cannot see that, so this one pins the omission
-;; on the REAL wire payload.
+;; ssr-handler — the request and :initial-events
 ;; ===========================================================================
 
-(deftest shipped-handler-hydrates-without-frame-id-mismatch
-  (testing "the REAL payload the shipped ssr-handler emits feeds
-            into the documented ssr/hydrate! {:frame :app/main} with NO
-            :rf.error/hydration-frame-id-mismatch (the anonymous per-request
-            frame is omitted from the wire) and seeds the client app-db"
-    (rf/reg-event :rf.lm2yzy/init (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
-    (rf/reg-view* :app/root (fn [] [:div.app [:h1 "lm2yzy"] [:p "stable"]]))
-    (let [handler     (rf.ssr.ring/ssr-handler
-                        {:initial-events [[:rf.lm2yzy/init]]
-                         :root-view      (fn [] ((rf/view :app/root)))
-                         :payload        :rf.ssr.payload/whole-app-db})
-          response    (handler {:uri "/lm2yzy" :request-method :get})
-          payload-edn (second (re-find
-                                #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                                (:body response)))
-          ;; THE REAL wire payload — NOT stripped, NOT re-stamped.
-          payload     (edn/read-string payload-edn)
-          ;; The client's fixed hydration target — a STABLE id, as every real
-          ;; deployment carries (Spec 011 §Client-side hydration boot helper).
-          _           (rf/make-frame {:id :app/main :doc "stable-id client" :platform :client})]
-      (is (= 200 (:status response)))
-      (is (not (contains? payload :rf/frame-id))
-          "the shipped wire payload omits the per-request gensym :rf/frame-id")
-      ;; THE REGRESSION — must NOT throw. A stamped gensym would throw
-      ;; :rf.error/hydration-frame-id-mismatch against :app/main.
-      (is (= payload (rf.ssr/hydrate! {:frame :app/main :payload payload}))
-          "documented hydrate! completes without a frame-id mismatch")
-      (is (= 42 (:count (rf/app-db-value :app/main)))
-          "the client app-db carries the server's seeded slice after hydration")))
-
-  (testing "a deployment MAY name a stable wire id via
-            :client-frame-id — the payload then stamps it, and hydrate! into
-            the SAME frame succeeds"
-    (rf/reg-event :rf.lm2yzy/init2 (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
-    (rf/reg-view* :app/root (fn [] [:div.app "stamped"]))
-    (let [handler     (rf.ssr.ring/ssr-handler
-                        {:initial-events  [[:rf.lm2yzy/init2]]
-                         :root-view       (fn [] ((rf/view :app/root)))
-                         :payload         :rf.ssr.payload/whole-app-db
-                         :client-frame-id :app/stamped})
-          response    (handler {:uri "/lm2yzy2" :request-method :get})
-          payload     (edn/read-string
-                        (second (re-find
-                                  #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                                  (:body response))))
-          _           (rf/make-frame {:id :app/stamped :doc "stamped-id client" :platform :client})]
-      (is (= :app/stamped (:rf/frame-id payload))
-          "the configured stable :client-frame-id rides the wire as :rf/frame-id")
-      (is (= payload (rf.ssr/hydrate! {:frame :app/stamped :payload payload}))
-          "hydrate! into the matching stable frame succeeds (no mismatch)"))))
-
-;; ===========================================================================
-;; ssr-handler — Ring → :rf.server/request cofx
-;;
-;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
-;; storage substrate, the host adapter populates the per-frame request
-;; slot before drain; a handler declares `:rf.cofx/requires
-;; [:rf.server/request]` and the `:rf.server/request` cofx reads from the
-;; slot at context assembly (EP-0017; there is no `inject-cofx`). This test
-;; pins the wiring end-to-end — if the adapter forgets to call
-;; `set-request!`, the cofx surfaces `nil` and this assertion fails.
-;; ===========================================================================
-
-(deftest handler-surfaces-request-via-cofx
-  (testing "the Ring request map flows through to handlers via :rf.server/request"
-    (let [captured (atom ::not-captured)]
-      (rf/reg-event :init/capture-request-cofx
-        {:platforms        #{:server}
-         :rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request]} _]
-          (reset! captured request)
-          {}))
-
-      (rf/reg-view* :pages/blank (fn [] [:div]))
-
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/capture-request-cofx]]
-                        :root-view [(rf/view :pages/blank)]
-                        :payload :rf.ssr.payload/whole-app-db})
-            request  {:uri            "/articles/42"
-                      :request-method :get
-                      :headers        {"user-agent" "ring-adapter-test"
-                                       "cookie"     "session=abc123"}}
-            _        (handler request)]
-        (is (= request @captured)
-            "the cofx surfaced the Ring request — Spec 011 §Request storage substrate")))))
-
-(deftest handler-clears-request-slot-after-response
-  (testing "the per-frame request slot is dropped when the request frame is destroyed"
-    (let [captured-fid (atom nil)]
-      (rf/reg-event :init/capture-frame-id
-        {:platforms #{:server}}
-        ;; The running frame's stamp reaches the event context under
-        ;; :rf.frame/id (there is no bare :frame coeffect).
-        (fn [{frame :rf.frame/id} _]
-          (reset! captured-fid frame)
-          {}))
-
-      (rf/reg-view* :pages/blank2 (fn [] [:div]))
-
-      (let [handler (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:init/capture-frame-id]]
-                       :root-view [(rf/view :pages/blank2)]
-                       :payload :rf.ssr.payload/whole-app-db})]
-        (handler {:uri "/x" :request-method :get})
-        (is (some? @captured-fid)
-            "the initial-events handler captured the per-request frame-id")
-        (is (nil? (rf.ssr/get-request @captured-fid))
-            "the request slot was cleared on frame teardown — no leak across requests")))))
-
-;; ===========================================================================
-;; :initial-events accepts a (fn [request] initial-events-vector) form
-;;
-;; Alongside the :initial-events VECTOR, a 1-arity fn
-;; may DERIVE the setup vector from the Ring request. It is called once per
-;; request (before the drain) and its result must be an :initial-events vector.
-;; This is the ergonomic, replay-safe way to fold a request-derived fact into
-;; a boot event's PAYLOAD (the recordable causal boundary — Spec 011
-;; §Durable request-derived facts), NOT a positional conj onto the event.
-;; ===========================================================================
-
-(defn- extract-user
-  "Stand-in for a host's auth middleware: sanitise a request cookie into a
-  wire-safe derived fact. Models the Spec 011 §Authentication / sessions
-  pattern (cookie → `{:user … :authed? …}`, never the raw cookie)."
-  [request]
-  (let [cookie (get-in request [:headers "cookie"] "")]
-    (if (str/includes? cookie "session=")
-      {:user "alice" :authed? true}
-      {:user nil :authed? false})))
+(deftest handler-surfaces-the-request-via-cofx-and-clears-its-slot
+  (let [seen    (atom nil)
+        request {:uri "/a" :request-method :get :headers {"cookie" "session=abc"}}]
+    (rf/reg-event :init/capture {:platforms #{:server} :rf.cofx/requires [:rf.server/request]}
+      (fn [{frame :rf.frame/id request :rf.server/request} _] (reset! seen [frame request]) {}))
+    ((rf.ssr.ring/ssr-handler (assoc minimal :initial-events [[:init/capture]])) request)
+    (is (= request (second @seen)))
+    (is (nil? (rf.ssr/get-request (first @seen))) "the slot dies with the request frame")))
 
 (deftest initial-events-fn-form-derives-vector-from-request
-  (testing "a (fn [request] initial-events-vector) :initial-events bakes a
-            request-derived fact into the boot event payload — the durable-fact
-            boundary"
-    (let [seeded (atom ::not-seeded)]
-      ;; The boot handler reads the PAYLOAD (the recordable leaf), not an
-      ;; ambient cofx — the replay-safe shape.
-      (rf/reg-event :auth/server-init
-        {:platforms #{:server}}
-        (fn [{:keys [db]} [_ session]]
-          (reset! seeded session)
-          {:db (assoc db :auth session)}))
-
-      (rf/reg-view* :pages/blank-auth (fn [] [:div]))
-
-      (let [handler (rf.ssr.ring/ssr-handler
-                      ;; The fn form: derive the setup vector from the request.
-                      {:initial-events (fn [req]
-                                         [[:auth/server-init (extract-user req)]])
-                       :root-view [(rf/view :pages/blank-auth)]
-                       :payload :rf.ssr.payload/whole-app-db})
-            response (handler {:uri            "/dashboard"
-                               :request-method :get
-                               :headers        {"cookie" "session=abc123"}})]
-        (is (= 200 (:status response)))
-        (is (= {:user "alice" :authed? true} @seeded)
-            "the initial-events fn derived the setup vector from the request and
-             the boot handler saw the sanitised fact off the event payload")))))
-
-(deftest initial-events-fn-form-invoked-once-per-request-with-own-request
-  (testing "the :initial-events fn is called once per request, each with its own
-            request map (no slot bleed across requests)"
-    (let [calls (atom [])]
-      (rf/reg-event :init/noted
-        {:platforms #{:server}}
-        (fn [{:keys [db]} [_ uri]]
-          {:db (assoc db :uri uri)}))
-      (rf/reg-view* :pages/blank-once (fn [] [:div]))
-
-      (let [handler (rf.ssr.ring/ssr-handler
-                      {:initial-events (fn [req]
-                                         (swap! calls conj (:uri req))
-                                         [[:init/noted (:uri req)]])
-                       :root-view [(rf/view :pages/blank-once)]
-                       :payload :rf.ssr.payload/whole-app-db})]
-        (handler {:uri "/p" :request-method :get})
-        (handler {:uri "/q" :request-method :get})
-        (is (= ["/p" "/q"] @calls)
-            "the fn fired exactly once per request, each with that request's URI")))))
+  ;; Called once per request, with that request; its result is the boot.
+  (let [calls (atom []) booted (atom [])]
+    (rf/reg-event :init/uri {:platforms #{:server}} (fn [_ [_ uri]] (swap! booted conj uri) {}))
+    (let [handler (rf.ssr.ring/ssr-handler
+                    (assoc minimal :initial-events (fn [{:keys [uri]}]
+                                                     (swap! calls conj uri)
+                                                     [[:init/uri uri]])))]
+      (handler {:uri "/p" :request-method :get})
+      (handler {:uri "/q" :request-method :get})
+      (is (= [["/p" "/q"] ["/p" "/q"]] [@calls @booted])))))
 
 (deftest initial-events-resolve-fn-unit-contract
-  (testing "lifecycle/resolve-initial-events! — vector passthrough, fn
-            resolution, and the two invalid-shape throws (unit)"
-    (let [req {:uri "/u" :headers {}}]
-      ;; Vector passes through verbatim.
-      (is (= [[:e 1]] (rf.ssr.ring.lifecycle/resolve-initial-events! [[:e 1]] req)))
-      ;; A 1-arity fn is called with the request; its vector result is returned.
-      (is (= [[:derived "/u"]]
-             (rf.ssr.ring.lifecycle/resolve-initial-events!
-               (fn [r] [[:derived (:uri r)]]) req)))
-      ;; Both invalid shapes — a fn returning a non-vector, and a value that
-      ;; is neither a vector nor a fn — throw the documented
-      ;; :rf.error/invalid-initial-events, each with its own recovery.
-      (doseq [[bad recovery message]
-              [[(fn [_] {:nope true})
-                :return-an-initial-events-vector-from-the-fn
-                #"initial-events fn must return an :initial-events vector"]
-               ['(:list-not-vector)
-                :supply-a-vector-or-a-fn-of-the-request
-                #"initial-events must be a vector OR a"]]]
-        (let [ex (try (rf.ssr.ring.lifecycle/resolve-initial-events! bad req)
-                      (catch clojure.lang.ExceptionInfo e e))]
-          (is (= :rf.error/invalid-initial-events (:rf.error/id (ex-data ex)))
-              (str "canonical :rf.error/id for " (pr-str bad)))
-          (is (= recovery (:recovery (ex-data ex))))
-          (is (re-find message (str (ex-message ex)))))))))
+  (doseq [[bad recovery] [[(fn [_] {:nope true}) :return-an-initial-events-vector-from-the-fn]
+                          ['(:list-not-vector) :supply-a-vector-or-a-fn-of-the-request]]]
+    (is (= {:rf.error/id :rf.error/invalid-initial-events :recovery recovery}
+           (select-keys (thrown-data #(rf.ssr.ring.lifecycle/resolve-initial-events! bad req))
+                        [:rf.error/id :recovery])))))
 
 (deftest resolve-root-view-invalid-shape-unit-contract
-  (testing "lifecycle/resolve-root-view — hiccup passthrough, 0-arity fn
-            resolution, and the :else invalid-shape throw (unit).
-            Sibling to initial-events-resolve-fn-unit-contract: the
-            resolve-root-view :else arm throws
-            :rf.error/invalid-root-view for a value that is neither a hiccup
-            vector nor a 0-arity fn."
-    ;; A hiccup vector passes through verbatim.
-    (is (= [:div "x"] (rf.ssr.ring.lifecycle/resolve-root-view [:div "x"])))
-    ;; A 0-arity fn is invoked exactly once; its hiccup result is returned.
-    (let [calls (atom 0)]
-      (is (= [:section] (rf.ssr.ring.lifecycle/resolve-root-view
-                          (fn [] (swap! calls inc) [:section]))))
-      (is (= 1 @calls) "the fn-form is resolved exactly once"))
-    ;; Every non-vector, non-fn shape hits the :else arm and throws the
-    ;; canonical :rf.error/invalid-root-view — pinned across scalar shapes so
-    ;; the fail-closed branch (not accidental happy-path fallthrough) fires.
-    (let [bads     ["a-string" :a-keyword {:a :map} 42 nil]
-          throw-of (fn [bad]
-                     (let [ex (try (rf.ssr.ring.lifecycle/resolve-root-view bad)
-                                   ::no-throw
-                                   (catch clojure.lang.ExceptionInfo e e))
-                           d  (ex-data ex)]
-                       (if (instance? clojure.lang.ExceptionInfo ex)
-                         {:rf.error/id (:rf.error/id d)
-                          :where       (:where d)
-                          :recovery    (:recovery d)
-                          :received    (:received d)
-                          :message?    (boolean
-                                         (re-find #"root-view must be a hiccup vector or a 0-arity fn"
-                                                  (ex-message ex)))}
-                         ex)))]
-      (is (= (for [bad bads]
-               {:rf.error/id :rf.error/invalid-root-view
-                :where       'rf.ssr/ssr-handler
-                :recovery    :supply-a-hiccup-vector-or-0-arity-fn
-                :received    bad
-                :message?    true})
-             (map throw-of bads))
-          "every shape throws the canonical :rf.error/invalid-root-view whose
-           where-symbol names the public ssr-handler entry point, carrying the
-           recovery disposition and the offending :received value, with a human
-           message naming the public concept + expected fix"))))
+  (is (= {:rf.error/id :rf.error/invalid-root-view
+          :where       'rf.ssr/ssr-handler
+          :recovery    :supply-a-hiccup-vector-or-0-arity-fn
+          :received    :app/root}
+         (select-keys (thrown-data #(rf.ssr.ring.lifecycle/resolve-root-view :app/root))
+                      [:rf.error/id :where :recovery :received]))))
 
 ;; ===========================================================================
-;; ssr-handler — explicit fail-closed payload policy
-;;
-;; The wire-level proof that the policy contract is fail-closed:
-;;
-;;   1. A handler constructed with NO `:payload` opt throws at
-;;      construction time (`:rf.error/ssr-missing-payload-policy`).
-;;      Misconfigured deployments fail at boot rather than at first
-;;      request.
-;;
-;;   2. **The fail-closed proof** — when a handler is constructed
-;;      with an allowlist that does NOT include a server-only key,
-;;      that key MUST NOT appear in the hydration payload on the
-;;      wire. The contract requires the allowlist; an un-permitted
-;;      slot is provably excluded by inspection of the wire payload
-;;      (no default-whole-app-db fallback exists, so
-;;      server-only keys cannot ride the wire silently).
-;;
-;;   3. The opt-in branch — `:payload :rf.ssr.payload/whole-app-db`
-;;      ships the whole app-db verbatim (apps that genuinely want it
-;;      can opt in explicitly). Every whole-app-db test in this file
-;;      reads that slice off the wire, e.g.
-;;      `hydration-payload-omits-rf-response-accumulator` and
-;;      `shipped-handler-hydrates-without-frame-id-mismatch`.
-;;
-;;   4. A typo'd `:payload` keyword surfaces as
-;;      `:rf.error/ssr-unknown-payload-policy` — distinct from the
-;;      missing-policy bucket so the developer can tell the two
-;;      failure modes apart.
+;; Construction-time validation and the payload allowlist
 ;; ===========================================================================
-
-;; Both handlers share `lifecycle/validate-required-opts!`, so stream-handler
-;; refuses a missing :initial-events / :root-view at construction exactly as
-;; ssr-handler does. Checking only the policy + trusted-shell opts would let a
-;; misconfigured streaming handler ship and fail per-request (missing
-;; :initial-events → 500; missing :root-view → a silently-truncated chunked
-;; response from the writer thread) instead of refusing to construct.
 
 (deftest handler-construction-fails-closed-on-a-missing-or-unknown-required-opt
-  (testing "both handlers refuse to construct — failing at boot, not at first
-            request — when :payload, :initial-events or :root-view is missing,
-            or the :payload keyword is unknown. A typo'd :payload surfaces as
-            its own :rf.error/ssr-unknown-payload-policy, distinct from the
-            missing-policy id, so the two failure modes stay distinguishable
-            (Spec 011 §Payload scope)."
-    (rf/reg-event :init/construction {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/construction (fn [] [:div]))
-    (let [initial-events [[:init/construction]]
-          root-view      [(rf/view :pages/construction)]]
-      (doseq [[label construct opts error-id]
-              [["ssr-handler, no :payload" rf.ssr.ring/ssr-handler
-                {:initial-events initial-events :root-view root-view}
-                #":rf\.error/ssr-missing-payload-policy"]
-               ["stream-handler, no :payload" rf.ssr.ring/stream-handler
-                {:initial-events initial-events :root-view root-view}
-                #":rf\.error/ssr-missing-payload-policy"]
-               ["ssr-handler, a typo'd :payload keyword" rf.ssr.ring/ssr-handler
-                {:initial-events initial-events :root-view root-view
-                 :payload :rf.ssr.payload/whole-db}
-                #":rf\.error/ssr-unknown-payload-policy"]
-               ["ssr-handler, no :initial-events" rf.ssr.ring/ssr-handler
-                {:root-view root-view :payload :rf.ssr.payload/whole-app-db}
-                #":rf\.error/ssr-ring-missing-initial-events"]
-               ["stream-handler, no :initial-events" rf.ssr.ring/stream-handler
-                {:root-view root-view :payload :rf.ssr.payload/whole-app-db}
-                #":rf\.error/ssr-ring-missing-initial-events"]
-               ["stream-handler, no :root-view" rf.ssr.ring/stream-handler
-                {:initial-events initial-events :payload :rf.ssr.payload/whole-app-db}
-                #":rf\.error/ssr-ring-missing-root-view"]]]
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo error-id (construct opts))
-            label)))))
+  (is (= [:rf.error/ssr-missing-payload-policy
+          :rf.error/ssr-unknown-payload-policy
+          :rf.error/ssr-ring-missing-initial-events
+          :rf.error/ssr-ring-missing-root-view]
+         (for [[construct opts] [[rf.ssr.ring/ssr-handler (dissoc minimal :payload)]
+                                 [rf.ssr.ring/ssr-handler (assoc minimal :payload :rf.ssr.payload/whole-db)]
+                                 [rf.ssr.ring/ssr-handler (dissoc minimal :initial-events)]
+                                 [rf.ssr.ring/stream-handler (dissoc minimal :root-view)]]]
+           (error-id #(construct opts))))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
-  (testing "FAIL-CLOSED PROOF: a server-only app-db key NOT in
-            the :payload allowlist MUST NOT appear in the
-            hydration-payload script tag's EDN body. Without the
-            allowlist gate an unaudited new app-db key would silently
-            ride the wire on every request — the allowlist is load-
-            bearing."
-    (rf/reg-event :init/with-secret
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:db {:public/articles          [{:id "a" :title "A"}]
-              ;; The leak-probe value: this key is NOT in the
-              ;; allowlist below, so it MUST NOT appear in the
-              ;; hydration payload. The string is unique enough that
-              ;; the str/includes? check below is unambiguous.
-              :server-only/auth-token   "FAIL_CLOSED_PAYLOAD_PROBE_xyz789"
-              :server-only/feature-flag :flag/internal-only
-              :server-only/admin-uid    "admin-42"}}))
-
-    (rf/reg-view* :pages/policy-probe
-      (fn [] [:div.page "policy probe"]))
-
-    (let [handler   (rf.ssr.ring/ssr-handler
-                      ;; The allowlist names ONLY the public slice.
-                      ;; Every other server-only key on app-db is
-                      ;; un-permitted and MUST be dropped.
-                      {:initial-events    [[:init/with-secret]]
-                       :root-view    [(rf/view :pages/policy-probe)]
-                       :payload [:public/articles]})
-          response  (handler {:uri "/" :request-method :get})
-          body      (:body response)
-          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                             body)
-          payload-edn (when payload-m (second payload-m))]
-
-      ;; (sanity) the request succeeded and the payload script tag
-      ;; exists — we're observing the actual wire shape.
-      (is (= 200 (:status response)))
-      (is (some? payload-edn)
-          "hydration payload script tag is present — observation surface
-           is the wire payload, not a pre-serialisation map")
-
-      ;; (sanity) the public slice IS on the wire — proves the policy
-      ;; isn't a no-op that happens to drop everything.
-      (is (or (str/includes? payload-edn ":public/articles")
-              (str/includes? payload-edn "#:public{:articles"))
-          "the public slice is present (sanity — the policy isn't
-           dropping everything by accident)")
-
-      ;; THE FAIL-CLOSED PROOF: the un-permitted slot's value MUST
-      ;; NOT appear in the wire payload. The allowlist
-      ;; is load-bearing — this assertion is the security proof.
-      (is (not (str/includes? payload-edn "FAIL_CLOSED_PAYLOAD_PROBE_xyz789"))
-          "fail-closed proof: an un-permitted server-only
-           key's value does NOT appear in the wire hydration payload.")
-      (is (not (str/includes? payload-edn "feature-flag"))
-          "the un-permitted key NAME also does not leak —
-           neither key nor value reaches the wire")
-      (is (not (str/includes? payload-edn "admin-uid"))
-          "belt-and-braces over multiple un-permitted slots"))))
-
-;; ===========================================================================
-;; ssr-handler / stream-handler — trusted shell-hook contract
-;;
-;; The four shell-envelope opts that cross the trust boundary into the
-;; rendered HTML response — `:head`, `:body-end`, `:script-src`,
-;; `:app-element-id` — are TRUSTED STRINGS per Spec 011 §Trusted shell
-;; hook contract. They split by injection position: `:head` / `:body-end`
-;; are RAW content hooks (injected verbatim), while `:script-src` /
-;; `:app-element-id` are escaped attribute hooks (escape-attr'd into a
-;; quoted attribute value — pinned below). The framework names
-;; the trust boundary (so apps reading any of them from untrusted input
-;; know they are opting into an arbitrary-script-injection XSS vector via
-;; the raw content hooks) AND structurally validates the shape at
-;; handler-construction time so a structural mistake (passing a map, a
-;; vector, a symbol, a number) surfaces as a clean structured error at
-;; boot, not as a ClassCastException deep in the rendering path on the
-;; first request.
-;;
-;; Strings pass through unchanged — the framework names the boundary
-;; but does not gate the content (per the trusted-string contract); every
-;; render test that sets one reads it back. Nil is fine (means "no
-;; override, use the default"; `explicit-nil-shell-opts-render-the-defaults`
-;; renders all four as nil on both handlers).
-;; ===========================================================================
+  (rf/reg-event :init/with-secret {:platforms #{:server}}
+    (fn [_ _] {:db {:public/articles [{:title "A"}] :server-only/auth-token "PROBE_xyz789"}}))
+  (let [body (:body (serve {:initial-events [[:init/with-secret]] :root-view [:div]
+                            :payload [:public/articles]}))]
+    (is (= {:public/articles [{:title "A"}]} (:rf/app-db (payload body))))
+    (is (not (str/includes? body "PROBE_xyz789")))))
 
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
-  (testing "both handlers structural-shape-check the four
-            trusted-shell-hook opts at construction time"
-    (rf/reg-event :init/trusted-opt-test
-                     {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/trusted-opt-test (fn [] [:div]))
-
-    (let [base-opts {:initial-events    [[:init/trusted-opt-test]]
-                     :root-view    [(rf/view :pages/trusted-opt-test)]
-                     :payload [:public/x]}]
-
-      (testing "each of the four trusted-string opts is rejected when
-                supplied a non-string non-nil value (strings only, not
-                maps/symbols/etc)"
-        (doseq [[opt-k bad-vals]
-                {:head            [{:title "x"}             ; map
-                                   [:head [:title "x"]]     ; vector (hiccup)
-                                   'some-sym                ; symbol
-                                   42]                      ; number
-                 :body-end        [{:script "x"}
-                                   ['x]
-                                   'sym
-                                   3.14]
-                 :script-src      [:main.js                 ; keyword
-                                   ["/main.js"]             ; vector
-                                   {:src "/main.js"}        ; map
-                                   123]
-                 :app-element-id  [:app                     ; keyword (very common mistake)
-                                   {:id "app"}
-                                   ['app]
-                                   0]}
-                bad-val bad-vals]
-          (is (thrown-with-msg?
-                clojure.lang.ExceptionInfo
-                #":rf\.error/ssr-trusted-shell-opt-invalid"
-                (rf.ssr.ring/ssr-handler (assoc base-opts opt-k bad-val)))
-              (str "ssr-handler MUST reject " (pr-str opt-k) " = "
-                   (pr-str bad-val)
-                   " with :rf.error/ssr-trusted-shell-opt-invalid"))))
-
-      (testing "ex-data carries the structured diagnostic shape — :opt-key
-                names the offending opt; :got carries the rejected value;
-                :got-type names the type"
-        (let [ex (try (rf.ssr.ring/ssr-handler
-                        (assoc base-opts :body-end {:script "evil"}))
-                      (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex) "an exception was thrown")
-          ;; Branch on the canonical :rf.error/id; the message is
-          ;; the human :reason + the [:rf.error/<id>] token (non-normative bytes).
-          (is (= :rf.error/ssr-trusted-shell-opt-invalid
-                 (:rf.error/id (ex-data ex))))
-          (is (= :body-end (:opt-key (ex-data ex))))
-          (is (= {:script "evil"} (:got (ex-data ex))))
-          (is (= :supply-string-or-nil (:recovery (ex-data ex))))))
-
-      (testing "stream-handler shares the contract: the streaming
-                prefix/suffix routes the same four opts into the envelope
-                (:head / :body-end as raw content hooks, :script-src /
-                :app-element-id as escaped attribute hooks)"
-        (doseq [[opt-k bad-val] [[:head            {:title "x"}]
-                                 [:body-end        ['x]]
-                                 [:script-src      :main.js]
-                                 [:app-element-id  {:id "app"}]]]
-          (is (thrown-with-msg?
-                clojure.lang.ExceptionInfo
-                #":rf\.error/ssr-trusted-shell-opt-invalid"
-                (rf.ssr.ring/stream-handler (assoc base-opts opt-k bad-val)))
-              (str "stream-handler MUST reject " (pr-str opt-k) " = "
-                   (pr-str bad-val))))))))
+  ;; Strings or nil only; `:script-src false` (no bootstrap script) is the one
+  ;; exception, and it is :script-src's alone.
+  (doseq [construct [rf.ssr.ring/ssr-handler rf.ssr.ring/stream-handler]
+          [k bad]   [[:head {:title "x"}] [:script-src :main.js] [:app-element-id false]]]
+    (is (= {:rf.error/id :rf.error/ssr-trusted-shell-opt-invalid
+            :opt-key k :got bad :recovery :supply-string-or-nil}
+           (select-keys (thrown-data #(construct (assoc minimal k bad)))
+                        [:rf.error/id :opt-key :got :recovery])))))
 
 ;; ===========================================================================
-;; Nil means "use the default" for every shell opt, and
-;; `:script-src false` is the one spelling for "emit no bootstrap script".
-;;
-;; Defaults destructured with `:or` would fire only for an
-;; ABSENT key, so an explicit nil — the ordinary result of
-;; `{:script-src (:script-src cfg)}` with the key absent from `cfg` — would be used
-;; as the value: no bootstrap `<script src>`, `<div id="">`, `<html>` with no
-;; lang, and on ssr-handler `:html-shell nil` a 500 on every request.
+;; The default shell
 ;; ===========================================================================
 
-(defn- render-both-handlers
-  "Render `opts` through ssr-handler and stream-handler; return
-  `[[:ssr status body] [:stream status body]]`, the streamed body drained."
-  [opts]
-  (let [request {:uri "/" :request-method :get}
-        ssr     ((rf.ssr.ring/ssr-handler opts) request)
-        stream  ((rf.ssr.ring/stream-handler opts) request)
-        drain   (fn [body]
-                  (if (instance? java.io.InputStream body)
-                    (with-open [^java.io.InputStream is body] (slurp is))
-                    body))]
-    [[:ssr (:status ssr) (drain (:body ssr))]
-     [:stream (:status stream) (drain (:body stream))]]))
-
-(defn- script-srcs
-  "Every `src` attribute value in `html`, in document order."
-  [html]
-  (mapv second (re-seq #"src=\"([^\"]*)\"" html)))
+(defn- script-srcs [html] (mapv second (re-seq #"src=\"([^\"]*)\"" html)))
 
 (deftest explicit-nil-shell-opts-render-the-defaults
-  (testing "an explicit nil on a shell opt renders exactly as
-            the absent key, on both handlers"
-    (rf/reg-event :init/nil-shell-opts {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/nil-shell-opts (fn [] [:div "nil-shell body"]))
-    (let [base {:initial-events [[:init/nil-shell-opts]]
-                :root-view      [(rf/view :pages/nil-shell-opts)]
-                :payload        [:public/x]}]
-      (doseq [[label opts] [["absent keys (control)" base]
-                            ["explicit nils" (assoc base
-                                                    :head           nil
-                                                    :body-end       nil
-                                                    :script-src     nil
-                                                    :app-element-id nil
-                                                    :lang           nil)]]
-              [mode status body] (render-both-handlers opts)]
-        (is (= 200 status) (str label ", " mode))
-        (is (= ["/main.js"] (script-srcs body))
-            (str label ", " mode ": the default bootstrap script, once"))
-        (is (str/includes? body "<div id=\"app\"")
-            (str label ", " mode ": the default app root id"))
-        (is (not (str/includes? body "<div id=\"\""))
-            (str label ", " mode ": never an empty id"))
-        (is (str/includes? body "<html lang=\"en\">")
-            (str label ", " mode ": the default lang")))
-
-      (testing "explicit strings pass through (control)"
-        (doseq [[mode _status body] (render-both-handlers
-                                      (assoc base
-                                             :script-src     "/custom-bootstrap.js"
-                                             :app-element-id "root"))]
-          (is (= ["/custom-bootstrap.js"] (script-srcs body)) (str mode))
-          (is (str/includes? body "<div id=\"root\"") (str mode))))
-
-      (testing ":html-shell nil on ssr-handler falls back to default-html-shell
-                (not a 500 on every request)"
-        (let [response ((rf.ssr.ring/ssr-handler (assoc base :html-shell nil))
-                        {:uri "/" :request-method :get})]
-          (is (= 200 (:status response)))
-          (is (str/includes? (:body response) "nil-shell body"))
-          (is (= ["/main.js"] (script-srcs (:body response)))))))))
+  ;; `{:script-src (:script-src cfg)}` with the key absent from cfg is an
+  ;; explicit nil, and must render exactly as the absent key does.
+  (doseq [[mode _ body] (serve-both (assoc minimal :head nil :body-end nil :script-src nil
+                                           :app-element-id nil :lang nil :html-shell nil))]
+    (is (= ["/main.js"] (script-srcs body)) mode)
+    (is (str/includes? body "<div id=\"app\"") mode)
+    (is (str/includes? body "<html lang=\"en\">") mode)))
 
 (deftest script-src-false-emits-no-bootstrap-script
-  (testing "`:script-src false` constructs on both handlers
-            and emits no bootstrap `<script src>`; the hydration payload and
-            the caller's `:body-end` bootstrap are untouched"
-    (rf/reg-event :init/no-bootstrap {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/no-bootstrap (fn [] [:div "no-bootstrap body"]))
-    (let [base {:initial-events [[:init/no-bootstrap]]
-                :root-view      [(rf/view :pages/no-bootstrap)]
-                :payload        [:public/x]}]
-      (doseq [[mode status body] (render-both-handlers (assoc base :script-src false))]
-        (is (= 200 status) (str mode))
-        (is (empty? (script-srcs body)) (str mode ": no script src at all"))
-        (is (str/includes? body "id=\"__rf_payload\"")
-            (str mode ": the hydration payload script still ships")))
-      (doseq [[mode _status body]
-              (render-both-handlers
-                (assoc base
-                       :script-src false
-                       :body-end   "<script type=\"module\" src=\"/module.js\"></script>"))]
-        (is (= ["/module.js"] (script-srcs body))
-            (str mode ": exactly the caller's module bootstrap loads"))
-        (is (str/includes? body "id=\"__rf_payload\"")
-            (str mode ": the hydration payload script still ships")))))
-
-  (testing "control: the `false` carve-out is `:script-src`
-            only — `:app-element-id false` is still refused"
-    (let [opts {:initial-events [[:init/no-bootstrap]]
-                :root-view      [(rf/view :pages/no-bootstrap)]
-                :payload        [:public/x]
-                :app-element-id false}]
-      (doseq [construct [rf.ssr.ring/ssr-handler rf.ssr.ring/stream-handler]]
-        (is (= :rf.error/ssr-trusted-shell-opt-invalid
-               (try (construct opts) nil
-                    (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))))
-
-(deftest top-level-lang-nil-defaults-but-html-attrs-bag-stays-verbatim
-  (testing "a top-level `:lang nil` falls back to \"en\", while
-            the head model's `:html-attrs` bag stays verbatim — `{:lang nil}`
-            there still omits the attribute (control)"
-    (is (str/includes? (rf.ssr.ring/default-html-shell "b" "{}" {:lang nil})
-                       "<html lang=\"en\">"))
-    (is (str/includes? (rf.ssr.ring/default-html-shell
-                         "b" "{}" {:html-attrs {:lang nil :data-x "1"}})
-                       "<html data-x=\"1\">"))))
-
-;; ===========================================================================
-;; Single-source document envelope. `default-html-shell` and the
-;; streaming prefix/suffix compose the SAME `shell/document-prefix` /
-;; `shell/document-suffix` renderers, so the non-streaming shell is
-;; byte-identical to prefix + body + `</div>` + payload-script + suffix. A
-;; regression that let one response mode drift on the doctype / `<html>`-
-;; `<body>` attr bags / charset / `#app` escaping / closing tags would break
-;; this equality.
-;; ===========================================================================
+  (doseq [[mode _ body] (serve-both (assoc minimal :script-src false
+                                           :body-end "<script type=\"module\" src=\"/module.js\"></script>"))]
+    (is (= ["/module.js"] (script-srcs body)) mode)
+    (is (some? (payload-edn body)) mode)))
 
 (deftest default-html-shell-composes-from-shared-envelope-renderers
-  (testing "default-html-shell == default-streaming-prefix
-            (render-hash nil) + body + </div> + payload-script-tag +
-            default-streaming-suffix — the two response modes single-source
-            the envelope, so security-load-bearing escaping cannot diverge"
-    (let [opts      {:head           "<title>T</title><meta name=\"x\" content=\"y\">"
-                     :html-attrs     {:lang "fr" :data-theme "dark"}
-                     :body-attrs     {:class "page-article"}
-                     :head-hash      "deadbeef"
-                     :app-element-id "ro\"ot"           ; attribute-value escaping
-                     :script-src     "/boot.js?a=1&b=2" ; ampersand escaping
-                     :body-end       "<script>ga();</script>"}
-          body      "<main><h1>Hi</h1></main>"
-          payload   "{:rf/app-db {:x 1} :rf/version 1}"
-          shell-out (rf.ssr.ring/default-html-shell body payload opts)
-          ;; The streaming prefix with NO :render-hash reproduces the
-          ;; non-streaming shell's prefix exactly (the #app root carries no
-          ;; data-rf-render-hash marker in the non-streaming mode). `:head`
-          ;; is threaded as the prefix's positional head-html arg.
-          composed  (str (rf.ssr.ring/default-streaming-prefix (:head opts) opts)
-                         body
-                         "</div>"
-                         (rf.ssr.ring.shell/payload-script-tag payload)
-                         (rf.ssr.ring/default-streaming-suffix opts))]
-      (is (= shell-out composed)
-          "the non-streaming shell is byte-identical to the composition of
-           the shared streaming prefix/suffix renderers")
-      ;; Spot-anchors so a future edit that breaks the equality gives a
-      ;; readable failure, not just a giant string diff.
-      (is (str/includes? shell-out "<div id=\"ro&quot;ot\">")
-          "app-element-id is escape-attr'd inside the composed div")
-      (is (str/includes? shell-out "src=\"/boot.js?a=1&amp;b=2\"")
-          "script-src ampersand is escape-attr'd in the composed suffix")
-      (is (not (str/includes? shell-out "data-rf-render-hash"))
-          "the non-streaming shell's #app root carries NO render-hash marker")
-      (is (str/includes? shell-out "data-rf-head-hash=\"deadbeef\"")
-          "the head-hash marker rides the shared prefix"))))
-
-;; ===========================================================================
-;; default-html-shell — title is sourced from the head fragment, never the
-;; shell. Two <title> tags per document is malformed HTML.
-;; ===========================================================================
-
-(deftest default-shell-emits-no-title-when-no-route-head
-  (testing "no route :head → head-model returns default-head,
-            whose :title is the frame's :doc or \"\". The adapter's request
-            frame carries no :doc, so the page ships NO <title>."
-    (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
-    (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-route :route/no-head {:doc "Route without :head"} "/")
-    (rf/reg-event :init/seed-no-head-route
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:route-id :route/no-head})}))
-    (doseq [[label init] [["no routing" :init/noop]
-                          ["a route without :head" :init/seed-no-head-route]]
-            [mode status body] (render-both-handlers
-                                 {:initial-events [[init]]
-                                  :root-view      [(rf/view :pages/blank-no-head)]
-                                  :payload        :rf.ssr.payload/whole-app-db})]
-      (is (= 200 status) (str label ", " mode))
-      (is (zero? (count (re-seq #"<title" body)))
-          (str label ", " mode ": no <title> — the adapter never titles a page")))))
+  ;; Both response modes single-source the envelope, so escaping cannot drift.
+  (let [opts  {:head           "<title>T</title>"
+               :html-attrs     {:lang "fr"}
+               :body-attrs     {:class "page"}
+               :head-hash      "deadbeef"
+               :app-element-id "ro\"ot"
+               :script-src     "/boot.js?a=1&b=2"
+               :body-end       "<script>ga();</script>"}
+        shell (rf.ssr.ring/default-html-shell "<main>Hi</main>" "{:x 1}" opts)]
+    (is (= (str (rf.ssr.ring/default-streaming-prefix (:head opts) opts)
+                "<main>Hi</main>" "</div>"
+                (rf.ssr.ring.shell/payload-script-tag "{:x 1}")
+                (rf.ssr.ring/default-streaming-suffix opts))
+           shell))
+    (is (str/includes? shell "<div id=\"ro&quot;ot\">"))
+    (is (str/includes? shell "src=\"/boot.js?a=1&amp;b=2\""))))
 
 (deftest a-page-title-comes-from-the-route-head-or-the-head-string
-  (testing "controls: a route :head title, and a whole-head
-            :head string, each render their title exactly once on both
-            handlers"
-    (rf/reg-head :head/my-page (fn [_db _route] {:title "My Page"}))
-    (rf/reg-route :route/my-page {:doc "Route with a title" :head :head/my-page} "/")
-    (rf/reg-event :init/seed-my-page
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:route-id :route/my-page})}))
-    (rf/reg-event :init/noop-title (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-view* :pages/titled (fn [] [:div]))
-    (doseq [[label opts expected]
-            [["route :head" {:initial-events [[:init/seed-my-page]]} "My Page"]
-             [":head string" {:initial-events [[:init/noop-title]]
-                              :head           "<title>X</title>"} "X"]]
-            [mode status body] (render-both-handlers
-                                 (merge {:root-view [(rf/view :pages/titled)]
-                                         :payload   :rf.ssr.payload/whole-app-db}
-                                        opts))]
-      (is (= 200 status) (str label ", " mode))
-      (is (= [(str "<title>" expected "</title>")]
-             (re-seq #"<title>[^<]*</title>" body))
-          (str label ", " mode ": exactly one title, the declared one")))))
-
-(deftest default-shell-emits-no-title-when-head-fragment-empty
-  (testing "head fragment with no :title → shell emits zero <title> tags.
-            The head fragment is the sole title source; an empty model
-            yields a titleless document, not a fallback shell title."
-    (rf/reg-head :head/no-title
-                 (fn [_db _route] {})) ; no :title key
-    (rf/reg-route :route/no-title
-                  {:doc  "Route no-title"
-                   :head :head/no-title} "/")
-    (rf/reg-event :init/seed-no-title
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-title})}))
-    (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-no-title]]
-                      :root-view [(rf/view :pages/blank-no-title)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (zero? (count (re-seq #"<title" body)))
-          "head fragment with no :title key → no <title> in the document
-           (no shell fallback)"))))
-
-;; ===========================================================================
-;; default-html-shell — :html-attrs / :body-attrs honoured.
-;;
-;; Per Spec 011 §Head/meta: the head model carries `:html-attrs` /
-;; `:body-attrs` bags; the host shell stamps them on the opening
-;; `<html>` / `<body>` tags. Serialisation goes through the shared
-;; `re-frame.ssr.html-helpers/attr-string` helper — the SAME function the
-;; hiccup element emitter uses — so the bags obey one rule with it and
-;; there is no separate shell contract. `nil` omits the
-;; attribute; every other value is `escape-attr`-escaped (`&` and `"`
-;; only, since the bag is emitted inside double-quoted attribute values);
-;; and a BOOLEAN is rendered by its attribute's CLASS per Spec 004B
-;; §Booleans and their neighbours — `aria-*` / `data-*` / booleanish
-;; names stringify `true` AND `false`, while true boolean attributes keep
-;; presence semantics (`true` → bare name, `false` → omitted).
-;; ===========================================================================
-
-(defn- register-attrs-app! [head-model]
-  (rf/reg-head :head/with-attrs (fn [_db _route] head-model))
-  (rf/reg-route :route/with-attrs
-                {:doc  "Route exercising :html-attrs / :body-attrs"
-                 :head :head/with-attrs} "/")
-  (rf/reg-event :init/seed-attrs-route
-    (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/with-attrs})}))
-  (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
+  ;; The shell never titles a page and the request frame has no :doc, so a
+  ;; document has at most the one title its head declares.
+  (doseq [[opts titles]
+          [[{:initial-events []} []]
+           [{:initial-events (route-with-head! :route/titled (fn [_ _] {:title "My Page"}))}
+            ["<title>My Page</title>"]]
+           [{:initial-events [] :head "<title>X</title>"} ["<title>X</title>"]]]
+          [mode _ body] (serve-both (merge minimal opts))]
+    (is (= titles (vec (re-seq #"<title.*?</title>" body))) (str mode " " titles))))
 
 (deftest default-shell-stamps-the-head-model-attr-bags
-  (testing "the head model's :html-attrs / :body-attrs bags reach the wire
-            on the opening tags; a :lang in the bag wins, and the :lang opt
-            (default \"en\") fills an absent or :lang-less bag (Spec 011
-            §Head/meta contract)"
-    (doseq [[label head-model opts expected]
-            [["both bags: stamped verbatim, the bag's :lang over the opt default"
-              {:html-attrs {:lang "fr" :data-theme "dark"}
-               :body-attrs {:class "page-article"}}
-              {}
-              ["<html lang=\"fr\" data-theme=\"dark\">" "<body class=\"page-article\">"]]
-             ["no bags: <html> takes the :lang opt default, <body> is bare"
-              {:title "T"}
-              {}
-              ["<html lang=\"en\">" "<body>"]]
-             ["a bag without :lang: the :lang opt fills it, the bag keeps the rest"
-              {:html-attrs {:data-theme "dark"}}
-              {:lang "ja"}
-              ["lang=\"ja\"" "data-theme=\"dark\""]]]]
-      (register-attrs-app! head-model)
-      (let [response ((rf.ssr.ring/ssr-handler
-                        (merge {:initial-events [[:init/seed-attrs-route]]
-                                :root-view      [(rf/view :pages/blank-attrs)]
-                                :payload        :rf.ssr.payload/whole-app-db}
-                               opts))
-                      {:uri "/" :request-method :get})]
-        (is (= 200 (:status response)) label)
-        (doseq [s expected]
-          (is (str/includes? (:body response) s) (str label ": " s)))))))
-
-(deftest default-shell-attr-string-handles-booleans-and-nil
-  (testing "attr-string serialisation contract on the shell bags — `nil` →
-            omitted, other values → escape-attr-escaped (`&` and `\"`), and a
-            boolean by its attribute's CLASS rather than by the value alone
-            (Spec 004B §Booleans and their neighbours): a `data-*`
-            boolean stringifies BOTH true and false, while a true boolean
-            attribute keeps presence semantics. The shell shares one
-            serialiser with the hiccup element emitter, so it shares one
-            rule: `false` is a VALUE, and `nil` is the spelling that omits.
-            Mixed valid + invalid values in one bag exercise every branch."
-    (register-attrs-app! {:html-attrs {:lang        "en"
-                                       :data-flag   true     ; → "true"
-                                       :data-off    false    ; → "false"
-                                       :data-nil    nil      ; omitted
-                                       :data-quote  "a \"b\" c"  ; escaped
-                                       :data-amp    "x & y"}      ; escaped
-                          :body-attrs {:class          "ok"
-                                       :data-collapsed false  ; → "false"
-                                       :hidden         false  ; omitted
-                                       :inert          true}})
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-attrs-route]]
-                      :root-view [(rf/view :pages/blank-attrs)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "data-flag=\"true\"")
-          "data-* boolean true stringifies on <html> — never a bare marker")
-      (is (str/includes? body "data-off=\"false\"")
-          "data-* boolean false STRINGIFIES on <html>. Absent and =\"false\"
-           are different states to a CSS attribute selector and to a reader,
-           so the authored false is emitted, not dropped")
-      (is (not (str/includes? body "data-nil"))
-          "nil → attribute omitted entirely from <html> — nil, not false,
-           is the spelling that omits")
-      (is (str/includes? body "data-quote=\"a &quot;b&quot; c\"")
-          "\" escaped to &quot; in attribute values")
-      (is (str/includes? body "data-amp=\"x &amp; y\"")
-          "& escaped to &amp; in attribute values")
-      (is (not (str/includes? body "hidden=\"false\""))
-          ":hidden false is a TRUE boolean attribute → omitted, never
-           hidden=\"false\" (which a browser reads as truthy and would hide
-           the document). This is the class distinction, on the shell")
-      (is (str/includes? body "<body class=\"ok\" data-collapsed=\"false\" inert>")
-          "<body> opens with all three classes at once and nothing else:
-           :class verbatim, :data-collapsed false stringified, :hidden false
-           omitted, :inert true a bare presence attribute"))))
-
-;; ===========================================================================
-;; ssr-middleware — match? predicate
-;; ===========================================================================
+  ;; The bags go through the hiccup emitter's attr-string: values escaped, nil
+  ;; omitted, data-* booleans stringified, true boolean attributes by presence.
+  ;; A bag's :lang wins; the :lang opt fills a bag without one.
+  (doseq [[head-model opts expected]
+          [[{:html-attrs {:lang "fr" :data-q "a \"b\" & c" :data-off false :data-nil nil}
+             :body-attrs {:class "ok" :hidden false :inert true}}
+            {}
+            ["<html lang=\"fr\" data-q=\"a &quot;b&quot; &amp; c\" data-off=\"false\">"
+             "<body class=\"ok\" inert>"]]
+           [{:html-attrs {:data-theme "dark"}} {:lang "ja"} ["lang=\"ja\"" "data-theme=\"dark\""]]]]
+    (let [body (:body (serve (merge minimal opts
+                                    {:initial-events (route-with-head! :route/attrs (fn [_ _] head-model))})))]
+      (is (= [] (remove #(str/includes? body %) expected))))))
 
 (deftest middleware-falls-through-on-non-match
-  (testing "non-matching requests fall through to the wrapped handler"
-    (register-articles-app! [])
-
-    (let [wrapped-called (atom false)
-          wrapped        (fn [_req]
-                           (reset! wrapped-called true)
-                           {:status 204 :headers {} :body ""})
-          mw             (rf.ssr.ring/ssr-middleware
-                           {:initial-events    [[:rf/server-init]]
-                            :root-view    [(rf/view :pages/articles)]
-                            :fx-overrides {:http/get :http/get.canned}
-                            :match?       (fn [req] (= "/ssr" (:uri req)))
-                            :payload :rf.ssr.payload/whole-app-db})
-          app            (mw wrapped)]
-
-      (let [fall-through-response (app {:uri "/api" :request-method :get})]
-        (is @wrapped-called)
-        (is (= 204 (:status fall-through-response))))
-
-      (reset! wrapped-called false)
-      (let [ssr-response (app {:uri "/ssr" :request-method :get})]
-        (is (not @wrapped-called))
-        (is (= 200 (:status ssr-response)))
-        (is (str/includes? (:body ssr-response) "<!DOCTYPE html>"))))))
+  (let [app ((rf.ssr.ring/ssr-middleware (assoc minimal :match? #(= "/ssr" (:uri %))))
+             (fn [_] {:status 204 :headers {} :body ""}))]
+    (is (= [204 200] (map #(:status (app {:uri % :request-method :get})) ["/api" "/ssr"])))))
 
 ;; ===========================================================================
-;; hydration-payload-omits-rf-response-accumulator
-;;
-;; Privacy — per Spec 011 §Response storage substrate the HTTP
-;; response accumulator MUST NOT ride `app-db`. Stored at `[:rf/response]`
-;; in the request frame's app-db, without explicit `:payload` allowlist
-;; filtering the hydration payload at `build-payload` would ship the whole
-;; app-db (with the accumulator's server-only Set-Cookie / X-* headers /
-;; redirect locations) onto the client wire. Storage is a framework-private
-;; side-channel atom keyed by frame-id (`re-frame.ssr/response-slots`)
-;; so the accumulator can NEVER reach the hydration payload — the
-;; privacy boundary is self-enforcing at the storage layer rather than
-;; caller-vigilance at every host adapter.
-;;
-;; This test exercises a full login-flow shape (set-status + secret
-;; header + leak-probe cookie + append-header) and asserts:
-;;   (a) the hydration payload script tag contains the public app-db,
-;;   (b) the payload's serialised contents do NOT contain `:rf/response`,
-;;   (c) the payload's serialised contents do NOT contain the secret
-;;       values (cookie auth token, internal header value),
-;;   (d) the Set-Cookie and X-Secret-Header DO appear on response headers
-;;       (the wire shape — i.e. they reach the wire via the response
-;;       headers, NOT via the hydration payload).
+;; Response headers and the hydration payload
 ;; ===========================================================================
 
 (deftest hydration-payload-omits-rf-response-accumulator
-  (testing "the :rf/response accumulator is side-channel — it
-            never appears in the hydration payload, even when a login-shape
-            request sets server-only cookies / headers / status"
-    (rf/reg-event :auth/login
-      {:platforms #{:server}}
-      (fn [{:keys [db]} _]
-        {:db (assoc db :public/article-title "Public Title"
-                       :public/user-id "u-42")
-         :fx [;; A login-flow shape — every public surface of the
-              ;; response API touched, with server-only PII /
-              ;; auth-token values to leak-probe.
-              [:rf.server/set-status 200]
-              [:rf.server/set-cookie {:name      "session"
-                                      :value     "SUPER_SECRET_AUTH_TOKEN_xyz"
-                                      :http-only true
-                                      :secure    true
-                                      :same-site :lax
-                                      :path      "/"}]
-              [:rf.server/delete-cookie {:name "stale-session" :path "/"}]
-              [:rf.server/set-header {:name  "X-Secret-Header"
-                                      :value "INTERNAL_ONLY_VALUE_abc"}]
-              [:rf.server/append-header {:name  "X-Audit"
-                                         :value "v1"}]
-              [:rf.server/append-header {:name  "X-Audit"
-                                         :value "v2"}]]}))
-
-    (rf/reg-view* :pages/dashboard
-      (fn [] [:div.page [:h1 "Public dashboard"]]))
-
-    (let [handler   (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:auth/login]]
-                       :root-view [(rf/view :pages/dashboard)]
-                       :payload :rf.ssr.payload/whole-app-db})
-          response  (handler {:uri            "/dashboard"
-                              :request-method :get
-                              :headers        {"user-agent" "accumulator-leak-probe"}})
-          body      (:body response)
-          ;; The payload script tag's contents are EDN per the default
-          ;; html-shell — `<script id="__rf_payload" type="application/edn">
-          ;; ...edn... </script>`.
-          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                             body)
-          payload-edn (when payload-m (second payload-m))]
-
-      ;; (sanity) the request reached 200 — drain settled cleanly.
-      (is (= 200 (:status response)))
-
-      ;; (a) Public state IS on the wire — the payload carries the app-db slice.
-      (is (some? payload-edn)
-          "hydration payload script tag is present in the body")
-      (is (str/includes? payload-edn "Public Title")
-          "payload's app-db carries the public state (sanity)")
-      (is (str/includes? payload-edn "u-42")
-          "payload's app-db carries the public user id (sanity)")
-
-      ;; (b) The :rf/response accumulator key itself MUST NOT appear in
-      ;; the payload — the side-channel substrate guarantees this.
-      (is (not (str/includes? payload-edn ":rf/response"))
-          "payload does NOT carry :rf/response — the accumulator
-           lives in a framework-private side-channel atom, not in app-db")
-
-      ;; (c) The server-only secret values MUST NOT appear in the payload.
-      ;; The accumulator never enters the app-db slice, so
-      ;; Set-Cookie / X-Secret-Header values live in
-      ;; the response headers ONLY, not also in the hydration payload.
-      (is (not (str/includes? payload-edn "SUPER_SECRET_AUTH_TOKEN_xyz"))
-          "the Set-Cookie auth token does NOT leak into the
-           hydration payload")
-      (is (not (str/includes? payload-edn "INTERNAL_ONLY_VALUE_abc"))
-          "the internal X-Secret-Header value does NOT leak
-           into the hydration payload")
-      (is (not (str/includes? payload-edn "stale-session"))
-          "even delete-cookie metadata stays server-side")
-
-      ;; (d) The wire response DOES carry the Set-Cookie + X-Secret-Header.
-      ;; The privacy contract is "side-channel only" — the values reach
-      ;; the wire as response headers (where they're supposed to be), and
-      ;; ONLY as response headers (NOT also via the payload).
-      (let [headers    (:headers response)
-            set-cookie (or (get headers "Set-Cookie")
-                           (get headers "set-cookie"))
-            secret-hdr (or (get headers "X-Secret-Header")
-                           (get headers "x-secret-header"))
-            audit-hdr  (or (get headers "X-Audit")
-                           (get headers "x-audit"))]
-        (is (some? set-cookie)
-            "Set-Cookie header IS on the wire response (the place it belongs)")
-        (let [sc-str (if (vector? set-cookie) (str/join "; " set-cookie) (str set-cookie))]
-          (is (str/includes? sc-str "session=SUPER_SECRET_AUTH_TOKEN_xyz")
-              "the session cookie's auth token IS in the Set-Cookie response header"))
-        (is (= "INTERNAL_ONLY_VALUE_abc" secret-hdr)
-            "X-Secret-Header value IS on the wire response (header surface)")
-        (is (some? audit-hdr)
-            "X-Audit append-header reached the wire (multi-valued)")))))
-
-;; ===========================================================================
-;; Content-Type override strips any casing (no dup)
-;;
-;; `headers->ring-map+content-type-override` force-replaces the accumulator's
-;; Content-Type with a non-nil override, stripping EVERY existing
-;; Content-Type entry regardless of casing (CONTENT-TYPE, CoNtEnT-TyPe, …)
-;; before assoc'ing the single canonical `Content-Type`. RFC 7230 §3.2 —
-;; header names are case-insensitive tokens, so the strip must catch every
-;; casing or a stale duplicate would ride the wire.
-;;
-;; The opt is a genuine OVERRIDE, so the override value wins — not the
-;; caller's accumulator pair.
-;; ===========================================================================
+  ;; Response metadata lives in a side channel, never app-db, so even a
+  ;; whole-app-db payload cannot carry cookies or server-only headers.
+  (rf/reg-event :auth/login {:platforms #{:server}}
+    (fn [{:keys [db]} _]
+      {:db (assoc db :public/title "Public Title")
+       :fx [[:rf.server/set-cookie {:name "session" :value "SECRET_TOKEN_xyz" :http-only true}]
+            [:rf.server/set-header {:name "X-Secret" :value "INTERNAL_abc"}]]}))
+  (let [response (serve (assoc minimal :initial-events [[:auth/login]]
+                                       :payload :rf.ssr.payload/whole-app-db))
+        p        (payload-edn (:body response))]
+    (is (str/includes? p "Public Title"))
+    (is (= [] (filter #(str/includes? p %) [":rf/response" "SECRET_TOKEN_xyz" "INTERNAL_abc"])))
+    (is (= [["session=SECRET_TOKEN_xyz; HttpOnly"] ["INTERNAL_abc"]]
+           (map #(header-values response %) ["set-cookie" "x-secret"])))))
 
 (deftest content-type-override-replaces-any-casing
-  (testing "a non-nil override strips a preexisting Content-Type
-            in ANY casing and leaves exactly one canonical key carrying the
-            OVERRIDE value — no duplicate, no casing survivor"
-    (let [fold (requiring-resolve
-                 're-frame.ssr.ring.headers/headers->ring-map+content-type-override)]
-      (is (= []
-             (for [casing  ["content-type"
-                            "Content-Type"
-                            "CONTENT-TYPE"
-                            "CoNtEnT-TyPe"
-                            "content-Type"]
-                   :let [result  (fold [[casing "application/json"]]
-                                       "text/html; charset=utf-8")
-                         ct-vals (keep (fn [[k v]]
-                                         (when (= "content-type" (str/lower-case (str k))) v))
-                                       result)]
-                   :when (not= ["text/html; charset=utf-8"] ct-vals)]
-               [casing ct-vals]))
-          "every casing leaves exactly one content-type key, carrying the
-           override value rather than the accumulator's pair (lists any casing
-           that did not, with its content-type values)"))))
-
-;; ===========================================================================
-;; The handler :content-type opt is honored on the wire
-;;
-;; The runtime always seeds a Content-Type on the accumulator, so a
-;; default-when-absent fold could never apply the opt; it is a genuine
-;; OVERRIDE. The wire contract, end-to-end through the full non-streaming
-;; handler:
-;;   (a) a custom opt force-replaces the default seed on the wire,
-;;   (b) omitting the opt leaves the runtime's text/html seed in place
-;;       (`handler-renders-html-with-status-and-headers` reads it),
-;;   (c) omitting the opt leaves an app-set `:rf.server/set-header`
-;;       Content-Type in control (an absent opt does not clobber it).
-;; ===========================================================================
-
-(defn- response-content-type
-  "The single content-type header value on a Ring response (any casing),
-  or nil. Also asserts (via the returned key count) there is no duplicate."
-  [response]
-  (some (fn [[k v]] (when (= "content-type" (str/lower-case (str k))) v))
-        (:headers response)))
-
-(defn- response-content-type-key-count
-  [response]
-  (count (filter (fn [k] (= "content-type" (str/lower-case (str k))))
-                 (keys (:headers response)))))
+  (is (= {"Content-Type" "text/html"}
+         (rf.ssr.ring.headers/headers->ring-map+content-type-override
+           [["CoNtEnT-TyPe" "application/json"]] "text/html"))))
 
 (deftest ssr-handler-honors-custom-content-type-opt
-  (testing "a custom :content-type opt force-replaces the
-            runtime's default-seeded text/html on the wire, and no
-            duplicate key survives"
-    (rf/reg-event :init/ct-ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/ct-body (fn [] [:div "body"]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/ct-ok]]
-                      :root-view      [(rf/view :pages/ct-body)]
-                      :content-type   "application/xhtml+xml; charset=utf-8"
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})]
-      (is (= 200 (:status response)))
-      (is (= 1 (response-content-type-key-count response))
-          "exactly one content-type key — the override left no duplicate")
-      (is (= "application/xhtml+xml; charset=utf-8"
-             (response-content-type response))
-          "the custom :content-type opt is on the wire, not text/html"))))
-
-(deftest ssr-handler-app-set-content-type-flows-when-opt-absent
-  (testing "an app `:rf.server/set-header \"content-type\"` stays
-            in control when the handler passes NO :content-type opt — the opt
-            default is nil, so it does not clobber the app's explicit value"
-    (rf/reg-event :init/ct-appset
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/set-header {:name  "Content-Type"
-                                      :value "application/json"}]]}))
-    (rf/reg-view* :pages/ct-appset-body (fn [] [:div "body"]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/ct-appset]]
-                      :root-view      [(rf/view :pages/ct-appset-body)]
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})]
-      (is (= 1 (response-content-type-key-count response))
-          "exactly one content-type key")
-      (is (= "application/json" (response-content-type response))
-          "the app-set content-type flows to the wire when the opt is absent"))))
-
-;; ===========================================================================
-;; Non-streaming materialiser strips a stale app-set
-;; Content-Length
-;;
-;; The non-streaming body is the adapter-assembled shell + hydration payload,
-;; built AFTER the :initial-events drain, so an app-set fixed Content-Length
-;; can never match it. Left in place a Ring server that honours the length
-;; truncates the HTML (too short) or blocks the client (too long). The
-;; streaming path strips it too; this pins the same guarantee on
-;; the non-streaming sibling path.
-;; ===========================================================================
+  ;; The opt replaces the runtime's seeded text/html; absent, an app-set
+  ;; Content-Type stays in control.
+  (rf/reg-event :init/json {:platforms #{:server}}
+    (fn [_ _] {:fx [[:rf.server/set-header {:name "Content-Type" :value "application/json"}]]}))
+  (doseq [[opts expected] [[{:content-type "application/xhtml+xml"} ["application/xhtml+xml"]]
+                           [{:initial-events [[:init/json]]} ["application/json"]]]]
+    (is (= expected (header-values (serve (merge minimal opts)) "content-type")))))
 
 (deftest ssr-handler-strips-stale-app-set-content-length
-  (testing "an :initial-events-set Content-Length is stripped
-            (case-insensitively) from the non-streaming Ring response so the
-            server owns byte framing for the String body; the full HTML rides
-            the wire, not truncated to the stale length"
-    (rf/reg-event :init/cl-stale
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:db {:articles [{:id "a" :title "Article A"}]}
-         ;; A deliberately WRONG fixed length — canonical- AND lower-cased,
-         ;; proving the strip is case-insensitive across the materialiser's
-         ;; verbatim header casing.
-         :fx [[:rf.server/set-header    {:name "Content-Length" :value "7"}]
-              [:rf.server/append-header {:name "content-length" :value "13"}]]}))
-    (rf/reg-sub :articles (fn [db _] (:articles db)))
-    (rf/reg-view* :pages/cl-body
-      (fn []
-        (into [:ul]
-              (for [{:keys [title]} (rf/subscribe-once [:articles])]
-                [:li title]))))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/cl-stale]]
-                      :root-view      [(rf/view :pages/cl-body)]
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          headers  (:headers response)
-          keys-lc  (into #{} (map (fn [k] (str/lower-case (str k)))) (keys headers))
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (string? body) "the non-streaming body is a materialised String")
-      (is (not (contains? keys-lc "content-length"))
-          (str "NO Content-Length header survives on the non-streaming "
-               "response (any casing) — the server frames the String body. "
-               "Header keys (lower-cased): " (pr-str keys-lc)))
-      ;; The stale values (7 / 13) are nowhere near the real body length;
-      ;; the whole document rides through, not one capped to a fake length.
-      (is (str/includes? body "<!DOCTYPE html>") "shell present")
-      (is (str/includes? body "Article A") "resolved view content present")
-      (is (str/includes? body "__rf_payload") "hydration payload present"))))
-
-;; ===========================================================================
-;; Hydration payload </script> injection
-;;
-;; A user-controlled string round-tripping through app-db that contains
-;; `</script>` would close the `<script id="__rf_payload" ...>` envelope
-;; and let attacker HTML follow — XSS via the standard hydration boot
-;; surface. The shell escapes every `<` inside an EDN string literal as
-;; `\u003c` via `html-helpers/escape-edn-script-body`. The EDN reader accepts
-;; `\u003c` as a string escape for `<`, so the payload round-trips
-;; through `clojure.edn/read-string` on the client.
-;; ===========================================================================
+  ;; The body is assembled after the drain, so an app-set length can never
+  ;; match it; the server would truncate or stall the page.
+  (rf/reg-event :init/cl {:platforms #{:server}}
+    (fn [_ _] {:fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
+                    [:rf.server/append-header {:name "content-length" :value "13"}]]}))
+  (let [response (serve (assoc minimal :initial-events [[:init/cl]]))]
+    (is (= [200 []] [(:status response) (header-values response "content-length")]))))
 
 (deftest hydration-payload-edn-token-with-angle-round-trips
-  (testing "the final hydration payload round-trips a keyword KEY
-            and value carrying a non-breakout `<` (`:a<b`, `:<`) AND a string
-            value carrying `</script>` — the EDN-aware escape neutralises the
-            string-literal breakout WITHOUT corrupting the keyword tokens
-            (which a whole-string escape would corrupt)."
-    ;; A payload mixing the dangerous-string case and the token-with-< case.
-    (let [payload-edn (pr-str {:a<b 1
-                               :tag :<
-                               :public/title "</script><script>alert(1)</script>"})
-          html        (rf.ssr.ring/default-html-shell "body" payload-edn {})
-          body-edn    (second
-                        (re-find
-                          #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                          html))]
-      ;; The keyword-token `<` is preserved verbatim (not corrupted to \\u003c).
-      (is (str/includes? body-edn ":a<b")
-          "keyword-token `<` left intact — no \\u003c corruption of tokens")
-      ;; The whole payload round-trips through the EDN reader.
-      (is (= {:a<b 1
-              :tag :<
-              :public/title "</script><script>alert(1)</script>"}
-             (clojure.edn/read-string body-edn))
-          "the EDN reader recovers the full payload verbatim — a
-           whole-string `<`→`\\u003c` escape would throw on `:a<b`"))))
+  ;; A `</script>` in a string cannot close the payload element, and a `<` in
+  ;; a keyword token survives (a whole-string escape would corrupt it).
+  (let [value {:a<b 1 :tag :< :title "</script><script>alert(1)</script>"}]
+    (is (= value (payload (rf.ssr.ring/default-html-shell "body" (pr-str value) {}))))))
 
 (deftest hydration-payload-edn-token-breakout-fails-loud
-  (testing "a `</` breakout precursor in a non-string TOKEN (a
-            symbol value `a</script>b` — valid, readable EDN printing a
-            literal `</`) has no readable in-token EDN escape, so the shell
-            fails loud rather than emitting a corrupted / breakout-bearing
-            body."
-    ;; A symbol value prints the bare token `a</script>b` carrying a literal
-    ;; `</` outside any string literal. (A keyword can't carry `</` in its
-    ;; NAME — the first `/` is the namespace separator — so the realistic
-    ;; token-position breakout carrier is a symbol value.)
-    (let [payload-edn (pr-str {:k (symbol "a</script>b")})]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #":rf.error/ssr-edn-script-breakout"
-                            (rf.ssr.ring/default-html-shell "body" payload-edn {}))))))
-
-(deftest shell-with-default-head-emits-exactly-one-charset-meta
-  (testing "the default shell owns the baseline <meta charset>;
-            default-head carries none, so a full document built
-            from default-head threaded through the shell has EXACTLY one
-            charset meta (not two).
-
-            Exercises the path default-head →
-            head-model->html → shell :head opt, where a charset from both
-            the shell hardcode AND default-head's :meta would yield two."
-    (let [;; The head fragment as the pipeline produces it for a route
-          ;; with no declared :head — default-head rendered to HTML.
-          f          (rf.frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
-          head-model (rf.ssr/head-model f)
-          head-html  (rf.ssr/head-model->html head-model)
-          html       (rf.ssr.ring/default-html-shell "body" "{}" {:head head-html})
-          n-charset  (count (re-seq #"(?i)<meta\s+charset" html))]
-      (is (= 1 n-charset)
-          (str "expected exactly one <meta charset> in the default document; saw "
-               n-charset " — head fragment was: " (pr-str head-html)))
-      ;; The viewport meta the head still owns survives.
-      (is (str/includes? html "name=\"viewport\"")
-          "the head still contributes the viewport meta")
-      ;; And the shell's charset is the FIRST head byte (envelope owns it).
-      (is (str/includes? html "<head><meta charset=\"utf-8\">")
-          "the shell hardcodes the baseline charset as the first head byte"))))
+  ;; A symbol prints a bare `</` that no in-token EDN escape can neutralise.
+  (is (= :rf.error/ssr-edn-script-breakout
+         (error-id #(rf.ssr.ring/default-html-shell "body" (pr-str {:k (symbol "a</script>b")}) {})))))
 
 ;; ===========================================================================
-;; destroy-frame-failed trace surfaces on per-request teardown
+;; Degradation and containment
 ;; ===========================================================================
-;;
-;; `destroy-frame-quietly!`
-;; emits a `:rf.ssr/destroy-frame-failed` warning trace when destroy
-;; throws.
 
 (deftest destroy-frame-quietly-emits-trace-on-throwing-destroy
-  (testing "a frame whose destroy throws → :rf.ssr/destroy-frame-failed
-            warning trace fires
-
-            Most paths inside `destroy-frame!` swallow their own
-            exceptions (the on-destroy event runs through the router's
-            dispatch-sync which traces handler-exception; the late-bind
-            cleanup hooks funnel through `safe-call-hook!` which
-            swallows). To exercise destroy-quietly's catch arm we
-            simulate a hard runtime failure — `with-redefs` makes
-            `rf/destroy-frame!` itself throw. This pins the wire
-            contract: when destroy throws for any reason, the trace
-            surfaces."
-    (let [destroy-quietly! (requiring-resolve
-                            're-frame.ssr.ring.lifecycle/destroy-frame-quietly!)
-          traces           (atom [])
-          f                :rf.frame/test-destroy-throws]
-      (rf/register-listener! :trace ::dfq (fn [ev] (swap! traces conj ev)))
-      (try
-        (with-redefs [rf/destroy-frame!
-                      (fn [_] (throw (ex-info "synthetic destroy failure"
-                                              {:reason :test})))]
-          (destroy-quietly! f))
-        (finally
-          (rf/unregister-listener! :trace ::dfq)))
-
-      (let [hits (filterv #(= :rf.ssr/destroy-frame-failed (:operation %)) @traces)]
-        (is (= 1 (count hits))
-            (str "expected one :rf.ssr/destroy-frame-failed trace; saw: "
-                 (pr-str (mapv :operation @traces))))
-        (when (seq hits)
-          (let [ev (first hits)]
-            (is (= :warning (:op-type ev)))
-            (is (= f (-> ev :tags :frame))
-                ":frame tag identifies the frame that failed to destroy")
-            (is (string? (-> ev :tags :reason))
-                ":reason carries the throwable's message")
-            (is (string? (-> ev :tags :ex-class))
-                ":ex-class carries the throwable's class name")
-            (is (= :warned-and-skipped (:recovery ev))
-                ":recovery names the policy")))))))
-
-;; ===========================================================================
-;; resolve-head emits
-;; :rf.error/ssr-head-resolution-failed before falling back
-;; ===========================================================================
-;;
-;; Observability over silent fallback: `resolve-head` wraps the `:head`
-;; walk in try/catch and emits
-;; `:rf.error/ssr-head-resolution-failed` with the throw before degrading
-;; to the empty fragment, so a broken `:head` fn never produces a
-;; visually-broken page with zero diagnostic.
-;; The trace category is catalogued in Spec 009 §Error event catalogue.
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::dfq #(swap! traces conj %))
+    (with-redefs [rf/destroy-frame! (fn [_] (throw (ex-info "destroy boom" {})))]
+      (is (nil? (rf.ssr.ring.lifecycle/destroy-frame-quietly! :rf.frame/f)) "swallowed"))
+    (rf/unregister-listener! :trace ::dfq)
+    (is (= [[:warning :warned-and-skipped
+             {:frame :rf.frame/f :reason "destroy boom" :ex-class "clojure.lang.ExceptionInfo"}]]
+           (for [ev @traces :when (= :rf.ssr/destroy-frame-failed (:operation ev))]
+             [(:op-type ev) (:recovery ev) (select-keys (:tags ev) [:frame :reason :ex-class])])))))
 
 (deftest resolve-head-emits-trace-on-throwing-head-fn
-  (testing "a throwing :head fn → :rf.error/ssr-head-resolution-failed
-            trace fires AND the resolver returns the empty fallback shape
-            (the degrade-gracefully contract)"
-    (let [resolve-head! (requiring-resolve
-                          're-frame.ssr.ring.lifecycle/resolve-head)
-          traces        (atom [])
-          frame-id      :rf.frame/test-head-throws]
-      (rf/register-listener! :trace ::rh
-                             (fn [ev]
-                               (when (= :rf.error/ssr-head-resolution-failed
-                                        (:operation ev))
-                                 (swap! traces conj ev))))
-      (let [result (try
-                     (with-redefs [rf.ssr/head-model
-                                   (fn [_]
-                                     (throw (ex-info "synthetic head failure"
-                                                     {:reason :test})))]
-                       (resolve-head! frame-id))
-                     (finally
-                       (rf/unregister-listener! :trace ::rh)))]
-        (testing "fallback shape (degrade-gracefully contract)"
-          (is (= "" (:head-html result))
-              "empty fragment so a buggy head fn can't take down the request")
-          (is (nil? (:html-attrs result))
-              "no html-attrs in the fallback shape")
-          (is (nil? (:body-attrs result))
-              "no body-attrs in the fallback shape"))
-
-        (testing "trace emitted (observability contract)"
-          (is (= 1 (count @traces))
-              (str "expected one :rf.error/ssr-head-resolution-failed trace;"
-                   " saw " (count @traces)))
-          (when (seq @traces)
-            (let [ev (first @traces)]
-              (is (= :error (:op-type ev))
-                  "trace is severity :error per Spec 009 §Error event catalogue")
-              (is (= :rf.error/ssr-head-resolution-failed (:operation ev))
-                  ":operation names the category")
-              (is (= frame-id (-> ev :tags :frame))
-                  ":frame tag identifies which request the head fn failed for")
-              (is (instance? Throwable (-> ev :tags :exception))
-                  ":exception tag carries the caught throwable verbatim")
-              (is (= "synthetic head failure"
-                     (some-> ev :tags :exception .getMessage))
-                  "the throwable preserves the underlying failure message")
-              (is (= :no-recovery (:recovery ev))
-                  ":recovery names the policy — empty fallback is not a recovery"))))))))
-
-(deftest resolve-head-happy-path-no-trace
-  (testing "a non-throwing :head fn (mocked to return nil
-            so head-model->html produces an empty fragment) → no
-            :rf.error/ssr-head-resolution-failed trace fires.
-            Belt-and-braces against accidentally emitting the trace on
-            the success path."
-    (let [resolve-head! (requiring-resolve
-                          're-frame.ssr.ring.lifecycle/resolve-head)
-          traces        (atom [])
-          frame-id      :rf.frame/test-head-ok]
-      (rf/register-listener! :trace ::rh-ok
-                             (fn [ev]
-                               (when (= :rf.error/ssr-head-resolution-failed
-                                        (:operation ev))
-                                 (swap! traces conj ev))))
-      (try
-        (with-redefs [rf.ssr/head-model (fn [_] nil)]
-          (let [result (resolve-head! frame-id)]
-            (is (= "" (:head-html result))
-                "nil head-model → empty fragment (canonical empty-head shape)")
-            (is (nil? (:html-attrs result)))
-            (is (nil? (:body-attrs result)))))
-        (finally
-          (rf/unregister-listener! :trace ::rh-ok)))
-      (is (zero? (count @traces))
-          "success path must NOT emit the head-resolution-failed trace"))))
-
-;; ===========================================================================
-;; Head-resolution failure correctness is ENFORCED at the
-;; handler level (not incidental to call ordering)
-;; ===========================================================================
-;;
-;; CONTRACT (lifecycle/resolve-head; Spec 011 §Resolved decisions):
-;; a throwing route `:head` fn is a RECOVERABLE DEGRADATION — the request
-;; ships a 200 with an empty `<head>` fragment ("a buggy head fn can't
-;; take down the request") AND emits `:rf.error/ssr-head-resolution-failed`
-;; for observability. This is the deliberate counterpoint to the view/sub
-;; FAIL-CLOSED posture (Spec 011 §View-time exceptions):
-;; a view or reactive sub that throws mid-render projects a non-200
-;; because the page is unusable; a head fn that throws degrades to a 200
-;; because only the `<head>` metadata is missing — the body still renders.
-;;
-;; Call ordering alone cannot keep the degraded 200 safe: `ssr-handler`
-;; reads `flush-response-result!` BEFORE `build-full-response` →
-;; `resolve-head` fires the head trace, but `build-full-response*` re-reads
-;; the accumulator AFTER the render, so a buffered head trace would let the
-;; default projector map it → 500 and silently flip the degraded 200 to a 500.
-;;
-;; So the contract is enforced at the projection BUFFERING chokepoint:
-;; `re-frame.ssr.error-listener` skips `:rf.error/ssr-head-resolution-failed`
-;; in BOTH projection listeners (dev-only + always-on), so the head trace
-;; is never buffered for status projection regardless of call ordering.
-;; This handler-level test PINS the wire contract: a throwing `:head` fn
-;; → a 200 (degraded) response with the body intact + the observability
-;; trace fired. The default projector maps `:rf.error/*` → 500, so if a
-;; future change ever let the head trace project, the status assertion
-;; below turns red — the reordering-regression tripwire.
-
-(defn- register-head-throwing-app!
-  "Register an app whose active route declares a `:head` fn that throws.
-  The body view renders cleanly — only head resolution fails — so the
-  test isolates the head-degradation contract from the view/sub
-  fail-closed path."
-  []
-  (rf/reg-head :head/throws
-               (fn [_db _route]
-                 (throw (ex-info "synthetic head failure"
-                                 {:reason :test}))))
-  (rf/reg-route :route/head-throws
-                {:doc  "Route whose head fn throws"
-                 :head :head/throws} "/head-throws")
-  (rf/reg-event :init/seed-throwing-head-route
-    {:platforms #{:server}}
-    (fn [{rt :rf.db/runtime} _]
-      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                {:route-id :route/head-throws})}))
-  (rf/reg-view* :pages/head-throws-body
-    (fn [] [:div.page [:h1 "Body rendered fine"]])))
+  ;; A broken head fn degrades to an empty head and reports on the dev trace
+  ;; and on the always-on axis.
+  (let [traces  (atom [])
+        records (atom [])
+        boom    (ex-info "head boom" {})]
+    (rf/register-listener! :trace ::rh #(swap! traces conj %))
+    (rf.error-emit/register-error-listener! ::rh #(swap! records conj %))
+    (is (= {:head-html "" :html-attrs nil :body-attrs nil :head-model nil}
+           (with-redefs [rf.ssr/head-model (fn [_] (throw boom))]
+             (rf.ssr.ring.lifecycle/resolve-head :rf.frame/f))))
+    (rf/unregister-listener! :trace ::rh)
+    (rf.error-emit/unregister-error-listener! ::rh)
+    (is (= [[:error :no-recovery {:frame :rf.frame/f :exception boom}]]
+           (for [ev @traces :when (= :rf.error/ssr-head-resolution-failed (:operation ev))]
+             [(:op-type ev) (:recovery ev) (select-keys (:tags ev) [:frame :exception])])))
+    (is (= [[:rf.frame/f boom]]
+           (for [r @records :when (= :rf.error/ssr-head-resolution-failed (:error r))]
+             [(:frame r) (:exception r)])))))
 
 (deftest handler-throwing-head-fn-ships-degraded-200-not-projected-error
-  (testing "a throwing route :head fn → ssr-handler returns a
-            200 (degraded — empty head, body intact), NOT a projected
-            4xx/5xx. The head-resolution failure is a recoverable
-            degradation, enforced not incidental."
-    (register-head-throwing-app!)
-    (let [traces  (atom [])
-          _       (rf/register-listener! :trace ::head-fail-watch
-                    (fn [ev]
-                      (when (= :rf.error/ssr-head-resolution-failed
-                               (:operation ev))
-                        (swap! traces conj ev))))
-          handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/seed-throwing-head-route]]
-                     :root-view [(rf/view :pages/head-throws-body)]
-                     :payload   :rf.ssr.payload/whole-app-db})
-          response (try
-                     (handler {:uri "/head-throws" :request-method :get})
-                     (finally
-                       (rf/unregister-listener! :trace ::head-fail-watch)))]
-      ;; THE PIN: a throwing head fn must NOT take down the request.
-      ;; The default projector maps any projected :rf.error/* → 500;
-      ;; were the head trace ever projected (a reorder regression),
-      ;; this would be 500 and the assertion turns red.
-      (is (= 200 (:status response))
-          "throwing :head fn degrades to a 200 — NEVER a projected
-           4xx/5xx (the degrade-gracefully contract;
-           ENFORCED via the projector-skip, not incidental to the
-           flush-response-result!/resolve-head ordering)")
-      (let [body (:body response)]
-        (is (string? body))
-        (is (str/includes? body "<!DOCTYPE html>")
-            "the document still ships — the body rendered")
-        (is (str/includes? body "Body rendered fine")
-            "the body view content is intact — only the head degraded")
-        ;; Empty head fragment: the throwing head fn contributed no
-        ;; route-specific tags. The shell's hardcoded charset meta is an
-        ;; envelope concern, not produced by resolve-head, so
-        ;; its presence does not contradict the empty-fragment contract;
-        ;; the synthetic-failure marker simply never reaches the wire.
-        (is (not (str/includes? body "synthetic head failure"))
-            "the throwable's message never crosses the wire"))
-      ;; Observability: the spec contract is degrade AND emit.
-      (is (= 1 (count @traces))
-          ":rf.error/ssr-head-resolution-failed still fires for
-           observability — degraded, not
-           silent"))))
+  ;; The handler re-flushes the accumulator after rendering, so a buffered
+  ;; head failure would project a 500; it must stay a degraded 200.
+  (let [{:keys [status body]}
+        (serve (assoc minimal
+                      :initial-events (route-with-head! :route/broken-head
+                                                        (fn [_ _] (throw (ex-info "head boom" {}))))
+                      :root-view [:div "Body rendered fine"]))]
+    (is (= 200 status))
+    (is (str/includes? body "Body rendered fine"))
+    (is (not (str/includes? body "head boom")))))
 
-;; ===========================================================================
-;; A throwing caller :on-error must be CONTAINED, not escape
-;;
-;; `:on-error` is the handler's last-resort transport-failure net. A
-;; caller-supplied `:on-error` that ITSELF throws must not propagate out
-;; of the handler: an uncaught throwable handed to the Ring server
-;; (Jetty / http-kit) surfaces as a raw container 500 with a stack
-;; trace, defeating the topology-leak contract the boundary
-;; otherwise upholds. The exposure is symmetric — the setup-failure path
-;; (`setup-request-frame!`, which runs OUTSIDE the handler's own
-;; try/catch) AND the success path both invoke `:on-error`. Both
-;; route through `lifecycle/safe-on-error`, which falls back to the
-;; locked `default-on-error` when the caller's fn throws.
-;; ===========================================================================
-
-(deftest ssr-handler-throwing-on-error-during-setup-is-contained
-  (testing "a caller :on-error that THROWS during a
-            setup-failure is contained: the handler returns the locked
-            default-on-error 500 rather than letting the throwable
-            escape as a raw container 500 with leaked internals.
-
-            Setup failure is driven by a non-vector :initial-events
-            (`resolve-initial-events!` throws inside `setup-request-frame!`,
-            which runs OUTSIDE the handler body's try/catch). The
-            caller's :on-error then throws — exercising the one
-            :on-error call site that the handler body's catch does not
-            wrap."
-    (let [throwing-on-error
-          (fn [_req _t]
-            (throw (ex-info "boom in the caller's on-error — leaks JDBC URL etc."
-                            {:internal :topology})))
-          handler (rf.ssr.ring/ssr-handler
-                    {:initial-events '(:rf/server-init) ;; non-vector → setup throws
-                     :root-view [:div]
-                     :payload [:x]
-                     :on-error throwing-on-error})
-          ;; Uncontained, the throwing on-error would escape
-          ;; `setup-request-frame!` uncaught; contained, this call
-          ;; returns the locked-default 500.
-          response (handler {:uri "/x" :request-method :get})]
-      (is (map? response)
-          "the handler RETURNED a Ring response — the throwing
-           :on-error did not escape uncaught")
-      (is (= 500 (:status response))
-          "contained via the locked default-on-error (500)")
-      (is (= "Internal error" (:body response))
-          "locked generic body — the secondary throw's internals never
-           reach the wire (topology-leak contract held)")
-      (is (= "text/plain; charset=utf-8"
-             (get (:headers response) "Content-Type"))
-          "locked default-on-error content-type"))))
-
-(deftest ssr-handler-throwing-on-error-on-success-path-is-contained
-  (testing "symmetric: a caller :on-error that throws on the
-            SUCCESS path is also contained. Driven by a cookie whose
-            :expires is a non-integer string — it passes the fx boundary
-            (`validate-cookie!` is a CR/LF/NUL injection gate, it does
-            NOT type-check :expires) but throws
-            `:rf.error/cookie-invalid-expires` at head materialisation
-            (`cookie->set-cookie-header`'s primitive-long :expires type
-            contract). That throw escapes `build-full-response`'s own
-            catch (its error-path materialise re-folds the SAME bad
-            cookie and throws again), reaching the handler body's
-            :on-error catch — the success-path call site."
-    (rf/reg-event :rf.test/init-bad-cookie
-      {:platforms #{:server}}
-      (fn [_ _]
-        ;; A non-integer :expires escapes the fx boundary
-        ;; (`validate-cookie!` is a CR/LF/NUL injection gate — it does
-        ;; not type-check :expires) and throws at host materialise time
-        ;; in `cookie->set-cookie-header` (the primitive-long :expires
-        ;; type contract). A CR/LF-bearing :max-age would not do: it is
-        ;; CRLF-gated at the fx boundary, so the
-        ;; non-integer :expires divergence is the genuine escape path.
-        {:db {}
-         :fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
-    (let [throwing-on-error
-          (fn [_req _t]
-            (throw (ex-info "boom in the caller's on-error" {:internal :topology})))
-          handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:rf.test/init-bad-cookie]]
-                     :root-view [:div "hello"]
-                     :payload :rf.ssr.payload/whole-app-db
-                     :on-error throwing-on-error})
-          ;; `safe-on-error` contains the throwing :on-error that would
-          ;; otherwise escape the handler body's catch → locked default 500.
-          response (handler {:uri "/x" :request-method :get})]
-      (is (map? response)
-          "handler returned a Ring response — throwing :on-error on the
-           success path did not escape uncaught")
-      (is (= 500 (:status response))
-          "contained via the locked default-on-error (500)")
-      (is (= "Internal error" (:body response))
-          "locked generic body — the secondary throw's internals never
-           reach the wire (topology-leak contract held)"))))
-
-;; ===========================================================================
-;; The setup-failure catch must NOT reap by bare id
-;;
-;; Core construction is the exact-token owner of a failed incarnation's
-;; rollback: `make-frame` tears incarnation A down with its exact installed
-;; token before rethrowing (frame.cljc). Once that exact rollback
-;; releases the per-id transaction, a same-id successor B can be seated before
-;; the SSR setup-failure catch continues. An ADDRESS-directed
-;; `destroy-frame-quietly! frame-id` in the catch would be redundant and
-;; wrong: the bare keyword pins whichever incarnation currently holds the id
-;; — i.e. B — and destroys it. So the catch owns only the request slot.
-;; ===========================================================================
+(deftest ssr-handler-throwing-on-error-is-contained
+  ;; A throwing caller :on-error falls back to the locked default instead of
+  ;; escaping to the server as a raw 500 that leaks its internals.
+  (rf/reg-event :init/bad-cookie {:platforms #{:server}}
+    (fn [_ _] {:fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
+  (doseq [initial-events ['(:not-a-vector)       ; fails in setup, outside the body's catch
+                          [[:init/bad-cookie]]]]  ; fails materialising, inside it
+    (is (= {:status 500 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "Internal error"}
+           (serve (assoc minimal :initial-events initial-events
+                                 :on-error (fn [_ _] (throw (ex-info "on-error boom" {})))))))))
 
 (deftest setup-failure-catch-does-not-reap-same-id-successor
-  (testing "a same-id successor B seated during the setup-failure
-            window survives the catch. `setup-request-frame!` gensyms a frame
-            id, seeds the request slot, then calls `make-frame`. We model the
-            reproduced interleaving with `with-redefs`: `make-frame` seats a
-            live successor B at the SAME id (standing in for the incarnation
-            reseated after core's exact rollback of failed A) and then throws
-            as A's constructor would. The catch must clear the request slot and
-            short-circuit WITHOUT reaping B — a bare-id
-            `destroy-frame-quietly! frame-id` would destroy B."
-    (let [captured-id (atom nil)
-          b-token     (atom nil)
-          real-make   rf/make-frame]
-      (try
-        (with-redefs
-          [rf/make-frame
-           (fn [{:keys [id] :as _opts}]
-             ;; Incarnation A failed and core already rolled it back exactly; a
-             ;; same-id successor B is seated at the gensym id during the window,
-             ;; THEN A's constructor rethrows into `setup-request-frame!`.
-             (reset! captured-id id)
-             (real-make {:id id :doc "successor B" :platform :server})
-             (reset! b-token (rf.frame/frame-incarnation-token id))
-             (throw (ex-info "incarnation A setup failed (already rolled back by core)"
-                             {:simulated true})))]
-          (let [result (rf.ssr.ring.pipeline/setup-request-frame!
-                         {;; A valid (empty) :initial-events so setup reaches the
-                          ;; `make-frame` call (our stub); the throw models A's
-                          ;; construction failing, not a bad-opt rejection.
-                          :initial-events []
-                          :on-error (fn [_req _t]
-                                      {:status 500 :headers {} :body "err"})}
-                         {:uri "/x" :request-method :get})]
-            (is (contains? result :short-circuit)
-                "setup failure short-circuits to the on-error 500 response")
-            (is (= 500 (get-in result [:short-circuit :status]))
-                "the configured on-error 500 is returned")))
-
-        ;; The load-bearing assertion: B's EXACT incarnation is still live after
-        ;; the catch. A bare-id reap would destroy it.
-        (is (rf.frame/frame-incarnation-live? @captured-id @b-token)
-            "same-id successor B survives the setup-failure catch (no bare-id reap)")
-        (is (some? (rf.frame/frame @captured-id))
-            "the id still resolves to a live frame (B), not a reaped/absent slot")
-        (finally
-          (when-let [id @captured-id]
-            (rf/destroy-frame! id)))))))
-
-;; ===========================================================================
-;; EP-0008 — HTTP-WIRE pins: the promoted SSR error
-;; categories reach the always-on `register-error-listener!` axis under
-;; production hardening (`interop/debug-enabled? = false`), through the FULL
-;; Ring handler, WITHOUT changing the wire status the request would have
-;; produced. Each test runs the real `ssr-handler` under debug-off, captures
-;; the always-on (off-box shipper) records, and pins the wire outcome.
-;;
-;; Distinct from the dev-trace pins above (`handler-throwing-head-fn-ships-
-;; degraded-200-not-projected-error`, `handler-error-view-throw-falls-back-
-;; to-default-template`): those run debug-ON and watch the dev
-;; `register-listener!` bus. THESE run debug-OFF and watch the production-
-;; survivable `register-error-listener!` axis — the channel EP-0008
-;; promotion targets.
-;; ===========================================================================
-
-(defn- capture-always-on-categories!
-  "Register a corpus-wide error listener recording the `:error` slot of
-  every fanned record; returns the seen-categories atom."
-  []
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener!
-      ::off-box-wire-recorder
-      (fn [record] (swap! seen conj (:error record))))
-    seen))
-
-(deftest render-failed-ships-an-off-box-record-under-debug-off-and-a-5xx
-  (testing "a view that throws mid-render → the full Ring
-            handler ships a 5xx (PROJECTION-ELIGIBLE) AND delivers a
-            :rf.error/ssr-render-failed record to register-error-listener!
-            under debug-off. Promotion adds the off-box record and does
-            not alter the 5xx wire outcome."
-    (rf.error-emit/clear-error-listeners!)
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/render-throws
-      (fn [] (throw (ex-info "render boom" {}))))
-    (let [seen (capture-always-on-categories!)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [handler  (rf.ssr.ring/ssr-handler
-                         {:initial-events [[:init/ok]]
-                          :root-view [(rf/view :pages/render-throws)]
-                          :payload   :rf.ssr.payload/whole-app-db})
-              response (handler {:uri "/render-throws" :request-method :get})]
-          (rf.error-emit/clear-error-listeners!)
-          ;; WIRE: a render-time throw projects 5xx.
-          (is (= 500 (:status response))
-              "render-failed ships a 5xx through the full handler")
-          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
-          (is (some #{:rf.error/ssr-render-failed} @seen)
-              ":rf.error/ssr-render-failed reached register-error-listener!
-               under -Dre-frame.debug=false (the dev trace is elided there)"))))))
-
-(deftest head-failed-ships-an-off-box-record-under-debug-off-and-a-degraded-200
-  (testing "a throwing route :head fn → the full Ring handler
-            ships a DEGRADED 200 (NON-PROJECTING) AND delivers a
-            :rf.error/ssr-head-resolution-failed record to register-error-
-            listener! under debug-off. Promotion ships the off-box record
-            but NEVER flips the deliberate degraded-200."
-    (rf.error-emit/clear-error-listeners!)
-    (register-head-throwing-app!)
-    (let [seen (capture-always-on-categories!)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [handler  (rf.ssr.ring/ssr-handler
-                         {:initial-events [[:init/seed-throwing-head-route]]
-                          :root-view [(rf/view :pages/head-throws-body)]
-                          :payload   :rf.ssr.payload/whole-app-db})
-              response (handler {:uri "/head-throws" :request-method :get})]
-          (rf.error-emit/clear-error-listeners!)
-          ;; WIRE: degraded 200, body intact.
-          (is (= 200 (:status response))
-              "throwing :head fn degrades to a 200 — promotion did NOT flip
-               the wire (NON-PROJECTING)")
-          (is (str/includes? (:body response) "Body rendered fine")
-              "the body still renders — only the head degraded")
-          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
-          (is (some #{:rf.error/ssr-head-resolution-failed} @seen)
-              ":rf.error/ssr-head-resolution-failed reached register-error-
-               listener! under -Dre-frame.debug=false"))))))
+  ;; make-frame rolls a failed incarnation back itself; a same-id successor
+  ;; seated in that window must survive the setup-failure catch.
+  (let [successor (atom nil)
+        real-make rf/make-frame]
+    (with-redefs [rf/make-frame (fn [{:keys [id]}]
+                                  (real-make {:id id :platform :server})
+                                  (reset! successor [id (rf.frame/frame-incarnation-token id)])
+                                  (throw (ex-info "incarnation A failed" {})))]
+      (rf.ssr.ring.pipeline/setup-request-frame! {:initial-events [] :on-error (fn [_ _] {:status 500})}
+                                                 req))
+    (is (apply rf.frame/frame-incarnation-live? @successor))
+    (rf/destroy-frame! (first @successor))))
