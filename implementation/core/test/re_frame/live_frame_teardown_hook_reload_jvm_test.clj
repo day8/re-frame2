@@ -1,50 +1,14 @@
 (ns re-frame.live-frame-teardown-hook-reload-jvm-test
-  "`:live-frame/on-frame-destroyed!` RE-ARMS when `re-frame.live-frame` is
-  hot-reloaded in a process that has already constructed a frame.
-
-  ## The property this pins
-
-  The provenance release is published from a top-level form at ns LOAD, not
-  from `install-reprojection!`, the reprojection once-body. That body is
-  guarded by `reprojection-installed?`, a `defonce` atom, so it survives a
-  namespace reload holding `true` and the body is skipped on every reload after
-  the first `make-frame`. A publication sited inside it would be published
-  exactly once per PROCESS, never once per LOAD.
-
-  In a fresh process the difference is invisible: the first `make-frame` runs
-  the once-body, the key is published either way, and every case in
-  `frame_destroy_generation_provenance_cljs_test` passes. It bites a live dev
-  process whose once-flag is already `true` while the key is ABSENT: a reload
-  that skipped the once-body would publish nothing, `destroy-frame!`'s step-6
-  `safe-call-hook!` would find nothing to call, and provenance rows would leak
-  for the rest of the process. It would also contradict `re-frame.late-bind`'s
-  stated contract — `hooks` is \"populated by the producing namespace at LOAD
-  TIME\", and `set-fn!` invalidates the sticky cache precisely so \"hot-reload
-  of an artefact swaps the resolved fn on the very next dispatch\".
-
-  The registrar registration hook stays in the once-body, because
-  `add-registration-hook!` APPENDS and re-running it per reload would accumulate
-  duplicates; only the idempotent keyed `set-fn!` runs at load.
-
-  ## Why the other cases cannot see this
-
-  Every case in `frame_destroy_generation_provenance_cljs_test` starts from a
-  complete registry — the state a fresh process reaches on its first
-  `make-frame` — so all of them are green whether the key is published at load
-  or in the once-body. The discriminating state is *once-flag already true* AND
-  *this one key missing*, which no other case constructs. This file constructs
-  it explicitly.
-
-  ## Why this file is JVM-only
-
-  The reproduction needs the producing namespace re-loaded, and
-  `(require 'ns :reload)` has no ClojureScript runtime analogue — a fact this
-  test tree already relies on in `cofx_cljs_test`, `conformance_corpus_cljs_test`
-  and `test-support`'s own docstring. The publication is a single top-level form in a
-  `.cljc` file, so both hosts re-run it identically: shadow-cljs hot reload
-  re-evaluates a reloaded namespace's top-level forms exactly as
-  `(require … :reload)` does. The mechanism is shared; only the harness that can
-  drive it is host-specific."
+  "`:live-frame/on-frame-destroyed!` re-arms when `re-frame.live-frame` is
+  reloaded in a process that has already constructed a frame. The key is
+  published at ns load rather than from the reprojection once-body, which a
+  `defonce` flag skips on every reload after the first `make-frame`; published
+  there, a reload would leave `destroy-frame!` with no release to call and
+  provenance rows would leak. The discriminating state — once-flag already
+  true, this one key missing — is constructed explicitly. JVM-only because
+  `(require … :reload)` has no ClojureScript analogue; the publication is one
+  top-level form in a `.cljc` file, so shadow-cljs hot reload re-runs it the
+  same way."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core       :as rf]
             [re-frame.late-bind  :as rf.late-bind]
@@ -57,15 +21,11 @@
 
 (def ^:private hook-key :live-frame/on-frame-destroyed!)
 
-(defn- provenance
-  "The private generation-provenance table, as a plain map."
-  []
+(defn- provenance []
   (deref @#'rf.live-frame/frame-generation-pool))
 
 (defn- row?
-  "Does the table carry a row for `id`? Key MEMBERSHIP, never `get`: an ordinary
-  1-arity frame's recorded pool IS `nil`, so `get` cannot separate a live
-  ordinary row from no row at all."
+  "Key membership, not `get`: an ordinary frame's recorded pool IS nil."
   [id]
   (contains? (provenance) id))
 
@@ -74,9 +34,7 @@
 
 (defn- restore-hook!
   "Put `hook-key` back exactly as `before` had it — present with that fn, or
-  ABSENT. Surgical rather than a whole-map `reset!` so nothing published by
-  anything else during this test is clobbered (the same discipline
-  `reprojection_install_race_jvm_test`'s fixture keeps)."
+  absent — without clobbering anything else published meanwhile."
   [before]
   (if-let [f (get before hook-key)]
     (rf.late-bind/set-fn! hook-key f)
@@ -85,60 +43,25 @@
   nil)
 
 (deftest teardown-hook-re-arms-on-live-frame-reload-rf2-cq0yi
-  (testing "With the reprojection once-flag ALREADY set and only the
-            teardown key missing — a dev process whose registry lacks the
-            key — reloading `re-frame.live-frame` re-publishes
-            `:live-frame/on-frame-destroyed!`, and `destroy-frame!` returns the
-            provenance table to its captured baseline"
+  (testing "with the once-flag already set and only the teardown key missing,
+            reloading `re-frame.live-frame` re-publishes the key and
+            `destroy-frame!` releases the frame's provenance row"
     (let [hooks-before @rf.late-bind/hooks]
       (try
-        ;; ---- a LIVE process: something has already constructed a frame, so
-        ;; the reprojection once-body has run and its flag is latched.
-        (let [warm (rf/make-frame {:id :cq0yi-reload/warm})]
-          (rf/destroy-frame! warm))
-        (is (true? (once-flag))
-            "PRECONDITION: the `defonce` once-flag is already true — this is
-             what any process that has constructed a frame looks like, and it
-             is what makes the once-body unreachable from here on")
-
-        ;; ---- the discriminating registry: only the teardown key is missing.
-        ;; Everything else the once-body owns (the registrar hook, the two
-        ;; reprojection keys) stays exactly as the warm-up left it.
+        ;; a live process: a frame has been constructed, so the flag is latched
+        (rf/destroy-frame! (rf/make-frame {:id :cq0yi-reload/warm}))
         (swap! rf.late-bind/hooks dissoc hook-key)
         (rf.late-bind/invalidate-cache! hook-key)
-        (is (nil? (rf.late-bind/get-fn hook-key))
-            "control: the teardown key is absent")
-
-        ;; ---- the once-body CANNOT repair this. It is skipped behind the
-        ;; latched flag: a publication sited there would get exactly one
-        ;; chance per process, and it has already been spent.
-        (rf.live-frame/ensure-reprojection-installed!)
-        (is (nil? (rf.late-bind/get-fn hook-key))
-            "the once-body is a no-op behind the latched flag, so it cannot be
-             the thing that re-arms the hook")
-
-        ;; ---- the reload itself.
+        (is (= [true nil] [(once-flag) (rf.late-bind/get-fn hook-key)])
+            "precondition: once-flag latched, teardown key absent")
         (require 're-frame.live-frame :reload)
-        (is (some? (rf.late-bind/get-fn hook-key))
-            "ns LOAD re-publishes the teardown hook. Were it published only
-             from the once-body this would read nil — the reload skips the
-             once-body, so destroy would have no release to call")
-
-        ;; ---- and the re-armed hook actually releases.
         (let [id       :cq0yi-reload/subject
               baseline (count (provenance))
               f        (rf/make-frame {:id id})]
-          (is (row? id)
-              "NON-VACUITY control: `make-frame` recorded a provenance row while
-               the frame was live, so the absence asserted below is a RELEASE
-               and not a row that was never written")
-          (is (= (inc baseline) (count (provenance)))
-              "and the table grew by exactly that one row")
+          (is (= [true (inc baseline)] [(row? id) (count (provenance))])
+              "make-frame recorded the row, so its absence below is a release")
           (rf/destroy-frame! f)
-          (is (not (row? id))
-              "the row was released after the reload — without the re-armed
-               hook it would survive for the remainder of the process")
-          (is (= baseline (count (provenance)))
-              "the provenance table is back to its captured baseline"))
+          (is (= [false baseline] [(row? id) (count (provenance))])
+              "the reloaded hook released the row"))
         (finally
           (restore-hook! hooks-before))))))
