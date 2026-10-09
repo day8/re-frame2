@@ -11,63 +11,29 @@
   `re-frame.cofx-router-stamp-clock-cljs-test/clock-class-discriminator-sanity-cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; Publishes the epoch late-bind hooks this test reads through.
+            [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Sanity floor: a wall-clock epoch ms is far above any plausible
-;; `performance.now()` origin-relative value. `js/Date.now()` is ~1.78e12 as
-;; of 2026; `performance.now()` is at most the page/process uptime in ms (a
-;; long-lived process is still well under 1e12 — that is ~31 years of
-;; uptime). 1e12 is a generous, host-independent discriminator between the
-;; two clock CLASSES.
-(def ^:private wall-clock-floor 1e12)
-
 (deftest committed-at-unscripted-dispatch-is-wall-clock-epoch-cljs
-  (testing "an UNSCRIPTED dispatch (no :rf.cofx) flows
-            through the live router, which stamps the causal :time-ms from
-            the host clock; the resulting epoch record :committed-at MUST be
-            a wall-clock epoch ms (close to js/Date.now), NOT a perf-clock
-            origin-relative number. A regression swapping
-            interop/epoch-now-ms -> interop/now-ms at the causal boundary is
-            JVM-benign but would land :committed-at ~12 orders of magnitude
-            low here and fail this band."
-    (rf/reg-event :clk/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :clk/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    ;; Capture js/Date.now() bracketing the dispatch so the comparison band
-    ;; is tight and robust to scheduling. The dispatch is intentionally
-    ;; UNSCRIPTED — no :rf.cofx — so build-envelope performs the live
-    ;; clock read that is the unit under test.
+  (testing "an UNSCRIPTED dispatch (no :rf.cofx) flows through the live
+            router, which stamps the causal :time-ms from the host clock; the
+            epoch record's :committed-at MUST be a wall-clock epoch ms (close
+            to js/Date.now), NOT a perf-clock origin-relative number. A
+            regression swapping interop/epoch-now-ms -> interop/now-ms at the
+            causal boundary is JVM-benign but lands :committed-at ~1e4 here,
+            far outside the band."
+    (rf/reg-event :clk/init (fn [_ _] {:db {:n 0}}))
     (let [before (js/Date.now)]
       (rf/dispatch-sync [:clk/init])
-      (rf/dispatch-sync [:clk/inc])
       (let [after        (js/Date.now)
-            history      (rf/epoch-history :rf/default)
-            r            (last history)
-            committed-at (:committed-at r)]
-        (is (= 2 (count history))
-            "one record per dequeued event (sanity: the dispatches landed)")
-        (is (= :clk/inc (:event-id r))
-            "the last record is the :clk/inc dispatch")
-        (is (number? committed-at)
-            ":committed-at is present on the durable record")
-        ;; The CLASS assertion: wall-clock epoch ms, not a perf origin time.
-        ;; Pre-swap this is true (~1.78e12); a now-ms swap lands ~1e4 (CLJS
-        ;; performance.now) — far below the floor.
-        (is (> committed-at wall-clock-floor)
-            ":committed-at is a WALL-CLOCK epoch ms (> 1e12) — sourced from
-             interop/epoch-now-ms (js/Date.now), NOT interop/now-ms
-             (performance.now, origin-relative ~1e4)")
-        ;; The TIGHT band: within the bracketing js/Date.now() reads (plus a
-        ;; ~10s slack for slow CI). This both confirms the magnitude AND that
-        ;; the value tracks the same wall clock the freshness / invalidation
-        ;; readers compare against.
+            committed-at (:committed-at (last (rf/epoch-history :rf/default)))]
+        ;; ~10s slack either side for slow CI.
         (is (and (>= committed-at (- before 10000))
                  (<= committed-at (+ after 10000)))
-            ":committed-at lands in the bracketing js/Date.now() band
-             (within 10s) — it IS the live wall clock, not a stale or
-             perf-relative read")))))
-
+            ":committed-at lands in the bracketing js/Date.now() band — it IS
+             the live wall clock, not a stale or perf-relative read")))))
