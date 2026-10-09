@@ -320,6 +320,25 @@
         (finally
           (rf.late-bind/set-fn! hook-key original))))))
 
+(deftest perform-restore!-does-not-quiesce-on-failed-install
+  (testing "a restore that writes nothing cancels none of the frame's host work"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (let [k      :machines/on-frame-restored!
+          orig   (rf.late-bind/get-fn k)
+          fired? (atom false)]
+      (try
+        (rf.late-bind/set-fn! k (fn [_frame-id] (reset! fired? true)))
+        (rf/dispatch-sync [:step] {:frame :test/main})
+        (let [record (last (rf/epoch-history :test/main))
+              token  (rf.frame/frame-incarnation-token :test/main)]
+          (rf/destroy-frame! :test/main)
+          (is (= [false false]
+                 [(rf.epoch.tool-pair/perform-restore! :test/main token record)
+                  @fired?])))
+        (finally
+          (rf.late-bind/set-fn! k orig))))))
+
 (deftest restore-releases-armed-machine-after-timer-end-to-end
   (testing "restore must not revive host work (EP-0011): a machine :after timer
             armed by an unwound epoch is released, through the real machines hook"
