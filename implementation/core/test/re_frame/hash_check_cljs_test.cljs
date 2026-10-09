@@ -1,35 +1,21 @@
 (ns re-frame.hash-check-cljs-test
-  "JVM ↔ CLJS canonical-edn / render-tree-hash parity smoke. The fixture
-  uses re-frame.test-support/make-reset-runtime-fixture for symmetry with
-  the rest of the CLJS suite — even though this test only
-  reads pure ssr fns, fixture uniformity makes it harder to accidentally
-  introduce registrar pollution if the test grows."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.ssr :as rf.ssr]
-            [re-frame.test-support :as rf.test-support]))
-
-(use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
+  "CLJS `render-tree-hash` and `fnv-1a-32` reproduce the JVM-computed values
+  for the same input, so a server-rendered hash and a client-rendered hash
+  agree."
+  (:require [cljs.test :refer-macros [deftest is]]
+            [re-frame.ssr :as rf.ssr]))
 
 (deftest jvm-cljs-hash-parity
   (let [tree      [:div {:class "x"} [:p "hi"]]
         canonical (#'rf.ssr/canonical-edn tree)
         h         (rf.ssr/render-tree-hash tree)]
-    ;; Silent-on-success: canonical-edn + hash ride the `is` message
-    ;; so they only appear on failure.
     (is (= "9d7457ef" h)
         (str "CLJS hash should equal the JVM hash for the same render tree"
              "  canonical=" (pr-str canonical) "  hash=" h))))
 
 (deftest jvm-cljs-hash-parity-non-ascii
-  ;; fnv-1a-32 hashes the UTF-8 byte sequence on
-  ;; BOTH sides (JVM via String.getBytes(UTF_8); CLJS via TextEncoder).
-  ;; UTF-8 is byte-deterministic so both sides MUST agree on non-ASCII
-  ;; content. The expected value below is the JVM-computed hash for the
-  ;; canonical-EDN of the tree containing 'café'; CLJS must reproduce it
-  ;; byte-for-byte. Without this pin a change that flipped
-  ;; one side to UTF-16 code units would only fail on multi-byte
-  ;; codepoints — silently shipping a hash mismatch in production for
-  ;; non-English content.
+  ;; Both sides hash UTF-8 bytes; hashing UTF-16 code units instead would
+  ;; diverge only on multi-byte content.
   (let [h (#'rf.ssr/fnv-1a-32 "café")]
     (is (= "a82b5049" h)
         (str "CLJS UTF-8 byte hash of 'café' must equal JVM UTF-8 byte hash"
