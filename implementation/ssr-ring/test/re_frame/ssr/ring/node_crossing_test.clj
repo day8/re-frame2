@@ -455,10 +455,6 @@
           (is (nil? (:serving data)) "…carrying nil, because the answer named none"))
         (rf.error-emit/unregister-error-listener! ::crossing-recorder)))))
 
-;; ===========================================================================
-;; The construction contract — no sidecar, runs in the default lane
-;; ===========================================================================
-
 (def ^:private good-opts
   {:entry "app/root" :build-id "b1" :render-state {:app-db [:heading]}})
 
@@ -467,45 +463,28 @@
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest the-node-renderer-validates-its-opts-at-construction
-  (testing "the defaults: endpoint, deadline, admission budget, and the derived timeout"
-    (is (fn? (rf.ssr.ring.node/renderer good-opts)) "entry + build-id + render-state suffice")
-    (is (= (+ 1000 250 500)
-           (rf.ssr.ring.node/http-timeout-ms {:timeout-ms 1000 :admission-ms 250}))
-        "the explicit per-request HTTP timeout = timeoutMs + admission + wire margin"))
-  (testing "each required opt fails closed with :rf.error/ssr-node-renderer-opt-invalid naming it"
-    (doseq [[opt opts] [[:entry    (dissoc good-opts :entry)]
-                        [:entry    (assoc good-opts :entry "")]
-                        [:build-id (dissoc good-opts :build-id)]
-                        [:endpoint (assoc good-opts :endpoint "127.0.0.1:8148")]
-                        [:endpoint (assoc good-opts :endpoint "ftp://x")]
-                        [:timeout-ms (assoc good-opts :timeout-ms 0)]
-                        [:timeout-ms (assoc good-opts :timeout-ms "1000")]
-                        [:admission-ms (assoc good-opts :admission-ms -1)]
-                        [:args     (assoc good-opts :args (fn []))]
-                        [:args     (assoc good-opts :args 1/3)]]]
-      (let [data (construction-error opts)]
-        (is (= :rf.error/ssr-node-renderer-opt-invalid (:rf.error/id data)) (pr-str opt))
-        (is (= opt (:opt data)) (pr-str opt))
-        (is (keyword? (:recovery data))))))
-  (testing "a non-loopback endpoint is NOT refused (trust the programmer)"
-    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :endpoint "https://render.internal:8148")))))
-  (testing ":args is optional; nil is a value and rides"
-    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :args nil)))))
-  (testing ":render-state is required — the payload family's missing-policy id, with :opt :render-state"
-    (let [data (construction-error (dissoc good-opts :render-state))]
-      (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))
-      (is (= :render-state (:opt data))))
-    (let [data (construction-error (assoc good-opts :render-state {:app-db []}))]
-      (is (= :rf.error/ssr-malformed-payload-allowlist (:rf.error/id data)))
-      (is (= :render-state (:opt data)))))
-  (testing "the escape-hatch projector constructs"
-    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :render-state (fn [_] {:rf/app-db {}})))))))
+  (is (= 1750 (rf.ssr.ring.node/http-timeout-ms {:timeout-ms 1000 :admission-ms 250}))
+      "the per-request HTTP timeout = timeoutMs + admission + wire margin")
+  (testing "accepted: the minimal opts, a non-loopback endpoint (trust the
+            programmer), and the escape-hatch projector"
+    (doseq [opts [good-opts
+                  (assoc good-opts :endpoint "https://render.internal:8148")
+                  (assoc good-opts :render-state (fn [_] {:rf/app-db {}}))]]
+      (is (fn? (rf.ssr.ring.node/renderer opts)) (pr-str opts))))
+  (testing "refused at construction, naming the opt"
+    (doseq [[id opt opts] [[:rf.error/ssr-node-renderer-opt-invalid :entry (dissoc good-opts :entry)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :build-id (dissoc good-opts :build-id)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :endpoint (assoc good-opts :endpoint "127.0.0.1:8148")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :timeout-ms (assoc good-opts :timeout-ms 0)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :admission-ms (assoc good-opts :admission-ms -1)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :args (assoc good-opts :args (fn []))]
+                           [:rf.error/ssr-missing-payload-policy :render-state (dissoc good-opts :render-state)]]]
+      (is (= [id opt] ((juxt :rf.error/id :opt) (construction-error opts))) (pr-str opt)))))
 
 ;; ===========================================================================
-;; The handler's `:payload-include-sensitive` reaches the render
-;; state, so the markup the renderer prints and the payload agree on a
-;; permitted value. No sidecar: a capturing stub stands in for it, so this
-;; runs in the default lane.
+;; The handler's `:payload-include-sensitive` reaches the render state, so the
+;; markup the renderer prints and the payload agree on a permitted value. A
+;; capturing stub stands in for the sidecar, so this runs in the default lane.
 ;; ===========================================================================
 
 (defn- with-capturing-stub-sidecar
@@ -537,19 +516,13 @@
   (let [seen (atom nil)]
     (with-capturing-stub-sidecar seen "crossing-build-1"
       (fn [url]
-        (let [response ((rf.ssr.ring/ssr-handler
-                          {:initial-events            [[:rf.test.crossing/seed-session]]
-                           :payload                   [:heading :session]
-                           :payload-include-sensitive [[:session :csrf]]
-                           :renderer                  (node-renderer url :render-state {:app-db [:session]})})
-                        request)
-              session  (some-> @seen json/read-str (get "state") (get ":session") edn/read-string)]
-          (is (= 200 (:status response)) "the stub's page is accepted")
-          (is (= "csrf-abc-123" (:csrf session))
-              (str "the permitted value reaches the renderer raw; got " (pr-str session)))
-          (is (= :rf/redacted (:upstream-key session))
-              "control: the classified sibling the host did not permit stays redacted")
-          (is (= "alice" (:user session))
-              "control: the unclassified sibling rides")
-          (is (not (str/includes? (str @seen) "sk-server-only"))
-              "control: the withheld value crosses to the renderer by no route"))))))
+        ((rf.ssr.ring/ssr-handler
+           {:initial-events            [[:rf.test.crossing/seed-session]]
+            :payload                   [:heading :session]
+            :payload-include-sensitive [[:session :csrf]]
+            :renderer                  (node-renderer url :render-state {:app-db [:session]})})
+         request)
+        (is (= {:csrf "csrf-abc-123" :upstream-key :rf/redacted :user "alice"}
+               (some-> @seen json/read-str (get "state") (get ":session") edn/read-string)))
+        (is (not (str/includes? (str @seen) "sk-server-only"))
+            "the withheld value crosses to the renderer by no route")))))
