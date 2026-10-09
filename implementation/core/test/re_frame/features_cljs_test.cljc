@@ -1,30 +1,14 @@
 (ns re-frame.features-cljs-test
-  "Coverage for the feature-inspection front-porch — ONE door:
-
-    (rf/features)   — every optional feature + its coordinate data and
-                      live :loaded? status. The boolean is a lookup:
-                      (get-in (rf/features) [:epoch :loaded?]); an
-                      UNKNOWN feature keyword is ABSENT from the map and
-                      so reads nil, not false.
-
-  The in-tree test build loads all seven per-feature artefacts (see
-  implementation/core/deps.edn `:test` extra-deps), so every probe key is
-  populated at test time. We simulate an ABSENT feature by flipping its
-  representative late-bind probe key to nil in a try/finally — the same
-  technique re-frame.interop-late-bind-cljs-test uses.
-
-  Named `*-cljs-test` so the shadow-cljs `:node-test` build (ns-regexp
-  `cljs-test$`) discovers it; the `-test` suffix also satisfies the JVM
-  cognitect test-runner, so this one `.cljc` file runs on both runtimes."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  "`(rf/features)` — every optional feature with its coordinate data and live
+  `:loaded?` status. The in-tree test build loads every per-feature artefact,
+  so an absent feature is simulated by setting its late-bind probe key to nil."
+  (:require #?(:clj  [clojure.test :refer [deftest is]]
+               :cljs [cljs.test :refer-macros [deftest is]])
             [re-frame.features :as rf.features]
             [re-frame.late-bind :as rf.late-bind]))
 
 (defn- with-probe-absent
-  "Run `f` with `feature`'s representative late-bind probe key
-  temporarily set to nil (simulating an artefact that was never
-  required). Restores the original value afterwards (success or throw)."
+  "Run `f` with `feature`'s late-bind probe key set to nil, restoring it after."
   [feature f]
   (let [probe-key (get-in rf.features/feature-registry [feature :probe-key])
         original  (rf.late-bind/get-fn probe-key)]
@@ -34,40 +18,23 @@
       (finally
         (rf.late-bind/set-fn! probe-key original)))))
 
-;; ---- features — the one inventory door ------------------------------------
-
 (deftest features-lists-every-optional-feature-with-status
-  (testing "features returns one entry per registry feature, carrying the
-            static coordinate data + live :loaded? status"
-    (let [m (rf.features/features)]
-      (is (= (set (keys rf.features/feature-registry)) (set (keys m)))
-          "exactly the registry's feature keys")
-      (doseq [[feature entry] m]
-        (is (= #{:maven :require :spec :loaded?} (set (keys entry)))
-            (str feature " entry shape — coordinate data + :loaded?, no :probe-key leak"))
-        (is (string? (:maven entry)))
-        (is (string? (:require entry)))
-        (is (boolean? (:loaded? entry))))
-      (is (= "day8/re-frame2-epoch" (get-in m [:epoch :maven])))
-      (is (= "re-frame.epoch" (get-in m [:epoch :require]))))))
-
-(deftest features-loaded-arm
-  (testing "every per-feature artefact is loaded in the in-tree test build,
-            read through the map lookup"
-    (let [m (rf.features/features)]
-      (doseq [feature (keys rf.features/feature-registry)]
-        (is (true? (get-in m [feature :loaded?]))
-            (str feature " probe key should be populated in the test build"))))))
+  (let [m (rf.features/features)]
+    (is (= (set (keys rf.features/feature-registry)) (set (keys m))))
+    (doseq [[feature entry] m]
+      (is (= #{:maven :require :spec :loaded?} (set (keys entry)))
+          (str feature " entry shape: coordinate data + :loaded?, no :probe-key leak"))
+      (is (true? (:loaded? entry))
+          (str feature " probe key should be populated in the test build")))
+    (is (= {:maven "day8/re-frame2-epoch" :require "re-frame.epoch"}
+           (select-keys (:epoch m) [:maven :require])))))
 
 (deftest features-not-loaded-arm
-  (testing "flipping a feature's probe key to nil reports it as not loaded,
-            and the flip is isolated to that feature"
-    (with-probe-absent :routing
-      (fn []
-        (let [m (rf.features/features)]
-          (is (false? (get-in m [:routing :loaded?]))
-              "routing reports :loaded? false while its probe is nil")
-          (is (= "day8/re-frame2-routing" (get-in m [:routing :maven]))
-              "coordinate is static — present regardless of :loaded? status")
-          (is (true? (get-in m [:schemas :loaded?]))
-              "the flip is isolated — other features stay loaded"))))))
+  (with-probe-absent :routing
+    (fn []
+      (let [m (rf.features/features)]
+        (is (false? (get-in m [:routing :loaded?])))
+        (is (= "day8/re-frame2-routing" (get-in m [:routing :maven]))
+            "the coordinate is present regardless of :loaded?")
+        (is (true? (get-in m [:schemas :loaded?]))
+            "the flip is isolated to the one feature")))))
