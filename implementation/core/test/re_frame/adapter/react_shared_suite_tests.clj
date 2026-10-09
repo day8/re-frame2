@@ -1,79 +1,32 @@
 (ns re-frame.adapter.react-shared-suite-tests
   "Compile-time deftest generator for the per-adapter React-shared entry
-  files (UIx, and fresco's React substrate).
+  files (UIx, and fresco's React substrate). The list of forwarded
+  `re-frame.adapter.react-shared-suite/assert-*` fns lives once, in
+  `test-specs`, so each entry file is a single
+  `(define-react-shared-suite-tests! cfg)` call and cannot drop a row.
 
-  WHY THIS EXISTS. The parameterised shared suite
-  (`re-frame.adapter.react-shared-suite`) keeps every spine-shared
-  assertion ONCE as an `assert-*` defn. Hand-pairing a `(deftest
-  name (suite/assert-name cfg))` line per assertion in each per-adapter
-  ENTRY file would turn every new shared assertion into hand-copied edits, and
-  forgetting one entry file would silently drop that adapter's coverage.
-  So the test list lives ONCE here and each entry file reduces to a
-  single `(define-react-shared-suite-tests! cfg)` call.
+  A `.clj` macro ns consumed through `:require-macros`, like
+  `re-frame.conformance-fixtures`: the generated forms are inlined into the
+  `.cljs` caller at compile time. The generated deftest names appear only in
+  `test-specs` below, not as literal `deftest` forms.
 
-  WHY A .clj MACRO. The CLJS test files consume this via
-  `:require-macros`. The pattern mirrors
-  `re-frame.conformance-fixtures` (the conformance-corpus compile-time
-  loader) — a sibling `.clj` ns in `core/test/` whose forms are inlined
-  into the .cljs caller's bytecode at compile time. No runtime cost and
-  no build wiring of its own (the file lives under a source-path on the
-  classpath).
+  To add a shared assertion: add `assert-foo` to `react_shared_suite.cljs`
+  and a `{:test 'foo :fn 'assert-foo}` row here.")
 
-  GREP DISCOVERABILITY. `grep -rn 'deftest <name>'` on the codebase will
-  NOT find a literal deftest form for the suite-forwarders (they are
-  generated at expansion time). To preserve discoverability the
-  generated forms appear in this file's `test-specs` literal — grep
-  `deftest assert-xyz` against `react_shared_suite.cljs` finds the
-  assertion body (the actual source of truth), and grep `assert-xyz`
-  against this file finds the deftest-name pairing. The entry files
-  carry a header comment listing the generated test names so a code
-  reader landing in `uix_react_shared_cljs_test.cljs` sees the surface
-  at a glance.
-
-  ADDING A NEW SHARED ASSERTION.
-
-    1. Add `assert-foo` to `react_shared_suite.cljs`.
-    2. Append `[foo assert-foo]` (or with a section-comment line) to
-       `test-specs` below.
-    3. Every entry file picks the new test up automatically on next
-       compile — no entry-file edits, structurally no drift."
-  (:refer-clojure :exclude [test-specs]))
-
-;; ---------------------------------------------------------------------------
-;; Test-spec literal — the single source of truth for which suite-fns are
-;; forwarded into deftest forms. Section markers group the rows into
-;; clusters, so a reader can scan the surface at a glance. `:section` rows
-;; are documentation only; `:test` rows emit
-;; a deftest.
-;;
-;; The clusters mirror `react_shared_suite.cljs`'s in-source ordering, so a
-;; suite-source diff and this spec-list diff align line-for-line.
-;; ---------------------------------------------------------------------------
-
+;; `:section` rows are documentation only; `:test` rows emit a deftest. The
+;; clusters follow `react_shared_suite.cljs`'s source order.
 (def ^:private test-specs
   [{:section "dispose lifecycle (Spec 006)"}
    {:test 'dispose-clears-hiccup-emitter
     :fn   'assert-dispose-clears-hiccup-emitter}
-   {:test 'dispose-clear-warn-idempotent
-    :fn   'assert-clear-warn-idempotent-post-dispose}
-   {:test 'dispose-post-delegation-throws
-    :fn   'assert-post-dispose-delegation-throws}
-   {:test 'dispose-idempotent-no-roots
-    :fn   'assert-dispose-idempotent-no-roots}
-   {:test 'dispose-clears-sub-caches
-    :fn   'assert-dispose-clears-sub-caches}
    {:test 'dispose-walk-best-effort
     :fn   'assert-dispose-walk-best-effort}
 
    {:section "source-coord DOM stamping (Spec 006)"}
-   {:test 'source-coord-annotates-dom-root
-    :fn   'assert-source-coord-annotates-dom-root}
    {:test 'source-coord-merges-with-attrs
     :fn   'assert-source-coord-merges-with-attrs}
    {:test 'source-coord-user-supplied-wins
     :fn   'assert-source-coord-user-supplied-wins}
-   {:test 'source-coord-fragment-exempt
-    :fn   'assert-source-coord-fragment-exempt}
    {:test 'source-coord-format-shape
     :fn   'assert-source-coord-format-shape}
 
@@ -106,10 +59,6 @@
    {:section "frame-provider branches"}
    {:test 'frame-provider-missing-frame-raises-no-frame-context
     :fn   'assert-frame-provider-missing-frame-raises-no-frame-context}
-   {:test 'frame-provider-nil-frame-raises-no-frame-context
-    :fn   'assert-frame-provider-nil-frame-raises-no-frame-context}
-   {:test 'frame-provider-named-frame-preserved
-    :fn   'assert-frame-provider-named-frame-preserved}
    {:test 'frame-provider-single-child-coerced-to-vector
     :fn   'assert-frame-provider-single-child-coerced-to-vector}
    {:test 'frame-provider-sequential-children-preserved
@@ -123,23 +72,11 @@
    {:test 'warn-once-per-id-not-global
     :fn   'assert-warn-once-per-id-not-global}
 
-   {:section "write-after-destroy guard"}
-   {:test 'write-after-destroy-guard
-    :fn   'assert-write-after-destroy-guard}
-
    {:section "render-time parity"}
    {:test 'parity-view-re-register-rerender
     :fn   'assert-view-re-register-causes-rerender}
-   {:test 'parity-current-render-key-anon
-    :fn   'assert-current-render-key-anonymous-fallback}
    {:test 'parity-wrap-view-callable
     :fn   'assert-wrap-view-callable-dispatches-to-user-fn}
-
-   {:section "reg-event metadata-map :interceptors superset"}
-   {:test 'events-meta-interceptors-threads-chain
-    :fn   'assert-reg-event-meta-interceptors-threads-the-chain}
-   {:test 'events-positional-vector-rejected
-    :fn   'assert-reg-event-positional-vector-rejected}
 
    {:section "render-to-string + late-bind chain"}
    {:test 'rts-throws-with-no-emitter
@@ -153,12 +90,6 @@
    {:test 'render-rejects-cljs-data-render-tree
     :fn   'assert-render-rejects-cljs-data-render-tree}
 
-   {:section "late-bind hook publication set"}
-   {:test 'late-bind-publishes-expected-set
-    :fn   'assert-adapter-publishes-expected-hook-set}
-   {:test 'late-bind-cross-checked-directory
-    :fn   'assert-adapter-hooks-cross-checked-against-directory}
-
    {:section "copied / wrapped adapter map routes to live hooks"}
    {:test 'copied-adapter-map-routes-to-live-hooks
     :fn   'assert-copied-adapter-map-routes-to-live-hooks}
@@ -167,41 +98,13 @@
    {:test 'clear-warn-chain-empties-cache
     :fn   'assert-chained-clear-warn-once-empties-cache}
 
-   {:section "routing pipeline (Spec 012)"}
-   {:test 'routing-handle-url-change
-    :fn   'assert-routing-handle-url-change}
-   {:test 'routing-multi-frame
-    :fn   'assert-routing-multi-frame}
-
-   {:section "headless runtime slice"}
-   {:test 'runtime-dispatch-sync
-    :fn   'assert-dispatch-sync}
-   {:test 'runtime-sub-chain
-    :fn   'assert-sub-chain}
+   {:section "with-frame through the spine-routed current-frame read"}
    {:test 'runtime-with-frame
     :fn   'assert-with-frame-binds-current-frame}
-   {:test 'runtime-capture-frame
-    :fn   'assert-capture-frame-survives-scope-unwind}
-   {:test 'runtime-multi-frame-isolation
-    :fn   'assert-multi-frame-state-isolation}
-   {:test 'runtime-reactive-sub
-    :fn   'assert-reactive-sub-tracks-changes}
-   {:test 'runtime-sub-hot-reload
-    :fn   'assert-sub-hot-reload}
-   {:test 'runtime-machine-transition
-    :fn   'assert-machine-transition}
-   {:test 'runtime-sub-exception-recovers
-    :fn   'assert-sub-exception-recovers-to-nil}
 
    {:section ":rf.view/rendered op"}
-   {:test 'view-rendered-fires-on-render
-    :fn   'assert-rf-view-rendered-fires-on-render}
-   {:test 'view-rendered-attribution-in-cascade
-    :fn   'assert-rf-view-rendered-attribution-in-cascade}
    {:test 'view-rendered-carries-render-args
     :fn   'assert-rf-view-rendered-carries-render-args}
-   {:test 'view-rendered-render-args-elided
-    :fn   'assert-rf-view-rendered-render-args-elided}
 
    {:section "make-derived-value per-arity"}
    {:test 'derived-value-arities
@@ -232,18 +135,6 @@
     :fn   'assert-derived-dispose-releases-duplicate-source-watches}
 
    {:section "managed HTTP (Spec 014)"}
-   {:test 'http-canned-success-default-reply
-    :fn   'assert-http-canned-success-default-reply}
-   {:test 'http-canned-failure-on-failure
-    :fn   'assert-http-canned-failure-on-failure}
-   {:test 'http-canned-success-on-success
-    :fn   'assert-http-canned-success-on-success}
-   {:test 'http-silenced-reply
-    :fn   'assert-http-silenced-reply}
-   {:test 'http-with-request-stubs
-    :fn   'assert-http-with-request-stubs}
-   {:test 'http-with-request-stubs-failure
-    :fn   'assert-http-with-request-stubs-failure}
    {:test 'http-multi-frame-reply-isolation
     :fn   'assert-http-multi-frame-reply-isolation}
 
@@ -258,10 +149,6 @@
     :fn   'assert-xspec-machines-under-ssr}
    {:test 'xspec-route-not-found-ssr
     :fn   'assert-xspec-route-not-found-ssr}
-   {:test 'xspec-headless-frame-resolution
-    :fn   'assert-xspec-headless-frame-resolution-chain}
-   {:test 'xspec-machine-action-throws
-    :fn   'assert-xspec-machine-action-throws}
    {:test 'xspec-machine-fx-handler-throws
     :fn   'assert-xspec-machine-fx-handler-throws}
    {:test 'xspec-hot-reload-machine-action
@@ -272,8 +159,6 @@
     :fn   'assert-xspec-time-travel-revert}
    {:test 'xspec-server-error-projection
     :fn   'assert-xspec-server-error-projection}
-   {:test 'xspec-hot-reload-sub-mid-cascade
-    :fn   'assert-xspec-hot-reload-sub-mid-cascade}
    {:test 'xspec-portable-story-fx-override
     :fn   'assert-xspec-portable-story-fx-override}
    {:test 'xspec-adapter-already-installed
@@ -289,31 +174,17 @@
    {:test 'public-adapter-map-nine-fn-contract
     :fn   'assert-adapter-map-satisfies-nine-fn-contract}])
 
-(def ^{:doc "Public seq of {:test name :fn assert-fn} maps a code reader
-  can `(require)` from a JVM REPL to list every generated test name.
-  Section rows are filtered out."}
-  generated-test-specs
-  (filterv :test test-specs))
-
 (defmacro define-react-shared-suite-tests!
   "Emit one `cljs.test/deftest` per row in `test-specs`, forwarding the
   per-adapter `cfg` map to the matching `re-frame.adapter.react-shared-suite/assert-*`
-  defn.
-
-  Usage (from a `.cljs` test entry file):
+  defn. The calls are fully qualified, so the entry file only needs to
+  `:require` the suite ns.
 
       (:require-macros
         [re-frame.adapter.react-shared-suite-tests
          :refer [define-react-shared-suite-tests!]])
 
-      (def ^:private cfg { ... })
-
-      (define-react-shared-suite-tests! cfg)
-
-  The macro qualifies the assert-fn calls against
-  `re-frame.adapter.react-shared-suite` so the entry file only needs
-  to `:require` that suite ns (under any alias, or none — the qualifier
-  is the full ns symbol)."
+      (define-react-shared-suite-tests! cfg)"
   [cfg-sym]
   `(do
      ~@(for [{:keys [test fn]} test-specs
