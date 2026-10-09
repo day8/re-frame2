@@ -52,12 +52,14 @@
 
 (deftest wellformed-hydration-payload-still-installs
   ;; A server slice replaces app-db; a map with no slice keeps the client's
-  ;; app-db and stashes the version in runtime-db.
+  ;; app-db and stashes the version in runtime-db. The compatibility-check
+  ;; `:fx` are platform-dependent (client-only), so they are not compared.
   (let [existing-db {:client/seeded true :count 0}
-        hydrate     #(rf.ssr.hydrate/hydrate-event-handler
-                       {:db existing-db :rf.frame/id :rf/default}
-                       [:rf/hydrate %])]
-    (is (= {:db {:count 7 :title "seeded"} :fx []}
+        hydrate     #(dissoc (rf.ssr.hydrate/hydrate-event-handler
+                               {:db existing-db :rf.frame/id :rf/default}
+                               [:rf/hydrate %])
+                             :fx)]
+    (is (= {:db {:count 7 :title "seeded"}}
            (hydrate {:rf/app-db {:count 7 :title "seeded"}})))
-    (is (= {:db existing-db :fx [] :rf.db/runtime {:rf.runtime/ssr {:hydration {:version 1}}}}
+    (is (= {:db existing-db :rf.db/runtime {:rf.runtime/ssr {:hydration {:version 1}}}}
            (hydrate {:rf/version 1})))))
